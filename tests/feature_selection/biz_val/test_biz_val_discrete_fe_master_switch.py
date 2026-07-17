@@ -39,16 +39,14 @@ def test_master_switch_defaults_on():
 
 def test_master_on_emits_discrete_operator_feature():
     X, y = _gcd_frame()
-    sel = MRMR(n_workers=1, max_runtime_mins=1, quantization_nbins=8, verbose=0,
-               fe_discrete_structural_operators_enable=True)
+    sel = MRMR(n_workers=1, max_runtime_mins=1, quantization_nbins=8, verbose=0, fe_discrete_structural_operators_enable=True)
     sel.fit(X, y)
     assert _discrete_cols(sel, X), "master ON should let the gcd structure surface a discrete-operator feature."
 
 
 def test_master_off_suppresses_all_four_operators():
     X, y = _gcd_frame()
-    sel = MRMR(n_workers=1, max_runtime_mins=1, quantization_nbins=8, verbose=0,
-               fe_discrete_structural_operators_enable=False)
+    sel = MRMR(n_workers=1, max_runtime_mins=1, quantization_nbins=8, verbose=0, fe_discrete_structural_operators_enable=False)
     sel.fit(X, y)
     assert _discrete_cols(sel, X) == [], "master OFF must suppress every discrete operator regardless of individual flags."
 
@@ -56,9 +54,16 @@ def test_master_off_suppresses_all_four_operators():
 def test_master_off_overrides_individual_enables():
     """Master OFF wins even when an individual operator flag is explicitly True."""
     X, y = _gcd_frame()
-    sel = MRMR(n_workers=1, max_runtime_mins=1, quantization_nbins=8, verbose=0,
-               fe_discrete_structural_operators_enable=False,
-               fe_integer_lattice_enable=True, fe_pairwise_modular_enable=True,
-               fe_row_argmax_enable=True, fe_conditional_gate_enable=True)
+    sel = MRMR(
+        n_workers=1,
+        max_runtime_mins=1,
+        quantization_nbins=8,
+        verbose=0,
+        fe_discrete_structural_operators_enable=False,
+        fe_integer_lattice_enable=True,
+        fe_pairwise_modular_enable=True,
+        fe_row_argmax_enable=True,
+        fe_conditional_gate_enable=True,
+    )
     sel.fit(X, y)
     assert _discrete_cols(sel, X) == [], "an individual fe_*_enable=True must not override the master OFF switch."

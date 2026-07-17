@@ -10,12 +10,14 @@ import pytest
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.training import helpers
+
     return helpers
 
 
 @pytest.fixture(scope="module")
 def sibling():
     from mlframe.training import _helpers_training_configs
+
     return _helpers_training_configs
 
 
@@ -40,6 +42,7 @@ def test_smoke_compute_cb_text_processing(parent_module):
 
 def test_smoke_parse_catboost_devices_explicit():
     from mlframe.training.helpers import parse_catboost_devices
+
     fake_gpus = [{"index": 0, "name": "g0"}, {"index": 1, "name": "g1"}, {"index": 2, "name": "g2"}]
     out = parse_catboost_devices("0:2", all_gpus=fake_gpus)
     assert [g["index"] for g in out] == [0, 2]
@@ -54,6 +57,7 @@ def test_get_training_configs_runs_for_multiclass(parent_module):
     with ``NameError: name '_classif_objective_kwargs' is not defined``.
     Reproduced on fuzz combo c0023 (multiclass cb+linear+xgb)."""
     from mlframe.training.configs import TargetTypes
+
     cfg = parent_module.get_training_configs(
         iterations=10,
         early_stopping_rounds=0,

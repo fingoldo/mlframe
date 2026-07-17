@@ -12,6 +12,7 @@ columns they diverge. This suite pins:
   3. (CUDA only) CPU edge MI == GPU resident edge MI (~1e-9) on continuous AND tied -- the real
      cross-backend identity guarantee.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,7 +28,7 @@ def _np_edge_mi_one(x: np.ndarray, y: np.ndarray, n_bins: int) -> float:
     mirroring ``_fe_edge_mi._plugin_mi_classif_edge_njit`` exactly (hist sized over n_bins)."""
     n = x.shape[0]
     qs = np.linspace(0.0, 1.0, n_bins + 1)
-    edges = np.quantile(x, qs)            # NO np.unique: keep all n_bins-1 interior edges (GPU convention)
+    edges = np.quantile(x, qs)  # NO np.unique: keep all n_bins-1 interior edges (GPU convention)
     interior = edges[1:-1]
     if interior.shape[0] == 0:
         codes = np.zeros(n, np.int64)
@@ -60,12 +61,14 @@ def _np_edge_mi_batch(X, y, n_bins):
 
 def _continuous_fixture(seed=7, n=6000, k=24, n_bins=10):
     rng = np.random.default_rng(seed)
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); c = rng.uniform(1, 5, n)
-    cols = [a ** 2 / b, np.log(c) * a, a * b, np.log(a) + np.log(b), 1.0 / (a ** 2 * b)]
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    c = rng.uniform(1, 5, n)
+    cols = [a**2 / b, np.log(c) * a, a * b, np.log(a) + np.log(b), 1.0 / (a**2 * b)]
     while len(cols) < k:
         cols.append(rng.uniform(0, 1, n))
     X = np.column_stack([np.nan_to_num(col.astype(np.float64)) for col in cols])
-    y = np.searchsorted(np.quantile(a ** 2 / b, np.linspace(0, 1, n_bins + 1))[1:-1], a ** 2 / b).astype(np.int64)
+    y = np.searchsorted(np.quantile(a**2 / b, np.linspace(0, 1, n_bins + 1))[1:-1], a**2 / b).astype(np.int64)
     return X, y, n_bins
 
 
@@ -75,11 +78,11 @@ def _tied_fixture(seed=11, n=6000, k=20, n_bins=10):
     rng = np.random.default_rng(seed)
     base = rng.uniform(0, 1, n)
     cols = [
-        rng.integers(0, 5, n).astype(np.float64),            # 5 distinct values, heavy ties
-        (base > 0.5).astype(np.float64),                     # binary indicator
-        np.sign(rng.normal(0, 1, n)).astype(np.float64),     # {-1,0,1}
-        np.floor(base * 4).astype(np.float64),               # 4 coarse bins
-        rng.integers(0, 3, n).astype(np.float64),            # 3 distinct
+        rng.integers(0, 5, n).astype(np.float64),  # 5 distinct values, heavy ties
+        (base > 0.5).astype(np.float64),  # binary indicator
+        np.sign(rng.normal(0, 1, n)).astype(np.float64),  # {-1,0,1}
+        np.floor(base * 4).astype(np.float64),  # 4 coarse bins
+        rng.integers(0, 3, n).astype(np.float64),  # 3 distinct
     ]
     while len(cols) < k:
         cols.append(rng.integers(0, rng.integers(2, 8), n).astype(np.float64))
@@ -93,9 +96,7 @@ def test_cpu_edge_mi_matches_numpy_reference(fixture):
     X, y, nb = fixture()
     cpu_edge = plugin_mi_classif_batch_edge_njit(X, y, nb)
     ref = _np_edge_mi_batch(X, y, nb)
-    assert np.allclose(cpu_edge, ref, atol=1e-9, rtol=0), (
-        f"CPU edge MI diverged from numpy edge reference: max|d|={np.max(np.abs(cpu_edge - ref)):.3e}"
-    )
+    assert np.allclose(cpu_edge, ref, atol=1e-9, rtol=0), f"CPU edge MI diverged from numpy edge reference: max|d|={np.max(np.abs(cpu_edge - ref)):.3e}"
 
 
 def test_edge_equals_rank_on_continuous():
@@ -115,9 +116,7 @@ def test_edge_differs_from_rank_on_tied():
     X, y, nb = _tied_fixture()
     cpu_edge = plugin_mi_classif_batch_edge_njit(X, y, nb)
     cpu_rank = _plugin_mi_classif_batch_njit(X, y, nb)
-    assert np.max(np.abs(cpu_edge - cpu_rank)) > 1e-6, (
-        "expected rank vs edge to differ on tied columns; fixture no longer ties at bin boundaries"
-    )
+    assert np.max(np.abs(cpu_edge - cpu_rank)) > 1e-6, "expected rank vs edge to differ on tied columns; fixture no longer ties at bin boundaries"
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +125,7 @@ def test_edge_differs_from_rank_on_tied():
 def _need_cuda() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         return False

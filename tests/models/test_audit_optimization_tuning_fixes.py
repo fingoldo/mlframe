@@ -5,6 +5,7 @@ Covers:
   F4 -- MBHOptimizer RNG threading (_rng / _stdlib_rng independence from draw order).
   F5 -- tuning.py justify_estimator caching the CV mean instead of the refit model's own held-out score.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -102,8 +103,15 @@ def test_justify_estimator_expected_score_is_refit_held_out_score_not_cv_mean():
     tuning_mod.check_scoring = _fake_check_scoring
     try:
         est, expected_score = tuning_mod.justify_estimator(
-            CatBoostRegressor(iterations=20, verbose=False), X, y, cv=3, refit=True, scoring="r2", min_score=0.5,
-            random_state=0, early_stopping_rounds=5,
+            CatBoostRegressor(iterations=20, verbose=False),
+            X,
+            y,
+            cv=3,
+            refit=True,
+            scoring="r2",
+            min_score=0.5,
+            random_state=0,
+            early_stopping_rounds=5,
         )
     finally:
         tuning_mod.check_scoring = orig_check_scoring

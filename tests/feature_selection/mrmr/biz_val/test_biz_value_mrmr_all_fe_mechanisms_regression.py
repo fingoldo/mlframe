@@ -31,6 +31,7 @@ mechanisms total) holds end-to-end:
 NEVER xfail. If a prior-layer fixture or import breaks, fix prod / the
 fixture / the import path -- not the test.
 """
+
 from __future__ import annotations
 
 import gc
@@ -63,6 +64,7 @@ AUX_SEEDS = (1, 101)
 
 def _make_mrmr(**overrides):
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -143,7 +145,7 @@ def _kitchen_sink(seed: int = HEADLINE_SEED, n: int = 3000):
     box = ((x_threshold > 0.3) & (x_threshold < 1.2)).astype(float)
     logit = (
         0.5 * x_num1
-        + 2.0 * (x_quad ** 2 - 1.0)
+        + 2.0 * (x_quad**2 - 1.0)
         + 2.5 * np.sin(2.0 * np.pi * x_periodic)
         + 2.5 * box
         + 2.5 * hot_mask
@@ -152,19 +154,29 @@ def _kitchen_sink(seed: int = HEADLINE_SEED, n: int = 3000):
     )
     p = 1.0 / (1.0 + np.exp(-logit))
     y = pd.Series((rng.random(n) < p).astype(int), name="y")
-    X = pd.DataFrame({
-        "x_num1": x_num1, "x_num2": x_num2, "x_quad": x_quad,
-        "x_periodic": x_periodic, "x_threshold": x_threshold,
-        "cat_region": cat_region, "cat_user": cat_user, "price": price,
-        "n0": noise[:, 0], "n1": noise[:, 1], "n2": noise[:, 2], "n3": noise[:, 3],
-    })
+    X = pd.DataFrame(
+        {
+            "x_num1": x_num1,
+            "x_num2": x_num2,
+            "x_quad": x_quad,
+            "x_periodic": x_periodic,
+            "x_threshold": x_threshold,
+            "cat_region": cat_region,
+            "cat_user": cat_user,
+            "price": price,
+            "n0": noise[:, 0],
+            "n1": noise[:, 1],
+            "n2": noise[:, 2],
+            "n3": noise[:, 3],
+        }
+    )
     return X, y
 
 
-def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *,
-                         train_frac: float = 0.7, seed: int = HEADLINE_SEED):
+def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *, train_frac: float = 0.7, seed: int = HEADLINE_SEED):
     rng = np.random.default_rng(seed + 100)
-    idx = np.arange(len(X)); rng.shuffle(idx)
+    idx = np.arange(len(X))
+    rng.shuffle(idx)
     cut = int(train_frac * len(X))
     tr, ho = idx[:cut], idx[cut:]
     return (
@@ -201,10 +213,7 @@ class TestRecipeCountParity:
         eng_feats = list(getattr(m, "_engineered_features_", []) or [])
         eng_recipes = list(getattr(m, "_engineered_recipes_", []) or [])
         assert len(eng_feats) == len(eng_recipes), (
-            f"seed={seed}: recipe-count parity FAILED: "
-            f"{len(eng_feats)} engineered features but "
-            f"{len(eng_recipes)} recipes; "
-            f"_engineered_features_={eng_feats}"
+            f"seed={seed}: recipe-count parity FAILED: {len(eng_feats)} engineered features but {len(eng_recipes)} recipes; _engineered_features_={eng_feats}"
         )
 
     @pytest.mark.parametrize("seed", (HEADLINE_SEED,) + AUX_SEEDS)
@@ -225,9 +234,7 @@ class TestRecipeCountParity:
         # recipe MUST land in transform output.
         for col, recipe in zip(eng_feats, eng_recipes):
             assert col in out_cols, (
-                f"seed={seed}: engineered col {col!r} has a recipe "
-                f"({type(recipe).__name__}) but did NOT materialise in "
-                f"transform output ({sorted(out_cols)})"
+                f"seed={seed}: engineered col {col!r} has a recipe ({type(recipe).__name__}) but did NOT materialise in transform output ({sorted(out_cols)})"
             )
 
     def test_hinge_gate_skips_selected_raw_categorical(self):
@@ -243,8 +250,7 @@ class TestRecipeCountParity:
         m.fit(X_tr, y_tr)  # must not raise ValueError: could not convert string to float
         sel = set(m.get_feature_names_out())
         assert {"cat_region", "cat_user"} & sel, (
-            "fixture no longer selects a raw string categorical; the regression "
-            "this test pins (str column hitting the hinge float cast) is unreachable"
+            "fixture no longer selects a raw string categorical; the regression this test pins (str column hitting the hinge float cast) is unreachable"
         )
 
 
@@ -273,10 +279,7 @@ class TestFitTimeBudgetMultiSeed:
         fit_times.sort()
         # p95 of 3 samples = the worst sample (clamp to last index)
         p95 = fit_times[-1]
-        assert p95 < 30.0, (
-            f"p95 fit time {p95:.2f}s across {len(seeds)} seeds "
-            f"exceeds 30s budget; per-seed times={fit_times}"
-        )
+        assert p95 < 30.0, f"p95 fit time {p95:.2f}s across {len(seeds)} seeds exceeds 30s budget; per-seed times={fit_times}"
 
 
 # ---------------------------------------------------------------------------
@@ -303,11 +306,7 @@ class TestMemoryBound:
         m.fit(X_tr, y_tr)
         rss_after = proc.memory_info().rss
         delta_mb = (rss_after - rss_baseline) / 1024.0 / 1024.0
-        assert delta_mb < 500.0, (
-            f"peak RSS delta during all-FE fit on (n={len(X_tr)}, "
-            f"p={X_tr.shape[1]}) was {delta_mb:.1f}MB, exceeding the "
-            f"500MB budget"
-        )
+        assert delta_mb < 500.0, f"peak RSS delta during all-FE fit on (n={len(X_tr)}, p={X_tr.shape[1]}) was {delta_mb:.1f}MB, exceeding the 500MB budget"
 
 
 # ---------------------------------------------------------------------------
@@ -354,8 +353,7 @@ class TestPriorLayerImportSmoke:
     items" failure mode (which masquerades as a pass in CI).
     """
 
-    @pytest.mark.parametrize("mod_name,path", [(m, p) for m, p, _ in _LAYER_MODULES],
-                             ids=[i for _, _, i in _LAYER_MODULES])
+    @pytest.mark.parametrize("mod_name,path", [(m, p) for m, p, _ in _LAYER_MODULES], ids=[i for _, _, i in _LAYER_MODULES])
     def test_prior_layer_module_imports(self, mod_name, path):
         # Force a fresh import so a previously-imported (and possibly
         # stale) cached module does not mask a current breakage. Snapshot
@@ -389,7 +387,5 @@ class TestPriorLayerRosterSize:
 
     def test_at_least_33_prior_layer_modules_discoverable(self):
         assert len(_LAYER_MODULES) >= 33, (
-            f"Discovered only {len(_LAYER_MODULES)} prior-layer biz_value "
-            f"test modules; expected >= 33. Modules found: "
-            f"{[m for m, _, _ in _LAYER_MODULES]}"
+            f"Discovered only {len(_LAYER_MODULES)} prior-layer biz_value test modules; expected >= 33. Modules found: {[m for m, _, _ in _LAYER_MODULES]}"
         )

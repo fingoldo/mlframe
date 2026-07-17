@@ -7,6 +7,7 @@ per-column moment routing), the emitted column name silently claimed both legs u
 code even though leg b was actually evaluated with ``basis_j``. The computed VALUES were always
 correct (``h_a``/``h_b`` used their own bases); only the metadata name lied.
 """
+
 from __future__ import annotations
 
 

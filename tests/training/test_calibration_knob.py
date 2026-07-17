@@ -14,6 +14,7 @@ This sensor pins:
   4. The config field landed on ``TrainingBehaviorConfig`` with default True.
   5. ``post_calibrate_model`` stamps ``calibrated_<split>_probs`` on the model object.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -181,7 +182,7 @@ def _build_synthetic_binary_artifacts(n_train: int = 400, n_test: int = 200, n_v
     setattr(clf, "oof_probs", oof_probs)
     setattr(clf, "oof_target", y[train_idx])
 
-    target_series = pd.Series(y[: n_train], index=range(n_train))
+    target_series = pd.Series(y[:n_train], index=range(n_train))
     target_series_full = pd.Series(y, index=range(n))
     return clf, val_probs, test_probs, val_preds, test_preds, val_idx, test_idx, target_series_full
 

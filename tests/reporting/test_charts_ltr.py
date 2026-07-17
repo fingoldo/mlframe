@@ -14,12 +14,16 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.ltr import (
-    ALLOWED_LTR_PANEL_TOKENS, compose_ltr_figure,
+    ALLOWED_LTR_PANEL_TOKENS,
+    compose_ltr_figure,
 )
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
 from mlframe.reporting.spec import (
-    FigureSpec, HistogramPanelSpec, LinePanelSpec, ViolinPanelSpec,
+    FigureSpec,
+    HistogramPanelSpec,
+    LinePanelSpec,
+    ViolinPanelSpec,
 )
 
 
@@ -43,8 +47,7 @@ def synth_ltr():
         y_true.extend(rels.tolist())
         y_score.extend(scores.tolist())
         group_ids.extend([q] * sz)
-    return (np.asarray(y_true), np.asarray(y_score, dtype=np.float64),
-            np.asarray(group_ids))
+    return (np.asarray(y_true), np.asarray(y_score, dtype=np.float64), np.asarray(group_ids))
 
 
 @pytest.fixture
@@ -61,8 +64,7 @@ def synth_ltr_large():
         y_true.extend(rels.tolist())
         y_score.extend(scores.tolist())
         group_ids.extend([q] * sz)
-    return (np.asarray(y_true), np.asarray(y_score, dtype=np.float64),
-            np.asarray(group_ids))
+    return (np.asarray(y_true), np.asarray(y_score, dtype=np.float64), np.asarray(group_ids))
 
 
 # ----------------------------------------------------------------------------
@@ -72,10 +74,17 @@ def synth_ltr_large():
 
 class TestAllowedTokens:
     def test_allowed_set_matches_documented(self):
-        assert ALLOWED_LTR_PANEL_TOKENS == frozenset({
-            "NDCG_K", "NDCG_DIST", "NDCG_BY_QSIZE", "LIFT", "MRR_DIST",
-            "SCORE_BY_REL", "TOP1_BY_QSIZE",
-        })
+        assert ALLOWED_LTR_PANEL_TOKENS == frozenset(
+            {
+                "NDCG_K",
+                "NDCG_DIST",
+                "NDCG_BY_QSIZE",
+                "LIFT",
+                "MRR_DIST",
+                "SCORE_BY_REL",
+                "TOP1_BY_QSIZE",
+            }
+        )
 
 
 # ----------------------------------------------------------------------------
@@ -177,15 +186,12 @@ class TestComposer:
 
     def test_suptitle_propagated(self, synth_ltr):
         y, s, g = synth_ltr
-        spec = compose_ltr_figure(y, s, g, panels_template="NDCG_K",
-                                   suptitle="ranker baseline")
+        spec = compose_ltr_figure(y, s, g, panels_template="NDCG_K", suptitle="ranker baseline")
         assert spec.suptitle == "ranker baseline"
 
     def test_max_cols_controls_grid_width(self, synth_ltr):
         y, s, g = synth_ltr
-        spec = compose_ltr_figure(y, s, g,
-                                   panels_template="NDCG_K NDCG_DIST LIFT MRR_DIST",
-                                   max_cols=4)
+        spec = compose_ltr_figure(y, s, g, panels_template="NDCG_K NDCG_DIST LIFT MRR_DIST", max_cols=4)
         assert len(spec.panels) == 1
         assert len(spec.panels[0]) == 4
 
@@ -212,8 +218,7 @@ class TestRender:
         spec = compose_ltr_figure(y, s, g)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"),
-                            str(tmp_path / "ltr"))
+            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"), str(tmp_path / "ltr"))
         assert os.path.exists(tmp_path / "ltr.png")
         assert os.path.getsize(tmp_path / "ltr.png") > 5000
 
@@ -222,6 +227,5 @@ class TestRender:
         spec = compose_ltr_figure(y, s, g)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            render_and_save(spec, parse_plot_output_dsl("plotly[html]"),
-                            str(tmp_path / "ltr"))
+            render_and_save(spec, parse_plot_output_dsl("plotly[html]"), str(tmp_path / "ltr"))
         assert os.path.exists(tmp_path / "ltr.html")

@@ -10,6 +10,7 @@ candidate ``_excess_f >= 0``, the strict ``_excess_f < excess`` update can never
 load-bearing invariant -- if the clamp is ever removed (excess could go negative), the short-circuit would
 silently start changing verdicts, so this test must fail first.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,9 +33,9 @@ def test_excess_and_floor_never_returns_negative_excess(seed):
     cand = _codes(rng, n, 6)
     cases = {
         "marginal": None,
-        "dense_cond": _codes(rng, n, 5),                 # ~n/5 rows/stratum: dense
-        "near_unique": _codes(rng, n, n // 2),           # ~2 rows/stratum: the degenerate df<=0 regime
-        "fully_unique": np.arange(n).astype(np.int64),   # 1 row/stratum: maximally degenerate
+        "dense_cond": _codes(rng, n, 5),  # ~n/5 rows/stratum: dense
+        "near_unique": _codes(rng, n, n // 2),  # ~2 rows/stratum: the degenerate df<=0 regime
+        "fully_unique": np.arange(n).astype(np.int64),  # 1 row/stratum: maximally degenerate
     }
     for name, z in cases.items():
         cmi, floor, excess = _excess_and_floor(cand, y, z, seed=seed)

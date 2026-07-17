@@ -9,6 +9,7 @@ changed the downstream MRMR greedy selection -- breaking the column-order-invari
 contract (TestColumnOrderInvariance[MRMR]). The fix enumerates triples over the
 NAME-sorted column order so the budgeted set is invariant under any column permutation.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,9 +39,6 @@ def test_budgeted_triple_set_is_column_order_invariant():
     # argmax(a,b,c) over a sorted triple is the canonical representative).
     set_fwd = {tuple(sorted(h.cols)) for h in hits_fwd}
     set_rev = {tuple(sorted(h.cols)) for h in hits_rev}
-    assert set_fwd == set_rev, (
-        f"row-argmax budgeted triple set is column-order dependent: "
-        f"fwd-only={set_fwd - set_rev} rev-only={set_rev - set_fwd}"
-    )
+    assert set_fwd == set_rev, f"row-argmax budgeted triple set is column-order dependent: fwd-only={set_fwd - set_rev} rev-only={set_rev - set_fwd}"
     # The budget actually bit (otherwise the test would not discriminate the bug).
     assert len(hits_fwd) == 40

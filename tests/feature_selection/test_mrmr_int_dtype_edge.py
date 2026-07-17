@@ -3,6 +3,7 @@ cardinality cap (int8 boundary, NaN sentinel, degenerate columns), sentinel cons
 joint kernels), and the joint dtype staying wide under a narrow storage matrix. Companion to
 ``test_mrmr_compact_codes.py`` / ``test_categorical_cardinality_cap.py``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -147,10 +148,12 @@ def test_merge_vars_joint_counter_survives_large_single_bin():
 def test_polars_input_honors_categorical_cardinality_cap():
     pl = pytest.importorskip("polars")
     n = 6000
-    df = pd.DataFrame({
-        "num": np.random.default_rng(0).normal(size=n),
-        "hc": pd.Categorical(np.repeat(np.arange(300), 20)[:n].astype(str)),
-    })
+    df = pd.DataFrame(
+        {
+            "num": np.random.default_rng(0).normal(size=n),
+            "hc": pd.Categorical(np.repeat(np.arange(300), 20)[:n].astype(str)),
+        }
+    )
     pdf = pl.from_pandas(df)
     data, cols, nbins = categorize_dataset(df=pdf, max_categorical_cardinality=10, dtype=np.int32)
     hc = cols.index("hc")

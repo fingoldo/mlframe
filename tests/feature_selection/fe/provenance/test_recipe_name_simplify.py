@@ -4,6 +4,7 @@ The simplifier must (1) produce the expected cleaner name and (2) NEVER change t
 op-name denotes -- verified by evaluating BOTH the original and simplified names on random data
 through an independent reference interpreter.
 """
+
 import numpy as np
 import pytest
 
@@ -131,9 +132,7 @@ def test_value_preserving(original, expected):
     env = {n: _hard_domain(rng, 1500) for n in leaves}
     got = _eval(simplify_fe_name(original), env)
     ref = _eval(original, env)
-    assert np.allclose(got, ref, rtol=1e-9, atol=1e-9, equal_nan=True), (
-        f"{original} -> {simplify_fe_name(original)} changed the value"
-    )
+    assert np.allclose(got, ref, rtol=1e-9, atol=1e-9, equal_nan=True), f"{original} -> {simplify_fe_name(original)} changed the value"
 
 
 def test_random_fuzz_value_preserving():
@@ -147,16 +146,14 @@ def test_random_fuzz_value_preserving():
         if depth <= 0 or rng.random() < 0.3:
             return rng.choice(leaves)
         if rng.random() < 0.5:
-            return f"{rng.choice(uns)}({gen(depth-1)})"
-        return f"{rng.choice(bins)}({gen(depth-1)},{gen(depth-1)})"
+            return f"{rng.choice(uns)}({gen(depth - 1)})"
+        return f"{rng.choice(bins)}({gen(depth - 1)},{gen(depth - 1)})"
 
     env = {n: _hard_domain(rng, 1200) for n in leaves}
     for _ in range(300):
         name = gen(4)
         simp = simplify_fe_name(name)
-        assert np.allclose(_eval(simp, env), _eval(name, env), rtol=1e-9, atol=1e-9, equal_nan=True), (
-            f"value changed: {name} -> {simp}"
-        )
+        assert np.allclose(_eval(simp, env), _eval(name, env), rtol=1e-9, atol=1e-9, equal_nan=True), f"value changed: {name} -> {simp}"
         assert simplify_fe_name(simp) == simp, f"not idempotent: {simp}"
 
 

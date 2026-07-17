@@ -50,8 +50,7 @@ def _run(combo, tmp_path):
         model_name=combo.short_id(),
         features_and_targets_extractor=fte,
         mlframe_models=list(combo.models),
-        hyperparams_config=_config_for_models(combo.models, combo.n_rows, iterations=combo.iterations,
-                                              early_stopping_rounds=combo.early_stopping_rounds_cfg),
+        hyperparams_config=_config_for_models(combo.models, combo.n_rows, iterations=combo.iterations, early_stopping_rounds=combo.early_stopping_rounds_cfg),
         preprocessing_config=_preprocessing_for_combo(combo),
         verbose=0,
         use_ordinary_models=True,
@@ -72,10 +71,10 @@ def test_pzad_ensemble_knobs_run_end_to_end(tmp_path):
     assert trained, "suite produced no models with the PZAD ensemble knobs on"
     # rank_average must appear among the built ensemble flavours (names carry the flavour token).
     names = []
-    for _tt, per_name in (trained.items() if isinstance(trained, dict) else []):
+    for _tt, per_name in trained.items() if isinstance(trained, dict) else []:
         if isinstance(per_name, dict):
             for _nm, entries in per_name.items():
-                for e in (entries if isinstance(entries, (list, tuple)) else [entries]):
+                for e in entries if isinstance(entries, (list, tuple)) else [entries]:
                     nm = getattr(getattr(e, "model", e), "__mlframe_name__", "") or str(getattr(e, "name", "")) or repr(e)
                     names.append(nm.lower())
     assert any("rank_average" in n for n in names), f"no rank_average ensemble stamped; saw {names[:8]}"

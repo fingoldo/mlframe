@@ -34,6 +34,7 @@ bidirectional=True)`` returns that exact vector. Pre-fix the second
 half would be ``h_bwd[length-1]`` (last-token bwd state), NOT
 ``h_bwd[0]`` (full bwd summary).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -55,7 +56,9 @@ def test_unidirectional_get_last_hidden_unchanged():
     rnn_out = torch.arange(B * T * H, dtype=torch.float32).view(B, T, H)
     lengths = torch.tensor([3, 5])
     out = RecurrentTorchModel._get_last_hidden(
-        rnn_out, lengths, bidirectional=False,
+        rnn_out,
+        lengths,
+        bidirectional=False,
     )
     # b=0, length=3 -> gather rnn_out[0, 2, :]
     # b=1, length=5 -> gather rnn_out[1, 4, :]
@@ -83,24 +86,22 @@ def test_bidirectional_get_last_hidden_uses_bwd_position_0_for_bwd_half():
 
     lengths = torch.tensor([3, 5])
     out = RecurrentTorchModel._get_last_hidden(
-        rnn_out, lengths, bidirectional=True,
+        rnn_out,
+        lengths,
+        bidirectional=True,
     )
     assert out.shape == (B, 2 * H)
 
     # b=0, length=3:
     #   fwd half:  rnn_out[0, 2, :H]  -> 100*0 + 2*10 + h = [20, 21, 22, 23]
     #   bwd half:  rnn_out[0, 0, H:]  -> 1000 + 100*0 + 0*10 + h = [1000, 1001, 1002, 1003]
-    expected_b0 = torch.tensor(
-        [20.0, 21.0, 22.0, 23.0, 1000.0, 1001.0, 1002.0, 1003.0]
-    )
+    expected_b0 = torch.tensor([20.0, 21.0, 22.0, 23.0, 1000.0, 1001.0, 1002.0, 1003.0])
     torch.testing.assert_close(out[0], expected_b0)
 
     # b=1, length=5:
     #   fwd half:  rnn_out[1, 4, :H]  -> 100*1 + 4*10 + h = [140, 141, 142, 143]
     #   bwd half:  rnn_out[1, 0, H:]  -> 1000 + 100*1 + 0*10 + h = [1100, 1101, 1102, 1103]
-    expected_b1 = torch.tensor(
-        [140.0, 141.0, 142.0, 143.0, 1100.0, 1101.0, 1102.0, 1103.0]
-    )
+    expected_b1 = torch.tensor([140.0, 141.0, 142.0, 143.0, 1100.0, 1101.0, 1102.0, 1103.0])
     torch.testing.assert_close(out[1], expected_b1)
 
 
@@ -120,7 +121,9 @@ def test_bidirectional_get_last_hidden_pre_fix_would_take_bwd_position_length_mi
 
     lengths = torch.tensor([3, 5])
     out = RecurrentTorchModel._get_last_hidden(
-        rnn_out, lengths, bidirectional=True,
+        rnn_out,
+        lengths,
+        bidirectional=True,
     )
     # Pre-fix would have returned rnn_out[b, length-1, :] for BOTH halves.
     # b=0, length=3: bwd-half pre-fix = rnn_out[0, 2, H:] = [1020, 1021, 1022, 1023]
@@ -155,7 +158,9 @@ def test_bidirectional_smoke_through_full_recurrent_forward():
         dropout=0.0,
     )
     model = RecurrentTorchModel(
-        cfg, seq_input_size=3, aux_input_size=0,
+        cfg,
+        seq_input_size=3,
+        aux_input_size=0,
         is_regression=True,
     )
     model.eval()
@@ -167,6 +172,7 @@ def test_bidirectional_smoke_through_full_recurrent_forward():
         torch.randn(2, 3),
     ]
     from torch.nn.utils.rnn import pad_sequence
+
     padded = pad_sequence(seqs, batch_first=True, padding_value=0.0)
     lengths = torch.tensor([6, 4, 2])
 

@@ -15,6 +15,7 @@ allowed - if a test needs an override to pass, the override IS the bug.
 Add a new estimator: append it to ``DEFAULT_CLF_ESTIMATORS`` /
 ``DEFAULT_REG_ESTIMATORS`` and watch the meta-test gate it.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -43,25 +44,30 @@ from mlframe.feature_selection.wrappers import RFECV
 # importance_getter manually" workaround opportunity.
 # ----------------------------------------------------------------------------
 DEFAULT_CLF_ESTIMATORS = [
-    ("LogisticRegression",   lambda: LogisticRegression(max_iter=400, random_state=0)),
-    ("RandomForest",         lambda: RandomForestClassifier(n_estimators=20, random_state=0, n_jobs=1)),
-    ("SGDClassifier",        lambda: SGDClassifier(max_iter=200, random_state=0, loss="log_loss")),
+    ("LogisticRegression", lambda: LogisticRegression(max_iter=400, random_state=0)),
+    ("RandomForest", lambda: RandomForestClassifier(n_estimators=20, random_state=0, n_jobs=1)),
+    ("SGDClassifier", lambda: SGDClassifier(max_iter=200, random_state=0, loss="log_loss")),
 ]
 
 DEFAULT_REG_ESTIMATORS = [
-    ("LinearRegression",     lambda: LinearRegression()),
-    ("Ridge",                lambda: Ridge(random_state=0)),
-    ("Lasso",                lambda: Lasso(alpha=0.1, max_iter=1000)),
-    ("RandomForestReg",      lambda: RandomForestRegressor(n_estimators=20, random_state=0, n_jobs=1)),
+    ("LinearRegression", lambda: LinearRegression()),
+    ("Ridge", lambda: Ridge(random_state=0)),
+    ("Lasso", lambda: Lasso(alpha=0.1, max_iter=1000)),
+    ("RandomForestReg", lambda: RandomForestRegressor(n_estimators=20, random_state=0, n_jobs=1)),
 ]
 
 
 @pytest.fixture(scope="module")
 def small_clf_data():
     X, y = make_classification(
-        n_samples=200, n_features=12, n_informative=4,
-        n_redundant=0, n_classes=2, n_clusters_per_class=1,
-        random_state=0, shuffle=False,
+        n_samples=200,
+        n_features=12,
+        n_informative=4,
+        n_redundant=0,
+        n_classes=2,
+        n_clusters_per_class=1,
+        random_state=0,
+        shuffle=False,
     )
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(12)]), y
 
@@ -69,8 +75,12 @@ def small_clf_data():
 @pytest.fixture(scope="module")
 def small_reg_data():
     X, y = make_regression(
-        n_samples=200, n_features=12, n_informative=4,
-        noise=0.5, random_state=0, shuffle=False,
+        n_samples=200,
+        n_features=12,
+        n_informative=4,
+        noise=0.5,
+        random_state=0,
+        shuffle=False,
     )
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(12)]), y
 
@@ -88,8 +98,8 @@ def test_default_args_classifier(small_clf_data, name, factory):
     X, y = small_clf_data
     rfecv = RFECV(
         estimator=factory(),
-        cv=3,            # short for CI
-        max_refits=4,    # short for CI
+        cv=3,  # short for CI
+        max_refits=4,  # short for CI
         verbose=0,
     )
     rfecv.fit(X, y)
@@ -141,23 +151,17 @@ def test_no_per_estimator_importance_getter_workaround_in_main_tests():
     text = test_path.read_text(encoding="utf-8", errors="replace")
 
     # Pattern 1: ternary that picks importance_getter based on estimator name string
-    pattern_ternary = re.compile(
-        r"importance_getter\s*=\s*['\"]\w+_['\"]\s+if\s+\w+\s*==\s*['\"]\w+['\"]\s+else\s+['\"]\w+_['\"]"
-    )
+    pattern_ternary = re.compile(r"importance_getter\s*=\s*['\"]\w+_['\"]\s+if\s+\w+\s*==\s*['\"]\w+['\"]\s+else\s+['\"]\w+_['\"]")
     matches_ternary = pattern_ternary.findall(text)
 
     # Pattern 2: explicit dict keyed by estimator name -> getter string
-    pattern_dict = re.compile(
-        r"\{['\"]\w+['\"]\s*:\s*['\"]coef_['\"]\s*,\s*['\"]\w+['\"]\s*:\s*['\"]feature_importances_['\"]"
-    )
+    pattern_dict = re.compile(r"\{['\"]\w+['\"]\s*:\s*['\"]coef_['\"]\s*,\s*['\"]\w+['\"]\s*:\s*['\"]feature_importances_['\"]")
     matches_dict = pattern_dict.findall(text)
 
     if matches_ternary or matches_dict:
         offenders = matches_ternary + matches_dict
         pytest.fail(
-            "Found per-estimator importance_getter workarounds in test_wrappers.py:\n"
-            + "\n".join(f"  - {m}" for m in offenders[:5])
-            + "\n"
+            "Found per-estimator importance_getter workarounds in test_wrappers.py:\n" + "\n".join(f"  - {m}" for m in offenders[:5]) + "\n"
             "The default importance_getter=None ('auto') dispatch should "
             "handle every estimator type. If a test needs an override, the "
             "override IS the bug - update the dispatch in get_feature_importances "
@@ -184,10 +188,12 @@ def test_init_defaults_are_fittable(small_clf_data):
     pos_idx = np.flatnonzero(y == 1)
     neg_idx = np.flatnonzero(y == 0)
     take = 40
-    sel = np.concatenate([
-        rng.choice(pos_idx, size=min(take, len(pos_idx)), replace=False),
-        rng.choice(neg_idx, size=min(take, len(neg_idx)), replace=False),
-    ])
+    sel = np.concatenate(
+        [
+            rng.choice(pos_idx, size=min(take, len(pos_idx)), replace=False),
+            rng.choice(neg_idx, size=min(take, len(neg_idx)), replace=False),
+        ]
+    )
     rng.shuffle(sel)
     X_small = X.iloc[sel].reset_index(drop=True)
     y_small = y[sel]
@@ -218,10 +224,12 @@ def test_every_optimum_search_value_either_works_or_errors(small_clf_data):
     pos_idx = np.flatnonzero(y == 1)
     neg_idx = np.flatnonzero(y == 0)
     take = 30
-    sel = np.concatenate([
-        rng.choice(pos_idx, size=min(take, len(pos_idx)), replace=False),
-        rng.choice(neg_idx, size=min(take, len(neg_idx)), replace=False),
-    ])
+    sel = np.concatenate(
+        [
+            rng.choice(pos_idx, size=min(take, len(pos_idx)), replace=False),
+            rng.choice(neg_idx, size=min(take, len(neg_idx)), replace=False),
+        ]
+    )
     rng.shuffle(sel)
     X_small = X.iloc[sel].reset_index(drop=True)
     y_small = y[sel]
@@ -240,9 +248,7 @@ def test_every_optimum_search_value_either_works_or_errors(small_clf_data):
             assert rfecv.n_features_ >= 1, f"{method} produced empty support_"
         except NotImplementedError as exc:
             # Acceptable - the dispatch explicitly rejected this method.
-            assert method.value in str(exc), (
-                f"NotImplementedError for {method} should name the method, got: {exc}"
-            )
+            assert method.value in str(exc), f"NotImplementedError for {method} should name the method, got: {exc}"
         except Exception as exc:  # pragma: no cover
             pytest.fail(
                 f"OptimumSearch.{method.name} raised unexpected {type(exc).__name__}: {exc}\n"

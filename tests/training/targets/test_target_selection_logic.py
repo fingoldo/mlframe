@@ -5,6 +5,7 @@ logic: model_name decoration (binary imbalance percentage / regression mean) and
 error handling for unsupported target types. configure_training_params is
 monkeypatched to avoid a full sklearn/XGBoost/LightGBM config materialization.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,6 +47,7 @@ def mock_configure(monkeypatch):
     # import resolves to the stub regardless of call order.
     import mlframe.training.trainer as _trainer
     import mlframe.training.targets._train_eval_select_target as _select_target_mod
+
     monkeypatch.setattr(_trainer, "configure_training_params", _stub)
     if hasattr(_select_target_mod, "configure_training_params"):
         monkeypatch.setattr(_select_target_mod, "configure_training_params", _stub)
@@ -132,6 +134,7 @@ def test_select_target_binary_no_positives(mock_configure):
 
 def test_select_target_warns_on_all_zeros(mock_configure, caplog):
     import logging
+
     df = pd.DataFrame({"x": np.arange(10)})
     with caplog.at_level(logging.WARNING, logger="mlframe.training.train_eval"):
         select_target(
@@ -141,13 +144,12 @@ def test_select_target_warns_on_all_zeros(mock_configure, caplog):
             df=df,
         )
     warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
-    assert any("degenerate classification target" in m and "always_zero" in m for m in warns), (
-        f"Expected WARN naming 'always_zero' as degenerate; got: {warns}"
-    )
+    assert any("degenerate classification target" in m and "always_zero" in m for m in warns), f"Expected WARN naming 'always_zero' as degenerate; got: {warns}"
 
 
 def test_select_target_warns_on_all_ones(mock_configure, caplog):
     import logging
+
     df = pd.DataFrame({"x": np.arange(10)})
     with caplog.at_level(logging.WARNING, logger="mlframe.training.train_eval"):
         select_target(
@@ -164,6 +166,7 @@ def test_select_target_warns_on_extreme_imbalance(mock_configure, caplog):
     """<0.1% positive rate gets an extreme-imbalance WARN (not the
     degenerate-target one — both classes present, just rare)."""
     import logging
+
     # 1 positive, 9999 negatives -> 0.01% positive rate
     y = pd.Series([1] + [0] * 9999)
     df = pd.DataFrame({"x": np.arange(len(y))})
@@ -182,6 +185,7 @@ def test_select_target_no_warn_on_balanced(mock_configure, caplog):
     """False-positive sensor: runs on every classification call —
     30/70 must stay silent or logs would drown in noise."""
     import logging
+
     df = pd.DataFrame({"x": np.arange(100)})
     with caplog.at_level(logging.WARNING, logger="mlframe.training.train_eval"):
         select_target(
@@ -198,6 +202,7 @@ def test_select_target_regression_no_warn(mock_configure, caplog):
     """Regression targets have no class concept — the warning path
     must never trigger for TargetTypes.REGRESSION."""
     import logging
+
     df = pd.DataFrame({"x": np.arange(10)})
     with caplog.at_level(logging.WARNING, logger="mlframe.training.train_eval"):
         select_target(

@@ -12,6 +12,7 @@ A perf assertion is intentionally NOT included -- the measured speedup is
 modest (1.05-1.45x) and platform-noise-dominated; the numerical-identity
 sensor is the load-bearing guarantee.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,37 +27,53 @@ def _make_inputs(n: int, n_bins: int, seed: int = 17):
     edges = np.unique(edges)
     n_bins_eff = edges.size - 1
     bin_idx = np.clip(
-        np.searchsorted(edges[1:-1], base, side="right"), 0, n_bins_eff - 1,
+        np.searchsorted(edges[1:-1], base, side="right"),
+        0,
+        n_bins_eff - 1,
     )
     return y, bin_idx.astype(np.intp), n_bins_eff
 
 
-@pytest.mark.parametrize("n,n_bins", [
-    (1_000, 5), (10_000, 10), (100_000, 20),
-    (250_000, 10), (250_000, 20),
-])
+@pytest.mark.parametrize(
+    "n,n_bins",
+    [
+        (1_000, 5),
+        (10_000, 10),
+        (100_000, 20),
+        (250_000, 10),
+        (250_000, 20),
+    ],
+)
 def test_median_residual_per_bin_medians_dispatcher_matches_v1(n, n_bins):
     """Dispatcher output == v1 reference at every routed size class. ``rtol=1e-12`` because median is exact on float64."""
     from mlframe.training.composite.transforms import (
         _median_residual_per_bin_medians,
         _median_residual_per_bin_medians_v1_pyloop,
     )
+
     y, bin_idx, n_bins_eff = _make_inputs(n, n_bins)
     ref = _median_residual_per_bin_medians_v1_pyloop(y, bin_idx, n_bins_eff)
     got = _median_residual_per_bin_medians(y, bin_idx, n_bins_eff)
     np.testing.assert_allclose(got, ref, rtol=1e-12, atol=0.0)
 
 
-@pytest.mark.parametrize("n,n_bins", [
-    (1_000, 5), (10_000, 10), (100_000, 20),
-    (250_000, 10), (250_000, 20),
-])
+@pytest.mark.parametrize(
+    "n,n_bins",
+    [
+        (1_000, 5),
+        (10_000, 10),
+        (100_000, 20),
+        (250_000, 10),
+        (250_000, 20),
+    ],
+)
 def test_median_residual_pandas_variant_matches_v1(n, n_bins):
     """Explicit v2 (pandas groupby) variant -- numerical identity vs v1."""
     from mlframe.training.composite.transforms import (
         _median_residual_per_bin_medians_v1_pyloop,
         _median_residual_per_bin_medians_v2_pandas_groupby,
     )
+
     y, bin_idx, n_bins_eff = _make_inputs(n, n_bins)
     ref = _median_residual_per_bin_medians_v1_pyloop(y, bin_idx, n_bins_eff)
     got = _median_residual_per_bin_medians_v2_pandas_groupby(y, bin_idx, n_bins_eff)
@@ -70,6 +87,7 @@ def test_median_residual_per_bin_empty_bin_uses_global_median():
         _median_residual_per_bin_medians_v1_pyloop,
         _median_residual_per_bin_medians_v2_pandas_groupby,
     )
+
     rng = np.random.default_rng(0)
     y = rng.standard_normal(500).astype(np.float64)
     bin_idx = np.zeros(500, dtype=np.intp)
@@ -87,23 +105,39 @@ def test_median_residual_per_bin_empty_bin_uses_global_median():
         assert got1[empty_b] == pytest.approx(expected_global, rel=1e-12)
 
 
-@pytest.mark.parametrize("n,n_bins,min_bin_n", [
-    (5_000, 10, 50), (50_000, 10, 50), (250_000, 20, 100),
-])
+@pytest.mark.parametrize(
+    "n,n_bins,min_bin_n",
+    [
+        (5_000, 10, 50),
+        (50_000, 10, 50),
+        (250_000, 20, 100),
+    ],
+)
 def test_quantile_residual_per_bin_stats_dispatcher_matches_v1(n, n_bins, min_bin_n):
     """Dispatcher for quantile-residual per-bin stats agrees with the v1 mask-loop bit-for-bit."""
     from mlframe.training.composite.transforms.nonlinear import (
         _quantile_residual_per_bin_stats,
         _quantile_residual_per_bin_stats_v1_pyloop,
     )
+
     y, bin_idx, n_bins_eff = _make_inputs(n, n_bins)
     global_median = float(np.median(y))
     global_iqr = max(float(np.subtract(*np.percentile(y, [75, 25]))), 1e-6)
     ref_med, ref_iqr, ref_sz = _quantile_residual_per_bin_stats_v1_pyloop(
-        y, bin_idx, n_bins_eff, min_bin_n, global_median, global_iqr,
+        y,
+        bin_idx,
+        n_bins_eff,
+        min_bin_n,
+        global_median,
+        global_iqr,
     )
     got_med, got_iqr, got_sz = _quantile_residual_per_bin_stats(
-        y, bin_idx, n_bins_eff, min_bin_n, global_median, global_iqr,
+        y,
+        bin_idx,
+        n_bins_eff,
+        min_bin_n,
+        global_median,
+        global_iqr,
     )
     np.testing.assert_allclose(got_med, ref_med, rtol=1e-12, atol=0.0)
     np.testing.assert_allclose(got_iqr, ref_iqr, rtol=1e-12, atol=0.0)
@@ -116,21 +150,32 @@ def test_quantile_residual_per_bin_under_populated_bin_falls_back_to_global():
         _quantile_residual_per_bin_stats_v1_pyloop,
         _quantile_residual_per_bin_stats_v2_pandas_groupby,
     )
+
     rng = np.random.default_rng(0)
     n_bins = 5
     n = 2_000
     y = rng.standard_normal(n).astype(np.float64)
     bin_idx = rng.integers(0, n_bins, size=n).astype(np.intp)
     bin_idx[:5] = 0
-    bin_idx[5:n - 5] = rng.integers(1, n_bins, size=n - 10)
+    bin_idx[5 : n - 5] = rng.integers(1, n_bins, size=n - 10)
     min_bin_n = 50
     global_median = float(np.median(y))
     global_iqr = max(float(np.subtract(*np.percentile(y, [75, 25]))), 1e-6)
     ref_med, ref_iqr, ref_sz = _quantile_residual_per_bin_stats_v1_pyloop(
-        y, bin_idx, n_bins, min_bin_n, global_median, global_iqr,
+        y,
+        bin_idx,
+        n_bins,
+        min_bin_n,
+        global_median,
+        global_iqr,
     )
     got_med, got_iqr, got_sz = _quantile_residual_per_bin_stats_v2_pandas_groupby(
-        y, bin_idx, n_bins, min_bin_n, global_median, global_iqr,
+        y,
+        bin_idx,
+        n_bins,
+        min_bin_n,
+        global_median,
+        global_iqr,
     )
     np.testing.assert_allclose(got_med, ref_med, rtol=1e-12, atol=0.0)
     np.testing.assert_allclose(got_iqr, ref_iqr, rtol=1e-12, atol=0.0)
@@ -144,6 +189,7 @@ def test_median_residual_fit_end_to_end_matches_pre_dispatch_semantics():
         _median_residual_per_bin_medians_v1_pyloop,
         _MEDIAN_RESIDUAL_N_BINS,
     )
+
     rng = np.random.default_rng(42)
     y = rng.standard_normal(5_000).astype(np.float64)
     base = rng.standard_normal(5_000).astype(np.float64)
@@ -152,7 +198,10 @@ def test_median_residual_fit_end_to_end_matches_pre_dispatch_semantics():
     bin_idx = np.digitize(base, edges[1:-1])
     expected = _median_residual_per_bin_medians_v1_pyloop(y, bin_idx, edges.size - 1)
     np.testing.assert_allclose(
-        np.asarray(params["bin_medians"]), expected, rtol=1e-12, atol=0.0,
+        np.asarray(params["bin_medians"]),
+        expected,
+        rtol=1e-12,
+        atol=0.0,
     )
 
 
@@ -162,6 +211,7 @@ def test_quantile_residual_fit_end_to_end_matches_pre_dispatch_semantics():
         _quantile_residual_fit,
         _quantile_residual_per_bin_stats_v1_pyloop,
     )
+
     rng = np.random.default_rng(7)
     y = rng.standard_normal(10_000).astype(np.float64)
     base = rng.standard_normal(10_000).astype(np.float64)
@@ -171,23 +221,38 @@ def test_quantile_residual_fit_end_to_end_matches_pre_dispatch_semantics():
     edges = np.asarray(params["bin_edges"], dtype=np.float64)
     actual_n_bins = edges.size - 1
     bin_idx = np.clip(
-        np.searchsorted(edges[1:-1], base, side="right"), 0, actual_n_bins - 1,
+        np.searchsorted(edges[1:-1], base, side="right"),
+        0,
+        actual_n_bins - 1,
     )
     finite = np.isfinite(y) & np.isfinite(base)
     y_clean = y[finite]
     base_clean = base[finite]
     bin_idx_clean = np.clip(
-        np.searchsorted(edges[1:-1], base_clean, side="right"), 0, actual_n_bins - 1,
+        np.searchsorted(edges[1:-1], base_clean, side="right"),
+        0,
+        actual_n_bins - 1,
     )
     global_median = float(params["global_median"])
     global_iqr = float(params["global_iqr"])
     ref_med, ref_iqr, ref_sz = _quantile_residual_per_bin_stats_v1_pyloop(
-        y_clean, bin_idx_clean, actual_n_bins, 50, global_median, global_iqr,
+        y_clean,
+        bin_idx_clean,
+        actual_n_bins,
+        50,
+        global_median,
+        global_iqr,
     )
     np.testing.assert_allclose(
-        np.asarray(params["bin_medians"]), ref_med, rtol=1e-12, atol=0.0,
+        np.asarray(params["bin_medians"]),
+        ref_med,
+        rtol=1e-12,
+        atol=0.0,
     )
     np.testing.assert_allclose(
-        np.asarray(params["bin_iqrs"]), ref_iqr, rtol=1e-12, atol=0.0,
+        np.asarray(params["bin_iqrs"]),
+        ref_iqr,
+        rtol=1e-12,
+        atol=0.0,
     )
     np.testing.assert_array_equal(np.asarray(params["bin_sizes"]), ref_sz)

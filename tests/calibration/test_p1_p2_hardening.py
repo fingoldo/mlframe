@@ -1,6 +1,7 @@
 """Regression tests for the calibration/post.py P1/P2 audit findings (multi-class/degenerate guard,
 hardcoded metric-column KeyError, metric-key-drift warning, full_name collision handling).
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -33,8 +34,13 @@ def test_multiclass_calib_target_raises_instead_of_silently_misfitting():
     with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators):
         with pytest.raises(ValueError, match="exactly 2 distinct classes"):
             compare_postcalibrators(
-                model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
-                oos_probs=None, oos_target=None, include_patterns=["sklearn"],
+                model_name="m",
+                columns=["y"],
+                calib_probs=probs,
+                calib_target=target,
+                oos_probs=None,
+                oos_target=None,
+                include_patterns=["sklearn"],
             )
 
 
@@ -54,8 +60,13 @@ def test_degenerate_single_class_calib_target_raises_clear_error():
     with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators):
         with pytest.raises(ValueError, match="exactly 2 distinct classes"):
             compare_postcalibrators(
-                model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
-                oos_probs=None, oos_target=None, include_patterns=["sklearn"],
+                model_name="m",
+                columns=["y"],
+                calib_probs=probs,
+                calib_target=target,
+                oos_probs=None,
+                oos_target=None,
+                include_patterns=["sklearn"],
             )
 
 
@@ -75,12 +86,19 @@ def test_missing_ice_column_does_not_raise_keyerror():
             metrics[1] = {"auc": 0.9}
         return None, None
 
-    with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators), patch(
-        "mlframe.calibration.post.report_model_perf", side_effect=_fake_report_model_perf
+    with (
+        patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators),
+        patch("mlframe.calibration.post.report_model_perf", side_effect=_fake_report_model_perf),
     ):
         metrics_df, calibrators, failed = compare_postcalibrators(
-            model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
-            oos_probs=None, oos_target=None, include_patterns=["sklearn"], selection="self_eval",
+            model_name="m",
+            columns=["y"],
+            calib_probs=probs,
+            calib_target=target,
+            oos_probs=None,
+            oos_target=None,
+            include_patterns=["sklearn"],
+            selection="self_eval",
         )
 
     assert metrics_df is not None
@@ -110,12 +128,20 @@ def test_metric_key_mismatch_logs_warning(caplog):
             metrics[1] = {"ice": 0.1, "auc": 0.9}
         return None, None
 
-    with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators), patch(
-        "mlframe.calibration.post.report_model_perf", side_effect=_fake_report_model_perf
-    ), caplog.at_level("WARNING", logger="mlframe.calibration.post"):
+    with (
+        patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators),
+        patch("mlframe.calibration.post.report_model_perf", side_effect=_fake_report_model_perf),
+        caplog.at_level("WARNING", logger="mlframe.calibration.post"),
+    ):
         metrics_df, calibrators, failed = compare_postcalibrators(
-            model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
-            oos_probs=None, oos_target=None, include_patterns=["sklearn"], selection="self_eval",
+            model_name="m",
+            columns=["y"],
+            calib_probs=probs,
+            calib_target=target,
+            oos_probs=None,
+            oos_target=None,
+            include_patterns=["sklearn"],
+            selection="self_eval",
         )
 
     assert any("narrower metric-key set" in rec.message for rec in caplog.records)
@@ -136,8 +162,14 @@ def test_full_name_collision_disambiguated_not_overwritten():
 
     with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators):
         metrics_df, calibrators, failed = compare_postcalibrators(
-            model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
-            oos_probs=None, oos_target=None, include_patterns=["x"], selection="self_eval",
+            model_name="m",
+            columns=["y"],
+            calib_probs=probs,
+            calib_target=target,
+            oos_probs=None,
+            oos_target=None,
+            include_patterns=["x"],
+            selection="self_eval",
         )
 
     assert len(calibrators) == 2, "both calibrators must survive despite the name collision"

@@ -4,6 +4,7 @@ The module is dominated by @njit functions whose interiors are invisible to cove
 - Triggering each Python-level function call (counts the `def` line + dispatch)
 - Exercising any non-njit code paths (probably none in this module)
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,6 +20,7 @@ from mlframe.feature_selection.filters.info_theory import (
 
 try:
     from mlframe.feature_selection.filters.info_theory import entropy_miller_madow
+
     _HAVE_MM = True
 except ImportError:
     _HAVE_MM = False

@@ -37,16 +37,12 @@ def test_numba_coverage_workflow_has_nightly_cron() -> None:
     text = _workflow_text()
     assert "schedule:" in text, "workflow must declare a cron schedule (nightly run)"
     assert "cron:" in text, "workflow must use cron scheduling"
-    assert "0 3 * * *" in text, (
-        "expected nightly 03:00 UTC cron ('0 3 * * *'); change is fine but update this assertion"
-    )
+    assert "0 3 * * *" in text, "expected nightly 03:00 UTC cron ('0 3 * * *'); change is fine but update this assertion"
 
 
 def test_numba_coverage_workflow_supports_manual_dispatch() -> None:
     text = _workflow_text()
-    assert "workflow_dispatch" in text, (
-        "workflow_dispatch trigger missing; operators must be able to run the nightly suite on demand"
-    )
+    assert "workflow_dispatch" in text, "workflow_dispatch trigger missing; operators must be able to run the nightly suite on demand"
 
 
 def test_numba_coverage_workflow_targets_kernel_heavy_dirs() -> None:
@@ -58,9 +54,7 @@ def test_numba_coverage_workflow_targets_kernel_heavy_dirs() -> None:
         "tests/metrics/",
         "tests/training/",
     ):
-        assert required_dir in text, (
-            f"workflow must run tests under {required_dir} for kernel-body coverage to materialise"
-        )
+        assert required_dir in text, f"workflow must run tests under {required_dir} for kernel-body coverage to materialise"
 
 
 def test_numba_coverage_workflow_collects_coverage() -> None:

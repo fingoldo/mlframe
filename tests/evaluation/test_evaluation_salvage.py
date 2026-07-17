@@ -245,9 +245,7 @@ def test_nanminmax_cols_is_parallel_and_matches_numpy():
     """
     from mlframe.preprocessing.outliers import _nanminmax_cols
 
-    assert getattr(_nanminmax_cols, "targetoptions", {}).get("parallel") is True, (
-        "_nanminmax_cols must be njit(parallel=True) for the n=10M fused-pass win"
-    )
+    assert getattr(_nanminmax_cols, "targetoptions", {}).get("parallel") is True, "_nanminmax_cols must be njit(parallel=True) for the n=10M fused-pass win"
 
     rng = np.random.default_rng(11)
     X = rng.normal(size=(40_000, 7))
@@ -316,6 +314,7 @@ def _import_keras_or_skip():
     pytest.importorskip("tensorflow")
     pytest.importorskip("keras")
     from mlframe.training.neural.keras_compat import build_keras_mlp  # noqa: F401
+
     # Try an actual build; surface broken installs as ImportError via importorskip semantics
     # rather than silently skipping (memory feedback_no_mask_via_canon_or_guards).
     try:

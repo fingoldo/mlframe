@@ -60,22 +60,20 @@ def test_pack_bins_shape_is_column_major():
     """Packed buffer is (n_features, n_samples), rows are per-feature bin ids."""
     n_samples, n_features = 200, 17
     bins, names = _build_synthetic_bins(
-        n_samples=n_samples, n_features=n_features, n_bins=6, seed=7,
+        n_samples=n_samples,
+        n_features=n_features,
+        n_bins=6,
+        seed=7,
     )
     _, arrays = _resolve_columns(bins, names)
     marginals = [_column_marginal(a) for a in arrays]
     packed = _pack_bins_for_kernel(arrays, marginals)
     assert packed is not None
     bins_packed = packed[0]
-    assert bins_packed.shape == (n_features, n_samples), (
-        f"expected column-major (n_features={n_features}, n_samples={n_samples}); "
-        f"got {bins_packed.shape}"
-    )
+    assert bins_packed.shape == (n_features, n_samples), f"expected column-major (n_features={n_features}, n_samples={n_samples}); got {bins_packed.shape}"
     # row i of packed == feature i's bin ids
     for i, arr in enumerate(arrays):
-        assert np.array_equal(bins_packed[i, :], arr.astype(np.int32, copy=False)), (
-            f"row {i} mismatch — packer didn't write per-feature contiguous strips"
-        )
+        assert np.array_equal(bins_packed[i, :], arr.astype(np.int32, copy=False)), f"row {i} mismatch — packer didn't write per-feature contiguous strips"
     # contiguous so the kernel's inner sample loop walks one stride-1 row.
     assert bins_packed.flags["C_CONTIGUOUS"], "packed buffer must be C-contiguous"
 
@@ -84,15 +82,19 @@ def test_parity_column_major_matches_serial():
     """Cluster labels from column-major kernel == serial Python loop, bitwise."""
     bins, names = _build_synthetic_bins(n_samples=900, n_features=120, n_bins=8, seed=13)
     serial = cluster_correlated_features_su(
-        bins, threshold=0.35, feature_names=names, use_parallel=False,
+        bins,
+        threshold=0.35,
+        feature_names=names,
+        use_parallel=False,
     )
     parallel = cluster_correlated_features_su(
-        bins, threshold=0.35, feature_names=names, use_parallel=True,
+        bins,
+        threshold=0.35,
+        feature_names=names,
+        use_parallel=True,
         parallel_min_features=10,
     )
-    assert np.array_equal(serial, parallel), (
-        f"column-major kernel diverges from serial loop at width=120 (threshold=0.35)"
-    )
+    assert np.array_equal(serial, parallel), f"column-major kernel diverges from serial loop at width=120 (threshold=0.35)"
 
 
 def test_column_major_speedup_vs_row_major_reference():
@@ -110,8 +112,13 @@ def test_column_major_speedup_vs_row_major_reference():
 
     @njit(parallel=True, nogil=True, cache=False, fastmath=False)
     def _row_major_kernel(
-        bins_packed_rm, nbins, freqs_packed, freqs_offsets,
-        h_marginals, constant_mask, threshold,
+        bins_packed_rm,
+        nbins,
+        freqs_packed,
+        freqs_offsets,
+        h_marginals,
+        constant_mask,
+        threshold,
     ):
         n_samples, n_features = bins_packed_rm.shape
         flags = np.zeros((n_features, n_features), dtype=np.uint8)
@@ -162,7 +169,10 @@ def test_column_major_speedup_vs_row_major_reference():
     width = 800
     n_samples = 1500
     bins, names = _build_synthetic_bins(
-        n_samples=n_samples, n_features=width, n_bins=10, seed=3,
+        n_samples=n_samples,
+        n_features=width,
+        n_bins=10,
+        seed=3,
     )
     _, arrays = _resolve_columns(bins, names)
     marginals = [_column_marginal(a) for a in arrays]
@@ -173,25 +183,41 @@ def test_column_major_speedup_vs_row_major_reference():
 
     # JIT warmup for both paths
     _row_major_kernel(
-        bins_rm, nbins_arr, freqs_packed, freqs_offsets,
-        h_marginals, constant_mask, 0.4,
+        bins_rm,
+        nbins_arr,
+        freqs_packed,
+        freqs_offsets,
+        h_marginals,
+        constant_mask,
+        0.4,
     )
     cluster_correlated_features_su(
-        bins, threshold=0.4, feature_names=names, use_parallel=True,
+        bins,
+        threshold=0.4,
+        feature_names=names,
+        use_parallel=True,
     )
 
     # row-major reference timing
     t0 = time.perf_counter()
     _row_major_kernel(
-        bins_rm, nbins_arr, freqs_packed, freqs_offsets,
-        h_marginals, constant_mask, 0.4,
+        bins_rm,
+        nbins_arr,
+        freqs_packed,
+        freqs_offsets,
+        h_marginals,
+        constant_mask,
+        0.4,
     )
     t_rm = time.perf_counter() - t0
 
     # column-major (the landed path) timing
     t0 = time.perf_counter()
     cluster_correlated_features_su(
-        bins, threshold=0.4, feature_names=names, use_parallel=True,
+        bins,
+        threshold=0.4,
+        feature_names=names,
+        use_parallel=True,
     )
     t_cm = time.perf_counter() - t0
 

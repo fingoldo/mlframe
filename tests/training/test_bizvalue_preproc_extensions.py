@@ -35,8 +35,7 @@ try:
     from mlframe.training.core import train_mlframe_models_suite
 except Exception as exc:  # pragma: no cover
     pytest.skip(
-        "PreprocessingExtensionsConfig / suite not importable — feature from "
-        f"audit #02 may be pending. TODO: re-enable when available. ({exc!r})",
+        f"PreprocessingExtensionsConfig / suite not importable — feature from audit #02 may be pending. TODO: re-enable when available. ({exc!r})",
         allow_module_level=True,
     )
 
@@ -46,6 +45,7 @@ from .shared import SimpleFeaturesAndTargetsExtractor
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _extract_auroc(model_entry) -> float | None:
     """Best-effort AUROC extraction from a fitted model entry.
@@ -101,6 +101,7 @@ def _run_suite(df, models_list, tmp_path, ext_cfg, iters=80):
 # Test 1 — PCA dim_reducer at suite level (>=95% of baseline AUROC)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_pca_dim_reducer_suite_within_5pct_of_baseline(tmp_path, seed):
     rng = np.random.default_rng(seed)
@@ -121,21 +122,21 @@ def test_pca_dim_reducer_suite_within_5pct_of_baseline(tmp_path, seed):
     auroc_a, _ = _run_suite(df, ["linear"], tmp_path / "A", ext_cfg=None, iters=80)
 
     cfg = PreprocessingExtensionsConfig(
-        scaler="StandardScaler", dim_reducer="PCA", dim_n_components=15,
+        scaler="StandardScaler",
+        dim_reducer="PCA",
+        dim_n_components=15,
     )
     auroc_b, _ = _run_suite(df, ["linear"], tmp_path / "B", ext_cfg=cfg, iters=80)
 
-    print(f"\n[Test1 PCA] baseline AUROC={auroc_a:.4f}  pca AUROC={auroc_b:.4f}  "
-          f"delta={auroc_b - auroc_a:+.4f}  ratio={auroc_b / max(auroc_a, 1e-9):.3f}")
+    print(f"\n[Test1 PCA] baseline AUROC={auroc_a:.4f}  pca AUROC={auroc_b:.4f}  delta={auroc_b - auroc_a:+.4f}  ratio={auroc_b / max(auroc_a, 1e-9):.3f}")
 
-    assert auroc_b >= auroc_a * 0.95, (
-        f"PCA run regressed >5% vs baseline: A={auroc_a:.4f} B={auroc_b:.4f}"
-    )
+    assert auroc_b >= auroc_a * 0.95, f"PCA run regressed >5% vs baseline: A={auroc_a:.4f} B={auroc_b:.4f}"
 
 
 # ---------------------------------------------------------------------------
 # Test 2 — PolynomialFeatures(degree=2) helps linear model on XOR-like data
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_polynomial_features_lift_on_xor_like_data(tmp_path, seed):
@@ -164,18 +165,17 @@ def test_polynomial_features_lift_on_xor_like_data(tmp_path, seed):
     )
     auroc_b, _ = _run_suite(df, ["linear"], tmp_path / "B", ext_cfg=cfg, iters=100)
 
-    print(f"\n[Test2 Poly] baseline AUROC={auroc_a:.4f}  poly AUROC={auroc_b:.4f}  "
-          f"delta={auroc_b - auroc_a:+.4f}")
+    print(f"\n[Test2 Poly] baseline AUROC={auroc_a:.4f}  poly AUROC={auroc_b:.4f}  delta={auroc_b - auroc_a:+.4f}")
 
     assert auroc_b > auroc_a + 0.05, (
-        f"PolynomialFeatures(degree=2,interaction_only) failed to lift AUROC "
-        f"by 0.05 on XOR-like data: A={auroc_a:.4f} B={auroc_b:.4f}"
+        f"PolynomialFeatures(degree=2,interaction_only) failed to lift AUROC by 0.05 on XOR-like data: A={auroc_a:.4f} B={auroc_b:.4f}"
     )
 
 
 # ---------------------------------------------------------------------------
 # Test 3 (optional) — TF-IDF text-column path
 # ---------------------------------------------------------------------------
+
 
 # 2026-05-24 root cause + fix:
 # The previously-xfailing TF-IDF wiring bug was actually a pre-screen
@@ -248,7 +248,4 @@ def test_tfidf_column_path_lifts_auroc(tmp_path, seed):
     auroc_a = _run(use_text=False)
     auroc_b = _run(use_text=True)
     print(f"\n[Test3 TFIDF] baseline AUROC={auroc_a:.4f}  tfidf AUROC={auroc_b:.4f}  delta={auroc_b - auroc_a:+.4f}")
-    assert auroc_b > auroc_a + 0.05, (
-        f"TF-IDF on text column failed to lift AUROC by 0.05 over numeric-only baseline: "
-        f"A={auroc_a:.4f} B={auroc_b:.4f}"
-    )
+    assert auroc_b > auroc_a + 0.05, f"TF-IDF on text column failed to lift AUROC by 0.05 over numeric-only baseline: A={auroc_a:.4f} B={auroc_b:.4f}"

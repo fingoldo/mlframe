@@ -8,6 +8,7 @@ more missing fields correlate with the target, a classic insurance/credit-risk p
 the sentinel-count feature recovers signal a naive NaN-based (or no) missing-count feature would miss
 entirely.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -92,17 +93,13 @@ def test_biz_val_add_sentinel_missing_count_feature_per_column_sentinels_beats_g
 
     # A single global sentinel (-1) only ever matches block "a" -- block "b"'s -999 codes are invisible to it.
     global_only = add_sentinel_missing_count_feature(df, sentinel=-1.0)
-    auc_global = cross_val_score(
-        LogisticRegression(max_iter=500), global_only[["sentinel_missing_count"]].to_numpy(), y, cv=5, scoring="roc_auc"
-    ).mean()
+    auc_global = cross_val_score(LogisticRegression(max_iter=500), global_only[["sentinel_missing_count"]].to_numpy(), y, cv=5, scoring="roc_auc").mean()
 
     per_column = add_sentinel_missing_count_feature(
         df,
         per_column_sentinels={**{c: -1.0 for c in cols_a}, **{c: -999.0 for c in cols_b}},
     )
-    auc_per_column = cross_val_score(
-        LogisticRegression(max_iter=500), per_column[["sentinel_missing_count"]].to_numpy(), y, cv=5, scoring="roc_auc"
-    ).mean()
+    auc_per_column = cross_val_score(LogisticRegression(max_iter=500), per_column[["sentinel_missing_count"]].to_numpy(), y, cv=5, scoring="roc_auc").mean()
 
     assert auc_per_column > 0.85, f"expected per-column sentinel resolution to carry strong signal, got AUC={auc_per_column:.4f}"
     # Measured gap on this fixture is ~0.036 (AUC_per_column~0.995 vs AUC_global~0.960); threshold set below that with margin.
@@ -141,18 +138,13 @@ def test_biz_val_add_sentinel_missing_count_feature_auto_detect_sentinels():
     assert all(detected.get(c) == -999.0 for c in cols_b), f"expected -999.0 auto-detected on block b, got {detected}"
 
     auto = add_sentinel_missing_count_feature(df, auto_detect_sentinels=True)
-    auc_auto = cross_val_score(
-        LogisticRegression(max_iter=500), auto[["sentinel_missing_count"]].to_numpy(), y, cv=5, scoring="roc_auc"
-    ).mean()
+    auc_auto = cross_val_score(LogisticRegression(max_iter=500), auto[["sentinel_missing_count"]].to_numpy(), y, cv=5, scoring="roc_auc").mean()
 
     global_only = add_sentinel_missing_count_feature(df, sentinel=-1.0)
-    auc_global = cross_val_score(
-        LogisticRegression(max_iter=500), global_only[["sentinel_missing_count"]].to_numpy(), y, cv=5, scoring="roc_auc"
-    ).mean()
+    auc_global = cross_val_score(LogisticRegression(max_iter=500), global_only[["sentinel_missing_count"]].to_numpy(), y, cv=5, scoring="roc_auc").mean()
 
     assert auc_auto > 0.85, f"expected auto-detected per-column sentinels to carry strong signal, got AUC={auc_auto:.4f}"
     # Measured gap on this fixture is ~0.028 (AUC_auto~0.995 vs AUC_global~0.967); threshold set below that with margin.
     assert auc_auto > auc_global + 0.02, (
-        f"auto-detection (AUC={auc_auto:.4f}) should beat a single global sentinel blind to the second block "
-        f"(AUC={auc_global:.4f})"
+        f"auto-detection (AUC={auc_auto:.4f}) should beat a single global sentinel blind to the second block (AUC={auc_global:.4f})"
     )

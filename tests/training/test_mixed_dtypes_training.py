@@ -1,4 +1,5 @@
 from mlframe.training import OutputConfig, ReportingConfig
+
 """
 Integration test: train CatBoost on a synthetic Polars DataFrame with mixed dtypes
 matching a real production dataset shape.
@@ -36,10 +37,7 @@ def _make_synthetic_mixed_df(n_rows: int = 10_000, seed: int = 42) -> pl.DataFra
         cols[f"bool_{i}"] = pl.Series(f"bool_{i}", rng.choice([True, False], n_rows))
 
     # --- Categorical(68) ---
-    cat_pools = [
-        rng.choice([f"cat{j}" for j in range(k)], n_rows)
-        for k in rng.integers(3, 30, size=68)
-    ]
+    cat_pools = [rng.choice([f"cat{j}" for j in range(k)], n_rows) for k in rng.integers(3, 30, size=68)]
     for i, pool in enumerate(cat_pools):
         cols[f"cat_{i}"] = pl.Series(f"cat_{i}", pool).cast(pl.Categorical)
 
@@ -74,9 +72,7 @@ def _make_synthetic_mixed_df(n_rows: int = 10_000, seed: int = 42) -> pl.DataFra
         cols[f"i8_{i}"] = pl.Series(f"i8_{i}", rng.integers(-50, 50, n_rows, dtype=np.int8))
 
     # --- Target source column (mimics cl_act_total_hired) ---
-    cols["cl_act_total_hired"] = pl.Series(
-        "cl_act_total_hired", rng.integers(0, 5, n_rows, dtype=np.int16)
-    )
+    cols["cl_act_total_hired"] = pl.Series("cl_act_total_hired", rng.integers(0, 5, n_rows, dtype=np.int16))
 
     # --- Metadata columns to drop ---
     cols["uid"] = pl.Series("uid", np.arange(n_rows, dtype=np.int64))
@@ -108,7 +104,22 @@ class TestMixedDtypesTraining:
             verbose=1,
         )
 
-        mlframe_models, metadata = train_mlframe_models_suite(df=synthetic_df, target_name='H', model_name='prod_jobsdetails', features_and_targets_extractor=ft_extractor, mlframe_models=['cb'], use_ordinary_models=True, use_mlframe_ensembles=False, pipeline_config=PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding=None, scaler_name=None, imputer_strategy=None), split_config=TrainingSplitConfig(shuffle_val=False, shuffle_test=False, test_size=0.1, val_size=0.1, wholeday_splitting=False), hyperparams_config=ModelHyperparamsConfig(iterations=20, early_stopping_rounds=5), behavior_config=TrainingBehaviorConfig(prefer_calibrated_classifiers=False), reporting_config=ReportingConfig(show_perf_chart=True, show_fi=True), verbose=True, output_config=OutputConfig(data_dir=str(tmp_path / 'data')))
+        mlframe_models, metadata = train_mlframe_models_suite(
+            df=synthetic_df,
+            target_name="H",
+            model_name="prod_jobsdetails",
+            features_and_targets_extractor=ft_extractor,
+            mlframe_models=["cb"],
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            pipeline_config=PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding=None, scaler_name=None, imputer_strategy=None),
+            split_config=TrainingSplitConfig(shuffle_val=False, shuffle_test=False, test_size=0.1, val_size=0.1, wholeday_splitting=False),
+            hyperparams_config=ModelHyperparamsConfig(iterations=20, early_stopping_rounds=5),
+            behavior_config=TrainingBehaviorConfig(prefer_calibrated_classifiers=False),
+            reporting_config=ReportingConfig(show_perf_chart=True, show_fi=True),
+            verbose=True,
+            output_config=OutputConfig(data_dir=str(tmp_path / "data")),
+        )
 
         # Verify models were trained
         assert mlframe_models is not None

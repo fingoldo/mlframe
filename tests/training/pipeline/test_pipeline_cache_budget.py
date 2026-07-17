@@ -7,6 +7,7 @@ TOTAL host RAM (host-predictable, tunable via
 train_mlframe_models_suite(pipeline_cache_ram_budget_fraction=...)), still
 clamped to currently-available RAM minus a floor.
 """
+
 from __future__ import annotations
 
 import os
@@ -17,12 +18,11 @@ from mlframe.training.strategies import (
     _resolve_pipeline_cache_budget,
 )
 
-_GiB = 1024 ** 3
+_GiB = 1024**3
 
 
 def _clear_env():
-    for k in ("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT",
-              "MLFRAME_PIPELINE_CACHE_RAM_FRACTION"):
+    for k in ("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT", "MLFRAME_PIPELINE_CACHE_RAM_FRACTION"):
         os.environ.pop(k, None)
 
 

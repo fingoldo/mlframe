@@ -8,6 +8,7 @@ sklearn ``StratifiedGroupKFold`` when feasible, emitting a WARNING; only when
 the derived label is unusable does it fall back to GroupShuffleSplit, and then
 with a loud WARNING that proportions are not preserved.
 """
+
 from __future__ import annotations
 
 import builtins
@@ -53,8 +54,12 @@ def test_tc15_warns_and_uses_derived_stratification(monkeypatch, caplog):
     df, y, groups = _make_multilabel_data()
     with caplog.at_level(logging.WARNING, logger="mlframe.training.splitting"):
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.2,
-            stratify_y=y, groups=groups, random_seed=7,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            stratify_y=y,
+            groups=groups,
+            random_seed=7,
         )
     # The fallback emitted a WARNING (pre-fix this was INFO-only -> caplog empty).
     msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
@@ -85,8 +90,12 @@ def test_tc15_unusable_derived_falls_back_with_loud_warning(monkeypatch, caplog)
     y = np.stack([(np.arange(n) % 2), (np.arange(n) // (n - 1))], axis=1)
     with caplog.at_level(logging.WARNING, logger="mlframe.training.splitting"):
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.2,
-            stratify_y=y, groups=groups, random_seed=3,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            stratify_y=y,
+            groups=groups,
+            random_seed=3,
         )
     msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
     assert any("NOT PRESERVED" in m or "not preserved" in m.lower() for m in msgs), msgs

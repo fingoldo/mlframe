@@ -11,6 +11,7 @@ The measurable claims locked here:
    matched ``Sigmoid`` family delivers a low held-out ECE that is NOT materially worse than letting the full,
    over-flexible candidate set compete -- so a deployment that pins the matched family pays no honest-ECE penalty.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,8 +36,14 @@ def test_biz_val_policy_candidates_restriction_is_honored():
 
     raw, y = _make_sigmoid_miscalibrated(n=2000, seed=11)
     out = pick_best_calibrator(
-        probs=None, y=None, oof_probs=raw, oof_y=y,
-        candidates=("Sigmoid",), n_bootstrap=200, random_state=11, selection="same_oof",
+        probs=None,
+        y=None,
+        oof_probs=raw,
+        oof_y=y,
+        candidates=("Sigmoid",),
+        n_bootstrap=200,
+        random_state=11,
+        selection="same_oof",
     )
     assert out["chosen"] == "Sigmoid", out
     allowed = {"Sigmoid"}
@@ -60,6 +67,4 @@ def test_biz_val_policy_candidates_matched_family_no_ece_penalty():
 
     # The matched Sigmoid family should be within a small absolute ECE of the best the full pool can do; it must not
     # be materially worse (the distortion is in Sigmoid's natural domain). Floor absorbs bootstrap/inner-CV noise.
-    assert ece_restricted <= ece_full + 0.02, (
-        f"restricted Sigmoid ECE {ece_restricted:.4f} should be within 0.02 of full-pool ECE {ece_full:.4f}"
-    )
+    assert ece_restricted <= ece_full + 0.02, f"restricted Sigmoid ECE {ece_restricted:.4f} should be within 0.02 of full-pool ECE {ece_full:.4f}"

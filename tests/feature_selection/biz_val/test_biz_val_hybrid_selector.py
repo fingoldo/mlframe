@@ -11,6 +11,7 @@ engineered. depth>=2 lets the tree branch on the interaction operands together, 
 sign(a*b) interaction bed (operands with ~0 marginal signal, the regime MRMR's marginal-MI greedy structurally
 misses) this is the difference between engineering the recovering product columns and engineering nothing.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -22,8 +23,8 @@ import pytest
 from mlframe.feature_selection.hybrid_selector import HybridSelector
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _interaction_bed(seed: int = 0, n: int = 1000, p_noise: int = 4):
     """y = Bernoulli(sigmoid(3 * a*b)): a pure two-way interaction. a, b each carry ~0 MARGINAL signal (their
@@ -56,35 +57,37 @@ def test_biz_val_hybrid_tree_max_depth_recovers_interaction_products():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         stump = HybridSelector(
-            use_mrmr=True, use_fe=True, use_tree_member=True, tree_max_depth=1,
-            tree_n_estimators=40, tree_cooccur_pairs=6, fe_max_steps=0, random_state=0,
+            use_mrmr=True,
+            use_fe=True,
+            use_tree_member=True,
+            tree_max_depth=1,
+            tree_n_estimators=40,
+            tree_cooccur_pairs=6,
+            fe_max_steps=0,
+            random_state=0,
         ).fit(X, y)
         deep = HybridSelector(
-            use_mrmr=True, use_fe=True, use_tree_member=True, tree_max_depth=3,
-            tree_n_estimators=40, tree_cooccur_pairs=6, fe_max_steps=0, random_state=0,
+            use_mrmr=True,
+            use_fe=True,
+            use_tree_member=True,
+            tree_max_depth=3,
+            tree_n_estimators=40,
+            tree_cooccur_pairs=6,
+            fe_max_steps=0,
+            random_state=0,
         ).fit(X, y)
 
     stump_pairs = getattr(stump, "_tree_prod_pairs_", []) or []
     deep_pairs = getattr(deep, "_tree_prod_pairs_", []) or []
 
-    assert len(stump_pairs) == 0, (
-        f"a depth-1 stump cannot co-occur two features in one tree -> 0 co-occurrence pairs; got {len(stump_pairs)}"
-    )
-    assert stump.n_engineered_ == 0, (
-        f"with no co-occurrence pairs the stump must engineer 0 product columns; got {stump.n_engineered_}"
-    )
+    assert len(stump_pairs) == 0, f"a depth-1 stump cannot co-occur two features in one tree -> 0 co-occurrence pairs; got {len(stump_pairs)}"
+    assert stump.n_engineered_ == 0, f"with no co-occurrence pairs the stump must engineer 0 product columns; got {stump.n_engineered_}"
 
-    assert len(deep_pairs) >= 4, (
-        f"depth=3 must propose the interaction co-occurrence pairs (measured 14); got {len(deep_pairs)}"
-    )
-    assert deep.n_engineered_ >= 4, (
-        f"depth=3 must engineer the recovering interaction products (measured 11); got {deep.n_engineered_}"
-    )
+    assert len(deep_pairs) >= 4, f"depth=3 must propose the interaction co-occurrence pairs (measured 14); got {len(deep_pairs)}"
+    assert deep.n_engineered_ >= 4, f"depth=3 must engineer the recovering interaction products (measured 11); got {deep.n_engineered_}"
     # The true operand pair (inf_a, inf_b) must be among the proposed co-occurrence pairs at depth=3.
     deep_pair_sets = {frozenset(p) for p in deep_pairs}
-    assert frozenset({"inf_a", "inf_b"}) in deep_pair_sets, (
-        f"depth=3 must co-occur the true interaction operands (inf_a, inf_b); got pairs {deep_pairs}"
-    )
+    assert frozenset({"inf_a", "inf_b"}) in deep_pair_sets, f"depth=3 must co-occur the true interaction operands (inf_a, inf_b); got pairs {deep_pairs}"
 
 
 def test_biz_val_hybrid_tree_max_depth_recovers_interaction_products_fast():
@@ -101,12 +104,24 @@ def test_biz_val_hybrid_tree_max_depth_recovers_interaction_products_fast():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         stump = HybridSelector(
-            use_mrmr=True, use_fe=True, use_tree_member=True, tree_max_depth=1,
-            tree_n_estimators=30, tree_cooccur_pairs=4, fe_max_steps=0, random_state=0,
+            use_mrmr=True,
+            use_fe=True,
+            use_tree_member=True,
+            tree_max_depth=1,
+            tree_n_estimators=30,
+            tree_cooccur_pairs=4,
+            fe_max_steps=0,
+            random_state=0,
         ).fit(X, y)
         deep = HybridSelector(
-            use_mrmr=True, use_fe=True, use_tree_member=True, tree_max_depth=3,
-            tree_n_estimators=30, tree_cooccur_pairs=4, fe_max_steps=0, random_state=0,
+            use_mrmr=True,
+            use_fe=True,
+            use_tree_member=True,
+            tree_max_depth=3,
+            tree_n_estimators=30,
+            tree_cooccur_pairs=4,
+            fe_max_steps=0,
+            random_state=0,
         ).fit(X, y)
     stump_pairs = getattr(stump, "_tree_prod_pairs_", []) or []
     deep_pairs = getattr(deep, "_tree_prod_pairs_", []) or []

@@ -5,6 +5,7 @@ Covers:
 * `_PRE_PIPELINE_CACHE` X-content disambiguation: cache_key must distinguish two LRU slots when X frames have identical sampled cells but differ in unsampled rows.
 * DiscoveryCache byte-size estimator helper symmetric to MRMR `_mrmr_instance_state_size_bytes`.
 """
+
 from __future__ import annotations
 
 import os
@@ -59,9 +60,7 @@ def test_evict_lru_removes_sidecars_under_max_entries(tmp_path):
     pkl_keys = {fn[:-4] for fn in files if fn.endswith(".pkl") and not fn.endswith(".pkl.sha256")}
     sidecar_keys = {fn[: -len(".pkl.sha256")] for fn in files if fn.endswith(".pkl.sha256")}
     orphan_sidecars = sidecar_keys - pkl_keys
-    assert not orphan_sidecars, (
-        f"orphan .pkl.sha256 sidecars left on disk after eviction: {orphan_sidecars!r}"
-    )
+    assert not orphan_sidecars, f"orphan .pkl.sha256 sidecars left on disk after eviction: {orphan_sidecars!r}"
 
 
 def test_evict_lru_removes_sidecars_under_bytes_budget(tmp_path):
@@ -76,9 +75,7 @@ def test_evict_lru_removes_sidecars_under_bytes_budget(tmp_path):
     pkl_keys = {fn[:-4] for fn in files if fn.endswith(".pkl") and not fn.endswith(".pkl.sha256")}
     sidecar_keys = {fn[: -len(".pkl.sha256")] for fn in files if fn.endswith(".pkl.sha256")}
     orphan_sidecars = sidecar_keys - pkl_keys
-    assert not orphan_sidecars, (
-        f"orphan .pkl.sha256 sidecars left on disk after bytes eviction: {orphan_sidecars!r}"
-    )
+    assert not orphan_sidecars, f"orphan .pkl.sha256 sidecars left on disk after bytes eviction: {orphan_sidecars!r}"
 
 
 def test_total_bytes_accounts_for_sidecars(tmp_path):
@@ -99,10 +96,7 @@ def test_total_bytes_accounts_for_sidecars(tmp_path):
         for de in it:
             if de.is_file():
                 actual += de.stat().st_size
-    assert reported == actual, (
-        f"total_bytes() reported {reported} but on-disk footprint is {actual} "
-        f"(delta {actual - reported} -- sidecars not counted)"
-    )
+    assert reported == actual, f"total_bytes() reported {reported} but on-disk footprint is {actual} (delta {actual - reported} -- sidecars not counted)"
 
 
 # ---------------------------------------------------------------------------
@@ -133,8 +127,7 @@ def test_pre_pipeline_cache_key_distinguishes_x_content_with_shared_sample_cells
     # Without a stronger X discriminator the two keys collide because the 4-row sample stays identical.
     # The fix folds a full-frame blake2b into the key so any unsampled-row drift busts the cache.
     assert key_a != key_b, (
-        "pre-pipeline cache key collides when X frames differ only at unsampled rows -- "
-        "would replay the wrong fit-transform output across targets"
+        "pre-pipeline cache key collides when X frames differ only at unsampled rows -- would replay the wrong fit-transform output across targets"
     )
 
 
@@ -161,6 +154,4 @@ def test_discovery_cache_bytes_total_helper_walks_pkl_files(tmp_path):
         for de in it:
             if de.is_file() and (de.name.endswith(".pkl") or de.name.endswith(".pkl.sha256")):
                 actual += de.stat().st_size
-    assert reported == actual, (
-        f"_discovery_cache_bytes_total reported {reported}, on-disk pkl-set is {actual}"
-    )
+    assert reported == actual, f"_discovery_cache_bytes_total reported {reported}, on-disk pkl-set is {actual}"

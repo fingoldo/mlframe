@@ -11,6 +11,7 @@ selection.filters``) so they keep working through the move etapes via the
 ``__init__.py`` re-exports. Tests added here for functions that DON'T appear
 in ``__init__.py`` use ``pytest.importorskip`` patterns where appropriate.
 """
+
 from __future__ import annotations
 
 import math

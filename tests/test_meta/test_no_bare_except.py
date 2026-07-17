@@ -90,7 +90,7 @@ def test_no_new_bare_except_clauses():
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
         _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"bare-except baseline refreshed at {_BASELINE_PATH.name} " f"({len(current)} bare clauses)")
+        pytest.skip(f"bare-except baseline refreshed at {_BASELINE_PATH.name} ({len(current)} bare clauses)")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
@@ -99,7 +99,8 @@ def test_no_new_bare_except_clauses():
     if fixed:
         sys.stderr.write(
             f"\n[test_no_new_bare_except_clauses] {len(fixed)} site(s) "
-            f"DRAINED:\n  " + "\n  ".join(fixed[:15])
+            f"DRAINED:\n  "
+            + "\n  ".join(fixed[:15])
             + (f"\n  ... and {len(fixed) - 15} more" if len(fixed) > 15 else "")
             + "\n  Refresh: pytest ... --refresh-bare-except-baseline\n"
         )

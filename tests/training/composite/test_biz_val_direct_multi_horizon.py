@@ -8,6 +8,7 @@ regression-dilution bias), that bias compounds multiplicatively across H recursi
 features every time -- no feedback loop, so the per-horizon error is a one-shot estimation error, not a
 compounded one. Pooled RMSE across all horizons should be materially lower for the direct strategy.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -61,7 +62,9 @@ def test_biz_val_direct_multi_horizon_beats_recursive_forecaster_pooled_rmse():
     rmse_direct = float(np.sqrt(np.mean((pred_direct - Y_test) ** 2)))
     improvement = 1.0 - rmse_direct / rmse_recursive
 
-    assert improvement > 0.15, f"expected >15% pooled RMSE reduction vs. the recursive forecaster, got {improvement:.4f} (recursive={rmse_recursive:.4f}, direct={rmse_direct:.4f})"
+    assert improvement > 0.15, (
+        f"expected >15% pooled RMSE reduction vs. the recursive forecaster, got {improvement:.4f} (recursive={rmse_recursive:.4f}, direct={rmse_direct:.4f})"
+    )
 
 
 def test_direct_multi_horizon_grouped_blocks_multi_output():

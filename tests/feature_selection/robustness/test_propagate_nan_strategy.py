@@ -23,6 +23,7 @@ Fix at discretization.py:394 + :1027 + docstring at :373:
   ``propagate`` would "route to the lowest bin or raise" which was
   never the actual behaviour.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,7 +45,8 @@ def test_propagate_does_not_collide_nan_with_top_real_bin():
 
     data, cols, nbins = categorize_dataset(
         df=pd.DataFrame({"x": x}),
-        n_bins=4, dtype=np.int16,
+        n_bins=4,
+        dtype=np.int16,
         missing_strategy="propagate",
         nbins_strategy=None,
     )
@@ -52,11 +54,7 @@ def test_propagate_does_not_collide_nan_with_top_real_bin():
     real_codes = {int(c) for c in codes[~np.isnan(x)]}
     nan_codes = {int(c) for c in codes[np.isnan(x)]}
     collision = real_codes & nan_codes
-    assert not collision, (
-        f"propagate must put NaN in a dedicated bin; got "
-        f"nan_codes={nan_codes}, real_codes={sorted(real_codes)}, "
-        f"collision={collision}"
-    )
+    assert not collision, f"propagate must put NaN in a dedicated bin; got nan_codes={nan_codes}, real_codes={sorted(real_codes)}, collision={collision}"
 
 
 def test_propagate_preserves_nan_as_signal():
@@ -76,8 +74,10 @@ def test_propagate_preserves_nan_as_signal():
 
     data, cols, nbins = categorize_dataset(
         df=pd.DataFrame({"x": x, "y": y}),
-        n_bins=4, dtype=np.int16,
-        missing_strategy="propagate", nbins_strategy=None,
+        n_bins=4,
+        dtype=np.int16,
+        missing_strategy="propagate",
+        nbins_strategy=None,
     )
     mi_val = mi(
         data,
@@ -112,17 +112,19 @@ def test_propagate_and_separate_bin_produce_equivalent_results():
     for strat in ("separate_bin", "propagate"):
         data, cols, nbins = categorize_dataset(
             df=pd.DataFrame({"x": x, "y": y}),
-            n_bins=4, dtype=np.int16,
-            missing_strategy=strat, nbins_strategy=None,
+            n_bins=4,
+            dtype=np.int16,
+            missing_strategy=strat,
+            nbins_strategy=None,
         )
-        miv[strat] = float(mi(
-            data,
-            np.array([cols.index("x")], dtype=np.int64),
-            np.array([cols.index("y")], dtype=np.int64),
-            nbins,
-        ))
+        miv[strat] = float(
+            mi(
+                data,
+                np.array([cols.index("x")], dtype=np.int64),
+                np.array([cols.index("y")], dtype=np.int64),
+                nbins,
+            )
+        )
     assert abs(miv["separate_bin"] - miv["propagate"]) < 1e-10, (
-        f"propagate must equal separate_bin: "
-        f"separate_bin={miv['separate_bin']:.6f}, "
-        f"propagate={miv['propagate']:.6f}"
+        f"propagate must equal separate_bin: separate_bin={miv['separate_bin']:.6f}, propagate={miv['propagate']:.6f}"
     )

@@ -31,11 +31,13 @@ def test_pipeline_predict_handles_nan():
     X_train.iloc[0, 0] = np.nan
     y_train = rng.normal(size=100)
 
-    pipe = Pipeline([
-        ("imp", SimpleImputer(strategy="mean")),
-        ("scl", StandardScaler()),
-        ("lr", LinearRegression()),
-    ])
+    pipe = Pipeline(
+        [
+            ("imp", SimpleImputer(strategy="mean")),
+            ("scl", StandardScaler()),
+            ("lr", LinearRegression()),
+        ]
+    )
     pipe.fit(X_train, y_train)
 
     X_test = pd.DataFrame(rng.normal(size=(20, 4)), columns=list("abcd"))
@@ -77,35 +79,43 @@ def test_prepare_test_split_transforms_even_when_skip_flag_is_true():
     skip_pre_pipeline_transform=True (from cached_dfs), but test_df MUST
     still be transformed.  Without this, NaN reaches LinearRegression."""
     from mlframe.training.pipeline._pipeline_helpers import (
-        _prepare_test_split, _is_fitted,
+        _prepare_test_split,
+        _is_fitted,
     )
 
     rng = np.random.default_rng(0)
-    X_train_raw = pd.DataFrame({
-        "a": rng.normal(size=200),
-        "b": rng.normal(size=200),
-    })
+    X_train_raw = pd.DataFrame(
+        {
+            "a": rng.normal(size=200),
+            "b": rng.normal(size=200),
+        }
+    )
     X_train_raw.iloc[10, 0] = np.nan
 
-    pre_pipeline = Pipeline([
-        ("imp", SimpleImputer(strategy="mean")),
-        ("scl", StandardScaler()),
-    ])
+    pre_pipeline = Pipeline(
+        [
+            ("imp", SimpleImputer(strategy="mean")),
+            ("scl", StandardScaler()),
+        ]
+    )
     y_train = rng.normal(size=200)  # NaN-free target
     pre_pipeline.fit(X_train_raw, y_train)
     assert _is_fitted(pre_pipeline), "pre_pipeline must be fitted"
 
-    X_test = pd.DataFrame({
-        "a": rng.normal(size=50),
-        "b": rng.normal(size=50),
-    })
+    X_test = pd.DataFrame(
+        {
+            "a": rng.normal(size=50),
+            "b": rng.normal(size=50),
+        }
+    )
     X_test.iloc[20, 1] = np.nan
 
     test_target = rng.normal(size=50)  # NaN-free test target
 
     # Model trained on pre_pipeline-transformed data
     model = LinearRegression().fit(
-        pre_pipeline.transform(X_train_raw), y_train,
+        pre_pipeline.transform(X_train_raw),
+        y_train,
     )
 
     # Simulate the cache-hit path: skip_pre_pipeline_transform=True
@@ -147,7 +157,9 @@ def test_mlp_predict_returns_nan_silently_on_nan_input():
     from functools import partial
     from sklearn.compose import TransformedTargetRegressor
     from mlframe.training.neural import (
-        PytorchLightningRegressor, MLPTorchModel, TorchDataModule,
+        PytorchLightningRegressor,
+        MLPTorchModel,
+        TorchDataModule,
         MLPNeuronsByLayerArchitecture,
     )
 
@@ -157,49 +169,68 @@ def test_mlp_predict_returns_nan_silently_on_nan_input():
     y_train = rng.normal(size=n).astype(np.float32)
 
     network_params = {
-        "nlayers": 2, "first_layer_num_neurons": 8, "min_layer_neurons": 4,
+        "nlayers": 2,
+        "first_layer_num_neurons": 8,
+        "min_layer_neurons": 4,
         "neurons_by_layer_arch": MLPNeuronsByLayerArchitecture.Constant,
         "consec_layers_neurons_ratio": 1.0,
         "activation_function": torch.nn.ReLU,
         "weights_init_fcn": partial(nn.init.kaiming_normal_, nonlinearity="relu"),
-        "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
+        "dropout_prob": 0.0,
+        "inputs_dropout_prob": 0.0,
         "use_batchnorm": False,
     }
     model_params = {
-        "loss_fn": F.mse_loss, "learning_rate": 1e-3,
-        "optimizer": torch.optim.Adam, "optimizer_kwargs": {},
-        "lr_scheduler": None, "lr_scheduler_kwargs": {},
+        "loss_fn": F.mse_loss,
+        "learning_rate": 1e-3,
+        "optimizer": torch.optim.Adam,
+        "optimizer_kwargs": {},
+        "lr_scheduler": None,
+        "lr_scheduler_kwargs": {},
     }
     datamodule_params = {
-        "read_fcn": None, "data_placement_device": None,
-        "features_dtype": torch.float32, "labels_dtype": torch.float32,
+        "read_fcn": None,
+        "data_placement_device": None,
+        "features_dtype": torch.float32,
+        "labels_dtype": torch.float32,
         "dataloader_params": {"batch_size": 16, "num_workers": 0},
     }
     trainer_params = {
-        "max_epochs": 1, "enable_model_summary": False,
-        "log_every_n_steps": 1, "devices": "1",
-        "logger": False, "default_root_dir": None,
+        "max_epochs": 1,
+        "enable_model_summary": False,
+        "log_every_n_steps": 1,
+        "devices": "1",
+        "logger": False,
+        "default_root_dir": None,
         "accelerator": "cpu",
     }
     inner = PytorchLightningRegressor(
-        model_class=MLPTorchModel, model_params=model_params,
-        network_params=network_params, datamodule_class=TorchDataModule,
-        datamodule_params=datamodule_params, trainer_params=trainer_params,
+        model_class=MLPTorchModel,
+        model_params=model_params,
+        network_params=network_params,
+        datamodule_class=TorchDataModule,
+        datamodule_params=datamodule_params,
+        trainer_params=trainer_params,
     )
+
     # Wrap in TTR so we match production wiring
     class _TTR(TransformedTargetRegressor):
         def fit(self, X, y, **fit_params):
             from sklearn.base import clone as _clone
+
             y_arr = np.asarray(y, dtype=np.float64)
             y_2d = y_arr.reshape(-1, 1) if y_arr.ndim == 1 else y_arr
             self.transformer_ = _clone(self.transformer) if self.transformer is not None else None
             if self.transformer_ is not None:
                 self.transformer_.fit(y_2d)
             return super().fit(X, y, **fit_params)
-    mlp = Pipeline([
-        ("scl_x", StandardScaler()),
-        ("mlp", _TTR(regressor=inner, transformer=StandardScaler())),
-    ])
+
+    mlp = Pipeline(
+        [
+            ("scl_x", StandardScaler()),
+            ("mlp", _TTR(regressor=inner, transformer=StandardScaler())),
+        ]
+    )
     mlp.fit(X_train, y_train)
 
     # Predict on data WITH NaN — MLP silently returns NaN

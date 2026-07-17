@@ -7,6 +7,7 @@ boundary-walk). For every VALID group (>=2 samples, both classes present) the
 (roc_auc, pr_auc) must be bit-identical between the two paths. Degenerate groups are
 allowed to differ (the dispatch corrects the prior silent ``(0.0, 0.0)`` to NaN).
 """
+
 from __future__ import annotations
 
 import numpy as np

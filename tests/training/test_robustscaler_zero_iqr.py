@@ -28,7 +28,7 @@ def _frame(n: int = 200, with_allnull: bool = False) -> pl.DataFrame:
     rng = np.random.default_rng(0)
     data = {
         "a": rng.normal(size=n),
-        "const": np.full(n, 3.5),          # zero-IQR / zero-std / zero-range
+        "const": np.full(n, 3.5),  # zero-IQR / zero-std / zero-range
         "b": rng.normal(size=n) * 5.0,
     }
     if with_allnull:
@@ -72,9 +72,7 @@ def test_apply_safe_scaler_guards_explicit_zero_iqr_column():
 
     df = _frame(with_allnull=True)
     bp = PdsBlueprint(df, name="t")
-    bp = _apply_safe_scaler(
-        bp, df, scaler_name="robust", requested_cols=["a", "const", "allnull"]
-    )
+    bp = _apply_safe_scaler(bp, df, scaler_name="robust", requested_cols=["a", "const", "allnull"])
     out = bp.materialize().transform(df)
     # allnull is passed through (NaN by construction); only the scaled/identity
     # columns must stay finite.

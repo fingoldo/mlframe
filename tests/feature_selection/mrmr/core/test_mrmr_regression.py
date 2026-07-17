@@ -27,6 +27,7 @@ from mlframe.feature_selection.filters import (
     compute_mi_from_classes,
 )
 
+
 class TestMRMRRegression:
     """Test MRMR on regression tasks."""
 
@@ -34,13 +35,7 @@ class TestMRMRRegression:
         """Test MRMR identifies informative features in regression."""
         X, y, informative_indices = simple_regression_data
 
-        mrmr = MRMR(
-            full_npermutations=5,
-            baseline_npermutations=5,
-            min_relevance_gain=0.001,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=5, baseline_npermutations=5, min_relevance_gain=0.001, verbose=0, n_jobs=1)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -54,29 +49,21 @@ class TestMRMRRegression:
         # undercounts. Credit engineered references to informative columns.
         # Still falsifiable: an all-noise selection references no informative col.
         from tests.feature_selection._biz_val_synth import signal_recovery_count
-        overlap = signal_recovery_count(mrmr, list(informative_indices),
-                                        prefix="informative_")
-        assert overlap >= 1, (
-            f"No informative features detected (raw or engineered); "
-            f"names={list(mrmr.get_feature_names_out())}"
-        )
+
+        overlap = signal_recovery_count(mrmr, list(informative_indices), prefix="informative_")
+        assert overlap >= 1, f"No informative features detected (raw or engineered); names={list(mrmr.get_feature_names_out())}"
 
     def test_nonlinear_regression(self, nonlinear_transform_data):
         """Test MRMR on data with nonlinear relationships."""
         X, y, informative_names = nonlinear_transform_data
 
-        mrmr = MRMR(
-            full_npermutations=5,
-            baseline_npermutations=5,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=5, baseline_npermutations=5, verbose=0, n_jobs=1)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             mrmr.fit(X, y)
 
-        assert hasattr(mrmr, 'n_features_')
+        assert hasattr(mrmr, "n_features_")
         assert mrmr.n_features_ > 0
 
 
@@ -85,5 +72,5 @@ class TestMRMRRegression:
 # ================================================================================================
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '--tb=short', '-x'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--tb=short", "-x"])

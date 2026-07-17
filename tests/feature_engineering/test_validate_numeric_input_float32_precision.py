@@ -10,6 +10,7 @@ Pre-2026-05-20 the validator accepted int inputs unconditionally. The warning
 now surfaces the precision loss at validation time so callers can promote to
 float64 or rescale upstream.
 """
+
 from __future__ import annotations
 
 import warnings

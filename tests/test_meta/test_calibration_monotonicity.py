@@ -29,13 +29,11 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 
-@settings(deadline=None, max_examples=15,
-          suppress_health_check=[HealthCheck.too_slow])
+@settings(deadline=None, max_examples=15, suppress_health_check=[HealthCheck.too_slow])
 @given(
     n=st.integers(min_value=200, max_value=800),
     k=st.integers(min_value=2, max_value=4),
-    miscal=st.floats(min_value=-0.4, max_value=0.4,
-                     allow_nan=False, allow_infinity=False),
+    miscal=st.floats(min_value=-0.4, max_value=0.4, allow_nan=False, allow_infinity=False),
     seed=st.integers(min_value=0, max_value=10_000),
 )
 def test_isotonic_calibration_does_not_worsen_per_label_brier(n, k, miscal, seed):
@@ -61,16 +59,21 @@ def test_isotonic_calibration_does_not_worsen_per_label_brier(n, k, miscal, seed
     # raise training Brier slightly on already-calibrated inputs), so this isotonic property test must
     # request isotonic explicitly rather than rely on the default.
     cal = _PerClassIsotonicCalibrator.fit(
-        p_miscal, y, TargetTypes.MULTILABEL_CLASSIFICATION, method="isotonic",
+        p_miscal,
+        y,
+        TargetTypes.MULTILABEL_CLASSIFICATION,
+        method="isotonic",
     )
     calibrated = cal.predict_proba(p_miscal)
 
     for col in range(k):
         before = fast_brier_score_loss(
-            y[:, col].astype(np.float64), p_miscal[:, col],
+            y[:, col].astype(np.float64),
+            p_miscal[:, col],
         )
         after = fast_brier_score_loss(
-            y[:, col].astype(np.float64), calibrated[:, col],
+            y[:, col].astype(np.float64),
+            calibrated[:, col],
         )
         assert after <= before + 1e-6, (
             f"isotonic calibration worsened per-label Brier on training "
@@ -94,7 +97,9 @@ def test_isotonic_calibration_constant_label_returns_identity():
     y = np.zeros((n, k), dtype=np.int8)  # constant: all-negative across all labels
 
     cal = _PerClassIsotonicCalibrator.fit(
-        p, y, TargetTypes.MULTILABEL_CLASSIFICATION,
+        p,
+        y,
+        TargetTypes.MULTILABEL_CLASSIFICATION,
     )
     out = cal.predict_proba(p)
     assert out.shape == p.shape
@@ -106,6 +111,7 @@ def test_brier_score_in_unit_interval_for_random_input():
     """Sanity for ``fast_brier_score_loss`` itself — Brier on
     [0, 1] inputs must stay in [0, 1]. Backstop for a metric refactor."""
     from mlframe.metrics.core import fast_brier_score_loss
+
     rng = np.random.default_rng(42)
     for _ in range(5):
         n = rng.integers(50, 500)

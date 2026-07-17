@@ -23,6 +23,7 @@ same ``_passthrough_cols_fit_transform`` wrapper around
 ``pre_pipeline.transform`` so the predict-time frame width matches
 the fit-time frame width.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -82,17 +83,21 @@ def _build_minimal_suite():
     """
     rng = np.random.default_rng(0)
     n = 100
-    df = pd.DataFrame({
-        "x0": rng.standard_normal(n).astype(np.float64),
-        "x1": rng.standard_normal(n).astype(np.float64),
-        "text_col": np.array(["t" + str(i % 5) for i in range(n)], dtype=object),
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.standard_normal(n).astype(np.float64),
+            "x1": rng.standard_normal(n).astype(np.float64),
+            "text_col": np.array(["t" + str(i % 5) for i in range(n)], dtype=object),
+        }
+    )
     y = rng.standard_normal(n).astype(np.float64)
 
     # pre_pipeline fitted on numeric-only (post-passthrough-hide).
-    pre_pipeline = Pipeline([
-        ("pre", _SelectFirstNCols(kept_cols=["x0"])),
-    ])
+    pre_pipeline = Pipeline(
+        [
+            ("pre", _SelectFirstNCols(kept_cols=["x0"])),
+        ]
+    )
     pre_pipeline.fit(df[["x0", "x1"]])
 
     # Inner model fitted on post-MRMR+reattach frame (numeric + text).
@@ -154,6 +159,7 @@ def test_predict_replays_passthrough_cols_when_pre_pipeline_drops_them() -> None
     via ``_passthrough_cols_fit_transform`` so text_col makes it
     through to the inner model alongside the MRMR-selected numeric."""
     from mlframe.training.core.predict import predict_from_models
+
     df, models, metadata, inner = _build_minimal_suite()
     # Run predict; the inner Ridge will internally just use ``x0``,
     # but the pre_pipeline output the inner saw must include ``text_col``
@@ -161,9 +167,12 @@ def test_predict_replays_passthrough_cols_when_pre_pipeline_drops_them() -> None
     # frame shape, so instead we verify ``predict_from_models`` returns
     # WITHOUT raising the iter-59 ValueError-equivalent.
     result = predict_from_models(
-        df=df, models=models, metadata=metadata,
+        df=df,
+        models=models,
+        metadata=metadata,
         features_and_targets_extractor=None,
-        return_probabilities=False, verbose=0,
+        return_probabilities=False,
+        verbose=0,
     )
     # Predict must succeed and produce one model's output.
     assert isinstance(result, dict)
@@ -180,6 +189,7 @@ def test_passthrough_cols_actually_make_it_through_pre_pipeline() -> None:
     cols are re-attached. This isolates the fix without the full
     predict_from_models machinery."""
     from mlframe.training.pipeline._pipeline_helpers import _passthrough_cols_fit_transform
+
     df, models, metadata, _ = _build_minimal_suite()
     pre_pipeline = models["regression"]["y_MRMR"][0].pre_pipeline
 

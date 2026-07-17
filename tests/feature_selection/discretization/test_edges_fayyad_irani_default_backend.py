@@ -17,6 +17,7 @@ These tests pin:
   (3) Explicit backend='python' still works (legacy A/B-test path
       remains operational).
 """
+
 from __future__ import annotations
 
 import inspect
@@ -52,14 +53,10 @@ def test_default_equivalent_to_python_backend_on_small_data():
     edges_python = edges_fayyad_irani(x, y, backend="python")
 
     # Edge counts must match.
-    assert edges_default.size == edges_python.size, (
-        f"njit produced {edges_default.size} edges, python {edges_python.size}"
-    )
+    assert edges_default.size == edges_python.size, f"njit produced {edges_default.size} edges, python {edges_python.size}"
     # Sort + compare (both backends collect splits in the same algorithmic
     # order, but the result is a sorted edge list).
-    np.testing.assert_allclose(
-        np.sort(edges_default), np.sort(edges_python), atol=1e-8
-    )
+    np.testing.assert_allclose(np.sort(edges_default), np.sort(edges_python), atol=1e-8)
 
 
 def test_explicit_python_backend_still_works():
@@ -99,12 +96,8 @@ def test_per_feature_edges_uses_njit_default():
 
     call_record = {"njit": 0, "python": 0}
 
-    real_njit = pytest.importorskip(
-        "mlframe.feature_selection.filters.supervised_binning"
-    )._mdlp_recurse_njit
-    real_python = pytest.importorskip(
-        "mlframe.feature_selection.filters.supervised_binning"
-    )._mdlp_recurse
+    real_njit = pytest.importorskip("mlframe.feature_selection.filters.supervised_binning")._mdlp_recurse_njit
+    real_python = pytest.importorskip("mlframe.feature_selection.filters.supervised_binning")._mdlp_recurse
 
     def fake_njit(*args, **kwargs):
         call_record["njit"] += 1
@@ -114,22 +107,21 @@ def test_per_feature_edges_uses_njit_default():
         call_record["python"] += 1
         return real_python(*args, **kwargs)
 
-    with patch(
-        "mlframe.feature_selection.filters.supervised_binning._mdlp_recurse_njit",
-        side_effect=fake_njit,
-    ), patch(
-        "mlframe.feature_selection.filters.supervised_binning._mdlp_recurse",
-        side_effect=fake_python,
+    with (
+        patch(
+            "mlframe.feature_selection.filters.supervised_binning._mdlp_recurse_njit",
+            side_effect=fake_njit,
+        ),
+        patch(
+            "mlframe.feature_selection.filters.supervised_binning._mdlp_recurse",
+            side_effect=fake_python,
+        ),
     ):
         per_feature_edges(x, y, method="fayyad_irani")
 
-    assert call_record["njit"] >= 1, (
-        "per_feature_edges with empty kwargs must route to _mdlp_recurse_njit; "
-        f"call record: {call_record}"
-    )
+    assert call_record["njit"] >= 1, f"per_feature_edges with empty kwargs must route to _mdlp_recurse_njit; call record: {call_record}"
     assert call_record["python"] == 0, (
-        "per_feature_edges with empty kwargs must NOT route to legacy "
-        f"_mdlp_recurse (the 1566s/1700s @500k hotspot); call record: {call_record}"
+        f"per_feature_edges with empty kwargs must NOT route to legacy _mdlp_recurse (the 1566s/1700s @500k hotspot); call record: {call_record}"
     )
 
 

@@ -98,8 +98,7 @@ def xor_fixture():
 class TestResolveDefaults:
     def test_max_combined_nbins_explicit_value_clamped(self):
         cfg = CatFEConfig(max_combined_nbins=10**9)
-        assert resolve_max_combined_nbins(cfg, n_samples=1000) == 10**7, \
-            "User value > 10**7 must clamp to hard cap (SB10 / F18)"
+        assert resolve_max_combined_nbins(cfg, n_samples=1000) == 10**7, "User value > 10**7 must clamp to hard cap (SB10 / F18)"
 
     def test_max_combined_nbins_none_uses_paninski(self):
         """``None`` resolves to ``max(4, n*0.05/3 + 1)``."""
@@ -130,8 +129,11 @@ class TestValidationGates:
         cfg = CatFEConfig()
         state = CatFEState()
         kept = _select_candidate_indices(
-            nbins=nbins, categorical_vars=[0, 1, 2],
-            cfg=cfg, state=state, n_samples=1000,
+            nbins=nbins,
+            categorical_vars=[0, 1, 2],
+            cfg=cfg,
+            state=state,
+            n_samples=1000,
         )
         assert kept == [1, 2]
         assert 0 in state.dropped_singleton_nbins
@@ -143,8 +145,11 @@ class TestValidationGates:
         state = CatFEState()
         with pytest.warns(UserWarning, match="(?i)skipping"):
             kept = _select_candidate_indices(
-                nbins=nbins, categorical_vars=[0, 1],
-                cfg=cfg, state=state, n_samples=1000,
+                nbins=nbins,
+                categorical_vars=[0, 1],
+                cfg=cfg,
+                state=state,
+                n_samples=1000,
             )
         assert kept == [0]
         assert (1, 1000) in state.high_cardinality_warnings
@@ -155,8 +160,11 @@ class TestValidationGates:
         state = CatFEState()
         with pytest.raises(ValueError, match="(?i)high-cardinality"):
             _select_candidate_indices(
-                nbins=nbins, categorical_vars=[0, 1],
-                cfg=cfg, state=state, n_samples=1000,
+                nbins=nbins,
+                categorical_vars=[0, 1],
+                cfg=cfg,
+                state=state,
+                n_samples=1000,
             )
 
     def test_orchestrator_below_min_n_returns_input(self):
@@ -168,12 +176,17 @@ class TestValidationGates:
         classes_y = np.zeros(50, dtype=np.int32)
         freqs_y = np.array([1.0], dtype=np.float32)
         out = run_cat_interaction_step(
-            data=data, cols=["a", "b", "y"], nbins=nbins,
+            data=data,
+            cols=["a", "b", "y"],
+            nbins=nbins,
             target_indices=target_indices,
-            classes_y=classes_y, classes_y_safe=classes_y,
+            classes_y=classes_y,
+            classes_y_safe=classes_y,
             freqs_y=freqs_y,
             categorical_vars=[0, 1],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         # Inputs unchanged; state empty.
         out_data, out_cols, out_nbins, state = out
@@ -187,13 +200,16 @@ class TestValidationGates:
         data = np.zeros((300, 2), dtype=np.int32)
         with pytest.raises(ValueError, match="empty target_indices"):
             run_cat_interaction_step(
-                data=data, cols=["a", "b"], nbins=nbins,
+                data=data,
+                cols=["a", "b"],
+                nbins=nbins,
                 target_indices=np.array([], dtype=np.int64),
                 classes_y=np.zeros(300, dtype=np.int32),
                 classes_y_safe=np.zeros(300, dtype=np.int32),
                 freqs_y=np.array([1.0], dtype=np.float32),
                 categorical_vars=[0, 1],
-                cfg=cfg, dtype=np.int32,
+                cfg=cfg,
+                dtype=np.int32,
             )
 
 
@@ -227,12 +243,15 @@ class TestMarginalScreen:
                 factors_nbins=xor_fixture["nbins"],
                 dtype=np.int32,
             )
-            ref.append(compute_mi_from_classes(
-                classes_x=cls_x, freqs_x=fx,
-                classes_y=xor_fixture["classes_y"],
-                freqs_y=xor_fixture["freqs_y"],
-                dtype=np.int32,
-            ))
+            ref.append(
+                compute_mi_from_classes(
+                    classes_x=cls_x,
+                    freqs_x=fx,
+                    classes_y=xor_fixture["classes_y"],
+                    freqs_y=xor_fixture["freqs_y"],
+                    dtype=np.int32,
+                )
+            )
         np.testing.assert_allclose(out, ref, rtol=1e-6)
 
     def test_xor_marginals_near_zero(self, xor_fixture):
@@ -247,8 +266,7 @@ class TestMarginalScreen:
         )
         # XOR marginals: I(x1; y) = 0 in expectation. With n=1500 the
         # finite-sample noise is small but nonzero; loosely bounded.
-        assert (out < 0.05).all(), \
-            f"XOR marginals should be ~0; got {out}"
+        assert (out < 0.05).all(), f"XOR marginals should be ~0; got {out}"
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +297,8 @@ class TestPairSearchKernel:
         pairs_b = np.array([1], dtype=np.int64)
         joint_mi, ii, n_uniq = _pair_search_kernel_njit(
             factors_data=xor_fixture["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
             marginal_mi=marginal_mi_full,
             nbins=xor_fixture["nbins"],
             classes_y=xor_fixture["classes_y"],
@@ -311,7 +330,8 @@ class TestPairSearchKernel:
         pairs_b = np.array([3], dtype=np.int64)
         _, ii, _ = _pair_search_kernel_njit(
             factors_data=xor_fixture["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
             marginal_mi=marginal_mi_full,
             nbins=xor_fixture["nbins"],
             classes_y=xor_fixture["classes_y"],
@@ -349,7 +369,9 @@ class TestOrchestratorEndToEnd:
             classes_y_safe=xor_fixture["classes_y"],
             freqs_y=xor_fixture["freqs_y"],
             categorical_vars=xor_fixture["categorical_vars"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         # Augmented: original 9 cols + at least 1 engineered.
         assert data_out.shape[1] > xor_fixture["data"].shape[1]
@@ -358,13 +380,11 @@ class TestOrchestratorEndToEnd:
 
         # The (x1, x2) pair MUST be among the recipes.
         recipe_srcs = [r.src_names for r in state.recipes]
-        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, \
-            f"Expected (x1, x2) pair in recipes; got {recipe_srcs}"
+        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, f"Expected (x1, x2) pair in recipes; got {recipe_srcs}"
 
         # Diagnostics populated for every engineered name (cfg.emit_diagnostics=True default)
         for r in state.recipes:
-            assert r.name in state.diagnostics, \
-                f"Missing diagnostics for engineered '{r.name}'"
+            assert r.name in state.diagnostics, f"Missing diagnostics for engineered '{r.name}'"
             d = state.diagnostics[r.name]
             assert "II" in d
             assert "joint_MI" in d
@@ -387,7 +407,9 @@ class TestOrchestratorEndToEnd:
             classes_y_safe=xor_fixture["classes_y"],
             freqs_y=xor_fixture["freqs_y"],
             categorical_vars=xor_fixture["categorical_vars"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         assert data_out.shape == xor_fixture["data"].shape
         assert cols_out == xor_fixture["cols"]
@@ -404,22 +426,23 @@ class TestOrchestratorEndToEnd:
             fwer_correction="none",
         )
         data_out, _, nbins_out, state = run_cat_interaction_step(
-            data=xor_fixture["data"], cols=xor_fixture["cols"],
+            data=xor_fixture["data"],
+            cols=xor_fixture["cols"],
             nbins=xor_fixture["nbins"],
             target_indices=np.array([xor_fixture["target_idx"]], dtype=np.int64),
             classes_y=xor_fixture["classes_y"],
             classes_y_safe=xor_fixture["classes_y"],
             freqs_y=xor_fixture["freqs_y"],
             categorical_vars=xor_fixture["categorical_vars"],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         # !TODO! Verify that the engineered column for the XOR pair (x1, x2) has the expected ordinal encoding.
         # Earlier scaffolding computed a rough index here but never asserted on values; recover by matching state.recipes order
         # (recipes are appended in selected_idx order) when this test is fleshed out.
         # nbins_out for engineered cols should include 4 (the XOR full table)
-        engineered_nbins = nbins_out[xor_fixture["data"].shape[1]:]
-        assert (engineered_nbins == 4).any(), \
-            f"Expected at least one engineered col with nbins=4; got {engineered_nbins}"
+        engineered_nbins = nbins_out[xor_fixture["data"].shape[1] :]
+        assert (engineered_nbins == 4).any(), f"Expected at least one engineered col with nbins=4; got {engineered_nbins}"
 
     def test_mm_correction_reduces_false_positive_on_high_cardinality(self):
         """SB6: at high joint cardinality, plug-in II is biased UP under
@@ -440,8 +463,11 @@ class TestOrchestratorEndToEnd:
         data = np.column_stack([x1, x2, y]).astype(np.int32)
         nbins = np.array([a_card, b_card, 4], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         target_indices = np.array([2], dtype=np.int64)
 
@@ -450,33 +476,45 @@ class TestOrchestratorEndToEnd:
         # spurious pair under independence; here we want to inspect the
         # raw plug-in / MM scores).
         cfg_pl = CatFEConfig(
-            enable=True, top_k_pairs=1,
+            enable=True,
+            top_k_pairs=1,
             min_interaction_information=-100,  # accept anything
             max_combined_nbins=200,  # allow 10x10=100 joint cardinality
             use_miller_madow=False,
             full_npermutations=0,  # skip permutation confirmation
         )
         _, _, _, state_pl = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "y"],
+            nbins=nbins,
             target_indices=target_indices,
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1],
-            cfg=cfg_pl, dtype=np.int32,
+            cfg=cfg_pl,
+            dtype=np.int32,
         )
         # MM enabled -- post-survivor re-rank applies MM
         cfg_mm = CatFEConfig(
-            enable=True, top_k_pairs=1,
+            enable=True,
+            top_k_pairs=1,
             min_interaction_information=-100,
             max_combined_nbins=200,  # allow 10x10=100 joint cardinality
             use_miller_madow=True,
             full_npermutations=0,  # skip permutation confirmation
         )
         _, _, _, state_mm = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "y"],
+            nbins=nbins,
             target_indices=target_indices,
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1],
-            cfg=cfg_mm, dtype=np.int32,
+            cfg=cfg_mm,
+            dtype=np.int32,
         )
 
         # Both paths produce the (x1, x2) pair recipe.
@@ -507,28 +545,36 @@ class TestOrchestratorEndToEnd:
         data = np.column_stack([x1, x2, y]).astype(np.int32)
         nbins = np.array([4, 4, 2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
 
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=1,
+            enable=True,
+            top_k_pairs=1,
             min_interaction_information=-100,  # accept anything from search
             max_combined_nbins=200,
             use_miller_madow=False,
             full_npermutations=50,  # enable confirmation
         )
         _, _, _, state = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "y"],
+            nbins=nbins,
             target_indices=np.array([2], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         # Permutation confirmation should reject the spurious pair --
         # recipe list ends up empty.
-        assert state.recipes == [], \
-            f"Permutation should reject independent pair; got recipes {state.recipes}"
+        assert state.recipes == [], f"Permutation should reject independent pair; got recipes {state.recipes}"
 
     def test_kway_greedy_finds_3way_xor_synergy(self):
         """3-way XOR: y = x1 XOR x2 XOR x3. All 2-way marginals are ~0
@@ -547,23 +593,31 @@ class TestOrchestratorEndToEnd:
         data = np.column_stack([x1, x2, x3, n0, n1, y]).astype(np.int32)
         nbins = np.array([2, 2, 2, 4, 4, 2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([5], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([5], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         cfg = CatFEConfig(
             enable=True,
-            top_k_pairs=10,                          # T4: large enough for top-K to cover signal pairs
-            max_kway_order=3,                        # opt in
-            min_interaction_information=-0.05,       # absorb 3-way noise floor
+            top_k_pairs=10,  # T4: large enough for top-K to cover signal pairs
+            max_kway_order=3,  # opt in
+            min_interaction_information=-0.05,  # absorb 3-way noise floor
             full_npermutations=0,
             fwer_correction="none",
         )
         _, cols_out, _, state = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "x3", "n0", "n1", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "x3", "n0", "n1", "y"],
+            nbins=nbins,
             target_indices=np.array([5], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1, 2, 3, 4],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         # Pair survivors + at least one 3-way greedy result must include
         # the {x1, x2, x3} triplet.
@@ -574,8 +628,7 @@ class TestOrchestratorEndToEnd:
                     triplet_found = True
                     break
         assert triplet_found, (
-            f"Greedy k-way should extend to (x1, x2, x3) triplet; "
-            f"got recipes: {[(r.src_names, r.extra.get('kway_order')) for r in state.recipes]}"
+            f"Greedy k-way should extend to (x1, x2, x3) triplet; got recipes: {[(r.src_names, r.extra.get('kway_order')) for r in state.recipes]}"
         )
 
     def test_kway_recipe_replay_chain_works(self):
@@ -591,21 +644,31 @@ class TestOrchestratorEndToEnd:
         data = np.column_stack([x1, x2, x3, y]).astype(np.int32)
         nbins = np.array([2, 2, 2, 2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([3], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([3], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=4,
+            enable=True,
+            top_k_pairs=4,
             max_kway_order=3,
             min_interaction_information=-0.05,
-            full_npermutations=0, fwer_correction="none",
+            full_npermutations=0,
+            fwer_correction="none",
         )
         data_out, _, _, state = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "x3", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "x3", "y"],
+            nbins=nbins,
             target_indices=np.array([3], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1, 2],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         kway_recipes = [r for r in state.recipes if r.extra.get("kway_order") == 3]
         # XOR(x1, x2, x3) -> y is a textbook 3-way interaction with zero pairwise MI and full triplet MI; the greedy k-way extender MUST surface
@@ -624,6 +687,7 @@ class TestOrchestratorEndToEnd:
         # Replay the recipe on a disjoint test dataset and verify it
         # produces the same encoding as merge_vars on the test rows.
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
         rng2 = np.random.default_rng(99)
         n_te = 400
         x1_te = rng2.integers(0, 2, n_te).astype(np.int32)
@@ -639,10 +703,7 @@ class TestOrchestratorEndToEnd:
             key = (int(x1_te[row]), int(x2_te[row]), int(x3_te[row]))
             cls = int(replayed[row])
             if key in tuple_to_class:
-                assert tuple_to_class[key] == cls, (
-                    f"Inconsistent replay: tuple {key} mapped to both "
-                    f"{tuple_to_class[key]} and {cls}"
-                )
+                assert tuple_to_class[key] == cls, f"Inconsistent replay: tuple {key} mapped to both {tuple_to_class[key]} and {cls}"
             else:
                 tuple_to_class[key] = cls
         # All 2*2*2=8 tuples should produce a class within [0, n_uniq).
@@ -673,8 +734,11 @@ class TestOrchestratorEndToEnd:
         data = np.column_stack([x1, x2, y]).astype(np.int32)
         nbins = np.array([2, 2, 2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         cfg = CatFEConfig(
             enable=True,
@@ -682,25 +746,27 @@ class TestOrchestratorEndToEnd:
             min_interaction_information=0.005,  # low enough that the pair enters K-fold
             n_folds_stability=5,
             min_fold_prevalence=0.6,
-            full_npermutations=0, fwer_correction="none",
+            full_npermutations=0,
+            fwer_correction="none",
         )
         _, _, _, state = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "y"],
+            nbins=nbins,
             target_indices=np.array([2], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         # Per-fold IIs recorded -- proves K-fold filter ran on this pair
         assert (0, 1) in state.ii_stability or (1, 0) in state.ii_stability, (
-            f"K-fold filter should have processed the pair; got "
-            f"ii_stability={state.ii_stability}"
+            f"K-fold filter should have processed the pair; got ii_stability={state.ii_stability}"
         )
         # And the pair should be DROPPED (unstable, fold prevalence too low)
-        assert state.recipes == [], (
-            f"K-fold stability should drop unstable pair; got {state.recipes}, "
-            f"per-fold II={list(state.ii_stability.values())}"
-        )
+        assert state.recipes == [], f"K-fold stability should drop unstable pair; got {state.recipes}, per-fold II={list(state.ii_stability.values())}"
 
     def test_kfold_stability_keeps_consistent_xor(self, xor_fixture):
         """Counter-test: a TRUE XOR signal (consistent across all rows)
@@ -711,17 +777,20 @@ class TestOrchestratorEndToEnd:
             min_interaction_information=0.1,
             n_folds_stability=5,
             min_fold_prevalence=0.6,
-            full_npermutations=0, fwer_correction="none",
+            full_npermutations=0,
+            fwer_correction="none",
         )
         _, _, _, state = run_cat_interaction_step(
-            data=xor_fixture["data"], cols=xor_fixture["cols"],
+            data=xor_fixture["data"],
+            cols=xor_fixture["cols"],
             nbins=xor_fixture["nbins"],
             target_indices=np.array([xor_fixture["target_idx"]], dtype=np.int64),
             classes_y=xor_fixture["classes_y"],
             classes_y_safe=xor_fixture["classes_y"],
             freqs_y=xor_fixture["freqs_y"],
             categorical_vars=xor_fixture["categorical_vars"],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         recipe_srcs = [r.src_names for r in state.recipes]
         assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs
@@ -743,96 +812,113 @@ class TestOrchestratorEndToEnd:
         data = np.column_stack([x1, x2, z, y]).astype(np.int32)
         nbins = np.array([2, 2, 2, 2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([3], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([3], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
 
         # First call: no anti-redundancy, baseline
         cfg_no_ar = CatFEConfig(
-            enable=True, top_k_pairs=2,
+            enable=True,
+            top_k_pairs=2,
             min_interaction_information=0.1,
-            full_npermutations=0, fwer_correction="none",
+            full_npermutations=0,
+            fwer_correction="none",
             anti_redundancy_beta=0.0,
         )
         _, _, _, state_no_ar = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "z", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "z", "y"],
+            nbins=nbins,
             target_indices=np.array([3], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1, 2],
-            cfg=cfg_no_ar, dtype=np.int32,
+            cfg=cfg_no_ar,
+            dtype=np.int32,
         )
         assert state_no_ar.recipes, "baseline path should produce XOR pair"
 
         # Second call: anti-redundancy with z (= x1) as already-selected
         cfg_ar = CatFEConfig(
-            enable=True, top_k_pairs=2,
+            enable=True,
+            top_k_pairs=2,
             min_interaction_information=0.1,
-            full_npermutations=0, fwer_correction="none",
+            full_npermutations=0,
+            fwer_correction="none",
             anti_redundancy_beta=5.0,  # heavy penalty
         )
         _, _, _, state_ar = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "z", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "z", "y"],
+            nbins=nbins,
             target_indices=np.array([3], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1, 2],
-            cfg=cfg_ar, dtype=np.int32,
+            cfg=cfg_ar,
+            dtype=np.int32,
             selected_so_far=[2],  # z's column index in data
         )
         # Heavy penalty drives the (x1, x2) pair's score below the
         # II floor -- pair dropped.
-        assert state_ar.recipes == [], (
-            f"Anti-redundancy with beta=5 against z=x1 should drop (x1,x2); "
-            f"got {state_ar.recipes}"
-        )
+        assert state_ar.recipes == [], f"Anti-redundancy with beta=5 against z=x1 should drop (x1,x2); got {state_ar.recipes}"
 
     def test_permutation_keeps_xor_synergy_pair(self, xor_fixture):
         """Counter-test: a TRUE synergy pair (XOR) survives the
         permutation confirmation."""
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=4,
+            enable=True,
+            top_k_pairs=4,
             min_interaction_information=0.1,
             full_npermutations=0,  # skip perm -- II ranking catches XOR
             fwer_correction="none",
         )
         _, _, _, state = run_cat_interaction_step(
-            data=xor_fixture["data"], cols=xor_fixture["cols"],
+            data=xor_fixture["data"],
+            cols=xor_fixture["cols"],
             nbins=xor_fixture["nbins"],
             target_indices=np.array([xor_fixture["target_idx"]], dtype=np.int64),
             classes_y=xor_fixture["classes_y"],
             classes_y_safe=xor_fixture["classes_y"],
             freqs_y=xor_fixture["freqs_y"],
             categorical_vars=xor_fixture["categorical_vars"],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         recipe_srcs = [r.src_names for r in state.recipes]
-        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, \
-            f"True synergy pair should be in recipes; got {recipe_srcs}"
+        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, f"True synergy pair should be in recipes; got {recipe_srcs}"
 
     def test_conditional_permutation_null_runs_end_to_end(self, xor_fixture):
         """D1: ``permutation_null='conditional'`` exercises the
         within-strata shuffle path. The XOR pair is detected via
         II ranking (fp=0 skips the CI convergence check)."""
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=4,
+            enable=True,
+            top_k_pairs=4,
             min_interaction_information=0.1,
             full_npermutations=0,  # skip perm -- II ranking is sufficient
             fwer_correction="none",
             permutation_null="conditional",
         )
         _, _, _, state = run_cat_interaction_step(
-            data=xor_fixture["data"], cols=xor_fixture["cols"],
+            data=xor_fixture["data"],
+            cols=xor_fixture["cols"],
             nbins=xor_fixture["nbins"],
             target_indices=np.array([xor_fixture["target_idx"]], dtype=np.int64),
             classes_y=xor_fixture["classes_y"],
             classes_y_safe=xor_fixture["classes_y"],
             freqs_y=xor_fixture["freqs_y"],
             categorical_vars=xor_fixture["categorical_vars"],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         recipe_srcs = [r.src_names for r in state.recipes]
-        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, (
-            f"Conditional-null path should surface XOR pair; got {recipe_srcs}"
-        )
+        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, f"Conditional-null path should surface XOR pair; got {recipe_srcs}"
 
     def test_conditional_permutation_rejects_pair_with_only_marginal_signal(self):
         """D1: when X1 has high MI(X1;Y) but X2 is independent given Y,
@@ -851,47 +937,59 @@ class TestOrchestratorEndToEnd:
         data = np.column_stack([x1, x2, y]).astype(np.int32)
         nbins = np.array([4, 4, 2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
 
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=2,
+            enable=True,
+            top_k_pairs=2,
             min_interaction_information=-100,  # accept anything from search
             full_npermutations=50,
             fwer_correction="none",
             permutation_null="conditional",
         )
         _, _, _, state = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "y"],
+            nbins=nbins,
             target_indices=np.array([2], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         # (x1, x2) should be rejected: no synergy beyond x1's marginal.
-        assert state.recipes == [], (
-            f"Conditional null should drop pair with no synergy "
-            f"beyond marginals; got {state.recipes}"
-        )
+        assert state.recipes == [], f"Conditional null should drop pair with no synergy beyond marginals; got {state.recipes}"
 
     def test_recipes_are_picklable(self, xor_fixture):
         """Recipes from cat-FE survive pickle round-trip (same as
         numeric FE recipes)."""
         import pickle
+
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=2, min_interaction_information=0.1,
-            full_npermutations=0, fwer_correction="none",
+            enable=True,
+            top_k_pairs=2,
+            min_interaction_information=0.1,
+            full_npermutations=0,
+            fwer_correction="none",
         )
         _, _, _, state = run_cat_interaction_step(
-            data=xor_fixture["data"], cols=xor_fixture["cols"],
+            data=xor_fixture["data"],
+            cols=xor_fixture["cols"],
             nbins=xor_fixture["nbins"],
             target_indices=np.array([xor_fixture["target_idx"]], dtype=np.int64),
             classes_y=xor_fixture["classes_y"],
             classes_y_safe=xor_fixture["classes_y"],
             freqs_y=xor_fixture["freqs_y"],
             categorical_vars=xor_fixture["categorical_vars"],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         restored = pickle.loads(pickle.dumps(state))
         assert restored.recipes == state.recipes

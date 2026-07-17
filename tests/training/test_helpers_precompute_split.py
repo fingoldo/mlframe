@@ -13,6 +13,7 @@ Original re-exports the 7 names so existing
 ``from mlframe.training.helpers import precompute_all`` imports still
 resolve.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,6 +33,7 @@ def test_precompute_symbols_still_importable_from_facade() -> None:
         precompute_trainset_features_stats,
         precompute_all,
     )
+
     assert callable(get_trainset_features_stats)
     assert callable(get_trainset_features_stats_polars)
     assert TrainMlframeSuitePrecomputed is not None
@@ -47,6 +49,7 @@ def test_other_helpers_symbols_still_importable() -> None:
         get_training_configs,
         compute_cb_text_processing,
     )
+
     assert callable(parse_catboost_devices)
     assert callable(get_training_configs)
     assert callable(compute_cb_text_processing)
@@ -62,6 +65,7 @@ def test_facade_below_1k_line_threshold() -> None:
 def test_precompute_module_owns_the_moved_symbols() -> None:
     """Identity: facade and sibling module expose the SAME object."""
     from mlframe.training import helpers, _precompute
+
     for name in (
         "get_trainset_features_stats",
         "get_trainset_features_stats_polars",
@@ -92,6 +96,7 @@ def test_precompute_dummy_and_composite_stubs_raise() -> None:
         precompute_composite_target_specs,
         precompute_dummy_baselines,
     )
+
     with pytest.raises(NotImplementedError):
         precompute_composite_target_specs(train_df=None, target_by_type={}, config=None)
     with pytest.raises(NotImplementedError):

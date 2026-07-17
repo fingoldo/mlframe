@@ -8,6 +8,7 @@ the FE path (fe_max_steps > 0) on polars input, covering:
   * Parity: pandas FE and polars FE produce the same selected-features
     set on identical seeded input
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,9 +45,13 @@ def _build_pair_signal_data(n=500, seed=0, frame_type="polars"):
 
 def _mrmr_kwargs_quick_fe():
     return dict(
-        verbose=0, max_runtime_mins=1, n_workers=1,
-        quantization_nbins=5, use_simple_mode=True,
-        min_nonzero_confidence=0.9, max_consec_unconfirmed=3,
+        verbose=0,
+        max_runtime_mins=1,
+        n_workers=1,
+        quantization_nbins=5,
+        use_simple_mode=True,
+        min_nonzero_confidence=0.9,
+        max_consec_unconfirmed=3,
         full_npermutations=3,
         fe_max_steps=1,
         fe_npermutations=3,
@@ -79,9 +84,11 @@ def test_mrmr_fe_zero_copy_polars():
 
     call_count = {"n": 0}
     orig = _pl.DataFrame.to_pandas
+
     def _spy(self, *args, **kwargs):
         call_count["n"] += 1
         return orig(self, *args, **kwargs)
+
     _pl.DataFrame.to_pandas = _spy
     try:
         sel = MRMR(**_mrmr_kwargs_quick_fe())
@@ -106,16 +113,13 @@ def test_mrmr_fe_transform_returns_polars_when_input_polars():
     sel = MRMR(**_mrmr_kwargs_quick_fe())
     sel.fit(df, y)
     out = sel.transform(df)
-    assert isinstance(out, pl.DataFrame), (
-        f"transform on polars input should return polars; got {type(out).__name__}"
-    )
+    assert isinstance(out, pl.DataFrame), f"transform on polars input should return polars; got {type(out).__name__}"
     # Engineered FE columns carry operator syntax ("*", "__", "(") in their names; every other (raw) output column
     # must be an original input column.
     _fe_markers = ("*", "__", "(")
     raw_out_cols = [c for c in out.columns if not any(m in c for m in _fe_markers)]
     assert set(raw_out_cols).issubset(set(df.columns)), (
-        f"non-engineered transform outputs must be original columns; "
-        f"unexpected={sorted(set(raw_out_cols) - set(df.columns))}"
+        f"non-engineered transform outputs must be original columns; unexpected={sorted(set(raw_out_cols) - set(df.columns))}"
     )
 
 
@@ -128,7 +132,4 @@ def test_mrmr_fe_caller_frame_not_mutated_on_polars():
     original_columns = list(df.columns)
     sel = MRMR(**_mrmr_kwargs_quick_fe())
     sel.fit(df, y)
-    assert list(df.columns) == original_columns, (
-        f"Caller's polars frame was mutated. Before: {original_columns}, "
-        f"after MRMR.fit: {list(df.columns)}"
-    )
+    assert list(df.columns) == original_columns, f"Caller's polars frame was mutated. Before: {original_columns}, after MRMR.fit: {list(df.columns)}"

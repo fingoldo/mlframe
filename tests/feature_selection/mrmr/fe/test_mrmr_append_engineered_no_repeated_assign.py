@@ -13,6 +13,7 @@ the loop instead of ``.assign()``. These tests pin: (1) the caller's original X 
 safety property the one-time-copy exists to preserve), (2) engineered values/column set/order are
 unchanged, (3) a measured speedup at production-representative recipe counts.
 """
+
 from __future__ import annotations
 
 import time
@@ -28,10 +29,7 @@ from mlframe.feature_selection.filters._mrmr_validate_transform import _append_e
 def _make_recipes(n, resolved_via_apply=None):
     """``n`` recipes with no inter-recipe src_names dependency -- all resolve in pass 1, matching the
     common production shape (most engineered candidates are independent of each other)."""
-    return [
-        SimpleNamespace(name=f"eng_{i}", kind="unary_binary", src_names=("a",), extra={"chain_lookups": None}, verbose=0)
-        for i in range(n)
-    ]
+    return [SimpleNamespace(name=f"eng_{i}", kind="unary_binary", src_names=("a",), extra={"chain_lookups": None}, verbose=0) for i in range(n)]
 
 
 def _fake_apply_recipe(recipe, chained):
@@ -44,7 +42,8 @@ def test_append_engineered_does_not_mutate_callers_original_dataframe(monkeypatc
     """The safety property the one-time ``.copy()`` exists to preserve: X passed in by the caller must
     be untouched after replay, even though the internal working frame is now mutated in place."""
     monkeypatch.setattr(
-        "mlframe.feature_selection.filters.engineered_recipes.apply_recipe", _fake_apply_recipe,
+        "mlframe.feature_selection.filters.engineered_recipes.apply_recipe",
+        _fake_apply_recipe,
     )
     n = 20
     X = pd.DataFrame({"a": np.arange(50, dtype=np.float64), "b": np.arange(50, dtype=np.float64) * 2})
@@ -63,7 +62,8 @@ def test_append_engineered_does_not_mutate_callers_original_dataframe(monkeypatc
 
 def test_append_engineered_values_and_columns_correct(monkeypatch):
     monkeypatch.setattr(
-        "mlframe.feature_selection.filters.engineered_recipes.apply_recipe", _fake_apply_recipe,
+        "mlframe.feature_selection.filters.engineered_recipes.apply_recipe",
+        _fake_apply_recipe,
     )
     n = 15
     X = pd.DataFrame({"a": np.arange(30, dtype=np.float64), "b": np.arange(30, dtype=np.float64) * 2})
@@ -90,7 +90,8 @@ def test_append_engineered_scales_subquadratically_with_recipe_count(monkeypatch
     production-representative recipe count and row count (loose enough to not flake on a slow CI box,
     tight enough to catch a regression back to per-recipe ``.assign()``)."""
     monkeypatch.setattr(
-        "mlframe.feature_selection.filters.engineered_recipes.apply_recipe", _fake_apply_recipe,
+        "mlframe.feature_selection.filters.engineered_recipes.apply_recipe",
+        _fake_apply_recipe,
     )
     n_rows, n_base_cols, n_recipes = 50_000, 200, 150
     rng = np.random.default_rng(0)

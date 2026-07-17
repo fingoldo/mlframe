@@ -7,6 +7,7 @@ every round then reads columns contiguously (2-6x, bit-identical). These tests p
 result is bit-identical to the C-order path, the cache reuses one copy per fit, the weakref
 identity guard prevents a recycled id from returning a stale copy, and the size/toggle gates.
 """
+
 from __future__ import annotations
 
 import gc

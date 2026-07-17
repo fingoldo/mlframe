@@ -19,6 +19,7 @@ what the unrun seeds turn out to be. Consequences directly tested here:
   3. A BORDERLINE/noisy case may or may not trigger the bound seed-by-seed; whichever happens, the
      accept/reject verdict (score >= threshold ?) is asserted identical between ON and OFF.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,11 +42,17 @@ def _run(y, base, x, *, threshold: float, n_seed_repeats: int = 6, random_state:
     transform = get_transform("linear_residual")
     params = transform.fit(y, base)
     return _tiny_cv_rmse_y_scale_multiseed(
-        y_train=y, base_train=base, transform=transform, fitted_params=params,
+        y_train=y,
+        base_train=base,
+        transform=transform,
+        fitted_params=params,
         x_train_matrix=x,
         family="linear",
-        n_estimators=10, num_leaves=8, learning_rate=0.1,
-        cv_folds=3, n_jobs=1,
+        n_estimators=10,
+        num_leaves=8,
+        learning_rate=0.1,
+        cv_folds=3,
+        n_jobs=1,
         n_seed_repeats=n_seed_repeats,
         base_random_state=random_state,
         return_per_seed=True,
@@ -177,7 +184,7 @@ class TestEndToEndKeptSpecParity:
         df = make_df()
         names_off = self._fit_names(df, enable_early_stop=False)
         names_on = self._fit_names(df, enable_early_stop=True)
-        assert names_on == names_off, f"[{label}] enable_multiseed_early_stop changed the kept-spec set/ranking: " f"OFF={names_off} ON={names_on}"
+        assert names_on == names_off, f"[{label}] enable_multiseed_early_stop changed the kept-spec set/ranking: OFF={names_off} ON={names_on}"
 
 
 class TestBorderlineVerdictParity:

@@ -1,4 +1,5 @@
 """C5: label smoothing (multiclass only) + focal loss (binary, opt-in)."""
+
 from __future__ import annotations
 
 import sys
@@ -15,32 +16,42 @@ from sklearn.model_selection import train_test_split
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from mlframe.training.neural import (
-    MLPTorchModel, PytorchLightningClassifier, TorchDataModule,
+    MLPTorchModel,
+    PytorchLightningClassifier,
+    TorchDataModule,
 )
 
 
-def _params(label_smoothing=0.0, focal_loss_gamma=None, focal_loss_alpha=0.25,
-            random_state=0):
+def _params(label_smoothing=0.0, focal_loss_gamma=None, focal_loss_alpha=0.25, random_state=0):
     return {
         "model_class": MLPTorchModel,
         "model_params": {
-            "loss_fn": nn.CrossEntropyLoss(), "learning_rate": 1e-2,
+            "loss_fn": nn.CrossEntropyLoss(),
+            "learning_rate": 1e-2,
         },
         "network_params": {
-            "nlayers": 1, "first_layer_num_neurons": 16,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 16,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": nn.ReLU,
         },
         "datamodule_class": TorchDataModule,
         "datamodule_params": {
-            "features_dtype": torch.float32, "labels_dtype": torch.int64,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.int64,
             "dataloader_params": {"batch_size": 32, "num_workers": 0},
         },
         "trainer_params": {
-            "max_epochs": 3, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 3,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         "label_smoothing": label_smoothing,
         "focal_loss_gamma": focal_loss_gamma,
@@ -52,12 +63,20 @@ def _params(label_smoothing=0.0, focal_loss_gamma=None, focal_loss_alpha=0.25,
 @pytest.fixture
 def imbalanced_binary():
     X, y = make_classification(
-        n_samples=600, n_features=6, n_informative=5, n_redundant=0,
-        n_classes=2, weights=[0.95, 0.05], random_state=0,
+        n_samples=600,
+        n_features=6,
+        n_informative=5,
+        n_redundant=0,
+        n_classes=2,
+        weights=[0.95, 0.05],
+        random_state=0,
     )
     X_tr, X_te, y_tr, y_te = train_test_split(
-        X.astype(np.float32), y.astype(np.int64),
-        test_size=0.3, random_state=0, stratify=y,
+        X.astype(np.float32),
+        y.astype(np.int64),
+        test_size=0.3,
+        random_state=0,
+        stratify=y,
     )
     return X_tr, X_te, y_tr, y_te
 
@@ -65,12 +84,19 @@ def imbalanced_binary():
 @pytest.fixture
 def multiclass3():
     X, y = make_classification(
-        n_samples=300, n_features=6, n_informative=5, n_redundant=0,
-        n_classes=3, n_clusters_per_class=1, random_state=0,
+        n_samples=300,
+        n_features=6,
+        n_informative=5,
+        n_redundant=0,
+        n_classes=3,
+        n_clusters_per_class=1,
+        random_state=0,
     )
     X_tr, X_te, y_tr, y_te = train_test_split(
-        X.astype(np.float32), y.astype(np.int64),
-        test_size=0.3, random_state=0,
+        X.astype(np.float32),
+        y.astype(np.int64),
+        test_size=0.3,
+        random_state=0,
     )
     return X_tr, X_te, y_tr, y_te
 
@@ -139,8 +165,7 @@ def test_binary_focal_loss_differs_from_bce(imbalanced_binary):
     preds_focal = clf_focal.predict_proba(X_te)
 
     assert not np.allclose(preds_bce, preds_focal, atol=1e-3), (
-        "Focal-trained predictions equal BCE-trained predictions; focal "
-        "kernel may have silently degenerated to BCE."
+        "Focal-trained predictions equal BCE-trained predictions; focal kernel may have silently degenerated to BCE."
     )
 
 

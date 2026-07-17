@@ -16,6 +16,7 @@ Run:  python tests/feature_selection/_bench_hardcoded_thresholds.py [group]
 
 This is a measurement harness, NOT a pytest (each cell fits a full MRMR+FE pipeline). Keep n small.
 """
+
 from __future__ import annotations
 
 import sys
@@ -40,14 +41,11 @@ def _datasets(n: int, seed: int = 0):
     a, b, c, d, e, f = (rng.random(n) for _ in range(6))
     out = []
     # F2: heavy-tail ratio + trig interaction (the canonical (c,d) case).
-    out.append((pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}),
-                0.2 * a**2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0), "F2_ratio_trig"))
+    out.append((pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), 0.2 * a**2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0), "F2_ratio_trig"))
     # bilinear interaction a*b + marginal, no heavy tail.
-    out.append((pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}),
-                3.0 * (a - 0.5) * (b - 0.5) + 0.5 * c + f / 5.0, "bilinear_ab"))
+    out.append((pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), 3.0 * (a - 0.5) * (b - 0.5) + 0.5 * c + f / 5.0, "bilinear_ab"))
     # additive-only (no genuine interaction; gates should NOT fabricate pairs).
-    out.append((pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}),
-                1.5 * a + 1.0 * c - 0.7 * d + f / 5.0, "additive_only"))
+    out.append((pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), 1.5 * a + 1.0 * c - 0.7 * d + f / 5.0, "additive_only"))
     return out
 
 
@@ -55,12 +53,13 @@ def _eval_threshold(param: str, values, ns=(2500,), seeds=(0,), extra_kwargs=Non
     """Fit MRMR for each (dataset, value) and report linear+tree test MAE. Returns a list of rows
     dict(dataset, n, value, lin_mae, n_features)."""
     from mlframe.feature_selection.filters import MRMR
+
     rows = []
     for n in ns:
         for seed in seeds:
-            for (df, y, dname) in _datasets(n, seed):
+            for df, y, dname in _datasets(n, seed):
                 idx = np.random.default_rng(seed).permutation(n)
-                tr, te = idx[: int(0.8 * n)], idx[int(0.9 * n):]
+                tr, te = idx[: int(0.8 * n)], idx[int(0.9 * n) :]
                 Xtr, Xte = df.iloc[tr].reset_index(drop=True), df.iloc[te].reset_index(drop=True)
                 ytr, yte = np.asarray(y)[tr], np.asarray(y)[te]
                 for v in values:
@@ -151,7 +150,7 @@ def main():
         t = time.perf_counter()
         rows = _eval_threshold(param, values)
         verdict, spread, argmins = _verdict(rows)
-        print(f"\n### {param}  [{verdict}]  max_spread={spread:.3%}  argmin_values={argmins}  ({time.perf_counter()-t:.0f}s)")
+        print(f"\n### {param}  [{verdict}]  max_spread={spread:.3%}  argmin_values={argmins}  ({time.perf_counter() - t:.0f}s)")
         for ds in sorted({r["dataset"] for r in rows}):
             cells = [r for r in rows if r["dataset"] == ds]
             s = "  ".join(f"{r['value']}:{r['lin_mae']:.4f}(nf={r['nfeat']})" for r in cells)

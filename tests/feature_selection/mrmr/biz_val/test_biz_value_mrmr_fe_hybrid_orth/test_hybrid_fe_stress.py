@@ -100,7 +100,7 @@ class TestAllNoiseNoSpuriousFE:
         # small FP budget keeps the contract robust on adversarial seeds
         # without hiding the major regression class (pre-fix: 5 / top_k=5).
         assert len(m.hybrid_orth_features_) <= 3, (
-            f"seed={seed}: hybrid_orth manufactured {len(m.hybrid_orth_features_)} " f"engineered columns on a pure-noise frame: " f"{m.hybrid_orth_features_}"
+            f"seed={seed}: hybrid_orth manufactured {len(m.hybrid_orth_features_)} engineered columns on a pure-noise frame: {m.hybrid_orth_features_}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -119,7 +119,7 @@ class TestAllNoiseNoSpuriousFE:
         # FP budget of 5 keeps the absolute-MI floor honest while allowing
         # the statistical noise inherent in MI from 1500 samples.
         assert len(m.mi_greedy_features_) <= 5, (
-            f"seed={seed}: mi_greedy manufactured {len(m.mi_greedy_features_)} " f"engineered columns on a pure-noise frame: " f"{m.mi_greedy_features_}"
+            f"seed={seed}: mi_greedy manufactured {len(m.mi_greedy_features_)} engineered columns on a pure-noise frame: {m.mi_greedy_features_}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -265,9 +265,7 @@ class TestAdversarialPair:
                 # The cross involves only noise sources. Permitted only
                 # when explainable as a one-noise-only term, which a pair
                 # cross is not (always 2 sources).
-                pytest.fail(
-                    f"seed={seed}: hybrid_orth pair {name!r} crosses two " f"noise columns; absolute-MI floor leaked. All: " f"{m.hybrid_orth_features_}"
-                )
+                pytest.fail(f"seed={seed}: hybrid_orth pair {name!r} crosses two noise columns; absolute-MI floor leaked. All: {m.hybrid_orth_features_}")
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +309,7 @@ class TestMultiCollinearSources:
         # The constructor honors top_k so even with 10 sources we cap at the
         # configured ceiling (top_k=10 explicit -- equals the dup count).
         # Pin instead that the FINAL support pruning works downstream.
-        assert len(he2_cols) <= 10, f"seed={seed}: hybrid_orth emitted {len(he2_cols)} He_2 columns " f"(> top_k cap); {m.hybrid_orth_features_}"
+        assert len(he2_cols) <= 10, f"seed={seed}: hybrid_orth emitted {len(he2_cols)} He_2 columns (> top_k cap); {m.hybrid_orth_features_}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_final_support_prunes_collinear_duplicates(self, seed):
@@ -388,7 +386,7 @@ class TestHybridMiGreedyConflictResolution:
         )
         m_h.fit(X, y)
         hybrid_he2 = [c for c in m_h.hybrid_orth_features_ if "He2" in c]
-        assert hybrid_he2, f"seed={seed}: hybrid_orth (alone) did not emit x__He2 for " f"quadratic signal; got {m_h.hybrid_orth_features_}"
+        assert hybrid_he2, f"seed={seed}: hybrid_orth (alone) did not emit x__He2 for quadratic signal; got {m_h.hybrid_orth_features_}"
         # MI-greedy alone.
         m_g = _make_mrmr(
             fe_hybrid_orth_enable=False,
@@ -400,7 +398,7 @@ class TestHybridMiGreedyConflictResolution:
         )
         m_g.fit(X, y)
         mig_x2 = [c for c in m_g.mi_greedy_features_ if c in {"square(x)", "abs(x)", "sqrt_abs(x)", "log_abs(x)"}]
-        assert mig_x2, f"seed={seed}: mi_greedy (alone) did not emit a |x|-family " f"transform for quadratic signal; got {m_g.mi_greedy_features_}"
+        assert mig_x2, f"seed={seed}: mi_greedy (alone) did not emit a |x|-family transform for quadratic signal; got {m_g.mi_greedy_features_}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_final_support_picks_at_most_one_x_quadratic(self, seed):
@@ -425,7 +423,7 @@ class TestHybridMiGreedyConflictResolution:
         # signal (correlation ~1.0 on |x| ranking). At most one should
         # survive into the final selection.
         assert len(x_quadratic) <= 1, (
-            f"seed={seed}: {len(x_quadratic)} quadratic-x encodings " f"survived selection ({x_quadratic}); MRMR redundancy should " f"keep at most one"
+            f"seed={seed}: {len(x_quadratic)} quadratic-x encodings survived selection ({x_quadratic}); MRMR redundancy should keep at most one"
         )
 
 
@@ -533,7 +531,7 @@ class TestRecipeCorruptionSurvival:
                 target_idx = i
                 break
         if target_idx is None:
-            pytest.skip(f"seed={seed}: no mi_greedy_transform recipe in support " f"({[r.name for r in recipes]}); cannot test corruption")
+            pytest.skip(f"seed={seed}: no mi_greedy_transform recipe in support ({[r.name for r in recipes]}); cannot test corruption")
         original = recipes[target_idx]
         corrupted = _replace_recipe_extra(
             original,
@@ -545,7 +543,7 @@ class TestRecipeCorruptionSurvival:
         with pytest.raises((KeyError, ValueError)) as exc_info:
             m_rt.transform(X)
         msg = str(exc_info.value)
-        assert "this_is_not_a_real_transform_xyz" in msg, f"seed={seed}: corruption raise must name the bad transform " f"for actionability; got: {msg!r}"
+        assert "this_is_not_a_real_transform_xyz" in msg, f"seed={seed}: corruption raise must name the bad transform for actionability; got: {msg!r}"
 
     @pytest.mark.parametrize("seed", SEEDS_SHORT)
     def test_corrupted_src_names_raises_or_recovers(self, seed):
@@ -565,7 +563,7 @@ class TestRecipeCorruptionSurvival:
                 target_idx = i
                 break
         if target_idx is None:
-            pytest.skip(f"seed={seed}: no mi_greedy_transform recipe in support; " f"cannot test corruption")
+            pytest.skip(f"seed={seed}: no mi_greedy_transform recipe in support; cannot test corruption")
         original = recipes[target_idx]
         # Replace src_names with a column NOT in X (and not in
         # feature_names_in_ either).
@@ -582,7 +580,7 @@ class TestRecipeCorruptionSurvival:
         except (KeyError, ValueError, TypeError, IndexError, AttributeError) as exc:
             msg = str(exc)
             # Actionability: error must mention the missing column name.
-            assert any(b in msg for b in bogus_src), f"seed={seed}: error must name the missing column for " f"actionability; got: {msg!r}"
+            assert any(b in msg for b in bogus_src), f"seed={seed}: error must name the missing column for actionability; got: {msg!r}"
             return
         # Reached only on silent success -> contract failure.
-        pytest.fail(f"seed={seed}: transform() silently succeeded with corrupted " f"src_names {bogus_src!r}; expected an actionable raise.")
+        pytest.fail(f"seed={seed}: transform() silently succeeded with corrupted src_names {bogus_src!r}; expected an actionable raise.")

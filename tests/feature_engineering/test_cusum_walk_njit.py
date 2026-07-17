@@ -72,8 +72,7 @@ def _old_cusum(values, threshold=None, *, group_ids=None, drift=0.0):
         for s, e in zip(starts, ends):
             _walk(sort_idx[s:e])
 
-    return {"cusum_pos": out_pos, "cusum_neg": out_neg,
-            "rows_since_reset": out_since, "n_resets_in_window": out_count}
+    return {"cusum_pos": out_pos, "cusum_neg": out_neg, "rows_since_reset": out_since, "n_resets_in_window": out_count}
 
 
 def _assert_identical(new, old):

@@ -7,6 +7,7 @@ positions, never names, and fit / predict use the same ``cols`` order so positio
 These tests pin that invariant so a future refactor that re-introduces named-DataFrame slicing (or
 breaks the numpy gather) is caught. They also exercise the ndarray-input branch of the helper.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -101,8 +102,7 @@ def test_perm_importance_numpy_bit_identical_to_named_dataframe():
         imp_ref[j] = _loss_from_predictions(p, yev, True, "brier") - base_loss_ref
         Xperm[:, j] = orig
 
-    base_loss, imp = _permutation_importance_ranking(
-        model, Xtr, ytr, Xev, yev, cols, True, "brier", seed=0)
+    base_loss, imp = _permutation_importance_ranking(model, Xtr, ytr, Xev, yev, cols, True, "brier", seed=0)
 
     assert base_loss == base_loss_ref
     assert np.array_equal(imp, imp_ref), f"perm importances differ: {imp} vs {imp_ref}"

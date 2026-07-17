@@ -28,6 +28,7 @@ starved for seconds), so the timing assertions are SKIPPED when running under an
 xdist worker (``running_under_xdist()``); the structural USABILITY asserts
 (``support_`` / ``transform``) always run.
 """
+
 from __future__ import annotations
 
 import time
@@ -49,8 +50,8 @@ _BUDGET_SECS = _BUDGET_MINS * 60.0
 _BUDGET_SLACK = 4.0
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _signal_noise_df(n: int, p: int, seed: int = 42):
     """``p``-column frame: 3 informative + (p-3) pure-noise; linear binary target.
@@ -66,10 +67,19 @@ def _signal_noise_df(n: int, p: int, seed: int = 42):
 
 def _make_mrmr(*, simple: bool, budget=None, seed: int = 0):
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR(
-        min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False,
-        full_npermutations=3, random_seed=seed, min_features_fallback=1, verbose=False,
-        use_simple_mode=simple, max_runtime_mins=budget, n_workers=1, use_gpu=False,
+        min_relevance_gain=0.0,
+        cv=3,
+        run_additional_rfecv_minutes=False,
+        full_npermutations=3,
+        random_seed=seed,
+        min_features_fallback=1,
+        verbose=False,
+        use_simple_mode=simple,
+        max_runtime_mins=budget,
+        n_workers=1,
+        use_gpu=False,
     )
 
 
@@ -120,8 +130,7 @@ def test_biz_val_mrmr_respects_runtime_budget_and_yields_usable_partial(_warm_nu
         pytest.skip("wall-clock budget assert unreliable under xdist contention")
     ceiling = perf_time_budget(_BUDGET_SLACK * _BUDGET_SECS)
     assert elapsed <= ceiling, (
-        f"MRMR ignored max_runtime_mins: elapsed {elapsed:.2f}s > {ceiling:.1f}s "
-        f"(budget {_BUDGET_SECS:.0f}s, slack {_BUDGET_SLACK}x). PROD BUG if persistent."
+        f"MRMR ignored max_runtime_mins: elapsed {elapsed:.2f}s > {ceiling:.1f}s (budget {_BUDGET_SECS:.0f}s, slack {_BUDGET_SLACK}x). PROD BUG if persistent."
     )
 
 
@@ -146,10 +155,15 @@ def test_biz_val_rfecv_respects_runtime_budget_and_yields_usable_partial(_warm_n
 
     df, y = _signal_noise_df(2000, 60, seed=42)
     sel = RFECV(
-        estimator=LogisticRegression(max_iter=200, random_state=0), cv=3,
-        max_runtime_mins=_BUDGET_MINS, random_state=0, leakage_corr_threshold=None,
-        n_features_selection_rule="argmax", max_noimproving_iters=10_000,
-        max_refits=10_000, verbose=0,
+        estimator=LogisticRegression(max_iter=200, random_state=0),
+        cv=3,
+        max_runtime_mins=_BUDGET_MINS,
+        random_state=0,
+        leakage_corr_threshold=None,
+        n_features_selection_rule="argmax",
+        max_noimproving_iters=10_000,
+        max_refits=10_000,
+        verbose=0,
     )
 
     t0 = time.perf_counter()
@@ -167,8 +181,7 @@ def test_biz_val_rfecv_respects_runtime_budget_and_yields_usable_partial(_warm_n
         pytest.skip("wall-clock budget assert unreliable under xdist contention")
     ceiling = perf_time_budget(_BUDGET_SLACK * _BUDGET_SECS)
     assert elapsed <= ceiling, (
-        f"RFECV ignored max_runtime_mins: elapsed {elapsed:.2f}s > {ceiling:.1f}s "
-        f"(budget {_BUDGET_SECS:.0f}s, slack {_BUDGET_SLACK}x). PROD BUG if persistent."
+        f"RFECV ignored max_runtime_mins: elapsed {elapsed:.2f}s > {ceiling:.1f}s (budget {_BUDGET_SECS:.0f}s, slack {_BUDGET_SLACK}x). PROD BUG if persistent."
     )
 
 
@@ -203,8 +216,7 @@ def test_biz_val_mrmr_simple_mode_row_scaling_envelope(_warm_numba):
     assert t_n > 0.05, f"baseline fit too fast to measure a meaningful ratio: {t_n:.4f}s"
     ratio = t_4n / t_n
     assert ratio <= 8.0, (
-        f"simple-mode MRMR row-scaling regressed: t(4n)/t(n)={ratio:.2f} > 8.0 "
-        f"(t(n=2000)={t_n:.3f}s, t(n=8000)={t_4n:.3f}s). Suspect an O(n^2) path."
+        f"simple-mode MRMR row-scaling regressed: t(4n)/t(n)={ratio:.2f} > 8.0 (t(n=2000)={t_n:.3f}s, t(n=8000)={t_4n:.3f}s). Suspect an O(n^2) path."
     )
 
 
@@ -223,8 +235,7 @@ def test_biz_val_mrmr_simple_mode_feature_scaling_envelope(_warm_numba):
     assert t_p > 0.05, f"baseline fit too fast to measure a meaningful ratio: {t_p:.4f}s"
     ratio = t_4p / t_p
     assert ratio <= 25.0, (
-        f"simple-mode MRMR feature-scaling regressed: t(4p)/t(p)={ratio:.2f} > 25.0 "
-        f"(t(p=40)={t_p:.3f}s, t(p=160)={t_4p:.3f}s). Suspect an O(p^3) path."
+        f"simple-mode MRMR feature-scaling regressed: t(4p)/t(p)={ratio:.2f} > 25.0 (t(p=40)={t_p:.3f}s, t(p=160)={t_4p:.3f}s). Suspect an O(p^3) path."
     )
 
 

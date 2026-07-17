@@ -8,6 +8,7 @@ Pre-fix there was no validation of the pre_pipeline output against the model's
 expected feature names: a mis-shaped output (custom step dropping a needed
 column) only blew up far from the cause. This pins the clear early error.
 """
+
 from __future__ import annotations
 
 import numpy as np

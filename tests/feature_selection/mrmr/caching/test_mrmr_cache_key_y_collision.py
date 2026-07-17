@@ -8,6 +8,7 @@ signature and the second fit incorrectly replays the first fit's ``support_``.
 Post-fix the cache key folds in (1) the y column name / Series.name and (2) a full blake2b over the
 y content, so distinct targets always produce distinct cache keys.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -92,12 +93,14 @@ def test_mrmr_cache_does_not_collide_on_distinct_targets_with_shared_samples():
         rng = np.random.default_rng(42)
         n = 4096
         # Build X with features whose informativeness for y_a vs y_b will differ.
-        X = pd.DataFrame({
-            "f0": rng.normal(size=n),
-            "f1": rng.normal(size=n),
-            "f2": rng.normal(size=n),
-            "f3": rng.normal(size=n),
-        })
+        X = pd.DataFrame(
+            {
+                "f0": rng.normal(size=n),
+                "f1": rng.normal(size=n),
+                "f2": rng.normal(size=n),
+                "f3": rng.normal(size=n),
+            }
+        )
         y_a_arr, y_b_arr = _build_collision_targets(n=n, seed=0)
         # Make y_a strongly correlated with f0, y_b strongly correlated with f2 -- different bulk content AND different supports while still preserving the strided-sample collision.
         sample_idx = _sample_positions(n)
@@ -106,10 +109,7 @@ def test_mrmr_cache_does_not_collide_on_distinct_targets_with_shared_samples():
         y_a_arr[mask] = (X["f0"].to_numpy()[mask] > 0).astype(np.int64)
         y_b_arr[mask] = (X["f2"].to_numpy()[mask] > 0).astype(np.int64)
         # Sanity re-check after rebinding bulk: strided sample still matches.
-        assert (
-            _content_array_signature(pd.Series(y_a_arr))
-            == _content_array_signature(pd.Series(y_b_arr))
-        )
+        assert _content_array_signature(pd.Series(y_a_arr)) == _content_array_signature(pd.Series(y_b_arr))
         y_a = pd.Series(y_a_arr, name="target_a")
         y_b = pd.Series(y_b_arr, name="target_b")
 
@@ -128,15 +128,11 @@ def test_mrmr_cache_does_not_collide_on_distinct_targets_with_shared_samples():
             m_b.fit(X, y_b)
 
         # Two distinct cache entries (one per target hash). Pre-fix this was 1 (second fit hit the cache).
-        assert len(MRMR._FIT_CACHE) == 2, (
-            f"cache must hold two entries for two distinct targets; got {len(MRMR._FIT_CACHE)}"
-        )
+        assert len(MRMR._FIT_CACHE) == 2, f"cache must hold two entries for two distinct targets; got {len(MRMR._FIT_CACHE)}"
 
         # Supports must differ: f0 informs y_a, f2 informs y_b.
         sup_a = set(m_a.support_) if hasattr(m_a.support_, "__iter__") else {m_a.support_}
         sup_b = set(m_b.support_) if hasattr(m_b.support_, "__iter__") else {m_b.support_}
-        assert sup_a != sup_b, (
-            f"distinct targets must yield distinct supports; got identical {sup_a}"
-        )
+        assert sup_a != sup_b, f"distinct targets must yield distinct supports; got identical {sup_a}"
     finally:
         MRMR._FIT_CACHE.clear()

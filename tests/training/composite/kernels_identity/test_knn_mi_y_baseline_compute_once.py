@@ -45,8 +45,12 @@ def test_knn_mi_y_baseline_compute_once_bit_identical(aggregation: str, drop: in
     """Aggregate-over-surviving-indices of the compute-once vector == per-base ``_mi_to_target`` recompute, exactly."""
     x, y = _make()
     ref = _mi_to_target(
-        np.delete(x, drop, axis=1), y, n_neighbors=3, random_state=42,
-        estimator="knn", aggregation=aggregation,
+        np.delete(x, drop, axis=1),
+        y,
+        n_neighbors=3,
+        random_state=42,
+        estimator="knn",
+        aggregation=aggregation,
     )
     per_feat = _mi_per_feature_knn(x, y, n_neighbors=3, random_state=42)
     surviving = np.delete(np.arange(x.shape[1]), drop)
@@ -61,9 +65,14 @@ def test_knn_mi_per_feature_matches_single_column_calls() -> None:
     x, y = _make(f=8)
     per_feat = _mi_per_feature_knn(x, y, n_neighbors=3, random_state=42)
     for j in range(x.shape[1]):
-        ref = float(mutual_info_regression(
-            x[:, j].reshape(-1, 1), y, n_neighbors=3, random_state=42,
-        )[0])
+        ref = float(
+            mutual_info_regression(
+                x[:, j].reshape(-1, 1),
+                y,
+                n_neighbors=3,
+                random_state=42,
+            )[0]
+        )
         assert per_feat[j] == ref, f"col {j}: {per_feat[j]!r} != {ref!r}"
 
 
@@ -91,13 +100,18 @@ def test_discovery_fit_knn_baseline_sweeps_columns_once() -> None:
 
     n_bases = 6
     cfg = CompositeTargetDiscoveryConfig(
-        enabled=True, screening="mi", mi_estimator="knn", base_candidates="auto",
-        auto_base_top_k=n_bases, auto_base_null_perms=0,  # isolate the baseline-sweep cost from the null path
+        enabled=True,
+        screening="mi",
+        mi_estimator="knn",
+        base_candidates="auto",
+        auto_base_top_k=n_bases,
+        auto_base_null_perms=0,  # isolate the baseline-sweep cost from the null path
         transforms=("diff", "linear_residual"),
     )
 
     # ``_fit`` imports ``_mi_per_feature_knn`` by name, so spy on the binding it actually calls.
     import mlframe.training.composite.discovery._fit as fit_mod
+
     real = fit_mod._mi_per_feature_knn
     calls = {"n": 0}
 

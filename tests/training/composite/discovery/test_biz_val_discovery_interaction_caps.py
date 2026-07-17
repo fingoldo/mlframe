@@ -8,6 +8,7 @@ The win: on two independent product-interaction signals (``a*b`` and ``c*d`` bot
 the discovery surfaces the synergistic base, and ``max_pairs`` controls how many. A regression that ignores the cap
 (returns all, or none) FAILS both the surfacing and the bound assertion.
 """
+
 from __future__ import annotations
 
 import numpy as np

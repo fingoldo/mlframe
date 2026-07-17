@@ -4,6 +4,7 @@
 in ``_safe_abs_corr``. It must match the numpy result to ~1e-13 (selection-safe for the 0.30/0.5 |corr| gate)
 and reproduce the degenerate-column / too-few-rows short-circuits to 0.0.
 """
+
 import numpy as np
 
 from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit

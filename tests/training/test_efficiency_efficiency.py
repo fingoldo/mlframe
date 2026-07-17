@@ -9,6 +9,7 @@ Covers:
     - SLUGIFY-PER-TGT (memoized slugify).
     - POLARS-PANDAS-CHURN (recurrent numpy-coercion cache).
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -26,6 +27,7 @@ pl = pytest.importorskip("polars")
 
 def test_compute_pipeline_cache_key_folds_polars_dtype():
     from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key
+
     df_i32 = pl.DataFrame({"a": pl.Series([1, 2, 3], dtype=pl.Int32)})
     df_i64 = pl.DataFrame({"a": pl.Series([1, 2, 3], dtype=pl.Int64)})
     k_i32 = _compute_pipeline_cache_key("tree", "ord", (False, False), True, [], [], [], train_df=df_i32)
@@ -35,6 +37,7 @@ def test_compute_pipeline_cache_key_folds_polars_dtype():
 
 def test_compute_pipeline_cache_key_stable_without_train_df():
     from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key
+
     k1 = _compute_pipeline_cache_key("tree", "ord", (False, False), True, [], [], [])
     k2 = _compute_pipeline_cache_key("tree", "ord", (False, False), True, [], [], [])
     assert k1 == k2
@@ -47,13 +50,18 @@ def test_compute_pipeline_cache_key_stable_without_train_df():
 
 def test_drift_snapshot_uses_ctx_cache():
     from mlframe.training.core._phase_helpers import _log_cardinality_and_drift_snapshot
+
     df = pl.DataFrame({"cat": ["a", "b", "c"] * 50})
     val_df = pl.DataFrame({"cat": ["a", "b", "z"] * 50})
     test_df = pl.DataFrame({"cat": ["a", "q", "c"] * 50})
     ctx = SimpleNamespace(_cat_drift_implode_cache={})
     _log_cardinality_and_drift_snapshot(
-        train_df=df, val_df=val_df, test_df=test_df,
-        cat_features=["cat"], text_features=[], embedding_features=[],
+        train_df=df,
+        val_df=val_df,
+        test_df=test_df,
+        cat_features=["cat"],
+        text_features=[],
+        embedding_features=[],
         ctx=ctx,
     )
     # The cache must now hold one entry keyed by (id(df), ('cat',)).
@@ -63,13 +71,18 @@ def test_drift_snapshot_uses_ctx_cache():
 
 def test_drift_snapshot_without_ctx_does_not_crash():
     from mlframe.training.core._phase_helpers import _log_cardinality_and_drift_snapshot
+
     df = pl.DataFrame({"cat": ["a", "b", "c"] * 50})
     val_df = pl.DataFrame({"cat": ["a", "b", "z"] * 50})
     test_df = pl.DataFrame({"cat": ["a", "q", "c"] * 50})
     # ctx=None falls back to the pre-fix recompute path; behaviour must stay identical.
     _log_cardinality_and_drift_snapshot(
-        train_df=df, val_df=val_df, test_df=test_df,
-        cat_features=["cat"], text_features=[], embedding_features=[],
+        train_df=df,
+        val_df=val_df,
+        test_df=test_df,
+        cat_features=["cat"],
+        text_features=[],
+        embedding_features=[],
         ctx=None,
     )
 
@@ -81,6 +94,7 @@ def test_drift_snapshot_without_ctx_does_not_crash():
 
 def test_cached_slugify_is_memoized():
     from mlframe.training.core._phase_train_one_target import _cached_slugify
+
     s1 = _cached_slugify("Some Target Name 42")
     s2 = _cached_slugify("Some Target Name 42")
     assert s1 == s2
@@ -97,6 +111,7 @@ def test_cached_slugify_is_memoized():
 def test_recurrent_numpy_cache_returns_same_array():
     import pandas as pd
     from mlframe.training.core._phase_recurrent import _coerce_features_to_float32
+
     df = pd.DataFrame({"x": np.arange(100, dtype=np.float32), "y": np.arange(100, dtype=np.float32)})
     cache: dict = {}
     arr1 = _coerce_features_to_float32(df, cache=cache, cache_key=("train", id(df)))
@@ -108,6 +123,7 @@ def test_recurrent_numpy_cache_returns_same_array():
 def test_recurrent_coerce_returns_float32_for_int_input():
     import pandas as pd
     from mlframe.training.core._phase_recurrent import _coerce_features_to_float32
+
     df = pd.DataFrame({"x": np.arange(10, dtype=np.int64)})
     arr = _coerce_features_to_float32(df)
     assert arr.dtype == np.float32

@@ -25,8 +25,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interaction_proxy imp
 def _xgb(seed=0):
     import xgboost as xgb
 
-    return xgb.XGBClassifier(n_estimators=120, max_depth=4, learning_rate=0.15, subsample=0.9,
-                             n_jobs=1, tree_method="hist", verbosity=0, random_state=seed)
+    return xgb.XGBClassifier(n_estimators=120, max_depth=4, learning_rate=0.15, subsample=0.9, n_jobs=1, tree_method="hist", verbosity=0, random_state=seed)
 
 
 def _two_xor_pairs(n=1500, p_noise=30, seed=0):
@@ -49,16 +48,16 @@ def _shap_and_tensor(X, y, seed):
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import compute_interaction_tensor
 
     phi, base, y_phi = compute_shap_matrix(
-        _xgb(seed), X, np.asarray(y), classification=True, out_of_fold=True, n_splits=3,
-        n_models=1, rng=np.random.default_rng(seed), n_jobs=1)
-    Phi, _ibase = compute_interaction_tensor(
-        _xgb(seed), X, np.asarray(y), classification=True, rng=np.random.default_rng(seed))
+        _xgb(seed), X, np.asarray(y), classification=True, out_of_fold=True, n_splits=3, n_models=1, rng=np.random.default_rng(seed), n_jobs=1
+    )
+    Phi, _ibase = compute_interaction_tensor(_xgb(seed), X, np.asarray(y), classification=True, rng=np.random.default_rng(seed))
     return phi, base, y_phi, Phi
 
 
 # ---------------------------------------------------------------------------------------------------
 # Unit tests
 # ---------------------------------------------------------------------------------------------------
+
 
 def test_build_pair_table_gate_and_symmetry():
     rng = np.random.default_rng(0)
@@ -98,9 +97,8 @@ def test_interaction_proxy_top_n_smoke_and_candidate_rescore():
     X, y = _two_xor_pairs(seed=0)
     phi, base, y_phi, Phi = _shap_and_tensor(X, y, 0)
     cands = interaction_proxy_top_n(
-        phi, Phi, base, y_phi, classification=True, metric="brier",
-        min_card=1, max_card=2, top_n=10, interaction_top_k=30,
-        candidate_subsets=[(0,), (0, 1)])
+        phi, Phi, base, y_phi, classification=True, metric="brier", min_card=1, max_card=2, top_n=10, interaction_top_k=30, candidate_subsets=[(0,), (0, 1)]
+    )
     assert cands and all(np.isfinite(l) for l, _ in cands)
     # a true XOR pair should appear among the best candidates
     names = list(X.columns)
@@ -112,6 +110,7 @@ def test_interaction_proxy_top_n_smoke_and_candidate_rescore():
 # ---------------------------------------------------------------------------------------------------
 # biz_value: interaction proxy beats additive on competing-XOR by a pinned REPLICATED margin
 # ---------------------------------------------------------------------------------------------------
+
 
 def _honest_auc(X, y, sel, seed):
     from sklearn.metrics import roc_auc_score
@@ -142,16 +141,25 @@ def test_biz_val_interaction_proxy_beats_additive_on_competing_xor(seed):
     X, y = _two_xor_pairs(seed=seed)
     # search-split SHAP, exactly the selector machinery, on a disjoint search subset
     from sklearn.model_selection import train_test_split
+
     Xs, _Xh, ys, _yh = train_test_split(X, y, test_size=0.25, random_state=seed, stratify=y)
     Xs = Xs.reset_index(drop=True)
     phi, base, y_phi, Phi = _shap_and_tensor(Xs, ys, seed)
     P = phi.shape[1]
-    add_c = brute_force_top_n(phi, base, y_phi, classification=True, metric="brier",
-                              min_card=1, max_card=min(2, P), top_n=30, parallel=False)
+    add_c = brute_force_top_n(phi, base, y_phi, classification=True, metric="brier", min_card=1, max_card=min(2, P), top_n=30, parallel=False)
     int_c = interaction_proxy_top_n(
-        phi, Phi, base, y_phi, classification=True, metric="brier",
-        min_card=1, max_card=min(2, P), top_n=30, interaction_top_k=30,
-        candidate_subsets=[c for _l, c in add_c])
+        phi,
+        Phi,
+        base,
+        y_phi,
+        classification=True,
+        metric="brier",
+        min_card=1,
+        max_card=min(2, P),
+        top_n=30,
+        interaction_top_k=30,
+        candidate_subsets=[c for _l, c in add_c],
+    )
     names = list(Xs.columns)
     a_auc = _honest_auc(X, y, _best_subset(add_c, names), seed)
     i_auc = _honest_auc(X, y, _best_subset(int_c, names), seed)
@@ -183,12 +191,20 @@ def test_biz_val_interaction_proxy_no_regression_on_additive_bed():
     Xs = Xs.reset_index(drop=True)
     phi, base, y_phi, Phi = _shap_and_tensor(Xs, ys, 0)
     P = phi.shape[1]
-    add_c = brute_force_top_n(phi, base, y_phi, classification=True, metric="brier",
-                              min_card=1, max_card=min(4, P), top_n=30, parallel=False)
+    add_c = brute_force_top_n(phi, base, y_phi, classification=True, metric="brier", min_card=1, max_card=min(4, P), top_n=30, parallel=False)
     int_c = interaction_proxy_top_n(
-        phi, Phi, base, y_phi, classification=True, metric="brier",
-        min_card=1, max_card=min(4, P), top_n=30, interaction_top_k=30,
-        candidate_subsets=[c for _l, c in add_c])
+        phi,
+        Phi,
+        base,
+        y_phi,
+        classification=True,
+        metric="brier",
+        min_card=1,
+        max_card=min(4, P),
+        top_n=30,
+        interaction_top_k=30,
+        candidate_subsets=[c for _l, c in add_c],
+    )
     names = list(Xs.columns)
     a_auc = _honest_auc(X, y, _best_subset(add_c, names), 0)
     i_auc = _honest_auc(X, y, _best_subset(int_c, names), 0)

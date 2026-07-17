@@ -18,6 +18,7 @@ x2=0.215, x3=0.190, x4=0.148, x5=0.103; homogeneous cluster PC1 var-ratio 0.671;
 heterogeneous cluster var-ratio 0.491 (so tau=0.99 rejects, tau=0.0 appends). All floors here are exact
 structural facts (membership / lengths / counts), not noisy magnitudes, so they need no margin.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -56,8 +57,13 @@ def _build(n: int = 4000, seed: int = 42, nb: int = _NB, **mlr):
     and ``cols`` the column names with the target appended last.
     """
     X_arr, y, info = make_latent_reflections(
-        n=n, loadings=_LOADINGS, noise_sd=_NOISE_SD, n_noise=_N_NOISE,
-        indep_weight=0.4, seed=seed, **mlr,
+        n=n,
+        loadings=_LOADINGS,
+        noise_sd=_NOISE_SD,
+        n_noise=_N_NOISE,
+        indep_weight=0.4,
+        seed=seed,
+        **mlr,
     )
     p = X_arr.shape[1]
     names = [f"x{i}" for i in range(p)]
@@ -71,10 +77,23 @@ def _build(n: int = 4000, seed: int = 42, nb: int = _NB, **mlr):
 
 def _discover(data, cols, nbins, X, target_indices, **over):
     kw = dict(
-        data=data, cols=cols, nbins=nbins, X=X, target_indices=target_indices,
-        feature_names_in_=[c for c in cols if c != "y"], categorical_idx=(), cached_MIs={},
-        min_member_relevance=0.0, corr_threshold=0.5, min_cluster_size=3, max_cluster_size=12,
-        homogeneity_tau=0.6, max_candidates=200, mi_eps=1e-6, edge_significance=3.0, dtype=np.int32,
+        data=data,
+        cols=cols,
+        nbins=nbins,
+        X=X,
+        target_indices=target_indices,
+        feature_names_in_=[c for c in cols if c != "y"],
+        categorical_idx=(),
+        cached_MIs={},
+        min_member_relevance=0.0,
+        corr_threshold=0.5,
+        min_cluster_size=3,
+        max_cluster_size=12,
+        homogeneity_tau=0.6,
+        max_candidates=200,
+        mi_eps=1e-6,
+        edge_significance=3.0,
+        dtype=np.int32,
     )
     kw.update(over)
     return _discover_clusters(**kw)
@@ -83,11 +102,23 @@ def _discover(data, cols, nbins, X, target_indices, **over):
 def _run(data, cols, nbins, X, target_indices, nb, methods=("mean_z", "pca_pc1", "mean_inv_var"), **over):
     """Drive ``run_cluster_aggregate_step``; return ``(n_added, summary, engineered_recipes)``."""
     kw = dict(
-        data=data.copy(), cols=list(cols), nbins=nbins.copy(), X=X, target_indices=target_indices,
-        feature_names_in_=[c for c in cols if c != "y"], categorical_idx=(), cached_MIs={},
-        engineered_recipes={}, quantization_nbins=nb, quantization_method="quantile",
-        quantization_dtype=np.int32, methods=methods, mi_prevalence=1.0, corr_threshold=0.5,
-        min_cluster_size=3, verbose=0,
+        data=data.copy(),
+        cols=list(cols),
+        nbins=nbins.copy(),
+        X=X,
+        target_indices=target_indices,
+        feature_names_in_=[c for c in cols if c != "y"],
+        categorical_idx=(),
+        cached_MIs={},
+        engineered_recipes={},
+        quantization_nbins=nb,
+        quantization_method="quantile",
+        quantization_dtype=np.int32,
+        methods=methods,
+        mi_prevalence=1.0,
+        corr_threshold=0.5,
+        min_cluster_size=3,
+        verbose=0,
     )
     kw.update(over)
     recipes = kw["engineered_recipes"]

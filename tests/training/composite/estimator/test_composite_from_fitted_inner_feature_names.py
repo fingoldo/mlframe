@@ -21,6 +21,7 @@ Post-fix: ``from_fitted_inner`` mirrors ``.fit``'s capture: read
 on the wrapper. The predict-side resolver now sees the raw column list
 and routes the call to the raw-plus-extension frame.
 """
+
 from __future__ import annotations
 
 import numpy as np

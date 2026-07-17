@@ -36,8 +36,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _has_device(), reason="no 
 def _fit_xgb(X, y, *, classification, n_estimators=40, max_depth=5, seed=0):
     from xgboost import XGBClassifier, XGBRegressor
 
-    params = dict(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.2,
-                  random_state=seed, tree_method="hist")
+    params = dict(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.2, random_state=seed, tree_method="hist")
     m = XGBClassifier(**params, eval_metric="logloss") if classification else XGBRegressor(**params)
     m.fit(X, y)
     return m
@@ -54,8 +53,7 @@ def test_gpu_interaction_matches_numba(classification, max_depth):
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(200, 9)), columns=[f"f{i}" for i in range(9)])
     signal = X["f0"] * X["f1"] + 0.5 * X["f2"] - X["f3"]  # genuine pairwise interaction f0*f1
-    y = (signal + 0.3 * rng.normal(size=200) > 0).astype(int) if classification else \
-        (signal + 0.1 * rng.normal(size=200)).to_numpy()
+    y = (signal + 0.3 * rng.normal(size=200) > 0).astype(int) if classification else (signal + 0.1 * rng.normal(size=200)).to_numpy()
     model = _fit_xgb(X, y, classification=classification, n_estimators=60, max_depth=max_depth)
 
     ens = extract_ensemble(model)
@@ -102,8 +100,7 @@ def test_gpu_interaction_handles_missing_values():
 
 def test_gpu_interaction_depth_cap_raises():
     """Beyond the local-scratch depth cap the GPU kernel raises so the caller falls back to numba."""
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu import (
-        _MAX_SUPPORTED_DEPTH, interaction_tensor_gpu)
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu import _MAX_SUPPORTED_DEPTH, interaction_tensor_gpu
 
     class _FakeEnsemble:
         max_depth = _MAX_SUPPORTED_DEPTH + 1
@@ -124,10 +121,8 @@ def test_compute_interaction_tensor_gpu_matches_shap():
     y = ((X["f0"] > 0) ^ (X["f1"] > 0)).astype(int).to_numpy()
     tmpl = make_default_estimator(classification=True, n_estimators=60)
 
-    Phi_g, base_g = compute_interaction_tensor(tmpl, X, y, classification=True,
-                                               rng=np.random.default_rng(0), backend="treeshap_gpu")
-    Phi_s, base_s = compute_interaction_tensor(tmpl, X, y, classification=True,
-                                               rng=np.random.default_rng(0), backend="shap")
+    Phi_g, base_g = compute_interaction_tensor(tmpl, X, y, classification=True, rng=np.random.default_rng(0), backend="treeshap_gpu")
+    Phi_s, base_s = compute_interaction_tensor(tmpl, X, y, classification=True, rng=np.random.default_rng(0), backend="shap")
     np.testing.assert_allclose(Phi_g, Phi_s, rtol=1e-4, atol=1e-4)
     np.testing.assert_allclose(base_g, base_s, rtol=1e-4, atol=1e-4)
 
@@ -157,8 +152,7 @@ def test_compute_interaction_tensor_routes_to_gpu_on_large_problem():
     mono.setattr(mod, "_interaction_gpu_min_cells", lambda: 0)
     mono.setattr(mod, "_interaction_tensor_gpu", _spy)
     try:
-        Phi, base = compute_interaction_tensor(tmpl, X, y, classification=True,
-                                               rng=np.random.default_rng(0), backend="auto")
+        Phi, base = compute_interaction_tensor(tmpl, X, y, classification=True, rng=np.random.default_rng(0), backend="auto")
     finally:
         mono.undo()
     assert called["gpu"] == 1
@@ -178,8 +172,7 @@ def test_biz_val_gpu_interaction_faster_than_numba():
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions import interaction_tensor_numba
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu import interaction_tensor_gpu
 
-    X, y, _ = make_regime_dataset(n_samples=3000, n_informative=6, n_noise=34, task="regression",
-                                  interaction_order=2, interaction_strength=0.6, seed=5)
+    X, y, _ = make_regime_dataset(n_samples=3000, n_informative=6, n_noise=34, task="regression", interaction_order=2, interaction_strength=0.6, seed=5)
     model = _fit_xgb(X, y, classification=False, n_estimators=200, max_depth=4)
     ens = extract_ensemble(model)
     P = ens.n_features
@@ -200,8 +193,5 @@ def test_biz_val_gpu_interaction_faster_than_numba():
 
     np.testing.assert_allclose(Phi_g, Phi_n, rtol=0, atol=1e-6)
     speedup = t_numba / max(t_gpu, 1e-9)
-    print(f"\n[biz_value] P={P} n={X.shape[0]}: numba {t_numba:.3f}s vs gpu {t_gpu:.3f}s "
-          f"-> {speedup:.2f}x GPU speedup")
-    assert speedup >= 1.15, (
-        f"expected >=1.15x GPU-vs-numba speedup on {P} features, got {speedup:.2f}x "
-        f"(numba {t_numba:.3f}s vs gpu {t_gpu:.3f}s)")
+    print(f"\n[biz_value] P={P} n={X.shape[0]}: numba {t_numba:.3f}s vs gpu {t_gpu:.3f}s -> {speedup:.2f}x GPU speedup")
+    assert speedup >= 1.15, f"expected >=1.15x GPU-vs-numba speedup on {P} features, got {speedup:.2f}x (numba {t_numba:.3f}s vs gpu {t_gpu:.3f}s)"

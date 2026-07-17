@@ -52,6 +52,7 @@ def _make(seed, n, task, n_inf=3, n_noise=9):
         y = lin + 0.1 * rng.normal(size=n)
     elif task == "graded":
         from scipy.stats import rankdata
+
         ranks = rankdata(lin + 0.3 * rng.normal(size=n))
         y = np.floor(ranks / (n + 1) * 5).astype(int)  # 0..4, monotone in relevance (LtR-style)
     else:
@@ -61,16 +62,27 @@ def _make(seed, n, task, n_inf=3, n_noise=9):
 
 def _spfs(classification, metric):
     return get("ShapProxiedFS").instantiate(
-        classification=classification, metric=metric, optimizer="bruteforce",
-        max_features=6, top_n=12, n_splits=3, n_revalidation_models=2,
-        random_state=0, verbose=False, n_jobs=1,
+        classification=classification,
+        metric=metric,
+        optimizer="bruteforce",
+        max_features=6,
+        top_n=12,
+        n_splits=3,
+        n_revalidation_models=2,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
     )
 
 
 def _boruta(classification, n_trials=20):
     return get("BorutaShap").instantiate(
-        importance_measure="gini", classification=classification, n_trials=n_trials,
-        random_state=0, verbose=False, optimistic=True,
+        importance_measure="gini",
+        classification=classification,
+        n_trials=n_trials,
+        random_state=0,
+        verbose=False,
+        optimistic=True,
     )
 
 
@@ -82,6 +94,7 @@ def _majority(results, predicate):
 
 # --------------------------------------------------------------- ShapProxiedFS classification flag contract
 
+
 def test_spfs_graded_target_raises_under_default_classification_true():
     """The registry default classification=True must reject a 5-class graded target with the documented message."""
     X, y = _make(0, 400, "graded")
@@ -91,6 +104,7 @@ def test_spfs_graded_target_raises_under_default_classification_true():
 
 
 # --------------------------------------------------------------- ShapProxiedFS matrix (binary / regression / graded)
+
 
 @pytest.mark.slow
 @pytest.mark.parametrize("seed", SEEDS)
@@ -153,6 +167,7 @@ def test_biz_val_spfs_noise_exclusion_at_medium_n(task, classification, metric):
 
 # --------------------------------------------------------------- BorutaShap (binary + regression)
 
+
 @pytest.mark.slow
 @pytest.mark.parametrize("seed", SEEDS)
 def test_biz_val_boruta_binary_keeps_signal_rejects_noise(seed):
@@ -181,6 +196,7 @@ def test_biz_val_boruta_regression_keeps_signal_rejects_noise(seed):
 
 
 # --------------------------------------------------------------- Adversarial: exact duplicate (redundancy)
+
 
 @pytest.mark.slow
 def test_biz_val_spfs_exact_duplicate_collapsed_to_one():
@@ -220,6 +236,7 @@ def test_biz_val_boruta_exact_duplicate_measured_behavior():
 
 
 # --------------------------------------------------------------- Adversarial: confounder + genuine signals
+
 
 @pytest.mark.slow
 @pytest.mark.parametrize("seed", SEEDS)

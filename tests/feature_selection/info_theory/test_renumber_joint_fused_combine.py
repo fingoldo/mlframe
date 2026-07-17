@@ -4,6 +4,7 @@ produce a partition + nclasses BIT-IDENTICAL to the two-step numpy
 before the fusion. Pins the bit-identity claim so a future "tweak the fused
 loop" cannot silently alter which joint class ids the CMI/entropy path sees.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -49,6 +50,7 @@ def test_combine_factorize_hash_fallback_path():
 def test_renumber_joint_three_col_bit_identical_to_legacy():
     """Full 3-col `_renumber_joint` (two fused folds) matches the legacy
     all-numpy-multiply-add reference."""
+
     def legacy(*cols):
         j = np.ascontiguousarray(cols[0], dtype=np.int64).ravel()
         j, m = _factorize_dense_njit(j)

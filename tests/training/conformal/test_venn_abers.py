@@ -6,6 +6,7 @@ Venn-Abers calibrated probabilities have a LOWER Expected Calibration Error than
 the raw ``predict_proba``, the ``[p0, p1]`` interval brackets the point estimate and
 the empirical frequency, and the calibrated probability is monotone in the score.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -21,9 +22,7 @@ def _overconfident_estimator():
     # A deep, near-unregularised forest over-fits the train split => its train-time
     # predict_proba is over-confident (probabilities pushed toward 0/1).
     return CompositeClassificationEstimator(
-        base_estimator=lgb.LGBMClassifier(
-            n_estimators=300, num_leaves=63, min_child_samples=2, learning_rate=0.2, verbose=-1
-        ),
+        base_estimator=lgb.LGBMClassifier(n_estimators=300, num_leaves=63, min_child_samples=2, learning_rate=0.2, verbose=-1),
     )
 
 

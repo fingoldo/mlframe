@@ -6,6 +6,7 @@ time, and fraud rows are exactly the ones where the value deviates from that usu
 (has this exact value been seen in this group before) carry strong, quantifiable correlation with the fraud
 label — while the raw value/group columns alone (without the within-group context) carry essentially none.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -83,8 +84,7 @@ def test_biz_val_fuzzy_entity_features_predict_deviation_while_raw_value_does_no
     mismatch_rate_when_fraud = float((~out["group_mode_match"][y == 1]).mean())
     mismatch_rate_when_clean = float((~out["group_mode_match"][y == 0]).mean())
     assert mismatch_rate_when_fraud > mismatch_rate_when_clean + 0.5, (
-        f"mode mismatch should be far more common on fraud rows: fraud={mismatch_rate_when_fraud:.3f} "
-        f"clean={mismatch_rate_when_clean:.3f}"
+        f"mode mismatch should be far more common on fraud rows: fraud={mismatch_rate_when_fraud:.3f} clean={mismatch_rate_when_clean:.3f}"
     )
 
     # novel-in-group values (occurrence_count==0) should correlate with fraud.
@@ -138,9 +138,7 @@ def test_biz_val_fuzzy_entity_group_features_fuzzy_key_matching_recovers_split_g
     order = np.arange(len(keys), dtype=np.float64)
 
     out_exact = fuzzy_entity_group_features(keys, values, time_order=order)
-    out_fuzzy = fuzzy_entity_group_features(
-        keys, values, time_order=order, fuzzy_key_matching=True, fuzzy_max_distance=1, fuzzy_block_prefix_len=10
-    )
+    out_fuzzy = fuzzy_entity_group_features(keys, values, time_order=order, fuzzy_key_matching=True, fuzzy_max_distance=1, fuzzy_block_prefix_len=10)
 
     # exact matching sees each typo'd key as a brand-new, distinct group -- true entity count is 150, but
     # noisy identifiers fragment it into far more exact-match groups.
@@ -157,8 +155,7 @@ def test_biz_val_fuzzy_entity_group_features_fuzzy_key_matching_recovers_split_g
     corr_exact, _ = spearmanr(out_exact["value_occurrence_count_in_group"], y)
     corr_fuzzy, _ = spearmanr(out_fuzzy["value_occurrence_count_in_group"], y)
     assert corr_fuzzy < corr_exact - 0.05, (
-        f"fuzzy key matching should strengthen occurrence-count's fraud signal vs exact matching: "
-        f"exact corr={corr_exact:.3f} fuzzy corr={corr_fuzzy:.3f}"
+        f"fuzzy key matching should strengthen occurrence-count's fraud signal vs exact matching: exact corr={corr_exact:.3f} fuzzy corr={corr_fuzzy:.3f}"
     )
     assert corr_fuzzy < -0.2, f"fuzzy-matched occurrence count should strongly predict fraud, got corr={corr_fuzzy:.3f}"
 

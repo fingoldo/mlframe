@@ -18,6 +18,7 @@ These tests pin:
   (6) Small-N path (N < _BINARY_PAIR_SHORTCUT_MIN_N) still hits the
       original torch.where branch -> no regression for typical fuzz N=10.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -105,9 +106,7 @@ def test_ranknet_loss_large_n_binary_matches_torch_where_path():
     score_diff = scores[i_ref] - scores[j_ref]
     loss_ref = torch.nn.functional.softplus(-score_diff).mean()
 
-    assert torch.allclose(loss_short, loss_ref, atol=1e-7), (
-        f"binary shortcut loss {loss_short.item()} != torch.where loss {loss_ref.item()}"
-    )
+    assert torch.allclose(loss_short, loss_ref, atol=1e-7), f"binary shortcut loss {loss_short.item()} != torch.where loss {loss_ref.item()}"
 
 
 def test_install_pair_index_cache_large_query_binary_matches_torch_where():

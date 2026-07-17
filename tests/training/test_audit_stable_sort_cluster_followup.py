@@ -49,6 +49,7 @@ follow the same pattern but operate on research-grade transformers; left as
 documented known pattern -- the user-facing impact is per-feature drift not
 suite-level selection drift.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

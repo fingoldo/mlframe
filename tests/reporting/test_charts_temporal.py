@@ -22,7 +22,9 @@ from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
 from mlframe.reporting.spec import LinePanelSpec
 from mlframe.training.targets.target_temporal_audit import (
-    TemporalAuditResult, TimeBin, audit_target_over_time,
+    TemporalAuditResult,
+    TimeBin,
+    audit_target_over_time,
 )
 
 
@@ -37,18 +39,20 @@ def _synthetic_audit_with_changepoint():
     for i in range(13):
         rate = 0.1 if i < 6 else 0.6
         kept = i != 3  # month index 3 is sparse / dropped
-        bins.append(TimeBin(bin_label=str(starts[i].date()), bin_start=starts[i],
-                            n_obs=(5 if not kept else 500), target_rate=rate, kept=kept))
+        bins.append(TimeBin(bin_label=str(starts[i].date()), bin_start=starts[i], n_obs=(5 if not kept else 500), target_rate=rate, kept=kept))
     kept_bins = [b for b in bins if b.kept]  # 12 kept
     segments = [
-        {"start_idx": 0, "end_idx": 6, "start_label": "", "end_label": "",
-         "n_bins": 6, "n_obs": 3000, "mean_rate": 0.1},
-        {"start_idx": 6, "end_idx": len(kept_bins), "start_label": "", "end_label": "",
-         "n_bins": len(kept_bins) - 6, "n_obs": 3000, "mean_rate": 0.6},
+        {"start_idx": 0, "end_idx": 6, "start_label": "", "end_label": "", "n_bins": 6, "n_obs": 3000, "mean_rate": 0.1},
+        {"start_idx": 6, "end_idx": len(kept_bins), "start_label": "", "end_label": "", "n_bins": len(kept_bins) - 6, "n_obs": 3000, "mean_rate": 0.6},
     ]
     return TemporalAuditResult(
-        target_name="y", target_type="binary_classification", timestamp_col="t",
-        granularity="month", bins=bins, change_point_indices=[6], segments=segments,
+        target_name="y",
+        target_type="binary_classification",
+        timestamp_col="t",
+        granularity="month",
+        bins=bins,
+        change_point_indices=[6],
+        segments=segments,
         warnings=[],
     )
 
@@ -104,8 +108,14 @@ def test_three_series_kept_segment_sparse():
 
 def test_degenerate_no_bins_does_not_crash():
     res = TemporalAuditResult(
-        target_name="y", target_type="regression", timestamp_col="t",
-        granularity="month", bins=[], change_point_indices=[], segments=[], warnings=[],
+        target_name="y",
+        target_type="regression",
+        timestamp_col="t",
+        granularity="month",
+        bins=[],
+        change_point_indices=[],
+        segments=[],
+        warnings=[],
     )
     spec = build_temporal_audit_spec(res)
     assert isinstance(spec.panels[0][0], LinePanelSpec)
@@ -126,11 +136,9 @@ def test_end_to_end_real_audit_surfaces_changepoint(tmp_path):
     n = 4000
     ts = pd.to_datetime("2021-01-01") + pd.to_timedelta(rng.integers(0, 40 * 30, n), unit="D")
     df = pd.DataFrame({"t": ts}).sort_values("t").reset_index(drop=True)
-    y = np.where(df["t"] < pd.to_datetime("2022-09-01"),
-                 rng.binomial(1, 0.1, n), rng.binomial(1, 0.6, n))
+    y = np.where(df["t"] < pd.to_datetime("2022-09-01"), rng.binomial(1, 0.1, n), rng.binomial(1, 0.6, n))
     df["y"] = y
-    res = audit_target_over_time(df, timestamp_col="t", target_col="y",
-                                 target_type="binary_classification", granularity="month")
+    res = audit_target_over_time(df, timestamp_col="t", target_col="y", target_type="binary_classification", granularity="month")
     assert len(res.change_point_indices) >= 1
     assert len(res.segments) >= 2
     spec = build_temporal_audit_spec(res)
@@ -150,7 +158,8 @@ def test_end_to_end_real_audit_surfaces_changepoint(tmp_path):
 import warnings  # noqa: E402
 
 from mlframe.reporting.charts.temporal import (  # noqa: E402
-    ALLOWED_TEMPORAL_PANEL_TOKENS, compose_target_acf_figure,
+    ALLOWED_TEMPORAL_PANEL_TOKENS,
+    compose_target_acf_figure,
 )
 from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec  # noqa: E402
 
@@ -218,7 +227,6 @@ class TestTargetAcfPacf:
         spec = compose_target_acf_figure(y)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]+plotly[html]"),
-                            os.path.join(str(tmp_path), "acfpacf"))
+            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]+plotly[html]"), os.path.join(str(tmp_path), "acfpacf"))
         assert os.path.exists(tmp_path / "acfpacf.matplotlib.png")
         assert os.path.exists(tmp_path / "acfpacf.plotly.html")

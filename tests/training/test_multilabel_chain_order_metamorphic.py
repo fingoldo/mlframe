@@ -22,6 +22,7 @@ because the audit's "full-suite double-run" gate is too expensive for the
 default CI path; the F8 invariant lives at the sklearn level the mlframe
 multilabel dispatch composes onto.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -89,8 +90,7 @@ def test_F8_1_multioutput_classifier_label_permutation_is_byte_identity():
         probas_orig,
         probas_perm_unshuffled,
         atol=1e-12,
-        err_msg="MultiOutputClassifier label permutation is NOT byte-identity invariant -- a per-label "
-        "fit accidentally folds cross-label state at fit time.",
+        err_msg="MultiOutputClassifier label permutation is NOT byte-identity invariant -- a per-label fit accidentally folds cross-label state at fit time.",
     )
 
 
@@ -151,7 +151,4 @@ def test_F8_2_chain_metamorphic_robust_across_seeds(seed: int):
     macro_perm = float(np.mean([roc_auc_score(y_te[:, k], proba_perm[:, k]) for k in range(_N_LABELS)]))
 
     drift = abs(macro_default - macro_perm)
-    assert drift < 0.05, (
-        f"seed={seed}, order={perm}: macro-AUROC drift {drift:.4f} exceeds 0.05 envelope "
-        f"(default={macro_default:.4f}, perm={macro_perm:.4f})"
-    )
+    assert drift < 0.05, f"seed={seed}, order={perm}: macro-AUROC drift {drift:.4f} exceeds 0.05 envelope (default={macro_default:.4f}, perm={macro_perm:.4f})"

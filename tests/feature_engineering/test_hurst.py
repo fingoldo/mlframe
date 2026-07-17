@@ -136,7 +136,7 @@ def _ref_dfa_alpha(x):
         m = n // s
         var_sum = 0.0
         for j in range(m):
-            seg = y[j * s:(j + 1) * s]
+            seg = y[j * s : (j + 1) * s]
             t = np.arange(s).astype(np.float64)
             tm = t.mean()
             sm = seg.mean()
@@ -187,13 +187,23 @@ def _ref_dfa_alpha2(x):
         m = n // s
         var_sum = 0.0
         for j in range(m):
-            seg = y[j * s:(j + 1) * s]
+            seg = y[j * s : (j + 1) * s]
             t = np.arange(s).astype(np.float64)
-            S0 = float(s); S1 = t.sum(); S2 = (t * t).sum()
-            S3 = (t * t * t).sum(); S4 = (t * t * t * t).sum()
-            Sy = seg.sum(); Sty = (t * seg).sum(); St2y = (t * t * seg).sum()
-            M00 = S0; M01 = S1; M02 = S2; M11 = S2; M12 = S3; M22 = S4
-            det = (M00 * (M11 * M22 - M12 * M12) - M01 * (M01 * M22 - M12 * M02) + M02 * (M01 * M12 - M11 * M02))
+            S0 = float(s)
+            S1 = t.sum()
+            S2 = (t * t).sum()
+            S3 = (t * t * t).sum()
+            S4 = (t * t * t * t).sum()
+            Sy = seg.sum()
+            Sty = (t * seg).sum()
+            St2y = (t * t * seg).sum()
+            M00 = S0
+            M01 = S1
+            M02 = S2
+            M11 = S2
+            M12 = S3
+            M22 = S4
+            det = M00 * (M11 * M22 - M12 * M12) - M01 * (M01 * M22 - M12 * M02) + M02 * (M01 * M12 - M11 * M02)
             if abs(det) < 1e-12:
                 continue
             inv_det = 1.0 / det
@@ -253,7 +263,7 @@ def test_hurst_closed_form_fit_matches_lstsq(seed):
     ws_arr = np.asarray(ws, dtype=float)
     x = np.vstack([np.log10(ws_arr), np.ones(len(rs_arr))]).T
     h_ref, c_ref_log = np.linalg.lstsq(x, np.log10(rs_arr), rcond=None)[0]
-    c_ref = 10 ** c_ref_log
+    c_ref = 10**c_ref_log
 
     assert abs(h_new - h_ref) < 1e-9, f"slope diverged: {h_new} vs {h_ref}"
     assert abs(c_new - c_ref) / max(abs(c_ref), 1e-12) < 1e-9, f"intercept diverged: {c_new} vs {c_ref}"

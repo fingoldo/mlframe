@@ -10,6 +10,7 @@ sentinel (or any non-int), so explicit integers fall through to the requested K.
 These exercise the smallest callable (``_build_mbh_optimizer``) directly via a
 lightweight stand-in for ``self``; no full RFECV fit / training run.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -65,9 +66,7 @@ def test_explicit_5_differs_from_auto():
     """Direct contrast on the exact value that triggered the bug (the literal 5)."""
     explicit = _seeded_for(5, p=15, max_refits=None)
     auto = _seeded_for("auto", p=15, max_refits=None)
-    assert len(explicit) > len(auto), (
-        f"explicit init_design_size=5 ({explicit}) must not collapse to auto ({auto})"
-    )
+    assert len(explicit) > len(auto), f"explicit init_design_size=5 ({explicit}) must not collapse to auto ({auto})"
 
 
 def test_explicit_int_other_than_5_unaffected():

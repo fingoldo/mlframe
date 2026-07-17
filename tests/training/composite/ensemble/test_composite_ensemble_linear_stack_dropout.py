@@ -57,9 +57,9 @@ def test_linear_stack_all_components_ok_no_warning(caplog):
 
 def test_linear_stack_one_component_dropped_no_refit_warns(caplog):
     """When one component returns None at predict, predict must:
-       (a) emit a 'dropped out' warning, and
-       (b) return the surviving columns' ORIGINAL coefficients @ preds plus
-           the original intercept -- no solver refit, fully deterministic.
+    (a) emit a 'dropped out' warning, and
+    (b) return the surviving columns' ORIGINAL coefficients @ preds plus
+        the original intercept -- no solver refit, fully deterministic.
     """
     ens, models, y_train = _build_stack_with_three_components(seed=1)
 
@@ -73,9 +73,7 @@ def test_linear_stack_one_component_dropped_no_refit_warns(caplog):
     with caplog.at_level(logging.WARNING, logger="mlframe.training.composite.ensemble"):
         preds = ens.predict("X_dummy")
 
-    assert any("dropped out" in rec.message for rec in caplog.records), (
-        f"expected a 'dropped out' warning; got {[r.message for r in caplog.records]}"
-    )
+    assert any("dropped out" in rec.message for rec in caplog.records), f"expected a 'dropped out' warning; got {[r.message for r in caplog.records]}"
 
     full_w = np.asarray(ens.weights, dtype=np.float64)
     intercept = float(ens._linear_stack_intercept)

@@ -11,6 +11,7 @@ package locales). This synthetic reproduces that: a RICH country ("US") observes
 has zero local history for XX's Christmas Day rows and collapses to the grand mean (a blend of ALL holidays'
 multipliers); cross-locale shrinkage borrows the already-converged cross-country "Christmas Day" mean instead.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -60,9 +61,7 @@ def test_biz_val_holiday_name_target_encode_cross_locale_cold_start_country_beat
     names, countries, y, order = _build_synthetic()
 
     same_country_only = holiday_name_target_encode_cross_locale(names, countries, y, order=order, smoothing=1.0)
-    cross_locale = holiday_name_target_encode_cross_locale(
-        names, countries, y, order=order, smoothing=1.0, cross_locale_shrinkage=5.0
-    )
+    cross_locale = holiday_name_target_encode_cross_locale(names, countries, y, order=order, smoothing=1.0, cross_locale_shrinkage=5.0)
 
     cold_mask = countries == "XX"
     true_y = y[cold_mask]
@@ -71,8 +70,7 @@ def test_biz_val_holiday_name_target_encode_cross_locale_cold_start_country_beat
     rmse_cross_locale = mean_squared_error(true_y, cross_locale[cold_mask]) ** 0.5
 
     assert rmse_cross_locale < rmse_same_country * 0.35, (
-        f"expected cross-locale shrinkage to cut cold-start RMSE by >65%, "
-        f"got same_country={rmse_same_country:.2f} cross_locale={rmse_cross_locale:.2f}"
+        f"expected cross-locale shrinkage to cut cold-start RMSE by >65%, got same_country={rmse_same_country:.2f} cross_locale={rmse_cross_locale:.2f}"
     )
     # The true Christmas-Day multiplier is 3.0x baseline (300); a converged 28-year cross-country prior
     # should land close to it, not merely closer-than-baseline.

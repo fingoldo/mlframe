@@ -11,6 +11,7 @@ flagged as missing coverage (U14 in tests-expand.md).
 The single-pair kernel ``grok_mutual_information`` and the single-target kernel
 ``grok_mutual_information_old`` are also exercised at the boundary.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -56,15 +57,19 @@ def target_indices():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("fn", [
-    grok_compute_mutual_information,
-    chatgpt_compute_mutual_information,
-    deepseek_compute_mutual_information,
-])
+@pytest.mark.parametrize(
+    "fn",
+    [
+        grok_compute_mutual_information,
+        chatgpt_compute_mutual_information,
+        deepseek_compute_mutual_information,
+    ],
+)
 def test_each_estimator_returns_expected_shape(fn, binned_data, target_indices):
     out = fn(binned_data, target_indices, n_bins=15)
-    assert out.shape == (len(target_indices), binned_data.shape[1]), \
+    assert out.shape == (len(target_indices), binned_data.shape[1]), (
         f"{fn.__name__}: shape mismatch — got {out.shape}, expected {(len(target_indices), binned_data.shape[1])}"
+    )
     assert out.dtype == np.float64
     assert np.all(np.isfinite(out)), f"{fn.__name__}: produced non-finite MI values"
 
@@ -95,15 +100,24 @@ def test_cross_implementation_parity_within_tolerance(binned_data, target_indice
     # Mathematically the three kernels compute the same quantity, only the summation
     # order differs (fastmath=True can introduce ~1e-14 relative drift; 5% gives ample headroom).
     np.testing.assert_allclose(
-        out_grok, out_chatgpt, rtol=0.05, atol=1e-9,
+        out_grok,
+        out_chatgpt,
+        rtol=0.05,
+        atol=1e-9,
         err_msg="grok vs chatgpt MI estimators diverged beyond 5% relative tolerance",
     )
     np.testing.assert_allclose(
-        out_grok, out_deepseek, rtol=0.05, atol=1e-9,
+        out_grok,
+        out_deepseek,
+        rtol=0.05,
+        atol=1e-9,
         err_msg="grok vs deepseek MI estimators diverged beyond 5% relative tolerance",
     )
     np.testing.assert_allclose(
-        out_chatgpt, out_deepseek, rtol=0.05, atol=1e-9,
+        out_chatgpt,
+        out_deepseek,
+        rtol=0.05,
+        atol=1e-9,
         err_msg="chatgpt vs deepseek MI estimators diverged beyond 5% relative tolerance",
     )
 
@@ -150,8 +164,7 @@ def test_grok_mutual_information_pair_matches_matrix_form():
     log_n = np.log(n)
     pair_mi = grok_mutual_information(data[:, 0], data[:, 2], inv_n_samples=inv_n, log_n_samples=log_n, n_bins=10)
     matrix_mi = grok_compute_mutual_information(data, np.array([0], dtype=np.int64), n_bins=10)
-    np.testing.assert_allclose(pair_mi, matrix_mi[0, 2], rtol=1e-9, atol=1e-12,
-                               err_msg="pair-form grok MI must equal matrix-form cell exactly")
+    np.testing.assert_allclose(pair_mi, matrix_mi[0, 2], rtol=1e-9, atol=1e-12, err_msg="pair-form grok MI must equal matrix-form cell exactly")
 
 
 def test_grok_mutual_information_old_consistent_with_new():
@@ -163,8 +176,7 @@ def test_grok_mutual_information_old_consistent_with_new():
     log_n = np.log(n)
     new = grok_mutual_information(data[:, 0], data[:, 1], inv_n_samples=inv_n, log_n_samples=log_n, n_bins=10)
     old = grok_mutual_information_old(data[:, 0], data[:, 1], n_bins=10)
-    np.testing.assert_allclose(new, old, rtol=1e-9, atol=1e-12,
-                               err_msg="grok_mutual_information vs grok_mutual_information_old diverged")
+    np.testing.assert_allclose(new, old, rtol=1e-9, atol=1e-12, err_msg="grok_mutual_information vs grok_mutual_information_old diverged")
 
 
 # ---------------------------------------------------------------------------
@@ -172,11 +184,14 @@ def test_grok_mutual_information_old_consistent_with_new():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("fn", [
-    grok_compute_mutual_information,
-    chatgpt_compute_mutual_information,
-    deepseek_compute_mutual_information,
-])
+@pytest.mark.parametrize(
+    "fn",
+    [
+        grok_compute_mutual_information,
+        chatgpt_compute_mutual_information,
+        deepseek_compute_mutual_information,
+    ],
+)
 def test_empty_data_returns_zero_matrix(fn):
     """n_samples == 0 must return a zero MI matrix without dividing by zero."""
     empty = np.zeros((0, 5), dtype=np.int8)
@@ -186,11 +201,14 @@ def test_empty_data_returns_zero_matrix(fn):
     assert np.all(out == 0.0), f"{fn.__name__}: empty input must yield zero-MI matrix; got {out!r}"
 
 
-@pytest.mark.parametrize("fn", [
-    grok_compute_mutual_information,
-    chatgpt_compute_mutual_information,
-    deepseek_compute_mutual_information,
-])
+@pytest.mark.parametrize(
+    "fn",
+    [
+        grok_compute_mutual_information,
+        chatgpt_compute_mutual_information,
+        deepseek_compute_mutual_information,
+    ],
+)
 def test_constant_feature_zero_mi(fn):
     """A constant feature carries zero information about any target — MI must be ~0."""
     rng = np.random.default_rng(99)
@@ -202,11 +220,14 @@ def test_constant_feature_zero_mi(fn):
     assert abs(out[0, 2]) < 1e-9, f"{fn.__name__}: MI(random_target, constant_feature) should be ~0; got {out[0, 2]!r}"
 
 
-@pytest.mark.parametrize("fn", [
-    grok_compute_mutual_information,
-    chatgpt_compute_mutual_information,
-    deepseek_compute_mutual_information,
-])
+@pytest.mark.parametrize(
+    "fn",
+    [
+        grok_compute_mutual_information,
+        chatgpt_compute_mutual_information,
+        deepseek_compute_mutual_information,
+    ],
+)
 def test_perfect_copy_gives_max_mi(fn):
     """When feature is a perfect copy of target, MI must equal feature entropy (>> independent baseline)."""
     rng = np.random.default_rng(123)
@@ -218,8 +239,7 @@ def test_perfect_copy_gives_max_mi(fn):
     assert out[0, 1] > 2.0, f"{fn.__name__}: MI(target, perfect_copy) must be high; got {out[0, 1]!r}"
     # Independent col index 2 or 3
     assert out[0, 2] < 0.5, f"{fn.__name__}: MI(target, independent) must be small; got {out[0, 2]!r}"
-    assert out[0, 1] > out[0, 2] * 4, \
-        f"{fn.__name__}: perfect-copy MI must dominate independent baseline; got copy={out[0, 1]:.3f}, indep={out[0, 2]:.3f}"
+    assert out[0, 1] > out[0, 2] * 4, f"{fn.__name__}: perfect-copy MI must dominate independent baseline; got copy={out[0, 1]:.3f}, indep={out[0, 2]:.3f}"
 
 
 def test_chatgpt_rejects_out_of_range_bins():

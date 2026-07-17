@@ -11,6 +11,7 @@ scale (mean ~ 0, std ~ residual_std). The fix routes raw X to
 CompositeTargetEstimator-typed wrappers explicitly via ``_primary_for_model``
 in ``predict.py``.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -33,12 +34,10 @@ def test_predict_module_has_cte_raw_x_dispatch():
             src += _p.read_text(encoding="utf-8")
             src += "\n"
     assert "CompositeTargetEstimator" in src, (
-        "CTE-RAW-X dispatch missing from predict module -- the CTE+pre_pipeline "
-        "base scaling fix would regress on the next prod run."
+        "CTE-RAW-X dispatch missing from predict module -- the CTE+pre_pipeline base scaling fix would regress on the next prod run."
     )
     assert "_primary_for_model" in src, (
-        "_primary_for_model selector missing -- the per-model raw-vs-scaled dispatch "
-        "branch was removed; reinstate before shipping."
+        "_primary_for_model selector missing -- the per-model raw-vs-scaled dispatch branch was removed; reinstate before shipping."
     )
 
 
@@ -53,7 +52,8 @@ def test_cte_wrapped_model_receives_raw_base_at_predict():
 
     from mlframe.training.composite.estimator._estimator import CompositeTargetEstimator
     from mlframe.training.composite.transforms import (
-        _linear_residual_fit, get_transform,
+        _linear_residual_fit,
+        get_transform,
     )
 
     # Synthetic: y = 0.9 * base + signal + noise.
@@ -97,7 +97,8 @@ def test_cte_wrapped_model_receives_raw_base_at_predict():
     # Now demonstrate the bug: predict on z-scored X.
     scaler = StandardScaler().fit(X_df)
     X_scaled = __import__("pandas").DataFrame(
-        scaler.transform(X_df), columns=X_df.columns,
+        scaler.transform(X_df),
+        columns=X_df.columns,
     )
     pred_scaled = np.asarray(wrapper.predict(X_scaled))
     # Bug signature: pred mean is way off from y mean (the additive alpha*base term collapsed).

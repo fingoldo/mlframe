@@ -7,6 +7,7 @@ AST-scan keeps the surface from drifting back: a new ``pickle.load`` site in
 ``src/mlframe/`` fails CI until it routes through ``safe_pickle.safe_load`` or
 gets explicitly whitelisted.
 """
+
 from __future__ import annotations
 
 import ast

@@ -165,7 +165,7 @@ class TestCPUBitEquivalence:
             out_njit,
             rtol=1e-12,
             atol=0,
-            err_msg=(f"A basis={basis}: auto-dispatch at n=500 should pick " f"njit (n<_PAR_THRESHOLD); auto and forced-njit must " f"match bit-for-bit."),
+            err_msg=(f"A basis={basis}: auto-dispatch at n=500 should pick njit (n<_PAR_THRESHOLD); auto and forced-njit must match bit-for-bit."),
         )
 
     @pytest.mark.parametrize("basis", BASES)
@@ -189,9 +189,7 @@ class TestCPUBitEquivalence:
             out_njit,
             rtol=1e-10,
             atol=1e-12,
-            err_msg=(
-                f"A basis={basis}: njit_par must match njit; if you see " f"large deltas the prange recurrence has a bug " f"(off-by-one on the seed terms?)."
-            ),
+            err_msg=(f"A basis={basis}: njit_par must match njit; if you see large deltas the prange recurrence has a bug (off-by-one on the seed terms?)."),
         )
 
 
@@ -295,7 +293,7 @@ class TestGPUSpeedup:
         # bound still fires on a real regression (kernel decompile, sync
         # storm).
         assert t_cuda <= 10.0 * t_par + 0.1, (
-            f"C cuda regressed vs njit_par at n=5e6 chebyshev: " f"t_cuda={t_cuda:.3f}s, t_par={t_par:.3f}s " f"(ratio {t_cuda / t_par:.2f}x). Bound: <= 10x."
+            f"C cuda regressed vs njit_par at n=5e6 chebyshev: t_cuda={t_cuda:.3f}s, t_par={t_par:.3f}s (ratio {t_cuda / t_par:.2f}x). Bound: <= 10x."
         )
 
 
@@ -322,8 +320,8 @@ class TestEnvVarFallback:
         else:
             monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", backend)
         out = polyeval_dispatch(basis, x, c)
-        assert out.shape == x.shape, f"D backend={backend!r} basis={basis}: output shape " f"{out.shape} != input shape {x.shape}"
-        assert np.all(np.isfinite(out)), f"D backend={backend!r} basis={basis}: output has non-finite " f"values; backend force broke the recurrence."
+        assert out.shape == x.shape, f"D backend={backend!r} basis={basis}: output shape {out.shape} != input shape {x.shape}"
+        assert np.all(np.isfinite(out)), f"D backend={backend!r} basis={basis}: output has non-finite values; backend force broke the recurrence."
 
     @pytest.mark.parametrize("basis", BASES)
     def test_cuda_force_falls_back_when_cupy_missing(self, basis, monkeypatch):
@@ -344,7 +342,7 @@ class TestEnvVarFallback:
         out = hfe.polyeval_dispatch(basis, x, c)
         assert out.shape == x.shape
         assert np.all(np.isfinite(out)), (
-            f"D fallback basis={basis}: forced-cuda with masked cupy " f"must silently route to a CPU backend and return finite " f"output."
+            f"D fallback basis={basis}: forced-cuda with masked cupy must silently route to a CPU backend and return finite output."
         )
 
 
@@ -440,7 +438,7 @@ class TestRoundTripAcrossBackends:
         m = MRMR(**kw).fit(X, y)
         sup_fit = list(m.get_feature_names_out())
         # Sanity: hybrid signal was recovered.
-        assert "x1__He2" in sup_fit, f"E fit_backend={fit_backend!r}: hybrid must recover x1__He2 " f"under fit-time backend; got {sup_fit}"
+        assert "x1__He2" in sup_fit, f"E fit_backend={fit_backend!r}: hybrid must recover x1__He2 under fit-time backend; got {sup_fit}"
 
         # Transform reference under fit backend.
         X_ref = m.transform(X)
@@ -491,7 +489,7 @@ def test_cupy_availability_reported():
     if _cupy_ok():
         msg = "cupy import + CUDA context OK -- GPU contracts will run"
     else:
-        msg = "cupy unavailable on this host -- GPU contracts skipped via " "pytest.importorskip / skipif. CPU contracts still pinned."
+        msg = "cupy unavailable on this host -- GPU contracts skipped via pytest.importorskip / skipif. CPU contracts still pinned."
     # The "assert True" is here so the test never fails; the message
     # is captured by pytest -s.
     print(msg)  # noqa: T201 -- informational report only visible under pytest -s

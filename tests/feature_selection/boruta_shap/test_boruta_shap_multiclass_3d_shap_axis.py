@@ -12,6 +12,7 @@ empty and crashed ``update_importance_history`` with
 fuzz combo ``c0095`` (hgb_xgb). The reducer now finds the feature axis by
 matching ``X_boruta``'s column count, so the result is always ``n_features``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -59,6 +60,4 @@ def test_boruta_shap_multiclass_does_not_crash_on_3d_shap_layout():
     # multiclass importance vector was reduced over the right axes: pre-fix it
     # collapsed to length n_classes (3), leaving Shadow_feature_import empty and
     # raising IndexError before support_ was ever produced.
-    assert selector.support_.shape == (X.shape[1],), (
-        f"support_ must be per-feature (len {X.shape[1]}); got {selector.support_.shape}"
-    )
+    assert selector.support_.shape == (X.shape[1],), f"support_ must be per-feature (len {X.shape[1]}); got {selector.support_.shape}"

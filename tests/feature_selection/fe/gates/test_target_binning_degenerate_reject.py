@@ -5,6 +5,7 @@ cannot produce a degenerate target bin, and continuous tied-value target bins al
 yield finite/stable MI. See the bench-attempt-rejected note in
 _unified_fe_gate._coerce_y_classes.
 """
+
 import numpy as np
 import pytest
 

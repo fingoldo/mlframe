@@ -3,6 +3,7 @@
 (a positional vector). Pin the bit-identity invariant: numpy-fit ranking == named-DataFrame-fit
 ranking (same importances, same working_cols / stage-B selection).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -50,6 +51,7 @@ def test_rank_model_numpy_bit_identical_to_named_dataframe():
     # Reference: pre-lever named-DataFrame fit.
     pf = clone(model)
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import _apply_booster_cap
+
     _apply_booster_cap(pf, 100)
     pf.fit(X, y)
     imp_ref = _importances_from_fitted(_unwrap_estimator(pf), X.shape[1])
@@ -59,10 +61,6 @@ def test_rank_model_numpy_bit_identical_to_named_dataframe():
 def test_two_stage_working_cols_numpy_bit_identical():
     X, y = _make_xy()
     model = make_default_estimator(True, random_state=0)
-    wc_df, _ = _rank_two_stage(
-        model, X, y, n_features=X.shape[1], classification=True,
-        prefilter_top=20, stage1_keep=40, n_estimators_cap=100)
-    wc_np, _ = _rank_two_stage(
-        model, X.to_numpy(), y, n_features=X.shape[1], classification=True,
-        prefilter_top=20, stage1_keep=40, n_estimators_cap=100)
+    wc_df, _ = _rank_two_stage(model, X, y, n_features=X.shape[1], classification=True, prefilter_top=20, stage1_keep=40, n_estimators_cap=100)
+    wc_np, _ = _rank_two_stage(model, X.to_numpy(), y, n_features=X.shape[1], classification=True, prefilter_top=20, stage1_keep=40, n_estimators_cap=100)
     assert np.array_equal(wc_df, wc_np), "two_stage working_cols differ DataFrame vs ndarray input"

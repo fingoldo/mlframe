@@ -6,6 +6,7 @@ misleading proxy for true test performance -- but validating on the adversariall
 fold (which should end up dominated by regime-B rows) gives a validation score that closely tracks the true
 test score.
 """
+
 from __future__ import annotations
 
 import numpy as np

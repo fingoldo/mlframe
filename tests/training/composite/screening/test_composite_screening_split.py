@@ -11,6 +11,7 @@ Original re-exports all 7 so existing
 ``from mlframe.training.composite.discovery.screening import _build_tiny_model``
 imports continue to work.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -26,6 +27,7 @@ def test_tiny_model_symbols_still_importable_from_facade() -> None:
         _per_bin_rmse,
         _tiny_cv_rmse_y_scale,
     )
+
     for fn in (
         _silence_tiny_model_output,
         _build_tiny_model,
@@ -55,6 +57,7 @@ def test_mi_symbols_still_in_parent_module() -> None:
         _mi_to_target,
         _sample_indices,
     )
+
     for fn in (
         _is_polars_df,
         _extract_column_array,
@@ -84,6 +87,7 @@ def test_sibling_module_owns_the_moved_symbols() -> None:
     """Identity: facade and sibling module expose the SAME objects."""
     from mlframe.training.composite.discovery import screening as cs
     from mlframe.training.composite.discovery import _screening_tiny as tiny
+
     for name in (
         "_silence_tiny_model_output",
         "_build_tiny_model",
@@ -100,6 +104,7 @@ def test_silence_context_manager_works() -> None:
     """Functional smoke: the @contextlib.contextmanager decorator
     survived the split."""
     from mlframe.training.composite.discovery.screening import _silence_tiny_model_output
+
     with _silence_tiny_model_output():
         # Just exercising the with-block exit path.
         pass

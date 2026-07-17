@@ -10,6 +10,7 @@ The on-disk save path is currently broken on the Windows zstandard build in this
 file`` on multi-threaded compression), so the test patches ``save_mlframe_model`` to a single-threaded variant.
 This is purely a test-side workaround; the underlying ``io.py`` is in the LOCKED scope of the directive.
 """
+
 from __future__ import annotations
 
 import os
@@ -37,6 +38,7 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
     """Single-threaded zstd write that bypasses the ``flush of closed file`` Windows quirk in atomic_write_bytes."""
     import dill
     import zstandard as zstd
+
     try:
         with open(file, "wb") as f:
             compressor = zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=0)
@@ -49,12 +51,14 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
 
 def _build_polars_frame(n: int = 1_500, seed: int = 0) -> pl.DataFrame:
     rng = np.random.default_rng(seed)
-    return pl.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "x2": rng.normal(size=n).astype("float32"),
-        "y": (1.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
-    })
+    return pl.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "x2": rng.normal(size=n).astype("float32"),
+            "y": (1.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
+        }
+    )
 
 
 def test_in_memory_predict_matches_chosen_flavour_when_metadata_stamped():
@@ -86,19 +90,27 @@ def test_in_memory_predict_matches_chosen_flavour_when_metadata_stamped():
     # Predict twice on the same frame; identical inputs must give identical outputs (no stochasticity in the
     # predict path itself; the trained models are deterministic on a fixed seed).
     results_a = predict_from_models(
-        df=df, models=models, metadata=metadata,
+        df=df,
+        models=models,
+        metadata=metadata,
         features_and_targets_extractor=fte,
-        return_probabilities=False, verbose=0,
+        return_probabilities=False,
+        verbose=0,
     )
     results_b = predict_from_models(
-        df=df, models=models, metadata=metadata,
+        df=df,
+        models=models,
+        metadata=metadata,
         features_and_targets_extractor=fte,
-        return_probabilities=False, verbose=0,
+        return_probabilities=False,
+        verbose=0,
     )
     assert results_a["models_used"], "first predict produced no models_used"
     assert results_b["models_used"] == results_a["models_used"], "models_used drifted between calls"
     np.testing.assert_allclose(
-        results_a["ensemble_predictions"], results_b["ensemble_predictions"], rtol=1e-7,
+        results_a["ensemble_predictions"],
+        results_b["ensemble_predictions"],
+        rtol=1e-7,
         err_msg="round-trip predict on identical input produced non-deterministic ensemble predictions",
     )
 
@@ -140,9 +152,12 @@ def test_in_memory_and_disk_predict_agree_on_simple_suite(tmp_path):
 
     # In-memory predict.
     results_in_memory = predict_from_models(
-        df=df, models=models, metadata=metadata,
+        df=df,
+        models=models,
+        metadata=metadata,
         features_and_targets_extractor=fte,
-        return_probabilities=False, verbose=0,
+        return_probabilities=False,
+        verbose=0,
     )
 
     # Disk predict via the load_mlframe_suite + predict_from_models pairing (predict_mlframe_models_suite also
@@ -151,23 +166,25 @@ def test_in_memory_and_disk_predict_agree_on_simple_suite(tmp_path):
     # cannot occur, so the disk artefacts MUST exist -- a missing file is a real save/load regression, not a
     # platform quirk. We ``pytest.fail`` (not skip) so a dropped metadata / dump file is caught where it runs.
     models_path = os.path.join(tmp, "models", "y", "round_trip_disk")
-    if not os.path.exists(os.path.join(models_path, "metadata.pkl.zst")) and \
-       not os.path.exists(os.path.join(models_path, "metadata.pkl")):
+    if not os.path.exists(os.path.join(models_path, "metadata.pkl.zst")) and not os.path.exists(os.path.join(models_path, "metadata.pkl")):
         pytest.fail(
             f"shimmed disk save produced no metadata file under {models_path}; "
             f"present: {os.listdir(models_path) if os.path.isdir(models_path) else 'MISSING DIR'}"
         )
     from mlframe.training.core.predict import load_mlframe_suite
+
     loaded_models, loaded_metadata = load_mlframe_suite(models_path)
     assert loaded_models, (
-        f"shimmed disk save produced no .dump files under {models_path}; "
-        f"present: {os.listdir(models_path) if os.path.isdir(models_path) else 'MISSING DIR'}"
+        f"shimmed disk save produced no .dump files under {models_path}; present: {os.listdir(models_path) if os.path.isdir(models_path) else 'MISSING DIR'}"
     )
 
     results_disk = predict_from_models(
-        df=df, models=loaded_models, metadata=loaded_metadata,
+        df=df,
+        models=loaded_models,
+        metadata=loaded_metadata,
         features_and_targets_extractor=fte,
-        return_probabilities=False, verbose=0,
+        return_probabilities=False,
+        verbose=0,
     )
 
     assert results_disk["models_used"], "disk predict produced no models"
@@ -232,7 +249,10 @@ def test_in_memory_and_disk_predict_agree_on_multiclass(tmp_path):
     df["target"] = y
 
     fte, models, metadata = _train_multi_target_suite(
-        df, TargetTypes.MULTICLASS_CLASSIFICATION, tmp_path, "round_trip_mc",
+        df,
+        TargetTypes.MULTICLASS_CLASSIFICATION,
+        tmp_path,
+        "round_trip_mc",
     )
     mem = predict_from_models(df=df, models=models, metadata=metadata, features_and_targets_extractor=fte, return_probabilities=True, verbose=0)
     ep_mem = np.asarray(mem["ensemble_probabilities"])
@@ -243,8 +263,13 @@ def test_in_memory_and_disk_predict_agree_on_multiclass(tmp_path):
     loaded_models, loaded_metadata = load_mlframe_suite(models_path)
     assert loaded_models, f"shimmed disk save produced no .dump files under {models_path}"
     disk = predict_from_models(df=df, models=loaded_models, metadata=loaded_metadata, features_and_targets_extractor=fte, return_probabilities=True, verbose=0)
-    np.testing.assert_allclose(ep_mem, np.asarray(disk["ensemble_probabilities"]), rtol=1e-4, atol=1e-4,
-                               err_msg="multiclass disk-load predict drifted from in-memory beyond float precision")
+    np.testing.assert_allclose(
+        ep_mem,
+        np.asarray(disk["ensemble_probabilities"]),
+        rtol=1e-4,
+        atol=1e-4,
+        err_msg="multiclass disk-load predict drifted from in-memory beyond float precision",
+    )
 
 
 def test_in_memory_and_disk_predict_agree_on_multilabel(tmp_path):
@@ -265,7 +290,10 @@ def test_in_memory_and_disk_predict_agree_on_multilabel(tmp_path):
     df["target"] = [list(row) for row in np.stack([y1, y2, y3], axis=1)]
 
     fte, models, metadata = _train_multi_target_suite(
-        df, TargetTypes.MULTILABEL_CLASSIFICATION, tmp_path, "round_trip_ml",
+        df,
+        TargetTypes.MULTILABEL_CLASSIFICATION,
+        tmp_path,
+        "round_trip_ml",
     )
 
     def _per_label(res):
@@ -287,10 +315,18 @@ def test_in_memory_and_disk_predict_agree_on_multilabel(tmp_path):
     models_path = os.path.join(str(tmp_path), "models", "target", "round_trip_ml")
     loaded_models, loaded_metadata = load_mlframe_suite(models_path)
     assert loaded_models, f"shimmed disk save produced no .dump files under {models_path}"
-    disk_res = predict_from_models(df=df, models=loaded_models, metadata=loaded_metadata, features_and_targets_extractor=fte, return_probabilities=True, verbose=0)
+    disk_res = predict_from_models(
+        df=df, models=loaded_models, metadata=loaded_metadata, features_and_targets_extractor=fte, return_probabilities=True, verbose=0
+    )
     disk = _per_label(disk_res)
     for li, (a, d) in enumerate(zip(mem, disk)):
-        np.testing.assert_allclose(np.asarray(a), np.asarray(d), rtol=1e-4, atol=1e-4,
-                                   err_msg=f"multilabel label {li} disk-load predict drifted beyond float precision")
-    np.testing.assert_allclose(ep_mem, np.asarray(disk_res["ensemble_probabilities"]), rtol=1e-4, atol=1e-4,
-                               err_msg="multilabel ensemble_probabilities drifted across disk round-trip beyond float precision")
+        np.testing.assert_allclose(
+            np.asarray(a), np.asarray(d), rtol=1e-4, atol=1e-4, err_msg=f"multilabel label {li} disk-load predict drifted beyond float precision"
+        )
+    np.testing.assert_allclose(
+        ep_mem,
+        np.asarray(disk_res["ensemble_probabilities"]),
+        rtol=1e-4,
+        atol=1e-4,
+        err_msg="multilabel ensemble_probabilities drifted across disk round-trip beyond float precision",
+    )

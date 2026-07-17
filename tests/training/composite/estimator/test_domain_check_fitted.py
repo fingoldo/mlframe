@@ -32,6 +32,7 @@ Each test below FAILS on the pre-fix logic:
 - ``test_biz_*`` fails because the eps-band predict row got a distorted value
   rather than the fallback.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,8 +59,7 @@ def test_params_dependent_transform_has_fitted_domain_hook(name):
     fitted-params domain can be enforced (pre-fix: attribute absent / None)."""
     t = TRANSFORMS_REGISTRY[name]
     assert getattr(t, "domain_check_fitted", None) is not None, (
-        f"{name!r} validity depends on a fitted param and MUST declare "
-        f"domain_check_fitted so callers can enforce its true domain"
+        f"{name!r} validity depends on a fitted param and MUST declare domain_check_fitted so callers can enforce its true domain"
     )
 
 
@@ -70,14 +70,14 @@ def test_params_free_transforms_leave_hook_unset(name):
     is no longer bit-identical for them."""
     t = TRANSFORMS_REGISTRY[name]
     assert getattr(t, "domain_check_fitted", "MISSING") is None, (
-        f"{name!r} has no params-dependent domain; domain_check_fitted "
-        f"must stay None to keep its path bit-identical"
+        f"{name!r} has no params-dependent domain; domain_check_fitted must stay None to keep its path bit-identical"
     )
 
 
 # --------------------------------------------------------------------------
 # 2. Hook correctness: it catches rows the params-free check misses.
 # --------------------------------------------------------------------------
+
 
 def test_log_y_fitted_domain_catches_below_offset_rows():
     """log_y forward NaNs at ``y + offset <= 0``; the params-free domain
@@ -99,9 +99,7 @@ def test_log_y_fitted_domain_catches_below_offset_rows():
     assert not dom_fit[1], "fitted domain failed to flag the below-offset row"
     assert dom_fit[0] and dom_fit[2], "fitted domain over-rejected in-domain rows"
     # The fitted hook must reject AT LEAST every row forward would NaN on.
-    assert not np.any(dom_fit & nan_rows), (
-        "a row flagged valid by the fitted domain still produced NaN T"
-    )
+    assert not np.any(dom_fit & nan_rows), "a row flagged valid by the fitted domain still produced NaN T"
 
 
 def test_centered_ratio_fitted_domain_catches_eps_band_rows_predict():
@@ -128,6 +126,7 @@ def test_centered_ratio_fitted_domain_catches_eps_band_rows_predict():
 #    were learned on a subsample that does not cover the full forward sample.
 # --------------------------------------------------------------------------
 
+
 def test_rerank_finite_when_params_from_subsample_not_covering_train():
     """``_tiny_cv_rmse_y_scale`` receives the FULL train y but params fit on a
     screening subsample. For log_y the subsample-fit offset can be too small
@@ -149,22 +148,24 @@ def test_rerank_finite_when_params_from_subsample_not_covering_train():
     # NaNs the tail rows -> the whole-spec non-finite guard would return NaN.
     valid_free = np.asarray(t.domain_check(y_full, None), dtype=bool)
     t_free = t.forward(y_full[valid_free], None, params)
-    assert np.any(~np.isfinite(t_free)), (
-        "fixture stale: subsample offset already covers full train; "
-        "no NaN T to poison the spec"
-    )
+    assert np.any(~np.isfinite(t_free)), "fixture stale: subsample offset already covers full train; no NaN T to poison the spec"
     assert int((y_full <= -offset).sum()) >= 1
 
     # Post-fix: the real function drops the out-of-domain rows -> finite RMSE.
     rmse = _tiny_cv_rmse_y_scale(
-        y_full, base, t, params, X,
-        family="linear", n_estimators=20, num_leaves=7,
-        learning_rate=0.1, cv_folds=3, random_state=0,
+        y_full,
+        base,
+        t,
+        params,
+        X,
+        family="linear",
+        n_estimators=20,
+        num_leaves=7,
+        learning_rate=0.1,
+        cv_folds=3,
+        random_state=0,
     )
-    assert np.isfinite(rmse), (
-        "rerank returned NaN: out-of-fitted-domain rows poisoned the whole "
-        "spec instead of being dropped"
-    )
+    assert np.isfinite(rmse), "rerank returned NaN: out-of-fitted-domain rows poisoned the whole spec instead of being dropped"
     assert rmse >= 0.0
 
 
@@ -172,6 +173,7 @@ def test_rerank_finite_when_params_from_subsample_not_covering_train():
 # 4. biz_value: predict-side centered_ratio routes the eps-band row to the
 #    fallback instead of emitting a distorted clamped-divisor value.
 # --------------------------------------------------------------------------
+
 
 def test_biz_centered_ratio_predict_eps_band_routes_to_fallback():
     """A predict row whose ``base + c`` lands in the eps-floor band must fall
@@ -201,18 +203,13 @@ def test_biz_centered_ratio_predict_eps_band_routes_to_fallback():
     # The in-domain rows track the linear fit (~2*base); the band row is the
     # fallback (train median), well separated from a true ratio prediction.
     assert yp[1] == pytest.approx(y_train_median, rel=1e-6), (
-        f"eps-band predict row should equal y_train_median fallback "
-        f"({y_train_median:.4f}); got {yp[1]:.4f} (distorted clamped divisor)"
+        f"eps-band predict row should equal y_train_median fallback ({y_train_median:.4f}); got {yp[1]:.4f} (distorted clamped divisor)"
     )
     # Sanity: the in-domain rows are model-driven (vary with base), NOT all
     # collapsed to the fallback. With different base values their predictions
     # must differ from each other and at least one must be away from the median.
-    assert yp[0] != pytest.approx(yp[2]), (
-        "in-domain rows with different base collapsed to the same value"
-    )
-    assert abs(yp[0] - y_train_median) > 1.0, (
-        "in-domain row unexpectedly equals the fallback median"
-    )
+    assert yp[0] != pytest.approx(yp[2]), "in-domain rows with different base collapsed to the same value"
+    assert abs(yp[0] - y_train_median) > 1.0, "in-domain row unexpectedly equals the fallback median"
 
     # Direct pre-fix contrast: without the fitted-domain gate the band row
     # would have been forwarded through the clamped divisor + inverse, giving a
@@ -221,12 +218,13 @@ def test_biz_centered_ratio_predict_eps_band_routes_to_fallback():
     transform = est.fitted_params_
     t = TRANSFORMS_REGISTRY["centered_ratio"]
     t_hat_band = float(est.estimator_.predict(Xp.iloc[[1]])[0])
-    ungated = float(t.inverse(
-        np.array([t_hat_band]), np.array([-c]), est.fitted_params_,
-    )[0])
-    assert yp[1] != pytest.approx(ungated, rel=1e-3) or ungated == pytest.approx(
-        y_train_median, rel=1e-6
-    ), (
-        "fitted-domain gate did not change the band-row prediction vs the "
-        "pre-fix clamped-divisor inverse"
+    ungated = float(
+        t.inverse(
+            np.array([t_hat_band]),
+            np.array([-c]),
+            est.fitted_params_,
+        )[0]
+    )
+    assert yp[1] != pytest.approx(ungated, rel=1e-3) or ungated == pytest.approx(y_train_median, rel=1e-6), (
+        "fitted-domain gate did not change the band-row prediction vs the pre-fix clamped-divisor inverse"
     )

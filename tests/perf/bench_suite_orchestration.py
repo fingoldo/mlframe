@@ -10,6 +10,7 @@ Run::
 
     python -m tests.perf.bench_suite_orchestration --n-rows 5000 --top 40
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,6 +25,7 @@ from pathlib import Path
 # conftest-style import order so the cold ``mlframe.training.core`` import does not segfault on py3.14.
 import scipy.stats  # noqa: F401
 import numba  # noqa: F401
+
 sys.modules.setdefault("cupy", None)
 
 import numpy as np

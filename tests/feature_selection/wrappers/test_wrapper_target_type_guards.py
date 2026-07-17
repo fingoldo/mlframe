@@ -4,6 +4,7 @@ A supported target type or realistic degenerate frame must never crash a public 
 internal traceback (numba TypingError, sklearn stratify "least populated class", LGBM 1d-array). Unsupported target
 shapes must raise a CLEAR, actionable error at fit entry instead.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,6 +20,7 @@ def _Xy(n=400, seed=0):
 
 
 # --------------------------------------------------------------- ShapProxiedFS
+
 
 def test_shapproxied_rejects_2d_multilabel_target_clearly():
     """Pre-fix a 2D y survived np.unique/astype and blew up deep in a numba kernel with an opaque TypingError;
@@ -43,6 +45,7 @@ def test_shapproxied_accepts_single_column_2d_with_hint():
 
 
 # --------------------------------------------------------------- HybridSelector
+
 
 def test_hybrid_rejects_regression_target_clearly():
     """Pre-fix a continuous target crashed inside train_test_split's stratify with an opaque message; now it must

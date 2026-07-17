@@ -13,6 +13,7 @@ the full discovery scaffold:
 3. The RAM checkpoint helper writes a single coherent log line with all three
    memory signals.
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,13 +38,19 @@ def _make_self_stub(kept_specs):
 
 def test_skip_env_var_short_circuits_rerank(caplog):
     from mlframe.training.composite.discovery._tiny_rerank import _tiny_model_rerank
+
     kept = [SimpleNamespace(name="spec_a", base_column="b1", transform_name="diff", fitted_params={})]
     self_stub = _make_self_stub(kept)
     with patch.dict(os.environ, {"MLFRAME_DISCOVERY_SKIP_TINY_RERANK": "1"}, clear=False):
         with caplog.at_level(logging.WARNING, logger="mlframe.training.composite.discovery._tiny_rerank"):
             result = _tiny_model_rerank(
-                self_stub, kept_specs=kept, df=None, target_col="t",
-                usable_features=[], train_idx=None, y_full=None,
+                self_stub,
+                kept_specs=kept,
+                df=None,
+                target_col="t",
+                usable_features=[],
+                train_idx=None,
+                y_full=None,
             )
     # Returned the input list unchanged -- no LightGBM was fired.
     assert result is kept
@@ -64,6 +71,7 @@ def test_skip_env_var_truthy_variants():
 
 def test_ram_checkpoint_helper_emits_three_signals(caplog):
     from mlframe.training.composite.discovery._tiny_rerank import _tiny_rerank_ram_checkpoint
+
     with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._tiny_rerank"):
         _tiny_rerank_ram_checkpoint("test_label")
     lines = [r for r in caplog.records if "tiny_rerank.RAM" in r.getMessage()]
@@ -81,7 +89,7 @@ def test_ram_checkpoint_tolerates_psutil_failure(caplog):
     """If memory_full_info() raises, the checkpoint must silently return -- it's
     diagnostic-only and must not block the rerank or crash the suite."""
     from mlframe.training.composite.discovery import _tiny_rerank as mod
-    with patch("mlframe.training.composite.discovery._fit._process_mem_mb",
-               side_effect=RuntimeError("psutil down")):
+
+    with patch("mlframe.training.composite.discovery._fit._process_mem_mb", side_effect=RuntimeError("psutil down")):
         # Must not raise.
         mod._tiny_rerank_ram_checkpoint("test")

@@ -10,6 +10,7 @@ Covers:
 - threshold tuning
 - format_drift_report rendering
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,8 +59,7 @@ def test_binary_severe_drift_warns():
     assert len(report["warnings"]) == 2
     assert any("VAL" in w for w in report["warnings"])
     assert any("TEST" in w for w in report["warnings"])
-    assert any("selection-bias" in w or "prior-shift" in w
-               for w in report["warnings"])
+    assert any("selection-bias" in w or "prior-shift" in w for w in report["warnings"])
 
 
 def test_binary_user_production_pattern():
@@ -99,12 +99,18 @@ def test_binary_threshold_tunable():
     val = (rng.uniform(size=10_000) < 0.535).astype(np.int8)
 
     r_default = compute_label_distribution_drift(
-        train, val, None, "binary_classification",
+        train,
+        val,
+        None,
+        "binary_classification",
     )
     assert r_default["warnings"] == []
 
     r_strict = compute_label_distribution_drift(
-        train, val, None, "binary_classification",
+        train,
+        val,
+        None,
+        "binary_classification",
         warn_threshold_pp=1.0,
     )
     assert len(r_strict["warnings"]) == 1
@@ -113,7 +119,10 @@ def test_binary_threshold_tunable():
 def test_binary_only_train_no_other_splits():
     train = np.array([0, 1, 1, 0, 1])
     report = compute_label_distribution_drift(
-        train, None, None, "binary_classification",
+        train,
+        None,
+        None,
+        "binary_classification",
     )
     assert report["splits"]["train"]["n"] == 5
     assert report["splits"]["val"] is None
@@ -274,6 +283,7 @@ def test_default_threshold_is_5pp():
 def test_metadata_round_trip_format():
     """The report dict must be JSON-serialisable (joblib-friendly)."""
     import orjson
+
     rng = np.random.default_rng(0)
     train = (rng.uniform(size=1_000) < 0.30).astype(np.int8)
     report = compute_label_distribution_drift(train, None, None, "binary_classification")

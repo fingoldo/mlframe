@@ -14,6 +14,7 @@ The QRF backend is pure sklearn, so these run with no optional inner lib. The
 dense-quantile comparison uses LightGBM when present (``importorskip``); otherwise the
 comparison sub-test is skipped but the standalone QRF wins still assert.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,7 +35,7 @@ def _hetero_xy(n: int = 5000, seed: int = 0, strong: bool = False):
     rng = np.random.default_rng(seed)
     base = rng.uniform(-3.0, 3.0, n)
     x1 = rng.normal(0.0, 1.0, n)
-    sigma = (0.15 + 0.45 * base ** 2) if strong else (0.3 + 0.9 * np.abs(base))
+    sigma = (0.15 + 0.45 * base**2) if strong else (0.3 + 0.9 * np.abs(base))
     y = 2.0 * base + 0.5 * x1 + sigma * rng.standard_normal(n)
     return pd.DataFrame({"base": base, "x1": x1}), y
 
@@ -61,7 +62,10 @@ def test_biz_val_qrf_single_fit_coverage_near_nominal():
     """
     Xtr, ytr, Xte, yte = _split()
     est = CompositeQRFEstimator(
-        base_column="base", n_estimators=200, min_samples_leaf=10, random_state=0,
+        base_column="base",
+        n_estimators=200,
+        min_samples_leaf=10,
+        random_state=0,
     ).fit(Xtr, ytr)
     levels = np.array([0.1, 0.25, 0.5, 0.75, 0.9])
     Q = est.predict_quantile(Xte, quantiles=levels)  # one model, all levels
@@ -80,7 +84,10 @@ def test_biz_val_qrf_beats_homoscedastic_gaussian_crps():
     """
     Xtr, ytr, Xte, yte = _split(strong=True)
     est = CompositeQRFEstimator(
-        base_column="base", n_estimators=200, min_samples_leaf=10, random_state=0,
+        base_column="base",
+        n_estimators=200,
+        min_samples_leaf=10,
+        random_state=0,
     ).fit(Xtr, ytr)
     qrf_crps = est.crps(Xte, yte)
     mu = est.predict(Xte)
@@ -102,7 +109,10 @@ def test_biz_val_qrf_crps_competitive_with_dense_quantile():
 
     Xtr, ytr, Xte, yte = _split()
     qrf = CompositeQRFEstimator(
-        base_column="base", n_estimators=200, min_samples_leaf=10, random_state=0,
+        base_column="base",
+        n_estimators=200,
+        min_samples_leaf=10,
+        random_state=0,
     ).fit(Xtr, ytr)
     dense = CompositeDistributionEstimator(
         base_estimator=lgbm.LGBMRegressor(n_estimators=150, num_leaves=31, verbose=-1),
@@ -124,7 +134,10 @@ def test_biz_val_qrf_sharper_than_global_marginal_quantiles():
     """
     Xtr, ytr, Xte, yte = _split()
     est = CompositeQRFEstimator(
-        base_column="base", n_estimators=200, min_samples_leaf=10, random_state=0,
+        base_column="base",
+        n_estimators=200,
+        min_samples_leaf=10,
+        random_state=0,
     ).fit(Xtr, ytr)
     Q = est.predict_quantile(Xte, quantiles=[0.1, 0.9])
     width = Q[:, 1] - Q[:, 0]

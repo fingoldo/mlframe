@@ -16,6 +16,7 @@ the gradient at l1_alpha=1.0 differs from l1_alpha=0 by exactly
 are bit-identical: L1 contributes nothing to the BN parameter's
 gradient.
 """
+
 from __future__ import annotations
 
 import sys
@@ -72,10 +73,7 @@ def _grads_after_one_step(l1_alpha: float, batch) -> dict:
     out = model.training_step(batch, batch_idx=0)
     loss = out["loss"]
     loss.backward()
-    return {
-        name: (p.grad.detach().clone() if p.grad is not None else None)
-        for name, p in model.network.named_parameters()
-    }
+    return {name: (p.grad.detach().clone() if p.grad is not None else None) for name, p in model.network.named_parameters()}
 
 
 def _find_bn_weight_name(grads: dict) -> str:
@@ -153,8 +151,7 @@ def test_l1_still_affects_linear_weight_gradient(batch):
     weight = dict(model.network.named_parameters())[linear_name].detach()
     expected_l1_contribution = torch.sign(weight) * 1.0  # l1_alpha=1.0
     diff = (g_l1 - g_no_l1) - expected_l1_contribution
-    print(f"Linear gradient diff matches sign(W) * l1_alpha within "
-          f"max|residual|={diff.abs().max().item():.6f}")
+    print(f"Linear gradient diff matches sign(W) * l1_alpha within max|residual|={diff.abs().max().item():.6f}")
     assert diff.abs().max().item() < 1e-5, (
         f"Linear L1 contribution does not match sign(W) * l1_alpha; "
         f"max|residual|={diff.abs().max().item():.6f}. Either the L1 "

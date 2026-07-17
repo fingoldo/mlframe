@@ -6,6 +6,7 @@ counts -> bit-identical joint table -> identical entropy/MI. This pins the
 raveled-bincount construction against the explicit double/triple loop for both
 2-D and 3-D cases, plus determinism of the public estimators.
 """
+
 from __future__ import annotations
 
 import numpy as np

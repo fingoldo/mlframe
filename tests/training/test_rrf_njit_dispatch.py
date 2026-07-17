@@ -15,6 +15,7 @@ fired, then verifies:
 * allocation > 512MB (synthetic via shape) -> numpy fallback (memory guard)
 * numerical equivalence between the two implementations
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -48,9 +49,7 @@ def test_rrf_njit_fastpath_fires_on_typical_input():
         ens_base._rrf_aggregate_probs_njit = _orig_njit
 
     assert seen["njit"] >= 1, (
-        "njit RRF fastpath did NOT fire for typical input (M=5, N=10k, "
-        "K=2, float64); the dispatcher in _rrf_aggregate_probs may have "
-        "regressed."
+        "njit RRF fastpath did NOT fire for typical input (M=5, N=10k, K=2, float64); the dispatcher in _rrf_aggregate_probs may have regressed."
     )
     assert out.shape == (10_000, 2)
     np.testing.assert_allclose(out.sum(axis=1), np.ones(10_000), atol=1e-10)

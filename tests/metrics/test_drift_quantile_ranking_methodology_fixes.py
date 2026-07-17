@@ -14,6 +14,7 @@ Each test fails on the pre-fix code and passes on the corrected contract:
   made ERR incomparable across splits; P@k dividing by ``k`` deflated short
   queries.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -110,10 +111,7 @@ def test_crps_heavy_tail_not_underestimated():
     P = np.stack([norm.ppf(a, loc=mu, scale=sigma) for a in alphas], axis=1)
     # Pre-fix integral (no tails) is strictly the [a0,a-1] trapezoid; the fixed
     # function adds positive tail contributions, so it must exceed it.
-    per_alpha = np.array([
-        float(np.mean(np.maximum(a * (y - P[:, k]), (a - 1.0) * (y - P[:, k]))))
-        for k, a in enumerate(alphas)
-    ])
+    per_alpha = np.array([float(np.mean(np.maximum(a * (y - P[:, k]), (a - 1.0) * (y - P[:, k])))) for k, a in enumerate(alphas)])
     no_tail = 2.0 * float(np.sum((alphas[1:] - alphas[:-1]) * (per_alpha[1:] + per_alpha[:-1]) * 0.5))
     full = crps_from_quantiles(y, P, alphas)
     assert full > no_tail, f"tail handling must raise CRPS above the truncated integral: {full} vs {no_tail}"

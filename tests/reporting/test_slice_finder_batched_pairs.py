@@ -1,6 +1,7 @@
 """The parallel batched pair kernel (_batched_pair_sum_count) must be bit-identical to the serial per-pair
 _aggregate_combo path -- it only changes HOW the thousands of independent pair reductions are scheduled (one
 prange pass across cores instead of a single-core python loop), never the numerics."""
+
 import numpy as np
 import pytest
 
@@ -80,8 +81,7 @@ def test_find_weak_slices_defers_labels_to_displayed_top_k(monkeypatch):
     # Deferral contract: labels are built only for displayed rows, so _bin_label fires at most
     # top_k * max_arity times (one per feature of each of the <=top_k surfaced slices).
     assert calls["n"] <= top_k * max_arity, (
-        f"_bin_label called {calls['n']} times; deferral should cap at {top_k * max_arity} "
-        f"(one per feature of the displayed top_k rows)"
+        f"_bin_label called {calls['n']} times; deferral should cap at {top_k * max_arity} (one per feature of the displayed top_k rows)"
     )
     # And the lazily-built bounds are still correct: each 2-feature slice label names both features
     # with a bracketed range and the ' & ' separator.

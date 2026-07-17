@@ -6,6 +6,7 @@ naive equal-weight average over all 20 candidates (diluted by the 15 noisy ones)
 model alone (diversity among the good models still helps) — quantifying the two failure modes a real
 ensembling pipeline needs to avoid.
 """
+
 from __future__ import annotations
 
 import numpy as np

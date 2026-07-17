@@ -15,6 +15,7 @@ function and not independently importable. A dedicated end-to-end smoke test exe
 ``MRMR.fit()`` path that contains this code, confirming it runs and produces valid output at a shape
 that exercises the protection block (fit with several pre-selectable raw columns).
 """
+
 from __future__ import annotations
 
 import numpy as np

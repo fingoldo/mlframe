@@ -18,6 +18,7 @@ Level 3 test (matrix invariant):
     parametric sweep below, which asserts that the classification
     eval_metrics differ between the two values of the flag.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,10 +55,12 @@ def _classifier_eval_metric(model):
 # Level 2 — targeted: prefer_calibrated_classifiers flips base model config
 # ---------------------------------------------------------------------------
 
+
 def test_xgb_classifier_eval_metric_differs_with_flag(real_configs):
     cpu, gpu = real_configs
     kwargs = dict(
-        configs=gpu, cpu_configs=cpu,
+        configs=gpu,
+        cpu_configs=cpu,
         use_regression=False,
         prefer_cpu_for_xgboost=True,
         xgboost_verbose=False,
@@ -69,16 +72,14 @@ def test_xgb_classifier_eval_metric_differs_with_flag(real_configs):
     em_true = _classifier_eval_metric(out_true["model"])
     em_false = _classifier_eval_metric(out_false["model"])
 
-    assert em_true is not em_false, (
-        "prefer_calibrated_classifiers=True must change XGBClassifier.eval_metric; "
-        "both values returned the same object"
-    )
+    assert em_true is not em_false, "prefer_calibrated_classifiers=True must change XGBClassifier.eval_metric; both values returned the same object"
 
 
 def test_lgb_classifier_fit_params_eval_metric_only_when_calibrated(real_configs):
     cpu, gpu = real_configs
     kwargs = dict(
-        configs=gpu, cpu_configs=cpu,
+        configs=gpu,
+        cpu_configs=cpu,
         use_regression=False,
         prefer_cpu_for_lightgbm=True,
         metamodel_func=_identity,
@@ -86,19 +87,16 @@ def test_lgb_classifier_fit_params_eval_metric_only_when_calibrated(real_configs
     out_true = _configure_lightgbm_params(prefer_calibrated_classifiers=True, **kwargs)
     out_false = _configure_lightgbm_params(prefer_calibrated_classifiers=False, **kwargs)
 
-    assert "eval_metric" in out_true["fit_params"], (
-        "prefer_calibrated_classifiers=True must inject eval_metric into LGBM fit_params"
-    )
-    assert "eval_metric" not in out_false["fit_params"], (
-        "prefer_calibrated_classifiers=False must NOT inject eval_metric into LGBM fit_params"
-    )
+    assert "eval_metric" in out_true["fit_params"], "prefer_calibrated_classifiers=True must inject eval_metric into LGBM fit_params"
+    assert "eval_metric" not in out_false["fit_params"], "prefer_calibrated_classifiers=False must NOT inject eval_metric into LGBM fit_params"
 
 
 def test_lgb_regressor_ignores_flag(real_configs):
     """Sanity: flag affects only classification; regression path is unchanged."""
     cpu, gpu = real_configs
     kwargs = dict(
-        configs=gpu, cpu_configs=cpu,
+        configs=gpu,
+        cpu_configs=cpu,
         use_regression=True,
         prefer_cpu_for_lightgbm=True,
         metamodel_func=_identity,
@@ -115,9 +113,17 @@ def test_cb_classifier_eval_metric_differs_with_flag():
     df = pd.DataFrame({"f": rng.standard_normal(n)})
     y = pd.Series((rng.random(n) > 0.5).astype(int))
     common_kwargs = dict(
-        df=df, train_df=df.iloc[:40], val_df=df.iloc[40:50], test_df=df.iloc[50:],
-        target=y, train_target=y.iloc[:40], val_target=y.iloc[40:50], test_target=y.iloc[50:],
-        train_idx=np.arange(40), val_idx=np.arange(40, 50), test_idx=np.arange(50, n),
+        df=df,
+        train_df=df.iloc[:40],
+        val_df=df.iloc[40:50],
+        test_df=df.iloc[50:],
+        target=y,
+        train_target=y.iloc[:40],
+        val_target=y.iloc[40:50],
+        test_target=y.iloc[50:],
+        train_idx=np.arange(40),
+        val_idx=np.arange(40, 50),
+        test_idx=np.arange(50, n),
         use_regression=False,
         prefer_gpu_configs=False,
         mlframe_models=["cb"],
@@ -134,18 +140,15 @@ def test_cb_classifier_eval_metric_differs_with_flag():
     em_false = _classifier_eval_metric(cb_false)
 
     # Calibrated path uses an ICE(...) instance; uncalibrated uses the string "AUC".
-    assert isinstance(em_true, ICE), (
-        f"Expected ICE(...) eval_metric when prefer_calibrated_classifiers=True, got {em_true!r}"
-    )
-    assert em_false == "AUC", (
-        f"Expected 'AUC' eval_metric when prefer_calibrated_classifiers=False, got {em_false!r}"
-    )
+    assert isinstance(em_true, ICE), f"Expected ICE(...) eval_metric when prefer_calibrated_classifiers=True, got {em_true!r}"
+    assert em_false == "AUC", f"Expected 'AUC' eval_metric when prefer_calibrated_classifiers=False, got {em_false!r}"
 
 
 # ---------------------------------------------------------------------------
 # Level 3 — matrix-invariant: flipping the flag changes eval_metric for EVERY
 # classification model that claims to support calibration
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("model_key", fast_subset(["cb", "xgb", "lgb"], representative="cb"))
 def test_calibration_flag_differentiates_classifier(model_key):
@@ -159,9 +162,17 @@ def test_calibration_flag_differentiates_classifier(model_key):
     df = pd.DataFrame({"f0": rng.standard_normal(n), "f1": rng.standard_normal(n)})
     y = pd.Series((rng.random(n) > 0.5).astype(int))
     common_kwargs = dict(
-        df=df, train_df=df.iloc[:40], val_df=df.iloc[40:50], test_df=df.iloc[50:],
-        target=y, train_target=y.iloc[:40], val_target=y.iloc[40:50], test_target=y.iloc[50:],
-        train_idx=np.arange(40), val_idx=np.arange(40, 50), test_idx=np.arange(50, n),
+        df=df,
+        train_df=df.iloc[:40],
+        val_df=df.iloc[40:50],
+        test_df=df.iloc[50:],
+        target=y,
+        train_target=y.iloc[:40],
+        val_target=y.iloc[40:50],
+        test_target=y.iloc[50:],
+        train_idx=np.arange(40),
+        val_idx=np.arange(40, 50),
+        test_idx=np.arange(50, n),
         use_regression=False,
         prefer_gpu_configs=False,
         mlframe_models=[model_key],

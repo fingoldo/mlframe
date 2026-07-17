@@ -18,9 +18,7 @@ def test_mrmr_min_features_fallback_default_is_one():
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     sig = inspect.signature(MRMR.__init__)
-    assert sig.parameters["min_features_fallback"].default == 1, (
-        "min_features_fallback default should be 1 to prevent empty support_ crashes"
-    )
+    assert sig.parameters["min_features_fallback"].default == 1, "min_features_fallback default should be 1 to prevent empty support_ crashes"
 
 
 # -------------------------------------------------------------------------
@@ -56,23 +54,21 @@ def test_mrmr_same_shape_skip_distinguishes_y_content():
     n = 200
     X = rng.standard_normal((n, 5))
     import pandas as pd
+
     X_df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
     y1 = (X_df["f0"] > 0).astype(int).to_numpy()
     y2 = (X_df["f4"] > 0).astype(int).to_numpy()  # different feature drives target
 
     # First fit signature.
     MRMR._FIT_CACHE.clear()
-    mrmr = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1,
-                verbose=0, skip_retraining_on_same_shape=True, random_seed=0)
+    mrmr = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_shape=True, random_seed=0)
     mrmr.fit(X_df, y1)
     sig1 = mrmr.signature
 
     # Re-fit on different y, same shape -- post-fix signature changes.
     mrmr.fit(X_df, y2)
     sig2 = mrmr.signature
-    assert sig1 != sig2, (
-        "Same-shape skip must distinguish different y content; pre-fix returned same signature."
-    )
+    assert sig1 != sig2, "Same-shape skip must distinguish different y content; pre-fix returned same signature."
 
 
 # -------------------------------------------------------------------------
@@ -108,19 +104,19 @@ def test_rfecv_polars_to_pandas_arrow_bridge():
 
     # Build a small frame with an Enum column.
     enum_dt = pl.Enum(["a", "b", "c"])
-    df = pl.DataFrame({
-        "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0] * 4,
-        "cat": pl.Series(["a", "b", "c", "a", "b", "c"] * 4, dtype=enum_dt),
-    })
+    df = pl.DataFrame(
+        {
+            "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0] * 4,
+            "cat": pl.Series(["a", "b", "c", "a", "b", "c"] * 4, dtype=enum_dt),
+        }
+    )
     # Direct test: invoke the Arrow-bridge path the fix uses.
     try:
         pdf = df.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
     except TypeError:
         pdf = df.to_pandas()
     # The "cat" column should NOT be plain object after Arrow bridge.
-    assert str(pdf["cat"].dtype) != "object", (
-        "Arrow-bridge to_pandas must preserve pl.Enum as an extension dtype, not object."
-    )
+    assert str(pdf["cat"].dtype) != "object", "Arrow-bridge to_pandas must preserve pl.Enum as an extension dtype, not object."
 
 
 # -------------------------------------------------------------------------
@@ -137,6 +133,7 @@ def test_composite_oof_predictions_time_aware_uses_timeseries_split():
         def fit(self, X, y):
             self._y = np.asarray(y, dtype=float)
             return self
+
         def predict(self, X):
             return np.zeros(len(X), dtype=float)
 
@@ -146,9 +143,7 @@ def test_composite_oof_predictions_time_aware_uses_timeseries_split():
     out_time = composite_oof_predictions(_Identity, X, y, n_splits=4, time_aware=True)
     # TimeSeriesSplit leaves the first n//(n_splits+1) rows never in a val fold -> NaN.
     first_chunk = n // 5  # n_splits=4 -> 5 chunks
-    assert np.isnan(out_time[:first_chunk]).all(), (
-        "TimeSeriesSplit must not produce val preds for the first chunk"
-    )
+    assert np.isnan(out_time[:first_chunk]).all(), "TimeSeriesSplit must not produce val preds for the first chunk"
 
     # Random-KFold path covers every row.
     out_rand = composite_oof_predictions(_Identity, X, y, n_splits=4, time_aware=False)
@@ -166,7 +161,11 @@ def test_composite_forward_stepwise_time_aware():
         "b": np.zeros(n),
     }
     kept, diag = forward_stepwise_multi_base(
-        y, candidates, max_k=2, cv_folds=3, time_aware=True,
+        y,
+        candidates,
+        max_k=2,
+        cv_folds=3,
+        time_aware=True,
     )
     # Smoke: TimeSeriesSplit path produces a sensible result without raising.
     assert isinstance(kept, list)
@@ -188,11 +187,13 @@ def test_rfecv_timestamps_kwarg_triggers_time_series_split():
 
     rng = np.random.default_rng(0)
     n = 60
-    X = pd.DataFrame({
-        "a": rng.standard_normal(n),
-        "b": rng.standard_normal(n),
-        "c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": rng.standard_normal(n),
+            "b": rng.standard_normal(n),
+            "c": rng.standard_normal(n),
+        }
+    )
     y = X["a"] * 0.5 + rng.standard_normal(n) * 0.1
     ts = np.arange(n, dtype=np.int64)
     rfecv = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1.0)

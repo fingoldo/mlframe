@@ -27,6 +27,7 @@ Where a suite x FS cell is genuinely unsupported / mis-behaves the test is xfail
 TINY configs: n<=480, iterations<=12, 1 model (cb), CPU-forced via the session fixture in
 tests/training/conftest.py. Each test < 50s on a contended box.
 """
+
 from __future__ import annotations
 
 import tempfile
@@ -59,8 +60,8 @@ _MRMR_KW = {
 }
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _signal_noise_frame(n, n_signal=4, n_noise=8, seed=0, kind="binary"):
     """Linear-signal frame: ``n_signal`` informative columns ``s0..`` + ``n_noise`` pure-noise
@@ -160,9 +161,14 @@ def _assert_suite_predicts(df, result, metadata, fte):
     predict path) -- NOT a single model's est.predict, which bypasses the suite's FE-recipe replay, categorical
     encoding, and feature-name sanitization (CatBoost rewrites commas in engineered names like sub(a,b))."""
     from mlframe.training.core.predict import predict_from_models
+
     res = predict_from_models(
-        df=df, models=result, metadata=metadata, features_and_targets_extractor=fte,
-        return_probabilities=False, verbose=0,
+        df=df,
+        models=result,
+        metadata=metadata,
+        features_and_targets_extractor=fte,
+        return_probabilities=False,
+        verbose=0,
     )
     assert res.get("models_used"), "suite predict produced no model predictions on the FS-trained models"
 
@@ -183,10 +189,13 @@ def test_biz_val_suite_mrmr_multiclass_excludes_noise():
     """
     df, signal_cols, noise_cols = _signal_noise_frame(n=360, seed=0, kind="multiclass")
     fte = SimpleFeaturesAndTargetsExtractor(
-        target_column="target", target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
+        target_column="target",
+        target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
     )
     inner, _res, _meta = _train(
-        df, fte, TargetTypes.MULTICLASS_CLASSIFICATION,
+        df,
+        fte,
+        TargetTypes.MULTICLASS_CLASSIFICATION,
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
     used, fs_model = _fs_model_used_features(inner)
@@ -195,10 +204,7 @@ def test_biz_val_suite_mrmr_multiclass_excludes_noise():
     noise_kept = used & set(noise_cols)
     signal_kept = used & set(signal_cols)
     noise_excl_frac = 1.0 - len(noise_kept) / len(noise_cols)
-    assert noise_excl_frac >= 0.75, (
-        f"suite MRMR-FS kept too many noise cols: kept={sorted(noise_kept)} "
-        f"excl_frac={noise_excl_frac:.2f} (floor 0.75)"
-    )
+    assert noise_excl_frac >= 0.75, f"suite MRMR-FS kept too many noise cols: kept={sorted(noise_kept)} excl_frac={noise_excl_frac:.2f} (floor 0.75)"
     assert len(signal_kept) >= 2, f"signal lost: kept only {sorted(signal_kept)}"
 
     _assert_suite_predicts(df, _res, _meta, fte)
@@ -221,7 +227,9 @@ def test_biz_val_suite_rfecv_regression_excludes_noise():
     df, signal_cols, noise_cols = _signal_noise_frame(n=400, seed=1, kind="regression")
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
     inner, _res, _meta = _train(
-        df, fte, TargetTypes.REGRESSION,
+        df,
+        fte,
+        TargetTypes.REGRESSION,
         FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
     )
     used, fs_model = _fs_model_used_features(inner)
@@ -235,8 +243,7 @@ def test_biz_val_suite_rfecv_regression_excludes_noise():
 
     if noise_excl_frac < 0.5:
         pytest.xfail(
-            f"FS GAP: suite FS rfecv_regression keeps too many noise cols on tiny data "
-            f"(excl_frac={noise_excl_frac:.2f}, kept noise={sorted(noise_kept)})"
+            f"FS GAP: suite FS rfecv_regression keeps too many noise cols on tiny data (excl_frac={noise_excl_frac:.2f}, kept noise={sorted(noise_kept)})"
         )
     assert len(signal_kept) >= 2, f"signal lost: kept only {sorted(signal_kept)}"
 
@@ -276,7 +283,9 @@ def test_biz_val_suite_mrmr_mixed_features_excludes_noise():
 
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     inner, _res, _meta = _train(
-        df, fte, TargetTypes.BINARY_CLASSIFICATION,
+        df,
+        fte,
+        TargetTypes.BINARY_CLASSIFICATION,
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
     used, fs_model = _fs_model_used_features(inner)
@@ -331,7 +340,9 @@ def test_biz_val_suite_mrmr_reduces_multicollinear_pollution():
 
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     inner, _res, _meta = _train(
-        df, fte, TargetTypes.BINARY_CLASSIFICATION,
+        df,
+        fte,
+        TargetTypes.BINARY_CLASSIFICATION,
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
     used, fs_model = _fs_model_used_features(inner)
@@ -344,14 +355,9 @@ def test_biz_val_suite_mrmr_reduces_multicollinear_pollution():
     noise_kept = used & set(noise_cols)
     noise_excl_frac = 1.0 - len(noise_kept) / len(noise_cols)
 
-    assert len(collinear_kept) < len(collinear_group), (
-        f"suite MRMR-FS did NOT prune the multicollinear cluster: kept all of "
-        f"{sorted(collinear_kept)}"
-    )
+    assert len(collinear_kept) < len(collinear_group), f"suite MRMR-FS did NOT prune the multicollinear cluster: kept all of {sorted(collinear_kept)}"
     assert "s1" in used, "independent signal s1 was dropped"
-    assert noise_excl_frac >= 0.75, (
-        f"noise not pruned: kept={sorted(noise_kept)} excl_frac={noise_excl_frac:.2f}"
-    )
+    assert noise_excl_frac >= 0.75, f"noise not pruned: kept={sorted(noise_kept)} excl_frac={noise_excl_frac:.2f}"
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +381,9 @@ def test_biz_val_suite_mrmr_fs_isolated_from_other_stages():
     # ensemble-assembly stage; composite-target discovery / dummy baselines default OFF for a single
     # tiny regression-less target, so this run exercises essentially the FS branch alone.
     inner, _res, _meta = _train(
-        df, fte, TargetTypes.BINARY_CLASSIFICATION,
+        df,
+        fte,
+        TargetTypes.BINARY_CLASSIFICATION,
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
 
@@ -388,10 +396,7 @@ def test_biz_val_suite_mrmr_fs_isolated_from_other_stages():
 
     _assert_suite_predicts(df, _res, _meta, fte)
 
-    assert noise_excl_frac >= 0.75, (
-        f"FS branch (other stages off) kept too much noise: kept={sorted(noise_kept)} "
-        f"excl_frac={noise_excl_frac:.2f}"
-    )
+    assert noise_excl_frac >= 0.75, f"FS branch (other stages off) kept too much noise: kept={sorted(noise_kept)} excl_frac={noise_excl_frac:.2f}"
     assert len(signal_kept) >= 2, f"signal lost: kept only {sorted(signal_kept)}"
 
 
@@ -418,10 +423,14 @@ def test_biz_val_suite_mrmr_ltr_excludes_noise():
     """
     df, signal_cols, noise_cols = _signal_noise_frame(n=600, seed=0, kind="ltr")
     fte = SimpleFeaturesAndTargetsExtractor(
-        target_column="target", target_type=TargetTypes.LEARNING_TO_RANK, group_field="qid",
+        target_column="target",
+        target_type=TargetTypes.LEARNING_TO_RANK,
+        group_field="qid",
     )
     inner, _res, _meta = _train(
-        df, fte, TargetTypes.LEARNING_TO_RANK,
+        df,
+        fte,
+        TargetTypes.LEARNING_TO_RANK,
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
     used, fs_model = _fs_model_used_features(inner)
@@ -430,10 +439,7 @@ def test_biz_val_suite_mrmr_ltr_excludes_noise():
     noise_kept = used & set(noise_cols)
     signal_kept = used & set(signal_cols)
     noise_excl_frac = 1.0 - len(noise_kept) / len(noise_cols)
-    assert noise_excl_frac >= 0.75, (
-        f"suite MRMR-FS (LtR) kept too many noise cols: kept={sorted(noise_kept)} "
-        f"excl_frac={noise_excl_frac:.2f} (floor 0.75)"
-    )
+    assert noise_excl_frac >= 0.75, f"suite MRMR-FS (LtR) kept too many noise cols: kept={sorted(noise_kept)} excl_frac={noise_excl_frac:.2f} (floor 0.75)"
     assert len(signal_kept) >= 2, f"LtR signal lost: kept only {sorted(signal_kept)}"
 
     _assert_suite_predicts(df, _res, _meta, fte)
@@ -483,10 +489,13 @@ def test_biz_val_suite_mrmr_quantile_regression_excludes_noise():
     planted noise. Quantile target is a 1-D continuous label (rides the regression-shaped FS path)."""
     df, signal_cols, noise_cols = _signal_noise_frame(n=480, seed=0, kind="regression")
     fte = SimpleFeaturesAndTargetsExtractor(
-        target_column="target", target_type=TargetTypes.QUANTILE_REGRESSION,
+        target_column="target",
+        target_type=TargetTypes.QUANTILE_REGRESSION,
     )
     inner, _res, _meta = _train(
-        df, fte, TargetTypes.QUANTILE_REGRESSION,
+        df,
+        fte,
+        TargetTypes.QUANTILE_REGRESSION,
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
     _assert_noise_excluded(inner, signal_cols, noise_cols)
@@ -498,10 +507,13 @@ def test_biz_val_suite_mrmr_multilabel_excludes_noise():
     excludes planted noise while keeping both signal cols."""
     df, signal_cols, noise_cols = _two_d_signal_noise_frame(n=480, kind="multilabel", seed=0)
     fte = SimpleFeaturesAndTargetsExtractor(
-        target_column="target", target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
+        target_column="target",
+        target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
     )
     inner, _res, _meta = _train(
-        df, fte, TargetTypes.MULTILABEL_CLASSIFICATION,
+        df,
+        fte,
+        TargetTypes.MULTILABEL_CLASSIFICATION,
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
     _assert_noise_excluded(inner, signal_cols, noise_cols)
@@ -513,10 +525,13 @@ def test_biz_val_suite_mrmr_multi_target_regression_excludes_noise():
     trains, predicts, excludes planted noise while keeping both signal cols."""
     df, signal_cols, noise_cols = _two_d_signal_noise_frame(n=480, kind="multitarget", seed=0)
     fte = SimpleFeaturesAndTargetsExtractor(
-        target_column="target", target_type=TargetTypes.MULTI_TARGET_REGRESSION,
+        target_column="target",
+        target_type=TargetTypes.MULTI_TARGET_REGRESSION,
     )
     inner, _res, _meta = _train(
-        df, fte, TargetTypes.MULTI_TARGET_REGRESSION,
+        df,
+        fte,
+        TargetTypes.MULTI_TARGET_REGRESSION,
         FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=_MRMR_KW),
     )
     _assert_noise_excluded(inner, signal_cols, noise_cols)

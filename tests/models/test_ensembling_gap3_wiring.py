@@ -27,7 +27,10 @@ def test_rank_average_through_public_ensemble_path():
     rng = np.random.default_rng(1)
     preds = [rng.random((50, 2)) for _ in range(3)]
     out, _, _ = ensemble_probabilistic_predictions(
-        *preds, ensemble_method="rank_average", max_mae_relative=0, max_std_relative=0,
+        *preds,
+        ensemble_method="rank_average",
+        max_mae_relative=0,
+        max_std_relative=0,
     )
     assert out is not None and out.shape == (50, 2)
 
@@ -49,9 +52,9 @@ def test_caruana_weights_favor_the_strong_member():
     rng = np.random.default_rng(2)
     n = 500
     y = rng.integers(0, 2, size=n).astype(np.float64)
-    strong = np.clip(y + rng.normal(0, 0.20, n), 0, 1)   # tracks the label
+    strong = np.clip(y + rng.normal(0, 0.20, n), 0, 1)  # tracks the label
     weak1 = np.clip(0.5 + rng.normal(0, 0.45, n), 0, 1)  # near-random
-    weak2 = rng.random(n)                                 # pure noise
+    weak2 = rng.random(n)  # pure noise
     res: dict = {}
     w = run_stacking_aware_gate(
         enable_stacking_aware_gate=True,
@@ -87,9 +90,16 @@ def test_biz_val_caruana_blend_beats_equal_weight_error():
     members = np.vstack([strong, weak1, weak2])  # (3, n)
     res: dict = {}
     w = run_stacking_aware_gate(
-        enable_stacking_aware_gate=True, _gate_preds_for_check=[strong, weak1, weak2], target_arr=y,
-        level_models_and_predictions=[None, None, None], _ensemble_member_tags=["strong", "weak1", "weak2"],
-        stacking_gate_min_weight=0.0, use_nnls_weights=False, res=res, verbose=False, use_caruana_weights=True,
+        enable_stacking_aware_gate=True,
+        _gate_preds_for_check=[strong, weak1, weak2],
+        target_arr=y,
+        level_models_and_predictions=[None, None, None],
+        _ensemble_member_tags=["strong", "weak1", "weak2"],
+        stacking_gate_min_weight=0.0,
+        use_nnls_weights=False,
+        res=res,
+        verbose=False,
+        use_caruana_weights=True,
     )
     caruana_blend = w @ members
     equal_blend = members.mean(axis=0)
@@ -139,8 +149,14 @@ def test_nnls_still_default_when_caruana_off():
     preds = [np.clip(y + rng.normal(0, 0.3, n), 0, 1) for _ in range(3)]
     res: dict = {}
     run_stacking_aware_gate(
-        enable_stacking_aware_gate=True, _gate_preds_for_check=preds, target_arr=y,
-        level_models_and_predictions=[None] * 3, _ensemble_member_tags=["a", "b", "c"],
-        stacking_gate_min_weight=0.0, use_nnls_weights=True, res=res, verbose=False,
+        enable_stacking_aware_gate=True,
+        _gate_preds_for_check=preds,
+        target_arr=y,
+        level_models_and_predictions=[None] * 3,
+        _ensemble_member_tags=["a", "b", "c"],
+        stacking_gate_min_weight=0.0,
+        use_nnls_weights=True,
+        res=res,
+        verbose=False,
     )
     assert res["_stacking_gate"]["weight_method"] == "nnls"

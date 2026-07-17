@@ -6,6 +6,7 @@ linear model can't represent cleanly. Per-segment models recover each segment's 
 Also verifies the lifecycle claim the source technique was built for: adding/removing one segment must not
 disturb any other segment's already-fitted model (no full-set retrain needed on entity churn).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,7 +47,9 @@ def test_biz_val_segmented_model_factory_beats_global_one_hot_model_mse():
     mse_segmented = mean_squared_error(test_df["y"], factory.predict(test_df[["airport", "x1", "x2"]]))
 
     improvement = 1.0 - mse_segmented / mse_global
-    assert improvement > 0.9, f"expected >90% MSE reduction vs. a global one-hot model, got {improvement:.4f} (global={mse_global:.4f}, segmented={mse_segmented:.4f})"
+    assert improvement > 0.9, (
+        f"expected >90% MSE reduction vs. a global one-hot model, got {improvement:.4f} (global={mse_global:.4f}, segmented={mse_segmented:.4f})"
+    )
 
 
 def test_segmented_model_factory_add_segment_does_not_disturb_other_segments():
@@ -100,7 +103,9 @@ def _make_regional_mixed_size_dataset(n_large: int, n_tiny: int, n_tiny_per_regi
 
 def test_biz_val_segmented_model_factory_hierarchical_shrinkage_beats_raw_and_global_fallback_mse():
     train_df = _make_regional_mixed_size_dataset(n_large=300, n_tiny=3, n_tiny_per_region=2, seed=10)
-    test_df = _make_regional_mixed_size_dataset(n_large=50, n_tiny=100, n_tiny_per_region=2, seed=11)  # more held-out rows per tiny segment to score it reliably
+    test_df = _make_regional_mixed_size_dataset(
+        n_large=50, n_tiny=100, n_tiny_per_region=2, seed=11
+    )  # more held-out rows per tiny segment to score it reliably
 
     def _fit_predict(**kwargs):
         kwargs.setdefault("min_segment_rows", 2)
@@ -114,8 +119,12 @@ def test_biz_val_segmented_model_factory_hierarchical_shrinkage_beats_raw_and_gl
 
     improvement_vs_raw = 1.0 - mse_shrinkage / mse_raw
     improvement_vs_global = 1.0 - mse_shrinkage / mse_global
-    assert improvement_vs_raw > 0.3, f"expected >30% MSE reduction vs. raw per-segment fit-anyway, got {improvement_vs_raw:.4f} (raw={mse_raw:.4f}, shrinkage={mse_shrinkage:.4f})"
-    assert improvement_vs_global > 0.3, f"expected >30% MSE reduction vs. blunt full-global fallback, got {improvement_vs_global:.4f} (global={mse_global:.4f}, shrinkage={mse_shrinkage:.4f})"
+    assert improvement_vs_raw > 0.3, (
+        f"expected >30% MSE reduction vs. raw per-segment fit-anyway, got {improvement_vs_raw:.4f} (raw={mse_raw:.4f}, shrinkage={mse_shrinkage:.4f})"
+    )
+    assert improvement_vs_global > 0.3, (
+        f"expected >30% MSE reduction vs. blunt full-global fallback, got {improvement_vs_global:.4f} (global={mse_global:.4f}, shrinkage={mse_shrinkage:.4f})"
+    )
 
 
 def test_segmented_model_factory_shrinkage_disabled_by_default_is_bit_identical():

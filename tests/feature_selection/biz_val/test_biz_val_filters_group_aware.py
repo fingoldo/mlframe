@@ -4,6 +4,7 @@ Each test pins a quantitative win of a specific constructor param against its ba
 param should clearly succeed: corr_method='su' (catches non-monotone redundancy pearson misses), corr_threshold (collapses a
 collinear cluster), expand (recovers cluster members), min_reduction (gates the medoid bypass).
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -109,6 +109,7 @@ def test_biz_val_delong_ci_narrows_with_n():
     """The DeLong CI width must shrink ~1/sqrt(n): going from n=2000 to n=32000 (16x) should
     cut the half-width by roughly sqrt(16)=4x. Floor: width(2000)/width(32000) >= 3.0 (below the
     ~4x theoretical, above noise). A regression that drops the n-dependence trips this."""
+
     def _half_width(n):
         y, s = _binary(n=n, sep=1.0, seed=9)
         auc, lo, hi = delong_auc_ci(y, s)

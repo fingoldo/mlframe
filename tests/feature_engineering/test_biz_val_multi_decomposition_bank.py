@@ -7,6 +7,7 @@ low-dimensional decomposition projections (which recover an approximation of the
 alongside the raw features gives the model a cleaner, denoised signal to draw on directly, improving
 held-out performance over raw features alone.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,7 +45,9 @@ def test_biz_val_decomposition_bank_improves_fit_on_noisy_low_rank_manifold():
     df_augmented = pd.concat([df, bank], axis=1)
     auc_augmented = cross_val_score(_rf(), df_augmented.to_numpy(), y, cv=5, scoring="r2").mean()
 
-    assert auc_augmented > auc_raw + 0.15, f"expected the decomposition-bank-augmented feature set to materially beat raw features alone on a noisy low-rank-manifold target, got augmented={auc_augmented:.4f} raw={auc_raw:.4f}"
+    assert auc_augmented > auc_raw + 0.15, (
+        f"expected the decomposition-bank-augmented feature set to materially beat raw features alone on a noisy low-rank-manifold target, got augmented={auc_augmented:.4f} raw={auc_raw:.4f}"
+    )
 
 
 def _make_mixed_informative_noise_dataset(n: int, n_signal_features: int, n_noise_features: int, seed: int):
@@ -82,7 +85,9 @@ def test_biz_val_decomposition_bank_prune_keeps_informative_method_drops_noise_m
         df, n_components=3, methods=_VALID_METHODS, random_state=0, y=y, prune_uninformative_methods=True, prune_tolerance=0.05
     )
 
-    assert pruned_bank.shape[1] < full_bank.shape[1], f"expected pruning to drop at least one uninformative method's columns, full={full_bank.shape[1]} pruned={pruned_bank.shape[1]}"
+    assert pruned_bank.shape[1] < full_bank.shape[1], (
+        f"expected pruning to drop at least one uninformative method's columns, full={full_bank.shape[1]} pruned={pruned_bank.shape[1]}"
+    )
     kept_methods = {c.split("_")[1] for c in pruned_bank.columns}
     assert {"svd", "pca"} <= kept_methods, f"expected the genuinely informative svd/pca methods to survive pruning, kept={kept_methods}"
 
@@ -147,16 +152,18 @@ def test_biz_val_decomposition_bank_auto_k_recovers_true_rank_beats_undersized_f
         return RandomForestRegressor(n_estimators=150, max_depth=6, random_state=0)
 
     fixed_bank = multi_decomposition_feature_bank(df, n_components=2, methods=("svd", "pca"), random_state=0)
-    auto_bank = multi_decomposition_feature_bank(
-        df, n_components=15, methods=("svd", "pca"), random_state=0, auto_k=True, auto_k_variance_ratio=0.9
-    )
+    auto_bank = multi_decomposition_feature_bank(df, n_components=15, methods=("svd", "pca"), random_state=0, auto_k=True, auto_k_variance_ratio=0.9)
 
-    assert auto_bank.shape[1] > fixed_bank.shape[1], f"expected auto_k to select more components than the undersized fixed k=2, auto={auto_bank.shape[1]} fixed={fixed_bank.shape[1]}"
+    assert auto_bank.shape[1] > fixed_bank.shape[1], (
+        f"expected auto_k to select more components than the undersized fixed k=2, auto={auto_bank.shape[1]} fixed={fixed_bank.shape[1]}"
+    )
 
     r2_fixed = cross_val_score(_rf(), pd.concat([df, fixed_bank], axis=1).to_numpy(), y, cv=5, scoring="r2").mean()
     r2_auto = cross_val_score(_rf(), pd.concat([df, auto_bank], axis=1).to_numpy(), y, cv=5, scoring="r2").mean()
 
-    assert r2_auto > r2_fixed + 0.02, f"expected auto_k-selected bank to materially beat the undersized fixed-k=2 bank on the true-rank-6 target, auto={r2_auto:.4f} fixed={r2_fixed:.4f}"
+    assert r2_auto > r2_fixed + 0.02, (
+        f"expected auto_k-selected bank to materially beat the undersized fixed-k=2 bank on the true-rank-6 target, auto={r2_auto:.4f} fixed={r2_fixed:.4f}"
+    )
 
 
 def test_multi_decomposition_feature_bank_auto_k_default_off_bit_identical():

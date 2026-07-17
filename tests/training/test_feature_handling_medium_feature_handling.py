@@ -4,6 +4,7 @@
 Each test pins a specific bug surfaced by the audit. Tests must fail
 on pre-fix code and pass on post-fix.
 """
+
 from __future__ import annotations
 
 import os
@@ -91,11 +92,13 @@ def test_m_fh_02_signature_stable_across_nested_secret_change() -> None:
     from mlframe.training.feature_handling.providers import EmbeddingProvider
 
     p1 = EmbeddingProvider(
-        kind="custom", model="m",
+        kind="custom",
+        model="m",
         params={"headers": {"Authorization": "Bearer A"}},
     )
     p2 = EmbeddingProvider(
-        kind="custom", model="m",
+        kind="custom",
+        model="m",
         params={"headers": {"Authorization": "Bearer B"}},
     )
     assert p1.signature == p2.signature
@@ -160,10 +163,7 @@ def test_m_fh_04_evict_to_caps_fast_path_under_entry_cap() -> None:
         # Fast-path means _evict_to_caps does not invoke listdir when the
         # entry count is well under the cap. ``list_keys`` would also call
         # listdir, but the write path does not.
-        assert calls["n"] == 0, (
-            f"_evict_to_caps invoked os.listdir under the cap; expected fast-path. "
-            f"calls={calls['n']}"
-        )
+        assert calls["n"] == 0, f"_evict_to_caps invoked os.listdir under the cap; expected fast-path. calls={calls['n']}"
 
 
 def test_m_fh_04_eviction_still_works_when_over_cap(monkeypatch) -> None:
@@ -174,6 +174,7 @@ def test_m_fh_04_eviction_still_works_when_over_cap(monkeypatch) -> None:
     # Force strictly-increasing LRU timestamps via a fake clock so eviction order is deterministic without a
     # wall-clock sleep. ``_touch_lru`` reads ``time.time()`` from the cached stdlib module.
     import time as _time_mod
+
     _counter = {"t": 1_700_000_000.0}
 
     def _tick() -> float:
@@ -216,8 +217,10 @@ def test_m_fh_05_fp_cache_key_includes_column_signature() -> None:
     b = _FakeDF(["col_x", "col_y"])  # same length, different names
 
     fp = fp_mod.ContentFingerprint(
-        n_rows=0, n_cols=2,
-        column_dtypes_hash="aa", sampled_rows_hash="bb",
+        n_rows=0,
+        n_cols=2,
+        column_dtypes_hash="aa",
+        sampled_rows_hash="bb",
     )
     fp_mod._fp_cache_put(a, fp)
 
@@ -230,9 +233,7 @@ def test_m_fh_05_fp_cache_key_includes_column_signature() -> None:
     key_b = fp_mod._fp_cache_key(b)
     assert key_a is not None
     assert key_b is not None
-    assert key_a != key_b, (
-        f"different-schema frames produced the same fp cache key: {key_a}"
-    )
+    assert key_a != key_b, f"different-schema frames produced the same fp cache key: {key_a}"
 
 
 # =====================================================================
@@ -266,6 +267,7 @@ def test_m_fh_06_fit_transform_does_not_swallow_unrelated_typeerror() -> None:
 
     # Use a tiny pandas DF so _extract_column doesn't need polars.
     import pandas as pd
+
     df = pd.DataFrame({"c": [1, 2, 3]})
 
     with pytest.raises(TypeError, match="buggy"):
@@ -293,6 +295,7 @@ def test_m_fh_06_fit_transform_still_falls_back_on_signature_mismatch() -> None:
     params = CustomParams(transformer=UnsupervisedOnly(), output_kind="dense")
     handler = CustomHandler(column="c", params=params)
     import pandas as pd
+
     df = pd.DataFrame({"c": [1, 2, 3]})
     out = handler.fit_transform(df, y=[0, 1, 0])
     assert out is not None
@@ -319,10 +322,7 @@ def test_m_fh_07_column_to_string_list_covers_full_range() -> None:
     df = pl.DataFrame({"c": values})
 
     sampled = _column_to_string_list(df, "c", max_sample=10_000)
-    assert "TAIL_MARKER" in sampled, (
-        "linspace stride must include the final row; pre-fix integer step "
-        "silently dropped the trailing slice"
-    )
+    assert "TAIL_MARKER" in sampled, "linspace stride must include the final row; pre-fix integer step silently dropped the trailing slice"
     # And the sample size is reasonable (bounded by max_sample).
     assert len(sampled) <= 10_000
 
@@ -381,18 +381,14 @@ def test_m_fh_08_prewarm_dedupes_under_concurrent_callers() -> None:
         load_started.wait(timeout=2.0)
 
         # All N callers must observe the same Future.
-        assert len({id(f) for f in futs}) == 1, (
-            "prewarm submitted multiple Futures under concurrent callers"
-        )
+        assert len({id(f) for f in futs}) == 1, "prewarm submitted multiple Futures under concurrent callers"
 
         release_load.set()
         # Drain the future.
         futs[0].result(timeout=5.0)
 
         # acquire() must have been called exactly once.
-        assert load_calls["n"] == 1, (
-            f"acquire() ran {load_calls['n']} times under concurrent prewarm"
-        )
+        assert load_calls["n"] == 1, f"acquire() ran {load_calls['n']} times under concurrent prewarm"
     finally:
         # Restore state to avoid leaking into sibling tests.
         release_load.set()

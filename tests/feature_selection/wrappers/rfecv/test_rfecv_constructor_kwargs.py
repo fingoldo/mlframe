@@ -4,6 +4,7 @@ The suite previously called ``setattr(_rfecv_instance, "leakage_corr_threshold",
 bypassing any property-setter side effects. The fix routes through sklearn's ``set_params`` which
 validates the parameter name against ``get_params`` and fires any setter side effects.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -28,6 +29,7 @@ class _FakeRFECVWithSetParams:
 
 class _FakeNoSetParams:
     """Selector without sklearn set_params; the fallback path uses setattr."""
+
     pass
 
 

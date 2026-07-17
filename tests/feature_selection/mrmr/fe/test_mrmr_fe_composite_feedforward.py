@@ -21,6 +21,7 @@ so the composite is DISCOVERED, SELECTED, and REPLAYABLE:
 A principled feed-forward cap (``fe_max_engineered_operands``, default 8) bounds the
 O(k^2) pair blow-up. ``fe_max_steps=1`` behaviour is unchanged (no step-2 composites).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -95,6 +96,7 @@ def _has_cd_two_operand_side(name: str) -> bool:
 # UNIT: nested-parent recipe build + replay round-trip.
 # ---------------------------------------------------------------------------
 
+
 def test_nested_parent_recipe_replays_composite_from_raw_columns():
     """A unary_binary recipe whose two operands are themselves engineered recipes
     replays correctly from RAW columns alone (the engineered parent values are NOT
@@ -109,25 +111,46 @@ def test_nested_parent_recipe_replays_composite_from_raw_columns():
 
     # Parent recipes (continuous, no quantization so we can check values directly).
     par_a = build_unary_binary_recipe(
-        name="div(sqr(a),abs(b))", src_a_name="a", src_b_name="b",
-        unary_a_name="sqr", unary_b_name="abs", binary_name="div",
-        unary_preset="medium", binary_preset="minimal",
-        quantization_nbins=None, quantization_method=None, quantization_dtype=np.int32,
+        name="div(sqr(a),abs(b))",
+        src_a_name="a",
+        src_b_name="b",
+        unary_a_name="sqr",
+        unary_b_name="abs",
+        binary_name="div",
+        unary_preset="medium",
+        binary_preset="minimal",
+        quantization_nbins=None,
+        quantization_method=None,
+        quantization_dtype=np.int32,
     )
     par_b = build_unary_binary_recipe(
-        name="mul(log(c),sin(d))", src_a_name="c", src_b_name="d",
-        unary_a_name="log", unary_b_name="sin", binary_name="mul",
-        unary_preset="medium", binary_preset="minimal",
-        quantization_nbins=None, quantization_method=None, quantization_dtype=np.int32,
+        name="mul(log(c),sin(d))",
+        src_a_name="c",
+        src_b_name="d",
+        unary_a_name="log",
+        unary_b_name="sin",
+        binary_name="mul",
+        unary_preset="medium",
+        binary_preset="minimal",
+        quantization_nbins=None,
+        quantization_method=None,
+        quantization_dtype=np.int32,
     )
     # Composite recipe nesting both parents (identity unary on each side, add binary).
     comp = build_unary_binary_recipe(
         name="add(div(sqr(a),abs(b)),mul(log(c),sin(d)))",
-        src_a_name="div(sqr(a),abs(b))", src_b_name="mul(log(c),sin(d))",
-        unary_a_name="identity", unary_b_name="identity", binary_name="add",
-        unary_preset="medium", binary_preset="minimal",
-        quantization_nbins=None, quantization_method=None, quantization_dtype=np.int32,
-        nested_parent_a=par_a, nested_parent_b=par_b,
+        src_a_name="div(sqr(a),abs(b))",
+        src_b_name="mul(log(c),sin(d))",
+        unary_a_name="identity",
+        unary_b_name="identity",
+        binary_name="add",
+        unary_preset="medium",
+        binary_preset="minimal",
+        quantization_nbins=None,
+        quantization_method=None,
+        quantization_dtype=np.int32,
+        nested_parent_a=par_a,
+        nested_parent_b=par_b,
     )
     assert "nested_parent_a" in comp.extra and "nested_parent_b" in comp.extra
 
@@ -141,16 +164,30 @@ def test_nested_parent_recipe_survives_pickle():
     """The nested-parent recipe (parents stored in ``extra``) pickles and replays
     identically after a round-trip."""
     par = build_unary_binary_recipe(
-        name="mul(log(c),sin(d))", src_a_name="c", src_b_name="d",
-        unary_a_name="log", unary_b_name="sin", binary_name="mul",
-        unary_preset="medium", binary_preset="minimal",
-        quantization_nbins=None, quantization_method=None, quantization_dtype=np.int32,
+        name="mul(log(c),sin(d))",
+        src_a_name="c",
+        src_b_name="d",
+        unary_a_name="log",
+        unary_b_name="sin",
+        binary_name="mul",
+        unary_preset="medium",
+        binary_preset="minimal",
+        quantization_nbins=None,
+        quantization_method=None,
+        quantization_dtype=np.int32,
     )
     comp = build_unary_binary_recipe(
-        name="add(c,mul(log(c),sin(d)))", src_a_name="c", src_b_name="mul(log(c),sin(d))",
-        unary_a_name="identity", unary_b_name="identity", binary_name="add",
-        unary_preset="medium", binary_preset="minimal",
-        quantization_nbins=None, quantization_method=None, quantization_dtype=np.int32,
+        name="add(c,mul(log(c),sin(d)))",
+        src_a_name="c",
+        src_b_name="mul(log(c),sin(d))",
+        unary_a_name="identity",
+        unary_b_name="identity",
+        binary_name="add",
+        unary_preset="medium",
+        binary_preset="minimal",
+        quantization_nbins=None,
+        quantization_method=None,
+        quantization_dtype=np.int32,
         nested_parent_b=par,
     )
     comp2 = pickle.loads(pickle.dumps(comp))
@@ -169,10 +206,15 @@ def test_nested_parent_recipe_survives_pickle():
 # BIZ-VALUE: end-to-end composite discovery on the canonical additive fixture.
 # ---------------------------------------------------------------------------
 
+
 def _canonical_fixture(seed: int, n: int):
     rng = np.random.default_rng(seed)
-    a = rng.random(n); b = rng.random(n); c = rng.random(n)
-    d = rng.random(n); e = rng.random(n); f = rng.random(n)
+    a = rng.random(n)
+    b = rng.random(n)
+    c = rng.random(n)
+    d = rng.random(n)
+    e = rng.random(n)
+    f = rng.random(n)
     y = a**2 / b + f / 5.0 + np.log(c) * np.sin(d)
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
     return df, pd.Series(y, name="y")
@@ -207,10 +249,7 @@ def test_fe_max_steps_2_discovers_additive_composite_of_two_engineered():
     prov = fs.fe_provenance_
     row = prov[prov["feature_name"] == comp]
     assert not row.empty, f"composite {comp} missing from fe_provenance_"
-    assert int(row["support_rank"].iloc[0]) == 0, (
-        f"composite {comp} is not the top-ranked feature: rank="
-        f"{int(row['support_rank'].iloc[0])}"
-    )
+    assert int(row["support_rank"].iloc[0]) == 0, f"composite {comp} is not the top-ranked feature: rank={int(row['support_rank'].iloc[0])}"
 
     # transform() replays it (no NaN, monotone in the true signal on held-out data).
     rng = np.random.default_rng(7)
@@ -223,11 +262,9 @@ def test_fe_max_steps_2_discovers_additive_composite_of_two_engineered():
     assert np.isfinite(col).all(), f"composite transform column has non-finite values"
     y_test_det = at**2 / bt + np.log(ct) * np.sin(dt_)
     from scipy.stats import spearmanr
+
     rho = spearmanr(col, y_test_det).correlation
-    assert abs(rho) >= 0.95, (
-        f"transform-replayed composite is not monotone in the true signal: "
-        f"Spearman={rho:.3f}"
-    )
+    assert abs(rho) >= 0.95, f"transform-replayed composite is not monotone in the true signal: Spearman={rho:.3f}"
 
 
 @pytest.mark.slow
@@ -252,12 +289,9 @@ def test_fe_max_steps_1_fuses_to_single_compound():
     assert len(comps) == 1, f"fe_max_steps=1 must recover exactly ONE fused compound, got: {sel}"
     comp = comps[0]
     assert comp.startswith(("add(", "sub(")), f"compound is not an additive-separable (add/sub) form: {comp}"
-    assert {"a", "b"} <= _bare_vars(comp) and {"c", "d"} <= _bare_vars(comp), (
-        f"the single compound must cover BOTH signal groups: {comp}"
-    )
+    assert {"a", "b"} <= _bare_vars(comp) and {"c", "d"} <= _bare_vars(comp), f"the single compound must cover BOTH signal groups: {comp}"
     # No stray a/b-only or c/d-only single-pair fragment left over beside the fused compound.
-    frags = [s for s in sel if "(" in s and not _is_composite(s)
-             and (_bare_vars(s) <= {"a", "b"} or _bare_vars(s) <= {"c", "d"})]
+    frags = [s for s in sel if "(" in s and not _is_composite(s) and (_bare_vars(s) <= {"a", "b"} or _bare_vars(s) <= {"c", "d"})]
     assert not frags, f"fe_max_steps=1 left redundant single-pair fragment(s) beside the compound: {frags} :: {sel}"
 
 
@@ -269,9 +303,7 @@ def test_fe_max_engineered_operands_zero_disables_feedforward():
     fs = MRMR(verbose=0, fe_max_steps=2, fe_max_engineered_operands=0)
     fs.fit(df, y)
     sel = list(fs.get_feature_names_out())
-    assert not any(_is_composite(s) for s in sel), (
-        f"fe_max_engineered_operands=0 should disable composites: {sel}"
-    )
+    assert not any(_is_composite(s) for s in sel), f"fe_max_engineered_operands=0 should disable composites: {sel}"
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +362,4 @@ def test_strict_pin_clean_additive_composite_covers_both_pairs_two_operand(seed)
     prov = fs.fe_provenance_
     row = prov[prov["feature_name"] == comp]
     assert not row.empty, f"[seed={seed}] composite {comp} missing from fe_provenance_"
-    assert int(row["support_rank"].iloc[0]) == 0, (
-        f"[seed={seed}] clean composite {comp} is not top-ranked: "
-        f"rank={int(row['support_rank'].iloc[0])}"
-    )
+    assert int(row["support_rank"].iloc[0]) == 0, f"[seed={seed}] clean composite {comp} is not top-ranked: rank={int(row['support_rank'].iloc[0])}"

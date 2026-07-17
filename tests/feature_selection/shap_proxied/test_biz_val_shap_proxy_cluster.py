@@ -30,9 +30,11 @@ def _make_wide(seed=0, n=1800):
     corr_noise = np.hstack([rng.normal(size=(n, 1)) + 0.3 * rng.normal(size=(n, 4)) for _ in range(8)])  # 40
     indep_noise = rng.normal(size=(n, 20))  # 20
     X = np.hstack([infl, corr_noise, indep_noise])
-    names = ([f"inf_z{k}_{j}" for k in range(4) for j in range(5)]
-             + [f"cnoise{i}" for i in range(corr_noise.shape[1])]
-             + [f"noise{i}" for i in range(indep_noise.shape[1])])
+    names = (
+        [f"inf_z{k}_{j}" for k in range(4) for j in range(5)]
+        + [f"cnoise{i}" for i in range(corr_noise.shape[1])]
+        + [f"noise{i}" for i in range(indep_noise.shape[1])]
+    )
     X = pd.DataFrame(X, columns=names)
     logit = sum(coefs[k] * z[:, k] for k in range(4))
     y = (logit + 0.4 * rng.normal(size=n) > 0).astype(int)
@@ -51,9 +53,18 @@ def test_biz_val_cluster_aware_recovers_latent_factors_on_wide_data():
     # biz_val test scoped to the Pearson clustering behaviour. The SU-default conservation contract
     # lives in test_shap_proxy_cluster_su_default_backend.py.
     sel = ShapProxiedFS(
-        classification=True, metric="brier", cluster_features=True, cluster_corr_threshold=0.6,
+        classification=True,
+        metric="brier",
+        cluster_features=True,
+        cluster_corr_threshold=0.6,
         cluster_backend="pearson",
-        max_features=8, top_n=15, n_splits=3, n_revalidation_models=1, random_state=0, verbose=False)
+        max_features=8,
+        top_n=15,
+        n_splits=3,
+        n_revalidation_models=1,
+        random_state=0,
+        verbose=False,
+    )
     sel.fit(X, y)
     rep = sel.shap_proxy_report_
     selected = list(sel.selected_features_)
@@ -93,14 +104,22 @@ def test_biz_val_prefilter_handles_wide_data_and_maps_back_to_original():
     n = 2000
     inf = rng.normal(size=(n, 6))
     noise = rng.normal(size=(n, 144))
-    X = pd.DataFrame(np.column_stack([inf, noise]),
-                     columns=[f"inf{i}" for i in range(6)] + [f"noise{i}" for i in range(144)])
+    X = pd.DataFrame(np.column_stack([inf, noise]), columns=[f"inf{i}" for i in range(6)] + [f"noise{i}" for i in range(144)])
     coefs = [0.9, 0.8, -0.7, 0.6, 0.4, 0.3]
     y = (sum(coefs[k] * inf[:, k] for k in range(6)) + 0.3 * rng.normal(size=n) > 0).astype(int)
 
-    sel = ShapProxiedFS(classification=True, metric="brier", prefilter_top=25, cluster_features=False,
-                        max_features=8, top_n=15, n_splits=3, n_revalidation_models=1, random_state=0,
-                        verbose=False)
+    sel = ShapProxiedFS(
+        classification=True,
+        metric="brier",
+        prefilter_top=25,
+        cluster_features=False,
+        max_features=8,
+        top_n=15,
+        n_splits=3,
+        n_revalidation_models=1,
+        random_state=0,
+        verbose=False,
+    )
     sel.fit(X, y)
     rep = sel.shap_proxy_report_
     # 150 features < the auto-fast width -> the smart default keeps the faithful full-booster "model".
@@ -128,10 +147,19 @@ def test_biz_val_cluster_compacts_redundant_members():
     X, y = _make_wide(seed=1)
     # iter75: pin Pearson backend to keep this test's threshold-tuned multi-cluster contract stable.
     sel = ShapProxiedFS(
-        classification=True, metric="brier", cluster_features=True, cluster_corr_threshold=0.6,
+        classification=True,
+        metric="brier",
+        cluster_features=True,
+        cluster_corr_threshold=0.6,
         cluster_backend="pearson",
-        max_features=8, top_n=15, n_splits=3, n_revalidation_models=1, within_cluster_refine=True,
-        random_state=1, verbose=False)
+        max_features=8,
+        top_n=15,
+        n_splits=3,
+        n_revalidation_models=1,
+        within_cluster_refine=True,
+        random_state=1,
+        verbose=False,
+    )
     sel.fit(X, y)
     ref = sel.shap_proxy_report_.get("within_cluster_refine")
     assert ref is not None and ref["after"] < ref["before"], ref
@@ -157,7 +185,7 @@ def test_biz_val_iter11_refine_faster_than_legacy_with_preserved_recovery():
     # block (simulating a noisy proxy pick). Stage 1 + Stage 2 together compact it.
     chosen_union = list(range(20)) + list(range(20, 30))
     member_groups = [list(range(k * 5, (k + 1) * 5)) for k in range(4)]  # 4 multi-clusters
-    member_groups += [[c] for c in range(20, 30)]                          # 10 singletons
+    member_groups += [[c] for c in range(20, 30)]  # 10 singletons
 
     Xs = X.iloc[:1200].reset_index(drop=True)
     ys = y[:1200].astype(float)
@@ -166,13 +194,23 @@ def test_biz_val_iter11_refine_faster_than_legacy_with_preserved_recovery():
 
     cache = HonestLossCache()
     refined = within_cluster_refine(
-        chosen_union, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=1, member_groups=member_groups, cache=cache)
+        chosen_union,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.05,
+        n_jobs=1,
+        member_groups=member_groups,
+        cache=cache,
+    )
     fits = cache.misses + cache.hits
 
     # Compaction: at LEAST half the redundant union is dropped (matches the legacy compaction bar).
-    assert len(refined) <= 0.85 * len(chosen_union), (
-        f"iter11 refine kept {len(refined)}/{len(chosen_union)}; not enough compaction")
+    assert len(refined) <= 0.85 * len(chosen_union), f"iter11 refine kept {len(refined)}/{len(chosen_union)}; not enough compaction"
     # Honest retrains stay well below the legacy O(k^2) bound. With k=30 the legacy upper bound is
     # ~900 cache events; iter11 finishes in well under 60 because each round is one ranking pass
     # (outside cache) + O(log k) batched retrains.
@@ -201,9 +239,7 @@ def test_biz_val_two_stage_prefilter_recovery_matches_single_stage_at_6k():
     print(f"[biz_val two_stage] building synthetic n={n} width={width} n_inf={n_inf}", flush=True)
     inf = rng.normal(size=(n, n_inf)).astype(np.float32)
     noise = rng.normal(size=(n, width - n_inf)).astype(np.float32)
-    X = pd.DataFrame(np.column_stack([inf, noise]),
-                     columns=[f"inf{i}" for i in range(n_inf)]
-                     + [f"noise{i}" for i in range(width - n_inf)])
+    X = pd.DataFrame(np.column_stack([inf, noise]), columns=[f"inf{i}" for i in range(n_inf)] + [f"noise{i}" for i in range(width - n_inf)])
     coefs = np.linspace(1.5, 0.5, n_inf)
     logit = (inf * coefs).sum(axis=1)
     y = (logit + 0.3 * rng.standard_normal(n).astype(np.float32) > 0).astype(np.float64)
@@ -214,32 +250,33 @@ def test_biz_val_two_stage_prefilter_recovery_matches_single_stage_at_6k():
     print("[biz_val two_stage] running single-stage 'model' prefilter", flush=True)
     t0 = _time.perf_counter()
     working_single, _info_single = prefilter_columns(
-        template_single, X, y, method="model", prefilter_top=200, classification=True,
-        n_features=X.shape[1], n_estimators_cap=100)
+        template_single, X, y, method="model", prefilter_top=200, classification=True, n_features=X.shape[1], n_estimators_cap=100
+    )
     t_single = _time.perf_counter() - t0
     rec_single = len(informative & set(map(int, working_single)))
-    print(f"[biz_val two_stage] single-stage: {t_single:.1f}s recovery={rec_single}/{n_inf}",
-          flush=True)
+    print(f"[biz_val two_stage] single-stage: {t_single:.1f}s recovery={rec_single}/{n_inf}", flush=True)
 
     template_two = make_default_estimator(classification=True, random_state=0, n_estimators=300)
     print("[biz_val two_stage] running 'two_stage' prefilter", flush=True)
     t0 = _time.perf_counter()
     working_two, info_two = prefilter_columns(
-        template_two, X, y, method="two_stage", prefilter_top=200, classification=True,
-        n_features=X.shape[1], n_estimators_cap=100)
+        template_two, X, y, method="two_stage", prefilter_top=200, classification=True, n_features=X.shape[1], n_estimators_cap=100
+    )
     t_two = _time.perf_counter() - t0
     rec_two = len(informative & set(map(int, working_two)))
-    print(f"[biz_val two_stage] two_stage: {t_two:.1f}s total | "
-          f"stage_A={info_two['stage_a_seconds']:.1f}s "
-          f"({info_two['stage1_kept']}/{info_two['stage1_of']}) "
-          f"stage_B={info_two['stage_b_seconds']:.1f}s "
-          f"({info_two['kept']}/{info_two['stage1_kept']}) "
-          f"recovery={rec_two}/{n_inf}", flush=True)
+    print(
+        f"[biz_val two_stage] two_stage: {t_two:.1f}s total | "
+        f"stage_A={info_two['stage_a_seconds']:.1f}s "
+        f"({info_two['stage1_kept']}/{info_two['stage1_of']}) "
+        f"stage_B={info_two['stage_b_seconds']:.1f}s "
+        f"({info_two['kept']}/{info_two['stage1_kept']}) "
+        f"recovery={rec_two}/{n_inf}",
+        flush=True,
+    )
 
     # Recovery contract: two_stage stays within 1 of single-stage (statistical slack on a noisy
     # 6k * 3k fixture); measured 12/12 == 12/12 in the dev run, so the bar carries headroom.
-    assert rec_two >= rec_single - 1, (
-        f"two_stage recovery {rec_two}/{n_inf} below single-stage {rec_single}/{n_inf} - 1 slack")
+    assert rec_two >= rec_single - 1, f"two_stage recovery {rec_two}/{n_inf} below single-stage {rec_single}/{n_inf} - 1 slack"
     # working_cols stays in ORIGINAL positional space + honors prefilter_top + sorted + unique.
     assert info_two["kept"] == 200 and info_two["of"] == 6000
     assert list(working_two) == sorted(set(int(c) for c in working_two))

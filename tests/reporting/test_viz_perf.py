@@ -7,6 +7,7 @@ Covers:
 - estimators.pipelines figure-close (no pyplot-registry leak under Agg).
 - compute_ml_perf_by_time numpy fast-path byte-parity vs the pandas-Grouper reference.
 """
+
 from __future__ import annotations
 
 import contextlib

@@ -1,4 +1,5 @@
 """Tests for ``detect_time_column_candidates`` + ``sort_df_by_time_column`` (OPEN-3 from R10c follow-up; auto-detect time column for EWMA / rolling / frac_diff transforms)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -14,11 +15,13 @@ from mlframe.training.composite import (
 class TestDetectTimeColumn:
     def test_datetime_column_top(self) -> None:
         """Datetime-dtype column wins over any numeric monotonic column."""
-        df = pd.DataFrame({
-            "ts": pd.date_range("2024-01-01", periods=100, freq="h"),
-            "row_id": np.arange(100),
-            "x_num": np.random.default_rng(0).normal(size=100),
-        })
+        df = pd.DataFrame(
+            {
+                "ts": pd.date_range("2024-01-01", periods=100, freq="h"),
+                "row_id": np.arange(100),
+                "x_num": np.random.default_rng(0).normal(size=100),
+            }
+        )
         results = detect_time_column_candidates(df)
         assert results, "expected at least one candidate"
         top_name, top_info = results[0]
@@ -57,10 +60,12 @@ class TestDetectTimeColumn:
         assert results == []
 
     def test_explicit_candidate_columns(self) -> None:
-        df = pd.DataFrame({
-            "a": pd.date_range("2024-01-01", periods=10, freq="h"),
-            "b": np.arange(10),
-        })
+        df = pd.DataFrame(
+            {
+                "a": pd.date_range("2024-01-01", periods=10, freq="h"),
+                "b": np.arange(10),
+            }
+        )
         results = detect_time_column_candidates(df, candidate_columns=["b"])
         names = [name for name, _ in results]
         assert "b" in names
@@ -68,10 +73,12 @@ class TestDetectTimeColumn:
 
     def test_score_ordering(self) -> None:
         """Datetime (score=100) ranks above monotonic numeric (score=50)."""
-        df = pd.DataFrame({
-            "row_id": np.arange(50),
-            "ts": pd.date_range("2024-01-01", periods=50, freq="h"),
-        })
+        df = pd.DataFrame(
+            {
+                "row_id": np.arange(50),
+                "ts": pd.date_range("2024-01-01", periods=50, freq="h"),
+            }
+        )
         results = detect_time_column_candidates(df)
         # ts (datetime, score=100) is first; row_id (monotonic, score=50) is second.
         scores = [info["score"] for _, info in results]
@@ -81,10 +88,12 @@ class TestDetectTimeColumn:
 
 class TestSortDfByTime:
     def test_pandas_sort_ascending(self) -> None:
-        df = pd.DataFrame({
-            "ts": [3, 1, 4, 1, 5, 9, 2],
-            "x": ["a", "b", "c", "d", "e", "f", "g"],
-        })
+        df = pd.DataFrame(
+            {
+                "ts": [3, 1, 4, 1, 5, 9, 2],
+                "x": ["a", "b", "c", "d", "e", "f", "g"],
+            }
+        )
         sorted_df = sort_df_by_time_column(df, "ts")
         assert list(sorted_df["ts"]) == [1, 1, 2, 3, 4, 5, 9]
         # Original NOT mutated.

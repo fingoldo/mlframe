@@ -19,6 +19,7 @@ internally with seed=42 (in test_biz_val_real_datasets._features_cdist), so
 the seed variation here exercises baseline_disagreement + train/test split,
 but not the cdist neighbours themselves.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -71,7 +72,9 @@ def _validate_scale(loader_fn, builder, target_model, target_metric, claimed_lif
     lo = float(arr.min())
     hi = float(arr.max())
     survives = "SURVIVES" if median > 0 and lo > -abs(median) * 0.3 else "FOLD-NOISE?"
-    print(f">>> {label} {target_model} {target_metric}: median={median:+.4f} IQR={iqr:.4f} min={lo:+.4f} max={hi:+.4f} | small-N claimed={claimed_lift:+.4f} | {survives}")
+    print(
+        f">>> {label} {target_model} {target_metric}: median={median:+.4f} IQR={iqr:.4f} min={lo:+.4f} max={hi:+.4f} | small-N claimed={claimed_lift:+.4f} | {survives}"
+    )
 
 
 def test_scale_iter68_california_lgb_r2():
@@ -90,6 +93,7 @@ def _load_year_100k():
     Loads from local npz cache to avoid repeated OpenML ARFF-parser OOM.
     """
     import os
+
     cache_path = "D:/Temp/year_prediction_cache.npz"
     if os.path.exists(cache_path):
         d = np.load(cache_path)
@@ -97,6 +101,7 @@ def _load_year_100k():
         y = d["y"]
     else:
         from sklearn.datasets import fetch_openml
+
         ds = fetch_openml(data_id=44027, as_frame=False, parser="liac-arff")
         X = np.asarray(ds.data, dtype=np.float32)
         y = np.asarray(ds.target, dtype=np.float32)
@@ -126,21 +131,32 @@ def _build_iter102(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_v2_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_v2_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (np.concatenate([X_tr, bl_tr, _strip(cd_tr, X_tr.shape[1])], axis=1), np.concatenate([X_te, bl_te, _strip(cd_te, X_te.shape[1])], axis=1))
 
 
 # iter102 vs iter69 head-to-head: same harness, same datasets, multi-seed-from-start.
 
+
 def test_iter102_abalone_cb_r2():
     """iter102 on abalone (was iter69 +2.26% median CB R2). Target: match or beat."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter102, "cb", "R2", 0.0226, "iter102_blagreementv2+cdist_abalone")
 
 
@@ -167,18 +183,28 @@ def _build_iter103(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     rsd_tr = compute_residual_stratified_distance_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     rsd_te = compute_residual_stratified_distance_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
-    return (np.concatenate([X_tr, rsd_tr], axis=1),
-            np.concatenate([X_te, rsd_te], axis=1))
+    return (np.concatenate([X_tr, rsd_tr], axis=1), np.concatenate([X_te, rsd_te], axis=1))
 
 
 def test_iter103_abalone_cb_r2():
     """iter103 on abalone (was iter69 +2.26%, iter102 +2.74%). Target: improve or differ structurally."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter103, "cb", "R2", 0.0274, "iter103_rsd_abalone")
 
 
@@ -207,25 +233,48 @@ def _build_iter104(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     rsd_tr = compute_residual_stratified_distance_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     rsd_te = compute_residual_stratified_distance_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, rsd_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, rsd_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, rsd_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, rsd_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter104_abalone_cb_r2():
     """iter104 on abalone (was iter69 +2.26%, iter102 +2.74%, iter103 -1.39% alone)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter104, "cb", "R2", 0.0274, "iter104_iter69+iter103_abalone")
 
 
@@ -256,25 +305,48 @@ def _build_iter105(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_v2_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_v2_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     rsd_tr = compute_residual_stratified_distance_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     rsd_te = compute_residual_stratified_distance_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, rsd_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, rsd_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, rsd_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, rsd_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter105_abalone_cb_r2():
     """iter105 triple on abalone (best was iter102 +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter105, "cb", "R2", 0.0274, "iter105_triple_abalone")
 
 
@@ -299,18 +371,28 @@ def _build_iter106(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     yq_tr = compute_y_quintile_baseline_knn_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     yq_te = compute_y_quintile_baseline_knn_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
-    return (np.concatenate([X_tr, yq_tr], axis=1),
-            np.concatenate([X_te, yq_te], axis=1))
+    return (np.concatenate([X_tr, yq_tr], axis=1), np.concatenate([X_te, yq_te], axis=1))
 
 
 def test_iter106_abalone_cb_r2():
     """iter106 on abalone (best so far iter102 +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter106, "cb", "R2", 0.0274, "iter106_yqbk_abalone")
 
 
@@ -336,18 +418,28 @@ def _build_iter107(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bqb_tr = compute_bgmm_quantile_bands_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bqb_te = compute_bgmm_quantile_bands_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
-    return (np.concatenate([X_tr, bqb_tr], axis=1),
-            np.concatenate([X_te, bqb_te], axis=1))
+    return (np.concatenate([X_tr, bqb_tr], axis=1), np.concatenate([X_te, bqb_te], axis=1))
 
 
 def test_iter107_abalone_cb_r2():
     """iter107 BGM alone on abalone."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter107, "cb", "R2", 0.0274, "iter107_bgm_abalone")
 
 
@@ -368,6 +460,7 @@ def _load_adult_binary():
     """Adult (49k rows, binary >50k income). Categorical columns one-hot encoded; total ~100 numeric features."""
     from sklearn.datasets import fetch_openml
     import pandas as pd
+
     ds = fetch_openml(data_id=1590, as_frame=True, parser="liac-arff")
     # Drop rows with any NaN
     df = ds.data.copy()
@@ -397,6 +490,7 @@ def test_iter108_adult_cb_auc():
 def _load_higgs_binary():
     """Higgs (~98k rows, 28 numeric features, binary signal vs background)."""
     from sklearn.datasets import fetch_openml
+
     ds = fetch_openml(data_id=23512, as_frame=False, parser="liac-arff")
     X = np.asarray(ds.data, dtype=np.float32)
     # Higgs target is string-encoded class label
@@ -429,7 +523,9 @@ def _build_iter110(X_tr, X_te, y_tr, task, seed):
     """iter69 (baseline_disagreement + cdist) + iter66 (class_balanced_hard_row + RFF)."""
     from sklearn.model_selection import KFold
     from tests.feature_engineering.transformer.test_validation_records import (
-        _features_cdist_seeded, _features_rff_seeded, _strip,
+        _features_cdist_seeded,
+        _features_rff_seeded,
+        _strip,
     )
     from mlframe.feature_engineering.transformer import (
         compute_baseline_disagreement_features,
@@ -439,23 +535,47 @@ def _build_iter110(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     cb_tr = compute_class_balanced_hard_row_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-        seed=seed, task=task_str, n_hard_per_side=8, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
+        n_hard_per_side=8,
+        temp=1.0,
     ).to_numpy()
     cb_te = compute_class_balanced_hard_row_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-        seed=seed, task=task_str, n_hard_per_side=8, temp=1.0,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
+        n_hard_per_side=8,
+        temp=1.0,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
     rf_tr, rf_te = _features_rff_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, cb_tr, _strip(cd_tr, X_tr.shape[1]), _strip(rf_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, cb_te, _strip(cd_te, X_te.shape[1]), _strip(rf_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, cb_tr, _strip(cd_tr, X_tr.shape[1]), _strip(rf_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, cb_te, _strip(cd_te, X_te.shape[1]), _strip(rf_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter110_adult_cb_auc():
@@ -469,6 +589,7 @@ def test_iter110_adult_cb_auc():
 def _load_mammography():
     """Mammography (~11183 rows, 6 numeric features, binary class label, 1.3% positive)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_mammography as _l
+
     return _l()
 
 
@@ -491,8 +612,10 @@ class _StratifiedKFoldYBound:
     Existing FE primitives call splitter.split(X) without y. This wrapper pre-binds y so the call
     works for stratified splits too.
     """
+
     def __init__(self, n_splits, shuffle, random_state, y):
         from sklearn.model_selection import StratifiedKFold
+
         self._inner = StratifiedKFold(n_splits=n_splits, shuffle=shuffle, random_state=random_state)
         self._y = y
 
@@ -524,28 +647,47 @@ def _build_iter69_stratified(X_tr, X_te, y_tr, task, seed):
         task_str = "regression"
 
     bl_tr = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     # cdist for binary needs stratified splits too.
     if task == "binary":
         cd_tr = compute_class_distance_features(
-            X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-            seed=seed, task=task_str, standardize=True,
+            X_train=X_tr,
+            y_train=y_tr,
+            X_query=None,
+            splitter=splitter,
+            seed=seed,
+            task=task_str,
+            standardize=True,
         ).to_numpy()
         cd_te = compute_class_distance_features(
-            X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-            seed=seed, task=task_str, standardize=True,
+            X_train=X_tr,
+            y_train=y_tr,
+            X_query=X_te,
+            splitter=splitter,
+            seed=seed,
+            task=task_str,
+            standardize=True,
         ).to_numpy()
     else:
         cd_tr_full, cd_te_full = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
         cd_tr = _strip(cd_tr_full, X_tr.shape[1])
         cd_te = _strip(cd_te_full, X_te.shape[1])
 
-    return (np.concatenate([X_tr, bl_tr, cd_tr], axis=1),
-            np.concatenate([X_te, bl_te, cd_te], axis=1))
+    return (np.concatenate([X_tr, bl_tr, cd_tr], axis=1), np.concatenate([X_te, bl_te, cd_te], axis=1))
 
 
 def test_iter112_mammography_cb_auc():
@@ -583,27 +725,46 @@ def _build_iter113(X_tr, X_te, y_tr, task, seed):
         task_str = "regression"
 
     bl_tr = compute_baseline_disagreement_balanced_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_balanced_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     if task == "binary":
         cd_tr = compute_class_distance_features(
-            X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-            seed=seed, task=task_str, standardize=True,
+            X_train=X_tr,
+            y_train=y_tr,
+            X_query=None,
+            splitter=splitter,
+            seed=seed,
+            task=task_str,
+            standardize=True,
         ).to_numpy()
         cd_te = compute_class_distance_features(
-            X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-            seed=seed, task=task_str, standardize=True,
+            X_train=X_tr,
+            y_train=y_tr,
+            X_query=X_te,
+            splitter=splitter,
+            seed=seed,
+            task=task_str,
+            standardize=True,
         ).to_numpy()
     else:
         cd_tr_full, cd_te_full = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
         cd_tr = _strip(cd_tr_full, X_tr.shape[1])
         cd_te = _strip(cd_te_full, X_te.shape[1])
 
-    return (np.concatenate([X_tr, bl_tr, cd_tr], axis=1),
-            np.concatenate([X_te, bl_te, cd_te], axis=1))
+    return (np.concatenate([X_tr, bl_tr, cd_tr], axis=1), np.concatenate([X_te, bl_te, cd_te], axis=1))
 
 
 def test_iter113_mammography_cb_auc():
@@ -641,27 +802,46 @@ def _build_iter114(X_tr, X_te, y_tr, task, seed):
         task_str = "regression"
 
     bl_tr = compute_baseline_disagreement_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_smote_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     if task == "binary":
         cd_tr = compute_class_distance_features(
-            X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
-            seed=seed, task=task_str, standardize=True,
+            X_train=X_tr,
+            y_train=y_tr,
+            X_query=None,
+            splitter=splitter,
+            seed=seed,
+            task=task_str,
+            standardize=True,
         ).to_numpy()
         cd_te = compute_class_distance_features(
-            X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
-            seed=seed, task=task_str, standardize=True,
+            X_train=X_tr,
+            y_train=y_tr,
+            X_query=X_te,
+            splitter=splitter,
+            seed=seed,
+            task=task_str,
+            standardize=True,
         ).to_numpy()
     else:
         cd_tr_full, cd_te_full = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
         cd_tr = _strip(cd_tr_full, X_tr.shape[1])
         cd_te = _strip(cd_te_full, X_te.shape[1])
 
-    return (np.concatenate([X_tr, bl_tr, cd_tr], axis=1),
-            np.concatenate([X_te, bl_te, cd_te], axis=1))
+    return (np.concatenate([X_tr, bl_tr, cd_tr], axis=1), np.concatenate([X_te, bl_te, cd_te], axis=1))
 
 
 def test_iter114_mammography_cb_auc():
@@ -690,13 +870,22 @@ def _build_iter115_alone(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     a_tr = compute_anomaly_score_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     a_te = compute_anomaly_score_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
-    return (np.concatenate([X_tr, a_tr], axis=1),
-            np.concatenate([X_te, a_te], axis=1))
+    return (np.concatenate([X_tr, a_tr], axis=1), np.concatenate([X_te, a_te], axis=1))
 
 
 def _build_iter115_with_iter69(X_tr, X_te, y_tr, task, seed):
@@ -711,20 +900,42 @@ def _build_iter115_with_iter69(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     a_tr = compute_anomaly_score_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     a_te = compute_anomaly_score_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, a_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, a_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, a_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, a_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter115_mammography_cb_auc_alone():
@@ -750,6 +961,7 @@ def test_iter115_adult_cb_auc_with_iter69():
 def _load_kin8nm():
     """kin8nm regression: ~8192 rows, 8 numeric features, robot arm dynamics target."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_kin8nm as _l
+
     return _l()
 
 
@@ -819,6 +1031,7 @@ def test_iter118_year100k_cb_r2_iter102():
 def test_iter118_abalone_cb_r2_iter104():
     """iter104 (+RSD) on abalone 4k CB R2 (does it beat iter102's +2.74% at small N?)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter104, "cb", "R2", 0.0274, "iter118_iter104_abalone_cb")
 
 
@@ -837,27 +1050,50 @@ def _build_iter119(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     lf_tr = compute_boosting_leaf_features(
-        X_train=X_tr, y_train=y_tr, X_query=None,
-        seed=seed, task=task_str, n_estimators=30, max_depth=4,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        seed=seed,
+        task=task_str,
+        n_estimators=30,
+        max_depth=4,
     ).to_numpy()
     lf_te = compute_boosting_leaf_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te,
-        seed=seed, task=task_str, n_estimators=30, max_depth=4,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        seed=seed,
+        task=task_str,
+        n_estimators=30,
+        max_depth=4,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, lf_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, lf_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, lf_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, lf_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter119_abalone_cb_r2():
     """iter119 (iter69 + leaf-index) on abalone 4k CB R2 (record iter102 +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter119, "cb", "R2", 0.0274, "iter119_iter69+leaf_abalone_cb")
 
 
@@ -878,6 +1114,7 @@ def test_iter119_year100k_cb_r2():
 def test_iter120_abalone_lgb_r2_iter68():
     """iter68 on abalone 4k LGB R2 (test if iter68 generalises beyond kin8nm)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter68, "lgb", "R2", 0.0, "iter120_iter68_abalone_lgb")
 
 
@@ -908,25 +1145,48 @@ def _build_iter121(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bg_tr = compute_bgmm_quantile_bands_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bg_te = compute_bgmm_quantile_bands_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, bg_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, bg_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, bg_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, bg_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter121_abalone_cb_r2():
     """iter121 (iter69 + BGM) on abalone 4k CB R2 (vs iter102 record +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter121, "cb", "R2", 0.0274, "iter121_iter69+bgm_abalone_cb")
 
 
@@ -941,6 +1201,7 @@ def test_iter121_kin8nm_cb_r2():
 def _load_year_50k():
     """Year-prediction subsampled to 50k. Loads from local npz cache."""
     import os
+
     cache_path = "D:/Temp/year_prediction_cache.npz"
     if os.path.exists(cache_path):
         d = np.load(cache_path)
@@ -948,6 +1209,7 @@ def _load_year_50k():
         y = d["y"]
     else:
         from sklearn.datasets import fetch_openml
+
         ds = fetch_openml(data_id=44027, as_frame=False, parser="liac-arff")
         X = np.asarray(ds.data, dtype=np.float32)
         y = np.asarray(ds.target, dtype=np.float32)
@@ -993,15 +1255,30 @@ def _build_iter125_alone(X_tr, X_te, y_tr, task, seed):
 
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     ra_tr = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed,
-        n_heads=4, head_dim=8, k=32, softmax_temp=1.0, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        n_heads=4,
+        head_dim=8,
+        k=32,
+        softmax_temp=1.0,
+        standardize=True,
     ).to_numpy()
     ra_te = compute_row_attention(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed,
-        n_heads=4, head_dim=8, k=32, softmax_temp=1.0, standardize=True,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        n_heads=4,
+        head_dim=8,
+        k=32,
+        softmax_temp=1.0,
+        standardize=True,
     ).to_numpy()
-    return (np.concatenate([X_tr, ra_tr], axis=1),
-            np.concatenate([X_te, ra_te], axis=1))
+    return (np.concatenate([X_tr, ra_tr], axis=1), np.concatenate([X_te, ra_te], axis=1))
 
 
 def test_iter125_kin8nm_cb_r2_alone():
@@ -1025,13 +1302,22 @@ def _build_iter126_alone(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     d_tr = compute_decision_region_depth_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     d_te = compute_decision_region_depth_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
-    return (np.concatenate([X_tr, d_tr], axis=1),
-            np.concatenate([X_te, d_te], axis=1))
+    return (np.concatenate([X_tr, d_tr], axis=1), np.concatenate([X_te, d_te], axis=1))
 
 
 def _build_iter126_with_iter69(X_tr, X_te, y_tr, task, seed):
@@ -1046,31 +1332,55 @@ def _build_iter126_with_iter69(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     d_tr = compute_decision_region_depth_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     d_te = compute_decision_region_depth_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, d_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, d_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, d_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, d_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter126_abalone_cb_r2_alone():
     """decision_region_depth alone on abalone 4k CB R2."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter126_alone, "cb", "R2", 0.0, "iter126_drd_abalone_cb")
 
 
 def test_iter126_abalone_cb_r2_with_iter69():
     """iter69 + decision_region_depth on abalone 4k CB R2 (vs iter102 +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter126_with_iter69, "cb", "R2", 0.0274, "iter126_iter69+drd_abalone_cb")
 
 
@@ -1094,25 +1404,48 @@ def _build_iter127_with_iter69(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     li_tr = compute_local_intrinsic_dim_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     li_te = compute_local_intrinsic_dim_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, li_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, li_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, li_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, li_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter127_abalone_cb_r2_with_iter69():
     """iter69 + local_intrinsic_dim on abalone 4k CB R2 (vs iter102 record +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter127_with_iter69, "cb", "R2", 0.0274, "iter127_iter69+lid_abalone_cb")
 
 
@@ -1136,25 +1469,50 @@ def _build_iter128_with_iter69(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     ll_tr = compute_local_lift_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str, k=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
+        k=32,
     ).to_numpy()
     ll_te = compute_local_lift_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str, k=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
+        k=32,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, ll_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, ll_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, ll_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, ll_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter128_abalone_cb_r2_with_iter69():
     """iter69 + local_lift on abalone 4k CB R2 (vs iter102 record +2.74%, iter69 baseline +2.26%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter128_with_iter69, "cb", "R2", 0.0274, "iter128_iter69+loclift_abalone_cb")
 
 
@@ -1192,26 +1550,60 @@ def _build_iter130(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     ll_tr = compute_local_lift_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str, k=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
+        k=32,
     ).to_numpy()
     ll_te = compute_local_lift_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str, k=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
+        k=32,
     ).to_numpy()
     bg_tr = compute_bgmm_quantile_bands_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bg_te = compute_bgmm_quantile_bands_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, ll_tr, bg_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, ll_te, bg_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, ll_tr, bg_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, ll_te, bg_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter130_kin8nm_cb_r2():
@@ -1235,26 +1627,60 @@ def _build_iter131_quadruple(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_v2_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_v2_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     ll_tr = compute_local_lift_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str, k=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
+        k=32,
     ).to_numpy()
     ll_te = compute_local_lift_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str, k=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
+        k=32,
     ).to_numpy()
     bg_tr = compute_bgmm_quantile_bands_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bg_te = compute_bgmm_quantile_bands_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, ll_tr, bg_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, ll_te, bg_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, ll_tr, bg_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, ll_te, bg_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def _build_iter131_iter102_plus_loclift(X_tr, X_te, y_tr, task, seed):
@@ -1269,20 +1695,44 @@ def _build_iter131_iter102_plus_loclift(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_v2_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_v2_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     ll_tr = compute_local_lift_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str, k=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
+        k=32,
     ).to_numpy()
     ll_te = compute_local_lift_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str, k=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
+        k=32,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, ll_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, ll_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, ll_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, ll_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter131_kin8nm_cb_r2_quadruple():
@@ -1293,6 +1743,7 @@ def test_iter131_kin8nm_cb_r2_quadruple():
 def test_iter131_abalone_cb_r2_iter102plusloclift():
     """iter102 + local_lift on abalone CB R2 (vs iter102 record +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter131_iter102_plus_loclift, "cb", "R2", 0.0274, "iter131_iter102+loclift_abalone_cb")
 
 
@@ -1302,6 +1753,7 @@ def test_iter131_abalone_cb_r2_iter102plusloclift():
 def test_iter132_abalone_cb_r2_triple():
     """iter130 triple (iter69+loclift+BGM) on abalone CB R2 (vs iter102 record +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter130, "cb", "R2", 0.0274, "iter132_triple_abalone_cb")
 
 
@@ -1341,20 +1793,44 @@ def _build_iter135(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_v2_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_v2_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     ll_tr = compute_local_lift_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str, k=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
+        k=32,
     ).to_numpy()
     ll_te = compute_local_lift_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str, k=32,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
+        k=32,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, ll_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, ll_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, ll_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, ll_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter135_kin8nm_cb_r2():
@@ -1365,6 +1841,7 @@ def test_iter135_kin8nm_cb_r2():
 def test_iter135_abalone_cb_r2():
     """iter102 + local_lift on abalone 4k CB R2 (vs iter102 record +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter135, "cb", "R2", 0.0274, "iter135_iter102+loclift_abalone_cb")
 
 
@@ -1396,20 +1873,42 @@ def _build_iter137(X_tr, X_te, y_tr, task, seed):
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
     task_str = "binary" if task == "binary" else "regression"
     bl_tr = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     bl_te = compute_baseline_disagreement_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     qf_tr = compute_quantile_spread_fan_features(
-        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=None,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     qf_te = compute_quantile_spread_fan_features(
-        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+        X_train=X_tr,
+        y_train=y_tr,
+        X_query=X_te,
+        splitter=splitter,
+        seed=seed,
+        task=task_str,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
-    return (np.concatenate([X_tr, bl_tr, qf_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
-            np.concatenate([X_te, bl_te, qf_te, _strip(cd_te, X_te.shape[1])], axis=1))
+    return (
+        np.concatenate([X_tr, bl_tr, qf_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+        np.concatenate([X_te, bl_te, qf_te, _strip(cd_te, X_te.shape[1])], axis=1),
+    )
 
 
 def test_iter137_kin8nm_cb_r2():
@@ -1420,4 +1919,5 @@ def test_iter137_kin8nm_cb_r2():
 def test_iter137_abalone_cb_r2():
     """iter69 + quantile_spread_fan on abalone CB R2 (vs iter102 +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+
     _validate_scale(_load_abalone, _build_iter137, "cb", "R2", 0.0274, "iter137_iter69+qfan_abalone_cb")

@@ -1,5 +1,6 @@
 """Phase 4 feature tests for RFECV: stability metrics (N1), 1-SE confidence
 interval on best N (N2), get_feature_names_out (N4), must_include hybrid (N5)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,9 +17,15 @@ from tests.training.synthetic import make_sklearn_classification_df
 @pytest.fixture(scope="module")
 def small_clf_data():
     Xdf, y, _ = make_sklearn_classification_df(
-        n_samples=300, n_features=15, n_informative=5,
-        n_redundant=0, n_classes=2, n_clusters_per_class=1,
-        class_sep=2.0, shuffle=False, seed=0,
+        n_samples=300,
+        n_features=15,
+        n_informative=5,
+        n_redundant=0,
+        n_classes=2,
+        n_clusters_per_class=1,
+        class_sep=2.0,
+        shuffle=False,
+        seed=0,
     )
     return Xdf, y
 
@@ -109,9 +116,7 @@ class TestN2_OneSeRule:
         nonzero = nfs > 0
         if nonzero.any():
             argmax_n = int(nfs[nonzero][np.argmax(means[nonzero])])
-            assert n_one_se <= argmax_n, (
-                f"1-SE rule N={n_one_se} must be <= variance-blind argmax N={argmax_n}"
-            )
+            assert n_one_se <= argmax_n, f"1-SE rule N={n_one_se} must be <= variance-blind argmax N={argmax_n}"
 
     def test_one_se_returns_positive(self, fitted_rfecv):
         rfecv, X, y = fitted_rfecv
@@ -165,7 +170,7 @@ class TestN5_MustInclude:
             cv=3,
             max_refits=4,
             verbose=0,
-            must_include=["g0", "g1", "g2"],   # half the universe pinned
+            must_include=["g0", "g1", "g2"],  # half the universe pinned
         )
         rfecv.fit(X, y)
         sel = list(rfecv.get_feature_names_out())

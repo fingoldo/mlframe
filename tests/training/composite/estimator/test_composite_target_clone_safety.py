@@ -10,6 +10,7 @@ class so a clone-attempt on a from_fitted_inner instance raises with a
 concrete actionable message. Standard ``fit()``-built instances must still
 clone normally (regression guard for the standard sklearn flow).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,10 +59,7 @@ def test_clone_of_from_fitted_inner_raises_with_actionable_message(fitted_inner_
     with pytest.raises((TypeError, NotImplementedError, RuntimeError)) as exc_info:
         clone(cte)
     msg = str(exc_info.value).lower()
-    assert (
-        "from_fitted_inner" in msg
-        or "clone" in msg
-    ), f"Refusal message must mention from_fitted_inner / clone; got: {exc_info.value!r}"
+    assert "from_fitted_inner" in msg or "clone" in msg, f"Refusal message must mention from_fitted_inner / clone; got: {exc_info.value!r}"
 
 
 def test_clone_of_standard_fit_built_instance_still_works(fitted_inner_kit):

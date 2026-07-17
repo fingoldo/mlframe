@@ -64,8 +64,10 @@ def _fit_cat_fe(df, y, **cfg_overrides):
     defaults.update(cfg_overrides)
     cfg = CatFEConfig(**defaults)
     mrmr = MRMR(
-        full_npermutations=2, baseline_npermutations=2,
-        verbose=0, n_jobs=1,
+        full_npermutations=2,
+        baseline_npermutations=2,
+        verbose=0,
+        n_jobs=1,
         cat_fe_config=cfg,
     )
     with warnings.catch_warnings():
@@ -95,20 +97,13 @@ def test_biz_cat_fe_recovers_xor_synergy(xor_4way_dataset):
     assert state is not None, "Cat-FE must run when enabled"
     assert state.recipes, f"No recipes produced; got state={state}"
 
-    xor_diags = [
-        d for name, d in state.diagnostics.items()
-        if set(d["src_names"]) == {"x1", "x2"}
-    ]
-    assert xor_diags, \
-        f"XOR pair (x1, x2) missing from diagnostics: {list(state.diagnostics.keys())}"
+    xor_diags = [d for name, d in state.diagnostics.items() if set(d["src_names"]) == {"x1", "x2"}]
+    assert xor_diags, f"XOR pair (x1, x2) missing from diagnostics: {list(state.diagnostics.keys())}"
     diag = xor_diags[0]
     ii = diag["II"]
     max_marg = max(abs(diag["marginal_X1_MI"]), abs(diag["marginal_X2_MI"]), 1e-6)
     ratio = ii / max_marg
-    assert ratio >= 10.0, (
-        f"XOR pair II ({ii:.4f}) must be >=10x larger than max marginal "
-        f"MI ({max_marg:.4f}); got {ratio:.2f}x"
-    )
+    assert ratio >= 10.0, f"XOR pair II ({ii:.4f}) must be >=10x larger than max marginal MI ({max_marg:.4f}); got {ratio:.2f}x"
 
 
 def test_biz_cat_fe_synergy_pair_beats_independent_pair(xor_4way_dataset):
@@ -123,20 +118,13 @@ def test_biz_cat_fe_synergy_pair_beats_independent_pair(xor_4way_dataset):
     mrmr = _fit_cat_fe(df, y, top_k_pairs=16)  # widen so noise pairs surface too
 
     state = mrmr._cat_fe_state_
-    xor_ii_max = max(
-        d["II"] for name, d in state.diagnostics.items()
-        if set(d["src_names"]) == {"x1", "x2"}
-    )
+    xor_ii_max = max(d["II"] for name, d in state.diagnostics.items() if set(d["src_names"]) == {"x1", "x2"})
     # Find max II among pairs that DON'T include both x1 and x2
     non_xor_ii_max = max(
-        (d["II"] for name, d in state.diagnostics.items()
-         if set(d["src_names"]) != {"x1", "x2"}),
+        (d["II"] for name, d in state.diagnostics.items() if set(d["src_names"]) != {"x1", "x2"}),
         default=0.0,
     )
-    assert xor_ii_max > non_xor_ii_max + 0.3, (
-        f"XOR pair must dominate all non-XOR pairs by >=0.3 nat; got "
-        f"xor={xor_ii_max:.4f} vs non-xor={non_xor_ii_max:.4f}"
-    )
+    assert xor_ii_max > non_xor_ii_max + 0.3, f"XOR pair must dominate all non-XOR pairs by >=0.3 nat; got xor={xor_ii_max:.4f} vs non-xor={non_xor_ii_max:.4f}"
 
 
 def test_biz_cat_fe_disabled_recovers_no_synergy(xor_4way_dataset):
@@ -152,14 +140,17 @@ def test_biz_cat_fe_disabled_recovers_no_synergy(xor_4way_dataset):
     ``_cat_fe_state_``."""
     df, y = xor_4way_dataset
     mrmr = MRMR(
-        full_npermutations=2, baseline_npermutations=2,
-        verbose=0, n_jobs=1,
+        full_npermutations=2,
+        baseline_npermutations=2,
+        verbose=0,
+        n_jobs=1,
         cat_fe_config=CatFEConfig(enable=False),  # explicit legacy opt-in
         # The XOR fixture is integer-categorical, so the SEPARATE default-on integer-lattice /
         # pairwise-modular FE families (own generators + own coverage) fire and emit e.g. il_lcm --
         # orthogonal to the CAT-FE disable contract this test pins. Disable them so the assertion
         # isolates "cat-FE disabled -> cat-FE itself produces nothing" (2026-06-15).
-        fe_integer_lattice_enable=False, fe_pairwise_modular_enable=False,
+        fe_integer_lattice_enable=False,
+        fe_pairwise_modular_enable=False,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -199,8 +190,7 @@ def test_biz_cat_fe_engineered_col_replays_on_test_data(xor_4way_dataset):
         None,
     )
     assert xor_recipe is not None, (
-        "XOR pair (x1, x2) must be selected on the XOR-4way synthetic; "
-        "missing selection indicates a regression in cat_fe recipe discovery."
+        "XOR pair (x1, x2) must be selected on the XOR-4way synthetic; missing selection indicates a regression in cat_fe recipe discovery."
     )
 
     # Replay on test
@@ -212,9 +202,5 @@ def test_biz_cat_fe_engineered_col_replays_on_test_data(xor_4way_dataset):
     # The engineered column should still discriminate y_train's law:
     # 4 unique cells of (x1, x2) map to 4 distinct merged classes.
     # Test should see same encoding on its rows.
-    expected_unique = len(set(
-        (int(a), int(b))
-        for a, b in zip(df_test["x1"].cat.codes, df_test["x2"].cat.codes)
-    ))
-    assert len(set(out)) == expected_unique, \
-        f"Replay produced {len(set(out))} unique classes, expected {expected_unique}"
+    expected_unique = len(set((int(a), int(b)) for a, b in zip(df_test["x1"].cat.codes, df_test["x2"].cat.codes)))
+    assert len(set(out)) == expected_unique, f"Replay produced {len(set(out))} unique classes, expected {expected_unique}"

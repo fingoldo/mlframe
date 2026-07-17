@@ -45,10 +45,12 @@ def test_safe_unpickler_rejects_os_system_accepts_numpy_ndarray():
             # Just reference numpy.core.multiarray.array constructor-like callable.
             # We use np.array via __reduce__ returning (np.asarray, ([1,2,3],))
             import numpy as _np
+
             return (_np.asarray, ([1, 2, 3],))
 
     buf = io.BytesIO()
     import dill
+
     dill.dump(_AllowedRef(), buf)
     buf.seek(0)
     arr = _SafeUnpickler(buf).load()

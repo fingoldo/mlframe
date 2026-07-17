@@ -11,6 +11,7 @@ Each test pins a confirmed public-surface bug fix:
     matching the _ranking_extras family.
   * API8 -- _split_by_group returns a consistent 3-tuple on empty input.
 """
+
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -198,9 +199,7 @@ def test_ranking_none_group_ids_treated_as_single_group():
 def test_split_by_group_empty_unpacks_as_triple():
     from mlframe.metrics._ranking_extras import _split_by_group
 
-    boundaries, yt, ys = _split_by_group(
-        np.empty(0), np.empty(0), np.empty(0, dtype=int)
-    )  # must not ValueError on unpack
+    boundaries, yt, ys = _split_by_group(np.empty(0), np.empty(0), np.empty(0, dtype=int))  # must not ValueError on unpack
     assert boundaries.shape[0] == 0
 
 

@@ -11,6 +11,7 @@ Two locked facts (measured by ``_benchmarks/fs_hybrid/round5_smooth_perf_bench.p
 
 Exercises the REAL ``select_optimal_nfeatures_`` kernel (bound onto RFECV) via a minimal carrier of the attrs it reads.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,13 +39,12 @@ class _Mock:
 def _peak_curve():
     nf = np.array(NGRID, dtype=float)
     x = nf / nf.max()
-    return nf, 0.5 + 0.30 * np.exp(-((x - 0.4) ** 2) / (2 * 0.12 ** 2))
+    return nf, 0.5 + 0.30 * np.exp(-((x - 0.4) ** 2) / (2 * 0.12**2))
 
 
 def _pick(rule, smooth_perf, obs, std):
     m = _Mock(smooth_perf, rule)
-    select_optimal_nfeatures_(m, np.array(NGRID, dtype=float), obs.copy(), std.copy(),
-                              smooth_perf=smooth_perf, verbose=False, show_plot=False)
+    select_optimal_nfeatures_(m, np.array(NGRID, dtype=float), obs.copy(), std.copy(), smooth_perf=smooth_perf, verbose=False, show_plot=False)
     return int(m.n_features_)
 
 
@@ -57,9 +57,7 @@ def test_smooth_perf_inert_under_auto_default_rule():
         obs = t + rng.normal(0.0, 0.06, size=t.shape)
         base = _pick("auto", 0, obs, std)
         for sp in (1, 3, 5):
-            assert _pick("auto", sp, obs, std) == base, (
-                f"smooth_perf={sp} altered the auto-rule pick (seed {sd}): one_se_max band must read raw cv_mean_perf"
-            )
+            assert _pick("auto", sp, obs, std) == base, f"smooth_perf={sp} altered the auto-rule pick (seed {sd}): one_se_max band must read raw cv_mean_perf"
 
 
 def test_smooth_perf_denoises_argmax_pick():

@@ -1,5 +1,6 @@
 """Regression tests for the polars/numpy conversion fixes (Arrow split-blocks bridge, pl.Enum round-trip,
 hoisted to_numpy in composite_estimator + baseline_diagnostics)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -14,14 +15,14 @@ def test_get_pandas_view_preserves_pl_enum_as_categorical():
     from mlframe.training.utils import get_pandas_view_of_polars_df
 
     enum_dt = pl.Enum(["red", "green", "blue"])
-    df = pl.DataFrame({
-        "color": pl.Series(["red", "green", "blue", "green"], dtype=enum_dt),
-        "x": [1.0, 2.0, 3.0, 4.0],
-    })
-    pdf = get_pandas_view_of_polars_df(df)
-    assert isinstance(pdf["color"].dtype, pd.CategoricalDtype), (
-        f"pl.Enum must round-trip to pandas CategoricalDtype; got {pdf['color'].dtype}"
+    df = pl.DataFrame(
+        {
+            "color": pl.Series(["red", "green", "blue", "green"], dtype=enum_dt),
+            "x": [1.0, 2.0, 3.0, 4.0],
+        }
     )
+    pdf = get_pandas_view_of_polars_df(df)
+    assert isinstance(pdf["color"].dtype, pd.CategoricalDtype), f"pl.Enum must round-trip to pandas CategoricalDtype; got {pdf['color'].dtype}"
 
 
 def test_extract_base_matrix_single_select():
@@ -30,11 +31,13 @@ def test_extract_base_matrix_single_select():
     pl = pytest.importorskip("polars")
     from mlframe.training.composite import _extract_base_matrix
 
-    df = pl.DataFrame({
-        "a": [1.0, 2.0, 3.0],
-        "b": [4.0, 5.0, 6.0],
-        "c": [7.0, 8.0, 9.0],
-    })
+    df = pl.DataFrame(
+        {
+            "a": [1.0, 2.0, 3.0],
+            "b": [4.0, 5.0, 6.0],
+            "c": [7.0, 8.0, 9.0],
+        }
+    )
     out = _extract_base_matrix(df, ["a", "b", "c"])
     expected = np.array([[1.0, 4.0, 7.0], [2.0, 5.0, 8.0], [3.0, 6.0, 9.0]])
     np.testing.assert_allclose(out, expected)
@@ -45,10 +48,12 @@ def test_extract_base_matrix_pandas_branch():
     """Pandas branch uses ``loc[:, cols].to_numpy(dtype=np.float64, copy=False)``."""
     from mlframe.training.composite import _extract_base_matrix
 
-    df = pd.DataFrame({
-        "a": [1.0, 2.0, 3.0],
-        "b": [4.0, 5.0, 6.0],
-    })
+    df = pd.DataFrame(
+        {
+            "a": [1.0, 2.0, 3.0],
+            "b": [4.0, 5.0, 6.0],
+        }
+    )
     out = _extract_base_matrix(df, ["a", "b"])
     expected = np.array([[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]])
     np.testing.assert_allclose(out, expected)
@@ -103,34 +108,26 @@ def test_get_pandas_view_preserves_datetime_dtype():
     pl = pytest.importorskip("polars")
     from mlframe.training.utils import get_pandas_view_of_polars_df
 
-    df = pl.DataFrame({
-        "ts": pl.Series(
-            ["2024-01-01", "2024-06-01", "2024-12-31"],
-            dtype=pl.Date,
-        ),
-        "x": [1.0, 2.0, 3.0],
-    })
+    df = pl.DataFrame(
+        {
+            "ts": pl.Series(
+                ["2024-01-01", "2024-06-01", "2024-12-31"],
+                dtype=pl.Date,
+            ),
+            "x": [1.0, 2.0, 3.0],
+        }
+    )
     pdf = get_pandas_view_of_polars_df(df)
     _dt = pdf["ts"].dtype
-    _is_arrow_date = (
-        hasattr(pd, "ArrowDtype")
-        and isinstance(_dt, pd.ArrowDtype)
-        and any(tok in str(_dt).lower() for tok in ("date", "timestamp"))
-    )
+    _is_arrow_date = hasattr(pd, "ArrowDtype") and isinstance(_dt, pd.ArrowDtype) and any(tok in str(_dt).lower() for tok in ("date", "timestamp"))
     # pandas 2.3+ surfaces date columns from the Arrow bridge as
     # ``pd.StringDtype(na_value=nan)`` (lossy but parseable); accept
     # any string-like extension dtype since the contract is "column
     # round-trips and remains recoverable", not "specific dtype".
-    _is_string_like = (
-        pd.api.types.is_string_dtype(pdf["ts"])
-        or "string" in str(_dt).lower()
+    _is_string_like = pd.api.types.is_string_dtype(pdf["ts"]) or "string" in str(_dt).lower()
+    assert pd.api.types.is_datetime64_any_dtype(_dt) or _dt == "object" or _is_arrow_date or _is_string_like, (
+        f"date column must survive Arrow bridge; got {_dt!r}"
     )
-    assert (
-        pd.api.types.is_datetime64_any_dtype(_dt)
-        or _dt == "object"
-        or _is_arrow_date
-        or _is_string_like
-    ), f"date column must survive Arrow bridge; got {_dt!r}"
 
 
 def test_combine_probs_back_compat_no_alphas():

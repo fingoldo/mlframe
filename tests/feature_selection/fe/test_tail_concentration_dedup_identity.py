@@ -2,11 +2,16 @@
 instead of rebuilding + re-abs_pearson-ing the identical 5 forms. The predicate is ~15% of a wide FE fit (~85k
 calls), and the recompute was pure waste. This pins that the dedup is BIT-IDENTICAL to the pre-dedup recompute
 across tail-concentrated / clean-product / noise / ratio pairs (the FE bar is selection-equivalence)."""
+
 import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import (
     pair_is_tail_concentrated_rankaware as NEW,
-    usability_form_corrs, abs_pearson, _subsample_for_corr, _rank_transform, _crit_np_dtype,
+    usability_form_corrs,
+    abs_pearson,
+    _subsample_for_corr,
+    _rank_transform,
+    _crit_np_dtype,
 )
 
 
@@ -23,6 +28,7 @@ def _reference(y, x0, x1, *, min_corr, pairness_margin, max_rank_frac=0.7):
 
         def _sd(n, d):
             return n / np.where(np.abs(d) < 1e-12, np.nan, d)
+
         with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
             forms = [_sd(_x0, _x1), _sd(_x1, _x0), _sd(_x0 * _x0, _x1), _sd(_x1 * _x1, _x0), _x0 * _x1]
         best, best_lin = None, -1.0

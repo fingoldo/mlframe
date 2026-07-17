@@ -7,6 +7,7 @@ in for any sequence-model layer that computes similarity/distance over the raw f
 neighbor structure dominated by absolute magnitude rather than trend SHAPE when fed the raw tensor; per-entity
 normalization puts every entity on a comparable scale so distance reflects shape similarity instead.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -52,7 +53,9 @@ def test_biz_val_normalized_tensor_beats_raw_tensor_for_distance_based_consumer(
     auc_raw = roc_auc_score(y[test_idx], model_raw.predict_proba(tensor_raw[test_idx])[:, 1])
 
     assert auc_norm >= 0.9, f"expected the per-entity-normalized tensor to cleanly separate trend direction, got auc={auc_norm:.4f}"
-    assert auc_norm > auc_raw + 0.2, f"expected normalization to beat the raw-scale tensor by a wide margin for a distance-based consumer, got norm={auc_norm:.4f} raw={auc_raw:.4f}"
+    assert auc_norm > auc_raw + 0.2, (
+        f"expected normalization to beat the raw-scale tensor by a wide margin for a distance-based consumer, got norm={auc_norm:.4f} raw={auc_raw:.4f}"
+    )
 
 
 def _make_multi_scale_channel_data(n_entities: int, seed: int):
@@ -83,9 +86,7 @@ def test_biz_val_per_channel_normalize_preserves_small_scale_channel_signal():
     df, y = _make_multi_scale_channel_data(n_entities=400, seed=7)
 
     tensor_joint = build_panel_sequence_tensor(df, "id", "t", ["big", "small"], max_lags=8, normalize=True, per_channel_normalize=False).reshape(400, -1)
-    tensor_per_channel = build_panel_sequence_tensor(
-        df, "id", "t", ["big", "small"], max_lags=8, normalize=True, per_channel_normalize=True
-    ).reshape(400, -1)
+    tensor_per_channel = build_panel_sequence_tensor(df, "id", "t", ["big", "small"], max_lags=8, normalize=True, per_channel_normalize=True).reshape(400, -1)
 
     rng = np.random.default_rng(7)
     idx = np.arange(400)

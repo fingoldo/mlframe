@@ -77,6 +77,7 @@ scale). Do NOT re-attempt an MI-threshold fix; an out-of-sample / linear-usabili
 correction on the FINAL model (not the per-pair MI gate) is the only remaining
 research direction, tracked separately.
 """
+
 from __future__ import annotations
 
 import re
@@ -198,13 +199,18 @@ def _make_weak_f2(seed, n, profile):
         f = rng.random(n)
     else:
         from tests.feature_selection import _synthetic_distributions as sd
+
         doms = {
-            "a": sd.DOMAIN_ANY, "b": sd.DOMAIN_DIVISOR, "c": sd.DOMAIN_POSITIVE,
-            "d": sd.DOMAIN_ANY, "e": sd.DOMAIN_ANY, "f": sd.DOMAIN_ANY,
+            "a": sd.DOMAIN_ANY,
+            "b": sd.DOMAIN_DIVISOR,
+            "c": sd.DOMAIN_POSITIVE,
+            "d": sd.DOMAIN_ANY,
+            "e": sd.DOMAIN_ANY,
+            "f": sd.DOMAIN_ANY,
         }
         data = sd.sample_operands(seed=seed, n=n, domains=doms, profile=profile)
         a, b, c, d, e, f = (data[k] for k in ("a", "b", "c", "d", "e", "f"))
-    y = 0.2 * a ** 2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0)
+    y = 0.2 * a**2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0)
     assert np.all(np.isfinite(y)), f"weak-F2 target not finite under {profile}"
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
     return df, pd.Series(y, name="y")
@@ -216,9 +222,9 @@ def _fit_classify(seed, n, profile):
     fs.fit(df, y)
     selected = list(fs.get_feature_names_out())
     cls = classify_selection(selected)
-    rec = dict(profile=profile, seed=int(seed), n=int(n), selected=selected, **{
-        k: v for k, v in cls.items() if k != "cross_names"
-    }, cross_names=cls["cross_names"])
+    rec = dict(
+        profile=profile, seed=int(seed), n=int(n), selected=selected, **{k: v for k, v in cls.items() if k != "cross_names"}, cross_names=cls["cross_names"]
+    )
     _RESULTS.append(rec)
     return cls, selected
 
@@ -239,10 +245,7 @@ def test_weak_f2_seed_cell(profile, seed):
     recorded, not asserted (it IS the finding)."""
     _checkpoint(f"WEAKF2 start {profile} seed={seed} n={PROFILE_N}")
     cls, selected = _fit_classify(seed, PROFILE_N, profile)
-    _checkpoint(
-        f"WEAKF2 done  {profile} seed={seed} sel={selected} "
-        f"gAB={cls['genuine_ab']} gCD={cls['genuine_cd']} cross={cls['n_cross']}"
-    )
+    _checkpoint(f"WEAKF2 done  {profile} seed={seed} sel={selected} gAB={cls['genuine_ab']} gCD={cls['genuine_cd']} cross={cls['n_cross']}")
     # FLOOR invariant (must hold every seed/profile): the selection is never empty
     # and recovers AT LEAST ONE operand from EACH genuine term -- i.e. the selector
     # never collapses to pure noise or wholly drops a term's support. (We do NOT
@@ -255,12 +258,8 @@ def test_weak_f2_seed_cell(profile, seed):
     c_tok = "c" in _flat_tokens(selected)
     d_tok = "d" in _flat_tokens(selected)
     assert selected, f"{profile} seed={seed}: EMPTY selection"
-    assert (a_tok or b_tok), (
-        f"{profile} seed={seed}: (a,b) term support LOST entirely (neither operand); selected={selected}"
-    )
-    assert (c_tok or d_tok), (
-        f"{profile} seed={seed}: (c,d) term support LOST entirely (neither operand); selected={selected}"
-    )
+    assert a_tok or b_tok, f"{profile} seed={seed}: (a,b) term support LOST entirely (neither operand); selected={selected}"
+    assert c_tok or d_tok, f"{profile} seed={seed}: (c,d) term support LOST entirely (neither operand); selected={selected}"
 
 
 def test_weak_f2_stability_summary():
@@ -292,17 +291,13 @@ def test_weak_f2_stability_summary():
     cross = sum(1 for r in uni if r["cross_mix"])
     cd_raw = sum(r["cd_raw_only"] for r in uni)
 
-    _checkpoint(
-        f"WEAKF2 SUMMARY uniform n={n}: genuine_ab={g_ab} genuine_cd={g_cd} "
-        f"cross_mix={cross} cd_raw_only={cd_raw}"
-    )
+    _checkpoint(f"WEAKF2 SUMMARY uniform n={n}: genuine_ab={g_ab} genuine_cd={g_cd} cross_mix={cross} cd_raw_only={cd_raw}")
 
     # The genuine (a,b) ratio form is recovered on a majority of seeds (the term is
     # dominant), while the genuine (c,d) JOINT log*sin is recovered far less often
     # -- it survives mostly as two raw columns. This asymmetry IS the instability.
     assert g_ab >= g_cd, (
-        f"expected genuine (a,b) ratio recovered at least as often as genuine (c,d) "
-        f"joint on the weak target; got genuine_ab={g_ab} < genuine_cd={g_cd}"
+        f"expected genuine (a,b) ratio recovered at least as often as genuine (c,d) joint on the weak target; got genuine_ab={g_ab} < genuine_cd={g_cd}"
     )
     # Aggregate FLOOR (same union-token invariant as the per-cell floor): every
     # uniform seed recovers at least one operand of EACH genuine term somewhere in
@@ -312,12 +307,8 @@ def test_weak_f2_stability_summary():
     # in a cross-mix on a given seed); the downstream model still sees it.
     for r in uni:
         toks = _flat_tokens(r["selected"])
-        assert ("a" in toks) or ("b" in toks), (
-            f"uniform seed={r['seed']}: (a,b) term support absent from selection {r['selected']}"
-        )
-        assert ("c" in toks) or ("d" in toks), (
-            f"uniform seed={r['seed']}: (c,d) term support absent from selection {r['selected']}"
-        )
+        assert ("a" in toks) or ("b" in toks), f"uniform seed={r['seed']}: (a,b) term support absent from selection {r['selected']}"
+        assert ("c" in toks) or ("d" in toks), f"uniform seed={r['seed']}: (c,d) term support absent from selection {r['selected']}"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -326,6 +317,7 @@ def _dump_weak_f2_results():
     results_path = _artifact_path("weak_f2_stability.json")
     try:
         import orjson
+
         with open(results_path, "wb") as fh:
             fh.write(orjson.dumps(_RESULTS, option=orjson.OPT_INDENT_2))
     except Exception as exc:
@@ -338,4 +330,5 @@ def _dump_weak_f2_results():
                 json.dump(_RESULTS, fh, indent=2)
         except Exception as exc2:
             import warnings
+
             warnings.warn(f"weak_f2 results dump failed entirely: {exc2!r}")

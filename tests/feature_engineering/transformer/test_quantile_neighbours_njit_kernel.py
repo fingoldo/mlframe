@@ -5,6 +5,7 @@ cumsum) with a single prange pass per row: one argsort, one float32 cumsum, and 
 array sweeps. These sensors pin (a) the kernel exists and is importable (the symbol is the sensor that fails on pre-fix code), and (b) the kernel is bit-identical
 to the numpy reference on continuous, tied-y, and tied-cdf (equal-weight) inputs -- the exact tie cases where any reordering / scan-direction change would diverge.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -4,6 +4,7 @@
 * A1#12: polars to_pandas(self_destruct=True) must NOT fire on caller-owned frames.
 * A1#13: _x_hash signature must use full-content blake2b (no strided collisions).
 """
+
 from __future__ import annotations
 
 import hashlib

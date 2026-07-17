@@ -8,6 +8,7 @@ The minimum fix is to emit a single per-call ``logger.warning`` when the fallbac
 is exercised on level-1 so operators can audit suites that quietly produced
 in-sample-train ensemble metrics. This sensor pins that warning shape.
 """
+
 from __future__ import annotations
 
 import logging
@@ -65,9 +66,7 @@ def test_score_ensemble_level1_warns_when_oof_missing_and_train_fallback_used(ca
 
     # The warning must explicitly name "OOF" or "train_fallback" (operator-greppable token).
     fallback_msgs = [
-        rec for rec in caplog.records
-        if rec.levelno == logging.WARNING
-        and ("oof" in rec.getMessage().lower() and "train" in rec.getMessage().lower())
+        rec for rec in caplog.records if rec.levelno == logging.WARNING and ("oof" in rec.getMessage().lower() and "train" in rec.getMessage().lower())
     ]
     assert fallback_msgs, (
         "S05: score_ensemble(max_ensembling_level=1) silently substituted "
@@ -105,11 +104,6 @@ def test_score_ensemble_level1_no_warning_when_all_members_have_oof(caplog):
         )
 
     fallback_msgs = [
-        rec for rec in caplog.records
-        if rec.levelno == logging.WARNING
-        and ("oof" in rec.getMessage().lower() and "fallback" in rec.getMessage().lower())
+        rec for rec in caplog.records if rec.levelno == logging.WARNING and ("oof" in rec.getMessage().lower() and "fallback" in rec.getMessage().lower())
     ]
-    assert not fallback_msgs, (
-        "S05 sanity: train-fallback warning fired even though every "
-        f"member had oof_preds. Spurious fallback signal: {fallback_msgs}"
-    )
+    assert not fallback_msgs, f"S05 sanity: train-fallback warning fired even though every member had oof_preds. Spurious fallback signal: {fallback_msgs}"

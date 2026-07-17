@@ -27,6 +27,7 @@ from mlframe.training.feature_handling import EmbeddingProvider
 # 1. Construction + kind validation
 # =====================================================================
 
+
 class TestConstruction:
     def test_huggingface_minimal(self):
         p = EmbeddingProvider(kind="huggingface", model="intfloat/multilingual-e5-small")
@@ -55,6 +56,7 @@ class TestConstruction:
 # 2. from_uri parsing
 # =====================================================================
 
+
 class TestFromUri:
     def test_hf_short_alias(self):
         p = EmbeddingProvider.from_uri("hf://BAAI/bge-small-en-v1.5")
@@ -72,9 +74,7 @@ class TestFromUri:
         assert p.params["dtype"] == "fp16"
 
     def test_openai_with_dimensions(self):
-        p = EmbeddingProvider.from_uri(
-            "openai://text-embedding-3-small?dimensions=512&api_key_env=OPENAI_API_KEY"
-        )
+        p = EmbeddingProvider.from_uri("openai://text-embedding-3-small?dimensions=512&api_key_env=OPENAI_API_KEY")
         assert p.kind == "openai"
         assert p.params["dimensions"] == "512"  # raw URL string -- caller casts
         assert p.params["api_key_env"] == "OPENAI_API_KEY"
@@ -92,12 +92,15 @@ class TestFromUri:
         assert p.kind == "onnx"
         assert p.model == "path/to/model.onnx"
 
-    @pytest.mark.parametrize("bad", [
-        "hf:noscheme",          # no //
-        "://no-kind",           # empty kind
-        "hf://?",               # empty model + empty query
-        "??",                   # nonsense
-    ])
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "hf:noscheme",  # no //
+            "://no-kind",  # empty kind
+            "hf://?",  # empty model + empty query
+            "??",  # nonsense
+        ],
+    )
     def test_malformed_uris_raise(self, bad):
         with pytest.raises(ValueError):
             EmbeddingProvider.from_uri(bad)
@@ -111,6 +114,7 @@ class TestFromUri:
 # 3. Signature stability + secret-scrub
 # =====================================================================
 
+
 class TestSignature:
     def test_signature_is_string(self):
         p = EmbeddingProvider(kind="huggingface", model="intfloat/multilingual-e5-small")
@@ -119,11 +123,11 @@ class TestSignature:
         assert sig.startswith("huggingface:intfloat/multilingual-e5-small:")
 
     def test_signature_stable_across_two_constructions(self):
-        p1 = EmbeddingProvider(
-            kind="huggingface", model="x", params={"pool": "mean", "device": "auto"}
-        )
+        p1 = EmbeddingProvider(kind="huggingface", model="x", params={"pool": "mean", "device": "auto"})
         p2 = EmbeddingProvider(
-            kind="huggingface", model="x", params={"device": "auto", "pool": "mean"},
+            kind="huggingface",
+            model="x",
+            params={"device": "auto", "pool": "mean"},
         )
         # Same content, different insertion order -- signatures must match.
         assert p1.signature == p2.signature
@@ -143,10 +147,14 @@ class TestSignature:
         MUST NOT invalidate cache. Signature scrubs secrets before
         hashing."""
         p1 = EmbeddingProvider(
-            kind="openai", model="x", params={"api_key": "sk-real-1"},
+            kind="openai",
+            model="x",
+            params={"api_key": "sk-real-1"},
         )
         p2 = EmbeddingProvider(
-            kind="openai", model="x", params={"api_key": "sk-real-2"},
+            kind="openai",
+            model="x",
+            params={"api_key": "sk-real-2"},
         )
         assert p1.signature == p2.signature
 
@@ -159,6 +167,7 @@ class TestSignature:
 # =====================================================================
 # 4. Secrets — env-var indirection
 # =====================================================================
+
 
 class TestSecrets:
     def test_resolve_secrets_substitutes_env(self, monkeypatch):
@@ -176,16 +185,12 @@ class TestSecrets:
 
     def test_resolve_secrets_missing_env_raises(self, monkeypatch):
         monkeypatch.delenv("MLFRAME_NONEXISTENT_KEY", raising=False)
-        p = EmbeddingProvider(
-            kind="openai", model="x", params={"api_key": "env:MLFRAME_NONEXISTENT_KEY"}
-        )
+        p = EmbeddingProvider(kind="openai", model="x", params={"api_key": "env:MLFRAME_NONEXISTENT_KEY"})
         with pytest.raises(KeyError, match="MLFRAME_NONEXISTENT_KEY"):
             p.resolve_secrets()
 
     def test_resolve_secrets_no_env_refs_is_noop(self):
-        p = EmbeddingProvider(
-            kind="openai", model="x", params={"api_key": "sk-literal"}
-        )
+        p = EmbeddingProvider(kind="openai", model="x", params={"api_key": "sk-literal"})
         resolved = p.resolve_secrets()
         assert resolved.params == p.params
 
@@ -194,17 +199,22 @@ class TestSecrets:
 # 5. Scrubbed serialisation -- secrets out of repr / model_dump
 # =====================================================================
 
+
 class TestScrubSecrets:
     def test_repr_masks_api_key(self):
         p = EmbeddingProvider(
-            kind="openai", model="x", params={"api_key": "sk-leaky"},
+            kind="openai",
+            model="x",
+            params={"api_key": "sk-leaky"},
         )
         assert "sk-leaky" not in repr(p)
         assert "***" in repr(p)
 
     def test_model_dump_default_scrubs(self):
         p = EmbeddingProvider(
-            kind="openai", model="x", params={"api_key": "sk-leaky", "dimensions": 256},
+            kind="openai",
+            model="x",
+            params={"api_key": "sk-leaky", "dimensions": 256},
         )
         d = p.model_dump()
         assert d["params"]["api_key"] == "***"
@@ -215,20 +225,31 @@ class TestScrubSecrets:
         ``scrub_secrets=False`` exposes it -- only call from inside
         the provider acquire() flow."""
         p = EmbeddingProvider(
-            kind="openai", model="x", params={"api_key": "sk-leaky"},
+            kind="openai",
+            model="x",
+            params={"api_key": "sk-leaky"},
         )
         d = p.model_dump(scrub_secrets=False)
         assert d["params"]["api_key"] == "sk-leaky"
 
-    @pytest.mark.parametrize("key", [
-        "api_key", "openai_api_key",
-        "auth_token", "bearer_token",
-        "secret_key", "credential",
-        "password", "passwd",
-    ])
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "api_key",
+            "openai_api_key",
+            "auth_token",
+            "bearer_token",
+            "secret_key",
+            "credential",
+            "password",
+            "passwd",
+        ],
+    )
     def test_repr_masks_various_secret_keywords(self, key):
         p = EmbeddingProvider(
-            kind="custom", model="x", params={key: "VALUE-LEAKY", "harmless": 5},
+            kind="custom",
+            model="x",
+            params={key: "VALUE-LEAKY", "harmless": 5},
         )
         rep = repr(p)
         assert "VALUE-LEAKY" not in rep
@@ -238,7 +259,9 @@ class TestScrubSecrets:
         """Internal: the signature uses ``_scrub_dict`` so secrets
         don't perturb cache keys."""
         p = EmbeddingProvider(
-            kind="openai", model="x", params={"api_key": "real"},
+            kind="openai",
+            model="x",
+            params={"api_key": "real"},
         )
         # Hash should not contain the literal secret
         assert "real" not in p.signature
@@ -248,11 +271,14 @@ class TestScrubSecrets:
 # 6. Default provider used in FHC
 # =====================================================================
 
+
 class TestProviderInFHC:
     def test_fhc_accepts_provider(self):
         from mlframe.training.feature_handling import FeatureHandlingConfig
+
         provider = EmbeddingProvider(
-            kind="huggingface", model="intfloat/multilingual-e5-small",
+            kind="huggingface",
+            model="intfloat/multilingual-e5-small",
         )
         fhc = FeatureHandlingConfig(default_text_provider=provider)
         assert fhc.default_text_provider.kind == "huggingface"
@@ -260,6 +286,7 @@ class TestProviderInFHC:
 
     def test_fhc_accepts_uri_string_via_provider_construction(self):
         from mlframe.training.feature_handling import FeatureHandlingConfig
+
         # User-friendly idiom: convert URI to structured at construct time.
         provider = EmbeddingProvider.from_uri("hf://intfloat/multilingual-e5-small")
         fhc = FeatureHandlingConfig(default_text_provider=provider)

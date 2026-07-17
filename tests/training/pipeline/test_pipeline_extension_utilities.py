@@ -1,4 +1,5 @@
 """Tests for mlframe.training.pipeline.apply_preprocessing_extensions."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -47,7 +48,9 @@ def test_extensions_scaler_applies_sklearn():
     # Row-wise stats/extreme-columns default ON but are orthogonal to this test's subject (the
     # scaler step preserving column identity); disabled so the added columns don't obscure it.
     cfg = PreprocessingExtensionsConfig(
-        scaler="StandardScaler", row_wise_summary_stats_enabled=False, row_wise_extreme_columns_enabled=False,
+        scaler="StandardScaler",
+        row_wise_summary_stats_enabled=False,
+        row_wise_extreme_columns_enabled=False,
     )
     out_tr, out_va, out_te, pipe = apply_preprocessing_extensions(tr, va, te, cfg, verbose=0)
     assert pipe is not None

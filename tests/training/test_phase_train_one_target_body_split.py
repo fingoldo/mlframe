@@ -7,6 +7,7 @@ Carve lifts three pure helpers from ``_train_one_target`` into ``_phase_train_on
 
 The W12B-deferred deeper monolith carve (878 LOC -> <700) is NOT done in this wave; the body is still ~1069 LOC due to deeply-nested closure-captured locals that the helpers here don't reach.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -25,6 +26,7 @@ def test_w14a_phase_train_one_target_schema_identity():
 def test_w14a_phase_train_one_target_body_smoke_import():
     """The body module imports cleanly post-carve."""
     from mlframe.training.core._phase_train_one_target_body import _train_one_target
+
     assert callable(_train_one_target)
 
 
@@ -56,7 +58,9 @@ def test_w14a_resolve_weight_schemas_backward_val_warns_on_non_uniform(caplog):
     split_config = SimpleNamespace(val_placement="backward")
     caplog.set_level(logging.WARNING, logger="mlframe.training.core._phase_train_one_target")
     res = _resolve_weight_schemas_and_warn_val_placement(
-        {"recency": [1.0, 2.0, 3.0]}, split_config, ctx,
+        {"recency": [1.0, 2.0, 3.0]},
+        split_config,
+        ctx,
     )
     assert res == {"recency": [1.0, 2.0, 3.0]}
     assert ctx._val_placement_warn_emitted is True

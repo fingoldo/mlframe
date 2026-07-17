@@ -4,6 +4,7 @@ The fused helper reuses one clean pass as both the point estimate and the first 
 n-1 jittered passes via Welford, so it calls predict_fn exactly n times where the legacy point + tta_predict + tta_predict_spread trio called
 it 2n+1 times. mean/spread match the two-pass np.mean/np.std references to FP reduction-order tolerance (~1e-9); point is bit-identical.
 """
+
 from __future__ import annotations
 
 import numpy as np

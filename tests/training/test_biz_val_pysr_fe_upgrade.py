@@ -24,6 +24,7 @@ native instability (Julia threadpool corruption when multiple xdist
 workers boot Julia in parallel); guard by skipping under multi-worker
 runs and letting the test pass in single-worker / direct invocation.
 """
+
 from __future__ import annotations
 
 import os
@@ -53,12 +54,7 @@ def _make_synth(n: int = 800, seed: int = 0) -> pd.DataFrame:
     """Same generator as ``_benchmarks/bench_pysr_fe.py`` but tabular."""
     rng = np.random.default_rng(seed)
     x = rng.standard_normal((n, 6)).astype(np.float32)
-    y = (
-        3.0 * np.sin(x[:, 1])
-        + np.log(np.abs(x[:, 2]) + 1.0)
-        - 0.5 * x[:, 3] ** 2
-        + 0.3 * rng.standard_normal(n)
-    ).astype(np.float32)
+    y = (3.0 * np.sin(x[:, 1]) + np.log(np.abs(x[:, 2]) + 1.0) - 0.5 * x[:, 3] ** 2 + 0.3 * rng.standard_normal(n)).astype(np.float32)
     df = pd.DataFrame(x, columns=[f"x{i}" for i in range(6)])
     df["target"] = y
     return df
@@ -141,17 +137,23 @@ def test_pysr_upgrade_beats_pysr_off_on_synthetic_ground_truth(tmp_path):
 
     # Baseline: PySR off
     models_off, meta_off = train_mlframe_models_suite(
-        df=df, target_name="target", model_name="bench_off",
+        df=df,
+        target_name="target",
+        model_name="bench_off",
         features_and_targets_extractor=fte,
         mlframe_models=["lgb"],
         preprocessing_extensions=PreprocessingExtensionsConfig(pysr_enabled=False),
-        split_config=split, output_config=output_off,
-        use_mlframe_ensembles=False, verbose=0,
+        split_config=split,
+        output_config=output_off,
+        use_mlframe_ensembles=False,
+        verbose=0,
     )
 
     # Treatment: PySR on with new standard preset defaults
     models_on, meta_on = train_mlframe_models_suite(
-        df=df, target_name="target", model_name="bench_on",
+        df=df,
+        target_name="target",
+        model_name="bench_on",
         features_and_targets_extractor=fte,
         mlframe_models=["lgb"],
         preprocessing_extensions=PreprocessingExtensionsConfig(
@@ -163,8 +165,10 @@ def test_pysr_upgrade_beats_pysr_off_on_synthetic_ground_truth(tmp_path):
             pysr_niterations=80,
             pysr_top_k=5,
         ),
-        split_config=split, output_config=output_on,
-        use_mlframe_ensembles=False, verbose=0,
+        split_config=split,
+        output_config=output_on,
+        use_mlframe_ensembles=False,
+        verbose=0,
     )
 
     rmse_off = _holdout_rmse_from_models(models_off)

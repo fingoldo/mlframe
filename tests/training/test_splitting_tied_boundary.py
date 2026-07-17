@@ -11,6 +11,7 @@ val/test (no future->past leakage; here, no SAME-tick co-membership either).
 Pre-fix these tests fail (shared timestamp across adjacent time-ordered splits);
 post-fix boundary-tied rows snap to the later split so precedence is strict.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,7 +31,11 @@ def test_no_timestamp_shared_across_train_val_test_forward():
     ts = _panel_ts(33, 7)
     df = pd.DataFrame({"x": np.arange(len(ts))})
     tr, va, te, *_ = make_train_test_split(
-        df, test_size=0.2, val_size=0.2, timestamps=ts, wholeday_splitting=False,
+        df,
+        test_size=0.2,
+        val_size=0.2,
+        timestamps=ts,
+        wholeday_splitting=False,
     )
     s_tr, s_va, s_te = set(ts[tr]), set(ts[va]), set(ts[te])
     assert not (s_tr & s_va), "timestamp shared between train and val (leak)"
@@ -48,8 +53,12 @@ def test_no_timestamp_shared_backward_placement():
     ts = _panel_ts(33, 7)
     df = pd.DataFrame({"x": np.arange(len(ts))})
     tr, va, te, *_ = make_train_test_split(
-        df, test_size=0.2, val_size=0.2, timestamps=ts,
-        wholeday_splitting=False, val_placement="backward",
+        df,
+        test_size=0.2,
+        val_size=0.2,
+        timestamps=ts,
+        wholeday_splitting=False,
+        val_placement="backward",
     )
     s_tr, s_va, s_te = set(ts[tr]), set(ts[va]), set(ts[te])
     # Backward layout: val(oldest) < train < test, all disjoint in time.
@@ -68,7 +77,11 @@ def test_distinct_timestamps_unaffected():
     ts = pd.Series(pd.date_range("2020-01-01", periods=n, freq="h"))
     df = pd.DataFrame({"x": np.arange(n)})
     tr, va, te, *_ = make_train_test_split(
-        df, test_size=0.2, val_size=0.2, timestamps=ts, wholeday_splitting=False,
+        df,
+        test_size=0.2,
+        val_size=0.2,
+        timestamps=ts,
+        wholeday_splitting=False,
     )
     assert len(te) == int(n * 0.2)
     assert ts[tr].max() < ts[va].min() < ts[va].max() < ts[te].min()

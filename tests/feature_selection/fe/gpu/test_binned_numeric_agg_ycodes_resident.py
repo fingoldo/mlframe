@@ -6,6 +6,7 @@ EVERY candidate group column, and AGAIN via a separate raw upload in the survivo
 y-code content shares ONE resident device buffer instead of two-plus separate uploads.
 
 Skips when cupy is unavailable (CI without a GPU)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -86,8 +87,14 @@ def test_cheap_mi_and_resident_gate_share_one_ycodes_upload(monkeypatch):
     y_codes = y_codes.astype(np.int64)
 
     feat_df, recipes = fit_binned_numeric_agg(
-        X, y, group_num_cols=["g"], agg_num_cols=["aux"],
-        stats=SUPPORTED_STATS, nbins_base=10, n_folds=5, random_state=0,
+        X,
+        y,
+        group_num_cols=["g"],
+        agg_num_cols=["aux"],
+        stats=SUPPORTED_STATS,
+        nbins_base=10,
+        n_folds=5,
+        random_state=0,
     )
     assert feat_df.shape[1] > 0
 

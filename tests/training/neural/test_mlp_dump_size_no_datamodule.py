@@ -20,6 +20,7 @@ Opt-out: ``MLFRAME_KEEP_PREDICTION_DATAMODULE=1`` env var preserves the
 full datamodule (tensors included) for operators relying on the prior
 whole-stash behaviour.
 """
+
 from __future__ import annotations
 
 import os
@@ -29,9 +30,16 @@ from types import SimpleNamespace
 # The heavy tensor attributes the fit-cleanup nulls inside the datamodule
 # shell. Mirrors the list in ``neural/base.py`` _fit_internal cleanup.
 _TENSOR_ATTRS = (
-    "train_features", "train_labels", "train_sample_weight",
-    "val_features", "val_labels", "val_sample_weight",
-    "_train_dataset", "_val_dataset", "train_dataset", "val_dataset",
+    "train_features",
+    "train_labels",
+    "train_sample_weight",
+    "val_features",
+    "val_labels",
+    "val_sample_weight",
+    "_train_dataset",
+    "_val_dataset",
+    "train_dataset",
+    "val_dataset",
 )
 
 
@@ -68,9 +76,7 @@ def test_fit_drops_prediction_datamodule_tensors_by_default(monkeypatch) -> None
     assert estimator.prediction_datamodule is not None
     # But every heavy tensor is dropped.
     for _attr in _TENSOR_ATTRS:
-        assert getattr(estimator.prediction_datamodule, _attr) is None, (
-            f"{_attr} must be nulled to avoid the 1.7 GB dump bloat"
-        )
+        assert getattr(estimator.prediction_datamodule, _attr) is None, f"{_attr} must be nulled to avoid the 1.7 GB dump bloat"
     assert estimator._datamodule_tensors_dropped is True
 
 
@@ -85,8 +91,7 @@ def test_fit_keeps_prediction_datamodule_when_env_set(monkeypatch) -> None:
     # Env opt-out: every tensor stays put.
     for _attr in _TENSOR_ATTRS:
         assert getattr(estimator.prediction_datamodule, _attr) == "heavy-tensor-payload", (
-            "MLFRAME_KEEP_PREDICTION_DATAMODULE=1 must preserve the full "
-            "datamodule (tensors included) for backwards compatibility."
+            "MLFRAME_KEEP_PREDICTION_DATAMODULE=1 must preserve the full datamodule (tensors included) for backwards compatibility."
         )
 
 
@@ -100,6 +105,7 @@ def test_source_grep_drop_dm_present() -> None:
     """
     from pathlib import Path
     from mlframe.training.neural import base as _base
+
     # ``base`` became a subpackage (``base/__init__.py`` + submodules); the fit
     # cleanup body lives in a submodule, so concat __init__ + every submodule.
     _base_path = Path(_base.__file__)
@@ -110,14 +116,7 @@ def test_source_grep_drop_dm_present() -> None:
         src = _base_path.read_text(encoding="utf-8")
     # The cleanup must null at least the core feature/label tensors.
     for _attr in ("train_features", "train_labels", "val_features", "val_labels"):
-        assert _attr in src, (
-            f"MLP fit cleanup must reference {_attr!r} to null it "
-            f"(prevents the 1.7 GB / dump tensor bloat)."
-        )
+        assert _attr in src, f"MLP fit cleanup must reference {_attr!r} to null it (prevents the 1.7 GB / dump tensor bloat)."
     # The marker the cleanup sets after dropping tensors.
-    assert "_datamodule_tensors_dropped" in src, (
-        "fit cleanup must set the _datamodule_tensors_dropped marker."
-    )
-    assert "MLFRAME_KEEP_PREDICTION_DATAMODULE" in src, (
-        "Opt-out env-var name must be preserved for back-compat."
-    )
+    assert "_datamodule_tensors_dropped" in src, "fit cleanup must set the _datamodule_tensors_dropped marker."
+    assert "MLFRAME_KEEP_PREDICTION_DATAMODULE" in src, "Opt-out env-var name must be preserved for back-compat."

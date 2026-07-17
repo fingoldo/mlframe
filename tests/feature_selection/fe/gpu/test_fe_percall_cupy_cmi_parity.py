@@ -5,6 +5,7 @@ The per-call device CMI helpers (``_cmi_from_binned_cupy``, ``joint_cardinalitie
 ``cp.unique`` (a sort = 5-10 cub MergeSort launches per call). This pins that the cheaper counting is
 selection-equivalent to the CPU ``_cmi_from_binned`` so it can stay the STRICT/CMI_GPU per-call route.
 cupy-gated."""
+
 import numpy as np
 import pytest
 

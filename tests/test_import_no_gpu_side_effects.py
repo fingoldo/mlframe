@@ -2,6 +2,7 @@
 ``os.environ`` (CUDA_HOME/CUDA_PATH). The CUDA autoconfig + broken-cupy guard are deferred to the
 first GPU-dispatch use, so a CPU-only user pays neither the cupy import nor the environment rewrite.
 """
+
 from __future__ import annotations
 
 import os

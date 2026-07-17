@@ -11,6 +11,7 @@ Invariants under test:
 * ``apply_bin_edges`` leak-safe round-trip and dtype handling
 * edge cases: single value, all-constant, single-class y, n=2, length mismatch
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -268,9 +269,7 @@ def test_biz_mdlp_recovers_decision_boundary():
 
     assert len(inner) >= 1, "MDLP failed to produce any split on a clearly separable signal."
     assert len(inner) <= 3, f"MDLP produced too many splits ({len(inner)}); MDL stopping looks broken."
-    assert any(0.25 <= s <= 0.35 for s in inner), (
-        f"No split within [0.25, 0.35] of the true boundary 0.3; got splits {inner.tolist()}"
-    )
+    assert any(0.25 <= s <= 0.35 for s in inner), f"No split within [0.25, 0.35] of the true boundary 0.3; got splits {inner.tolist()}"
 
 
 @pytest.mark.parametrize("K", [2, 3, 4, 5])
@@ -293,6 +292,7 @@ def test_mdlp_njit_backend_matches_python_backend_multiclass(K):
     e_njit = mdlp_bin_edges(x, y, backend="njit")
     e_py = mdlp_bin_edges(x, y, backend="python")
     np.testing.assert_array_equal(
-        e_njit, e_py,
+        e_njit,
+        e_py,
         err_msg=f"njit backend edges diverge from python reference at K={K} (class-count derivation bug)",
     )

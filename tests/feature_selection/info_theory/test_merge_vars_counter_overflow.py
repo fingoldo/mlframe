@@ -30,6 +30,7 @@ with ``dtype=np.int64`` unconditionally. The bin counter is bounded by
 ``n_samples`` regardless of class-encoding dtype, so int64 is the safe
 universal choice with negligible memory overhead.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,6 +42,7 @@ def test_merge_vars_int8_dtype_no_wraparound():
     not -0.28 (which is 200 mod 128 negated and normalised).
     """
     from mlframe.feature_selection.filters.info_theory import merge_vars
+
     n = 200
     factors = np.zeros((n, 1), dtype=np.int8)
     nbins = np.array([1], dtype=np.int64)
@@ -61,6 +63,7 @@ def test_merge_vars_counter_dtype_independence(counter_dtype):
     regardless of which dtype the caller supplied for the workspace.
     """
     from mlframe.feature_selection.filters.info_theory import merge_vars
+
     rng = np.random.default_rng(0)
     n = 500
     # 4 bins, 500 samples -> ~125 per bin; no overflow at any dtype.
@@ -83,6 +86,7 @@ def test_merge_vars_joint_two_vars_correct():
     must produce a valid 16-class joint summing to 1.
     """
     from mlframe.feature_selection.filters.info_theory import merge_vars
+
     rng = np.random.default_rng(0)
     n = 10_000
     factors = rng.integers(0, 4, (n, 2)).astype(np.int32)

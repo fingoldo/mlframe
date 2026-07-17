@@ -4,6 +4,7 @@ train_mlframe_models_suite (tiny budget) leakage-safely.
 This proves the opt-in path that lets a research-only shortlist transformer (e.g. compute_rff_features)
 participate in the suite, which the 103 standalone compute_* functions otherwise cannot do.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -50,9 +51,7 @@ def test_a2_01_adapter_runs_through_suite(tmp_path) -> None:
     df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
     df["target"] = y
 
-    adapter = ShortlistTransformerAdapter(
-        compute_rff_features, seed=7, needs_y=False, compute_kwargs={"n_features": 16}
-    )
+    adapter = ShortlistTransformerAdapter(compute_rff_features, seed=7, needs_y=False, compute_kwargs={"n_features": 16})
 
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     models, _meta = train_mlframe_models_suite(

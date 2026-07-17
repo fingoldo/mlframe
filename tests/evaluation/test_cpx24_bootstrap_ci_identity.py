@@ -9,6 +9,7 @@ shipped module, and additionally pin the public ``bootstrap_metric`` /
 ``bootstrap_metrics`` outputs against frozen reference values so a future
 regression that perturbs the RNG draw sequence trips immediately.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -87,8 +88,6 @@ def test_cpx24_bootstrap_metric_bca_uses_jackknife_idx_path():
 
     jk = bs._jackknife_metric_idx(n, metric_idx)
     assert jk is not None and jk.shape[0] >= 3
-    captured["jk_lo"], captured["jk_hi"] = bs._ci_from_samples(
-        full_scores, float(full_scores.mean()), 0.05, "bca", jk
-    )
+    captured["jk_lo"], captured["jk_hi"] = bs._ci_from_samples(full_scores, float(full_scores.mean()), 0.05, "bca", jk)
     assert captured["jk_lo"] <= captured["jk_hi"]
     assert np.isfinite(captured["jk_lo"]) and np.isfinite(captured["jk_hi"])

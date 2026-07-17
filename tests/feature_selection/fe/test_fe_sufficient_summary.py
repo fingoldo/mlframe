@@ -15,6 +15,7 @@ WITHOUT the RNG-sensitivity of a full end-to-end FE recipe selection. The end-to
 wall-cut + selection-byte-identity is covered in the biz_value sibling
 (``test_biz_value_mrmr_sufficient_summary.py``).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,14 +42,20 @@ def _stack(*arrays):
     return np.column_stack([_bin10(a) for a in arrays]).astype(np.int64)
 
 
-def _call(data, y_cont, target_col_idx, selected_cols_idx, selected_continuous,
-          raw_cols_idx, cols_names, **kw):
+def _call(data, y_cont, target_col_idx, selected_cols_idx, selected_continuous, raw_cols_idx, cols_names, **kw):
     nbins = np.full(data.shape[1], 10, dtype=np.int64)
     return sufficient_summary_reached(
-        data=data, nbins=nbins, y_continuous=y_cont, target_col_idx=target_col_idx,
-        selected_cols_idx=selected_cols_idx, selected_continuous=selected_continuous,
-        raw_cols_idx=raw_cols_idx, cols_names=cols_names, quantization_nbins=10,
-        random_seed=SEED, **kw,
+        data=data,
+        nbins=nbins,
+        y_continuous=y_cont,
+        target_col_idx=target_col_idx,
+        selected_cols_idx=selected_cols_idx,
+        selected_continuous=selected_continuous,
+        raw_cols_idx=raw_cols_idx,
+        cols_names=cols_names,
+        quantization_nbins=10,
+        random_seed=SEED,
+        **kw,
     )
 
 
@@ -61,9 +68,13 @@ def test_positive_a_f1_ideal_composite_stops():
     noise -- f is UNOBSERVED, so every observed raw sits at the maxT null and the variance
     guard passes -> STOP."""
     rng = np.random.default_rng(SEED)
-    a = rng.uniform(1, 5, N); b = rng.uniform(1, 5, N); c = rng.uniform(1, 5, N)
-    d = rng.uniform(0, 2 * np.pi, N); e = rng.normal(0, 1, N); f = rng.normal(0, 1, N)
-    term1 = a ** 2 / b
+    a = rng.uniform(1, 5, N)
+    b = rng.uniform(1, 5, N)
+    c = rng.uniform(1, 5, N)
+    d = rng.uniform(0, 2 * np.pi, N)
+    e = rng.normal(0, 1, N)
+    f = rng.normal(0, 1, N)
+    term1 = a**2 / b
     term2 = np.log(c) * np.sin(d)
     y = term1 + f / 5.0 + term2
     # Selected = the two ideal engineered composites (what step 1 would recover).
@@ -80,7 +91,9 @@ def test_positive_b_stops_only_after_BOTH_a_and_b_selected():
     NOT after a alone. This is the key case that kills the 1-D-top design: the residual is
     tested against the FULL selected set."""
     rng = np.random.default_rng(SEED)
-    a = rng.normal(size=N); b = rng.normal(size=N); e = rng.normal(size=N)
+    a = rng.normal(size=N)
+    b = rng.normal(size=N)
+    e = rng.normal(size=N)
     y = a + b + 0.05 * rng.normal(size=N)
     data = _stack(a, b, e, y)
     cols = ["a", "b", "e", "y"]
@@ -103,7 +116,9 @@ def test_negative_c_pure_noise_target_guard_blocks():
     find), so the maxT test ALONE would pass -- the H(y)-relative variance guard
     (Var(r)/Var(y) ~ 1.0, nothing explained) is what prevents the false stop."""
     rng = np.random.default_rng(SEED)
-    a = rng.normal(size=N); b = rng.normal(size=N); e = rng.normal(size=N)
+    a = rng.normal(size=N)
+    b = rng.normal(size=N)
+    e = rng.normal(size=N)
     yn = rng.normal(size=N)  # independent of everything
     data = _stack(a, b, e, yn)
     cols = ["a", "b", "e", "y"]
@@ -121,7 +136,9 @@ def test_negative_d_second_independent_signal_not_found_blocks():
     nonlinear-leftover cases (g)/(i) below exercise the maxT-blocking path where the guard
     passes but a raw still beats the null."""
     rng = np.random.default_rng(SEED)
-    a = rng.normal(size=N); g = rng.normal(size=N); e = rng.normal(size=N)
+    a = rng.normal(size=N)
+    g = rng.normal(size=N)
+    e = rng.normal(size=N)
     y = a + 3.0 * g + 0.05 * rng.normal(size=N)
     data = _stack(a, g, e, y)
     cols = ["a", "g", "e", "y"]
@@ -139,10 +156,12 @@ def test_adversarial_e_collinear_selected_ridge_not_fooled():
     collinearity (no blow-up of the normal equations). ``y = s + noise`` with two
     near-duplicate selected columns of s -> the ridge still recovers s and STOPS."""
     rng = np.random.default_rng(SEED)
-    a = rng.normal(size=N); b = rng.normal(size=N); e = rng.normal(size=N)
+    a = rng.normal(size=N)
+    b = rng.normal(size=N)
+    e = rng.normal(size=N)
     s = a + b
     y = s + 0.05 * rng.normal(size=N)
-    s1 = s + 1e-4 * rng.normal(size=N)   # near-duplicate
+    s1 = s + 1e-4 * rng.normal(size=N)  # near-duplicate
     s2 = s * 1.0001 + 1e-4 * rng.normal(size=N)  # collinear
     data = _stack(a, b, e, s1, s2, y)
     cols = ["a", "b", "e", "s1", "s2", "y"]
@@ -159,7 +178,9 @@ def test_adversarial_f_feature_looks_complete_alone_but_isnt():
     coefficient is tuned so the residual passes the variance guard, FORCING the maxT path to
     do the blocking (the case that pins MI-detection of a partially-captured feature)."""
     rng = np.random.default_rng(SEED)
-    a = rng.uniform(-2, 2, N); b = rng.uniform(-2, 2, N); e = rng.normal(size=N)
+    a = rng.uniform(-2, 2, N)
+    b = rng.uniform(-2, 2, N)
+    e = rng.normal(size=N)
     y = a + 0.4 * a * b + 0.05 * rng.normal(size=N)
     data = _stack(a, b, e, y)
     cols = ["a", "b", "e", "y"]
@@ -179,7 +200,10 @@ def test_adversarial_g_weak_third_term_not_noise_blocks():
     selecting {a, b} the residual is dominated by the weak ``0.5*w`` term -- small, but NOT
     noise -- so w still beats its maxT null -> must NOT stop (residual still > null)."""
     rng = np.random.default_rng(SEED)
-    a = rng.normal(size=N); b = rng.normal(size=N); w = rng.normal(size=N); e = rng.normal(size=N)
+    a = rng.normal(size=N)
+    b = rng.normal(size=N)
+    w = rng.normal(size=N)
+    e = rng.normal(size=N)
     y = a + b + 0.5 * w + 0.02 * rng.normal(size=N)
     data = _stack(a, b, w, e, y)
     cols = ["a", "b", "w", "e", "y"]
@@ -198,7 +222,9 @@ def test_adversarial_h_heteroscedastic_residual_blocks_via_mi():
     location leftover -- it does not falsely declare sufficiency when an observable still
     carries information about the residual's distribution."""
     rng = np.random.default_rng(SEED)
-    a = rng.uniform(0, 1, N); b = rng.normal(size=N); e = rng.normal(size=N)
+    a = rng.uniform(0, 1, N)
+    b = rng.normal(size=N)
+    e = rng.normal(size=N)
     scale = 0.08 * (1.0 + 6.0 * a)  # spread depends strongly on a; mean does not
     y = a + b + scale * rng.normal(size=N)
     data = _stack(a, b, e, y)
@@ -219,7 +245,9 @@ def test_adversarial_i_nonlinear_leftover_linear_underfits_MI_still_catches():
     residual beats its maxT null -> do NOT stop. This is the explicit verification that an
     MI-based residual test (not a linear score) catches nonlinear leftovers."""
     rng = np.random.default_rng(SEED)
-    a = rng.normal(size=N); b = rng.uniform(-np.pi, np.pi, N); e = rng.normal(size=N)
+    a = rng.normal(size=N)
+    b = rng.uniform(-np.pi, np.pi, N)
+    e = rng.normal(size=N)
     # Big linear-a signal + SMALL nonlinear-b leftover: a dominates the variance, so after
     # the linear fit on {a, b} captures the a term, the residual (the small sin(5b)) is
     # below the variance guard -- yet sin(5b) is fully explained by b via MI (corr(b,sin 5b)
@@ -242,7 +270,8 @@ def test_adversarial_i_nonlinear_leftover_linear_underfits_MI_still_catches():
 # =====================================================================================
 def test_degenerate_no_raw_pool_does_not_stop():
     rng = np.random.default_rng(SEED)
-    a = rng.normal(size=N); y = a + 0.05 * rng.normal(size=N)
+    a = rng.normal(size=N)
+    y = a + 0.05 * rng.normal(size=N)
     data = _stack(a, y)
     v = _call(data, y, 1, [0], {"a": a}, [], ["a", "y"])
     assert not v.reached and "raw" in v.reason

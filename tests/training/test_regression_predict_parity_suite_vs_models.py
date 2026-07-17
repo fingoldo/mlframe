@@ -8,6 +8,7 @@ Two pre-fix divergences:
   (b) the from-models prob-combine omitted ``rrf_k``, replaying RRF with a hardcoded k=60 even when the
       train side stamped a different k.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -21,6 +22,7 @@ from mlframe.training.core.predict import (
 
 class _FakeQuantileModel:
     """Mimics a CB MultiQuantile / XGB quantile member carrying its alpha list."""
+
     def __init__(self, alphas):
         self.quantile_alpha = list(alphas)
 

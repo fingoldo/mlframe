@@ -24,6 +24,7 @@ Covers the MEDIUM-tier fixes applied to `src/mlframe/training/composite*.py`:
   unifies ``get_booster`` / ``booster_`` / ``n_features_in_`` to do the
   same. Tests verify all six raise ``NotFittedError`` before fit.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -51,9 +52,9 @@ def test_m1_update_uses_module_level_deque_no_local_reimport():
     (not a lazy local). We verify by name resolution at module level.
     """
     from collections import deque as _deque
+
     assert getattr(_ce, "deque", None) is _deque, (
-        "composite_ensemble.deque is not bound at module level to "
-        "collections.deque - update() must use a lazy local reimport"
+        "composite_ensemble.deque is not bound at module level to collections.deque - update() must use a lazy local reimport"
     )
 
 
@@ -168,14 +169,8 @@ def test_m3_spearman_demoter_handles_ties_with_rankdata():
     # rather than dramatically lower -- the bug it guards against is
     # the OTHER direction (insertion-order ties producing a false
     # monotonic signal). Both must be safely below 0.95.
-    assert new_corr < 0.95, (
-        f"Fixed Spearman {new_corr:.4f} unexpectedly above 0.95 demote threshold "
-        "on a heavily-tied (non-monotonic) column."
-    )
-    assert old_corr < 0.95, (
-        f"Reference argsort-of-argsort {old_corr:.4f} above threshold too; "
-        "fixture not adversarial enough to differentiate."
-    )
+    assert new_corr < 0.95, f"Fixed Spearman {new_corr:.4f} unexpectedly above 0.95 demote threshold on a heavily-tied (non-monotonic) column."
+    assert old_corr < 0.95, f"Reference argsort-of-argsort {old_corr:.4f} above threshold too; fixture not adversarial enough to differentiate."
 
 
 def test_m3_spearman_demoter_uses_rankdata():
@@ -188,11 +183,9 @@ def test_m3_spearman_demoter_uses_rankdata():
         # Some versions import it under a different alias; check the
         # module's globals dict for scipy.stats.rankdata identity.
         from scipy.stats import rankdata as _rd
+
         found = any(v is _rd for v in vars(_cd).values())
-        assert found, (
-            "composite_discovery does not have scipy.stats.rankdata in scope - "
-            "the M3 fix may have been reverted to argsort-of-argsort."
-        )
+        assert found, "composite_discovery does not have scipy.stats.rankdata in scope - the M3 fix may have been reverted to argsort-of-argsort."
 
 
 # ---------------------------------------------------------------------------
@@ -231,20 +224,15 @@ def test_m4_no_local_stdlib_reimports_in_composite_cache():
     level. We verify each name is present in the module globals.
     """
     import importlib as _importlib
-    expected = {
-        name: _importlib.import_module(name)
-        for name in ("os", "json", "tempfile", "pickle", "hashlib", "time")
-    }
+
+    expected = {name: _importlib.import_module(name) for name in ("os", "json", "tempfile", "pickle", "hashlib", "time")}
     for name, mod in expected.items():
         bound = getattr(_cc, name, None)
         # If not bound, that's fine ONLY if no method needs it.
         # Most likely it IS bound; we assert presence ANY of the names
         # to confirm module-level imports exist rather than purely lazy.
     bound_count = sum(1 for n in expected if getattr(_cc, n, None) is not None)
-    assert bound_count >= 3, (
-        "composite_cache.py has fewer than 3 stdlib names bound at module level - "
-        "lazy reimports may have been reintroduced."
-    )
+    assert bound_count >= 3, "composite_cache.py has fewer than 3 stdlib names bound at module level - lazy reimports may have been reintroduced."
 
 
 # ---------------------------------------------------------------------------

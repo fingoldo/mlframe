@@ -18,6 +18,7 @@ via their new ``precomputed_single_corr`` parameter.
 This test pins the memoization pattern directly (mirroring ``_cached_operand``'s own test file) rather
 than invoking ``score_prospective_pairs`` itself: identical values, fewer underlying calls, and the
 combined-with-precomputed-value call is bit-identical to the uncached one."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -106,7 +107,12 @@ def test_cached_values_feed_bit_identical_downstream_results():
 
         internal_decision = pair_is_tail_concentrated_rankaware(y, x0, x1, min_corr=0.3, pairness_margin=1.0)
         cached_decision = pair_is_tail_concentrated_rankaware(
-            y, x0, x1, min_corr=0.3, pairness_margin=1.0, precomputed_single_corr=(sc0, sc1),
+            y,
+            x0,
+            x1,
+            min_corr=0.3,
+            pairness_margin=1.0,
+            precomputed_single_corr=(sc0, sc1),
         )
         assert cached_decision == internal_decision
 

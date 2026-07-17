@@ -7,6 +7,7 @@ adaptive GC.
 entry loads normally.
 (3) Default env-var behaviour: profiler defaults ON; explicit "0" disables.
 """
+
 from __future__ import annotations
 
 import logging
@@ -48,6 +49,7 @@ def test_1_phase_ram_report_flags_page_thrashing(caplog):
     """When USS >> RSS by 2x+ on a 1 GB+ process, emit a PAGE_THRASHING marker.
     This is the signal the prior version masked entirely by reporting just RSS."""
     from mlframe.training.composite.discovery import _fit_ram as mod
+
     state: dict = {}
     with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery"):
         # Post-EmptyWorkingSet artefact: USS=60 GB, RSS=4 MB, commit roughly = USS.
@@ -64,6 +66,7 @@ def test_1_phase_ram_report_flags_commit_pressure(caplog):
     On Windows that consumes the system-wide commit limit and is the proximate
     OOM-kernel-kill cause even when USS / RSS look benign."""
     from mlframe.training.composite.discovery import _fit_ram as mod
+
     state: dict = {}
     with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery"):
         # Mid-discovery: USS=20 GB, RSS=20 GB, commit=90 GB (private bytes reserved
@@ -80,6 +83,7 @@ def test_1_phase_ram_report_tolerates_psutil_failure(caplog):
     """The profiler must not raise when memory read fails -- it's diagnostic-only
     and must never block a real fit() path."""
     from mlframe.training.composite.discovery import _fit_ram as mod
+
     state: dict = {}
     with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery"):
         with patch.object(mod, "_process_mem_mb", side_effect=RuntimeError("psutil down")):
@@ -146,8 +150,7 @@ def test_2_discovery_cache_skips_oversized_entry(tmp_path, caplog):
         with caplog.at_level(logging.WARNING, logger="mlframe.training.composite.cache"):
             value = cache.get(key, default=sentinel)
     assert value is sentinel, "oversized entry must read as miss"
-    assert any("oversized entry" in r.getMessage() for r in caplog.records), \
-        "must emit a WARNING about the skipped oversize entry"
+    assert any("oversized entry" in r.getMessage() for r in caplog.records), "must emit a WARNING about the skipped oversize entry"
     # Stale file preserved.
     assert os.path.exists(path)
 
@@ -156,11 +159,12 @@ def test_2_discovery_cache_loads_small_entry_normally(tmp_path):
     """Sanity gate: an entry well under the cap loads exactly the pickled value."""
     pytest.importorskip("pyutilz")
     from mlframe.training.composite.cache import DiscoveryCache
+
     cache = DiscoveryCache(cache_dir=str(tmp_path))
     key = "abc123"
     payload = {"value": 42, "spec_name": "TVT-diff-foo"}
     cache.set(key, payload)
-    with patch.dict(os.environ, {"MLFRAME_DISCOVERY_CACHE_MAX_BYTES": str(1024 ** 3)}):
+    with patch.dict(os.environ, {"MLFRAME_DISCOVERY_CACHE_MAX_BYTES": str(1024**3)}):
         got = cache.get(key, default=None)
     assert got == payload
 

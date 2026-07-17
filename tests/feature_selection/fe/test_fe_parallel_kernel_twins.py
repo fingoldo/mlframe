@@ -10,6 +10,7 @@ feature selection. These tests assert that bit-identity directly on the kernels,
 the joblib (>=50000-row) path keeps the serial variant (parallel dispatch is gated OFF when
 ``serial_main_thread`` is False).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,8 +45,8 @@ def test_materialise_parallel_eq_serial(n_rows, K, n_operands, with_nan, with_in
         _materialise_chunk_njit,
         _materialise_chunk_njit_parallel,
     )
-    tv, a_cols, b_cols, ops = _rand_inputs(n_rows, K, n_operands, seed=11 + n_rows + K,
-                                           with_nan=with_nan, with_inf=with_inf)
+
+    tv, a_cols, b_cols, ops = _rand_inputs(n_rows, K, n_operands, seed=11 + n_rows + K, with_nan=with_nan, with_inf=with_inf)
     out_serial = np.empty((n_rows, K), dtype=np.float32)
     out_parallel = np.empty((n_rows, K), dtype=np.float32)
     _materialise_chunk_njit(tv, a_cols, b_cols, ops, out_serial)
@@ -69,8 +70,8 @@ def test_materialise_output_always_finite_under_nan_inf_overflow(n_rows, K, n_op
         _materialise_chunk_njit,
         _materialise_chunk_njit_parallel,
     )
-    tv, a_cols, b_cols, ops = _rand_inputs(n_rows, K, n_operands, seed=7 + n_rows,
-                                           with_nan=True, with_inf=True)
+
+    tv, a_cols, b_cols, ops = _rand_inputs(n_rows, K, n_operands, seed=7 + n_rows, with_nan=True, with_inf=True)
     # force overflow + zero-denominator paths: huge magnitudes (mul -> +-inf in f32) and exact zeros.
     rng = np.random.default_rng(99 + K)
     tv[rng.integers(0, n_rows, n_rows // 10), rng.integers(0, n_operands, n_rows // 10)] = np.float32(3e19)
@@ -80,12 +81,8 @@ def test_materialise_output_always_finite_under_nan_inf_overflow(n_rows, K, n_op
     out_parallel = np.empty((n_rows, K), dtype=np.float32)
     _materialise_chunk_njit(tv, a_cols, b_cols, ops, out_serial)
     _materialise_chunk_njit_parallel(tv, a_cols, b_cols, ops, out_parallel)
-    assert np.isfinite(out_serial).all(), (
-        "serial materialise leaked a non-finite value -- assume_finite=True would feed it to the discretiser"
-    )
-    assert np.isfinite(out_parallel).all(), (
-        "parallel materialise leaked a non-finite value -- assume_finite=True would feed it to the discretiser"
-    )
+    assert np.isfinite(out_serial).all(), "serial materialise leaked a non-finite value -- assume_finite=True would feed it to the discretiser"
+    assert np.isfinite(out_parallel).all(), "parallel materialise leaked a non-finite value -- assume_finite=True would feed it to the discretiser"
 
 
 @pytest.mark.parametrize("dtype_in", [np.float32, np.float64])
@@ -95,20 +92,17 @@ def test_searchsorted_parallel_eq_serial(n_rows, K, dtype_in):
         _searchsorted_2d_right_njit,
         _searchsorted_2d_right_njit_parallel,
     )
+
     rng = np.random.default_rng(7 + n_rows + K)
     arr2d = np.ascontiguousarray(rng.standard_normal((n_rows, K)).astype(dtype_in))
     # n_bins-1 interior edges per column, ascending (mirrors the percentile edge slice).
     n_edges = 9
-    edges_inner = np.ascontiguousarray(
-        np.sort(rng.standard_normal((n_edges, K)), axis=0).astype(np.float64)
-    )
+    edges_inner = np.ascontiguousarray(np.sort(rng.standard_normal((n_edges, K)), axis=0).astype(np.float64))
     out_serial = np.empty((n_rows, K), dtype=np.int8)
     out_parallel = np.empty((n_rows, K), dtype=np.int8)
     _searchsorted_2d_right_njit(edges_inner, arr2d, out_serial)
     _searchsorted_2d_right_njit_parallel(edges_inner, arr2d, out_parallel)
-    assert np.array_equal(out_serial, out_parallel), (
-        "parallel searchsorted twin diverged from serial"
-    )
+    assert np.array_equal(out_serial, out_parallel), "parallel searchsorted twin diverged from serial"
 
 
 def test_searchsorted_parallel_eq_serial_with_nan():
@@ -117,6 +111,7 @@ def test_searchsorted_parallel_eq_serial_with_nan():
         _searchsorted_2d_right_njit,
         _searchsorted_2d_right_njit_parallel,
     )
+
     rng = np.random.default_rng(99)
     n_rows, K, n_edges = 500, 40, 9
     arr2d = rng.standard_normal((n_rows, K)).astype(np.float32)
@@ -134,6 +129,7 @@ def test_discretize_2d_quantile_batch_parallel_flag_byte_identical():
     """The public ``discretize_2d_quantile_batch(parallel=True)`` produces byte-identical
     codes to ``parallel=False`` (the dispatch must not perturb output)."""
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+
     rng = np.random.default_rng(3)
     arr2d = rng.standard_normal((2407, 400)).astype(np.float32)
     a = discretize_2d_quantile_batch(arr2d, n_bins=10, dtype=np.int32, parallel=False)
@@ -150,6 +146,7 @@ def test_discretize_2d_quantile_batch_assume_finite_byte_identical(n_rows, K, dt
     scan returns False and runs the SAME ``_quantile_edges_2d_njit`` branch, so the codes MUST be
     byte-identical. Pins the wasted-work removal (iter44) so a future change cannot perturb output."""
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+
     rng = np.random.default_rng(101 + n_rows + K)
     arr2d = np.ascontiguousarray(rng.standard_normal((n_rows, K)).astype(dtype_in))
     ref = discretize_2d_quantile_batch(arr2d, n_bins=10, dtype=np.int32, parallel=parallel)
@@ -162,6 +159,7 @@ def test_discretize_2d_quantile_batch_default_still_nan_aware():
     through ``np.nanpercentile`` so a NaN column does not collapse to a constant. Pins that the
     iter44 fast path did NOT remove the safety net from the default."""
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+
     rng = np.random.default_rng(202)
     arr2d = rng.standard_normal((400, 8)).astype(np.float64)
     arr2d[:50, 3] = np.nan  # NaN-bearing column
@@ -184,6 +182,7 @@ def test_dispatch_predicate_gates_on_serial_main_thread():
         _fe_use_parallel_kernels,
         _fe_parallelism_fallback_choice,
     )
+
     # INVARIANT (the deadlock guard): joblib path -> never parallel, for ANY column count or cache state.
     for n in (8, 256, 4096, 100_000):
         assert _fe_use_parallel_kernels(n, serial_main_thread=False) is False

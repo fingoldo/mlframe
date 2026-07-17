@@ -40,6 +40,7 @@ PROD BUG surfaced (see ``test_xfail_...`` below): on ``make_signal_plus_noise`` 
 returns an EMPTY ``support_`` (0-width ``transform``) on a majority of seeds despite
 ``min_features_fallback=1``, whose docstring guarantees ``support_`` is never empty.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -60,8 +61,8 @@ from tests.feature_selection.conftest import fast_subset, is_fast_mode
 # ---------------------------------------------------------------------------
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _mrmr_kwargs(seed: int, fe: bool = False) -> dict:
     kw = dict(
@@ -107,11 +108,7 @@ def _auc_on_cols(X: pd.DataFrame, y: pd.Series, cols, cv: int = 5) -> float:
     cols = list(cols)
     if not cols:
         return float("nan")
-    return float(
-        cross_val_score(
-            LogisticRegression(max_iter=400), X[cols], y, cv=cv, scoring="roc_auc"
-        ).mean()
-    )
+    return float(cross_val_score(LogisticRegression(max_iter=400), X[cols], y, cv=cv, scoring="roc_auc").mean())
 
 
 def _fit_mrmr(X: pd.DataFrame, y: pd.Series, seed: int, fe: bool = False):
@@ -145,19 +142,13 @@ def _skb_cols(X: pd.DataFrame, y: pd.Series, k: int, seed: int) -> list[str]:
 
 
 def _rfe_cols(X: pd.DataFrame, y: pd.Series, k: int, seed: int) -> list[str]:
-    rfe = RFE(
-        LogisticRegression(max_iter=400, random_state=seed), n_features_to_select=k
-    ).fit(X.values, y.values)
+    rfe = RFE(LogisticRegression(max_iter=400, random_state=seed), n_features_to_select=k).fit(X.values, y.values)
     return [X.columns[i] for i in np.flatnonzero(rfe.get_support())]
 
 
-def _random_k_mean_auc(X: pd.DataFrame, y: pd.Series, k: int, seed: int,
-                        draws: int = 5) -> float:
+def _random_k_mean_auc(X: pd.DataFrame, y: pd.Series, k: int, seed: int, draws: int = 5) -> float:
     rng = np.random.default_rng(7000 + seed)
-    aucs = [
-        _auc_on_cols(X, y, list(rng.choice(X.columns, size=k, replace=False)))
-        for _ in range(draws)
-    ]
+    aucs = [_auc_on_cols(X, y, list(rng.choice(X.columns, size=k, replace=False))) for _ in range(draws)]
     return float(np.mean(aucs))
 
 
@@ -197,14 +188,7 @@ def make_dominant_cluster_fixture(n: int = 2000, seed: int = 0):
     cols["indep1"] = indep1
     for j in range(20):
         cols[f"noise{j}"] = rng.standard_normal(n)
-    score = (
-        2.2 * latents[0]
-        + 1.3 * latents[1]
-        + 1.3 * latents[2]
-        + 1.1 * indep0
-        + 1.1 * indep1
-        + 0.3 * rng.standard_normal(n)
-    )
+    score = 2.2 * latents[0] + 1.3 * latents[1] + 1.3 * latents[2] + 1.1 * indep0 + 1.1 * indep1 + 0.3 * rng.standard_normal(n)
     y = (score > np.median(score)).astype(np.int64)
     return pd.DataFrame(cols), pd.Series(y, name="y")
 
@@ -281,8 +265,7 @@ def test_biz_val_mrmr_ties_or_beats_selectkbest_at_matched_k():
     assert valid >= 1, f"MRMR produced no usable selection on any seed; rows={rows}"
     need = _majority(valid)
     assert wins >= need, (
-        f"MRMR should tie-or-beat SelectKBest within {margin} at matched K on a "
-        f"majority of seeds; got {wins}/{valid} (need {need}). rows={rows}"
+        f"MRMR should tie-or-beat SelectKBest within {margin} at matched K on a majority of seeds; got {wins}/{valid} (need {need}). rows={rows}"
     )
 
 
@@ -315,10 +298,7 @@ def test_biz_val_mrmr_top4_beats_random_and_undercuts_allfeatures():
         if np.isnan(a_mrmr4):
             continue
         valid += 1
-        assert a_mrmr4 <= a_all + 1e-9, (
-            f"seed={seed}: 4-feature MRMR AUC {a_mrmr4:.4f} exceeded the all-features "
-            f"oracle {a_all:.4f} -- AUC helper leak?"
-        )
+        assert a_mrmr4 <= a_all + 1e-9, f"seed={seed}: 4-feature MRMR AUC {a_mrmr4:.4f} exceeded the all-features oracle {a_all:.4f} -- AUC helper leak?"
         if a_mrmr4 >= a_rand + rand_margin:
             beats_rand += 1
 
@@ -330,8 +310,7 @@ def test_biz_val_mrmr_top4_beats_random_and_undercuts_allfeatures():
     assert valid >= 1, f"MRMR produced no usable top-4 on any seed; rows={rows}"
     need = _majority(valid)
     assert beats_rand >= need, (
-        f"MRMR top-4 should beat the random-K floor by >= {rand_margin} on a "
-        f"majority of seeds; got {beats_rand}/{valid} (need {need}). rows={rows}"
+        f"MRMR top-4 should beat the random-K floor by >= {rand_margin} on a majority of seeds; got {beats_rand}/{valid} (need {need}). rows={rows}"
     )
 
 
@@ -399,12 +378,8 @@ def test_biz_val_quality_vs_k_frontier():
     print("\nquality-vs-K frontier (dominant-cluster fixture), downstream LogReg AUC:")
     print("  seed  method " + "".join(f"  K={k:<3}" for k in ks))
     for seed, auc_m, auc_i in table:
-        m_row = "  {:>4}  mrmr   ".format(seed) + "".join(
-            f"  {auc_m[k]:>5.3f}" if not np.isnan(auc_m[k]) else "  ----." for k in ks
-        )
-        i_row = "  {:>4}  mi     ".format(seed) + "".join(
-            f"  {auc_i[k]:>5.3f}" if not np.isnan(auc_i[k]) else "  ----." for k in ks
-        )
+        m_row = "  {:>4}  mrmr   ".format(seed) + "".join(f"  {auc_m[k]:>5.3f}" if not np.isnan(auc_m[k]) else "  ----." for k in ks)
+        i_row = "  {:>4}  mi     ".format(seed) + "".join(f"  {auc_i[k]:>5.3f}" if not np.isnan(auc_i[k]) else "  ----." for k in ks)
         print(m_row)
         print(i_row)
 
@@ -453,11 +428,7 @@ def test_biz_val_h2h_honest_tie_on_linear_no_redundancy():
         sel = _fit_mrmr(X, y, seed, fe=True)
         xt = sel.transform(X)
         a_mrmr = (
-            float(
-                cross_val_score(
-                    LogisticRegression(max_iter=400), xt, y, cv=5, scoring="roc_auc"
-                ).mean()
-            )
+            float(cross_val_score(LogisticRegression(max_iter=400), xt, y, cv=5, scoring="roc_auc").mean())
             if getattr(xt, "shape", (0, 0))[1] > 0
             else float("nan")
         )
@@ -512,7 +483,4 @@ def test_biz_val_h2h_vs_pip_mrmr_when_installed():
             ok += 1
     assert valid >= 1, "no seed produced a comparable >=4-feature MRMR selection"
     need = _majority(valid)
-    assert ok >= need, (
-        f"mlframe MRMR and pip mrmr_classif should be within {margin} AUC on a "
-        f"majority of seeds; got {ok}/{valid} (need {need})."
-    )
+    assert ok >= need, f"mlframe MRMR and pip mrmr_classif should be within {margin} AUC on a majority of seeds; got {ok}/{valid} (need {need})."

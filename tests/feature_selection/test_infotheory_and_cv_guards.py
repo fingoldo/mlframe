@@ -7,6 +7,7 @@
 - merge_vars: freqs / len(factors_data) divided by zero on an empty frame; now returns an empty freq vector.
 - RFECV _resolve_cv_and_val_cv: groups + a temporal signal silently chose GroupKFold (no time ordering); now warns.
 """
+
 import logging
 
 import numpy as np
@@ -68,9 +69,7 @@ def test_bayesian_blocks_rejects_nonprobability_p0():
 
 def test_merge_vars_empty_frame_no_divide_by_zero():
     factors = np.empty((0, 2), dtype=np.int32)
-    fc, freqs, ncl = merge_vars(
-        factors, np.array([0, 1]), np.array([False, False]), np.array([2, 2], dtype=np.int64)
-    )
+    fc, freqs, ncl = merge_vars(factors, np.array([0, 1]), np.array([False, False]), np.array([2, 2], dtype=np.int64))
     assert len(fc) == 0
     assert freqs.size == 0 and np.isfinite(freqs).all()
 
@@ -87,9 +86,17 @@ def test_rfecv_routes_groups_plus_temporal_to_group_time_series():
     groups = np.repeat(np.arange(6), 5)  # 6 groups >= n_splits+1
     ts = np.arange(n)  # monotonic timestamps hint
     cv, _val, _es = _resolve_cv_and_val_cv(
-        cv=3, estimator=RandomForestRegressor(n_estimators=3), X=X, y=np.arange(n, dtype=float),
-        groups=groups, cv_shuffle=False, random_state=0, verbose=False,
-        fit_params={"timestamps": ts}, early_stopping_val_nsplits=0, early_stopping_rounds=None,
+        cv=3,
+        estimator=RandomForestRegressor(n_estimators=3),
+        X=X,
+        y=np.arange(n, dtype=float),
+        groups=groups,
+        cv_shuffle=False,
+        random_state=0,
+        verbose=False,
+        fit_params={"timestamps": ts},
+        early_stopping_val_nsplits=0,
+        early_stopping_rounds=None,
         _polars_time_series_hint=False,
     )
     assert isinstance(cv, GroupTimeSeriesSplit), f"expected GroupTimeSeriesSplit, got {type(cv).__name__}"

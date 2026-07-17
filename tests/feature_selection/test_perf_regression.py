@@ -15,6 +15,7 @@ Hot paths covered:
 
 Always warm up before timing; use ``time.perf_counter`` for highest-resolution monotonic timer.
 """
+
 from __future__ import annotations
 
 import time
@@ -46,10 +47,7 @@ def _build_screen_inputs(n: int = 1000, n_noise: int = 8, n_signal: int = 2, see
     y = (sig[:, 0] + sig[:, 1] > 0).astype(np.int32)
     noise = rng.normal(size=(n, n_noise))
     x_cont = np.column_stack([sig, noise])
-    x_disc = np.column_stack([
-        discretize_array(arr=x_cont[:, j], n_bins=10, method="quantile", dtype=np.int32)
-        for j in range(x_cont.shape[1])
-    ])
+    x_disc = np.column_stack([discretize_array(arr=x_cont[:, j], n_bins=10, method="quantile", dtype=np.int32) for j in range(x_cont.shape[1])])
     factors_data = np.column_stack([x_disc, y]).astype(np.int32)
     factors_nbins = np.array([10] * x_disc.shape[1] + [2], dtype=np.int64)
     names = [f"F{i}" for i in range(factors_data.shape[1])]
@@ -115,10 +113,7 @@ def test_perf_screen_n1000_under_threshold():
     # 5.0s = ~250x observed warm time (~20ms). Generous to absorb CI variance + tqdm overhead. Regressions of
     # the hot path that matter (>2x algorithmic slowdown, kernel decompile, lost cache) will blow past this floor.
     threshold = 5.0
-    assert elapsed < threshold, (
-        f"screen_predictors warm call took {elapsed:.3f}s, threshold {threshold:.2f}s. "
-        f"Possible regression on the screening hot path."
-    )
+    assert elapsed < threshold, f"screen_predictors warm call took {elapsed:.3f}s, threshold {threshold:.2f}s. Possible regression on the screening hot path."
 
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -139,15 +134,23 @@ def test_perf_mi_direct_n10k_cached_under_threshold():
 
     # First call: warms numba dispatcher signatures for these dtype combos.
     mi_direct(
-        factors, (0,), (1,), factors_nbins,
-        npermutations=10, parallelism="none",
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=10,
+        parallelism="none",
     )
 
     # Timed call: pure cache hit.
     t0 = time.perf_counter()
     mi_direct(
-        factors, (0,), (1,), factors_nbins,
-        npermutations=10, parallelism="none",
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=10,
+        parallelism="none",
     )
     elapsed = time.perf_counter() - t0
 
@@ -156,8 +159,7 @@ def test_perf_mi_direct_n10k_cached_under_threshold():
         pytest.skip("timing assertion unreliable under -n contention")
     threshold = 0.050  # 50ms
     assert elapsed < threshold, (
-        f"mi_direct warm call took {elapsed*1000:.2f}ms, threshold {threshold*1000:.0f}ms. "
-        f"Possible regression on the MI permutation hot path."
+        f"mi_direct warm call took {elapsed * 1000:.2f}ms, threshold {threshold * 1000:.0f}ms. Possible regression on the MI permutation hot path."
     )
 
 
@@ -184,22 +186,29 @@ def test_perf_prewarm_eliminates_cold_start():
 
     # Extra explicit warm-up to absorb any first-touch numba-dispatcher overhead at the actual call site.
     mi_direct(
-        factors, (0,), (1,), factors_nbins,
-        npermutations=10, parallelism="none",
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=10,
+        parallelism="none",
     )
 
     # Timed call.
     t0 = time.perf_counter()
     mi_direct(
-        factors, (0,), (1,), factors_nbins,
-        npermutations=10, parallelism="none",
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=10,
+        parallelism="none",
     )
     t_warm = time.perf_counter() - t0
 
     # 100ms ceiling: cleanly below any cold-compile budget (~8s), well above warm-cache baseline (~2-3ms).
     assert t_warm < 0.1, (
-        f"post-prewarm mi_direct took {t_warm*1000:.2f}ms — expected sub-100ms "
-        f"on a warmed numba cache. Possible prewarm regression or cache eviction."
+        f"post-prewarm mi_direct took {t_warm * 1000:.2f}ms — expected sub-100ms on a warmed numba cache. Possible prewarm regression or cache eviction."
     )
 
 
@@ -245,10 +254,7 @@ def test_perf_mi_direct_gpu_at_n100k():
                 f"Pascal lands at 0.1-0.3x dominated by H2D sync."
             )
         if _vram_total < 4 * 1024 * 1024 * 1024:
-            pytest.skip(
-                f"GPU VRAM {_vram_total / 1e9:.1f} GB below 4 GB threshold; "
-                f"kernel residency / launch-overhead floors do not apply."
-            )
+            pytest.skip(f"GPU VRAM {_vram_total / 1e9:.1f} GB below 4 GB threshold; kernel residency / launch-overhead floors do not apply.")
     except Exception as _gpu_info_err:
         pytest.skip(f"GPU capability probe failed: {_gpu_info_err}")
 
@@ -259,11 +265,18 @@ def test_perf_mi_direct_gpu_at_n100k():
 
     # Warm BOTH paths — CPU numba dispatchers and GPU cuda kernels both pay first-call JIT.
     mi_direct(
-        factors, (0,), (1,), factors_nbins,
-        npermutations=10, parallelism="none",
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=10,
+        parallelism="none",
     )
     mi_direct_gpu(
-        factors, (0,), (1,), factors_nbins,
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
         npermutations=10,
     )
 
@@ -273,15 +286,22 @@ def test_perf_mi_direct_gpu_at_n100k():
     N_PERMS = 500
     t0 = time.perf_counter()
     mi_direct(
-        factors, (0,), (1,), factors_nbins,
-        npermutations=N_PERMS, parallelism="none",
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
+        npermutations=N_PERMS,
+        parallelism="none",
     )
     t_cpu = time.perf_counter() - t0
 
     # Time GPU.
     t0 = time.perf_counter()
     mi_direct_gpu(
-        factors, (0,), (1,), factors_nbins,
+        factors,
+        (0,),
+        (1,),
+        factors_nbins,
         npermutations=N_PERMS,
     )
     t_gpu = time.perf_counter() - t0
@@ -315,7 +335,7 @@ def test_perf_mi_direct_gpu_at_n100k():
             f"GPU mi_direct CATASTROPHICALLY slow vs CPU at n=100k "
             f"(speedup={speedup:.2f}x, floor 0.02x). Likely a kernel "
             f"decompile / H2D sync regression. "
-            f"({t_cpu*1000:.1f}ms CPU vs {t_gpu*1000:.1f}ms GPU)"
+            f"({t_cpu * 1000:.1f}ms CPU vs {t_gpu * 1000:.1f}ms GPU)"
         )
     if speedup < 0.7:
         pytest.xfail(
@@ -323,7 +343,7 @@ def test_perf_mi_direct_gpu_at_n100k():
             f"(speedup={speedup:.2f}x, parity floor 0.7x). Soft sensor: "
             f"shared / low-end GPU vs aggressive CPU baseline; the GPU "
             f"path still wins at n>=200k. "
-            f"({t_cpu*1000:.1f}ms CPU vs {t_gpu*1000:.1f}ms GPU)"
+            f"({t_cpu * 1000:.1f}ms CPU vs {t_gpu * 1000:.1f}ms GPU)"
         )
 
 
@@ -353,6 +373,5 @@ def test_perf_discretize_array_n100k_under_50ms():
 
     threshold = 0.050  # 50ms
     assert elapsed < threshold, (
-        f"discretize_array warm call took {elapsed*1000:.2f}ms, threshold {threshold*1000:.0f}ms. "
-        f"Possible regression on the quantile-binning fast path."
+        f"discretize_array warm call took {elapsed * 1000:.2f}ms, threshold {threshold * 1000:.0f}ms. Possible regression on the quantile-binning fast path."
     )

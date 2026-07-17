@@ -19,8 +19,7 @@ def test_gradient_returns_valid_candidates_and_beats_random():
     truth = [0, 1, 2, 3]
     y = base + phi[:, truth].sum(axis=1) + 0.02 * rng.normal(size=n)
 
-    top = gradient_top_n(phi, base, y, classification=False, metric="rmse",
-                         n_iter=300, random_state=0, top_n=5)
+    top = gradient_top_n(phi, base, y, classification=False, metric="rmse", n_iter=300, random_state=0, top_n=5)
     assert len(top) >= 1
     # ascending, deduplicated, all non-empty
     losses = [l for l, _ in top]

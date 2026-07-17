@@ -8,6 +8,7 @@ Covers:
   - S6  : ``dichotomic_epsilon`` random kick in ExhaustiveDichotomic.
   - S5  : ScipyLocal/ScipyGlobal aliased to dichotomic (no scipy roundtrip).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -132,7 +133,10 @@ class TestConvergenceTolerance:
         sel_legacy.fit(X, y)
 
         sel_tol = RFECV(
-            estimator=Ridge(), cv=3, max_refits=30, random_state=0,
+            estimator=Ridge(),
+            cv=3,
+            max_refits=30,
+            random_state=0,
             convergence_tol=1e-3,
             convergence_tol_window=5,
         )
@@ -159,6 +163,7 @@ class TestOptimizerTargetMean:
     def test_optimizer_target_final_score_submits_adjusted(self, monkeypatch):
         # Capture what gets submitted to the MBH surrogate.
         from mlframe.models.optimization import MBHOptimizer
+
         captured: list = []
         orig = MBHOptimizer.submit_evaluations
 
@@ -172,8 +177,12 @@ class TestOptimizerTargetMean:
         X, y = make_regression(n_samples=200, n_features=10, n_informative=3, random_state=0, noise=1.0)
         # std_perf_weight=1.0 makes the difference between 'mean' and 'final_score' large.
         sel = RFECV(
-            estimator=Ridge(), cv=3, max_refits=3, random_state=0,
-            optimizer_target="final_score", std_perf_weight=1.0,
+            estimator=Ridge(),
+            cv=3,
+            max_refits=3,
+            random_state=0,
+            optimizer_target="final_score",
+            std_perf_weight=1.0,
         )
         sel.fit(X, y)
 
@@ -199,6 +208,7 @@ class TestOptimizerTargetMean:
 class TestInitDesignSize:
     def test_auto_scales_with_p(self):
         from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
+
         # Tiny p=8 -> K=2 (legacy + 1 anchor only).
         r = RFECV(estimator=Ridge(), max_refits=10)
         opt = _build_mbh_optimizer(
@@ -212,6 +222,7 @@ class TestInitDesignSize:
 
     def test_auto_larger_p_gets_more_seeds(self):
         from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
+
         r = RFECV(estimator=Ridge(), max_refits=50)
         opt = _build_mbh_optimizer(
             r,
@@ -224,6 +235,7 @@ class TestInitDesignSize:
 
     def test_explicit_int_overrides_auto(self):
         from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
+
         r = RFECV(estimator=Ridge(), max_refits=10, init_design_size=3)
         opt = _build_mbh_optimizer(
             r,
@@ -235,6 +247,7 @@ class TestInitDesignSize:
 
     def test_none_keeps_legacy_single_seed(self):
         from mlframe.feature_selection.wrappers.rfecv._mbh_optimizer import _build_mbh_optimizer
+
         r = RFECV(estimator=Ridge(), max_refits=10, init_design_size=None)
         opt = _build_mbh_optimizer(
             r,
@@ -252,7 +265,9 @@ def test_wave2_defaults_e2e_classification():
     X, y = make_classification(n_samples=200, n_features=12, n_informative=6, random_state=0)
     sel = RFECV(
         estimator=LogisticRegression(max_iter=300),
-        cv=3, max_refits=8, random_state=0,
+        cv=3,
+        max_refits=8,
+        random_state=0,
     )
     sel.fit(X, y)
     assert sel.n_features_ >= 1

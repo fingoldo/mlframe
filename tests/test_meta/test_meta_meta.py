@@ -239,4 +239,4 @@ def test_perf_budget_overrides_are_documented():
     test_stems = {p.stem for p in _meta_test_files()}
     stale = [k for k in _PERF_BUDGET_OVERRIDES if k not in test_stems]
     if stale:
-        pytest.fail(f"_PERF_BUDGET_OVERRIDES has entries for {stale} which no " f"longer exist in the meta-test dir — clean up after rename")
+        pytest.fail(f"_PERF_BUDGET_OVERRIDES has entries for {stale} which no longer exist in the meta-test dir — clean up after rename")

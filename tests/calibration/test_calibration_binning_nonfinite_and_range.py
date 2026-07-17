@@ -4,6 +4,7 @@
 numba kernel with bounds-checking off. Out-of-[0,1] predictions were also mis-binned against the stale (1.0, 0.0)
 seed. Fix: drop non-finite predictions at the Python boundary, seed span from the data, and clamp the index.
 """
+
 import numpy as np
 import pytest
 

@@ -49,9 +49,7 @@ def _make_subgroup_miscalibrated_dataset(n: int, seed: int):
 def test_biz_val_threshold_range_rescaler_finds_and_applies_subgroup_correction():
     pred, y, subgroups = _make_subgroup_miscalibrated_dataset(n=6000, seed=0)
 
-    pred_train, pred_test, y_train, y_test, idx_train, idx_test = train_test_split(
-        pred, y, np.arange(len(pred)), test_size=0.4, random_state=0, stratify=y
-    )
+    pred_train, pred_test, y_train, y_test, idx_train, idx_test = train_test_split(pred, y, np.arange(len(pred)), test_size=0.4, random_state=0, stratify=y)
     subgroups_train = {name: mask[idx_train] for name, mask in subgroups.items()}
     subgroups_test = {name: mask[idx_test] for name, mask in subgroups.items()}
 
@@ -75,9 +73,7 @@ def test_biz_val_threshold_range_rescaler_finds_and_applies_subgroup_correction(
     corrected_test = rescaler.transform(pred_test, subgroups_test)
     corrected_test_auc = roc_auc_score(y_test, corrected_test)
 
-    assert corrected_test_auc > baseline_test_auc, (
-        f"expected held-out AUC improvement, baseline={baseline_test_auc:.4f}, corrected={corrected_test_auc:.4f}"
-    )
+    assert corrected_test_auc > baseline_test_auc, f"expected held-out AUC improvement, baseline={baseline_test_auc:.4f}, corrected={corrected_test_auc:.4f}"
     improvement = corrected_test_auc - baseline_test_auc
     assert improvement > 0.01, f"expected a real (>0.01) held-out AUC gain, got {improvement:.4f}"
 
@@ -97,9 +93,7 @@ def test_biz_val_threshold_range_rescaler_noop_when_no_genuine_subgroup_miscalib
 
     subgroups = {"revolving_loan": is_revolving, "other_loan": ~is_revolving}
 
-    pred_train, pred_test, y_train, y_test, idx_train, idx_test = train_test_split(
-        pred, y, np.arange(len(pred)), test_size=0.4, random_state=1, stratify=y
-    )
+    pred_train, pred_test, y_train, y_test, idx_train, idx_test = train_test_split(pred, y, np.arange(len(pred)), test_size=0.4, random_state=1, stratify=y)
     subgroups_train = {name: mask[idx_train] for name, mask in subgroups.items()}
     subgroups_test = {name: mask[idx_test] for name, mask in subgroups.items()}
 
@@ -121,12 +115,9 @@ def test_biz_val_threshold_range_rescaler_noop_when_no_genuine_subgroup_miscalib
     # either no correction was accepted, or every accepted multiplier is close to a no-op
     if rescaler.corrections_:
         for correction in rescaler.corrections_:
-            assert abs(correction.multiplier - 1.0) < 0.15, (
-                f"expected near-no-op multiplier on well-calibrated data, got {correction.multiplier}"
-            )
+            assert abs(correction.multiplier - 1.0) < 0.15, f"expected near-no-op multiplier on well-calibrated data, got {correction.multiplier}"
 
     # held-out AUC must not meaningfully move (CV-fit noise should not survive to held-out data)
     assert abs(corrected_test_auc - baseline_test_auc) < 0.01, (
-        f"expected negligible held-out AUC change on well-calibrated data, "
-        f"baseline={baseline_test_auc:.4f}, corrected={corrected_test_auc:.4f}"
+        f"expected negligible held-out AUC change on well-calibrated data, baseline={baseline_test_auc:.4f}, corrected={corrected_test_auc:.4f}"
     )

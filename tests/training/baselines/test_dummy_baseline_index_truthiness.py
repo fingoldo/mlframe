@@ -8,6 +8,7 @@ Pre-fix repro:
     >>> idx or []
     ValueError: The truth value of a Index is ambiguous. ...
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -48,4 +49,5 @@ def test_none_df_returns_empty_columns():
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "--no-cov", "-x", "-s", "--tb=short"]))

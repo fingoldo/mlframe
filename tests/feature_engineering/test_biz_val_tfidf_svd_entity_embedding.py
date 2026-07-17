@@ -6,6 +6,7 @@ categories common across every entity (uninformative) and up-weights rare, entit
 test confirms the TF-IDF+SVD embedding recovers a target driven by rare-category membership that a naive
 raw-count-based representation dilutes.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -50,7 +51,9 @@ def test_biz_val_tfidf_svd_embedding_recovers_rare_category_signal():
     auc_raw_count = cross_val_score(LogisticRegression(max_iter=500), count_matrix.to_numpy(), y, cv=5, scoring="roc_auc").mean()
 
     assert auc_tfidf > 0.9, f"expected the TF-IDF+SVD embedding to strongly recover the rare-category-driven label, got AUC={auc_tfidf:.4f}"
-    assert auc_tfidf >= auc_raw_count - 0.1, f"expected TF-IDF+SVD to be reasonably close to the raw count baseline (which sees the rare category directly, uncompressed) despite the lossy dimensionality reduction, got tfidf={auc_tfidf:.4f} raw_count={auc_raw_count:.4f}"
+    assert auc_tfidf >= auc_raw_count - 0.1, (
+        f"expected TF-IDF+SVD to be reasonably close to the raw count baseline (which sees the rare category directly, uncompressed) despite the lossy dimensionality reduction, got tfidf={auc_tfidf:.4f} raw_count={auc_raw_count:.4f}"
+    )
 
 
 def test_tfidf_svd_entity_embedding_output_shape():

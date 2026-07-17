@@ -9,6 +9,7 @@ gracefully (the recurrent member is simply dropped from the ensemble) instead of
 
 SEQUENCE_ONLY carries its signal in ``sequences`` and runs fine with no aux features -- the guard must NOT fire there.
 """
+
 from __future__ import annotations
 
 import sys

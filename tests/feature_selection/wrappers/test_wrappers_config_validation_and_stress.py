@@ -18,6 +18,7 @@ Stress scenarios:
 - S4 tied-importance ordering robustness
 - S5 cross-estimator multi-estimator agreement
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,16 +45,20 @@ class TestB6_DuplicateColumns:
         rng = np.random.default_rng(0)
         n = 200
         base = rng.standard_normal(n)
-        X = pd.DataFrame({
-            "a": base,
-            "b": base.copy(),  # exact duplicate of a
-            "c": rng.standard_normal(n),
-            "d": base.copy(),  # another duplicate of a
-        })
+        X = pd.DataFrame(
+            {
+                "a": base,
+                "b": base.copy(),  # exact duplicate of a
+                "c": rng.standard_normal(n),
+                "d": base.copy(),  # another duplicate of a
+            }
+        )
         y = (base > 0).astype(int)
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=2, verbose=0,
+            cv=3,
+            max_refits=2,
+            verbose=0,
             leakage_corr_threshold=None,
         )
         rfecv.fit(X, y)
@@ -63,10 +68,7 @@ class TestB6_DuplicateColumns:
         assert "c" in names_in
         # At most one of {a, b, d}
         dup_set_kept = sum(1 for f in ("a", "b", "d") if f in names_in)
-        assert dup_set_kept == 1, (
-            f"Expected exactly one of {{a,b,d}} to survive dedup; "
-            f"got {dup_set_kept}: {names_in}"
-        )
+        assert dup_set_kept == 1, f"Expected exactly one of {{a,b,d}} to survive dedup; got {dup_set_kept}: {names_in}"
 
     def test_real_minus_1_234e308_value_does_not_collide_with_nan(self):
         """The prior dedup path replaced NaN with the literal ``-1.234e308`` sentinel and hashed via ``tobytes()``; any column that happened to contain that exact float value collided with a NaN-only column and got mis-deduplicated. ``pandas.util.hash_array`` treats NaN as its own sentinel and is dtype-aware, so this collision class is gone.
@@ -90,7 +92,10 @@ class TestB6_DuplicateColumns:
         lgb = pytest.importorskip("lightgbm")
         rfecv = RFECV(
             estimator=lgb.LGBMClassifier(n_estimators=20, max_depth=3, verbose=-1, random_state=0),
-            cv=3, max_refits=2, verbose=0, leakage_corr_threshold=None,
+            cv=3,
+            max_refits=2,
+            verbose=0,
+            leakage_corr_threshold=None,
         )
         rfecv.fit(X, y)
         names_in = list(rfecv.feature_names_in_)
@@ -104,24 +109,27 @@ class TestB6_DuplicateColumns:
         rng = np.random.default_rng(0)
         n = 200
         labels = rng.choice(["alpha", "beta", "gamma"], size=n)
-        X = pd.DataFrame({
-            "cat_a": pd.Categorical(labels),
-            "cat_b": pd.Categorical(labels.copy()),  # byte-identical content to cat_a
-            "x": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "cat_a": pd.Categorical(labels),
+                "cat_b": pd.Categorical(labels.copy()),  # byte-identical content to cat_a
+                "x": rng.standard_normal(n),
+            }
+        )
         y = (X["x"] > 0).astype(int)
         rfecv = RFECV(
             estimator=catboost.CatBoostClassifier(iterations=20, depth=3, verbose=0, allow_writing_files=False),
             cat_features=["cat_a", "cat_b"],
-            cv=3, max_refits=2, verbose=0, leakage_corr_threshold=None,
+            cv=3,
+            max_refits=2,
+            verbose=0,
+            leakage_corr_threshold=None,
         )
         rfecv.fit(X, y)
         names_in = list(rfecv.feature_names_in_)
         # cat_a / cat_b are byte-identical content -> dedup must collapse them to a single representative.
         cat_kept = sum(1 for f in ("cat_a", "cat_b") if f in names_in)
-        assert cat_kept == 1, (
-            f"Expected exactly one of {{cat_a, cat_b}} after categorical dedup; got {cat_kept}: {names_in}"
-        )
+        assert cat_kept == 1, f"Expected exactly one of {{cat_a, cat_b}} after categorical dedup; got {cat_kept}: {names_in}"
 
 
 # ----------------------------------------------------------------------------
@@ -142,20 +150,27 @@ class TestRfecvRamAwareCleanup:
         # Post-fix path: that symbol may or may not still be imported, but it is never CALLED inside fit(); the loop now routes through ``maybe_clean_ram_and_gpu``.
         pre_fix_calls = {"n": 0}
         if hasattr(_rfecv_mod, "clean_ram"):
+
             def _spy_pre_fix(*a, **k):
                 pre_fix_calls["n"] += 1
+
             monkeypatch.setattr(_rfecv_mod, "clean_ram", _spy_pre_fix)
 
         # Post-fix path: when RSS hasn't grown, ``should_clean_ram`` returns False so ``maybe_clean_ram_and_gpu`` does nothing.
         monkeypatch.setattr(_rh, "should_clean_ram", lambda *a, **k: False)
         post_fix_calls = {"n": 0}
+
         def _spy_post_fix(*a, **k):
             post_fix_calls["n"] += 1
+
         monkeypatch.setattr(_rh, "clean_ram_and_gpu", _spy_post_fix)
 
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=8, verbose=0, leakage_corr_threshold=None,
+            cv=3,
+            max_refits=8,
+            verbose=0,
+            leakage_corr_threshold=None,
         )
         rfecv.fit(X, y)
         # Under the post-fix routing both spies should see zero calls; under the pre-fix routing ``pre_fix_calls["n"]`` would have been >0.
@@ -173,16 +188,21 @@ class TestSkipRetrainingYContent:
         rng = np.random.default_rng(0)
         n = 200
         # Two distinct informative signals at the same shape; if dedup-on-shape is the only mechanism, the second .fit replays the first support_.
-        X = pd.DataFrame({
-            "feat0": rng.standard_normal(n),
-            "feat1": rng.standard_normal(n),
-            "feat2": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "feat0": rng.standard_normal(n),
+                "feat1": rng.standard_normal(n),
+                "feat2": rng.standard_normal(n),
+            }
+        )
         y_a = (X["feat0"] > 0).astype(int).values
         y_b = (X["feat2"] > 0).astype(int).values
         common = dict(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=4, verbose=0, leakage_corr_threshold=None,
+            cv=3,
+            max_refits=4,
+            verbose=0,
+            leakage_corr_threshold=None,
             skip_retraining_on_same_shape=True,
             # Force argmax rule so two different targets actually produce different
             # support_ on this 3-feature toy problem. Under the new default
@@ -209,7 +229,9 @@ class TestG33_RandomStateDeterminism:
         y = (X["a"] > 0).astype(int).values
         common = dict(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=4, verbose=0,
+            cv=3,
+            max_refits=4,
+            verbose=0,
             random_state=None,  # the test - prior would be non-deterministic
             leakage_corr_threshold=None,
         )
@@ -217,10 +239,7 @@ class TestG33_RandomStateDeterminism:
         r2 = RFECV(**common).fit(X, y)
         names1 = sorted(r1.get_feature_names_out())
         names2 = sorted(r2.get_feature_names_out())
-        assert names1 == names2, (
-            f"Re-fit on same data with random_state=None should be deterministic "
-            f"(via signature-based seeding). Got: {names1} vs {names2}"
-        )
+        assert names1 == names2, f"Re-fit on same data with random_state=None should be deterministic (via signature-based seeding). Got: {names1} vs {names2}"
 
 
 # ----------------------------------------------------------------------------
@@ -241,18 +260,15 @@ class TestF27_CvOneValidation:
 class TestF31F32_StabilityValidation:
     def test_threshold_zero_raises(self):
         with pytest.raises(ValueError, match="stability_threshold"):
-            RFECV(estimator=LogisticRegression(),
-                  stability_selection=True, stability_threshold=0.0)
+            RFECV(estimator=LogisticRegression(), stability_selection=True, stability_threshold=0.0)
 
     def test_threshold_above_one_raises(self):
         with pytest.raises(ValueError, match="stability_threshold"):
-            RFECV(estimator=LogisticRegression(),
-                  stability_selection=True, stability_threshold=1.5)
+            RFECV(estimator=LogisticRegression(), stability_selection=True, stability_threshold=1.5)
 
     def test_n_bootstrap_zero_raises(self):
         with pytest.raises(ValueError, match="stability_n_bootstrap"):
-            RFECV(estimator=LogisticRegression(),
-                  stability_selection=True, stability_n_bootstrap=0)
+            RFECV(estimator=LogisticRegression(), stability_selection=True, stability_n_bootstrap=0)
 
 
 class TestC18b_LeakageActionEnum:
@@ -264,8 +280,7 @@ class TestC18b_LeakageActionEnum:
 class TestN3b_RuleEnum:
     def test_unknown_rule_raises_at_init(self):
         with pytest.raises(ValueError, match="n_features_selection_rule"):
-            RFECV(estimator=LogisticRegression(),
-                  n_features_selection_rule="bogus")
+            RFECV(estimator=LogisticRegression(), n_features_selection_rule="bogus")
 
 
 # ----------------------------------------------------------------------------
@@ -274,11 +289,11 @@ class TestN3b_RuleEnum:
 class TestH39_MRMRFallback:
     def test_min_features_fallback_keeps_top_k_when_screen_empty(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         # Force the fallback path by setting ``min_relevance_gain`` to a value larger than any plausible MI; with all-noise features and random labels
         # the relevance gate filters out every candidate, leaving the screen empty -- the precise precondition for the ``min_features_fallback`` safety net.
         rng = np.random.default_rng(0)
-        X = pd.DataFrame(rng.standard_normal((300, 8)),
-                         columns=[f"f{i}" for i in range(8)])
+        X = pd.DataFrame(rng.standard_normal((300, 8)), columns=[f"f{i}" for i in range(8)])
         y = rng.integers(0, 2, 300)
         mrmr = MRMR(min_features_fallback=3, min_relevance_gain=10.0, verbose=False)
         try:
@@ -288,14 +303,10 @@ class TestH39_MRMRFallback:
         # ``min_features_fallback`` only kicks in when ``selected_vars`` is empty AND no engineered features are emitted (see ``_mrmr_fit_impl.py:725``).
         # Whatever path ran, ``support_`` must be non-empty: either the screen surfaced at least one feature (selection path) OR the fallback engaged
         # (top-K MI path). Both produce ``n_features_ >= 1``; n_features_ == 0 is the broken-contract case the parameter exists to prevent.
-        assert mrmr.n_features_ >= 1, (
-            f"min_features_fallback=3 with non-empty input should never leave support_ empty; got n_features_={mrmr.n_features_}"
-        )
+        assert mrmr.n_features_ >= 1, f"min_features_fallback=3 with non-empty input should never leave support_ empty; got n_features_={mrmr.n_features_}"
         # When the fallback engaged, ``fallback_used_`` is True and ``n_features_`` MUST equal ``min_features_fallback`` (the contract of the safety net).
         if getattr(mrmr, "fallback_used_", False):
-            assert mrmr.n_features_ == 3, (
-                f"fallback_used_=True implies top-K-by-MI with K=min_features_fallback=3; got {mrmr.n_features_}"
-            )
+            assert mrmr.n_features_ == 3, f"fallback_used_=True implies top-K-by-MI with K=min_features_fallback=3; got {mrmr.n_features_}"
 
 
 # ----------------------------------------------------------------------------
@@ -338,13 +349,21 @@ class TestS1_RecallVariance:
         recalls = []
         for seed in range(30):  # 30 seeds (50 was too slow for CI)
             X, y = make_classification(
-                n_samples=400, n_features=20, n_informative=5,
-                n_redundant=0, random_state=seed, shuffle=False, class_sep=2.0,
+                n_samples=400,
+                n_features=20,
+                n_informative=5,
+                n_redundant=0,
+                random_state=seed,
+                shuffle=False,
+                class_sep=2.0,
             )
             Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(20)])
             rfecv = RFECV(
                 estimator=LogisticRegression(max_iter=200, random_state=seed),
-                cv=3, max_refits=4, verbose=0, random_state=seed,
+                cv=3,
+                max_refits=4,
+                verbose=0,
+                random_state=seed,
                 leakage_corr_threshold=None,
             )
             rfecv.fit(Xdf, y)
@@ -352,10 +371,7 @@ class TestS1_RecallVariance:
             recall = sum(1 for f in [f"f{i}" for i in range(5)] if f in names) / 5
             recalls.append(recall)
         recalls = np.array(recalls)
-        assert recalls.mean() >= 0.5, (
-            f"S1: baseline recall mean too low ({recalls.mean():.2f}); "
-            f"distribution: {sorted(recalls.tolist())}"
-        )
+        assert recalls.mean() >= 0.5, f"S1: baseline recall mean too low ({recalls.mean():.2f}); distribution: {sorted(recalls.tolist())}"
 
 
 # ----------------------------------------------------------------------------
@@ -367,14 +383,20 @@ class TestS2_StabilityConvergence:
         """As bootstrap count grows, support_ should stabilise. Pairwise
         Jaccard between B=20 and B=80 should be >= 0.7."""
         X, y = make_classification(
-            n_samples=500, n_features=15, n_informative=5,
-            random_state=0, shuffle=False, class_sep=2.0,
+            n_samples=500,
+            n_features=15,
+            n_informative=5,
+            random_state=0,
+            shuffle=False,
+            class_sep=2.0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(15)])
         common = dict(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            stability_selection=True, stability_threshold=0.5,
-            verbose=0, random_state=0,
+            stability_selection=True,
+            stability_threshold=0.5,
+            verbose=0,
+            random_state=0,
             leakage_corr_threshold=None,
         )
         r_low = RFECV(stability_n_bootstrap=20, **common).fit(Xdf, y)
@@ -385,10 +407,7 @@ class TestS2_StabilityConvergence:
             jaccard = len(s_low & s_high) / max(1, len(s_low | s_high))
         else:
             jaccard = 1.0
-        assert jaccard >= 0.5, (
-            f"S2: B=20 vs B=80 Jaccard {jaccard:.2f} < 0.5 - selection "
-            f"not converging with B."
-        )
+        assert jaccard >= 0.5, f"S2: B=20 vs B=80 Jaccard {jaccard:.2f} < 0.5 - selection not converging with B."
 
 
 # ----------------------------------------------------------------------------
@@ -404,14 +423,19 @@ class TestS4_TiedImportanceOrdering:
         rng = np.random.default_rng(0)
         n = 300
         signal = (rng.standard_normal(n) > 0).astype(float)
-        X = pd.DataFrame({
-            **{f"sig{i}": signal + rng.standard_normal(n) * 1e-3 for i in range(5)},
-            **{f"noise{i}": rng.standard_normal(n) for i in range(5)},
-        })
+        X = pd.DataFrame(
+            {
+                **{f"sig{i}": signal + rng.standard_normal(n) * 1e-3 for i in range(5)},
+                **{f"noise{i}": rng.standard_normal(n) for i in range(5)},
+            }
+        )
         y = (signal > 0.5).astype(int)
         common = dict(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=4, verbose=0, random_state=0,
+            cv=3,
+            max_refits=4,
+            verbose=0,
+            random_state=0,
             leakage_corr_threshold=None,
         )
         # Default order
@@ -427,9 +451,7 @@ class TestS4_TiedImportanceOrdering:
         sig_in_s1 = len(s1 & sig_names)
         sig_in_s2 = len(s2 & sig_names)
         assert sig_in_s1 >= 1 and sig_in_s2 >= 1, (
-            f"S4: each ordering should pick at least one sig feature; "
-            f"r1 sig count={sig_in_s1}, r2 sig count={sig_in_s2}: "
-            f"s1={s1}, s2={s2}"
+            f"S4: each ordering should pick at least one sig feature; r1 sig count={sig_in_s1}, r2 sig count={sig_in_s2}: s1={s1}, s2={s2}"
         )
 
 
@@ -445,7 +467,10 @@ class TestB9_InfInX:
         with pytest.raises(ValueError, match="\\+/-Inf"):
             RFECV(
                 estimator=LogisticRegression(max_iter=100),
-                cv=3, max_refits=2, verbose=0, leakage_corr_threshold=None,
+                cv=3,
+                max_refits=2,
+                verbose=0,
+                leakage_corr_threshold=None,
             ).fit(X, y)
 
 
@@ -459,7 +484,10 @@ class TestB11_SmallSample:
         with pytest.raises(ValueError):
             RFECV(
                 estimator=LogisticRegression(max_iter=100),
-                cv=3, max_refits=2, verbose=0, leakage_corr_threshold=None,
+                cv=3,
+                max_refits=2,
+                verbose=0,
+                leakage_corr_threshold=None,
             ).fit(X, y)
 
 
@@ -472,16 +500,18 @@ class TestF26_RuntimeMins:
             RFECV(
                 estimator=LogisticRegression(max_iter=100),
                 max_runtime_mins=-1.0,
-                cv=3, verbose=0, leakage_corr_threshold=None,
+                cv=3,
+                verbose=0,
+                leakage_corr_threshold=None,
             ).fit(X, y)
 
 
 class TestH37_MRMRConstantY:
     def test_constant_y_raises_value_error(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(0)
-        X = pd.DataFrame(rng.standard_normal((100, 5)),
-                         columns=[f"f{i}" for i in range(5)])
+        X = pd.DataFrame(rng.standard_normal((100, 5)), columns=[f"f{i}" for i in range(5)])
         y = np.zeros(100, dtype=int)
         try:
             with pytest.raises(ValueError, match="unique"):
@@ -499,14 +529,21 @@ class TestS5_CrossEstimator:
         # never include MORE features than the loosest single-estimator
         # baseline that produces the same recall threshold.
         X, y = make_classification(
-            n_samples=400, n_features=12, n_informative=4,
-            random_state=0, shuffle=False, class_sep=2.0,
+            n_samples=400,
+            n_features=12,
+            n_informative=4,
+            random_state=0,
+            shuffle=False,
+            class_sep=2.0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(12)])
         # Single LR
         r_lr = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=4, verbose=0, random_state=0,
+            cv=3,
+            max_refits=4,
+            verbose=0,
+            random_state=0,
             leakage_corr_threshold=None,
         ).fit(Xdf, y)
         # Multi-estimator
@@ -515,7 +552,10 @@ class TestS5_CrossEstimator:
                 LogisticRegression(max_iter=200, random_state=0),
                 RandomForestClassifier(n_estimators=15, random_state=0, n_jobs=1),
             ],
-            cv=3, max_refits=4, verbose=0, random_state=0,
+            cv=3,
+            max_refits=4,
+            verbose=0,
+            random_state=0,
             leakage_corr_threshold=None,
         ).fit(Xdf, y)
         # Both should return at least the informative core.

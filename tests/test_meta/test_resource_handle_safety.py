@@ -48,10 +48,10 @@ def _refresh_requested() -> bool:
 
 def _is_resource_call(call: ast.Call) -> bool:
     """Match the resource-acquisition calls we audit:
-      * bare ``open(...)``
-      * ``tempfile.NamedTemporaryFile(...)`` /
-        ``tempfile.TemporaryFile(...)`` / ``tempfile.SpooledTemporaryFile(...)``
-      * ``subprocess.Popen(...)``
+    * bare ``open(...)``
+    * ``tempfile.NamedTemporaryFile(...)`` /
+      ``tempfile.TemporaryFile(...)`` / ``tempfile.SpooledTemporaryFile(...)``
+    * ``subprocess.Popen(...)``
     """
     func = call.func
     if isinstance(func, ast.Name):
@@ -130,7 +130,7 @@ def test_no_new_unmanaged_resource_acquisition():
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
         _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"resource-handle baseline refreshed at " f"{_BASELINE_PATH.name} ({len(current)} bare-acquisition site(s))")
+        pytest.skip(f"resource-handle baseline refreshed at {_BASELINE_PATH.name} ({len(current)} bare-acquisition site(s))")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

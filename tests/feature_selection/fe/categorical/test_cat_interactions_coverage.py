@@ -130,6 +130,7 @@ def _run(fx, cfg, **extras):
 
 class TestColumnSignatureAndKL:
     """Test group: column-signature construction and KL-divergence reuse gate."""
+
     def test_column_signature_normalises_to_probability(self):
         """Column signature normalises to probability."""
         vals = np.array([0, 0, 1, 1, 2], dtype=np.int32)
@@ -160,6 +161,7 @@ class TestColumnSignatureAndKL:
 
 class TestRestoreCachedMarginalMIs:
     """Test group: restoring cached marginal MIs when the target distribution is stable."""
+
     def test_reuses_when_distribution_stable(self):
         """Reuses when distribution stable."""
         rng = np.random.default_rng(0)
@@ -230,6 +232,7 @@ class TestRestoreCachedMarginalMIs:
 
 class TestResolveDefaults:
     """Test Resolve Defaults."""
+
     def test_max_combined_explicit_clamped(self):
         """Max combined explicit clamped."""
         cfg = CatFEConfig(max_combined_nbins=10**9)
@@ -267,6 +270,7 @@ class TestResolveDefaults:
 
 class TestSelectCandidateIndices:
     """Test Select Candidate Indices."""
+
     def test_drop_singleton(self):
         """Drop singleton."""
         cfg = CatFEConfig()
@@ -274,7 +278,9 @@ class TestSelectCandidateIndices:
         kept = _select_candidate_indices(
             nbins=np.array([1, 3, 4], dtype=np.int64),
             categorical_vars=[0, 1, 2],
-            cfg=cfg, state=state, n_samples=500,
+            cfg=cfg,
+            state=state,
+            n_samples=500,
         )
         assert kept == [1, 2]
         assert state.dropped_singleton_nbins == [0]
@@ -287,7 +293,9 @@ class TestSelectCandidateIndices:
             kept = _select_candidate_indices(
                 nbins=np.array([2, 500], dtype=np.int64),
                 categorical_vars=[0, 1],
-                cfg=cfg, state=state, n_samples=400,
+                cfg=cfg,
+                state=state,
+                n_samples=400,
             )
         assert kept == [0]
         assert (1, 500) in state.high_cardinality_warnings
@@ -300,7 +308,9 @@ class TestSelectCandidateIndices:
             _select_candidate_indices(
                 nbins=np.array([2, 500], dtype=np.int64),
                 categorical_vars=[0, 1],
-                cfg=cfg, state=state, n_samples=400,
+                cfg=cfg,
+                state=state,
+                n_samples=400,
             )
 
     def test_all_singletons_returns_empty(self):
@@ -310,13 +320,16 @@ class TestSelectCandidateIndices:
         kept = _select_candidate_indices(
             nbins=np.array([1, 1, 1], dtype=np.int64),
             categorical_vars=[0, 1, 2],
-            cfg=cfg, state=state, n_samples=500,
+            cfg=cfg,
+            state=state,
+            n_samples=500,
         )
         assert kept == []
 
 
 class TestSelectTopKPairs:
     """Test Select Top K Pairs."""
+
     def test_synergy_selects_positive_ii(self):
         """Synergy selects positive ii."""
         ii = np.array([0.5, -0.2, 0.3, -0.1, 0.4])
@@ -325,7 +338,8 @@ class TestSelectTopKPairs:
             ii_arr=ii,
             pairs_a=np.arange(5),
             pairs_b=np.arange(5),
-            cfg=cfg, n_samples=1000,
+            cfg=cfg,
+            n_samples=1000,
         )
         # Top 2 positives: indices [0, 4] (ii 0.5, 0.4)
         assert set(out.tolist()) == {0, 4}
@@ -338,7 +352,8 @@ class TestSelectTopKPairs:
             ii_arr=ii,
             pairs_a=np.arange(4),
             pairs_b=np.arange(4),
-            cfg=cfg, n_samples=1000,
+            cfg=cfg,
+            n_samples=1000,
         )
         assert set(out.tolist()) == {1, 3}
 
@@ -350,7 +365,8 @@ class TestSelectTopKPairs:
             ii_arr=ii,
             pairs_a=np.arange(4),
             pairs_b=np.arange(4),
-            cfg=cfg, n_samples=1000,
+            cfg=cfg,
+            n_samples=1000,
         )
         assert set(out.tolist()) == {0, 1}
 
@@ -362,7 +378,8 @@ class TestSelectTopKPairs:
             ii_arr=ii,
             pairs_a=np.arange(2),
             pairs_b=np.arange(2),
-            cfg=cfg, n_samples=1000,
+            cfg=cfg,
+            n_samples=1000,
         )
         assert out.size == 0
 
@@ -374,8 +391,11 @@ class TestSelectTopKPairs:
         object.__setattr__(cfg, "select_on", "bogus")
         with pytest.raises(ValueError, match="select_on"):
             _select_top_k_pairs(
-                ii_arr=ii, pairs_a=np.arange(2), pairs_b=np.arange(2),
-                cfg=cfg, n_samples=1000,
+                ii_arr=ii,
+                pairs_a=np.arange(2),
+                pairs_b=np.arange(2),
+                cfg=cfg,
+                n_samples=1000,
             )
 
     def test_argpartition_path_when_many_eligible(self):
@@ -383,8 +403,11 @@ class TestSelectTopKPairs:
         ii = np.linspace(0.01, 0.5, 20)
         cfg = CatFEConfig(top_k_pairs=5, min_interaction_information=0.0)
         out = _select_top_k_pairs(
-            ii_arr=ii, pairs_a=np.arange(20), pairs_b=np.arange(20),
-            cfg=cfg, n_samples=1000,
+            ii_arr=ii,
+            pairs_a=np.arange(20),
+            pairs_b=np.arange(20),
+            cfg=cfg,
+            n_samples=1000,
         )
         assert len(out) == 5
         # Top 5 should be the largest values (indices 15..19)
@@ -393,6 +416,7 @@ class TestSelectTopKPairs:
 
 class TestEntropyForMode:
     """Test Entropy For Mode."""
+
     def test_plain_plugin(self):
         """Plain plugin."""
         freqs = np.array([0.5, 0.5])
@@ -418,6 +442,7 @@ class TestEntropyForMode:
 
 class TestShouldApplyMM:
     """Test group: the Miller-Madow bias-correction gate."""
+
     def test_folklore_gate_threshold(self):
         """Folklore gate threshold."""
         # Joint cardinality / n > 0.05 -> True
@@ -436,6 +461,7 @@ class TestShouldApplyMM:
 
 class TestApplyFwerCorrection:
     """Test Apply Fwer Correction."""
+
     def test_none_passthrough(self):
         """None passthrough."""
         conf = {(0, 1): 0.99, (0, 2): 0.5}
@@ -469,7 +495,8 @@ class TestApplyFwerCorrection:
         cfg = CatFEConfig(fwer_correction="bh_fdr")
         out = _apply_fwer_correction(
             {(0, 1): 0.99, (0, 2): 0.95, (0, 3): 0.5},
-            cfg, n_search_pairs=5,
+            cfg,
+            n_search_pairs=5,
         )
         # All three keys present, valid confidences
         assert set(out.keys()) == {(0, 1), (0, 2), (0, 3)}
@@ -492,6 +519,7 @@ class TestApplyFwerCorrection:
 
 class TestPermKernelDispatch:
     """Test Perm Kernel Dispatch."""
+
     def test_backend_cpu_returns_false(self):
         """Backend cpu returns false."""
         # backend="cpu" must never reach GPU
@@ -558,14 +586,17 @@ class TestCatFEAutoBackendWorkGate:
 
 class TestComputePairIIMM:
     """Test group: pairwise interaction-information with Miller-Madow correction."""
+
     def test_runs_with_mm_disabled(self, xor_small):
         """Direct MM-disabled path: should return finite II close to ln(2)
         for the XOR pair."""
         from mlframe.feature_selection.filters.info_theory import entropy
+
         h_y = entropy(xor_small["freqs_y"])
         ii = _compute_pair_ii_mm(
             factors_data=xor_small["data"],
-            idx_a=0, idx_b=1,
+            idx_a=0,
+            idx_b=1,
             nbins=xor_small["nbins"],
             target_indices=xor_small["target_indices"],
             classes_y=xor_small["classes_y"],
@@ -580,10 +611,12 @@ class TestComputePairIIMM:
     def test_runs_with_mm_enabled(self, xor_small):
         """Runs with mm enabled."""
         from mlframe.feature_selection.filters.info_theory import entropy
+
         h_y = entropy(xor_small["freqs_y"])
         ii = _compute_pair_ii_mm(
             factors_data=xor_small["data"],
-            idx_a=0, idx_b=1,
+            idx_a=0,
+            idx_b=1,
             nbins=xor_small["nbins"],
             target_indices=xor_small["target_indices"],
             classes_y=xor_small["classes_y"],
@@ -602,6 +635,7 @@ class TestComputePairIIMM:
 
 class TestMaybeRerankWithMM:
     """Test group: optional Miller-Madow reranking of selected pairs."""
+
     def _make_inputs(self, xor):
         """Make inputs."""
         candidate_idxs = np.array([0, 1, 2, 3], dtype=np.int64)
@@ -620,7 +654,8 @@ class TestMaybeRerankWithMM:
         pairs_b = np.array([1, 2, 3], dtype=np.int64)
         _, ii_arr, _ = _pair_search_kernel_njit(
             factors_data=xor["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
             marginal_mi=marginal_full,
             nbins=xor["nbins"],
             classes_y=xor["classes_y"],
@@ -636,13 +671,17 @@ class TestMaybeRerankWithMM:
         cfg = CatFEConfig(use_miller_madow=False)
         ii_out, sel_out = _maybe_rerank_with_mm(
             factors_data=xor_small["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
-            selected_idx=selected, ii_arr=ii_arr,
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
+            selected_idx=selected,
+            ii_arr=ii_arr,
             nbins=xor_small["nbins"],
             target_indices=xor_small["target_indices"],
             classes_y=xor_small["classes_y"],
             freqs_y=xor_small["freqs_y"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         np.testing.assert_array_equal(ii_out, ii_arr)
         np.testing.assert_array_equal(sel_out, selected)
@@ -654,13 +693,17 @@ class TestMaybeRerankWithMM:
         selected = np.array([], dtype=np.int64)
         ii_out, sel_out = _maybe_rerank_with_mm(
             factors_data=xor_small["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
-            selected_idx=selected, ii_arr=ii_arr,
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
+            selected_idx=selected,
+            ii_arr=ii_arr,
             nbins=xor_small["nbins"],
             target_indices=xor_small["target_indices"],
             classes_y=xor_small["classes_y"],
             freqs_y=xor_small["freqs_y"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         assert sel_out.size == 0
 
@@ -671,13 +714,17 @@ class TestMaybeRerankWithMM:
         cfg = CatFEConfig(use_miller_madow=True)
         ii_out, sel_out = _maybe_rerank_with_mm(
             factors_data=xor_small["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
-            selected_idx=selected, ii_arr=ii_arr.copy(),
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
+            selected_idx=selected,
+            ii_arr=ii_arr.copy(),
             nbins=xor_small["nbins"],
             target_indices=xor_small["target_indices"],
             classes_y=xor_small["classes_y"],
             freqs_y=xor_small["freqs_y"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         # Some IIs should be re-scored
         assert np.isfinite(ii_out).all()
@@ -691,13 +738,17 @@ class TestMaybeRerankWithMM:
         cfg = CatFEConfig(use_miller_madow=None)
         ii_out, sel_out = _maybe_rerank_with_mm(
             factors_data=xor_small["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
-            selected_idx=selected, ii_arr=ii_arr,
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
+            selected_idx=selected,
+            ii_arr=ii_arr,
             nbins=xor_small["nbins"],
             target_indices=xor_small["target_indices"],
             classes_y=xor_small["classes_y"],
             freqs_y=xor_small["freqs_y"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         # Should be no-op since binary cards don't trigger the gate
         np.testing.assert_array_equal(ii_out, ii_arr)
@@ -710,13 +761,17 @@ class TestMaybeRerankWithMM:
         cfg = CatFEConfig(use_miller_madow=True, select_on=select_on)
         ii_out, sel_out = _maybe_rerank_with_mm(
             factors_data=xor_small["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
-            selected_idx=selected, ii_arr=ii_arr.copy(),
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
+            selected_idx=selected,
+            ii_arr=ii_arr.copy(),
             nbins=xor_small["nbins"],
             target_indices=xor_small["target_indices"],
             classes_y=xor_small["classes_y"],
             freqs_y=xor_small["freqs_y"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         assert sel_out.size == selected.size
 
@@ -728,6 +783,7 @@ class TestMaybeRerankWithMM:
 
 class TestConfirmPermutation:
     """Test Confirm Permutation."""
+
     def test_no_perms_returns_empty_confidence(self, xor_small):
         """No perms returns empty confidence."""
         cfg = CatFEConfig(full_npermutations=0)
@@ -737,12 +793,15 @@ class TestConfirmPermutation:
             factors_data=xor_small["data"],
             pairs_a=np.array([0, 0], dtype=np.int64),
             pairs_b=np.array([1, 2], dtype=np.int64),
-            selected_idx=selected, ii_arr=ii,
+            selected_idx=selected,
+            ii_arr=ii,
             nbins=xor_small["nbins"],
             classes_y=xor_small["classes_y"],
             freqs_y=xor_small["freqs_y"],
-            cfg=cfg, n_search_pairs=10,
-            dtype=np.int32, verbose=0,
+            cfg=cfg,
+            n_search_pairs=10,
+            dtype=np.int32,
+            verbose=0,
         )
         np.testing.assert_array_equal(out_sel, selected)
         assert conf == {}
@@ -759,8 +818,10 @@ class TestConfirmPermutation:
             nbins=xor_small["nbins"],
             classes_y=xor_small["classes_y"],
             freqs_y=xor_small["freqs_y"],
-            cfg=cfg, n_search_pairs=10,
-            dtype=np.int32, verbose=0,
+            cfg=cfg,
+            n_search_pairs=10,
+            dtype=np.int32,
+            verbose=0,
         )
         assert out_sel.size == 0
         assert conf == {}
@@ -773,6 +834,7 @@ class TestConfirmPermutation:
 
 class TestKfoldStability:
     """Test Kfold Stability."""
+
     def test_disabled_passthrough(self, xor_small):
         """Disabled passthrough."""
         cfg = CatFEConfig(n_folds_stability=0)
@@ -784,7 +846,9 @@ class TestKfoldStability:
             selected_idx=selected,
             nbins=xor_small["nbins"],
             target_indices=xor_small["target_indices"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         np.testing.assert_array_equal(out_sel, selected)
         assert fold_d == {}
@@ -799,7 +863,9 @@ class TestKfoldStability:
             selected_idx=np.array([], dtype=np.int64),
             nbins=xor_small["nbins"],
             target_indices=xor_small["target_indices"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         assert out_sel.size == 0
 
@@ -819,7 +885,9 @@ class TestKfoldStability:
             selected_idx=selected,
             nbins=xor_small["nbins"],
             target_indices=xor_small["target_indices"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         # XOR is reliably synergistic; should survive
         assert out_sel.size == 1
@@ -833,6 +901,7 @@ class TestKfoldStability:
 
 class TestAntiRedundancy:
     """Test Anti Redundancy."""
+
     def test_beta_zero_passthrough(self, xor_small):
         """Beta zero passthrough."""
         cfg = CatFEConfig(anti_redundancy_beta=0.0)
@@ -842,11 +911,14 @@ class TestAntiRedundancy:
             factors_data=xor_small["data"],
             pairs_a=np.array([0], dtype=np.int64),
             pairs_b=np.array([1], dtype=np.int64),
-            selected_idx=selected, ii_arr=ii,
+            selected_idx=selected,
+            ii_arr=ii,
             nbins=xor_small["nbins"],
             selected_so_far=[2],
             classes_y=xor_small["classes_y"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         np.testing.assert_array_equal(ii_out, ii)
         np.testing.assert_array_equal(sel_out, selected)
@@ -860,11 +932,14 @@ class TestAntiRedundancy:
             factors_data=xor_small["data"],
             pairs_a=np.array([0], dtype=np.int64),
             pairs_b=np.array([1], dtype=np.int64),
-            selected_idx=selected, ii_arr=ii,
+            selected_idx=selected,
+            ii_arr=ii,
             nbins=xor_small["nbins"],
             selected_so_far=[],
             classes_y=xor_small["classes_y"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         np.testing.assert_array_equal(ii_out, ii)
 
@@ -878,7 +953,8 @@ class TestAntiRedundancy:
         pairs_b = np.array([1, 2], dtype=np.int64)
         _, ii_arr, _ = _pair_search_kernel_njit(
             factors_data=xor_small["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
             marginal_mi=marginal_mi,
             nbins=xor_small["nbins"],
             classes_y=xor_small["classes_y"],
@@ -888,12 +964,16 @@ class TestAntiRedundancy:
         selected = np.array([0, 1], dtype=np.int64)
         ii_out, sel_out = _anti_redundancy_rerank(
             factors_data=xor_small["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
-            selected_idx=selected, ii_arr=ii_arr.copy(),
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
+            selected_idx=selected,
+            ii_arr=ii_arr.copy(),
             nbins=xor_small["nbins"],
             selected_so_far=[3],  # one already-selected feature
             classes_y=xor_small["classes_y"],
-            cfg=cfg, dtype=np.int32, verbose=0,
+            cfg=cfg,
+            dtype=np.int32,
+            verbose=0,
         )
         assert sel_out.size == selected.size
 
@@ -905,6 +985,7 @@ class TestAntiRedundancy:
 
 class TestGreedyExpand:
     """Test Greedy Expand."""
+
     def test_no_extension_returns_none(self, xor_small):
         """With max_kway_order=2 we don't extend beyond pairs - returns None."""
         marginal_mi = np.zeros(xor_small["data"].shape[1])
@@ -931,6 +1012,7 @@ class TestGreedyExpand:
 
 class TestPairSearchWeighted:
     """Test Pair Search Weighted."""
+
     def test_uniform_weights_matches_unweighted(self, xor_small):
         """Uniform weights matches unweighted."""
         candidate_idxs = np.array([0, 1, 2, 3], dtype=np.int64)
@@ -951,7 +1033,8 @@ class TestPairSearchWeighted:
         weights = np.ones(xor_small["data"].shape[0], dtype=np.float64)
         joint_w, ii_w, n_uniq_w = _pair_search_kernel_weighted_njit(
             factors_data=xor_small["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
             marginal_mi=marginal_full,
             nbins=xor_small["nbins"],
             classes_y=xor_small["classes_y"],
@@ -960,7 +1043,8 @@ class TestPairSearchWeighted:
         )
         joint_u, ii_u, _ = _pair_search_kernel_njit(
             factors_data=xor_small["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
             marginal_mi=marginal_full,
             nbins=xor_small["nbins"],
             classes_y=xor_small["classes_y"],
@@ -980,7 +1064,8 @@ class TestPairSearchWeighted:
         weights = rng.random(xor_small["data"].shape[0]) + 0.1
         joint_w, ii_w, n_uniq_w = _pair_search_kernel_weighted_njit(
             factors_data=xor_small["data"],
-            pairs_a=pairs_a, pairs_b=pairs_b,
+            pairs_a=pairs_a,
+            pairs_b=pairs_b,
             marginal_mi=marginal_full,
             nbins=xor_small["nbins"],
             classes_y=xor_small["classes_y"],
@@ -998,6 +1083,7 @@ class TestPairSearchWeighted:
 
 class TestBuildFactorizeLookup:
     """Test Build Factorize Lookup."""
+
     def _make_pair_data(self):
         """Make pair data."""
         # 2x2 cartesian product with renumbering
@@ -1012,8 +1098,13 @@ class TestBuildFactorizeLookup:
         """Clip strategy."""
         data, classes = self._make_pair_data()
         lookup, n_eff = _build_factorize_lookup(
-            factors_data=data, idx_a=0, idx_b=1, nbins_a=2, nbins_b=2,
-            classes_pair_post=classes, unknown_strategy="clip",
+            factors_data=data,
+            idx_a=0,
+            idx_b=1,
+            nbins_a=2,
+            nbins_b=2,
+            classes_pair_post=classes,
+            unknown_strategy="clip",
         )
         assert lookup.shape == (4,)
         assert n_eff == 4
@@ -1022,8 +1113,13 @@ class TestBuildFactorizeLookup:
         """Sentinel strategy no unseen."""
         data, classes = self._make_pair_data()
         lookup, n_eff = _build_factorize_lookup(
-            factors_data=data, idx_a=0, idx_b=1, nbins_a=2, nbins_b=2,
-            classes_pair_post=classes, unknown_strategy="sentinel",
+            factors_data=data,
+            idx_a=0,
+            idx_b=1,
+            nbins_a=2,
+            nbins_b=2,
+            classes_pair_post=classes,
+            unknown_strategy="sentinel",
         )
         assert lookup.shape == (4,)
         # Full table seen -> n_eff stays at 4
@@ -1035,8 +1131,13 @@ class TestBuildFactorizeLookup:
         data = np.array([[0, 0], [1, 1]], dtype=np.int32)
         classes = np.array([0, 1], dtype=np.int32)
         lookup, n_eff = _build_factorize_lookup(
-            factors_data=data, idx_a=0, idx_b=1, nbins_a=2, nbins_b=3,
-            classes_pair_post=classes, unknown_strategy="clip",
+            factors_data=data,
+            idx_a=0,
+            idx_b=1,
+            nbins_a=2,
+            nbins_b=3,
+            classes_pair_post=classes,
+            unknown_strategy="clip",
         )
         # All -1 entries clipped to seen_max=1
         assert (lookup >= 0).all()
@@ -1046,8 +1147,13 @@ class TestBuildFactorizeLookup:
         data = np.array([[0, 0], [1, 1]], dtype=np.int32)
         classes = np.array([0, 1], dtype=np.int32)
         lookup, n_eff = _build_factorize_lookup(
-            factors_data=data, idx_a=0, idx_b=1, nbins_a=2, nbins_b=3,
-            classes_pair_post=classes, unknown_strategy="sentinel",
+            factors_data=data,
+            idx_a=0,
+            idx_b=1,
+            nbins_a=2,
+            nbins_b=3,
+            classes_pair_post=classes,
+            unknown_strategy="sentinel",
         )
         # Unseen -> seen_max + 1 = 2 -> n_eff = 3
         assert n_eff == 3
@@ -1058,8 +1164,13 @@ class TestBuildFactorizeLookup:
         data = np.array([[0, 0], [1, 1]], dtype=np.int32)
         classes = np.array([0, 1], dtype=np.int32)
         lookup, _ = _build_factorize_lookup(
-            factors_data=data, idx_a=0, idx_b=1, nbins_a=2, nbins_b=3,
-            classes_pair_post=classes, unknown_strategy="raise",
+            factors_data=data,
+            idx_a=0,
+            idx_b=1,
+            nbins_a=2,
+            nbins_b=3,
+            classes_pair_post=classes,
+            unknown_strategy="raise",
         )
         assert (lookup == -1).sum() > 0
 
@@ -1069,8 +1180,13 @@ class TestBuildFactorizeLookup:
         classes = np.array([0, 1], dtype=np.int32)
         with pytest.raises(ValueError, match="unknown_strategy"):
             _build_factorize_lookup(
-                factors_data=data, idx_a=0, idx_b=1, nbins_a=2, nbins_b=3,
-                classes_pair_post=classes, unknown_strategy="bogus",
+                factors_data=data,
+                idx_a=0,
+                idx_b=1,
+                nbins_a=2,
+                nbins_b=3,
+                classes_pair_post=classes,
+                unknown_strategy="bogus",
             )
 
 
@@ -1081,11 +1197,13 @@ class TestBuildFactorizeLookup:
 
 class TestOrchestratorKnobs:
     """Test Orchestrator Knobs."""
+
     @pytest.mark.fast
     def test_baseline_xor_runs(self, xor_small):
         """Baseline xor runs."""
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=4,
+            enable=True,
+            top_k_pairs=4,
             min_interaction_information=0.05,
             full_npermutations=0,
             min_n_samples=50,
@@ -1505,7 +1623,8 @@ class TestOrchestratorKnobs:
                 classes_y_safe=xor_small["classes_y"],
                 freqs_y=xor_small["freqs_y"],
                 categorical_vars=xor_small["categorical_vars"],
-                cfg=cfg, dtype=np.int32,
+                cfg=cfg,
+                dtype=np.int32,
             )
 
     def test_only_one_eligible_column_returns_unchanged(self, xor_small):
@@ -1521,7 +1640,8 @@ class TestOrchestratorKnobs:
             classes_y_safe=xor_small["classes_y"],
             freqs_y=xor_small["freqs_y"],
             categorical_vars=[0],  # only 1 col
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         assert data_out is xor_small["data"]
         assert state.recipes == []
@@ -1534,6 +1654,7 @@ class TestOrchestratorKnobs:
 
 class TestOrchestratorCombined:
     """Test Orchestrator Combined."""
+
     @pytest.mark.slow
     def test_perm_with_mm_and_bandit(self, xor_medium):
         """Exercise MM + bandit UCB1 + bonferroni in one shot."""

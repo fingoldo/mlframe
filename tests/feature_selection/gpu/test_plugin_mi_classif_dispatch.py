@@ -6,6 +6,7 @@ same plug-in MI formula on the same quantile-binned columns. Bit-for-bit
 matching is the bar -- any larger drift indicates a binning or scatter
 bug, not a tolerable numerical difference.
 """
+
 from __future__ import annotations
 
 import os
@@ -39,7 +40,10 @@ class TestPluginMIClassifEquivalence:
     @pytest.mark.parametrize("k", [1, 5, 20])
     @pytest.mark.parametrize("n_classes", [2, 3, 5])
     def test_batch_cuda_matches_njit(
-        self, n: int, k: int, n_classes: int,
+        self,
+        n: int,
+        k: int,
+        n_classes: int,
     ) -> None:
         rng = np.random.default_rng(seed=11 + n + k + n_classes)
         X = rng.normal(size=(n, k))
@@ -47,11 +51,10 @@ class TestPluginMIClassifEquivalence:
         njit_arr = _plugin_mi_classif_batch_njit(X, y, 20)
         cuda_arr = _plugin_mi_classif_batch_cuda(X, y, 20)
         np.testing.assert_allclose(
-            cuda_arr, njit_arr, atol=1e-12,
-            err_msg=(
-                f"batch CUDA MI diverged from njit at n={n}, k={k}, "
-                f"n_classes={n_classes}: cuda={cuda_arr}, njit={njit_arr}"
-            ),
+            cuda_arr,
+            njit_arr,
+            atol=1e-12,
+            err_msg=(f"batch CUDA MI diverged from njit at n={n}, k={k}, n_classes={n_classes}: cuda={cuda_arr}, njit={njit_arr}"),
         )
 
     @pytest.mark.parametrize("n", [1_000, 50_000, 100_000])
@@ -61,10 +64,7 @@ class TestPluginMIClassifEquivalence:
         y = rng.integers(0, 4, size=n).astype(np.int64)
         njit_mi = float(_plugin_mi_classif_njit(x, y, 20))
         cuda_mi = _plugin_mi_classif_cuda(x, y, 20)
-        assert abs(cuda_mi - njit_mi) < 1e-12, (
-            f"single-col CUDA MI diverged from njit at n={n}: "
-            f"cuda={cuda_mi}, njit={njit_mi}"
-        )
+        assert abs(cuda_mi - njit_mi) < 1e-12, f"single-col CUDA MI diverged from njit at n={n}: cuda={cuda_mi}, njit={njit_mi}"
 
 
 class TestPluginMIClassifDispatcher:
@@ -84,7 +84,8 @@ class TestPluginMIClassifDispatcher:
         np.testing.assert_array_equal(out, expected)
 
     def test_dispatcher_env_override_cuda(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("MLFRAME_MI_BACKEND", "cuda")
         rng = np.random.default_rng(11)
@@ -99,7 +100,8 @@ class TestPluginMIClassifDispatcher:
         np.testing.assert_array_equal(out, expected)
 
     def test_dispatcher_env_override_njit(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setenv("MLFRAME_MI_BACKEND", "njit")
         rng = np.random.default_rng(11)
@@ -131,7 +133,8 @@ class TestPluginMIDispatchGroundTruthNjitOverride:
     """
 
     def test_batch_dispatcher_does_not_consult_ktc(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
             dispatch as _ktc_dispatch,
@@ -150,7 +153,9 @@ class TestPluginMIDispatchGroundTruthNjitOverride:
             return original(n_samples, k_arg, **kwargs)
 
         monkeypatch.setattr(
-            _ktc_dispatch, "lookup_mi_classif_backend", _spy,
+            _ktc_dispatch,
+            "lookup_mi_classif_backend",
+            _spy,
         )
         monkeypatch.delenv("MLFRAME_MI_BACKEND", raising=False)
 
@@ -163,7 +168,8 @@ class TestPluginMIDispatchGroundTruthNjitOverride:
         np.testing.assert_array_equal(out, _plugin_mi_classif_batch_njit(X, y, 20))
 
     def test_single_dispatcher_does_not_consult_ktc(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
             dispatch as _ktc_dispatch,
@@ -182,19 +188,19 @@ class TestPluginMIDispatchGroundTruthNjitOverride:
             return original(n_samples, k_arg, **kwargs)
 
         monkeypatch.setattr(
-            _ktc_dispatch, "lookup_mi_classif_backend", _spy,
+            _ktc_dispatch,
+            "lookup_mi_classif_backend",
+            _spy,
         )
         monkeypatch.delenv("MLFRAME_MI_BACKEND", raising=False)
 
         out = plugin_mi_classif_dispatch(x, y, 20)
-        assert not calls, (
-            "plugin_mi_classif_dispatch consulted the KTC lookup; the "
-            "ground-truth njit override must short-circuit BEFORE it."
-        )
+        assert not calls, "plugin_mi_classif_dispatch consulted the KTC lookup; the ground-truth njit override must short-circuit BEFORE it."
         assert out == float(_plugin_mi_classif_njit(x, y, 20))
 
     def test_env_override_bypasses_ktc(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """``MLFRAME_MI_BACKEND=njit`` / =cuda is the documented escape
         hatch; it MUST short-circuit the KTC lookup so operators
@@ -215,7 +221,9 @@ class TestPluginMIDispatchGroundTruthNjitOverride:
             return "cuda"  # would route to cuda if called
 
         monkeypatch.setattr(
-            _ktc_dispatch, "lookup_mi_classif_backend", _spy,
+            _ktc_dispatch,
+            "lookup_mi_classif_backend",
+            _spy,
         )
         monkeypatch.setenv("MLFRAME_MI_BACKEND", "njit")
         plugin_mi_classif_batch_dispatch(X, y, 20)
@@ -242,7 +250,8 @@ class TestPluginMIPerHostRegionOverridesFallback:
     """
 
     def test_persisted_region_cuda_at_20k_batch_overrides_njit_fallback(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
             dispatch as _ktc_dispatch,
@@ -291,15 +300,13 @@ class TestPluginMIClassifFastSplitArgsort:
             _plugin_mi_classif_njit,
             plugin_mi_classif_fast,
         )
+
         rng = np.random.default_rng(seed=11 + n + n_classes)
         x = rng.normal(size=n)
         y = rng.integers(0, n_classes, size=n).astype(np.int64)
         njit_mi = float(_plugin_mi_classif_njit(x, y, 20))
         fast_mi = plugin_mi_classif_fast(x, y, 20)
-        assert abs(fast_mi - njit_mi) < 1e-12, (
-            f"plugin_mi_classif_fast diverged from njit at n={n}, "
-            f"n_classes={n_classes}: fast={fast_mi}, njit={njit_mi}"
-        )
+        assert abs(fast_mi - njit_mi) < 1e-12, f"plugin_mi_classif_fast diverged from njit at n={n}, n_classes={n_classes}: fast={fast_mi}, njit={njit_mi}"
 
     @pytest.mark.parametrize("n", [500, 1_500, 50_000])
     @pytest.mark.parametrize("k", [1, 5, 20])
@@ -308,6 +315,7 @@ class TestPluginMIClassifFastSplitArgsort:
             _plugin_mi_classif_batch_njit,
             plugin_mi_classif_batch_fast,
         )
+
         rng = np.random.default_rng(seed=11 + n + k)
         X = rng.normal(size=(n, k))
         y = rng.integers(0, 3, size=n).astype(np.int64)
@@ -325,6 +333,7 @@ class TestPluginMIClassifBizValue:
 
     def test_cuda_faster_than_njit_at_production_scale(self) -> None:
         import time
+
         rng = np.random.default_rng(11)
         n, k = 1_000_000, 20
         X = rng.normal(size=(n, k))
@@ -362,6 +371,7 @@ def test_resident_batch_cuda_matches_host_input(seed):
         _plugin_mi_classif_batch_cuda,
         _plugin_mi_classif_batch_cuda_resident,
     )
+
     rng = np.random.default_rng(seed)
     n, k = 4000, 11
     X = rng.standard_normal((n, k)).astype(np.float64)
@@ -369,6 +379,4 @@ def test_resident_batch_cuda_matches_host_input(seed):
     mi_host = _plugin_mi_classif_batch_cuda(X, y, 20)
     mi_res = _plugin_mi_classif_batch_cuda_resident(cp.asarray(X), cp.asarray(y), 20)
     assert mi_host.shape == mi_res.shape == (k,)
-    assert float(np.max(np.abs(mi_host - mi_res))) == 0.0, (
-        f"seed={seed}: resident MI must equal host-input MI bit-for-bit"
-    )
+    assert float(np.max(np.abs(mi_host - mi_res))) == 0.0, f"seed={seed}: resident MI must equal host-input MI bit-for-bit"

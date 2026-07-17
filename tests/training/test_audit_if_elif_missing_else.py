@@ -26,6 +26,7 @@ updating the dispatcher.
        skipped the zero-spread check entirely, then propagated to
        polars_ds.scale where it crashed cryptically. Validate method at entry.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

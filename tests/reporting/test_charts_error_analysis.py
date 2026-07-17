@@ -17,11 +17,21 @@ from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
 
 from mlframe.reporting.charts.error_analysis import (
-    ErrorBiasResult, WeakSegmentResult, WorstKResult, error_bias_per_feature,
-    segments_bar, target_dist_overlay, weak_segment_heatmap, worst_k_table,
+    ErrorBiasResult,
+    WeakSegmentResult,
+    WorstKResult,
+    error_bias_per_feature,
+    segments_bar,
+    target_dist_overlay,
+    weak_segment_heatmap,
+    worst_k_table,
 )
 from mlframe.reporting.spec import (
-    BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec, LinePanelSpec,
+    BarPanelSpec,
+    FigureSpec,
+    HeatmapPanelSpec,
+    HistogramPanelSpec,
+    LinePanelSpec,
 )
 
 
@@ -74,8 +84,7 @@ def test_weak_segment_heatmap_classification_logloss(reg_clean):
 
 def test_weak_segment_heatmap_ndarray_input(reg_clean):
     X, yt, yp = reg_clean
-    res = weak_segment_heatmap(X.to_numpy(), yt, yp, task="regression",
-                               feature_names=["f0", "f1", "f2"])
+    res = weak_segment_heatmap(X.to_numpy(), yt, yp, task="regression", feature_names=["f0", "f1", "f2"])
     assert res.split_features  # at least one feature chosen
     assert all(f in {"f0", "f1", "f2"} for f in res.split_features)
 
@@ -179,7 +188,7 @@ def test_biz_val_error_bias_over_group_mean_shifts_high():
     X = pd.DataFrame({"f0": f0, "f1": f1})
     yt = f1.copy()
     # Predictions overestimate (yp > yt) more strongly the higher f0 is.
-    yp = yt + f0 ** 3 * 3.0 + rng.normal(0, 0.1, n)
+    yp = yt + f0**3 * 3.0 + rng.normal(0, 0.1, n)
     res = error_bias_per_feature(X, yt, yp, features=["f0"], tail_fraction=0.05)
     over = res.group_means.loc["f0", "OVER"]
     majority = res.group_means.loc["f0", "MAJORITY"]
@@ -227,8 +236,7 @@ def test_worst_k_table_ids_timestamps_and_fi(reg_clean):
     ids = np.arange(n)
     ts = pd.date_range("2020-01-01", periods=n, freq="h")
     fi = [0.1, 0.7, 0.2]  # f1 most important
-    res = worst_k_table(X, yt, yp, k=5, ids=ids, timestamps=ts,
-                        feature_importances=fi, top_fi=2)
+    res = worst_k_table(X, yt, yp, k=5, ids=ids, timestamps=ts, feature_importances=fi, top_fi=2)
     assert "id" in res.table.columns and "timestamp" in res.table.columns
     # Top-2 FI features f1, f2 (by importance order 0.7, 0.2) present.
     assert "f1" in res.table.columns
@@ -243,7 +251,9 @@ def test_worst_k_table_pruned_pull_matches_full_matrix():
     string + bool columns so the label-encoding path matches the full-matrix encoder.
     """
     from mlframe.reporting.charts.error_analysis import (
-        _as_float_1d, _per_row_error, _resolve_feature_matrix,
+        _as_float_1d,
+        _per_row_error,
+        _resolve_feature_matrix,
     )
 
     rng = np.random.default_rng(7)
@@ -264,7 +274,7 @@ def test_worst_k_table_pruned_pull_matches_full_matrix():
     fidx = np.flatnonzero(np.isfinite(loss))
     score = loss[fidx]
     nn, kk = score.size, 20
-    part = np.argpartition(score, nn - kk)[nn - kk:]
+    part = np.argpartition(score, nn - kk)[nn - kk :]
     sel = fidx[part[np.argsort(score[part])[::-1]]]
     fi_cols = [int(j) for j in np.argsort(np.asarray(fi, float))[::-1][:6]]
 
@@ -281,8 +291,11 @@ def test_error_bias_pruned_pull_matches_full_matrix():
     so the label-encoding path matches the full-matrix encoder; a NaN column exercises the finite filter.
     """
     from mlframe.reporting.charts.error_analysis import (
-        _resolve_feature_matrix, _signed_error, _tag_error_groups,
-        DEFAULT_TAIL_FRACTION, DEFAULT_OVERLAY_BINS,
+        _resolve_feature_matrix,
+        _signed_error,
+        _tag_error_groups,
+        DEFAULT_TAIL_FRACTION,
+        DEFAULT_OVERLAY_BINS,
     )
 
     rng = np.random.default_rng(11)
@@ -345,11 +358,13 @@ def test_worst_k_classification_uses_loss(reg_clean):
 
 @pytest.fixture
 def fairness_frame():
-    return pd.DataFrame({
-        "segment": ["A", "B", "C", "D"],
-        "accuracy": [0.92, 0.71, 0.88, 0.55],
-        "count": [1000, 200, 500, 80],
-    })
+    return pd.DataFrame(
+        {
+            "segment": ["A", "B", "C", "D"],
+            "accuracy": [0.92, 0.71, 0.88, 0.55],
+            "count": [1000, 200, 500, 80],
+        }
+    )
 
 
 def _seg_vals(bar):
@@ -419,8 +434,7 @@ def test_target_dist_overlay_regression_panels():
 
 def test_target_dist_overlay_classification_classrates():
     rng = np.random.default_rng(1)
-    y = {"train": (rng.uniform(0, 1, 2000) < 0.3).astype(int),
-         "test": (rng.uniform(0, 1, 1000) < 0.3).astype(int)}
+    y = {"train": (rng.uniform(0, 1, 2000) < 0.3).astype(int), "test": (rng.uniform(0, 1, 1000) < 0.3).astype(int)}
     fig = target_dist_overlay(y, task="classification")
     panels = [p for row in fig.panels for p in row if p is not None]
     assert len(panels) == 1
@@ -507,7 +521,8 @@ def test_render_smoke_all_figures(reg_clean, fairness_frame, tmp_path, backend):
         "segments": segments_bar(fairness_frame, metric_name="accuracy"),
         "target_reg": target_dist_overlay(
             {"train": yt[:2000], "test": yt[2000:]},
-            pred_by_split={"oof": yp[:2000], "test": yp[2000:]}, task="regression",
+            pred_by_split={"oof": yp[:2000], "test": yp[2000:]},
+            task="regression",
         ),
         "target_clf": target_dist_overlay(
             {"train": (yt[:2000] > 1).astype(int), "test": (yt[2000:] > 1).astype(int)},

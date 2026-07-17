@@ -4,6 +4,7 @@ The win: when the true signal is a statement-to-statement CHANGE (a worsening tr
 level itself, a model using only the raw value performs at chance, while a model using the diff feature
 (computed here in bulk, boundary-safe per entity) recovers the signal cleanly.
 """
+
 from __future__ import annotations
 
 import numpy as np

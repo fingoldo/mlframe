@@ -3,6 +3,7 @@
 Verifies parent + ``metrics.core`` re-export identity AND calls into the moved
 kernels (forcing the njit compile + cross-ref resolution), with sklearn parity.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,7 +23,9 @@ def test_deviance_bodies_callable_with_sklearn_parity():
     from sklearn.metrics import mean_poisson_deviance, mean_gamma_deviance, mean_tweedie_deviance
 
     from mlframe.metrics.regression._regression_deviance import (
-        fast_gamma_deviance, fast_poisson_deviance, fast_tweedie_deviance,
+        fast_gamma_deviance,
+        fast_poisson_deviance,
+        fast_tweedie_deviance,
     )
 
     yt = np.array([1.0, 2.0, 3.0, 4.0])

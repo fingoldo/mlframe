@@ -7,6 +7,7 @@ the dispatcher at N >= the gate, and (c) leave the full calibration report byte-
 
 FAILS on pre-fix code: ``_argsort_desc_par_bucket`` / ``_PAR_BUCKET_ARGSORT_MIN_N`` do not exist at HEAD (ImportError).
 """
+
 import numpy as np
 import pytest
 
@@ -47,7 +48,7 @@ def test_dispatcher_routes_to_par_bucket_above_gate(monkeypatch):
     monkeypatch.setattr(cab, "_argsort_desc_par_bucket", spy)
     # Force the GPU branch off so the large-N CPU path is the parallel bucket sort deterministically (the GPU radix is
     # the higher-priority backend when a CUDA device is visible; this test pins the CPU dispatch, not the GPU one).
-    monkeypatch.setattr(cab, "_GPU_ARGSORT_MIN_N", 10 ** 12)
+    monkeypatch.setattr(cab, "_GPU_ARGSORT_MIN_N", 10**12)
     rng = np.random.default_rng(9)
     big = rng.random(cab._PAR_BUCKET_ARGSORT_MIN_N + 1000).astype(np.float64)
     small = rng.random(1000).astype(np.float64)
@@ -69,7 +70,7 @@ def test_full_report_byte_identical_with_and_without_par_bucket():
     new = fast_calibration_report(yt, yp, show_plots=False)[:-2]
     saved = cab._PAR_BUCKET_ARGSORT_MIN_N
     try:
-        cab._PAR_BUCKET_ARGSORT_MIN_N = 10 ** 12  # force scalar numpy path
+        cab._PAR_BUCKET_ARGSORT_MIN_N = 10**12  # force scalar numpy path
         old = fast_calibration_report(yt, yp, show_plots=False)[:-2]
     finally:
         cab._PAR_BUCKET_ARGSORT_MIN_N = saved

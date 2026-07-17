@@ -338,9 +338,7 @@ class TestLassoAgreesWithMIOnLinearTop1:
             f"scores head:\n{scores_lasso.head(5).to_string()}"
         )
         assert top1_mi == "x1__He2", (
-            f"seed={seed}: MI top-1 engineered should be x1__He2 on "
-            f"linear He_2(x_1) signal; got {top1_mi!r}. "
-            f"scores head:\n{scores_mi.head(5).to_string()}"
+            f"seed={seed}: MI top-1 engineered should be x1__He2 on linear He_2(x_1) signal; got {top1_mi!r}. scores head:\n{scores_mi.head(5).to_string()}"
         )
 
 
@@ -387,7 +385,7 @@ class TestLassoUnderperformsOnNonMonotone:
         # MI's qualifier for x1__He3: in the top-3 by ranking.
         mi_top3 = list(scores_mi.sort_values("engineered_mi", ascending=False)["engineered_col"].iloc[:3])
         assert "x1__He3" in mi_top3, (
-            f"seed={seed}: MI did not rank x1__He3 in its top-3 on " f"sin(5*x_1) signal; non-monotone-MI claim regressed. " f"mi_top3={mi_top3!r}"
+            f"seed={seed}: MI did not rank x1__He3 in its top-3 on sin(5*x_1) signal; non-monotone-MI claim regressed. mi_top3={mi_top3!r}"
         )
         # Lasso's top-1 should NOT be x1__He3 (since Lasso can't see
         # oscillatory dependence). Pinning STRICT INEQUALITY: MI's |coef|
@@ -503,9 +501,7 @@ class TestDefaultDisabledByteIdentical:
         m2.fit(X, y)
         sup1 = list(m1.feature_names_in_)
         sup2 = list(m2.feature_names_in_)
-        assert sup1 == sup2, (
-            f"seed={seed}: explicit fe_hybrid_orth_lasso_enable=False " f"diverged from implicit-default fit. implicit={sup1}, " f"explicit={sup2}"
-        )
+        assert sup1 == sup2, f"seed={seed}: explicit fe_hybrid_orth_lasso_enable=False diverged from implicit-default fit. implicit={sup1}, explicit={sup2}"
 
 
 # ---------------------------------------------------------------------------
@@ -556,7 +552,7 @@ class TestPickleAndClone:
                 v1 = Xt[c].to_numpy()
                 v2 = Xt2[c].to_numpy()
                 if not np.allclose(v1, v2, equal_nan=True, atol=1e-10):
-                    raise AssertionError(f"pickle changed transform() values for column " f"{c!r}: max abs diff " f"{np.nanmax(np.abs(v1 - v2)):.2e}")
+                    raise AssertionError(f"pickle changed transform() values for column {c!r}: max abs diff {np.nanmax(np.abs(v1 - v2)):.2e}")
 
 
 if __name__ == "__main__":

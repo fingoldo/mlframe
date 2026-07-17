@@ -170,7 +170,7 @@ class TestBitEquivalence:
         sk = _mi_classif_batch_sklearn(X, y, nbins=nbins)
         nb = _mi_classif_batch_numba(X, y, nbins=nbins)
         diff = np.max(np.abs(sk - nb))
-        assert diff < BIT_EQ_TOL, f"with-ties: numba MI batch differs from sklearn by " f"max abs {diff:.3e} > tolerance {BIT_EQ_TOL:.0e}."
+        assert diff < BIT_EQ_TOL, f"with-ties: numba MI batch differs from sklearn by max abs {diff:.3e} > tolerance {BIT_EQ_TOL:.0e}."
 
     def test_mi_batch_partial_nan_handled(self):
         """A column with partial NaNs must still produce a finite MI; the
@@ -274,7 +274,7 @@ class TestPerfBudgets:
             top_k=5,
         )
         elapsed = time.perf_counter() - t0
-        assert elapsed <= PERF_BUDGET_P500_SECS, f"hybrid_orth_mi_fe at p=500 n=2000 took {elapsed:.3f}s, " f"budget is {PERF_BUDGET_P500_SECS:.1f}s."
+        assert elapsed <= PERF_BUDGET_P500_SECS, f"hybrid_orth_mi_fe at p=500 n=2000 took {elapsed:.3f}s, budget is {PERF_BUDGET_P500_SECS:.1f}s."
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +344,7 @@ class TestSignalRecoveryPostL31:
         appended = [c for c in X_aug.columns if c not in X.columns]
         # Look for a column derived from BOTH x1 and x2.
         pair_signal_found = any(("x1*x2" in c or "x2*x1" in c) for c in appended)
-        assert pair_signal_found, f"XOR pair signal x1*x2 not recovered post-L31. " f"Appended: {appended}."
+        assert pair_signal_found, f"XOR pair signal x1*x2 not recovered post-L31. Appended: {appended}."
 
 
 # ---------------------------------------------------------------------------
@@ -389,7 +389,7 @@ class TestEnvVarOptOut:
             if had_backend_mod:
                 del sys.modules[backend_mod_name]
             forced = importlib.import_module(mod_name)
-            assert forced._MI_BACKEND == "sklearn", f"MLFRAME_NUMBA_MI=0 set at import time but " f"_MI_BACKEND={forced._MI_BACKEND!r}; opt-out is not routing."
+            assert forced._MI_BACKEND == "sklearn", f"MLFRAME_NUMBA_MI=0 set at import time but _MI_BACKEND={forced._MI_BACKEND!r}; opt-out is not routing."
             # Verify the dispatched path produces sklearn-identical answer.
             rng = np.random.default_rng(0)
             n, p, nbins = 1000, 20, 10
@@ -397,7 +397,7 @@ class TestEnvVarOptOut:
             y = rng.integers(0, 3, n).astype(np.int64)
             sk = forced._mi_classif_batch_sklearn(X, y, nbins=nbins)
             dispatched = forced._mi_classif_batch(X, y, nbins=nbins)
-            assert np.array_equal(sk, dispatched), "Forced-sklearn dispatcher returned a different answer " "from the sklearn reference path."
+            assert np.array_equal(sk, dispatched), "Forced-sklearn dispatcher returned a different answer from the sklearn reference path."
         finally:
             # Restore env.
             if had_env:

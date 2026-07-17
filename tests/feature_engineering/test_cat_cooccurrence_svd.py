@@ -41,10 +41,12 @@ def test_fit_returns_expected_shape_and_recipe():
 
 
 def test_same_category_gets_same_code():
-    X = pd.DataFrame({
-        "a": ["x", "x", "y", "y", "z", "z"],
-        "b": ["p", "q", "p", "q", "p", "q"],
-    })
+    X = pd.DataFrame(
+        {
+            "a": ["x", "x", "y", "y", "z", "z"],
+            "b": ["p", "q", "p", "q", "p", "q"],
+        }
+    )
     emb, _ = cat_cooccurrence_svd_fit(X, "a", "b", n_components=1)
     # Rows 0,1 are both category x -> identical code; likewise y (2,3), z (4,5).
     assert emb[0, 0] == pytest.approx(emb[1, 0])
@@ -53,10 +55,12 @@ def test_same_category_gets_same_code():
 
 
 def test_sign_canonicalisation_is_deterministic():
-    X = pd.DataFrame({
-        "a": ["x", "y", "z", "x", "y", "z"] * 20,
-        "b": ["p", "q", "r", "q", "r", "p"] * 20,
-    })
+    X = pd.DataFrame(
+        {
+            "a": ["x", "y", "z", "x", "y", "z"] * 20,
+            "b": ["p", "q", "r", "q", "r", "p"] * 20,
+        }
+    )
     e1, r1 = cat_cooccurrence_svd_fit(X, "a", "b", n_components=2)
     e2, r2 = cat_cooccurrence_svd_fit(X, "a", "b", n_components=2)
     # Bit-identical across repeat fits (sign pinned to largest-|entry| positive).
@@ -72,10 +76,12 @@ def test_sign_canonicalisation_is_deterministic():
 
 def test_multi_component_capped_at_rank():
     # 3 x 2 contingency -> rank <= 2, so requesting 5 components yields 2.
-    X = pd.DataFrame({
-        "a": ["x", "y", "z"] * 30,
-        "b": ["p", "q"] * 45,
-    })
+    X = pd.DataFrame(
+        {
+            "a": ["x", "y", "z"] * 30,
+            "b": ["p", "q"] * 45,
+        }
+    )
     emb, recipe = cat_cooccurrence_svd_fit(X, "a", "b", n_components=5)
     assert emb.shape[1] == 2
     assert recipe["n_components"] == 2
@@ -89,10 +95,12 @@ def test_multi_component_capped_at_rank():
 def test_apply_reproduces_fit_on_same_frame():
     rng = np.random.default_rng(1)
     n = 400
-    X = pd.DataFrame({
-        "a": rng.choice(list("abcde"), size=n),
-        "b": rng.choice(list("pqrs"), size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": rng.choice(list("abcde"), size=n),
+            "b": rng.choice(list("pqrs"), size=n),
+        }
+    )
     emb, recipe = cat_cooccurrence_svd_fit(X, "a", "b", n_components=2)
     recipe = {**recipe, "src_col": "a", "other_col": "b"}
     replayed = apply_cat_cooccurrence_svd(X, "a", recipe)
@@ -102,10 +110,12 @@ def test_apply_reproduces_fit_on_same_frame():
 def test_unseen_category_maps_to_default_zero_vector():
     # Distinct partner profiles per category so the association code is non-zero:
     # x co-occurs only with p, y only with q, z with both.
-    X = pd.DataFrame({
-        "a": (["x"] * 10) + (["y"] * 10) + (["z"] * 10),
-        "b": (["p"] * 10) + (["q"] * 10) + (["p"] * 5 + ["q"] * 5),
-    })
+    X = pd.DataFrame(
+        {
+            "a": (["x"] * 10) + (["y"] * 10) + (["z"] * 10),
+            "b": (["p"] * 10) + (["q"] * 10) + (["p"] * 5 + ["q"] * 5),
+        }
+    )
     _, recipe = cat_cooccurrence_svd_fit(X, "a", "b", n_components=1)
     recipe = {**recipe, "src_col": "a", "other_col": "b"}
     X_test = pd.DataFrame({"a": ["x", "UNSEEN"], "b": ["p", "q"]})
@@ -117,10 +127,12 @@ def test_unseen_category_maps_to_default_zero_vector():
 
 
 def test_nan_forms_its_own_category():
-    X = pd.DataFrame({
-        "a": ["x", "y", np.nan, "x", np.nan],
-        "b": ["p", "q", "p", "q", "q"],
-    })
+    X = pd.DataFrame(
+        {
+            "a": ["x", "y", np.nan, "x", np.nan],
+            "b": ["p", "q", "p", "q", "q"],
+        }
+    )
     emb, recipe = cat_cooccurrence_svd_fit(X, "a", "b", n_components=1)
     assert "__nan__" in recipe["lookup"]
     # The two NaN rows (idx 2, 4) share the same code.
@@ -130,10 +142,12 @@ def test_nan_forms_its_own_category():
 def test_int_float_dtype_drift_resolves_same_category():
     # Distinct partner profiles so codes are non-zero (raw normalize also works,
     # but ca with real association is the default path we want to exercise).
-    X_fit = pd.DataFrame({
-        "a": [1, 1, 2, 2, 3, 3],
-        "b": ["p", "p", "q", "q", "p", "q"],
-    })
+    X_fit = pd.DataFrame(
+        {
+            "a": [1, 1, 2, 2, 3, 3],
+            "b": ["p", "p", "q", "q", "p", "q"],
+        }
+    )
     emb_fit, recipe = cat_cooccurrence_svd_fit(X_fit, "a", "b", n_components=1)
     recipe = {**recipe, "src_col": "a", "other_col": "b"}
     # Apply with the SAME categories encoded as floats -- must hit the learned codes,
@@ -176,10 +190,12 @@ def test_fit_bad_normalize_raises():
 def test_raw_normalize_roundtrips():
     rng = np.random.default_rng(3)
     n = 300
-    X = pd.DataFrame({
-        "a": rng.choice(list("abcd"), size=n),
-        "b": rng.choice(list("pqr"), size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": rng.choice(list("abcd"), size=n),
+            "b": rng.choice(list("pqr"), size=n),
+        }
+    )
     emb, recipe = cat_cooccurrence_svd_fit(X, "a", "b", n_components=2, normalize="raw")
     assert recipe["normalize"] == "raw"
     recipe = {**recipe, "src_col": "a", "other_col": "b"}
@@ -195,9 +211,15 @@ def test_apply_missing_recipe_key_raises():
 
 def test_apply_non_dataframe_raises():
     with pytest.raises(TypeError):
-        apply_cat_cooccurrence_svd(np.array([1, 2]), "a", {
-            "lookup": {}, "default": [0.0], "n_components": 1,
-        })
+        apply_cat_cooccurrence_svd(
+            np.array([1, 2]),
+            "a",
+            {
+                "lookup": {},
+                "default": [0.0],
+                "n_components": 1,
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -208,12 +230,17 @@ def test_apply_non_dataframe_raises():
 def test_with_recipes_appends_and_skips_self_pairs():
     rng = np.random.default_rng(2)
     n = 300
-    X = pd.DataFrame({
-        "city": rng.choice(["Moscow", "London", "Paris"], size=n),
-        "sex": rng.choice(["M", "F"], size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "city": rng.choice(["Moscow", "London", "Paris"], size=n),
+            "sex": rng.choice(["M", "F"], size=n),
+        }
+    )
     X_aug, appended, recipes = cat_cooccurrence_svd_with_recipes(
-        X, src_cols=["city", "sex"], other_cols=["city", "sex"], n_components=1,
+        X,
+        src_cols=["city", "sex"],
+        other_cols=["city", "sex"],
+        n_components=1,
     )
     # (city,sex) and (sex,city) -> 2 pairs; self-pairs skipped.
     assert len(recipes) == 2
@@ -267,7 +294,11 @@ def _holdout_auc_of_embedding(X, y, normalize, n_components):
     idx = np.arange(len(X))
     tr, te = train_test_split(idx, test_size=0.4, random_state=0, stratify=y)
     emb_tr, recipe = cat_cooccurrence_svd_fit(
-        X.iloc[tr], "src", "other", n_components=n_components, normalize=normalize,
+        X.iloc[tr],
+        "src",
+        "other",
+        n_components=n_components,
+        normalize=normalize,
     )
     recipe = {**recipe, "src_col": "src", "other_col": "other"}
     emb_te = apply_cat_cooccurrence_svd(X.iloc[te], "src", recipe)
@@ -298,9 +329,7 @@ def test_biz_val_cooccur_svd_beats_label_encoding_on_holdout():
     X, y = _latent_group_cooccur_bed(7)
     auc_svd, auc_lab = _holdout_auc_of_embedding(X, y, normalize="ca", n_components=1)
     assert auc_svd >= 0.74, f"CA co-occurrence embedding AUC {auc_svd:.3f} below floor 0.74"
-    assert auc_svd >= auc_lab + 0.15, (
-        f"CA co-occurrence embedding AUC {auc_svd:.3f} should beat label AUC {auc_lab:.3f} by >=0.15"
-    )
+    assert auc_svd >= auc_lab + 0.15, f"CA co-occurrence embedding AUC {auc_svd:.3f} should beat label AUC {auc_lab:.3f} by >=0.15"
 
 
 def test_biz_val_ca_default_beats_raw_leading_vector():
@@ -317,7 +346,5 @@ def test_biz_val_ca_default_beats_raw_leading_vector():
         ca_aucs.append(_holdout_auc_of_embedding(X, y, normalize="ca", n_components=1)[0])
         raw_aucs.append(_holdout_auc_of_embedding(X, y, normalize="raw", n_components=1)[0])
     ca_mean, raw_mean = float(np.mean(ca_aucs)), float(np.mean(raw_aucs))
-    assert ca_mean >= raw_mean + 0.04, (
-        f"CA leading-component AUC mean {ca_mean:.3f} should beat raw {raw_mean:.3f} by >=0.04"
-    )
+    assert ca_mean >= raw_mean + 0.04, f"CA leading-component AUC mean {ca_mean:.3f} should beat raw {raw_mean:.3f} by >=0.04"
     assert ca_mean >= 0.75, f"CA leading-component AUC mean {ca_mean:.3f} below floor 0.75"

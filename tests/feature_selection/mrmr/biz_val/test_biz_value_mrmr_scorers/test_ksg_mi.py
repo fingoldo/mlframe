@@ -45,6 +45,7 @@ NEVER xfail. NEVER mask bugs via runtime workarounds.
 
 Consolidated verbatim from test_biz_value_mrmr_layer65.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -71,6 +72,7 @@ def _import_ksg_fe():
         hybrid_orth_mi_ksg_fe,
         hybrid_orth_mi_ksg_fe_with_recipes,
     )
+
     return (
         score_features_by_ksg_mi_uplift,
         hybrid_orth_mi_ksg_fe,
@@ -85,6 +87,7 @@ def _import_plug_in_fe():
         score_features_by_mi_uplift,
         hybrid_orth_mi_fe,
     )
+
     return (
         generate_univariate_basis_features,
         score_features_by_mi_uplift,
@@ -153,7 +156,10 @@ class TestKsgVsPlugInContinuousY:
         eng = gen(X, degrees=(2, 3), basis="hermite")
         # Plug-in must qcut continuous y to discrete bins to operate.
         y_binned = pd.qcut(
-            y.to_numpy(), q=10, labels=False, duplicates="drop",
+            y.to_numpy(),
+            q=10,
+            labels=False,
+            duplicates="drop",
         ).astype(np.int64)
         sc_pi = score_pi(X, eng, y_binned)
         sc_ksg = score_ksg(X, eng, y.to_numpy(), n_neighbors=3, random_state=seed)
@@ -165,9 +171,7 @@ class TestKsgVsPlugInContinuousY:
         # the aggregate 10 % uplift claim lives in
         # ``TestSmoothHe3WinsUnderKsg.test_aggregate_ksg_he3_uplift_vs_plugin``.
         assert ksg_he3 > pi_he3, (
-            f"seed={seed}: KSG MI({ksg_he3:.4f}) not above plug-in MI"
-            f"({pi_he3:.4f}) on x1__He3; the smooth-y win the k-NN "
-            f"estimator promises was not realised."
+            f"seed={seed}: KSG MI({ksg_he3:.4f}) not above plug-in MI({pi_he3:.4f}) on x1__He3; the smooth-y win the k-NN estimator promises was not realised."
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -182,7 +186,7 @@ class TestKsgVsPlugInContinuousY:
         assert np.all(np.isfinite(mis)), f"seed={seed}: KSG produced non-finite engineered_mi values"
         # KSG can produce small negative noise on null pairs (Kraskov 2004
         # discusses this); we allow a small tolerance.
-        assert mis.min() >= -1e-6, f"seed={seed}: KSG produced materially-negative engineered_mi " f"min={mis.min():.4f}; estimator path is broken."
+        assert mis.min() >= -1e-6, f"seed={seed}: KSG produced materially-negative engineered_mi min={mis.min():.4f}; estimator path is broken."
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +212,10 @@ class TestSmoothHe3WinsUnderKsg:
             X, y = _build_continuous_he3(s)
             eng = gen(X, degrees=(2, 3), basis="hermite")
             y_binned = pd.qcut(
-                y.to_numpy(), q=10, labels=False, duplicates="drop",
+                y.to_numpy(),
+                q=10,
+                labels=False,
+                duplicates="drop",
             ).astype(np.int64)
             sc_pi = score_pi(X, eng, y_binned)
             sc_ksg = score_ksg(X, eng, y.to_numpy(), n_neighbors=3, random_state=s)
@@ -224,7 +231,7 @@ class TestSmoothHe3WinsUnderKsg:
         # Per-seed: KSG > plug-in on EVERY seed -- the win is not seed-
         # dependent / not driven by one tail outlier.
         wins = sum(k > p for k, p in zip(ksg_he3_mis, pi_he3_mis))
-        assert wins == len(pi_he3_mis), f"KSG only beat plug-in on x1__He3 MI in {wins}/{len(pi_he3_mis)} " f"seeds; the per-seed accuracy claim is broken."
+        assert wins == len(pi_he3_mis), f"KSG only beat plug-in on x1__He3 MI in {wins}/{len(pi_he3_mis)} seeds; the per-seed accuracy claim is broken."
 
 
 # ---------------------------------------------------------------------------
@@ -249,21 +256,34 @@ class TestKsgAugmentedAucLift:
         for s in (1, 7, 13, 42, 101, 202, 303, 404):
             X, y = _build_classification_he3(s, n=2000, amp=0.7)
             X_tr, X_te, y_tr, y_te = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             # Raw baseline -- linear LogReg can't recover the He_3 signal.
             lr_raw = LogisticRegression(max_iter=2000, solver="lbfgs").fit(
-                X_tr, y_tr,
+                X_tr,
+                y_tr,
             )
-            aucs_raw.append(roc_auc_score(
-                y_te, lr_raw.predict_proba(X_te)[:, 1],
-            ))
+            aucs_raw.append(
+                roc_auc_score(
+                    y_te,
+                    lr_raw.predict_proba(X_te)[:, 1],
+                )
+            )
             # KSG-augmented -- top-K under KSG uplift adds ``x1__He3``.
             X_aug_tr, _ = hybrid_ksg(
-                X_tr, y_tr.to_numpy(),
-                degrees=(2, 3), basis="hermite",
-                top_k=3, min_uplift=0.5, min_abs_mi_frac=0.0,
-                n_neighbors=3, random_state=s,
+                X_tr,
+                y_tr.to_numpy(),
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=3,
+                min_uplift=0.5,
+                min_abs_mi_frac=0.0,
+                n_neighbors=3,
+                random_state=s,
             )
             added = [c for c in X_aug_tr.columns if c not in X_tr.columns]
             # Rebuild the same engineered cols on test (closed-form basis
@@ -294,7 +314,7 @@ class TestKsgAugmentedAucLift:
         )
         # Per-seed: lift on EVERY seed -- a robust biz_value floor.
         wins = sum(k > r for k, r in zip(aucs_ksg, aucs_raw))
-        assert wins == len(aucs_raw), f"KSG-augmented AUC only beat raw on {wins}/{len(aucs_raw)} " f"seeds; per-seed lift floor violated."
+        assert wins == len(aucs_raw), f"KSG-augmented AUC only beat raw on {wins}/{len(aucs_raw)} seeds; per-seed lift floor violated."
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +331,7 @@ class TestDefaultDisabledByteIdentical:
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], f"seed={seed}: default fe_hybrid_orth_ksg_enable=False should " f"NOT append any engineered columns; got {added}"
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_ksg_enable=False should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
         """Default ctor values match the documented KSG defaults (n_neighbors=3, min_uplift=0.95, min_abs_mi_frac=0.05)."""
@@ -342,8 +362,8 @@ class TestEnableAppendsEngineered:
             fe_hybrid_orth_top_k=3,
         ).fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added, f"seed={seed}: KSG flag ON should append at least one " f"engineered column to hybrid_orth_features_; got {added}"
-        assert any(c.startswith("x1__") for c in added), f"seed={seed}: KSG winners should include an x1 basis column " f"on a clean He_2 signal; got {added}"
+        assert added, f"seed={seed}: KSG flag ON should append at least one engineered column to hybrid_orth_features_; got {added}"
+        assert any(c.startswith("x1__") for c in added), f"seed={seed}: KSG winners should include an x1 basis column on a clean He_2 signal; got {added}"
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +389,7 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_ksg_min_uplift", 0.85),
             ("fe_hybrid_orth_ksg_min_abs_mi_frac", 0.0),
         ]:
-            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_ksg_recipes(self):
         """A pickle round-trip preserves feature names, appended columns, and every orth_univariate recipe field."""
@@ -386,7 +406,7 @@ class TestPickleAndClone:
         assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, f"pickle changed hybrid_orth_features_: " f"before={added_before}, after={added_after}"
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, after={added_after}"
 
         # All KSG-stage recipes are ``orth_univariate`` -- the engineered
         # VALUES are bit-equal to Layer 21, only the SCORING differs.
@@ -400,14 +420,14 @@ class TestPickleAndClone:
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
                 )
 
 
@@ -431,21 +451,25 @@ class TestRecipeReplay:
         # k-NN already picks up the non-monotone signal in raw x1.
         X, y = _build_continuous_he3(seed, n=600)
         X_aug, _scores, recipes = hybrid_with_recipes(
-            X, y.to_numpy(),
-            degrees=(2, 3), basis="hermite",
-            top_k=3, min_uplift=0.5, min_abs_mi_frac=0.0,
-            n_neighbors=3, random_state=seed,
+            X,
+            y.to_numpy(),
+            degrees=(2, 3),
+            basis="hermite",
+            top_k=3,
+            min_uplift=0.5,
+            min_abs_mi_frac=0.0,
+            n_neighbors=3,
+            random_state=seed,
         )
         if not recipes:
-            pytest.fail(
-                f"seed={seed}: KSG hybrid emitted no recipes; replay " f"contract requires at least one recipe on a continuous-y " f"smooth-He_3 fixture."
-            )
+            pytest.fail(f"seed={seed}: KSG hybrid emitted no recipes; replay contract requires at least one recipe on a continuous-y smooth-He_3 fixture.")
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         appended = [c for c in X_aug.columns if c not in X.columns]
         for r in recipes:
-            assert r.name in appended, f"seed={seed}: recipe {r.name!r} not in appended columns " f"{appended}"
+            assert r.name in appended, f"seed={seed}: recipe {r.name!r} not in appended columns {appended}"
             assert r.kind == "orth_univariate", (
                 f"seed={seed}: KSG-stage recipe {r.name!r} kind="
                 f"{r.kind!r}, expected 'orth_univariate' (engineered "
@@ -454,8 +478,5 @@ class TestRecipeReplay:
             replayed = apply_recipe(r, X)
             fit_time = X_aug[r.name].to_numpy()
             assert np.allclose(replayed, fit_time, rtol=1e-9, atol=1e-12), (
-                f"seed={seed}: recipe {r.name!r} replay drift: "
-                f"max|replayed - fit| = "
-                f"{float(np.max(np.abs(replayed - fit_time)))}; "
-                f"extra={dict(r.extra)}"
+                f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
             )

@@ -2,6 +2,7 @@
 
 Verifies seed-locked reproducibility, parallel == serial equivalence, and absence of races in numba dispatcher and _FIT_CACHE.
 """
+
 from __future__ import annotations
 
 import threading
@@ -16,6 +17,7 @@ import pytest
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_data(n: int = 200, m: int = 6, seed: int = 0):
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, m))
@@ -27,6 +29,7 @@ def _make_data(n: int = 200, m: int = 6, seed: int = 0):
 # ---------------------------------------------------------------------------
 # 1. MRMR seed reproducibility (single-worker repeat)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.fast
 def test_mrmr_repeated_fit_deterministic_with_seed():
@@ -52,6 +55,7 @@ def test_mrmr_repeated_fit_deterministic_with_seed():
 # 2. n_workers=1 vs n_workers=4 identical with same seed
 # ---------------------------------------------------------------------------
 
+
 def test_mrmr_n_workers_1_vs_4_identical_with_seed():
     """MRMR(n_jobs=1, seed=42) == MRMR(n_jobs=4, seed=42) on the same data."""
     from mlframe.feature_selection.filters import MRMR
@@ -74,6 +78,7 @@ def test_mrmr_n_workers_1_vs_4_identical_with_seed():
 # ---------------------------------------------------------------------------
 # 3. screen_predictors seed reproducibility
 # ---------------------------------------------------------------------------
+
 
 def test_screen_predictors_seed_reproducibility():
     """screen_predictors with the same random_seed produces identical selected_vars on every call."""
@@ -113,6 +118,7 @@ def test_screen_predictors_seed_reproducibility():
 # 4. fleuret parallel matches serial under same seed
 # ---------------------------------------------------------------------------
 
+
 def test_mi_direct_thread_safe():
     """mi_direct called concurrently from 2 threads on the same input must return identical (mi, conf) tuples.
     Catches: shared scratch buffers in @njit kernels, dispatcher signature races.
@@ -125,14 +131,12 @@ def test_mi_direct_thread_safe():
     factors_nbins = np.array([3, 3], dtype=np.int32)
 
     # Warm up
-    base = mi_direct(factors_data, x=(0,), y=(1,), factors_nbins=factors_nbins,
-                     min_nonzero_confidence=1.0, npermutations=0, dtype=np.int32)
+    base = mi_direct(factors_data, x=(0,), y=(1,), factors_nbins=factors_nbins, min_nonzero_confidence=1.0, npermutations=0, dtype=np.int32)
 
     results: list = [None, None]
 
     def _worker(idx):
-        results[idx] = mi_direct(factors_data, x=(0,), y=(1,), factors_nbins=factors_nbins,
-                                 min_nonzero_confidence=1.0, npermutations=0, dtype=np.int32)
+        results[idx] = mi_direct(factors_data, x=(0,), y=(1,), factors_nbins=factors_nbins, min_nonzero_confidence=1.0, npermutations=0, dtype=np.int32)
 
     threads = [threading.Thread(target=_worker, args=(i,)) for i in range(2)]
     for t in threads:
@@ -148,6 +152,7 @@ def test_mi_direct_thread_safe():
 # ---------------------------------------------------------------------------
 # 5. arr2str deterministic under threads
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.fast
 def test_arr2str_deterministic_under_threads():
@@ -177,9 +182,11 @@ def test_arr2str_deterministic_under_threads():
 # 6. prewarm under concurrent threads -- no race in dispatcher signature registration
 # ---------------------------------------------------------------------------
 
+
 def test_prewarm_concurrent_no_race():
     """Two threads each call the prewarm entry point. After both join: no exception; downstream mi_direct produces finite results."""
     import sys
+
     # macOS Homebrew libomp + numba concurrent JIT compilation has a known
     # native crash (worker segfault) when two threads enter the same @njit
     # cache miss simultaneously. Verified GitHub-hosted macos-latest 3.11
@@ -187,10 +194,7 @@ def test_prewarm_concurrent_no_race():
     # is exercised on Linux + Windows runners; skip on Darwin until the
     # numba/libomp upstream lock is fixed.
     if sys.platform == "darwin":
-        pytest.skip(
-            "macOS libomp + numba concurrent JIT crash on shared CI runner; "
-            "Linux + Windows already cover the thread-safety contract."
-        )
+        pytest.skip("macOS libomp + numba concurrent JIT crash on shared CI runner; Linux + Windows already cover the thread-safety contract.")
     from mlframe.feature_selection.filters._prewarm import prewarm_fs_numba_cache
     from mlframe.feature_selection.filters.permutation import mi_direct
 
@@ -228,20 +232,19 @@ def test_prewarm_concurrent_no_race():
 # 7. MRMR concurrent fit -- _FIT_CACHE thread-safe
 # ---------------------------------------------------------------------------
 
+
 def test_mrmr_concurrent_fit_no_cache_corruption():
     """Two threads each fit a fresh MRMR on different data. Both must complete with valid support_ and no exception.
     Catches: _FIT_CACHE.setitem races, shared numpy buffers leaking across instances.
     """
     import sys
+
     # Same Darwin libomp + numba concurrent JIT crash class as the sibling
     # ``test_prewarm_concurrent_no_race`` (verified macos-latest 3.11 gw1
     # crash 2026-05-26). Skip on Darwin; Linux + Windows already cover the
     # MRMR fit-cache thread-safety contract.
     if sys.platform == "darwin":
-        pytest.skip(
-            "macOS libomp + numba concurrent JIT crash on shared CI runner; "
-            "Linux + Windows already cover the MRMR fit-cache thread-safety contract."
-        )
+        pytest.skip("macOS libomp + numba concurrent JIT crash on shared CI runner; Linux + Windows already cover the MRMR fit-cache thread-safety contract.")
     from mlframe.feature_selection.filters import MRMR
 
     MRMR._FIT_CACHE.clear()
@@ -284,6 +287,7 @@ def test_mrmr_concurrent_fit_no_cache_corruption():
 # 8. joblib backend equivalence (loky vs threading) -- best-effort
 # ---------------------------------------------------------------------------
 
+
 def test_joblib_loky_vs_threading_backend_identical():
     """MRMR with parallel_kwargs={'backend': 'loky'} vs {'backend': 'threading'} produces identical support_ under same seed.
     Some operations may be skipped under 'threading' backend -- relax to "no crash + at least one selected feature each".
@@ -293,13 +297,11 @@ def test_joblib_loky_vs_threading_backend_identical():
     df, y = _make_data(seed=42)
 
     MRMR._FIT_CACHE.clear()
-    sel_loky = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=2,
-                    parallel_kwargs={"backend": "loky"}, verbose=0, random_seed=42)
+    sel_loky = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=2, parallel_kwargs={"backend": "loky"}, verbose=0, random_seed=42)
     sel_loky.fit(df, y)
 
     MRMR._FIT_CACHE.clear()
-    sel_thr = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=2,
-                   parallel_kwargs={"backend": "threading"}, verbose=0, random_seed=42)
+    sel_thr = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=2, parallel_kwargs={"backend": "threading"}, verbose=0, random_seed=42)
     sel_thr.fit(df, y)
 
     assert np.asarray(sel_loky.support_).size >= 1

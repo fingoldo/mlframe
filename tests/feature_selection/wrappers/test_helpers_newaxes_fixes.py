@@ -10,6 +10,7 @@ Covers:
          as the feature matrix; and the incompatible arfs/GrootCV ImportError
          fallback was removed (BorutaShap-only).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -50,14 +51,17 @@ class TestPermutationForwardsParams:
         def _spy(model_, data_, target_, *, n_repeats, random_state, n_jobs, **kw):
             captured["n_repeats"] = n_repeats
             captured["random_state"] = random_state
+
             # Return an object shaped like sklearn's Bunch result.
             class _Res:
                 importances_mean = np.zeros(len(cols), dtype=float)
+
             return _Res()
 
         # get_feature_importances does a local ``from sklearn.inspection import
         # permutation_importance`` -> patch the source symbol.
         import sklearn.inspection as _si
+
         monkeypatch.setattr(_si, "permutation_importance", _spy)
 
         get_feature_importances(
@@ -81,11 +85,14 @@ class TestPermutationForwardsParams:
         def _spy(model_, data_, target_, *, n_repeats, random_state, n_jobs, **kw):
             captured["n_repeats"] = n_repeats
             captured["random_state"] = random_state
+
             class _Res:
                 importances_mean = np.zeros(len(cols), dtype=float)
+
             return _Res()
 
         import sklearn.inspection as _si
+
         monkeypatch.setattr(_si, "permutation_importance", _spy)
 
         get_feature_importances(
@@ -105,16 +112,31 @@ class TestPermutationForwardsParams:
         pytest.importorskip("sklearn.inspection")
         model, X_df, y, cols = _fit_tiny_rf(n_features=4, seed=1)
         d0 = get_feature_importances(
-            model=model, current_features=cols, importance_getter="permutation",
-            data=X_df, target=y, n_repeats=2, random_state=0,
+            model=model,
+            current_features=cols,
+            importance_getter="permutation",
+            data=X_df,
+            target=y,
+            n_repeats=2,
+            random_state=0,
         )
         d0b = get_feature_importances(
-            model=model, current_features=cols, importance_getter="permutation",
-            data=X_df, target=y, n_repeats=2, random_state=0,
+            model=model,
+            current_features=cols,
+            importance_getter="permutation",
+            data=X_df,
+            target=y,
+            n_repeats=2,
+            random_state=0,
         )
         d1 = get_feature_importances(
-            model=model, current_features=cols, importance_getter="permutation",
-            data=X_df, target=y, n_repeats=2, random_state=12345,
+            model=model,
+            current_features=cols,
+            importance_getter="permutation",
+            data=X_df,
+            target=y,
+            n_repeats=2,
+            random_state=12345,
         )
         v0 = np.array([d0[c] for c in cols])
         v0b = np.array([d0b[c] for c in cols])
@@ -167,6 +189,7 @@ class TestBorutaShapRequiresData:
         # the path proceeds to .fit, which is out of scope for this unit test).
         try:
             import BorutaShap  # noqa: F401
+
             pytest.skip("BorutaShap is installed; missing-lib branch not exercised")
         except ImportError:
             pass

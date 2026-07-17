@@ -18,6 +18,7 @@ so a future refactor that broke the buffer fill order / dtype / contiguity (and
 thus silently changed an OLS input) trips the per-fold-RMSE comparison, not just
 the final ``kept`` list.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -133,9 +134,7 @@ def test_buffer_path_is_the_default() -> None:
     but this pins that the public default routes through the buffer code)."""
     y, cols, seeds = _make_pool(800, n_seed=1, n_cand=10, seed=55)
     kw = dict(max_k=3, min_marginal_rmse_gain=0.0, cv_folds=3)
-    default = forward_stepwise_multi_base(
-        y, candidate_bases=cols, seed_bases=seeds, cv_persist_fold_scores=True, **kw
-    )
+    default = forward_stepwise_multi_base(y, candidate_bases=cols, seed_bases=seeds, cv_persist_fold_scores=True, **kw)
     explicit_buffer = _run(y, cols, seeds, legacy=False, **kw)
     _assert_identical(default, explicit_buffer)
 

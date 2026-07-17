@@ -10,6 +10,7 @@ whose per-fold RMSE is low-on-average but HIGH-variance vs a candidate that is s
 ``mean`` selects the volatile one; every robust mode selects the stable one. A regression that drops the penalty (mode
 ignored / routed to mean) flips the selection back and FAILS the test.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,7 +23,7 @@ from mlframe.training._cv_aggregation import aggregate_fold_scores
 # unstable_lucky: lower mean but broad spread across ALL folds (high std AND high MAD,
 # so even the median/MAD-robust mode penalises it -- not a single outlier fold).
 # stable_mediocre: slightly higher mean but tight spread (low std, low MAD).
-UNSTABLE_LUCKY = [0.40, 0.55, 1.10, 1.35]   # mean 0.850, wide spread every fold
+UNSTABLE_LUCKY = [0.40, 0.55, 1.10, 1.35]  # mean 0.850, wide spread every fold
 STABLE_MEDIOCRE = [0.94, 0.96, 0.98, 1.00]  # mean 0.970, tight
 
 
@@ -42,9 +43,16 @@ def test_biz_val_cv_selector_mean_picks_unstable_lucky():
 @pytest.mark.parametrize("mode", ["mean_minus_std", "median_minus_mad", "t_lcb", "quantile"])
 def test_biz_val_cv_selector_robust_modes_pick_stable(mode):
     """Every robust mode penalises dispersion enough to flip the pick to the stable candidate."""
-    pick = _argmin(lambda fs: aggregate_fold_scores(
-        fs, mode=mode, direction="min", alpha=1.0, confidence=0.9, quantile_level=0.9,
-    ))
+    pick = _argmin(
+        lambda fs: aggregate_fold_scores(
+            fs,
+            mode=mode,
+            direction="min",
+            alpha=1.0,
+            confidence=0.9,
+            quantile_level=0.9,
+        )
+    )
     assert pick == "stable", f"cv_selector_mode={mode!r} must prefer the stable-mediocre candidate over the lucky one"
 
 

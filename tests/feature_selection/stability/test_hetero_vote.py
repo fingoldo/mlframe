@@ -1,5 +1,6 @@
 """Cross-model shadow-voting all-relevant selection (BorutaShap-B7): keeps signal, drops the model-specific
 noise leak that a single-model shadow gate admits."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,8 +45,7 @@ def test_skill_weighting_off_is_exactly_equal_weight():
     from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
 
     X, y, _, _ = _data(seed=1)
-    a_off, info_off = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3,
-                                                   weight_by_cv_skill=False, random_state=0)
+    a_off, info_off = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3, weight_by_cv_skill=False, random_state=0)
     # explicit-default call path
     a_def, info_def = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3, random_state=0)
     assert a_off == a_def
@@ -60,8 +60,7 @@ def test_skill_weighting_on_runs_and_reports_weights():
     from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
 
     X, y, signal, _ = _data(seed=2)
-    accepted, info = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3,
-                                                  weight_by_cv_skill=True, cv_skill_folds=3, random_state=0)
+    accepted, info = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3, weight_by_cv_skill=True, cv_skill_folds=3, random_state=0)
     for s in signal:
         assert s in set(accepted), f"skill-weighted vote dropped strong signal {s}"
     w = info["model_weights"]

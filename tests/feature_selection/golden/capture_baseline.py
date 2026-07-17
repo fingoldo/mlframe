@@ -11,6 +11,7 @@ Run with::
 The fixed scenario list below mirrors the bench scenarios but uses smaller n
 (faster capture, still covers the algorithmic surface).
 """
+
 from __future__ import annotations
 
 import argparse

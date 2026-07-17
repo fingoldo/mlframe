@@ -6,6 +6,7 @@ at zero, uncorrelated with that mean level. A raw lag-only pivot truncates the o
 so it has no column that can recover the signal; ``agg_stats`` adds trailing summary columns computed over
 exactly the truncated-away rows, which should let a GBDT recover it.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -19,6 +19,7 @@ pattern in isolation at the production shape above (254ms -> 4.18ms per accumula
 pin: both the cupy and numba-only code paths produce a genuinely zero-filled array, and end-to-end
 results are still bit-identical to the CPU reference through both paths.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -69,7 +70,11 @@ def test_row_chunked_matches_reference_with_cupy_zero_init():
     if not bpmg._CUPY_AVAIL:
         pytest.skip("cupy not available on this host")
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
-        n_samples=4000, n_cols=60, nbins_val=17, n_classes_y=12, seed=11,
+        n_samples=4000,
+        n_cols=60,
+        nbins_val=17,
+        n_classes_y=12,
+        seed=11,
     )
     mi_ref = bpmg.batch_pair_mi_njit_prange(data, pair_a, pair_b, nbins, classes_y, freqs_y)
 
@@ -87,7 +92,11 @@ def test_row_chunked_matches_reference_with_cupy_zero_init():
 def test_row_chunked_matches_reference_with_numba_fallback_zero_init(monkeypatch):
     monkeypatch.setattr(bpmg, "_CUPY_AVAIL", False)
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
-        n_samples=3000, n_cols=40, nbins_val=15, n_classes_y=10, seed=13,
+        n_samples=3000,
+        n_cols=40,
+        nbins_val=15,
+        n_classes_y=10,
+        seed=13,
     )
     mi_ref = bpmg.batch_pair_mi_njit_prange(data, pair_a, pair_b, nbins, classes_y, freqs_y)
 

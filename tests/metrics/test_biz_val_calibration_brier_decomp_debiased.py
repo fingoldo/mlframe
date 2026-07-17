@@ -10,6 +10,7 @@ suite.
 Bench: ``mlframe/metrics/_benchmarks/bench_brier_decomp_debiased.py`` -- debiased wins 34-36/40 (scenario,seed) cells
 across nbins 10/15/20.
 """
+
 from __future__ import annotations
 
 import numpy as np

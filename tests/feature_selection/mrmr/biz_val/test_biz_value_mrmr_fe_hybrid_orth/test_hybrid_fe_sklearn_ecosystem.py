@@ -168,12 +168,10 @@ class TestGridSearchCVOverFEParams:
         grid.fit(X, y)
         # 2 x 2 = 4 candidates evaluated.
         assert len(grid.cv_results_["params"]) == 4, (
-            f"expected 4 grid candidates (2 x 2), got " f"{len(grid.cv_results_['params'])}; " f"params={grid.cv_results_['params']}"
+            f"expected 4 grid candidates (2 x 2), got {len(grid.cv_results_['params'])}; params={grid.cv_results_['params']}"
         )
         # Every candidate produced a finite mean_test_score.
-        assert np.all(np.isfinite(grid.cv_results_["mean_test_score"])), (
-            f"non-finite mean_test_score among candidates: " f"{grid.cv_results_['mean_test_score']}"
-        )
+        assert np.all(np.isfinite(grid.cv_results_["mean_test_score"])), f"non-finite mean_test_score among candidates: {grid.cv_results_['mean_test_score']}"
 
     def test_gridsearch_finds_config_that_solves_quadratic(self):
         """GridSearch over the FE knobs MUST surface a config that solves the
@@ -241,7 +239,7 @@ class TestGridSearchCVOverFEParams:
         )
         # And it must crush the legacy linear baseline (no symmetric-in-x1 fix).
         assert best_score >= legacy_score + 0.15, (
-            f"Engineered FE must clear the legacy linear baseline by a wide " f"margin on the quadratic; best={best_score:.4f}, " f"legacy={legacy_score:.4f}"
+            f"Engineered FE must clear the legacy linear baseline by a wide margin on the quadratic; best={best_score:.4f}, legacy={legacy_score:.4f}"
         )
 
     def test_gridsearch_best_estimator_serializes(self):
@@ -350,7 +348,7 @@ class TestPipelineWithScalerAndClassifier:
         pipe.fit(Xtr, ytr)
         proba = pipe.predict_proba(Xte)
         assert proba.shape == (Xte.shape[0], 2), proba.shape
-        assert np.all(np.isfinite(proba)), f"seed={seed}: non-finite probabilities in predict_proba: " f"{proba[~np.isfinite(proba)][:5]}"
+        assert np.all(np.isfinite(proba)), f"seed={seed}: non-finite probabilities in predict_proba: {proba[~np.isfinite(proba)][:5]}"
         # Rows sum to 1.
         np.testing.assert_allclose(proba.sum(axis=1), 1.0, atol=1e-9)
 
@@ -386,7 +384,7 @@ class TestCrossValWithHybridFE:
         assert np.all(np.isfinite(scores)), f"non-finite CV scores: {scores}"
         # The pipeline solves the quadratic task on every fold -- mean
         # accuracy must be solid even if some folds are noisier.
-        assert scores.mean() >= 0.80, f"cross_val_score mean {scores.mean():.3f} below 0.80 on " f"quadratic signal with hybrid FE; per-fold: {scores}"
+        assert scores.mean() >= 0.80, f"cross_val_score mean {scores.mean():.3f} below 0.80 on quadratic signal with hybrid FE; per-fold: {scores}"
 
     def test_each_fold_fits_hybrid_recipes_fresh(self):
         """Manual 5-fold loop: every fold's MRMR fit produces a non-
@@ -407,7 +405,7 @@ class TestCrossValWithHybridFE:
             )
             m.fit(X.iloc[tr_idx], y.iloc[tr_idx])
             assert len(m.hybrid_orth_features_) > 0, (
-                f"fold={fold_idx}: hybrid_orth_features_ empty on a " f"quadratic signal; FE pipeline failed to engage on " f"this fold's training slice"
+                f"fold={fold_idx}: hybrid_orth_features_ empty on a quadratic signal; FE pipeline failed to engage on this fold's training slice"
             )
 
     def test_no_y_leakage_across_folds(self):
@@ -443,7 +441,7 @@ class TestCrossValWithHybridFE:
         m2.fit(Xtr, y_holdout_scrambled.iloc[tr_idx])
         # Training slice y is unchanged so the recipe must match.
         assert list(m2.hybrid_orth_features_) == feats_baseline, (
-            f"holdout-y scramble leaked into training fit: " f"baseline={feats_baseline} vs scrambled-holdout={m2.hybrid_orth_features_}"
+            f"holdout-y scramble leaked into training fit: baseline={feats_baseline} vs scrambled-holdout={m2.hybrid_orth_features_}"
         )
 
 
@@ -537,7 +535,7 @@ class TestSetOutputPandasWithHybrid:
         # Hybrid stage engaged.
         assert len(m.hybrid_orth_features_) > 0, m.hybrid_orth_features_
         # transform on a DataFrame returns DataFrame.
-        assert isinstance(out, pd.DataFrame), f"set_output(pandas) + hybrid FE: transform should return " f"DataFrame, got {type(out).__name__}"
+        assert isinstance(out, pd.DataFrame), f"set_output(pandas) + hybrid FE: transform should return DataFrame, got {type(out).__name__}"
 
     def test_feature_names_out_includes_engineered_names(self):
         """Every engineered hybrid_orth_features_ name appears in get_feature_names_out()."""
@@ -552,7 +550,7 @@ class TestSetOutputPandasWithHybrid:
         names_out = list(m.get_feature_names_out())
         # Every engineered name appears in feature_names_out.
         for eng_name in m.hybrid_orth_features_:
-            assert eng_name in names_out, f"engineered name {eng_name!r} not in " f"get_feature_names_out()={names_out}"
+            assert eng_name in names_out, f"engineered name {eng_name!r} not in get_feature_names_out()={names_out}"
 
     def test_transform_columns_match_feature_names_out(self):
         """transform()'s DataFrame column order matches get_feature_names_out() exactly."""
@@ -566,10 +564,7 @@ class TestSetOutputPandasWithHybrid:
         m.fit(X, y)
         out = m.transform(X)
         assert list(out.columns) == list(m.get_feature_names_out()), (
-            f"transform DataFrame columns disagree with "
-            f"get_feature_names_out():\n"
-            f"  columns={list(out.columns)}\n"
-            f"  names_out={list(m.get_feature_names_out())}"
+            f"transform DataFrame columns disagree with get_feature_names_out():\n  columns={list(out.columns)}\n  names_out={list(m.get_feature_names_out())}"
         )
 
     def test_engineered_column_values_finite(self):
@@ -579,7 +574,7 @@ class TestSetOutputPandasWithHybrid:
             if eng_name in out.columns:
                 col = out[eng_name].to_numpy()
                 assert np.all(np.isfinite(col)), (
-                    f"engineered column {eng_name!r} has non-finite " f"values; first bad rows: " f"{np.flatnonzero(~np.isfinite(col))[:5]}"
+                    f"engineered column {eng_name!r} has non-finite values; first bad rows: {np.flatnonzero(~np.isfinite(col))[:5]}"
                 )
 
 
@@ -652,4 +647,4 @@ class TestRegressionWithHybridFE:
         pipe.fit(Xtr, ytr)
         preds = pipe.predict(Xte)
         assert preds.shape == (Xte.shape[0],), preds.shape
-        assert np.all(np.isfinite(preds)), f"seed={seed}: non-finite predictions: " f"{preds[~np.isfinite(preds)][:5]}"
+        assert np.all(np.isfinite(preds)), f"seed={seed}: non-finite predictions: {preds[~np.isfinite(preds)][:5]}"

@@ -30,6 +30,7 @@ A second, independent bug is also pinned: the CUDA except clause used to only ca
 RuntimeError)``, but numba's ``CudaAPIError``/``CudaDriverError`` derive directly from ``Exception`` --
 a genuine CUDA driver fault would have skipped that handler and propagated to the caller uncaught.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -274,7 +275,10 @@ def test_row_chunked_cuda_matches_full_upload_cuda_on_real_hardware():
     """Real-hardware bit-identity (within single-ULP libm rounding) check: the row-chunked kernel must
     reproduce the full-upload kernel's MI values even when forced into many small row-chunks."""
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
-        n_samples=3000, nbins_per_col=(5,) * 8, n_classes_y=3, seed=11,
+        n_samples=3000,
+        nbins_per_col=(5,) * 8,
+        n_classes_y=3,
+        seed=11,
     )
     mi_full = bpmg.batch_pair_mi_cuda(data, pair_a, pair_b, nbins, classes_y, freqs_y)
 
@@ -286,7 +290,10 @@ def test_row_chunked_cuda_matches_full_upload_cuda_on_real_hardware():
         bpmg._choose_row_chunk_rows = orig_choose
 
     np.testing.assert_allclose(
-        mi_full, mi_chunked, rtol=0, atol=1e-9,
+        mi_full,
+        mi_chunked,
+        rtol=0,
+        atol=1e-9,
         err_msg="row-chunked CUDA must reproduce the full-upload CUDA kernel's MI to within single-ULP rounding",
     )
 

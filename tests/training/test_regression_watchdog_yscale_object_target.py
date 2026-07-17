@@ -4,6 +4,7 @@ Pre-fix ``np.std(_y_split[np.isfinite(_y_split)])`` ran on the raw (possibly obj
 slice; a non-float slice raised, the watchdog swallowed it at DEBUG, and the OOD check was silently
 disabled. ``_watchdog_y_scale`` casts to float64 once and never raises.
 """
+
 from __future__ import annotations
 
 import numpy as np

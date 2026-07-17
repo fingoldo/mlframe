@@ -9,6 +9,7 @@ extrapolates a clean estimate of the AR-driven component. Feeding that single ex
 otherwise-linear stage-2 model recovers the true next-window target far better than the naive baseline --
 mirroring the Optiver 3rd place's "300 seconds model" chaining technique.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -57,7 +58,9 @@ def test_biz_val_chained_window_forecaster_beats_naive_linear_baseline_mse():
     chained_mse = mean_squared_error(y_target[test_idx], chained.predict(X_curr.iloc[test_idx]))
 
     improvement = 1.0 - chained_mse / baseline_mse
-    assert improvement > 0.4, f"expected >40% MSE reduction vs. the naive linear baseline, got {improvement:.4f} (baseline={baseline_mse:.4f}, chained={chained_mse:.4f})"
+    assert improvement > 0.4, (
+        f"expected >40% MSE reduction vs. the naive linear baseline, got {improvement:.4f} (baseline={baseline_mse:.4f}, chained={chained_mse:.4f})"
+    )
 
 
 def test_chained_window_forecaster_injects_chained_feature_column():
@@ -91,12 +94,16 @@ def test_biz_val_chained_window_forecaster_transductive_stage1_pretraining_beats
     labeled_only.fit(X_prev_train, X_curr_train, y_curr_train, y_target_train)
     mse_labeled_only = mean_squared_error(y_target_test, labeled_only.predict(X_curr_test))
 
-    with_transductive = ChainedWindowForecaster(stage1_estimator=GradientBoostingRegressor(random_state=0, n_estimators=100), stage2_estimator=LinearRegression())
+    with_transductive = ChainedWindowForecaster(
+        stage1_estimator=GradientBoostingRegressor(random_state=0, n_estimators=100), stage2_estimator=LinearRegression()
+    )
     with_transductive.fit(X_prev_train, X_curr_train, y_curr_train, y_target_train, X_prev_extra=X_prev_extra, y_curr_extra=y_curr_extra)
     mse_with_transductive = mean_squared_error(y_target_test, with_transductive.predict(X_curr_test))
 
     improvement = 1.0 - mse_with_transductive / mse_labeled_only
-    assert improvement > 0.3, f"expected >30% MSE reduction from transductive stage-1 pretraining, got {improvement:.4f} (labeled_only={mse_labeled_only:.4f}, with_transductive={mse_with_transductive:.4f})"
+    assert improvement > 0.3, (
+        f"expected >30% MSE reduction from transductive stage-1 pretraining, got {improvement:.4f} (labeled_only={mse_labeled_only:.4f}, with_transductive={mse_with_transductive:.4f})"
+    )
 
 
 def _make_drifting_window(n: int, seed: int, position: int, drift_per_position: float, ar_coef: float = 0.9):
@@ -142,8 +149,12 @@ def test_biz_val_chained_window_forecaster_diagnose_error_accumulation_flags_dri
     stable_diag = chained.diagnose_error_accumulation(stable_X, stable_y, accumulation_threshold=2.0)
 
     assert drifting_diag["growth_ratio"][-1] > 2.0, f"expected drifting chain's final growth_ratio > 2.0, got {drifting_diag['growth_ratio'][-1]:.4f}"
-    assert drifting_diag["trustworthy_horizon"] < n_positions, f"expected drift to be flagged before the end of the chain, got trustworthy_horizon={drifting_diag['trustworthy_horizon']}"
-    assert stable_diag["trustworthy_horizon"] == n_positions, f"expected the stable control chain to stay trustworthy throughout, got trustworthy_horizon={stable_diag['trustworthy_horizon']}"
+    assert drifting_diag["trustworthy_horizon"] < n_positions, (
+        f"expected drift to be flagged before the end of the chain, got trustworthy_horizon={drifting_diag['trustworthy_horizon']}"
+    )
+    assert stable_diag["trustworthy_horizon"] == n_positions, (
+        f"expected the stable control chain to stay trustworthy throughout, got trustworthy_horizon={stable_diag['trustworthy_horizon']}"
+    )
     assert drifting_diag["trustworthy_horizon"] < stable_diag["trustworthy_horizon"]
 
 

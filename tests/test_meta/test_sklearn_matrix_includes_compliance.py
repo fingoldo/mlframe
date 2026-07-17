@@ -33,7 +33,9 @@ def test_sklearn_matrix_runs_compliance_composite() -> None:
     """tests/test_sklearn_compliance_composite.py must be listed in a pytest invocation step."""
 
     text = _read_yaml_text()
-    assert "tests/test_sklearn_compliance_composite.py" in text, "sklearn-matrix workflow must run tests/test_sklearn_compliance_composite.py on every pinned sklearn minor"
+    assert "tests/test_sklearn_compliance_composite.py" in text, (
+        "sklearn-matrix workflow must run tests/test_sklearn_compliance_composite.py on every pinned sklearn minor"
+    )
 
 
 def test_sklearn_matrix_pins_all_four_minors() -> None:

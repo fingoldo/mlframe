@@ -20,6 +20,7 @@ Covered here:
   resampling while a genuinely group-robust spec is retained, whereas the
   row-level path wrongly keeps the fragile spec.
 """
+
 from __future__ import annotations
 
 import cProfile
@@ -106,13 +107,21 @@ def _grouped_df(n_groups=20, per=100, seed=0):
 # Unit: no-group path is bit-identical to the row-level draw (the pin)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("frac", [0.5, 0.3, 1.0])
 def test_no_group_path_bit_identical_to_row_reference(frac):
     df, idx, _ = _grouped_df()
     rec = []
     res = stability_select_specs(
-        _factory(rec), df, "y", ["x"], idx,
-        n_replicates=5, subsample_frac=frac, random_state=7, group_aware=False,
+        _factory(rec),
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=5,
+        subsample_frac=frac,
+        random_state=7,
+        group_aware=False,
     )
     assert res.group_aware is False
     expected = _row_reference(idx, frac, 5, 7)
@@ -127,8 +136,15 @@ def test_row_pin_would_fail_if_draw_changed():
     df, idx, _ = _grouped_df()
     rec = []
     stability_select_specs(
-        _factory(rec), df, "y", ["x"], idx,
-        n_replicates=4, subsample_frac=0.5, random_state=7, group_aware=False,
+        _factory(rec),
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=4,
+        subsample_frac=0.5,
+        random_state=7,
+        group_aware=False,
     )
     wrong = _row_reference(idx, 0.5, 4, 999)  # different seed -> different draws
     mismatched = any(got.shape != exp.shape or not np.array_equal(got, exp) for got, exp in zip(rec, wrong))
@@ -141,8 +157,14 @@ def test_group_aware_with_no_key_falls_back_bit_identical():
     df, idx, _ = _grouped_df()
     rec = []
     res = stability_select_specs(
-        _factory(rec, config=_Cfg(True)), df, "y", ["x"], idx,
-        n_replicates=5, subsample_frac=0.5, random_state=7,
+        _factory(rec, config=_Cfg(True)),
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=5,
+        subsample_frac=0.5,
+        random_state=7,
     )
     assert res.group_aware is False
     for got, exp in zip(rec, _row_reference(idx, 0.5, 5, 7)):
@@ -153,6 +175,7 @@ def test_group_aware_with_no_key_falls_back_bit_identical():
 # Unit: group replicates contain only WHOLE groups
 # ---------------------------------------------------------------------------
 
+
 def _assert_whole_groups(recorded, train_idx, groups):
     train_idx = np.asarray(train_idx)
     for sub in recorded:
@@ -160,18 +183,21 @@ def _assert_whole_groups(recorded, train_idx, groups):
         for g in np.unique(groups[train_idx]):
             rows_g = set(train_idx[groups[train_idx] == g].tolist())
             inter = rows_g & subset
-            assert inter == rows_g or inter == set(), (
-                f"group {g} split across replicate/complement: "
-                f"{len(inter)}/{len(rows_g)} rows in the replicate"
-            )
+            assert inter == rows_g or inter == set(), f"group {g} split across replicate/complement: {len(inter)}/{len(rows_g)} rows in the replicate"
 
 
 def test_group_replicates_are_whole_groups():
     df, idx, groups = _grouped_df(n_groups=20, per=100)
     rec = []
     res = stability_select_specs(
-        _factory(rec, group_ids=groups, config=_Cfg(True)), df, "y", ["x"], idx,
-        n_replicates=6, subsample_frac=0.5, random_state=3,
+        _factory(rec, group_ids=groups, config=_Cfg(True)),
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=6,
+        subsample_frac=0.5,
+        random_state=3,
     )
     assert res.group_aware is True
     assert len(rec) == 6
@@ -186,12 +212,26 @@ def test_group_ids_via_explicit_arg_and_column_agree():
     df, idx, groups = _grouped_df(n_groups=12, per=80)
     rec_arg, rec_col = [], []
     stability_select_specs(
-        _factory(rec_arg, config=_Cfg(True)), df, "y", ["x"], idx,
-        n_replicates=5, subsample_frac=0.5, random_state=11, group_ids=groups,
+        _factory(rec_arg, config=_Cfg(True)),
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=5,
+        subsample_frac=0.5,
+        random_state=11,
+        group_ids=groups,
     )
     stability_select_specs(
-        _factory(rec_col, config=_Cfg(True)), df, "y", ["x"], idx,
-        n_replicates=5, subsample_frac=0.5, random_state=11, group_column="well",
+        _factory(rec_col, config=_Cfg(True)),
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=5,
+        subsample_frac=0.5,
+        random_state=11,
+        group_column="well",
     )
     for a, b in zip(rec_arg, rec_col):
         np.testing.assert_array_equal(a, b)
@@ -205,8 +245,15 @@ def test_full_length_group_ids_indexed_by_train_idx():
     train_idx = np.sort(np.random.default_rng(0).choice(groups.size, size=600, replace=False))
     rec = []
     res = stability_select_specs(
-        _factory(rec, config=_Cfg(True)), df, "y", ["x"], train_idx,
-        n_replicates=4, subsample_frac=0.5, random_state=5, group_ids=groups,
+        _factory(rec, config=_Cfg(True)),
+        df,
+        "y",
+        ["x"],
+        train_idx,
+        n_replicates=4,
+        subsample_frac=0.5,
+        random_state=5,
+        group_ids=groups,
     )
     assert res.group_aware is True
     _assert_whole_groups(rec, train_idx, groups)
@@ -215,6 +262,7 @@ def test_full_length_group_ids_indexed_by_train_idx():
 # ---------------------------------------------------------------------------
 # Unit: selection-frequency threshold still applies (group path)
 # ---------------------------------------------------------------------------
+
 
 def test_threshold_semantics_group_path():
     df, idx, groups = _grouped_df(n_groups=20, per=50)
@@ -230,8 +278,14 @@ def test_threshold_semantics_group_path():
 
     res = stability_select_specs(
         _factory([], group_ids=groups, config=_Cfg(True), selector=selector),
-        df, "y", ["x"], idx, n_replicates=8, subsample_frac=0.5,
-        freq_threshold=0.6, random_state=1,
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=8,
+        subsample_frac=0.5,
+        freq_threshold=0.6,
+        random_state=1,
     )
     assert res.group_aware is True
     assert res.frequencies["always"] == 1.0
@@ -246,13 +300,20 @@ def test_threshold_semantics_group_path():
 # Unit: degenerate keys
 # ---------------------------------------------------------------------------
 
+
 def test_single_group_falls_back_to_row_path():
     df, idx, _ = _grouped_df(n_groups=1, per=300)
     one = np.zeros(idx.size, dtype=int)
     rec = []
     res = stability_select_specs(
-        _factory(rec, group_ids=one, config=_Cfg(True)), df, "y", ["x"], idx,
-        n_replicates=5, subsample_frac=0.5, random_state=7,
+        _factory(rec, group_ids=one, config=_Cfg(True)),
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=5,
+        subsample_frac=0.5,
+        random_state=7,
     )
     # <2 distinct groups: cannot leave a well out -> row path, bit-identical.
     assert res.group_aware is False
@@ -264,8 +325,14 @@ def test_all_groups_identical_label_falls_back():
     df, idx, _ = _grouped_df(n_groups=1, per=200)
     same = np.full(idx.size, 42)
     res = stability_select_specs(
-        _factory([], group_ids=same, config=_Cfg(True)), df, "y", ["x"], idx,
-        n_replicates=4, subsample_frac=0.5, random_state=2,
+        _factory([], group_ids=same, config=_Cfg(True)),
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=4,
+        subsample_frac=0.5,
+        random_state=2,
     )
     assert res.group_aware is False
 
@@ -274,8 +341,14 @@ def test_fewer_groups_than_replicates_ok():
     df, idx, groups = _grouped_df(n_groups=3, per=100)
     rec = []
     res = stability_select_specs(
-        _factory(rec, group_ids=groups, config=_Cfg(True)), df, "y", ["x"], idx,
-        n_replicates=6, subsample_frac=0.5, random_state=4,
+        _factory(rec, group_ids=groups, config=_Cfg(True)),
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=6,
+        subsample_frac=0.5,
+        random_state=4,
     )
     assert res.group_aware is True
     assert len(rec) == 6
@@ -289,7 +362,13 @@ def test_config_toggle_off_disables_group_path():
     rec = []
     res = stability_select_specs(
         _factory(rec, group_ids=groups, config=_Cfg(stability_group_aware=False)),
-        df, "y", ["x"], idx, n_replicates=5, subsample_frac=0.5, random_state=7,
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=5,
+        subsample_frac=0.5,
+        random_state=7,
     )
     # config says off -> row path even though a valid key is present.
     assert res.group_aware is False
@@ -304,14 +383,13 @@ def test_subsample_groups_helper_degenerate_and_frac_one():
     # frac>=1 returns the full index unchanged.
     np.testing.assert_array_equal(_subsample_groups(idx, groups, 1.0, rng), idx)
     # single group -> full fallback.
-    np.testing.assert_array_equal(
-        _subsample_groups(idx, np.zeros(6, int), 0.5, rng), idx
-    )
+    np.testing.assert_array_equal(_subsample_groups(idx, np.zeros(6, int), 0.5, rng), idx)
 
 
 # ---------------------------------------------------------------------------
 # biz_value: group-aware DEMOTES the fragile spec; row path wrongly keeps it
 # ---------------------------------------------------------------------------
+
 
 def _rmse(a, b):
     return float(np.sqrt(np.mean((a - b) ** 2)))
@@ -421,6 +499,7 @@ def test_biz_val_group_aware_demotes_fragile_keeps_robust():
 # cProfile harness (documented in _stability.py; runs fast here as a guard)
 # ---------------------------------------------------------------------------
 
+
 def _profile_stability_sweep(n_groups=200, per=200, n_replicates=5):
     """Runnable cProfile harness for the group-aware sweep. Uses a trivial
     factory so the profile isolates the DRIVER (resampling + bookkeeping) rather
@@ -436,8 +515,14 @@ def _profile_stability_sweep(n_groups=200, per=200, n_replicates=5):
     pr = cProfile.Profile()
     pr.enable()
     stability_select_specs(
-        _factory(rec, group_ids=groups, config=_Cfg(True)), df, "y", ["x"], idx,
-        n_replicates=n_replicates, subsample_frac=0.5, random_state=0,
+        _factory(rec, group_ids=groups, config=_Cfg(True)),
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=n_replicates,
+        subsample_frac=0.5,
+        random_state=0,
     )
     pr.disable()
     s = io.StringIO()

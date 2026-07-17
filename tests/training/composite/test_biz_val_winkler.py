@@ -6,6 +6,7 @@ decrease as the interval tightens around the truth, the ``1/alpha`` penalty scal
 the degenerate cases; the biz_value test proves a well-calibrated tight interval scores strictly (and
 quantitatively) better than both an over-wide interval and an under-covering one on the same data.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -21,6 +22,7 @@ from mlframe.training.composite._winkler import (
 
 
 # --------------------------------------------------------------------------- unit
+
 
 def test_winkler_decreases_as_interval_tightens_around_truth():
     # y == 0 always covered; score is pure width, so tighter (but still-covering) intervals score lower.
@@ -44,7 +46,7 @@ def test_miss_penalty_scales_with_inverse_alpha():
 
 def test_coverage_helper_correct():
     y = np.array([0.0, 0.0, 0.0, 0.0])
-    lo = np.array([-1.0, -1.0, 1.0, -1.0])   # rows 0,1,3 cover 0; row 2 does not (lo=1>0)
+    lo = np.array([-1.0, -1.0, 1.0, -1.0])  # rows 0,1,3 cover 0; row 2 does not (lo=1>0)
     hi = np.array([1.0, 1.0, 2.0, 1.0])
     assert mean_coverage(y, lo, hi) == pytest.approx(0.75)
 
@@ -119,15 +121,16 @@ def test_summary_reports_coverage_and_miss_split():
 
 # --------------------------------------------------------------------------- biz_value
 
+
 def test_biz_val_winkler_prefers_calibrated_over_wide_and_undercovering():
     rng = np.random.default_rng(42)
     n = 4000
     y = rng.normal(0.0, 1.0, n)
     z90 = 1.6448536269514722  # N(0,1) 0.95 quantile -> a calibrated central 90% interval
 
-    calib_lo, calib_hi = np.full(n, -z90), np.full(n, z90)   # ~90% coverage, sharp
-    wide_lo, wide_hi = np.full(n, -4.0), np.full(n, 4.0)       # ~100% coverage, way too wide
-    under_lo, under_hi = np.full(n, -0.5), np.full(n, 0.5)     # ~38% coverage, far too narrow
+    calib_lo, calib_hi = np.full(n, -z90), np.full(n, z90)  # ~90% coverage, sharp
+    wide_lo, wide_hi = np.full(n, -4.0), np.full(n, 4.0)  # ~100% coverage, way too wide
+    under_lo, under_hi = np.full(n, -0.5), np.full(n, 0.5)  # ~38% coverage, far too narrow
 
     alpha = 0.10
     s_calib = winkler_interval_score(y, calib_lo, calib_hi, alpha)

@@ -36,9 +36,7 @@ def test_revalidate_recovers_planted_subset(planted):
     Xh, yh = X.iloc[idx_hold].reset_index(drop=True), y[idx_hold]
 
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
-    best, ranked, baseline = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=1, lambda_stab=0.0)
+    best, ranked, baseline = revalidate_top_n(candidates, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", n_models=1, lambda_stab=0.0)
     assert set(best) == {0, 1, 2}
     assert ranked[0]["honest_loss"] < ranked[-1]["honest_loss"]
     assert baseline["honest_loss"] > ranked[0]["honest_loss"]  # the chosen subset beats a random one
@@ -51,9 +49,9 @@ def test_trust_guard_high_fidelity_on_clean_proxy(planted):
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     # phi was computed on full X; slice to search rows to match ys
-    rep = proxy_trust_guard(phi[:900], base[:900], ys, LinearRegression(), Xs, Xh, yh,
-                            classification=False, metric="rmse", n_anchors=25,
-                            rng=np.random.default_rng(0))
+    rep = proxy_trust_guard(
+        phi[:900], base[:900], ys, LinearRegression(), Xs, Xh, yh, classification=False, metric="rmse", n_anchors=25, rng=np.random.default_rng(0)
+    )
     assert rep["n_anchors"] >= 10
     assert rep["spearman"] > 0.5  # clean linear proxy -> good fidelity
     assert rep["trustworthy"]
@@ -67,17 +65,33 @@ def test_active_learning_respects_budget_and_not_worse_than_proxy_top1(planted):
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
 
     # Candidate pool: proxy-best is the true {0,1,2}; several decoys with lower proxy_loss-ranks.
-    candidates = [(0.05, (0, 1, 2)), (0.10, (0, 1)), (0.20, (0, 1, 2, 5)),
-                  (0.30, (4, 5, 6)), (0.40, (3, 4)), (0.50, (5, 6, 7))]
+    candidates = [(0.05, (0, 1, 2)), (0.10, (0, 1)), (0.20, (0, 1, 2, 5)), (0.30, (4, 5, 6)), (0.40, (3, 4)), (0.50, (5, 6, 7))]
     # Enough anchors for the corrector to fit (proxy ~ honest with a redundancy wobble).
     rng = np.random.default_rng(0)
-    cd = dict(proxy=list(rng.uniform(0.1, 0.6, 16)), honest=list(rng.uniform(0.1, 0.6, 16)),
-              cards=list(rng.integers(2, 5, 16).astype(float)), redund=list(rng.uniform(0, 1, 16)))
+    cd = dict(
+        proxy=list(rng.uniform(0.1, 0.6, 16)),
+        honest=list(rng.uniform(0.1, 0.6, 16)),
+        cards=list(rng.integers(2, 5, 16).astype(float)),
+        redund=list(rng.uniform(0, 1, 16)),
+    )
 
     budget = 4
     best_idx, ranked, n_eval = active_learning_revalidate(
-        candidates, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        corrector_data=cd, phi=phi, budget=budget, batch=2, n_models=1, rng=np.random.default_rng(1))
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        corrector_data=cd,
+        phi=phi,
+        budget=budget,
+        batch=2,
+        n_models=1,
+        rng=np.random.default_rng(1),
+    )
 
     assert n_eval <= budget and n_eval >= 1
     assert len(ranked) == n_eval
@@ -94,8 +108,7 @@ def test_importance_ablation_runs(planted):
     X, y, phi, base = planted
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
-    out = importance_topk_ablation(phi[:900], (0, 1, 2), LinearRegression(), Xs, ys, Xh, yh,
-                                   classification=False, metric="rmse")
+    out = importance_topk_ablation(phi[:900], (0, 1, 2), LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse")
     assert out["proxy_features"] == (0, 1, 2)
     assert "proxy_honest_loss" in out and "importance_honest_loss" in out
     assert isinstance(out["proxy_wins"], bool)
@@ -119,7 +132,7 @@ def test_honest_loss_cache_returns_identical_to_uncached(planted):
     first = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse", seed=7, cache=cache)
     second = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse", seed=7, cache=cache)
     assert first == uncached  # first call (miss) matches the uncached fit
-    assert second == first    # second call (hit) returns the byte-identical cached value
+    assert second == first  # second call (hit) returns the byte-identical cached value
     assert cache.misses == 1 and cache.hits == 1
 
 
@@ -153,9 +166,7 @@ def _refine_planted_redundant(n=600, n_red=4, seed=0):
     X = rng.normal(size=(n, 3 + n_red + n_noise))
     for j in range(n_red):
         X[:, 3 + j] = X[:, 0] + 0.05 * rng.normal(size=n)  # near-duplicates of col 0
-    cols = ([f"inf{i}" for i in range(3)]
-            + [f"dup{j}" for j in range(n_red)]
-            + [f"noise{i}" for i in range(n_noise)])
+    cols = [f"inf{i}" for i in range(3)] + [f"dup{j}" for j in range(n_red)] + [f"noise{i}" for i in range(n_noise)]
     Xdf = pd.DataFrame(X, columns=cols)
     y = (1.2 * X[:, 0] + 0.9 * X[:, 1] - 0.7 * X[:, 2] + 0.3 * rng.normal(size=n)).astype(np.float64)
     return Xdf, y
@@ -189,15 +200,37 @@ def test_within_cluster_refine_collapses_redundant_in_fewer_fits():
 
     cache_multi = HonestLossCache()
     refined = within_cluster_refine(
-        member_cols, LinearRegression(), Xs, ys, Xh, yh, classification=False,
-        metric="rmse", parsimony_tol=0.05, n_jobs=1, member_groups=member_groups, cache=cache_multi,
-        min_multi_clusters=1)
+        member_cols,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.05,
+        n_jobs=1,
+        member_groups=member_groups,
+        cache=cache_multi,
+        min_multi_clusters=1,
+    )
     n_multi = cache_multi.misses + cache_multi.hits
 
     cache_legacy = HonestLossCache()
     refined_legacy = within_cluster_refine(
-        member_cols, LinearRegression(), Xs, ys, Xh, yh, classification=False,
-        metric="rmse", parsimony_tol=0.05, n_jobs=1, member_groups=None, cache=cache_legacy)
+        member_cols,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.05,
+        n_jobs=1,
+        member_groups=None,
+        cache=cache_legacy,
+    )
     n_legacy = cache_legacy.misses + cache_legacy.hits
 
     # Cluster collapse + stage-2 multi-drop probes strictly reduce the fit count.
@@ -219,17 +252,16 @@ def test_within_cluster_refine_equivalent_to_legacy_when_no_safe_multi_drop():
     rng = np.random.default_rng(1)
     n = 600
     X = pd.DataFrame(rng.normal(size=(n, 5)), columns=[f"x{i}" for i in range(5)])
-    y = (1.5 * X["x0"] + 1.2 * X["x1"] - 0.9 * X["x2"] + 0.7 * X["x3"] - 0.5 * X["x4"]
-         + 0.1 * rng.normal(size=n)).to_numpy()
+    y = (1.5 * X["x0"] + 1.2 * X["x1"] - 0.9 * X["x2"] + 0.7 * X["x3"] - 0.5 * X["x4"] + 0.1 * rng.normal(size=n)).to_numpy()
     Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
     Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
     cols = list(range(5))
     refined_legacy = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.02, n_jobs=1, member_groups=None)
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", parsimony_tol=0.02, n_jobs=1, member_groups=None
+    )
     refined_multi = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.02, n_jobs=1, member_groups=[[i] for i in range(5)])
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", parsimony_tol=0.02, n_jobs=1, member_groups=[[i] for i in range(5)]
+    )
     assert refined_legacy == refined_multi
 
 
@@ -245,12 +277,36 @@ def test_within_cluster_refine_engages_shared_cache():
     groups = _refine_planted_groups()
     cache = HonestLossCache()
     r1 = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=1, member_groups=groups, cache=cache, min_multi_clusters=1)
+        cols,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.05,
+        n_jobs=1,
+        member_groups=groups,
+        cache=cache,
+        min_multi_clusters=1,
+    )
     misses_1 = cache.misses
     r2 = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=1, member_groups=groups, cache=cache, min_multi_clusters=1)
+        cols,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.05,
+        n_jobs=1,
+        member_groups=groups,
+        cache=cache,
+        min_multi_clusters=1,
+    )
     # Same result; second pass adds zero new fits (every (subset, seed=None) is cached from the first).
     assert r1 == r2
     assert cache.misses == misses_1, f"second refine added {cache.misses - misses_1} new fits; expected 0"
@@ -274,8 +330,7 @@ def test_within_cluster_refine_gates_stage1_on_low_redundancy():
     rng = np.random.default_rng(7)
     n = 600
     X = pd.DataFrame(rng.normal(size=(n, 5)), columns=[f"x{i}" for i in range(5)])
-    y = (1.5 * X["x0"] + 1.2 * X["x1"] - 0.9 * X["x2"] + 0.7 * X["x3"] - 0.5 * X["x4"]
-         + 0.1 * rng.normal(size=n)).to_numpy()
+    y = (1.5 * X["x0"] + 1.2 * X["x1"] - 0.9 * X["x2"] + 0.7 * X["x3"] - 0.5 * X["x4"] + 0.1 * rng.normal(size=n)).to_numpy()
     Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
     Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
     cols = list(range(5))
@@ -285,32 +340,52 @@ def test_within_cluster_refine_gates_stage1_on_low_redundancy():
 
     cache_gated = HonestLossCache()
     refined_gated = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.02, n_jobs=1, member_groups=spurious_one_multi, cache=cache_gated,
-        min_multi_clusters=3)
+        cols,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.02,
+        n_jobs=1,
+        member_groups=spurious_one_multi,
+        cache=cache_gated,
+        min_multi_clusters=3,
+    )
     fits_gated = cache_gated.misses + cache_gated.hits
 
     cache_legacy = HonestLossCache()
     refined_legacy = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.02, n_jobs=1, member_groups=None, cache=cache_legacy)
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", parsimony_tol=0.02, n_jobs=1, member_groups=None, cache=cache_legacy
+    )
     fits_legacy = cache_legacy.misses + cache_legacy.hits
 
     # With the gate, the low-redundancy path matches legacy behavior exactly (no stage-1 overhead).
-    assert fits_gated == fits_legacy, (
-        f"gated refine ran {fits_gated} fits vs legacy {fits_legacy}; stage-1 should be skipped")
+    assert fits_gated == fits_legacy, f"gated refine ran {fits_gated} fits vs legacy {fits_legacy}; stage-1 should be skipped"
     assert refined_gated == refined_legacy
 
     # When the gate is loosened (min_multi_clusters=1), stage-1 fires and costs ADDITIONAL fits
     # (the spurious cluster's probe + cumulative verify before stage-2 runs).
     cache_ungated = HonestLossCache()
     within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.02, n_jobs=1, member_groups=spurious_one_multi, cache=cache_ungated,
-        min_multi_clusters=1)
+        cols,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.02,
+        n_jobs=1,
+        member_groups=spurious_one_multi,
+        cache=cache_ungated,
+        min_multi_clusters=1,
+    )
     fits_ungated = cache_ungated.misses + cache_ungated.hits
-    assert fits_ungated > fits_gated, (
-        f"un-gated refine ran {fits_ungated} fits vs gated {fits_gated}; stage-1 should have fired")
+    assert fits_ungated > fits_gated, f"un-gated refine ran {fits_ungated} fits vs gated {fits_gated}; stage-1 should have fired"
 
 
 def test_within_cluster_refine_gate_preserves_collapse_with_enough_clusters():
@@ -344,14 +419,14 @@ def test_within_cluster_refine_gate_preserves_collapse_with_enough_clusters():
 
     cache_gate = HonestLossCache()
     refined = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=1, member_groups=groups, cache=cache_gate)
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", parsimony_tol=0.05, n_jobs=1, member_groups=groups, cache=cache_gate
+    )
     fits_with_stage1 = cache_gate.misses + cache_gate.hits
 
     cache_legacy = HonestLossCache()
     within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=1, member_groups=None, cache=cache_legacy)
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", parsimony_tol=0.05, n_jobs=1, member_groups=None, cache=cache_legacy
+    )
     fits_legacy = cache_legacy.misses + cache_legacy.hits
 
     # Stage-1 collapse must shrink the column count BELOW legacy greedy alone could on its own (the
@@ -359,8 +434,7 @@ def test_within_cluster_refine_gate_preserves_collapse_with_enough_clusters():
     assert len(refined) <= 6, f"stage-1 collapse should drop most duplicates; got {len(refined)} cols"
     # Stage-1 collapse strictly REDUCES total fits vs legacy single-drop greedy because each
     # collapse skips a full single-drop round (n_features fits each).
-    assert fits_with_stage1 < fits_legacy, (
-        f"stage-1 fits {fits_with_stage1} not < legacy {fits_legacy}")
+    assert fits_with_stage1 < fits_legacy, f"stage-1 fits {fits_with_stage1} not < legacy {fits_legacy}"
 
 
 def test_full_fit_cached_matches_uncached():
@@ -378,9 +452,18 @@ def test_full_fit_cached_matches_uncached():
     y = pd.Series((logit + 0.3 * rng.normal(size=n) > 0).astype(int))
 
     def _fit():
-        sel = ShapProxiedFS(classification=True, metric="brier", optimizer="auto",
-                            cluster_features=True, top_n=12, n_splits=3, n_revalidation_models=2,
-                            n_anchors=15, random_state=0, verbose=False)
+        sel = ShapProxiedFS(
+            classification=True,
+            metric="brier",
+            optimizer="auto",
+            cluster_features=True,
+            top_n=12,
+            n_splits=3,
+            n_revalidation_models=2,
+            n_anchors=15,
+            random_state=0,
+            verbose=False,
+        )
         sel.fit(X, y)
         return sel.support_.copy(), list(sel.selected_features_)
 
@@ -439,21 +522,29 @@ def test_within_cluster_refine_cap_namespaces_cache_entries():
     cache = HonestLossCache()
     cols = [0, 1, 2]
     # Full-template entry (no cap, default template_id=None).
-    full = _honest_loss(GradientBoostingClassifier(n_estimators=200, random_state=0),
-                       Xs, ys, Xh, yh, cols, True, "brier", cache=cache)
+    full = _honest_loss(GradientBoostingClassifier(n_estimators=200, random_state=0), Xs, ys, Xh, yh, cols, True, "brier", cache=cache)
     misses_after_full = cache.misses
     # Cap with template_id -> distinct cache slot, must add a NEW miss (not served by the full entry).
-    capped = _honest_loss(GradientBoostingClassifier(n_estimators=200, random_state=0),
-                         Xs, ys, Xh, yh, cols, True, "brier", cache=cache,
-                         n_estimators_cap=50, template_id=("refine_cap", 50))
+    capped = _honest_loss(
+        GradientBoostingClassifier(n_estimators=200, random_state=0),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        cols,
+        True,
+        "brier",
+        cache=cache,
+        n_estimators_cap=50,
+        template_id=("refine_cap", 50),
+    )
     assert cache.misses == misses_after_full + 1, "capped fit must be a fresh miss, not a cache hit"
     # And the capped model with fewer trees is a different loss number than the full booster.
     assert capped != full
 
     # Calling again at the FULL template still hits the original full-template slot (no new miss).
     misses_before = cache.misses
-    full2 = _honest_loss(GradientBoostingClassifier(n_estimators=200, random_state=0),
-                        Xs, ys, Xh, yh, cols, True, "brier", cache=cache)
+    full2 = _honest_loss(GradientBoostingClassifier(n_estimators=200, random_state=0), Xs, ys, Xh, yh, cols, True, "brier", cache=cache)
     assert cache.misses == misses_before  # served from the (cols, None, None) slot
     assert full2 == full
 
@@ -475,8 +566,7 @@ def test_within_cluster_refine_cap_keeps_redundancy_decisions():
     # cols 0..2 informative; cols 3..6 are near-duplicates of col 0; cols 7..10 noise.
     for j in range(n_dup):
         X[:, f_inf + j] = X[:, 0] + 0.05 * rng.normal(size=n)
-    cols_names = ([f"inf{i}" for i in range(f_inf)] + [f"dup{j}" for j in range(n_dup)]
-                  + [f"noise{i}" for i in range(n_noise)])
+    cols_names = [f"inf{i}" for i in range(f_inf)] + [f"dup{j}" for j in range(n_dup)] + [f"noise{i}" for i in range(n_noise)]
     Xdf = pd.DataFrame(X, columns=cols_names)
     y = ((1.2 * X[:, 0] + 0.9 * X[:, 1] - 0.7 * X[:, 2] + 0.3 * rng.normal(size=n)) > 0).astype(int)
     Xs, ys = Xdf.iloc[:600].reset_index(drop=True), y[:600]
@@ -485,10 +575,20 @@ def test_within_cluster_refine_cap_keeps_redundancy_decisions():
     member_groups = [[0, 3, 4, 5, 6], [1], [2], [7], [8], [9], [10]]
 
     refined = within_cluster_refine(
-        cols, GradientBoostingClassifier(n_estimators=200, random_state=0),
-        Xs, ys, Xh, yh, classification=True, metric="brier",
-        parsimony_tol=0.05, n_jobs=1, member_groups=member_groups, min_multi_clusters=1,
-        refine_n_estimators=50)
+        cols,
+        GradientBoostingClassifier(n_estimators=200, random_state=0),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=True,
+        metric="brier",
+        parsimony_tol=0.05,
+        n_jobs=1,
+        member_groups=member_groups,
+        min_multi_clusters=1,
+        refine_n_estimators=50,
+    )
     # Refine must keep at least one of the redundancy-cluster members AND the unique informatives.
     assert any(c in (0, 3, 4, 5, 6) for c in refined), f"missing redundancy-cluster rep: {refined}"
     assert {1, 2}.issubset(set(refined)), f"refine dropped unique informatives: {refined}"
@@ -512,10 +612,19 @@ def test_shap_proxied_fs_records_honest_loss_full_for_refined_subset():
     logit = 1.2 * Xnp[:, 0] + 0.9 * Xnp[:, 1] - 0.7 * Xnp[:, 2]
     y = pd.Series((logit + 0.3 * rng.normal(size=n) > 0).astype(int))
 
-    sel = ShapProxiedFS(classification=True, metric="brier", optimizer="auto",
-                        cluster_features=True, top_n=12, n_splits=3, n_revalidation_models=2,
-                        n_anchors=15, random_state=0, verbose=False,
-                        refine_n_estimators=50)
+    sel = ShapProxiedFS(
+        classification=True,
+        metric="brier",
+        optimizer="auto",
+        cluster_features=True,
+        top_n=12,
+        n_splits=3,
+        n_revalidation_models=2,
+        n_anchors=15,
+        random_state=0,
+        verbose=False,
+        refine_n_estimators=50,
+    )
     sel.fit(X, y)
     ref = sel.shap_proxy_report_.get("within_cluster_refine")
     assert ref is not None
@@ -542,16 +651,13 @@ def test_permutation_importance_ranking_is_deterministic_across_calls():
     Xh, yh = X.iloc[400:].reset_index(drop=True), y[400:]
     cols = list(range(6))
 
-    base1, imps1 = _permutation_importance_ranking(LinearRegression(), Xs, ys, Xh, yh, cols, False,
-                                                    "rmse", seed=42)
-    base2, imps2 = _permutation_importance_ranking(LinearRegression(), Xs, ys, Xh, yh, cols, False,
-                                                    "rmse", seed=42)
+    base1, imps1 = _permutation_importance_ranking(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse", seed=42)
+    base2, imps2 = _permutation_importance_ranking(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse", seed=42)
     assert base1 == base2
     assert np.array_equal(imps1, imps2), f"non-deterministic ranking: {imps1} vs {imps2}"
     # Different seed -> different shuffle -> ranks should still be qualitatively similar (informative
     # cols outrank noise) but the importance values may differ slightly.
-    _, imps3 = _permutation_importance_ranking(LinearRegression(), Xs, ys, Xh, yh, cols, False,
-                                                "rmse", seed=999)
+    _, imps3 = _permutation_importance_ranking(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse", seed=999)
     # Top-3 by importance: informatives 0, 1, 2 should dominate (positive imp), noise (3, 4, 5) low.
     assert set(np.argsort(-imps1)[:3].tolist()) == {0, 1, 2}, imps1
     assert set(np.argsort(-imps3)[:3].tolist()) == {0, 1, 2}, imps3
@@ -572,18 +678,17 @@ def test_within_cluster_refine_batch_drop_falls_back_to_single_drop_when_all_ess
     n = 600
     # Five linearly independent informatives with similar coefficients -> none is individually safe.
     X = pd.DataFrame(rng.normal(size=(n, 5)), columns=[f"x{i}" for i in range(5)])
-    y = (1.5 * X["x0"] + 1.2 * X["x1"] - 0.9 * X["x2"] + 0.7 * X["x3"] - 0.5 * X["x4"]
-         + 0.05 * rng.normal(size=n)).to_numpy()
+    y = (1.5 * X["x0"] + 1.2 * X["x1"] - 0.9 * X["x2"] + 0.7 * X["x3"] - 0.5 * X["x4"] + 0.05 * rng.normal(size=n)).to_numpy()
     Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
     Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
     cols = list(range(5))
 
     refined_batch = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.02, n_jobs=1, member_groups=None)
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", parsimony_tol=0.02, n_jobs=1, member_groups=None
+    )
     refined_legacy_input = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.02, n_jobs=1, member_groups=[[i] for i in range(5)])
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", parsimony_tol=0.02, n_jobs=1, member_groups=[[i] for i in range(5)]
+    )
 
     # Both paths reach the same all-essential conclusion: keep every member.
     assert refined_batch == cols, f"batch-drop dropped essentials: {refined_batch}"
@@ -610,8 +715,8 @@ def test_within_cluster_refine_batch_drop_strictly_fewer_fits_on_redundant_data(
     # iter11 batch-drop path: stage-1 disabled (member_groups=None) so we measure stage-2 alone.
     cache_new = HonestLossCache()
     r_new = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=1, member_groups=None, cache=cache_new)
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", parsimony_tol=0.05, n_jobs=1, member_groups=None, cache=cache_new
+    )
     fits_new = cache_new.misses + cache_new.hits
 
     # Both must still drop the redundant duplicates (the unique informatives + at least one of the
@@ -645,15 +750,13 @@ def test_stratified_anchor_sampler_overweights_high_f_columns():
     # Sharp gradient: first 5 columns have far higher F-score than the rest (the "informative" tier).
     weights = np.zeros(n_features, dtype=np.float64)
     weights[:5] = 10.0  # strong prior on first 5
-    weights[5:] = 0.0   # uniform across the rest (softmax(0)=1/n on the tail)
+    weights[5:] = 0.0  # uniform across the rest (softmax(0)=1/n on the tail)
 
     rng_w = np.random.default_rng(0)
     rng_u = np.random.default_rng(0)
     # Fix cardinality at 5 so the comparison is cleanly normalised (every anchor draws 5 columns).
-    a_weighted = _sample_anchor_subsets(n_features, n_anchors, rng_w, min_card=5, max_card=5,
-                                        weights=weights, uniform_tail_frac=0.2)
-    a_uniform = _sample_anchor_subsets(n_features, n_anchors, rng_u, min_card=5, max_card=5,
-                                       weights=None)
+    a_weighted = _sample_anchor_subsets(n_features, n_anchors, rng_w, min_card=5, max_card=5, weights=weights, uniform_tail_frac=0.2)
+    a_uniform = _sample_anchor_subsets(n_features, n_anchors, rng_u, min_card=5, max_card=5, weights=None)
     counts_w = np.zeros(n_features, dtype=np.int64)
     counts_u = np.zeros(n_features, dtype=np.int64)
     for a in a_weighted:
@@ -666,8 +769,7 @@ def test_stratified_anchor_sampler_overweights_high_f_columns():
     # The high-F tier must be picked materially MORE often under weights than under uniform.
     high_w = counts_w[:5].sum()
     high_u = counts_u[:5].sum()
-    assert high_w > high_u * 1.5, (
-        f"stratified sampler did not over-weight high-F columns: high_w={high_w} vs high_u={high_u}")
+    assert high_w > high_u * 1.5, f"stratified sampler did not over-weight high-F columns: high_w={high_w} vs high_u={high_u}"
     # Sanity: every anchor still has exactly 5 distinct columns (no replacement bug).
     for a in a_weighted:
         assert len(a) == 5 and len(set(a)) == 5
@@ -688,18 +790,16 @@ def test_softmax_weights_auto_temperature_is_scale_invariant():
     zscored = (raw - raw.mean()) / raw.std()
     p_raw = _softmax_weights(raw)
     p_z = _softmax_weights(zscored)
-    ess_raw = 1.0 / float(np.sum(p_raw ** 2))
-    ess_z = 1.0 / float(np.sum(p_z ** 2))
+    ess_raw = 1.0 / float(np.sum(p_raw**2))
+    ess_z = 1.0 / float(np.sum(p_z**2))
     # Both should be well above 1 (not one-hot) AND within 5% of each other (scale-invariant).
     assert ess_raw > 5.0, f"auto-temperature softmax collapsed on raw F-scores: ESS={ess_raw:.2f}"
     assert ess_z > 5.0, f"auto-temperature softmax collapsed on z-scored input: ESS={ess_z:.2f}"
-    assert abs(ess_raw - ess_z) / ess_z < 0.05, (
-        f"auto-temperature is not scale-invariant: ESS_raw={ess_raw:.2f} ESS_z={ess_z:.2f}")
+    assert abs(ess_raw - ess_z) / ess_z < 0.05, f"auto-temperature is not scale-invariant: ESS_raw={ess_raw:.2f} ESS_z={ess_z:.2f}"
     # Explicit numeric temperature still works (legacy callers): high temp -> near-uniform.
     p_high_temp = _softmax_weights(raw, temperature=100.0)
-    ess_high = 1.0 / float(np.sum(p_high_temp ** 2))
-    assert ess_high > ess_raw * 0.8, (
-        f"explicit-temperature path must still flatten softmax at high T: ESS_high={ess_high:.2f}")
+    ess_high = 1.0 / float(np.sum(p_high_temp**2))
+    assert ess_high > ess_raw * 0.8, f"explicit-temperature path must still flatten softmax at high T: ESS_high={ess_high:.2f}"
 
 
 def test_stratified_anchor_sampler_falls_back_to_uniform_when_weights_none():
@@ -714,10 +814,8 @@ def test_stratified_anchor_sampler_falls_back_to_uniform_when_weights_none():
     rng_a = np.random.default_rng(42)
     rng_b = np.random.default_rng(42)
     # Both calls explicitly request the uniform cardinality prior so we exercise the legacy code path.
-    a_explicit = _sample_anchor_subsets(n_features, n_anchors, rng_a, min_card=2, max_card=6,
-                                        weights=None, cardinality_dist="uniform")
-    a_legacy = _sample_anchor_subsets(n_features, n_anchors, rng_b, min_card=2, max_card=6,
-                                      cardinality_dist="uniform")
+    a_explicit = _sample_anchor_subsets(n_features, n_anchors, rng_a, min_card=2, max_card=6, weights=None, cardinality_dist="uniform")
+    a_legacy = _sample_anchor_subsets(n_features, n_anchors, rng_b, min_card=2, max_card=6, cardinality_dist="uniform")
     assert a_explicit == a_legacy
 
 
@@ -730,8 +828,7 @@ def test_uniform_cardinality_matches_legacy_rngs_bit_for_bit():
 
     n_features, n_anchors = 25, 40
     rng_a = np.random.default_rng(2026)
-    a_uniform = _sample_anchor_subsets(n_features, n_anchors, rng_a, min_card=1, max_card=8,
-                                       cardinality_dist="uniform")
+    a_uniform = _sample_anchor_subsets(n_features, n_anchors, rng_a, min_card=1, max_card=8, cardinality_dist="uniform")
 
     # Hand-rolled legacy reference: replays the exact pre-iter15 control flow with the same RNG seed.
     rng_b = np.random.default_rng(2026)
@@ -755,22 +852,17 @@ def test_zipf_cardinality_prior_is_small_k_heavy():
     n_features, n_anchors = 200, 400
     rng_z = np.random.default_rng(0)
     rng_u = np.random.default_rng(0)
-    a_zipf = _sample_anchor_subsets(n_features, n_anchors, rng_z, min_card=1, max_card=50,
-                                    cardinality_dist="zipf", zipf_alpha=1.0)
-    a_unif = _sample_anchor_subsets(n_features, n_anchors, rng_u, min_card=1, max_card=50,
-                                    cardinality_dist="uniform")
+    a_zipf = _sample_anchor_subsets(n_features, n_anchors, rng_z, min_card=1, max_card=50, cardinality_dist="zipf", zipf_alpha=1.0)
+    a_unif = _sample_anchor_subsets(n_features, n_anchors, rng_u, min_card=1, max_card=50, cardinality_dist="uniform")
     mean_k_zipf = float(np.mean([len(a) for a in a_zipf]))
     mean_k_unif = float(np.mean([len(a) for a in a_unif]))
     # Theoretical: uniform mean over [1,50] = 25.5; Zipf-1 mean ~ H50_2 / H50_1 ~= 11.16. Empirical
     # variance is large at n=400, so use a wide margin: Zipf mean must be < 0.6 * uniform mean.
-    assert mean_k_zipf < 0.6 * mean_k_unif, (
-        f"Zipf prior failed to over-sample small k: mean_k_zipf={mean_k_zipf:.2f} "
-        f"vs mean_k_unif={mean_k_unif:.2f}")
+    assert mean_k_zipf < 0.6 * mean_k_unif, f"Zipf prior failed to over-sample small k: mean_k_zipf={mean_k_zipf:.2f} vs mean_k_unif={mean_k_unif:.2f}"
     # k=1 should dominate the Zipf distribution; over 400 draws, plenty of k=1 anchors should land.
     n_singletons_zipf = sum(1 for a in a_zipf if len(a) == 1)
     n_singletons_unif = sum(1 for a in a_unif if len(a) == 1)
-    assert n_singletons_zipf > n_singletons_unif * 2, (
-        f"Zipf prior failed to concentrate on k=1: zipf={n_singletons_zipf} vs uniform={n_singletons_unif}")
+    assert n_singletons_zipf > n_singletons_unif * 2, f"Zipf prior failed to concentrate on k=1: zipf={n_singletons_zipf} vs uniform={n_singletons_unif}"
 
 
 def test_zipf_alpha_zero_is_uniform_over_k():
@@ -803,17 +895,28 @@ def test_proxy_trust_guard_records_cardinality_dist():
     Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
 
     # Default = uniform after iter15 honest-negative bench.
-    rep_u = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                              classification=False, metric="rmse", n_anchors=10,
-                              rng=np.random.default_rng(0))
+    rep_u = proxy_trust_guard(
+        phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh, classification=False, metric="rmse", n_anchors=10, rng=np.random.default_rng(0)
+    )
     assert rep_u["anchor_cardinality_dist"] == "uniform"
     assert rep_u["anchor_zipf_alpha"] is None
 
     # Opt-in Zipf mode records the alpha.
-    rep_z = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                              classification=False, metric="rmse", n_anchors=10,
-                              rng=np.random.default_rng(0), cardinality_dist="zipf",
-                              zipf_alpha=1.0)
+    rep_z = proxy_trust_guard(
+        phi[:450],
+        base[:450],
+        ys,
+        LinearRegression(),
+        Xs,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_anchors=10,
+        rng=np.random.default_rng(0),
+        cardinality_dist="zipf",
+        zipf_alpha=1.0,
+    )
     assert rep_z["anchor_cardinality_dist"] == "zipf"
     assert rep_z["anchor_zipf_alpha"] == 1.0
 
@@ -824,8 +927,7 @@ def test_sample_anchor_subsets_rejects_unknown_cardinality_dist():
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import _sample_anchor_subsets
 
     with pytest.raises(ValueError, match="cardinality_dist"):
-        _sample_anchor_subsets(10, 5, np.random.default_rng(0), min_card=1, max_card=5,
-                               cardinality_dist="not-a-real-mode")
+        _sample_anchor_subsets(10, 5, np.random.default_rng(0), min_card=1, max_card=5, cardinality_dist="not-a-real-mode")
 
 
 def test_proxy_trust_guard_records_anchor_sampling_mode():
@@ -844,17 +946,28 @@ def test_proxy_trust_guard_records_anchor_sampling_mode():
     Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
     Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
 
-    rep_u = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                              classification=False, metric="rmse", n_anchors=10,
-                              rng=np.random.default_rng(0))
+    rep_u = proxy_trust_guard(
+        phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh, classification=False, metric="rmse", n_anchors=10, rng=np.random.default_rng(0)
+    )
     assert rep_u["anchor_sampling"] == "uniform"
     assert rep_u["anchor_uniform_tail_frac"] is None
 
     # Sharp F-prior on the planted informatives -> stratified mode + tail-frac recorded.
     f_scores = np.array([100.0, 80.0, 60.0, 0.1, 0.1, 0.1], dtype=np.float64)
-    rep_w = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                              classification=False, metric="rmse", n_anchors=10,
-                              rng=np.random.default_rng(0), unit_f_scores=f_scores)
+    rep_w = proxy_trust_guard(
+        phi[:450],
+        base[:450],
+        ys,
+        LinearRegression(),
+        Xs,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_anchors=10,
+        rng=np.random.default_rng(0),
+        unit_f_scores=f_scores,
+    )
     assert rep_w["anchor_sampling"] == "stratified"
     assert rep_w["anchor_uniform_tail_frac"] == 0.2
 
@@ -877,9 +990,20 @@ def test_proxy_trust_guard_degrades_to_uniform_on_misaligned_weights():
 
     # Mismatched length (5 != phi.shape[1]==6) -> safe fallback.
     bad_weights = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
-    rep = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                            classification=False, metric="rmse", n_anchors=10,
-                            rng=np.random.default_rng(0), unit_f_scores=bad_weights)
+    rep = proxy_trust_guard(
+        phi[:450],
+        base[:450],
+        ys,
+        LinearRegression(),
+        Xs,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_anchors=10,
+        rng=np.random.default_rng(0),
+        unit_f_scores=bad_weights,
+    )
     assert rep["anchor_sampling"] == "uniform"
 
 
@@ -902,18 +1026,29 @@ def test_proxy_fidelity_score_is_weighted_composite_of_spearman_and_recall():
     Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
     Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
 
-    rep = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                            classification=False, metric="rmse", n_anchors=10,
-                            rng=np.random.default_rng(0))
+    rep = proxy_trust_guard(
+        phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh, classification=False, metric="rmse", n_anchors=10, rng=np.random.default_rng(0)
+    )
     expected = 0.6 * max(0.0, rep["spearman"]) + 0.4 * rep["recall_at_k"]
     assert rep["proxy_fidelity_score"] == pytest.approx(expected, abs=1e-12)
     assert rep["fidelity_weights"] == (0.6, 0.4)
     assert rep["trustworthy_metric"] == "proxy_fidelity_score"
 
     # Custom asymmetric weights are normalised to sum-1 + still applied.
-    rep2 = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                             classification=False, metric="rmse", n_anchors=10,
-                             rng=np.random.default_rng(0), fidelity_weights=(3.0, 1.0))
+    rep2 = proxy_trust_guard(
+        phi[:450],
+        base[:450],
+        ys,
+        LinearRegression(),
+        Xs,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_anchors=10,
+        rng=np.random.default_rng(0),
+        fidelity_weights=(3.0, 1.0),
+    )
     expected2 = 0.75 * max(0.0, rep2["spearman"]) + 0.25 * rep2["recall_at_k"]
     assert rep2["proxy_fidelity_score"] == pytest.approx(expected2, abs=1e-12)
     assert rep2["fidelity_weights"] == (0.75, 0.25)
@@ -964,12 +1099,23 @@ def test_trustworthy_metric_kwarg_switches_gate_to_raw_spearman():
     Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
     Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
 
-    rep_default = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                                    classification=False, metric="rmse", n_anchors=10,
-                                    rng=np.random.default_rng(0))
-    rep_legacy = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                                   classification=False, metric="rmse", n_anchors=10,
-                                   rng=np.random.default_rng(0), trustworthy_metric="spearman")
+    rep_default = proxy_trust_guard(
+        phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh, classification=False, metric="rmse", n_anchors=10, rng=np.random.default_rng(0)
+    )
+    rep_legacy = proxy_trust_guard(
+        phi[:450],
+        base[:450],
+        ys,
+        LinearRegression(),
+        Xs,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_anchors=10,
+        rng=np.random.default_rng(0),
+        trustworthy_metric="spearman",
+    )
     assert rep_default["trustworthy_metric"] == "proxy_fidelity_score"
     assert rep_legacy["trustworthy_metric"] == "spearman"
     # Same anchors -> same raw fields; only the gate input differs.
@@ -978,9 +1124,20 @@ def test_trustworthy_metric_kwarg_switches_gate_to_raw_spearman():
 
     # Unknown metric name MUST raise.
     with pytest.raises(ValueError, match="trustworthy_metric"):
-        proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                          classification=False, metric="rmse", n_anchors=10,
-                          rng=np.random.default_rng(0), trustworthy_metric="not-a-metric")
+        proxy_trust_guard(
+            phi[:450],
+            base[:450],
+            ys,
+            LinearRegression(),
+            Xs,
+            Xh,
+            yh,
+            classification=False,
+            metric="rmse",
+            n_anchors=10,
+            rng=np.random.default_rng(0),
+            trustworthy_metric="not-a-metric",
+        )
 
 
 def test_proxy_fidelity_score_clips_negative_spearman_in_composite():
@@ -989,6 +1146,7 @@ def test_proxy_fidelity_score_clips_negative_spearman_in_composite():
     negative value for diagnostics."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import proxy_trust_guard
     from sklearn.linear_model import LinearRegression
+
     # Synthesise an anti-aligned phi (phi[:, j] = -coef_j * x_j) so the SHAP proxy systematically
     # ranks subsets in the WRONG direction; Spearman with honest losses will be strongly negative.
     rng = np.random.default_rng(0)
@@ -1000,9 +1158,9 @@ def test_proxy_fidelity_score_clips_negative_spearman_in_composite():
     Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
     Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
 
-    rep = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                            classification=False, metric="rmse", n_anchors=10,
-                            rng=np.random.default_rng(0))
+    rep = proxy_trust_guard(
+        phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh, classification=False, metric="rmse", n_anchors=10, rng=np.random.default_rng(0)
+    )
     # Composite uses max(0, spearman); negative Spearman must NOT lift the composite above
     # w_recall * recall_at_k (iter17 default w_recall=0.4).
     assert rep["proxy_fidelity_score"] <= 0.4 * rep["recall_at_k"] + 1e-12
@@ -1023,9 +1181,20 @@ def test_fidelity_weights_must_sum_to_positive_value():
     Xs, ys = X.iloc[:200].reset_index(drop=True), y[:200]
     Xh, yh = X.iloc[200:].reset_index(drop=True), y[200:]
     with pytest.raises(ValueError, match="fidelity_weights"):
-        proxy_trust_guard(phi[:200], base[:200], ys, LinearRegression(), Xs, Xh, yh,
-                          classification=False, metric="rmse", n_anchors=8,
-                          rng=np.random.default_rng(0), fidelity_weights=(0.0, 0.0))
+        proxy_trust_guard(
+            phi[:200],
+            base[:200],
+            ys,
+            LinearRegression(),
+            Xs,
+            Xh,
+            yh,
+            classification=False,
+            metric="rmse",
+            n_anchors=8,
+            rng=np.random.default_rng(0),
+            fidelity_weights=(0.0, 0.0),
+        )
 
 
 def test_iter18_fidelity_floor_default_is_calibrated_value():
@@ -1047,8 +1216,7 @@ def test_iter18_fidelity_floor_default_is_calibrated_value():
 
     sig = inspect.signature(proxy_trust_guard)
     assert sig.parameters["fidelity_floor"].default == 0.5, (
-        f"iter18 calibration default drifted: proxy_trust_guard.fidelity_floor default "
-        f"is {sig.parameters['fidelity_floor'].default!r}, expected 0.5."
+        f"iter18 calibration default drifted: proxy_trust_guard.fidelity_floor default is {sig.parameters['fidelity_floor'].default!r}, expected 0.5."
     )
 
     facade_sig = inspect.signature(ShapProxiedFS.__init__)
@@ -1059,10 +1227,7 @@ def test_iter18_fidelity_floor_default_is_calibrated_value():
     # The None sentinel resolves to the calibrated 0.5 effective floor at fit time.
     effective_floor = ShapProxiedFS(fidelity_floor=None).fidelity_floor
     effective_floor = effective_floor if effective_floor is not None else 0.5
-    assert effective_floor == 0.5, (
-        f"iter18 calibration default drifted: the unset (None) fidelity_floor must resolve to 0.5, "
-        f"got {effective_floor!r}."
-    )
+    assert effective_floor == 0.5, f"iter18 calibration default drifted: the unset (None) fidelity_floor must resolve to 0.5, got {effective_floor!r}."
 
 
 def test_spearman_floor_kwarg_is_deprecated_alias_for_fidelity_floor():
@@ -1082,18 +1247,40 @@ def test_spearman_floor_kwarg_is_deprecated_alias_for_fidelity_floor():
 
     # Supplying spearman_floor emits a DeprecationWarning AND the floor takes effect.
     with pytest.warns(DeprecationWarning, match="spearman_floor"):
-        rep_legacy = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                                       classification=False, metric="rmse", n_anchors=10,
-                                       rng=np.random.default_rng(0), spearman_floor=0.7)
+        rep_legacy = proxy_trust_guard(
+            phi[:450],
+            base[:450],
+            ys,
+            LinearRegression(),
+            Xs,
+            Xh,
+            yh,
+            classification=False,
+            metric="rmse",
+            n_anchors=10,
+            rng=np.random.default_rng(0),
+            spearman_floor=0.7,
+        )
     assert rep_legacy["fidelity_floor"] == 0.7
     assert rep_legacy["spearman_floor"] == 0.7  # alias key still emitted for legacy consumers
 
     # Supplying both raises.
     with pytest.raises(ValueError, match="fidelity_floor.*spearman_floor"):
-        proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
-                          classification=False, metric="rmse", n_anchors=10,
-                          rng=np.random.default_rng(0),
-                          fidelity_floor=0.4, spearman_floor=0.6)
+        proxy_trust_guard(
+            phi[:450],
+            base[:450],
+            ys,
+            LinearRegression(),
+            Xs,
+            Xh,
+            yh,
+            classification=False,
+            metric="rmse",
+            n_anchors=10,
+            rng=np.random.default_rng(0),
+            fidelity_floor=0.4,
+            spearman_floor=0.6,
+        )
 
 
 def test_fidelity_floor_default_passes_interaction_heavy_composite():
@@ -1109,11 +1296,11 @@ def test_fidelity_floor_default_passes_interaction_heavy_composite():
     interaction_heavy_composite = 0.5384
     xor_composite = 0.4742
     assert interaction_heavy_composite >= floor_default, (
-        "iter18 floor must NOT trip on interaction_heavy (recovery_rate 0.75, PASS group). "
-        f"composite={interaction_heavy_composite} floor={floor_default}.")
+        f"iter18 floor must NOT trip on interaction_heavy (recovery_rate 0.75, PASS group). composite={interaction_heavy_composite} floor={floor_default}."
+    )
     assert xor_composite < floor_default, (
-        "iter18 floor MUST trip on xor_interaction (recovery_rate 0.333, FAIL group). "
-        f"composite={xor_composite} floor={floor_default}.")
+        f"iter18 floor MUST trip on xor_interaction (recovery_rate 0.333, FAIL group). composite={xor_composite} floor={floor_default}."
+    )
 
 
 # ----------------------------------------------------- iter28 revalidation_n_estimators cap
@@ -1134,14 +1321,11 @@ def test_revalidation_n_estimators_cap_namespaces_cache(planted):
     cols = [0, 1, 2]
 
     # Full-template entry (template_id=None).
-    full = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse",
-                        seed=None, cache=cache, n_estimators_cap=None)
+    full = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse", seed=None, cache=cache, n_estimators_cap=None)
     full_misses = cache.misses
     # A capped-template lookup with a distinct template_id MUST miss the full-template slot
     # (different cache key), proving the namespacing.
-    capped = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse",
-                          seed=None, cache=cache, n_estimators_cap=50,
-                          template_id=("reval_cap", 50))
+    capped = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse", seed=None, cache=cache, n_estimators_cap=50, template_id=("reval_cap", 50))
     assert cache.misses == full_misses + 1, "capped entry must miss the full-template slot"
     # The values are equal numerically (LinearRegression ignores the cap) but stored under distinct keys.
     assert full == capped
@@ -1160,13 +1344,11 @@ def test_revalidate_top_n_cap_preserves_winner_selection(planted):
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
 
     best_legacy, ranked_legacy, _ = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
-        revalidation_n_estimators=None)
+        candidates, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", n_models=1, lambda_stab=0.0, revalidation_n_estimators=None
+    )
     best_capped, ranked_capped, _ = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
-        revalidation_n_estimators=50)
+        candidates, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", n_models=1, lambda_stab=0.0, revalidation_n_estimators=50
+    )
     assert set(best_legacy) == set(best_capped) == {0, 1, 2}
     # The winner's reported honest_loss is FULL-TEMPLATE (per the user-visible apples-to-apples
     # contract documented in the function), so capped-path winner-loss must equal legacy winner-loss.
@@ -1186,9 +1368,8 @@ def test_revalidate_top_n_cap_none_is_backward_compat(planted):
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
 
     best, ranked, _ = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
-        revalidation_n_estimators=None)
+        candidates, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", n_models=1, lambda_stab=0.0, revalidation_n_estimators=None
+    )
     assert set(best) == {0, 1, 2}
     # No capped sentinel keys when the cap is disabled.
     for d in ranked:
@@ -1224,17 +1405,29 @@ def test_biz_value_revalidation_cap_faster_recovery_preserved():
     width, n_rows, n_inf, n_red, snr, seed = 1000, 5000, 12, 8, 8.0, 0
     n_noise = width - n_inf - n_red
     X, y, roles = make_regime_dataset(
-        n_samples=n_rows, n_informative=n_inf, n_redundant=n_red,
-        redundancy_rho=0.9, n_noise=n_noise, snr=snr, task="binary", seed=seed)
+        n_samples=n_rows, n_informative=n_inf, n_redundant=n_red, redundancy_rho=0.9, n_noise=n_noise, snr=snr, task="binary", seed=seed
+    )
     informative = {name for name, r in roles.items() if r == "informative"}
 
     def _build(cap):
         return ShapProxiedFS(
-            classification=True, metric="brier", optimizer="auto",
-            prefilter_top=500, cluster_features=True, cluster_corr_threshold=0.7,
-            top_n=20, n_splits=4, n_revalidation_models=3, trust_guard=True, n_anchors=24,
-            run_importance_ablation=True, within_cluster_refine=True,
-            revalidation_n_estimators=cap, random_state=seed, verbose=False)
+            classification=True,
+            metric="brier",
+            optimizer="auto",
+            prefilter_top=500,
+            cluster_features=True,
+            cluster_corr_threshold=0.7,
+            top_n=20,
+            n_splits=4,
+            n_revalidation_models=3,
+            trust_guard=True,
+            n_anchors=24,
+            run_importance_ablation=True,
+            within_cluster_refine=True,
+            revalidation_n_estimators=cap,
+            random_state=seed,
+            verbose=False,
+        )
 
     # Run AFTER first to warm any one-shot global caches, then BEFORE, then AFTER again for the
     # headline. Mirrors the iter28 _iter28_ab.py bench discipline.
@@ -1258,13 +1451,11 @@ def test_biz_value_revalidation_cap_faster_recovery_preserved():
 
     # Quantitative biz-value contract: revalidation stage at least 30% faster (allows headroom over
     # the iter28 measured 2.12x speedup for HW jitter / load variance), recovery within 1 of legacy.
-    assert reval_after < reval_before, (
-        f"capped revalidation must be faster than legacy: {reval_after:.2f}s vs {reval_before:.2f}s")
+    assert reval_after < reval_before, f"capped revalidation must be faster than legacy: {reval_after:.2f}s vs {reval_before:.2f}s"
     assert reval_before / max(1e-9, reval_after) >= 1.30, (
-        f"capped revalidation must be >=1.30x faster than legacy: "
-        f"speedup={reval_before / max(1e-9, reval_after):.2f}x")
-    assert a_rec >= b_rec - 1, (
-        f"capped recovery {a_rec}/{n_inf} must be within 1 of legacy {b_rec}/{n_inf}")
+        f"capped revalidation must be >=1.30x faster than legacy: speedup={reval_before / max(1e-9, reval_after):.2f}x"
+    )
+    assert a_rec >= b_rec - 1, f"capped recovery {a_rec}/{n_inf} must be within 1 of legacy {b_rec}/{n_inf}"
 
 
 # -----------------------------------------------------------------------------
@@ -1314,9 +1505,19 @@ def test_ucb_disabled_is_legacy_path(planted):
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
 
     best_off, ranked_off, baseline_off = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
-        revalidation_n_estimators=None, ucb_enabled=False)
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=1,
+        lambda_stab=0.0,
+        revalidation_n_estimators=None,
+        ucb_enabled=False,
+    )
     # baseline carries the ucb diagnostic in either path; check the disabled flag.
     assert baseline_off["ucb"]["enabled"] is False
     assert baseline_off["ucb"]["n_candidates_evaluated"] == len(candidates)
@@ -1342,18 +1543,33 @@ def test_ucb_stops_dispatch_when_winner_provably_beats_remaining(planted):
         (0.01, (0, 1, 2)),  # winner
         (0.02, (0, 1)),
         (0.03, (0, 1, 2, 5)),
-        (5.00, (3,)), (5.10, (4,)), (5.20, (5,)),
-        (5.30, (6,)), (5.40, (7,)), (5.50, (3, 4)), (5.60, (4, 5)),
+        (5.00, (3,)),
+        (5.10, (4,)),
+        (5.20, (5,)),
+        (5.30, (6,)),
+        (5.40, (7,)),
+        (5.50, (3, 4)),
+        (5.60, (4, 5)),
     ]
     best, ranked, baseline = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
-        parsimony_tol=0.02, revalidation_n_estimators=None,
-        ucb_enabled=True, ucb_min_eval_size=3)
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=1,
+        lambda_stab=0.0,
+        parsimony_tol=0.02,
+        revalidation_n_estimators=None,
+        ucb_enabled=True,
+        ucb_min_eval_size=3,
+    )
     assert set(best) == {0, 1, 2}, f"UCB must still pick the correct winner; got {best}"
     n_eval = baseline["ucb"]["n_candidates_evaluated"]
-    assert n_eval < len(candidates), (
-        f"UCB must stop dispatching at the tail; evaluated {n_eval}/{len(candidates)}")
+    assert n_eval < len(candidates), f"UCB must stop dispatching at the tail; evaluated {n_eval}/{len(candidates)}"
     # Only evaluated candidates appear in ranked (no zombie entries).
     assert len(ranked) == n_eval
 
@@ -1370,9 +1586,20 @@ def test_ucb_min_eval_size_boundary_no_op(planted):
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
 
     best, ranked, baseline = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
-        revalidation_n_estimators=None, ucb_enabled=True, ucb_min_eval_size=10)
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=1,
+        lambda_stab=0.0,
+        revalidation_n_estimators=None,
+        ucb_enabled=True,
+        ucb_min_eval_size=10,
+    )
     # 4 candidates <= min_eval_size=10 -> use_ucb branch declines, falls through to legacy single-batch.
     assert baseline["ucb"]["enabled"] is False
     assert baseline["ucb"]["n_candidates_evaluated"] == 4
@@ -1389,19 +1616,34 @@ def test_ucb_determinism_across_reruns(planted):
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     candidates = [
-        (0.01, (0, 1, 2)), (0.02, (0, 1)), (0.03, (0, 1, 2, 5)),
-        (5.00, (3,)), (5.10, (4,)), (5.20, (5,)),
-        (5.30, (6,)), (5.40, (7,)),
+        (0.01, (0, 1, 2)),
+        (0.02, (0, 1)),
+        (0.03, (0, 1, 2, 5)),
+        (5.00, (3,)),
+        (5.10, (4,)),
+        (5.20, (5,)),
+        (5.30, (6,)),
+        (5.40, (7,)),
     ]
     results = []
     for _ in range(2):
         best, ranked, baseline = revalidate_top_n(
-            candidates, LinearRegression(), Xs, ys, Xh, yh,
-            classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
-            revalidation_n_estimators=None, rng=np.random.default_rng(42),
-            ucb_enabled=True, ucb_min_eval_size=3)
-        results.append((best, [d["stable_score"] for d in ranked],
-                        baseline["ucb"]["n_candidates_evaluated"]))
+            candidates,
+            LinearRegression(),
+            Xs,
+            ys,
+            Xh,
+            yh,
+            classification=False,
+            metric="rmse",
+            n_models=1,
+            lambda_stab=0.0,
+            revalidation_n_estimators=None,
+            rng=np.random.default_rng(42),
+            ucb_enabled=True,
+            ucb_min_eval_size=3,
+        )
+        results.append((best, [d["stable_score"] for d in ranked], baseline["ucb"]["n_candidates_evaluated"]))
     assert results[0][0] == results[1][0]
     assert results[0][1] == pytest.approx(results[1][1])
     assert results[0][2] == results[1][2]
@@ -1418,15 +1660,31 @@ def test_ucb_njobs_1_short_circuits_to_legacy(planted):
     Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
     Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
     candidates = [
-        (0.01, (0, 1, 2)), (0.02, (0, 1)), (0.03, (0, 1, 2, 5)),
-        (5.00, (3,)), (5.10, (4,)), (5.20, (5,)),
-        (5.30, (6,)), (5.40, (7,)),
+        (0.01, (0, 1, 2)),
+        (0.02, (0, 1)),
+        (0.03, (0, 1, 2, 5)),
+        (5.00, (3,)),
+        (5.10, (4,)),
+        (5.20, (5,)),
+        (5.30, (6,)),
+        (5.40, (7,)),
     ]
     best, ranked, baseline = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
-        revalidation_n_estimators=None, n_jobs=1,
-        ucb_enabled=True, ucb_min_eval_size=3)
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=1,
+        lambda_stab=0.0,
+        revalidation_n_estimators=None,
+        n_jobs=1,
+        ucb_enabled=True,
+        ucb_min_eval_size=3,
+    )
     # n_jobs=1 -> use_ucb gate forces False even though ucb_enabled=True.
     assert baseline["ucb"]["enabled"] is False
     assert baseline["ucb"]["n_candidates_evaluated"] == len(candidates)
@@ -1487,9 +1745,20 @@ def test_refine_ucb_disabled_matches_legacy_bit_identical():
 
     cache_off = HonestLossCache()
     refined_off = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=2, member_groups=None, cache=cache_off,
-        ucb_enabled=False)
+        cols,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.05,
+        n_jobs=2,
+        member_groups=None,
+        cache=cache_off,
+        ucb_enabled=False,
+    )
     # The unique informatives must always survive.
     assert {1, 2}.issubset(set(refined_off))
 
@@ -1507,18 +1776,39 @@ def test_refine_ucb_n_jobs_one_short_circuits_to_legacy():
 
     cache_a = HonestLossCache()
     r_a = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=1, member_groups=None, cache=cache_a,
-        ucb_enabled=True)
+        cols,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.05,
+        n_jobs=1,
+        member_groups=None,
+        cache=cache_a,
+        ucb_enabled=True,
+    )
 
     cache_b = HonestLossCache()
     r_b = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=1, member_groups=None, cache=cache_b,
-        ucb_enabled=False)
+        cols,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.05,
+        n_jobs=1,
+        member_groups=None,
+        cache=cache_b,
+        ucb_enabled=False,
+    )
     assert r_a == r_b
-    assert cache_a.misses + cache_a.hits == cache_b.misses + cache_b.hits, (
-        "n_jobs=1 with UCB on must take the legacy single-batch path (identical fit count)")
+    assert cache_a.misses + cache_a.hits == cache_b.misses + cache_b.hits, "n_jobs=1 with UCB on must take the legacy single-batch path (identical fit count)"
 
 
 def test_refine_ucb_determinism_across_repeated_calls():
@@ -1533,11 +1823,11 @@ def test_refine_ucb_determinism_across_repeated_calls():
     cols = list(range(X.shape[1]))
 
     r1 = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True)
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True
+    )
     r2 = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True)
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True
+    )
     assert r1 == r2
 
 
@@ -1553,12 +1843,11 @@ def test_refine_ucb_preserves_informatives_on_redundant_fixture():
     cols = list(range(X.shape[1]))
 
     refined = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True)
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True
+    )
     assert {1, 2}.issubset(set(refined)), f"UCB stage-2b dropped a unique informative: {refined}"
     # At least one redundancy-cluster member survives.
-    assert any(c in (0, 3, 4, 5, 6) for c in refined), (
-        f"UCB stage-2b dropped the entire redundancy cluster: {refined}")
+    assert any(c in (0, 3, 4, 5, 6) for c in refined), f"UCB stage-2b dropped the entire redundancy cluster: {refined}"
 
 
 def test_refine_ucb_min_eval_size_boundary():
@@ -1574,12 +1863,23 @@ def test_refine_ucb_min_eval_size_boundary():
 
     # min_eval_size > n_trials -> legacy path. Compare to ucb_enabled=False.
     r_huge_min = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True,
-        ucb_min_eval_size=1000)
+        cols,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.05,
+        n_jobs=2,
+        member_groups=None,
+        ucb_enabled=True,
+        ucb_min_eval_size=1000,
+    )
     r_legacy = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=False)
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse", parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=False
+    )
     assert r_huge_min == r_legacy
 
 
@@ -1596,13 +1896,35 @@ def test_refine_ucb_auto_slack_with_pinned_slack_still_runs():
     cols = list(range(X.shape[1]))
 
     r_pessimistic = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True,
-        ucb_slack=10.0)  # never stops -> equivalent to UCB off-path on the work it does
+        cols,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.05,
+        n_jobs=2,
+        member_groups=None,
+        ucb_enabled=True,
+        ucb_slack=10.0,
+    )  # never stops -> equivalent to UCB off-path on the work it does
     r_aggressive = within_cluster_refine(
-        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
-        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True,
-        ucb_slack=-10.0)  # tight lower bound -> stops after the first batch every round
+        cols,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        parsimony_tol=0.05,
+        n_jobs=2,
+        member_groups=None,
+        ucb_enabled=True,
+        ucb_slack=-10.0,
+    )  # tight lower bound -> stops after the first batch every round
     # Unique informatives survive both extreme slack regimes.
     assert {1, 2}.issubset(set(r_pessimistic))
     assert {1, 2}.issubset(set(r_aggressive))

@@ -242,10 +242,10 @@ class TestXorDiscovery:
         # Top winner by uplift must be the He_1 * He_1 cell.
         top = sc.iloc[0]
         assert top["engineered_col"] == "x1*x2__He1_He1", (
-            f"seed={seed}: top cross-basis winner should be x1*x2__He1_He1, " f"got {top['engineered_col']}; full ranking:\n{sc}"
+            f"seed={seed}: top cross-basis winner should be x1*x2__He1_He1, got {top['engineered_col']}; full ranking:\n{sc}"
         )
         # MI should be substantial (>= 0.4 nats on a clean XOR with n=2500).
-        assert top["engineered_mi"] >= 0.4, f"seed={seed}: XOR He_1*He_1 engineered_mi {top['engineered_mi']:.3f} " f"should clear 0.4 on n=2500"
+        assert top["engineered_mi"] >= 0.4, f"seed={seed}: XOR He_1*He_1 engineered_mi {top['engineered_mi']:.3f} should clear 0.4 on n=2500"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_xor_term_enters_augmented_frame(self, seed):
@@ -268,7 +268,7 @@ class TestXorDiscovery:
         # The HE_1*HE_1 XOR term must be among the appended pair columns.
         # Order of legs (x1*x2 vs x2*x1) depends on seed pool order; allow both.
         ok = any((("x1*x2__He1_He1" == c) or ("x2*x1__He1_He1" == c)) for c in pair_cols)
-        assert ok, f"seed={seed}: XOR cross-basis He1*He1 should be in augmented " f"frame, got pair cols {pair_cols}; cross_sc:\n{cross_sc.head(6)}"
+        assert ok, f"seed={seed}: XOR cross-basis He1*He1 should be in augmented frame, got pair cols {pair_cols}; cross_sc:\n{cross_sc.head(6)}"
 
 
 # ---------------------------------------------------------------------------
@@ -294,10 +294,8 @@ class TestSaddleDiscovery:
             "x1*x2__He2_He2",
             "x1*x2__He2_He1",
             "x1*x2__He1_He2",
-        }, (
-            f"seed={seed}: top He_2 saddle winner should be He_2*He_2 or " f"adjacent cell, got {top['engineered_col']}; full ranking:\n{sc}"
-        )
-        assert top["engineered_mi"] >= 0.20, f"seed={seed}: saddle top cross engineered_mi " f"{top['engineered_mi']:.3f} should clear 0.20 at n=2500"
+        }, f"seed={seed}: top He_2 saddle winner should be He_2*He_2 or adjacent cell, got {top['engineered_col']}; full ranking:\n{sc}"
+        assert top["engineered_mi"] >= 0.20, f"seed={seed}: saddle top cross engineered_mi {top['engineered_mi']:.3f} should clear 0.20 at n=2500"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_saddle_cross_enters_augmented(self, seed):
@@ -319,7 +317,7 @@ class TestSaddleDiscovery:
         pair_cols = [c for c in X_aug.columns if "*" in c and "__" in c]
         # At least one (x1, x2) cross-basis He_? cell entered.
         ok = any((("x1*x2__" in c) or ("x2*x1__" in c)) for c in pair_cols)
-        assert ok, f"seed={seed}: saddle cross-basis should be in augmented frame, " f"got pair cols {pair_cols}; cross_sc:\n{cross_sc.head(6)}"
+        assert ok, f"seed={seed}: saddle cross-basis should be in augmented frame, got pair cols {pair_cols}; cross_sc:\n{cross_sc.head(6)}"
 
 
 # ---------------------------------------------------------------------------
@@ -353,7 +351,7 @@ class TestMixedSignalsBothSurfaced:
         # have entered.
         uni_added = [c for c in added_cols if "*" not in c]
         assert any("x_solo__He2" == c for c in uni_added), (
-            f"seed={seed}: x_solo__He2 should be in augmented frame as the " f"univariate He_2 winner; uni_added={uni_added}; uni_sc:\n" f"{uni_sc.head(6)}"
+            f"seed={seed}: x_solo__He2 should be in augmented frame as the univariate He_2 winner; uni_added={uni_added}; uni_sc:\n{uni_sc.head(6)}"
         )
         # Pair-side: x_pa*x_pb__He1_He1 (or x_pb*x_pa__He1_He1) must be there.
         pair_added = [c for c in added_cols if "*" in c]
@@ -404,10 +402,8 @@ class TestXorLogRegLift:
         auc_aug = roc_auc_score(yte.to_numpy(), m_aug.predict_proba(Xte_aug.to_numpy())[:, 1])
         # XOR is unsolvable by linear LogReg on raw -- AUC ~ 0.50.
         # With He_1(x1) * He_1(x2) feature added it should jump to >= 0.85.
-        assert auc_aug >= 0.85, (
-            f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should clear " f"0.85 on XOR with cross-basis FE; cross_sc:\n{cross_sc.head(5)}"
-        )
-        assert auc_aug > auc_raw + 0.20, f"seed={seed}: cross-basis FE should lift LogReg holdout AUC " f">= +0.20 on XOR. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
+        assert auc_aug >= 0.85, f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should clear 0.85 on XOR with cross-basis FE; cross_sc:\n{cross_sc.head(5)}"
+        assert auc_aug > auc_raw + 0.20, f"seed={seed}: cross-basis FE should lift LogReg holdout AUC >= +0.20 on XOR. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +440,7 @@ class TestNoisePairPruned:
         # Real XOR pair winner must enter.
         pair_added = [c for c in new_cols if "*" in c]
         ok_real = any((("x1*x2__He1_He1" == c) or ("x2*x1__He1_He1" == c)) for c in pair_added)
-        assert ok_real, f"seed={seed}: x1*x2 He1*He1 (the genuine signal) should enter " f"augmented frame; pair_added={pair_added}"
+        assert ok_real, f"seed={seed}: x1*x2 He1*He1 (the genuine signal) should enter augmented frame; pair_added={pair_added}"
 
         # NO noise*noise pair term may slip in: every term whose BOTH legs
         # start with 'noise_' must be filtered.
@@ -458,9 +454,7 @@ class TestNoisePairPruned:
 
         noise_pair_added = [c for c in pair_added if _both_legs_noise(c)]
         assert not noise_pair_added, (
-            f"seed={seed}: noise-noise cross-basis terms should be filtered "
-            f"by the absolute MI floor; got {noise_pair_added}; "
-            f"cross_sc:\n{cross_sc.head(8)}"
+            f"seed={seed}: noise-noise cross-basis terms should be filtered by the absolute MI floor; got {noise_pair_added}; cross_sc:\n{cross_sc.head(8)}"
         )
 
 
@@ -504,13 +498,13 @@ class TestMixedBasisPairCrossReplay:
             )
 
         pair_recipes = [r for r in recipes if getattr(r, "kind", None) == "orth_pair_cross"]
-        assert pair_recipes, "the mixed-domain product target should engineer at least one " "orth_pair_cross feature"
+        assert pair_recipes, "the mixed-domain product target should engineer at least one orth_pair_cross feature"
         saw_mixed = False
         for r in pair_recipes:
             basis_i = r.extra.get("basis_i")
             basis_j = r.extra.get("basis_j")
             assert basis_i is not None and basis_j is not None, (
-                f"orth_pair_cross recipe {r.name!r} must carry both per-leg bases " f"in extra (not derive from the lossy name); extra={dict(r.extra)}"
+                f"orth_pair_cross recipe {r.name!r} must carry both per-leg bases in extra (not derive from the lossy name); extra={dict(r.extra)}"
             )
             if basis_i != basis_j:
                 saw_mixed = True

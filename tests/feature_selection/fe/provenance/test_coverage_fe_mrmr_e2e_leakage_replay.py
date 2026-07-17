@@ -45,10 +45,14 @@ def fitted_mrmr_with_fe():
     X = pd.DataFrame({"a": a, "b": b, "c": c, "d": d})
     # Held-out frame from a fresh seed (different rows, overlapping support).
     rng2 = np.random.default_rng(99)
-    Xh = pd.DataFrame({
-        "a": rng2.normal(size=300), "b": rng2.normal(size=300),
-        "c": rng2.normal(size=300), "d": rng2.normal(size=300),
-    })
+    Xh = pd.DataFrame(
+        {
+            "a": rng2.normal(size=300),
+            "b": rng2.normal(size=300),
+            "c": rng2.normal(size=300),
+            "d": rng2.normal(size=300),
+        }
+    )
     mrmr = make_fast_mrmr(fe=True, interactions_max_order=2)
     mrmr.fit(X, y)
     return mrmr, X, Xh, y
@@ -81,8 +85,7 @@ def test_transform_engineered_columns_equal_recipe_replay(fitted_mrmr_with_fe):
         replay = np.asarray(apply_recipe(rec, Xh), dtype=np.float64)
         got = out[rec.name].to_numpy(dtype=np.float64)
         # Engineered columns may be stored f32 in the matrix; compare at f32 tol.
-        np.testing.assert_allclose(got, replay, rtol=1e-5, atol=1e-5,
-                                   err_msg=f"recipe {rec.name!r} replay mismatch")
+        np.testing.assert_allclose(got, replay, rtol=1e-5, atol=1e-5, err_msg=f"recipe {rec.name!r} replay mismatch")
         checked += 1
     assert checked >= 1, "no engineered column reached the transform output to verify"
 
@@ -112,10 +115,7 @@ def test_no_frozen_recipe_captures_target(fitted_mrmr_with_fe):
     for rec in _engineered_recipes(mrmr):
         for k, v in dict(rec.extra).items():
             if isinstance(v, np.ndarray) and v.ndim == 1 and v.size == n:
-                pytest.fail(
-                    f"recipe {rec.name!r} extra[{k!r}] is a length-n ({n}) array -- "
-                    f"possible per-row target/feature leak into the frozen recipe"
-                )
+                pytest.fail(f"recipe {rec.name!r} extra[{k!r}] is a length-n ({n}) array -- possible per-row target/feature leak into the frozen recipe")
 
 
 def test_transform_before_refit_on_new_data_stable(fitted_mrmr_with_fe):

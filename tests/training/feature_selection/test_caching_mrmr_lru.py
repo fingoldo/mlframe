@@ -40,9 +40,7 @@ def test_mrmr_fit_cache_respects_fit_cache_max():
     assert len(MRMR._FIT_CACHE) == 3
 
     # And the LRU semantics: the three most recent keys are kept.
-    expected_keys = [
-        (f"x_{i}", f"y_{i}", "params_sig") for i in (7, 8, 9)
-    ]
+    expected_keys = [(f"x_{i}", f"y_{i}", "params_sig") for i in (7, 8, 9)]
     assert list(MRMR._FIT_CACHE.keys()) == expected_keys
 
 

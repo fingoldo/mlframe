@@ -5,6 +5,7 @@ preprocessors (``_preprocess_zscore`` / ``_preprocess_minmax_neg1_1`` / ``_prepr
 counterparts, and the Fourier axis (``_fit_fourier_for_col``). The central contract: clean / naturally-heavy-tailed
 columns take the byte-identical LEGACY path; only spike-CONTAMINATED columns take the robust path.
 """
+
 from __future__ import annotations
 
 import numpy as np

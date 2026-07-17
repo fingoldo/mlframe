@@ -30,6 +30,7 @@ def test_fix2_pre_fit_warning_removed():
     """The pre-fit Enum-dispatch warning function must be gone so CB fits
     on aligned Enum frames no longer emit spurious 2-min-fallback claims."""
     from mlframe.training import trainer
+
     assert not hasattr(trainer, "_warn_on_unsupported_polars_dtypes"), (
         "Fix 2 regressed: the stale warning helper came back. It mis-predicted "
         "a 2-min CB fallback that never happens on CB 1.2.10 + polars 1.40 "
@@ -43,12 +44,14 @@ def test_fix2_schema_dump_reframes_enum_as_info_not_culprit():
     from mlframe.training.trainer import _polars_schema_diagnostic
 
     enum_dt = pl.Enum(["red", "green", "blue"])
-    df = pl.DataFrame({
-        "a": np.arange(20, dtype=np.float32),
-        "job_type": pl.Series("job_type", ["red"] * 20, dtype=enum_dt),
-    })
+    df = pl.DataFrame(
+        {
+            "a": np.arange(20, dtype=np.float32),
+            "job_type": pl.Series("job_type", ["red"] * 20, dtype=enum_dt),
+        }
+    )
     dump = _polars_schema_diagnostic(df, cat_features=["job_type"], text_features=[])
-    assert "most likely cause" not in dump, "Fix 2 regressed: schema dump again blames Enum as the culprit, " "which is empirically wrong on CB 1.2.10."
+    assert "most likely cause" not in dump, "Fix 2 regressed: schema dump again blames Enum as the culprit, which is empirically wrong on CB 1.2.10."
     # Must still mention the column (operators need per-column info for the real culprit).
     assert "job_type" in dump
 
@@ -70,10 +73,12 @@ def test_fix3a_deep_false_on_pandas_uses_shallow_accounting():
     """
     from pyutilz.data.pandaslib import get_df_memory_consumption
 
-    df = pd.DataFrame({
-        "i": np.arange(1000),
-        "obj": ["x" * 64 for _ in range(1000)],  # 64B per string
-    })
+    df = pd.DataFrame(
+        {
+            "i": np.arange(1000),
+            "obj": ["x" * 64 for _ in range(1000)],  # 64B per string
+        }
+    )
     shallow = get_df_memory_consumption(df, deep=False)
     deep = get_df_memory_consumption(df, deep=True)
     if shallow == deep:
@@ -109,7 +114,7 @@ def test_fix3a_default_deep_true_preserves_behaviour():
     # The kwarg should still exist and accept False.
     explicit_shallow = get_df_memory_consumption(df, deep=False)
     if explicit_shallow == explicit_deep:
-        pytest.skip(f"Installed pyutilz get_df_memory_consumption ignores the deep " f"kwarg; upgrade to differentiate.")
+        pytest.skip(f"Installed pyutilz get_df_memory_consumption ignores the deep kwarg; upgrade to differentiate.")
     assert explicit_shallow < explicit_deep
 
 
@@ -165,14 +170,17 @@ def test_fix4_lgb_accepts_polars_input_after_shim():
     pytest.importorskip("lightgbm")
     import lightgbm as _lgb
     from mlframe.training._model_factories import apply_third_party_patches_once
+
     apply_third_party_patches_once()
 
     rng = np.random.default_rng(0)
     n = 300
-    df_polars = pl.DataFrame({
-        "x0": rng.random(n).astype(np.float32),
-        "x1": rng.random(n).astype(np.float32),
-    })
+    df_polars = pl.DataFrame(
+        {
+            "x0": rng.random(n).astype(np.float32),
+            "x1": rng.random(n).astype(np.float32),
+        }
+    )
     y = rng.integers(0, 2, size=n)
     m = _lgb.LGBMClassifier(n_estimators=3, verbose=-1)
     # Must not raise AttributeError.
@@ -184,8 +192,10 @@ def test_fix4_shim_is_idempotent():
     """Re-importing trainer should not re-install the setter; the marker
     attribute is set on first install and gates subsequent calls."""
     from mlframe.training import trainer
+
     trainer._patch_lgb_feature_names_in_setter()  # call twice
     import lightgbm.sklearn as _lgbm_sk
+
     prop = _lgbm_sk.LGBMModel.__dict__["feature_names_in_"]
     assert prop.fset is not None
     assert getattr(_lgbm_sk.LGBMModel, "_mlframe_feature_names_setter_installed", False)
@@ -272,19 +282,27 @@ def test_fix6_use_text_features_false_suppresses_auto_promotion():
     n = 1000
     vocab = [f"tok_{i}" for i in range(500)]
     vals = rng.choice(vocab, size=n)
-    df = pl.DataFrame({
-        "numeric": rng.random(n).astype(np.float32),
-        "highcard": pl.Series(vals),
-    })
+    df = pl.DataFrame(
+        {
+            "numeric": rng.random(n).astype(np.float32),
+            "highcard": pl.Series(vals),
+        }
+    )
 
     t_on, _, drop_on = _auto_detect_feature_types(
-        df, FeatureTypesConfig(), cat_features=[], verbose=False,
+        df,
+        FeatureTypesConfig(),
+        cat_features=[],
+        verbose=False,
     )
     assert "highcard" in t_on
     assert drop_on == []  # promoted to text_features, not dropped
 
     t_off, _, drop_off = _auto_detect_feature_types(
-        df, FeatureTypesConfig(use_text_features=False), cat_features=[], verbose=False,
+        df,
+        FeatureTypesConfig(use_text_features=False),
+        cat_features=[],
+        verbose=False,
     )
     assert t_off == []
     assert drop_off == ["highcard"]  # Fix 6 correction: caller must drop this.
@@ -328,12 +346,14 @@ def test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard(tmp_p
     # would auto-promote to text_features under use_text_features=True,
     # would auto-drop under use_text_features=False.
     vocab = [f"tok_{i}" for i in range(400)]
-    df = pl.DataFrame({
-        "f_num": rng.random(n).astype(np.float32),
-        "f_lowcard": pl.Series(rng.choice(["A", "B", "C"], size=n)),
-        "skills_text_like": pl.Series(rng.choice(vocab, size=n)),
-        "target": rng.integers(0, 2, size=n).astype(np.int64),
-    })
+    df = pl.DataFrame(
+        {
+            "f_num": rng.random(n).astype(np.float32),
+            "f_lowcard": pl.Series(rng.choice(["A", "B", "C"], size=n)),
+            "skills_text_like": pl.Series(rng.choice(vocab, size=n)),
+            "target": rng.integers(0, 2, size=n).astype(np.int64),
+        }
+    )
 
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
@@ -361,9 +381,7 @@ def test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard(tmp_p
     trained_cols = metadata["columns"]
     trained_cols = list(trained_cols) if not isinstance(trained_cols, list) else trained_cols
     assert "skills_text_like" not in trained_cols, (
-        f"Fix 6 regression: ``use_text_features=False`` but column "
-        f"'skills_text_like' still reached the XGB fit frame. "
-        f"metadata['columns']={trained_cols}"
+        f"Fix 6 regression: ``use_text_features=False`` but column 'skills_text_like' still reached the XGB fit frame. metadata['columns']={trained_cols}"
     )
     # And the stored cat_features must not list it either.
     assert "skills_text_like" not in (metadata.get("cat_features") or [])
@@ -414,10 +432,12 @@ def test_fix8_fingerprint_deterministic():
     """Same df, same config -> same hash. Basic sanity."""
     from mlframe.training.utils import compute_model_input_fingerprint
 
-    df = pl.DataFrame({
-        "a": np.arange(10, dtype=np.float32),
-        "b": pl.Series("b", ["x"] * 10, dtype=pl.Enum(["x", "y"])),
-    })
+    df = pl.DataFrame(
+        {
+            "a": np.arange(10, dtype=np.float32),
+            "b": pl.Series("b", ["x"] * 10, dtype=pl.Enum(["x", "y"])),
+        }
+    )
     h1, _ = compute_model_input_fingerprint(df, cat_features=["b"])
     h2, _ = compute_model_input_fingerprint(df, cat_features=["b"])
     assert h1 == h2
@@ -428,10 +448,12 @@ def test_fix8_fingerprint_role_sensitivity():
     produce a different hash — they result in different fit-time behaviour."""
     from mlframe.training.utils import compute_model_input_fingerprint
 
-    df = pl.DataFrame({
-        "a": np.arange(10, dtype=np.float32),
-        "b": pl.Series("b", ["x"] * 10, dtype=pl.Enum(["x", "y"])),
-    })
+    df = pl.DataFrame(
+        {
+            "a": np.arange(10, dtype=np.float32),
+            "b": pl.Series("b", ["x"] * 10, dtype=pl.Enum(["x", "y"])),
+        }
+    )
     h_cat, _ = compute_model_input_fingerprint(df, cat_features=["b"])
     h_text, _ = compute_model_input_fingerprint(df, text_features=["b"])
     assert h_cat != h_text
@@ -446,11 +468,13 @@ def test_fix8_fingerprint_lgb_vs_cb_on_same_df():
     config flags (user's explicit concern in the plan)."""
     from mlframe.training.utils import compute_model_input_fingerprint
 
-    df_cb = pl.DataFrame({
-        "a": np.arange(10, dtype=np.float32),
-        "b": pl.Series("b", ["x"] * 10).cast(pl.Categorical),
-        "c": pl.Series("c", ["long_text_" * 10] * 10),  # text-ish
-    })
+    df_cb = pl.DataFrame(
+        {
+            "a": np.arange(10, dtype=np.float32),
+            "b": pl.Series("b", ["x"] * 10).cast(pl.Categorical),
+            "c": pl.Series("c", ["long_text_" * 10] * 10),  # text-ish
+        }
+    )
     df_lgb = df_cb.drop("c")  # LGB tier drops text columns
     h_cb, _ = compute_model_input_fingerprint(df_cb, cat_features=["b"], text_features=["c"])
     h_lgb, _ = compute_model_input_fingerprint(df_lgb, cat_features=["b"])
@@ -470,14 +494,18 @@ def test_fix8_fingerprint_enum_category_drift_invalidates():
     than the train-set Enum — correct cache-invalidation signal."""
     from mlframe.training.utils import compute_model_input_fingerprint
 
-    df_train = pl.DataFrame({
-        "a": np.arange(10, dtype=np.float32),
-        "b": pl.Series("b", ["x"] * 10, dtype=pl.Enum(["x", "y"])),
-    })
-    df_val = pl.DataFrame({
-        "a": np.arange(10, dtype=np.float32),
-        "b": pl.Series("b", ["x"] * 10, dtype=pl.Enum(["x", "y", "z"])),
-    })
+    df_train = pl.DataFrame(
+        {
+            "a": np.arange(10, dtype=np.float32),
+            "b": pl.Series("b", ["x"] * 10, dtype=pl.Enum(["x", "y"])),
+        }
+    )
+    df_val = pl.DataFrame(
+        {
+            "a": np.arange(10, dtype=np.float32),
+            "b": pl.Series("b", ["x"] * 10, dtype=pl.Enum(["x", "y", "z"])),
+        }
+    )
     h_tr, _ = compute_model_input_fingerprint(df_train, cat_features=["b"])
     h_val, _ = compute_model_input_fingerprint(df_val, cat_features=["b"])
     assert h_tr != h_val
@@ -489,14 +517,17 @@ def test_fix8_fingerprint_json_canonicalisation_uses_sorted_keys():
     reproducing the hash."""
     from mlframe.training.utils import compute_model_input_fingerprint
 
-    df = pl.DataFrame({
-        "z": np.arange(5, dtype=np.float32),
-        "a": pl.Series("a", ["x"] * 5).cast(pl.Categorical),
-    })
+    df = pl.DataFrame(
+        {
+            "z": np.arange(5, dtype=np.float32),
+            "a": pl.Series("a", ["x"] * 5).cast(pl.Categorical),
+        }
+    )
     got_hash, schema = compute_model_input_fingerprint(df, cat_features=["a"])
     # Prod hashes an orjson canonical with ``OPT_SORT_KEYS`` (compact separators,
     # nested keys sorted). Mirror that here so the reproduction matches byte-for-byte.
     import orjson
+
     payload = {
         "schema": schema,
         "n_rows": int(len(df)),
@@ -535,9 +566,11 @@ def test_fix9_build_logging_fires_on_dmatrix(caplog):
     """Every xgb.DMatrix construction must emit one INFO ``[dataset-build]``
     log line with shape + duration + callsite."""
     from mlframe.training import trainer  # noqa: F401
+
     # Lazy-applied patches: invoke explicitly (see comment on
     # test_fix9_build_logging_fires_on_pool).
     from mlframe.training._model_factories import apply_third_party_patches_once
+
     apply_third_party_patches_once()
     pytest.importorskip("xgboost")
     import xgboost as xgb
@@ -554,11 +587,13 @@ def test_fix9_build_logging_fires_on_pool(caplog):
     """Every catboost.Pool construction must emit one INFO
     ``[dataset-build]`` log line."""
     from mlframe.training import trainer  # noqa: F401
+
     # The third-party-patches are now applied lazily (deferred from
     # module-import to suite-entry / factory call). Invoke explicitly so
     # the test exercises the post-patch path regardless of whether the
     # suite has been entered in this process.
     from mlframe.training._model_factories import apply_third_party_patches_once
+
     apply_third_party_patches_once()
     pytest.importorskip("catboost")
     from catboost import Pool
@@ -578,6 +613,7 @@ def test_internal_loop_build_demoted_to_debug_via_stack_scan(caplog):
     stack for a loop ancestor instead of the single (shim-masked) call site. A build from a normal frame stays INFO."""
     from mlframe.training import trainer  # noqa: F401
     from mlframe.training._model_factories import apply_third_party_patches_once
+
     apply_third_party_patches_once()
     pytest.importorskip("lightgbm")
     import lightgbm as lgb
@@ -607,6 +643,7 @@ def test_fix9_build_logging_fires_on_lgb_dataset(caplog):
     ``[dataset-build]`` log line."""
     from mlframe.training import trainer  # noqa: F401
     from mlframe.training._model_factories import apply_third_party_patches_once
+
     apply_third_party_patches_once()
     pytest.importorskip("lightgbm")
     import lightgbm as lgb
@@ -628,6 +665,7 @@ def test_fix9_build_logging_skips_introspection_when_disabled_but_still_builds(c
     `finally` block would silently swallow such an exception instead)."""
     from mlframe.training import trainer  # noqa: F401
     from mlframe.training._model_factories import apply_third_party_patches_once
+
     apply_third_party_patches_once()
     pytest.importorskip("xgboost")
     import xgboost as xgb
@@ -649,9 +687,11 @@ def test_fix9_build_logger_patch_is_idempotent():
     """Re-importing trainer / re-invoking the patcher is a no-op — double
     wrapping would cause each build to log twice."""
     from mlframe.training import trainer
+
     trainer._patch_dataset_constructors_with_logging()
     trainer._patch_dataset_constructors_with_logging()
     import xgboost as xgb
+
     # Check that the outermost wrapper points to our logged __init__ once.
     # The marker attr is set True on first install; re-install checks the
     # own-dict marker and early-returns.
@@ -670,9 +710,15 @@ def test_fix9_capability_detection_returns_booleans():
 
     caps = _detect_dataset_reuse_capabilities()
     expected_keys = {
-        "cb_pool_set_label", "cb_pool_set_weight", "cb_pool_label_swap",
-        "xgb_dmatrix_set_label", "xgb_dmatrix_set_weight", "xgb_sklearn_accepts_dmatrix",
-        "lgb_dataset_set_label", "lgb_dataset_set_weight", "lgb_sklearn_accepts_dataset",
+        "cb_pool_set_label",
+        "cb_pool_set_weight",
+        "cb_pool_label_swap",
+        "xgb_dmatrix_set_label",
+        "xgb_dmatrix_set_weight",
+        "xgb_sklearn_accepts_dmatrix",
+        "lgb_dataset_set_label",
+        "lgb_dataset_set_weight",
+        "lgb_sklearn_accepts_dataset",
     }
     assert expected_keys.issubset(caps.keys())
     for k, v in caps.items():
@@ -688,7 +734,7 @@ def test_fix9_cb_pool_label_swap_detected_on_current_install():
 
     caps = _detect_dataset_reuse_capabilities()
     if not (caps.get("cb_pool_set_label") and caps.get("cb_pool_set_weight")):
-        pytest.skip("Installed CatBoost lacks Pool.set_label / set_weight; " "reuse fast-path is intentionally inert on this build.")
+        pytest.skip("Installed CatBoost lacks Pool.set_label / set_weight; reuse fast-path is intentionally inert on this build.")
     assert caps["cb_pool_set_label"] is True
     assert caps["cb_pool_set_weight"] is True
     assert caps["cb_pool_label_swap"] is True
@@ -704,19 +750,22 @@ def test_fix9_cb_pool_reuse_weight_only_swap_no_rebuild():
     second fit, no new Pool constructor call."""
     from mlframe.training import trainer
     from mlframe.training.core import _detect_dataset_reuse_capabilities
+
     pytest.importorskip("catboost")
     import catboost as cb
 
     _caps = _detect_dataset_reuse_capabilities()
     if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
-        pytest.skip("Installed CatBoost Pool lacks set_label / set_weight; the reuse " "fast-path is intentionally inert and would rebuild every fit.")
+        pytest.skip("Installed CatBoost Pool lacks set_label / set_weight; the reuse fast-path is intentionally inert and would rebuild every fit.")
 
     rng = np.random.default_rng(0)
     n = 300
-    df = pl.DataFrame({
-        "num": rng.standard_normal(n).astype(np.float32),
-        "cat": pl.Series("cat", rng.choice(["a", "b", "c"], size=n)).cast(pl.Categorical),
-    })
+    df = pl.DataFrame(
+        {
+            "num": rng.standard_normal(n).astype(np.float32),
+            "cat": pl.Series("cat", rng.choice(["a", "b", "c"], size=n)).cast(pl.Categorical),
+        }
+    )
     y = rng.integers(0, 2, size=n)
     w1 = np.ones(n)
     w2 = np.linspace(0.1, 1.0, n)
@@ -737,13 +786,23 @@ def test_fix9_cb_pool_reuse_weight_only_swap_no_rebuild():
     try:
         m1 = cb.CatBoostClassifier(iterations=3, verbose=False)
         trainer._train_model_with_fallback(
-            m1, m1, "CatBoostClassifier", df, y,
-            {"cat_features": ["cat"], "sample_weight": w1}, False,
+            m1,
+            m1,
+            "CatBoostClassifier",
+            df,
+            y,
+            {"cat_features": ["cat"], "sample_weight": w1},
+            False,
         )
         m2 = cb.CatBoostClassifier(iterations=3, verbose=False)
         trainer._train_model_with_fallback(
-            m2, m2, "CatBoostClassifier", df, y,
-            {"cat_features": ["cat"], "sample_weight": w2}, False,
+            m2,
+            m2,
+            "CatBoostClassifier",
+            df,
+            y,
+            {"cat_features": ["cat"], "sample_weight": w2},
+            False,
         )
     finally:
         cb.Pool.__init__ = orig_init
@@ -767,10 +826,12 @@ def test_honor_user_dtype_preserves_polars_categorical():
     n = 1000
     vocab = [f"v_{i}" for i in range(500)]
     vals = rng.choice(vocab, size=n)
-    df = pl.DataFrame({
-        "num": rng.random(n).astype(np.float32),
-        "user_cat": pl.Series("user_cat", vals).cast(pl.Categorical),
-    })
+    df = pl.DataFrame(
+        {
+            "num": rng.random(n).astype(np.float32),
+            "user_cat": pl.Series("user_cat", vals).cast(pl.Categorical),
+        }
+    )
 
     # Default honor_user_dtype=False: auto-promote high-cardinality Categorical.
     t_default, _, _ = _auto_detect_feature_types(
@@ -785,7 +846,8 @@ def test_honor_user_dtype_preserves_polars_categorical():
     t_honor, _, _ = _auto_detect_feature_types(
         df,
         FeatureTypesConfig(
-            cat_text_cardinality_threshold=50, honor_user_dtype=True,
+            cat_text_cardinality_threshold=50,
+            honor_user_dtype=True,
         ),
         cat_features=["user_cat"],
         verbose=False,
@@ -808,12 +870,13 @@ def test_honor_user_dtype_still_promotes_raw_string():
     t, _, _ = _auto_detect_feature_types(
         df,
         FeatureTypesConfig(
-            cat_text_cardinality_threshold=50, honor_user_dtype=True,
+            cat_text_cardinality_threshold=50,
+            honor_user_dtype=True,
         ),
         cat_features=[],
         verbose=False,
     )
-    assert "raw_str" in t, "honor_user_dtype must NOT block raw String promotion — no user " f"dtype signal there. Got text_features={t}"
+    assert "raw_str" in t, f"honor_user_dtype must NOT block raw String promotion — no user dtype signal there. Got text_features={t}"
 
 
 def test_honor_user_dtype_pandas_category_parity():
@@ -840,7 +903,8 @@ def test_honor_user_dtype_pandas_category_parity():
     t_honor, _, _ = _auto_detect_feature_types(
         df,
         FeatureTypesConfig(
-            cat_text_cardinality_threshold=10, honor_user_dtype=True,
+            cat_text_cardinality_threshold=10,
+            honor_user_dtype=True,
         ),
         cat_features=["user_cat"],
         verbose=False,
@@ -878,11 +942,13 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
     n_vl = 100
     n_te = 200
     n = n_tr + n_vl + n_te
-    cat_vals = np.concatenate([
-        rng.choice(["A", "B", "C"], size=n_tr),
-        rng.choice(["A", "B"], size=n_vl),
-        np.array(["test_only_cat"] * n_te, dtype=object),
-    ])
+    cat_vals = np.concatenate(
+        [
+            rng.choice(["A", "B", "C"], size=n_tr),
+            rng.choice(["A", "B"], size=n_vl),
+            np.array(["test_only_cat"] * n_te, dtype=object),
+        ]
+    )
     # 2026-04-28: include a strictly-monotonic timestamps column so the
     # splitter takes the temporal-ordering path rather than the
     # auto-stratify path that batch 3 added for classification targets.
@@ -891,16 +957,19 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
     # which assumes chronological splitting). Timestamps force the
     # chronological branch, preserving the original construction.
     import datetime as _dt
+
     ts = pl.Series(
         [_dt.datetime(2026, 1, 1) + _dt.timedelta(minutes=i) for i in range(n)],
         dtype=pl.Datetime,
     )
-    df = pl.DataFrame({
-        "ts": ts,
-        "f_num": rng.random(n).astype(np.float32),
-        "my_cat": pl.Series(cat_vals, dtype=pl.Categorical),
-        "target": rng.integers(0, 2, size=n).astype(np.int64),
-    })
+    df = pl.DataFrame(
+        {
+            "ts": ts,
+            "f_num": rng.random(n).astype(np.float32),
+            "my_cat": pl.Series(cat_vals, dtype=pl.Categorical),
+            "target": rng.integers(0, 2, size=n).astype(np.int64),
+        }
+    )
 
     # Use the timestamped extractor variant so the suite's auto-stratify
     # gate (added 2026-04-27 batch 3) sees ``timestamps is not None`` and
@@ -909,8 +978,11 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
     # which scatters ``test_only_cat`` rows into train and defeats this
     # test's chronological-split scenario.
     from .shared import TimestampedFeaturesExtractor
+
     fte = TimestampedFeaturesExtractor(
-        target_column="target", regression=False, ts_field="ts",
+        target_column="target",
+        regression=False,
+        ts_field="ts",
     )
 
     _, metadata = train_mlframe_models_suite(
@@ -959,7 +1031,7 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
     # test_only_cat is absent from it (strict substring check).
     assert cats_seen is not None, "'my_cat' not found in any model_schema"
     assert "test_only_cat" not in cats_seen, (
-        f"Future-leakage regression: 'test_only_cat' (test-only " f"category) leaked into the trained Enum vocabulary. " f"dtype snapshot: {cats_seen!r}"
+        f"Future-leakage regression: 'test_only_cat' (test-only category) leaked into the trained Enum vocabulary. dtype snapshot: {cats_seen!r}"
     )
 
 
@@ -971,23 +1043,28 @@ def test_orch1_cb_val_pool_reuse_across_weight_swaps():
     one train Pool build + one val Pool build (was 3+3)."""
     from mlframe.training import trainer
     from mlframe.training.core import _detect_dataset_reuse_capabilities
+
     pytest.importorskip("catboost")
     import catboost as cb
 
     _caps = _detect_dataset_reuse_capabilities()
     if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
-        pytest.skip("Installed CatBoost Pool lacks set_label / set_weight; the val " "Pool reuse fast-path is intentionally inert and would rebuild.")
+        pytest.skip("Installed CatBoost Pool lacks set_label / set_weight; the val Pool reuse fast-path is intentionally inert and would rebuild.")
 
     rng = np.random.default_rng(0)
     n, nv = 300, 80
-    train_df = pl.DataFrame({
-        "num": rng.standard_normal(n).astype(np.float32),
-        "cat": pl.Series("cat", rng.choice(["a", "b", "c"], size=n)).cast(pl.Categorical),
-    })
-    val_df = pl.DataFrame({
-        "num": rng.standard_normal(nv).astype(np.float32),
-        "cat": pl.Series("cat", rng.choice(["a", "b", "c"], size=nv)).cast(pl.Categorical),
-    })
+    train_df = pl.DataFrame(
+        {
+            "num": rng.standard_normal(n).astype(np.float32),
+            "cat": pl.Series("cat", rng.choice(["a", "b", "c"], size=n)).cast(pl.Categorical),
+        }
+    )
+    val_df = pl.DataFrame(
+        {
+            "num": rng.standard_normal(nv).astype(np.float32),
+            "cat": pl.Series("cat", rng.choice(["a", "b", "c"], size=nv)).cast(pl.Categorical),
+        }
+    )
     y = rng.integers(0, 2, size=n)
     yv = rng.integers(0, 2, size=nv)
 
@@ -1006,9 +1083,12 @@ def test_orch1_cb_val_pool_reuse_across_weight_swaps():
         for w in (np.ones(n), np.linspace(0.1, 1, n), np.linspace(0.5, 2, n)):
             m = cb.CatBoostClassifier(iterations=3, verbose=False)
             trainer._train_model_with_fallback(
-                m, m, "CatBoostClassifier", train_df, y,
-                {"cat_features": ["cat"], "sample_weight": w,
-                 "eval_set": [(val_df, yv)]},
+                m,
+                m,
+                "CatBoostClassifier",
+                train_df,
+                y,
+                {"cat_features": ["cat"], "sample_weight": w, "eval_set": [(val_df, yv)]},
                 False,
             )
     finally:
@@ -1017,7 +1097,7 @@ def test_orch1_cb_val_pool_reuse_across_weight_swaps():
     # Exactly 2 Pool builds (1 train + 1 val) for 3 fits. Pre-Orch-1:
     # 6 builds total (3 train rebuilds × pre-Fix-9.4.3 would be that;
     # with 9.4.3 train=1 but val=3; now val=1 too).
-    assert build_count["n"] == 2, f"expected 1 train + 1 val Pool build (2 total) across 3 weight-only fits; " f"got {build_count['n']}"
+    assert build_count["n"] == 2, f"expected 1 train + 1 val Pool build (2 total) across 3 weight-only fits; got {build_count['n']}"
 
 
 def test_fix943_cb_val_pool_reused_on_predict_path_too():
@@ -1032,23 +1112,28 @@ def test_fix943_cb_val_pool_reused_on_predict_path_too():
     total must be 2 (1 train + 1 val at fit, 0 at predict)."""
     from mlframe.training import trainer
     from mlframe.training.core import _detect_dataset_reuse_capabilities
+
     pytest.importorskip("catboost")
     import catboost as cb
 
     _caps = _detect_dataset_reuse_capabilities()
     if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
-        pytest.skip("Installed CatBoost Pool lacks set_label / set_weight; the val " "Pool reuse fast-path is intentionally inert and would rebuild.")
+        pytest.skip("Installed CatBoost Pool lacks set_label / set_weight; the val Pool reuse fast-path is intentionally inert and would rebuild.")
 
     rng = np.random.default_rng(0)
     n, nv = 300, 80
-    train_df = pl.DataFrame({
-        "num": rng.standard_normal(n).astype(np.float32),
-        "cat": pl.Series("cat", rng.choice(["a", "b", "c"], size=n)).cast(pl.Categorical),
-    })
-    val_df = pl.DataFrame({
-        "num": rng.standard_normal(nv).astype(np.float32),
-        "cat": pl.Series("cat", rng.choice(["a", "b", "c"], size=nv)).cast(pl.Categorical),
-    })
+    train_df = pl.DataFrame(
+        {
+            "num": rng.standard_normal(n).astype(np.float32),
+            "cat": pl.Series("cat", rng.choice(["a", "b", "c"], size=n)).cast(pl.Categorical),
+        }
+    )
+    val_df = pl.DataFrame(
+        {
+            "num": rng.standard_normal(nv).astype(np.float32),
+            "cat": pl.Series("cat", rng.choice(["a", "b", "c"], size=nv)).cast(pl.Categorical),
+        }
+    )
     y = rng.integers(0, 2, size=n)
     yv = rng.integers(0, 2, size=nv)
 
@@ -1066,9 +1151,12 @@ def test_fix943_cb_val_pool_reused_on_predict_path_too():
     try:
         m = cb.CatBoostClassifier(iterations=3, verbose=False)
         trainer._train_model_with_fallback(
-            m, m, "CatBoostClassifier", train_df, y,
-            {"cat_features": ["cat"], "sample_weight": np.ones(n),
-             "eval_set": [(val_df, yv)]},
+            m,
+            m,
+            "CatBoostClassifier",
+            train_df,
+            y,
+            {"cat_features": ["cat"], "sample_weight": np.ones(n), "eval_set": [(val_df, yv)]},
             False,
         )
         # After fit: 2 Pool builds (1 train + 1 val).
@@ -1096,6 +1184,7 @@ def test_fix9_cb_stale_cat_features_filtered():
     raise ``ValueError: 'feat' is not in list``."""
     from mlframe.training import trainer
     from mlframe.training.core import _detect_dataset_reuse_capabilities
+
     pytest.importorskip("catboost")
 
     _caps = _detect_dataset_reuse_capabilities()
@@ -1108,10 +1197,12 @@ def test_fix9_cb_stale_cat_features_filtered():
 
     rng = np.random.default_rng(0)
     n = 100
-    df = pl.DataFrame({
-        "num": rng.standard_normal(n).astype(np.float32),
-        "cat_present": pl.Series("cat_present", rng.choice(["x", "y"], size=n)).cast(pl.Categorical),
-    })
+    df = pl.DataFrame(
+        {
+            "num": rng.standard_normal(n).astype(np.float32),
+            "cat_present": pl.Series("cat_present", rng.choice(["x", "y"], size=n)).cast(pl.Categorical),
+        }
+    )
     fit_params = {
         # "cat_absent" is not in df.columns — MRMR-dropped, stale list.
         "cat_features": ["cat_absent", "cat_present"],

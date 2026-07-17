@@ -1,4 +1,5 @@
 """Unit tests for ``mlframe.metrics.compute_all_metrics`` -- the per-iteration full-suite aggregator."""
+
 from __future__ import annotations
 
 import numpy as np

@@ -35,6 +35,7 @@ NEVER xfail.
 
 Consolidated verbatim from test_biz_value_mrmr_layer73.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -62,6 +63,7 @@ def _import_tc_fe():
         hybrid_orth_mi_tc_fe,
         hybrid_orth_mi_tc_fe_with_recipes,
     )
+
     return (
         total_correlation,
         score_features_by_tc_uplift,
@@ -77,6 +79,7 @@ def _import_plug_in_fe():
         score_features_by_mi_uplift,
         hybrid_orth_mi_fe,
     )
+
     return (
         generate_univariate_basis_features,
         score_features_by_mi_uplift,
@@ -134,16 +137,18 @@ def _build_redundant_multi(seed: int, n: int = 2000):
     x_dup_b = x1 + 0.05 * rng.standard_normal(n)
     x_dup_c = x1 + 0.05 * rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x_dup_a": x_dup_a,
-        "x_dup_b": x_dup_b,
-        "x_dup_c": x_dup_c,
-        "x2": x2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
-    signal = x1 ** 2 + 0.6 * (x2 ** 2)
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x_dup_a": x_dup_a,
+            "x_dup_b": x_dup_b,
+            "x_dup_c": x_dup_c,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
+    signal = x1**2 + 0.6 * (x2**2)
     thr = float(np.median(signal))
     y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
     return X, pd.Series(y, name="y")
@@ -180,7 +185,7 @@ class TestTCCatchesHigherOrderRedundancy:
         # TC must be CLEARLY above the noise floor and above max pairwise:
         # log 2 ~ 0.693 in nats; allow >= 0.3 to absorb finite-sample drift
         # plus binning of an already-binary col into 10 quantile bins.
-        assert tc >= 0.3, f"seed={seed}: TC({tc:.4f}) of XOR triple is at noise floor; " f"higher-order detection contract violated."
+        assert tc >= 0.3, f"seed={seed}: TC({tc:.4f}) of XOR triple is at noise floor; higher-order detection contract violated."
         # Every pairwise MI on independent fair bits is at noise floor
         # (~ 1/n nats); a healthy gate is ``tc >> max_pairwise * 3``.
         assert tc >= 3.0 * max_pairwise + 0.1, (
@@ -211,7 +216,9 @@ class TestTCRanksNewInfoOverRedundant:
         X, y = _build_redundant_multi(seed, n=2000)
         engineered = gen(X, degrees=(2,), basis="hermite")
         scores = score_features_by_tc_uplift(
-            X, engineered, y.to_numpy(),
+            X,
+            engineered,
+            y.to_numpy(),
             current_support=X[["x1"]],
             n_bins=10,
         )
@@ -249,13 +256,22 @@ class TestAucLiftOnMultiRedundantFixture:
         for s in (1, 7, 13, 42, 101, 202, 303, 404):
             X, y = _build_redundant_multi(s, n=2000)
             X_tr, X_te, y_tr, y_te = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             # marginal-MI augmentation baseline.
             X_marg_tr, _ = hybrid_marginal(
-                X_tr, y_tr.to_numpy(),
-                degrees=(2,), basis="hermite",
-                top_k=2, min_uplift=0.0, min_abs_mi_frac=0.0, nbins=10,
+                X_tr,
+                y_tr.to_numpy(),
+                degrees=(2,),
+                basis="hermite",
+                top_k=2,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
+                nbins=10,
             )
             marg_added = [c for c in X_marg_tr.columns if c not in X_tr.columns]
             eng_te_all = gen(X_te, degrees=(2,), basis="hermite")
@@ -274,10 +290,15 @@ class TestAucLiftOnMultiRedundantFixture:
             # support so the TC uplift suppresses the redundant He_2(x_dup_*)
             # duplicates and surfaces He_2(x2) instead.
             X_tc_tr, _scores, _recipes = hybrid_tc_with_recipes(
-                X_tr, y_tr.to_numpy(),
+                X_tr,
+                y_tr.to_numpy(),
                 current_support=X_tr[["x1"]],
-                degrees=(2,), basis="hermite",
-                top_k=2, min_uplift=0.0, min_abs_mi_frac=0.0, n_bins=10,
+                degrees=(2,),
+                basis="hermite",
+                top_k=2,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
+                n_bins=10,
             )
             tc_added = [c for c in X_tc_tr.columns if c not in X_tr.columns]
             X_tc_te = pd.concat([X_te, eng_te_all[tc_added]], axis=1) if tc_added else X_te
@@ -319,7 +340,7 @@ class TestDefaultDisabledByteIdentical:
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], f"seed={seed}: default fe_hybrid_orth_tc_enable=False should " f"NOT append any engineered columns; got {added}"
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_tc_enable=False should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
         """fe_hybrid_orth_tc_enable defaults to False and fe_hybrid_orth_tc_n_bins defaults to 10."""
@@ -347,7 +368,7 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_tc_enable", True),
             ("fe_hybrid_orth_tc_n_bins", 15),
         ]:
-            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_tc_recipes(self):
         """A pickle round-trip preserves feature names, appended columns, and every orth_univariate recipe field."""
@@ -364,7 +385,7 @@ class TestPickleAndClone:
         assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, f"pickle changed hybrid_orth_features_: " f"before={added_before}, after={added_after}"
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, after={added_after}"
 
         def _extract_orth_recipes(model):
             """Return {name: recipe} for the orth_univariate recipes, regardless of container list/dict shape."""
@@ -376,12 +397,12 @@ class TestPickleAndClone:
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
                 )

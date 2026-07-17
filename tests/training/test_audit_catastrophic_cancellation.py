@@ -27,6 +27,7 @@
 
 Per `feedback_richness_first`: addressed the bonus finding too.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,8 +43,10 @@ def test_per_member_std_precision_on_large_mean_small_spread():
     Assert post-fix std matches a numpy ddof=0 ground truth within 1e-10
     relative (pre-fix would be ~1e-3)."""
     from mlframe.models.ensembling import (
-        _per_member_mae_std_njit, _HAS_NUMBA_PER_MEMBER,
+        _per_member_mae_std_njit,
+        _HAS_NUMBA_PER_MEMBER,
     )
+
     if not _HAS_NUMBA_PER_MEMBER:
         pytest.skip("numba not available; per-member-mae-std njit path unused")
 
@@ -64,8 +67,10 @@ def test_per_member_std_precision_on_large_mean_small_spread():
 def test_per_member_std_3d_branch_precision():
     """Same check for the 3-D (K, N, C) multi-class branch (line 78)."""
     from mlframe.models.ensembling import (
-        _per_member_mae_std_njit, _HAS_NUMBA_PER_MEMBER,
+        _per_member_mae_std_njit,
+        _HAS_NUMBA_PER_MEMBER,
     )
+
     assert _HAS_NUMBA_PER_MEMBER, "numba is a hard dependency per pyproject.toml; install is broken if False"
 
     rng = np.random.default_rng(7)
@@ -79,10 +84,7 @@ def test_per_member_std_3d_branch_precision():
     diffs = np.abs(arr - median_preds[None, :, :])
     expected_std = np.std(diffs, axis=1, ddof=0).mean(axis=1)
     rel_err = np.abs(out_std - expected_std) / expected_std
-    assert rel_err.max() < 1e-10, (
-        f"Wave 25 P1 regression (3-D branch): std precision degraded to "
-        f"{rel_err.max():.2e}."
-    )
+    assert rel_err.max() < 1e-10, f"Wave 25 P1 regression (3-D branch): std precision degraded to {rel_err.max():.2e}."
 
 
 def test_per_member_std_constant_input_is_exactly_zero_not_negative():
@@ -107,6 +109,7 @@ def test_cont_entropy_is_actually_shannon_not_count_scaled():
     entropy in nats, bounded by log(n_bins) for any reasonable bin
     choice."""
     from mlframe.feature_engineering.numerical import cont_entropy
+
     rng = np.random.default_rng(123)
     arr_uniform = rng.uniform(0, 1, size=10000)
     ent = cont_entropy(arr_uniform)
@@ -128,6 +131,7 @@ def test_cont_entropy_concentrated_lower_than_log_n_bins():
     the precise value depends on Scott's-rule bin-count which itself
     depends on input std."""
     from mlframe.feature_engineering.numerical import cont_entropy
+
     rng = np.random.default_rng(123)
     arr_concentrated = rng.normal(0.5, 0.01, size=10000)
     ent = cont_entropy(arr_concentrated)
@@ -138,6 +142,7 @@ def test_cont_entropy_concentrated_lower_than_log_n_bins():
 def test_cont_entropy_empty_returns_nan():
     """Empty input -> NaN (preserves pre-fix behaviour for edge case)."""
     from mlframe.feature_engineering.numerical import cont_entropy
+
     out = cont_entropy(np.array([]))
     assert np.isnan(out)
 

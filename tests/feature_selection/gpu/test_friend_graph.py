@@ -8,6 +8,7 @@ Covers, per the project rule (unit + biz_value + cProfile per feature):
 * cProfile: the edge pass is dominated by the information-theory kernels;
 * render smoke: a NetworkPanelSpec renders + saves on both reporting backends.
 """
+
 from __future__ import annotations
 
 import sys
@@ -38,9 +39,9 @@ def _redundant_hub_dataset(n=8000, seed=11):
     rng = np.random.default_rng(seed)
     u = [rng.integers(0, 2, n) for _ in range(4)]
     v = [rng.integers(0, 2, n) for _ in range(4)]
-    p = [(u[i] * 2 + v[i]).astype(np.int32) for i in range(4)]   # nbins 4
-    y = (sum(u) >= 2).astype(np.int32)                            # majority of u
-    g = sum(v).astype(np.int32)                                   # nbins 5, target-independent
+    p = [(u[i] * 2 + v[i]).astype(np.int32) for i in range(4)]  # nbins 4
+    y = (sum(u) >= 2).astype(np.int32)  # majority of u
+    g = sum(v).astype(np.int32)  # nbins 5, target-independent
     data = np.column_stack(p + [g, y]).astype(np.int32)
     nbins = np.array([4, 4, 4, 4, 5, 2], dtype=np.int64)
     names = ["p1", "p2", "p3", "p4", "G", "y"]
@@ -76,8 +77,7 @@ def test_edge_weights_match_plugin_mi():
     g = build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1)
     assert g.edges
     for e in g.edges:
-        direct = float(it.mi(data, np.array([e.a], dtype=np.int64),
-                             np.array([e.b], dtype=np.int64), nbins))
+        direct = float(it.mi(data, np.array([e.a], dtype=np.int64), np.array([e.b], dtype=np.int64), nbins))
         assert e.mi == pytest.approx(direct, rel=1e-6, abs=1e-9)
 
 
@@ -86,15 +86,14 @@ def test_adc_arrow_points_to_more_explained_node():
     # almost fully (I/H(B) ~ 1) while B explains little of A: the arrow is A -> B.
     rng = np.random.default_rng(0)
     n = 4000
-    a = rng.integers(0, 8, n).astype(np.int32)   # nbins 8 (high entropy)
-    b = (a % 2).astype(np.int32)                 # nbins 2, fully determined by a
+    a = rng.integers(0, 8, n).astype(np.int32)  # nbins 8 (high entropy)
+    b = (a % 2).astype(np.int32)  # nbins 2, fully determined by a
     y = rng.integers(0, 2, n).astype(np.int32)
     data = np.column_stack([a, b, y]).astype(np.int32)
     nbins = np.array([8, 2, 2], dtype=np.int64)
-    g = build_friend_graph([0, 1], data, nbins, np.array([2], dtype=np.int64),
-                           feature_names=["A", "B", "y"], seed=1)
+    g = build_friend_graph([0, 1], data, nbins, np.array([2], dtype=np.int64), feature_names=["A", "B", "y"], seed=1)
     edge = next(e for e in g.edges if {e.a, e.b} == {0, 1})
-    assert edge.a == 0 and edge.b == 1   # explainer A -> explained B
+    assert edge.a == 0 and edge.b == 1  # explainer A -> explained B
 
 
 def test_layout_positions_cover_all_nodes():
@@ -138,8 +137,7 @@ def test_biz_value_no_prune_when_no_red_nodes():
     y = (x1 ^ (x2 & rng.integers(0, 2, n))).astype(np.int32)
     data = np.column_stack([x1, x2, y]).astype(np.int32)
     nbins = np.array([2, 2, 2], dtype=np.int64)
-    g = build_friend_graph([0, 1], data, nbins, np.array([2], dtype=np.int64),
-                           feature_names=["x1", "x2", "y"], seed=1)
+    g = build_friend_graph([0, 1], data, nbins, np.array([2], dtype=np.int64), feature_names=["x1", "x2", "y"], seed=1)
     pruned, reasons = prune_by_friend_graph(g, [0, 1])
     assert pruned == [0, 1]
     assert reasons == {}
@@ -219,8 +217,10 @@ def test_pairwise_mi_edge_cached_marginals_bit_identical():
     pins the equivalence so a future mi()/merge_vars refactor can't silently
     diverge the two paths."""
     from mlframe.feature_selection.filters.friend_graph import (
-        pairwise_mi_edge, _node_entropy,
+        pairwise_mi_edge,
+        _node_entropy,
     )
+
     rng = np.random.default_rng(20260527)
     n = 40000
     data = rng.integers(0, 8, size=(n, 3)).astype(np.int32)
@@ -232,8 +232,14 @@ def test_pairwise_mi_edge_cached_marginals_bit_identical():
         h_a = _node_entropy(data, a, nbins, None, np.int32)
         h_b = _node_entropy(data, b, nbins, None, np.int32)
         m_cached = pairwise_mi_edge(
-            data, a, b, nbins, n, mi_eps=0.0, edge_significance=0.0, h_a=h_a, h_b=h_b,
+            data,
+            a,
+            b,
+            nbins,
+            n,
+            mi_eps=0.0,
+            edge_significance=0.0,
+            h_a=h_a,
+            h_b=h_b,
         )
-        assert m_full == m_cached, (
-            f"edge ({a},{b}): full={m_full} != cached={m_cached}"
-        )
+        assert m_full == m_cached, f"edge ({a},{b}): full={m_full} != cached={m_cached}"

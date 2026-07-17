@@ -7,6 +7,7 @@ bench_curated_fe_holdout_value). fit_transform now routes supervised transformer
 that the skew is gone (holdout AUC within a small margin of raw-only) and that the mechanism actually engages
 (fit_transform train features differ from the Mode-B fit+transform train features).
 """
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -26,7 +27,7 @@ def _binary(n=4000, seed=SEED):
     cat_eff = rng.standard_normal(40) * 2.0
     x1, x2, x3 = (rng.standard_normal(n) for _ in range(3))
     noise = rng.standard_normal((n, 4))
-    sig = cat_eff[cat] + 1.5 * np.sin(2 * x1) * x2 + 0.7 * x3 ** 2
+    sig = cat_eff[cat] + 1.5 * np.sin(2 * x1) * x2 + 0.7 * x3**2
     p = 1 / (1 + np.exp(-(sig - np.median(sig))))
     y = (rng.uniform(size=n) < p).astype(int)
     cols = ["cat", "x1", "x2", "x3", "n0", "n1", "n2", "n3"]
@@ -35,6 +36,7 @@ def _binary(n=4000, seed=SEED):
 
 def _auc(Xtr, ytr, Xho, yho):
     import lightgbm as lgb
+
     m = lgb.LGBMClassifier(n_estimators=200, max_depth=4, learning_rate=0.05, random_state=0, verbose=-1, n_jobs=-1)
     m.fit(Xtr, ytr)
     return roc_auc_score(yho, m.predict_proba(Xho)[:, 1])
@@ -47,7 +49,7 @@ def test_mode_a_fit_transform_eliminates_trust_score_binary_skew():
 
     pipe = curated_fe_pipelines(task="binary", names=["trust_score_oof"], seed=SEED, passthrough=False)["trust_score_oof"]
     ftr = np.nan_to_num(np.asarray(pipe.fit_transform(Xtr, ytr), dtype=float))  # Mode A (OOF)
-    fho = np.nan_to_num(np.asarray(pipe.transform(Xho), dtype=float))            # Mode B (honest)
+    fho = np.nan_to_num(np.asarray(pipe.transform(Xho), dtype=float))  # Mode B (honest)
     auc_fe = _auc(np.hstack([Xtr.values, ftr]), ytr.values, np.hstack([Xho.values, fho]), yho.values)
 
     # Pre-fix Mode-B fed in-sample train features and cratered holdout AUC by ~0.42. Mode-A must keep it within

@@ -16,6 +16,7 @@ the SHARED guarantees the audit's cross-cutting list calls out:
 ``hypothesis`` is available on this stack, so the pure invariants use ``@given``; the
 closed-form / contract sensors use plain parametrization over hand-picked edge inputs.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -201,9 +202,9 @@ def test_argmax_classes_safe_does_not_pick_nan_slot():
     Naive np.argmax returns the NaN position (verified), so this pins the safe behaviour."""
     probs = np.array(
         [
-            [0.2, np.nan, 0.5],   # naive argmax -> 1 (nan); safe -> 2
-            [np.nan, 0.7, 0.1],   # safe -> 1
-            [0.9, 0.05, 0.05],    # all finite -> 0
+            [0.2, np.nan, 0.5],  # naive argmax -> 1 (nan); safe -> 2
+            [np.nan, 0.7, 0.1],  # safe -> 1
+            [0.9, 0.05, 0.05],  # all finite -> 0
         ]
     )
     # Confirm the bug the helper guards against actually exists in raw numpy.
@@ -228,8 +229,8 @@ def test_argmax_classes_safe_all_nan_row_uses_fallback_class():
 @pytest.mark.parametrize(
     "bad_prob",
     [
-        np.array([0.1, 1.5, 0.3]),     # > 1
-        np.array([-0.2, 0.4, 0.6]),    # < 0
+        np.array([0.1, 1.5, 0.3]),  # > 1
+        np.array([-0.2, 0.4, 0.6]),  # < 0
         np.array([0.1, np.nan, 0.3]),  # NaN
     ],
 )
@@ -244,8 +245,8 @@ def test_brier_returns_exact_nan_on_bad_probs(bad_prob):
 def test_log_loss_returns_exact_nan_on_bad_probs_and_single_class():
     """fast_log_loss returns exactly NaN on out-of-range probs and on single-class y."""
     y = np.array([0, 1, 1], dtype=np.int64)
-    assert np.isnan(fast_log_loss(y, np.array([0.1, 1.2, 0.3])))     # prob > 1
-    assert np.isnan(fast_log_loss(y, np.array([0.1, -0.1, 0.3])))    # prob < 0
+    assert np.isnan(fast_log_loss(y, np.array([0.1, 1.2, 0.3])))  # prob > 1
+    assert np.isnan(fast_log_loss(y, np.array([0.1, -0.1, 0.3])))  # prob < 0
     # Single-class y (all zeros) with valid probs -> NaN (mirrors sklearn's undefined case).
     assert np.isnan(fast_log_loss(np.array([0, 0, 0]), np.array([0.2, 0.4, 0.6])))
 

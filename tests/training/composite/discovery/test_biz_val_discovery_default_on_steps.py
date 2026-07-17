@@ -17,6 +17,7 @@ silent no-op FAILS the test.
 Each test relies on the package DEFAULT for its flag (does NOT set it), so a
 regression flipping the constructor default to ``False`` trips the assertion.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -61,9 +62,7 @@ def test_biz_val_region_adaptive_when_enabled_fires_nonempty():
     y = 0.9 * a + 0.6 * b + 0.5 * c + 0.1 * rng.normal(size=n)
     df = pd.DataFrame({"a": a, "b": b, "c": c, "y": y})
     disc = _fit(df, ["a", "b", "c"], region_adaptive_enabled=True)
-    assert disc.region_adaptive_specs_, (
-        "region_adaptive (explicitly enabled) produced ZERO specs on multi-base data (silent no-op)"
-    )
+    assert disc.region_adaptive_specs_, "region_adaptive (explicitly enabled) produced ZERO specs on multi-base data (silent no-op)"
     for ra in disc.region_adaptive_specs_:
         assert ra.k >= 1
         assert len(ra.region_transforms) == len(ra.region_params)
@@ -84,10 +83,7 @@ def test_biz_val_interaction_base_default_on_fires_on_pure_interaction():
     y = a * b + 0.1 * rng.normal(size=n)
     df = pd.DataFrame({"a": a, "b": b, "c": c, "y": y})
     disc = _fit(df, ["a", "b", "c"])
-    assert disc.interaction_bases_, (
-        "interaction-base default-ON surfaced ZERO synthetics on a pure "
-        "interaction y=a*b target (silent no-op)"
-    )
+    assert disc.interaction_bases_, "interaction-base default-ON surfaced ZERO synthetics on a pure interaction y=a*b target (silent no-op)"
     assert len(disc.interaction_base_records_) == len(disc.interaction_bases_)
     for name, arr in disc.interaction_bases_.items():
         assert isinstance(name, str)
@@ -108,13 +104,10 @@ def test_biz_val_auto_chain_default_on_appends_chain_specs():
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
     z = 0.5 * x1 - 0.4 * x2
-    y = 0.9 * base + z + 0.05 * z ** 3 + rng.normal(scale=0.3, size=n)
+    y = 0.9 * base + z + 0.05 * z**3 + rng.normal(scale=0.3, size=n)
     df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
     disc = _fit(df, ["base", "x1", "x2"])
-    assert disc.auto_chains_, (
-        "auto-chain default-ON surfaced ZERO chains on a heavy cube-residual "
-        "target (silent no-op)"
-    )
+    assert disc.auto_chains_, "auto-chain default-ON surfaced ZERO chains on a heavy cube-residual target (silent no-op)"
     chain_specs = [s for s in disc.specs_ if s.transform_name.startswith("chain_")]
     assert chain_specs, "auto_chains_ populated but no chain_* spec appended to specs_"
     from mlframe.training.composite.transforms import get_transform

@@ -14,6 +14,7 @@ import pytest
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.training.neural import base
+
     return base
 
 
@@ -24,6 +25,7 @@ def siblings():
         _base_logging,
         _base_tensor_helpers,
     )
+
     return {
         "logging": _base_logging,
         "tensors": _base_tensor_helpers,

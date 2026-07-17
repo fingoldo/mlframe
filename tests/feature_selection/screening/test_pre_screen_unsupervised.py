@@ -4,6 +4,7 @@ Verifies the conservative-default contract: drop variance=0 numeric columns and 
 null fraction strictly exceeds the threshold (default 0.99). Train-only fit; protected columns
 (targets, group ids) are never dropped.
 """
+
 from __future__ import annotations
 
 import numpy as np

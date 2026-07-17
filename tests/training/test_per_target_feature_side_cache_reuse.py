@@ -15,6 +15,7 @@ than once per target. These tests assert:
 The cache mechanics are unit-tested in isolation (no full suite) because spawning multiple
 suites for a counter assertion would multiply CI cost by an order of magnitude.
 """
+
 from __future__ import annotations
 
 import sys
@@ -68,7 +69,8 @@ def test_feature_side_cache_survives_none_artifacts():
 
 def test_dataset_reuse_cache_separate_from_feature_side():
     from mlframe.training.core._phase_train_one_target import (
-        _ensure_dataset_reuse_cache, _ensure_feature_side_cache,
+        _ensure_dataset_reuse_cache,
+        _ensure_feature_side_cache,
     )
 
     ctx = _FakeCtx()
@@ -85,7 +87,8 @@ def test_capture_then_restore_dataset_reuse_cache_round_trips():
     must hand that DMatrix to the target-2 template before clone() forward-transfers it.
     """
     from mlframe.training.core._phase_train_one_target import (
-        _capture_dataset_reuse_cache, _restore_dataset_reuse_cache,
+        _capture_dataset_reuse_cache,
+        _restore_dataset_reuse_cache,
     )
 
     ctx = _FakeCtx()
@@ -118,7 +121,8 @@ def test_capture_skips_none_attrs():
     """A template with every cache attr set to None must NOT capture (else the next
     restore would overwrite a freshly-built cache with stale Nones)."""
     from mlframe.training.core._phase_train_one_target import (
-        _capture_dataset_reuse_cache, _DATASET_REUSE_CACHE_ATTRS,
+        _capture_dataset_reuse_cache,
+        _DATASET_REUSE_CACHE_ATTRS,
     )
 
     ctx = _FakeCtx()
@@ -154,7 +158,8 @@ def test_invalidate_polars_feature_side_cache_drops_polars_only():
     on the polars release must drop ONLY the polars entries so pandas-tier reuse survives
     a tier transition mid-suite."""
     from mlframe.training.core._phase_train_one_target import (
-        _ensure_feature_side_cache, _invalidate_polars_feature_side_cache,
+        _ensure_feature_side_cache,
+        _invalidate_polars_feature_side_cache,
     )
 
     ctx = _FakeCtx()
@@ -214,6 +219,7 @@ class _MultiTargetExtractor:
 
     def __init__(self, target_columns, target_type):
         from mlframe.training.configs import TargetTypes
+
         self.target_columns = tuple(target_columns)
         self.target_type = target_type if target_type is not None else TargetTypes.REGRESSION
         # FTE contract attrs read by the suite:
@@ -264,6 +270,7 @@ def test_multi_target_suite_feature_side_cache_populated(synthetic_multi_target_
     # so the only way to inspect ctx.artifacts post-fit is to intercept the very last
     # _train_one_target call and stash a reference.
     import mlframe.training.core._phase_train_one_target as pt
+
     captured_ctx_holder = {}
     _orig_train_one = pt._train_one_target
 
@@ -274,6 +281,7 @@ def test_multi_target_suite_feature_side_cache_populated(synthetic_multi_target_
     pt._train_one_target = _stash_ctx
     # Also patch the import in main.py since main.py uses ``pr._train_one_target``.
     import mlframe.training.core.main as _main
+
     pt_alias = _main.pr
     _orig_pt_alias = pt_alias._train_one_target
     pt_alias._train_one_target = _stash_ctx
@@ -281,10 +289,13 @@ def test_multi_target_suite_feature_side_cache_populated(synthetic_multi_target_
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             train_mlframe_models_suite(
-                df=df, target_name="multi", model_name="mt",
+                df=df,
+                target_name="multi",
+                model_name="mt",
                 features_and_targets_extractor=fte,
                 mlframe_models=["linear"],
-                use_mlframe_ensembles=False, verbose=0,
+                use_mlframe_ensembles=False,
+                verbose=0,
             )
     finally:
         pt._train_one_target = _orig_train_one
@@ -298,10 +309,5 @@ def test_multi_target_suite_feature_side_cache_populated(synthetic_multi_target_
     assert isinstance(fs_cache, dict)
     # Linear strategy populates tier_dfs even when no Enum map is needed (pandas-tier).
     # The cache should have at least one inner bucket post-suite.
-    has_any_bucket = any(
-        isinstance(v, dict) and (v.get("tier_dfs") or v.get("prepared_frames") or v.get("tier_enum_map"))
-        for v in fs_cache.values()
-    )
-    assert has_any_bucket, (
-        f"expected at least one populated feature_side_cache bucket post-suite; got {fs_cache!r}"
-    )
+    has_any_bucket = any(isinstance(v, dict) and (v.get("tier_dfs") or v.get("prepared_frames") or v.get("tier_enum_map")) for v in fs_cache.values())
+    assert has_any_bucket, f"expected at least one populated feature_side_cache bucket post-suite; got {fs_cache!r}"

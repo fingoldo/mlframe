@@ -15,12 +15,14 @@ import pytest
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.training.core import _phase_composite_post
+
     return _phase_composite_post
 
 
 @pytest.fixture(scope="module")
 def lag_sibling():
     from mlframe.training.core import _phase_composite_post_lag_predict
+
     return _phase_composite_post_lag_predict
 
 

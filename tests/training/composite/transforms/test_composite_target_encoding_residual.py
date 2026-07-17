@@ -13,6 +13,7 @@ Coverage:
   noise, the target-encoding residual + a linear model beats raw-y linear by a
   clear RMSE margin, and an unseen-category predict stays finite.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -52,7 +53,9 @@ class TestFit:
         y = np.arange(10.0)
         with pytest.raises(ValueError, match="groups has"):
             _target_encoding_residual_fit(
-                y, np.zeros(10), groups=np.array(["a"] * 9),
+                y,
+                np.zeros(10),
+                groups=np.array(["a"] * 9),
             )
 
     def test_negative_smoothing_raises(self) -> None:
@@ -86,9 +89,7 @@ class TestFit:
         # Singleton 'Z' raw mean is 100 but smoothed = (100 + 20*gm)/(1+20),
         # i.e. heavily pulled toward the global mean (far below 100).
         assert enc_z < 0.5 * 100.0, "singleton must be shrunk toward global mean"
-        assert abs(enc_z - global_mean) < abs(100.0 - global_mean), (
-            "singleton encoding must be closer to global mean than its raw mean"
-        )
+        assert abs(enc_z - global_mean) < abs(100.0 - global_mean), "singleton encoding must be closer to global mean than its raw mean"
         # Big category 'A' (1000 rows) barely shrinks -> stays near its own mean.
         raw_a = float(np.mean(y_big))
         assert abs(enc_a - raw_a) < 0.05, "large category keeps ~its own mean"
@@ -114,7 +115,10 @@ class TestFit:
         t_hat = np.array([0.0, 0.0, 0.0])
         groups_pred = np.asarray(["Z", "Z", "A"])
         y_back = _target_encoding_residual_inverse(
-            t_hat, np.zeros(3), p, groups=groups_pred,
+            t_hat,
+            np.zeros(3),
+            p,
+            groups=groups_pred,
         )
         assert np.all(np.isfinite(y_back))
         # Unseen rows invert with the global mean (since T_hat=0).
@@ -212,10 +216,7 @@ class TestBizValueTargetEncodingBeatsRawLinear:
         est.fit(df_tr[["x", "cat"]], y_tr)
         rmse_comp = self._rmse(est.predict(df_te[["x", "cat"]]), y_te)
 
-        assert rmse_comp < rmse_raw / 3.0, (
-            f"target-encoding residual must beat raw-y linear by >=3x RMSE: "
-            f"raw={rmse_raw:.3f}, composite={rmse_comp:.3f}"
-        )
+        assert rmse_comp < rmse_raw / 3.0, f"target-encoding residual must beat raw-y linear by >=3x RMSE: raw={rmse_raw:.3f}, composite={rmse_comp:.3f}"
 
     def test_unseen_category_predict_stays_finite(self) -> None:
         df_tr, y_tr = self._make_high_card_dgp(n=2000, n_levels=50, seed=2)
@@ -227,9 +228,7 @@ class TestBizValueTargetEncodingBeatsRawLinear:
         est.fit(df_tr[["x", "cat"]], y_tr)
         # Predict batch with categories NEVER seen at fit (c900..c904).
         rng = np.random.default_rng(99)
-        df_unseen = pd.DataFrame(
-            {"x": rng.normal(size=5), "cat": [f"c{900 + i}" for i in range(5)]}
-        )
+        df_unseen = pd.DataFrame({"x": rng.normal(size=5), "cat": [f"c{900 + i}" for i in range(5)]})
         preds = est.predict(df_unseen[["x", "cat"]])
         assert preds.shape == (5,)
         assert np.all(np.isfinite(preds)), "unseen-category predict must be finite"

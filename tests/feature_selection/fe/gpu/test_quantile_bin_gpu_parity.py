@@ -7,6 +7,7 @@ MI/cardinality, so the bar is SELECTION-EQUIVALENCE (same number of occupied bin
 not byte-identity): cp.percentile and np.quantile may round a quantile boundary differently, 1-offing a code at
 <~1e-5 of rows -- below the bin resolution.
 """
+
 from __future__ import annotations
 
 import numpy as np

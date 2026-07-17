@@ -31,18 +31,22 @@ def test_schema_drift_dtype_compare_under_100ms():
     27000ms for 100 calls. The ceiling at 100ms catches reintroduction
     of the slow pandas ``__eq__`` dispatch.
     """
-    train = pl.DataFrame({
-        "a": [1.0, 2.0],
-        "b": [1, 2],
-        "c": ["x", "y"],
-        "d": [True, False],
-    })
-    val = pl.DataFrame({
-        "a": [3.0],
-        "b": [3],
-        "c": ["z"],
-        "d": [True],
-    })
+    train = pl.DataFrame(
+        {
+            "a": [1.0, 2.0],
+            "b": [1, 2],
+            "c": ["x", "y"],
+            "d": [True, False],
+        }
+    )
+    val = pl.DataFrame(
+        {
+            "a": [3.0],
+            "b": [3],
+            "c": ["z"],
+            "d": [True],
+        }
+    )
     train_schema = dict(train.schema)
 
     t0 = time.perf_counter()
@@ -75,9 +79,7 @@ def test_schema_drift_silent_on_identical():
     finally:
         logger.removeHandler(handler)
 
-    assert stream.getvalue() == "", (
-        f"identical schemas should not warn; got: {stream.getvalue()!r}"
-    )
+    assert stream.getvalue() == "", f"identical schemas should not warn; got: {stream.getvalue()!r}"
 
 
 def test_schema_drift_warns_on_dtype_change():

@@ -6,6 +6,7 @@ that is what a p-value threshold means. Running SEVERAL independent random subsa
 STRICT MAJORITY of them to fail before flagging drives that false-flag rate down sharply, because a majority
 of ``n_splits`` independent low-probability events is far less likely than any single one.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,9 +33,7 @@ def test_biz_val_ks_stability_filter_multi_split_reduces_false_flag_rate():
         if not bool(single_result.iloc[0]["stable"]):
             single_false_flags += 1
 
-        multi_result = ks_stability_filter(
-            train_df, test_df, p_value_threshold=p_value_threshold, n_splits=n_splits, random_state=seed
-        )
+        multi_result = ks_stability_filter(train_df, test_df, p_value_threshold=p_value_threshold, n_splits=n_splits, random_state=seed)
         if not bool(multi_result.iloc[0]["stable"]):
             multi_false_flags += 1
 

@@ -11,6 +11,7 @@ the very surface ES already optimised against -- so the suite double-dips val. F
 Tests below cover the two split-routing paths the directive flagged: the gate-source ordering inside
 ``score_ensemble`` and the warning when ``compare_ensembles`` is called with a ``val.*`` sort metric.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -43,16 +44,37 @@ def test_member_quality_gate_routes_to_oof_not_val():
     val_c = rng.normal(loc=0.05, scale=1.0, size=n)
 
     member_a = SimpleNamespace(
-        model=None, val_preds=val_a, val_probs=None, test_preds=val_a.copy(), test_probs=None,
-        train_preds=val_a.copy(), train_probs=None, oof_preds=oof_a, oof_probs=None,
+        model=None,
+        val_preds=val_a,
+        val_probs=None,
+        test_preds=val_a.copy(),
+        test_probs=None,
+        train_preds=val_a.copy(),
+        train_probs=None,
+        oof_preds=oof_a,
+        oof_probs=None,
     )
     member_b = SimpleNamespace(
-        model=None, val_preds=val_b, val_probs=None, test_preds=val_b.copy(), test_probs=None,
-        train_preds=val_b.copy(), train_probs=None, oof_preds=oof_b, oof_probs=None,
+        model=None,
+        val_preds=val_b,
+        val_probs=None,
+        test_preds=val_b.copy(),
+        test_probs=None,
+        train_preds=val_b.copy(),
+        train_probs=None,
+        oof_preds=oof_b,
+        oof_probs=None,
     )
     member_c = SimpleNamespace(
-        model=None, val_preds=val_c, val_probs=None, test_preds=val_c.copy(), test_probs=None,
-        train_preds=val_c.copy(), train_probs=None, oof_preds=oof_c, oof_probs=None,
+        model=None,
+        val_preds=val_c,
+        val_probs=None,
+        test_preds=val_c.copy(),
+        test_probs=None,
+        train_preds=val_c.copy(),
+        train_probs=None,
+        oof_preds=oof_c,
+        oof_probs=None,
     )
 
     recorded = {}
@@ -60,6 +82,7 @@ def test_member_quality_gate_routes_to_oof_not_val():
     # from its canonical module ``quality_gate`` at call time, so patching the
     # real import site here is picked up by the production code path.
     import mlframe.models.ensembling.quality_gate as ens_gate_mod
+
     real_gate = ens_gate_mod.compute_member_quality_gate
 
     def _spy_gate(preds_list, **kw):
@@ -95,9 +118,7 @@ def test_member_quality_gate_routes_to_oof_not_val():
     assert "arrays" in recorded, "compute_member_quality_gate was never invoked"
     # The third recorded array must equal oof_c (the outlier-bearing OOF series), not val_c (bland).
     np.testing.assert_array_equal(recorded["arrays"][2], oof_c)
-    assert not np.array_equal(recorded["arrays"][2], val_c), (
-        "Gate routed to val_preds (val_c) when it should have routed to oof_preds (oof_c)"
-    )
+    assert not np.array_equal(recorded["arrays"][2], val_c), "Gate routed to val_preds (val_c) when it should have routed to oof_preds (oof_c)"
 
 
 def test_compare_ensembles_val_sort_metric_emits_userwarning():

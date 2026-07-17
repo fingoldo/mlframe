@@ -14,6 +14,7 @@ Contract under test:
   * Re-running an identical-input suite should monotonically increase the discovery hit_rate
     (second run reads disk-backed cache from first run).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,11 +59,13 @@ def test_build_cache_stats_hit_rate_computed_when_accesses():
     """8 hits + 2 misses -> 0.8 hit_rate."""
     from mlframe.training.core._phase_finalize import _build_cache_stats
 
-    ctx = _StubMetadataCtx(_cache_stats={
-        "pipeline_cache":    {"hits": 8, "misses": 2},
-        "fingerprint_cache": {"hits": 4, "misses": 1},
-        "pandas_view_cache": {"hits": 0, "misses": 3},
-    })
+    ctx = _StubMetadataCtx(
+        _cache_stats={
+            "pipeline_cache": {"hits": 8, "misses": 2},
+            "fingerprint_cache": {"hits": 4, "misses": 1},
+            "pandas_view_cache": {"hits": 0, "misses": 3},
+        }
+    )
     stats = _build_cache_stats(ctx)
     assert stats["pipeline_cache"]["hit_rate"] == pytest.approx(0.8)
     assert stats["fingerprint_cache"]["hit_rate"] == pytest.approx(0.8)
@@ -73,18 +76,20 @@ def test_build_cache_stats_aggregates_discovery_cache_from_metadata():
     """``metadata["composite_target_cache"][tt][tname] = {"hit": bool}`` -> aggregate to discovery_cache."""
     from mlframe.training.core._phase_finalize import _build_cache_stats
 
-    ctx = _StubMetadataCtx(metadata={
-        "composite_target_cache": {
-            "regression": {
-                "y1": {"hit": True, "key": "..."},
-                "y2": {"hit": False, "key": "..."},
-                "y3": {"hit": True, "key": "..."},
+    ctx = _StubMetadataCtx(
+        metadata={
+            "composite_target_cache": {
+                "regression": {
+                    "y1": {"hit": True, "key": "..."},
+                    "y2": {"hit": False, "key": "..."},
+                    "y3": {"hit": True, "key": "..."},
+                },
+                "binary": {
+                    "y4": {"hit": True, "key": "..."},
+                },
             },
-            "binary": {
-                "y4": {"hit": True, "key": "..."},
-            },
-        },
-    })
+        }
+    )
     stats = _build_cache_stats(ctx)
     assert stats["discovery_cache"]["hits"] == 3
     assert stats["discovery_cache"]["misses"] == 1
@@ -144,15 +149,13 @@ def test_finalize_suite_stamps_cache_stats_on_metadata():
 
     # Pre-populate the cache_stats accumulator the way _train_one_target would.
     ctx._cache_stats = {
-        "pipeline_cache":    {"hits": 5, "misses": 1},
+        "pipeline_cache": {"hits": 5, "misses": 1},
         "fingerprint_cache": {"hits": 3, "misses": 0},
         "pandas_view_cache": {"hits": 0, "misses": 2},
     }
     if not isinstance(ctx.metadata, dict):
         ctx.metadata = {}
-    ctx.metadata["composite_target_cache"] = {
-        "regression": {"y1": {"hit": True}, "y2": {"hit": False}}
-    }
+    ctx.metadata["composite_target_cache"] = {"regression": {"y1": {"hit": True}, "y2": {"hit": False}}}
 
     # finalize_suite walks ctx.models for fairness reports + selected features and then writes metadata
     # to disk. We don't want a real disk write -- ctx.data_dir defaults to None which short-circuits the
@@ -163,7 +166,7 @@ def test_finalize_suite_stamps_cache_stats_on_metadata():
     _cs = metadata["cache_stats"]
     assert _cs["pipeline_cache"]["hits"] == 5
     assert _cs["pipeline_cache"]["misses"] == 1
-    assert _cs["pipeline_cache"]["hit_rate"] == pytest.approx(5/6)
+    assert _cs["pipeline_cache"]["hit_rate"] == pytest.approx(5 / 6)
     assert _cs["discovery_cache"]["hits"] == 1
     assert _cs["discovery_cache"]["misses"] == 1
     assert _cs["discovery_cache"]["hit_rate"] == pytest.approx(0.5)
@@ -184,7 +187,7 @@ def test_second_run_higher_hit_rate_than_first():
     # Run 1 - cold cache: every access is a miss.
     ctx_run1 = _StubMetadataCtx(
         _cache_stats={
-            "pipeline_cache":    {"hits": 0, "misses": 5},
+            "pipeline_cache": {"hits": 0, "misses": 5},
             "fingerprint_cache": {"hits": 0, "misses": 3},
             "pandas_view_cache": {"hits": 0, "misses": 4},
         },
@@ -195,7 +198,7 @@ def test_second_run_higher_hit_rate_than_first():
     # Run 2 - warm cache: every access is a hit.
     ctx_run2 = _StubMetadataCtx(
         _cache_stats={
-            "pipeline_cache":    {"hits": 5, "misses": 0},
+            "pipeline_cache": {"hits": 5, "misses": 0},
             "fingerprint_cache": {"hits": 3, "misses": 0},
             "pandas_view_cache": {"hits": 4, "misses": 0},
         },

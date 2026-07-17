@@ -40,8 +40,7 @@ def _legacy_first_run(seed: int, n_val: int, n_test: int, n_repeats: int):
         rng = np.random.default_rng(seed + r)
         val_runs.append(rng.random(n_val) if n_val > 0 else np.array([]))
         test_runs.append(rng.random(n_test) if n_test > 0 else np.array([]))
-    return (val_runs[0] if val_runs else np.array([]),
-            test_runs[0] if test_runs else np.array([]))
+    return (val_runs[0] if val_runs else np.array([]), test_runs[0] if test_runs else np.array([]))
 
 
 def test_random_within_query_matches_legacy_first_run():
@@ -58,24 +57,31 @@ def test_random_within_query_matches_legacy_first_run():
     g_test = np.repeat(np.arange(n_test // 10), 10)
 
     val_preds, test_preds, extras = _compute_ltr_baselines(
-        target_name="t", train_y=train_y, val_y=val_y, test_y=test_y,
-        group_ids_train=g_train, group_ids_val=g_val, group_ids_test=g_test,
-        ts_train=None, ts_val=None, ts_test=None, config=_LtrCfg(),
+        target_name="t",
+        train_y=train_y,
+        val_y=val_y,
+        test_y=test_y,
+        group_ids_train=g_train,
+        group_ids_val=g_val,
+        group_ids_test=g_test,
+        ts_train=None,
+        ts_val=None,
+        ts_test=None,
+        config=_LtrCfg(),
     )
 
     seed = _per_target_seed(_LtrCfg.random_state, "t")
     legacy_val, legacy_test = _legacy_first_run(
-        seed, n_val, n_test, n_repeats=_LtrCfg.random_within_query_n_repeats,
+        seed,
+        n_val,
+        n_test,
+        n_repeats=_LtrCfg.random_within_query_n_repeats,
     )
 
     assert "random_within_query" in val_preds
     assert "random_within_query" in test_preds
-    assert np.array_equal(val_preds["random_within_query"], legacy_val), (
-        "post-iter121 val random_within_query must be bit-identical to legacy [0]"
-    )
-    assert np.array_equal(test_preds["random_within_query"], legacy_test), (
-        "post-iter121 test random_within_query must be bit-identical to legacy [0]"
-    )
+    assert np.array_equal(val_preds["random_within_query"], legacy_val), "post-iter121 val random_within_query must be bit-identical to legacy [0]"
+    assert np.array_equal(test_preds["random_within_query"], legacy_test), "post-iter121 test random_within_query must be bit-identical to legacy [0]"
     assert extras["random_within_query_n_repeats"] == _LtrCfg.random_within_query_n_repeats
 
 
@@ -90,10 +96,17 @@ def test_random_within_query_handles_empty_splits():
     # Empty val + test: the baseline must still produce empty arrays
     # without raising.
     val_preds, test_preds, _ = _compute_ltr_baselines(
-        target_name="t", train_y=train_y, val_y=np.array([], dtype=np.float64),
+        target_name="t",
+        train_y=train_y,
+        val_y=np.array([], dtype=np.float64),
         test_y=np.array([], dtype=np.float64),
-        group_ids_train=g_train, group_ids_val=np.array([]), group_ids_test=np.array([]),
-        ts_train=None, ts_val=None, ts_test=None, config=_LtrCfg(),
+        group_ids_train=g_train,
+        group_ids_val=np.array([]),
+        group_ids_test=np.array([]),
+        ts_train=None,
+        ts_val=None,
+        ts_test=None,
+        config=_LtrCfg(),
     )
     assert val_preds.get("random_within_query", np.array([])).shape == (0,)
     assert test_preds.get("random_within_query", np.array([])).shape == (0,)

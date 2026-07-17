@@ -43,16 +43,13 @@ def test_apply_prediction_envelope_clip_moved_body_runs():
     yt = rng.normal(0.0, 1.0, 200)
     yp = yt + rng.normal(0.0, 0.2, 200)
     # No envelope stats -> eval-fallback path; train stats -> train path. Both must run + return same shape.
-    out_none = apply_prediction_envelope_clip(yp.copy(), yt, y_train_min=None, y_train_max=None,
-                                             y_train_std=None, model_name="M", report_title="t")
-    out_train = apply_prediction_envelope_clip(yp.copy(), yt, y_train_min=-5.0, y_train_max=5.0,
-                                              y_train_std=1.0, model_name="Ridge", report_title="split")
+    out_none = apply_prediction_envelope_clip(yp.copy(), yt, y_train_min=None, y_train_max=None, y_train_std=None, model_name="M", report_title="t")
+    out_train = apply_prediction_envelope_clip(yp.copy(), yt, y_train_min=-5.0, y_train_max=5.0, y_train_std=1.0, model_name="Ridge", report_title="split")
     assert out_none.shape == yp.shape and out_train.shape == yp.shape
     # A wildly out-of-range prediction must be clipped toward the envelope.
     yp_bad = yp.copy()
     yp_bad[0] = 1e6
-    clipped = apply_prediction_envelope_clip(yp_bad, yt, y_train_min=-5.0, y_train_max=5.0,
-                                            y_train_std=1.0, model_name="Ridge", report_title="split")
+    clipped = apply_prediction_envelope_clip(yp_bad, yt, y_train_min=-5.0, y_train_max=5.0, y_train_std=1.0, model_name="Ridge", report_title="split")
     assert clipped[0] < 1e6
 
 
@@ -64,8 +61,7 @@ def test_run_collapse_sensor_moved_body_runs_warning_branch(caplog):
     yt = rng.normal(0.0, 1.0, 200)
     collapsed = np.full(200, float(yt.mean()))  # near-constant pred + R2<0 -> std-collapse branch
     with caplog.at_level(logging.WARNING):
-        run_collapse_sensor(collapsed, yt, R2=-2.0, model_name="MLP",
-                            y_train_min=-5, y_train_max=5, y_train_std=1.0)
+        run_collapse_sensor(collapsed, yt, R2=-2.0, model_name="MLP", y_train_min=-5, y_train_max=5, y_train_std=1.0)
         run_collapse_sensor(collapsed, yt, R2=-2.0, model_name="Ridge")  # non-neural branch
     logging.disable(logging.CRITICAL)
     assert any("regression-collapse-sensor" in r.message for r in caplog.records)
@@ -78,9 +74,20 @@ def test_render_mtr_report_moved_body_runs():
     ytk = rng.normal(0.0, 1.0, (150, 2))
     ypk = ytk + rng.normal(0.0, 0.2, (150, 2))
     m: dict = {}
-    preds, probs = render_mtr_report(ytk, ypk, "M", metrics=m, print_report=True,
-                                     plot_outputs=None, plot_file="", figsize=(8, 4),
-                                     plot_sample_size=500, plot_dpi=None, report_title="t", verbose=True)
+    preds, probs = render_mtr_report(
+        ytk,
+        ypk,
+        "M",
+        metrics=m,
+        print_report=True,
+        plot_outputs=None,
+        plot_file="",
+        figsize=(8, 4),
+        plot_sample_size=500,
+        plot_dpi=None,
+        report_title="t",
+        verbose=True,
+    )
     assert probs is None
     assert any(k.endswith("_macro") for k in m)  # aggregated MTR metrics stamped
 
@@ -92,6 +99,7 @@ def test_render_mtr_report_moved_body_runs():
 
 def _report(**kw):
     from mlframe.training.reporting._reporting import report_regression_model_perf
+
     return report_regression_model_perf(**kw)
 
 
@@ -102,9 +110,19 @@ def test_inv6_legacy_path_adds_png_extension(tmp_path):
     yt = rng.normal(0.0, 1.0, n)
     yp = yt + rng.normal(0.0, 0.3, n)
     base = os.path.join(str(tmp_path), "reg_no_ext")  # deliberately no extension
-    _report(targets=yt, columns=["f"], model_name="M", model=None, preds=yp,
-            plot_file=base, plot_outputs=None, metrics={}, print_report=False,
-            show_perf_chart=False, plot_sample_size=5000)
+    _report(
+        targets=yt,
+        columns=["f"],
+        model_name="M",
+        model=None,
+        preds=yp,
+        plot_file=base,
+        plot_outputs=None,
+        metrics={},
+        print_report=False,
+        show_perf_chart=False,
+        plot_sample_size=5000,
+    )
     assert os.path.exists(base + ".png"), "legacy savefig must default the extension to .png (INV-6)"
     # And it must NOT have written the extension-less file matplotlib can't infer a format for.
     assert not os.path.exists(base)
@@ -125,9 +143,19 @@ def test_inv6_audit_none_routes_through_spec_path(tmp_path, monkeypatch):
     yp = yt + rng.normal(0.0, 0.3, n)
     base = os.path.join(str(tmp_path), "reg_audit_none")
     # plot_outputs set -> spec path. Must not crash and must produce a chart even with a broken audit.
-    _report(targets=yt, columns=["f"], model_name="M", model=None, preds=yp,
-            plot_file=base, plot_outputs="matplotlib[png]", metrics={}, print_report=False,
-            show_perf_chart=False, plot_sample_size=5000)
+    _report(
+        targets=yt,
+        columns=["f"],
+        model_name="M",
+        model=None,
+        preds=yp,
+        plot_file=base,
+        plot_outputs="matplotlib[png]",
+        metrics={},
+        print_report=False,
+        show_perf_chart=False,
+        plot_sample_size=5000,
+    )
     assert any(f.startswith("reg_audit_none") and f.endswith(".png") for f in os.listdir(str(tmp_path)))
 
 

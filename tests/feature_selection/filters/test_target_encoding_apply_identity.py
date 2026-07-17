@@ -4,6 +4,7 @@ Pins that the vectorized ``pd.Series.map(lookup).fillna(global_mean)`` path
 produces bit-identical output to the reference per-row ``dict.get`` loop,
 including the unseen-category global-mean fallback.
 """
+
 import numpy as np
 import pandas as pd
 import pytest

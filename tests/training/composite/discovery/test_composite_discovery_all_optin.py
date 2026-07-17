@@ -1,6 +1,7 @@
 """Kitchen-sink integration: a CompositeTargetDiscovery run with EVERY opt-in
 capability enabled at once (most now default-ON) completes cleanly, stays
 train-only + deterministic, and the all-OFF config reproduces the bare baseline."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,17 +23,25 @@ def _temporal_frame(n=4000, seed=0):
     feat = rng.normal(0.0, 1.0, n)
     feat2 = rng.normal(0.0, 1.0, n)
     perm = rng.permutation(n)
-    df = pd.DataFrame({
-        "y": y[perm], "lag": lag[perm], "feat": feat[perm],
-        "feat2": feat2[perm], "ts": ts[perm],
-    })
+    df = pd.DataFrame(
+        {
+            "y": y[perm],
+            "lag": lag[perm],
+            "feat": feat[perm],
+            "feat2": feat2[perm],
+            "ts": ts[perm],
+        }
+    )
     return df
 
 
 def _all_on_config(**over):
     cfg = dict(
-        enabled=True, mi_sample_n=800, base_candidates=["lag"],
-        time_column="ts", time_series_transforms_enabled=True,
+        enabled=True,
+        mi_sample_n=800,
+        base_candidates=["lag"],
+        time_column="ts",
+        time_series_transforms_enabled=True,
         auto_base_structural_boost=True,
         transform_waic_validation_enabled=True,
         region_adaptive_enabled=True,
@@ -48,7 +57,10 @@ def _fit(cfg):
     df = _temporal_frame()
     disc = CompositeTargetDiscovery(cfg)
     return disc.fit(
-        df, "y", ["lag", "feat", "feat2"], np.arange(len(df)),
+        df,
+        "y",
+        ["lag", "feat", "feat2"],
+        np.arange(len(df)),
         time_ordering=df["ts"].to_numpy(),
     ), df
 
@@ -60,13 +72,13 @@ class TestAllOptInKitchenSink:
         # Every kept spec round-trips fit->predict to finite y.
         from mlframe.training.composite import CompositeTargetEstimator
         from sklearn.linear_model import LinearRegression
+
         for spec in disc.specs_[:5]:
             est = CompositeTargetEstimator(
                 base_estimator=LinearRegression(),
                 transform_name=spec.transform_name,
                 base_column=spec.base_column,
-                base_columns=((spec.base_column, *spec.extra_base_columns)
-                              if spec.extra_base_columns else None),
+                base_columns=((spec.base_column, *spec.extra_base_columns) if spec.extra_base_columns else None),
             )
             X = df[["lag", "feat", "feat2"]]
             est.fit(X, df["y"].to_numpy())

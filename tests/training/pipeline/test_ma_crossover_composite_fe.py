@@ -6,6 +6,7 @@ averages (per-entity if group_ids is available, else global) before feeding them
 plus one biz_value test proving the WIRED module (which builds the MAs itself) recovers a
 trend-reversal signal a raw single-window MA can't.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,7 +31,9 @@ def _series_frame(n=300, n_groups=10, seed=0):
 def test_apply_ma_crossover_composite_fe_noop_when_columns_unset():
     df, group_ids, ts = _series_frame()
     cfg = PreprocessingExtensionsConfig()
-    train, val, test = apply_ma_crossover_composite_fe(df.iloc[:200], df.iloc[200:], None, cfg, group_ids, ts, np.arange(200), np.arange(200, 300), None, verbose=0)
+    train, val, test = apply_ma_crossover_composite_fe(
+        df.iloc[:200], df.iloc[200:], None, cfg, group_ids, ts, np.arange(200), np.arange(200, 300), None, verbose=0
+    )
     assert list(train.columns) == list(df.columns)
 
 
@@ -47,8 +50,17 @@ def test_apply_ma_crossover_composite_fe_schema_aligned_across_splits():
     cfg = PreprocessingExtensionsConfig(ma_crossover_columns=["val_col"], ma_crossover_windows=[3, 5, 10])
     metadata: dict = {}
     train, val, test = apply_ma_crossover_composite_fe(
-        df.iloc[train_idx].reset_index(drop=True), df.iloc[val_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True),
-        cfg, group_ids, ts, train_idx, val_idx, test_idx, metadata=metadata, verbose=0,
+        df.iloc[train_idx].reset_index(drop=True),
+        df.iloc[val_idx].reset_index(drop=True),
+        df.iloc[test_idx].reset_index(drop=True),
+        cfg,
+        group_ids,
+        ts,
+        train_idx,
+        val_idx,
+        test_idx,
+        metadata=metadata,
+        verbose=0,
     )
     assert set(train.columns) == set(val.columns) == set(test.columns)
     assert "val_col_ma_crossover_vote_sum" in train.columns
@@ -120,6 +132,5 @@ def test_biz_val_ma_crossover_composite_wiring_detects_trend_reversal():
     auc_wired = _auc(["val_col_ma_crossover_vote_sum"])
 
     assert auc_wired > auc_raw + 0.15, (
-        f"wired MA-crossover vote_sum should track trend reversal far better than the raw level, "
-        f"got auc_wired={auc_wired:.3f} vs auc_raw={auc_raw:.3f}"
+        f"wired MA-crossover vote_sum should track trend reversal far better than the raw level, got auc_wired={auc_wired:.3f} vs auc_raw={auc_raw:.3f}"
     )

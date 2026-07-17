@@ -4,6 +4,7 @@ The adapter is GATED OFF + UN-WIRED, so these only exercise the conversion contr
 float32 value parity (against a float32-cast baseline, NOT the raw float64 frame) + exact
 round-trip of numeric / nullable / categorical columns across pandas, polars, numpy.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -111,10 +112,12 @@ def test_polars_numeric_and_categorical_roundtrip():
     pl = pytest.importorskip("polars")
     n = 800
     rng = np.random.default_rng(5)
-    df = pl.DataFrame({
-        "x": rng.normal(size=n),
-        "g": pl.Series(np.array(["a", "b", "c"])[np.arange(n) % 3]).cast(pl.Categorical),
-    })
+    df = pl.DataFrame(
+        {
+            "x": rng.normal(size=n),
+            "g": pl.Series(np.array(["a", "b", "c"])[np.arange(n) % 3]).cast(pl.Categorical),
+        }
+    )
     fm = to_feature_matrix(df, dtype=np.float32)
     assert fm.framework == "polars"
     np.testing.assert_array_equal(fm.numeric_column("x"), df["x"].to_numpy().astype(np.float32))

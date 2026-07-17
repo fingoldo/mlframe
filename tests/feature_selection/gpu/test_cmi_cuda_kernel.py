@@ -6,6 +6,7 @@ no GPU / cupy is present; the CPU-fallback path of the dispatcher is exercised u
 
 RAM-light by mandate: n <= 3000, p <= 64, single process.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,10 +35,7 @@ def _make_case(seed, n, p, nbx, nby, nbz):
 
 def _cpu_ref(fd, fb, p):
     yi, zi = p, p + 1
-    return np.array([
-        conditional_mi(fd, np.array([c]), np.array([yi]), np.array([zi]), None, fb)
-        for c in range(p)
-    ])
+    return np.array([conditional_mi(fd, np.array([c]), np.array([yi]), np.array([zi]), None, fb) for c in range(p)])
 
 
 @_gpu_only

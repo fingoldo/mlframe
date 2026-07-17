@@ -38,6 +38,7 @@ CONTRACTS PINNED
 * DCD config: near-duplicate decoys collapse via cluster pruning
 * noise / nuisance columns are correctly rejected under decoy distortion
 """
+
 from __future__ import annotations
 
 import warnings
@@ -55,22 +56,35 @@ def _selected_auc(sel, X, y, cv: int = 5) -> float:
     """
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import cross_val_score
+
     Xt = sel.transform(X)
     if getattr(Xt, "shape", (0, 0))[1] == 0:
         return float("nan")
-    return float(cross_val_score(
-        LogisticRegression(max_iter=400), Xt, y, cv=cv, scoring="roc_auc",
-    ).mean())
+    return float(
+        cross_val_score(
+            LogisticRegression(max_iter=400),
+            Xt,
+            y,
+            cv=cv,
+            scoring="roc_auc",
+        ).mean()
+    )
 
 
 def _two_col_auc(X, y, cols=("x1", "x2"), cv: int = 5) -> float:
     """All-signal reference AUC: LogisticRegression on the raw clean columns."""
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import cross_val_score
-    return float(cross_val_score(
-        LogisticRegression(max_iter=400), X[list(cols)], y, cv=cv,
-        scoring="roc_auc",
-    ).mean())
+
+    return float(
+        cross_val_score(
+            LogisticRegression(max_iter=400),
+            X[list(cols)],
+            y,
+            cv=cv,
+            scoring="roc_auc",
+        ).mean()
+    )
 
 
 def _build_decoy_dataset(n: int = 2500, noise_scale: float = 0.25, seed: int = 6001):
@@ -80,11 +94,17 @@ def _build_decoy_dataset(n: int = 2500, noise_scale: float = 0.25, seed: int = 6
     x2 = rng.standard_normal(n)
     decoy = x1 + x2 + noise_scale * rng.standard_normal(n)
     nuisance = rng.standard_normal((n, 4))
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2, "decoy": decoy,
-        "noise0": nuisance[:, 0], "noise1": nuisance[:, 1],
-        "noise2": nuisance[:, 2], "noise3": nuisance[:, 3],
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "decoy": decoy,
+            "noise0": nuisance[:, 0],
+            "noise1": nuisance[:, 1],
+            "noise2": nuisance[:, 2],
+            "noise3": nuisance[:, 3],
+        }
+    )
     y = pd.Series((x1 + x2 > 0).astype(np.int64), name="y")
     return X, y
 
@@ -96,12 +116,16 @@ def _build_two_decoy_dataset(seed: int = 6002, n: int = 2500):
     x2 = rng.standard_normal(n)
     decoy_a = x1 + x2 + 0.25 * rng.standard_normal(n)
     decoy_b = x1 + x2 + 0.25 * rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "decoy_a": decoy_a, "decoy_b": decoy_b,
-        "noise0": rng.standard_normal(n),
-        "noise1": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "decoy_a": decoy_a,
+            "decoy_b": decoy_b,
+            "noise0": rng.standard_normal(n),
+            "noise1": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((x1 + x2 > 0).astype(np.int64))
     return X, y
 
@@ -126,6 +150,7 @@ class TestAdversarialDecoyDefault:
         collapses the AUC well below the parity band.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_decoy_dataset()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -145,6 +170,7 @@ class TestAdversarialDecoyDefault:
         ranking. FP guard remains intact under decoy presence.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_decoy_dataset()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -153,9 +179,7 @@ class TestAdversarialDecoyDefault:
         nuisance_picked = [c for c in names if c.startswith("noise")]
         # Allow up to 2 noise (default full_npermutations=3 has limited
         # FP statistical power, documented in Layer 5).
-        assert len(nuisance_picked) <= 2, (
-            f"Decoy distorted FP guard catastrophically: " f"{len(nuisance_picked)} nuisance columns selected. " f"support={names}"
-        )
+        assert len(nuisance_picked) <= 2, f"Decoy distorted FP guard catastrophically: {len(nuisance_picked)} nuisance columns selected. support={names}"
 
     def test_at_least_one_clean_component_in_top2(self):
         """If a downstream consumer truncates to top-2 features, at
@@ -163,6 +187,7 @@ class TestAdversarialDecoyDefault:
         sufficient.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_decoy_dataset()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -177,6 +202,7 @@ class TestAdversarialDecoyDefault:
         top1 = names[:1]
         from sklearn.linear_model import LogisticRegression
         from sklearn.model_selection import cross_val_score
+
         if top1 and top1[0] in X.columns:
             auc_top1 = float(cross_val_score(LogisticRegression(max_iter=400), X[top1], y, cv=5, scoring="roc_auc").mean())
         else:
@@ -201,14 +227,17 @@ class TestDCDDuplicateDecoyPruning:
         near-duplicate decoys must collapse to ONE in support_.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_two_decoy_dataset()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(
-                verbose=0, dcd_enable=True,
+                verbose=0,
+                dcd_enable=True,
                 dcd_tau_cluster=tau,
                 dcd_cluster_size_threshold=2,
-                interactions_max_order=1, fe_max_steps=0,
+                interactions_max_order=1,
+                fe_max_steps=0,
                 # This contract counts ``decoy*`` columns to verify DCD collapses the two near-duplicate decoys to one.
                 # The default-on hinge stage legitimately detects a kink in ``decoy_a`` vs y (real held-out uplift) and
                 # appends ``decoy_a__relu_*`` legs, which also start with "decoy" and inflate the count -- orthogonal to
@@ -217,7 +246,7 @@ class TestDCDDuplicateDecoyPruning:
             ).fit(X, y)
         names = list(sel.get_feature_names_out())
         decoys_picked = [c for c in names if c.startswith("decoy")]
-        assert len(decoys_picked) <= 1, f"DCD@tau={tau} failed to prune duplicate decoy; " f"support={names}"
+        assert len(decoys_picked) <= 1, f"DCD@tau={tau} failed to prune duplicate decoy; support={names}"
 
     def test_dcd_pruning_preserves_clean_components(self):
         """DCD must NOT prune the clean components x1, x2 when pruning
@@ -225,14 +254,17 @@ class TestDCDDuplicateDecoyPruning:
         correctly.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_two_decoy_dataset()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(
-                verbose=0, dcd_enable=True,
+                verbose=0,
+                dcd_enable=True,
                 dcd_tau_cluster=0.4,
                 dcd_cluster_size_threshold=2,
-                interactions_max_order=1, fe_max_steps=0,
+                interactions_max_order=1,
+                fe_max_steps=0,
             ).fit(X, y)
         names = list(sel.get_feature_names_out())
         # Re-baselined for full-mode default: with two near-duplicate decoys
@@ -245,7 +277,7 @@ class TestDCDDuplicateDecoyPruning:
         auc_sel = _selected_auc(sel, X, y)
         auc_base = _two_col_auc(X, y)
         assert auc_sel >= auc_base - 0.04, (
-            f"DCD over-pruned: surviving selection lost the signal; " f"got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, " f"support={names}"
+            f"DCD over-pruned: surviving selection lost the signal; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, support={names}"
         )
 
 
@@ -259,6 +291,7 @@ class TestDecoySeedRobustness:
         Cluster-aware selection requires both x1 and x2 to be present.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_decoy_dataset(seed=seed)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -273,7 +306,7 @@ class TestDecoySeedRobustness:
         auc_sel = _selected_auc(sel, X, y)
         auc_base = _two_col_auc(X, y)
         assert auc_sel >= auc_base - 0.04, (
-            f"seed={seed}: de-duplicated selection lost the signal; " f"got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, " f"support={names}"
+            f"seed={seed}: de-duplicated selection lost the signal; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, support={names}"
         )
 
     @pytest.mark.parametrize("noise_scale", [0.1, 0.25, 0.5, 1.0])
@@ -282,6 +315,7 @@ class TestDecoySeedRobustness:
         added noise), MRMR should pick at least one clean component.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_decoy_dataset(noise_scale=noise_scale)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -295,5 +329,5 @@ class TestDecoySeedRobustness:
         auc_sel = _selected_auc(sel, X, y)
         auc_base = _two_col_auc(X, y)
         assert auc_sel >= auc_base - 0.04, (
-            f"noise_scale={noise_scale}: de-duplicated selection lost the " f"signal; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, " f"support={names}"
+            f"noise_scale={noise_scale}: de-duplicated selection lost the signal; got auc_sel={auc_sel:.4f}, auc_base={auc_base:.4f}, support={names}"
         )

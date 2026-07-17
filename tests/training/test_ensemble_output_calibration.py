@@ -15,6 +15,7 @@ Properties pinned:
     S-shaped miscalibration, isotonic recalibration lowers holdout RMSE and
     straightens the calibration curve vs the raw blend.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,6 +31,7 @@ from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 # --------------------------------------------------------------------------
 # Fixtures / helpers
 # --------------------------------------------------------------------------
+
 
 class _ConstColModel:
     """Returns a fixed prediction column independent of X (size-tiled)."""
@@ -68,6 +70,7 @@ def _s_shaped_miscal(y: np.ndarray) -> np.ndarray:
 # Unit: OutputCalibrator
 # --------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("method", ["isotonic", "sigmoid", "linear"])
 def test_calibrator_is_monotone(method):
     rng = np.random.default_rng(0)
@@ -88,10 +91,7 @@ def test_calibrator_fit_predict_lowers_rmse(method):
     cal = OutputCalibrator(method=method).fit(raw, y)
     rmse_raw = _rmse(raw, y)
     rmse_cal = _rmse(cal.predict(raw), y)
-    assert rmse_cal <= rmse_raw + 1e-9, (
-        f"{method}: calibration must not increase in-fit RMSE "
-        f"(raw={rmse_raw:.4f}, cal={rmse_cal:.4f})"
-    )
+    assert rmse_cal <= rmse_raw + 1e-9, f"{method}: calibration must not increase in-fit RMSE (raw={rmse_raw:.4f}, cal={rmse_cal:.4f})"
 
 
 def test_calibrator_identity_on_degenerate_input():
@@ -127,6 +127,7 @@ def test_calibrator_non_finite_passthrough():
 # Unit: ensemble wiring (off == identity, leakage-free)
 # --------------------------------------------------------------------------
 
+
 def _build_ensemble_with_oof(n=2000, seed=7):
     """Two anti-/co-component ensemble whose convex blend is S-miscalibrated."""
     rng = np.random.default_rng(seed)
@@ -137,7 +138,8 @@ def _build_ensemble_with_oof(n=2000, seed=7):
     c0 = blend + rng.normal(0, 0.5, size=n)
     c1 = 2.0 * blend - c0  # mean(c0, c1) == blend exactly
     ens = CompositeCrossTargetEnsemble.from_uniform_weights(
-        [_ConstColModel(c0), _ConstColModel(c1)], ["c0", "c1"],
+        [_ConstColModel(c0), _ConstColModel(c1)],
+        ["c0", "c1"],
     )
     oof_matrix = np.column_stack([c0, c1])
     return ens, oof_matrix, y, blend
@@ -164,9 +166,7 @@ def test_fit_output_calibrator_attaches_and_lowers_oof_rmse():
     assert ens._output_calibrator is not None
     cal_pred = ens.predict(X)
     rmse_cal = _rmse(cal_pred, y)
-    assert rmse_cal < rmse_raw, (
-        f"isotonic recalibration must lower OOF RMSE (raw={rmse_raw:.4f}, cal={rmse_cal:.4f})"
-    )
+    assert rmse_cal < rmse_raw, f"isotonic recalibration must lower OOF RMSE (raw={rmse_raw:.4f}, cal={rmse_cal:.4f})"
     # Ranking preserved: calibration is a monotone post-map of the blend.
     order_raw = np.argsort(raw_pred)
     assert np.all(np.diff(cal_pred[order_raw]) >= -1e-9), "calibration inverted ensemble ranking"
@@ -174,6 +174,7 @@ def test_fit_output_calibrator_attaches_and_lowers_oof_rmse():
 
 def test_calibrator_survives_pickle():
     import pickle
+
     ens, oof_matrix, y, _ = _build_ensemble_with_oof()
     ens.fit_output_calibrator(oof_matrix, y, method="isotonic")
     X = np.zeros((len(y), 1))
@@ -211,6 +212,7 @@ def test_export_metadata_includes_calibration():
 # biz_value: S-shaped miscalibration -> isotonic wins on holdout
 # --------------------------------------------------------------------------
 
+
 def test_biz_val_isotonic_recalibration_lowers_holdout_rmse():
     """On a synthetic where the raw ensemble blend is S-shaped miscalibrated,
     fitting an isotonic calibrator on OOF and applying it on an INDEPENDENT
@@ -246,8 +248,7 @@ def test_biz_val_isotonic_recalibration_lowers_holdout_rmse():
     rmse_cal = _rmse(cal_hold, y_all[hold_idx])
 
     assert rmse_cal <= 0.85 * rmse_raw, (
-        f"isotonic OOF recalibration should cut holdout RMSE to <=0.85x; "
-        f"raw={rmse_raw:.4f}, cal={rmse_cal:.4f} (ratio={rmse_cal / rmse_raw:.3f})"
+        f"isotonic OOF recalibration should cut holdout RMSE to <=0.85x; raw={rmse_raw:.4f}, cal={rmse_cal:.4f} (ratio={rmse_cal / rmse_raw:.3f})"
     )
 
     # Calibration-curve straightness: slope of (binned mean pred vs binned mean
@@ -260,9 +261,7 @@ def test_biz_val_isotonic_recalibration_lowers_holdout_rmse():
         a, _ = np.polyfit(px, ty, 1)
         return abs(a - 1.0)
 
-    assert _curve_slope(cal_hold) < _curve_slope(raw_hold), (
-        "recalibration should straighten the calibration curve (slope closer to 1)"
-    )
+    assert _curve_slope(cal_hold) < _curve_slope(raw_hold), "recalibration should straighten the calibration curve (slope closer to 1)"
 
 
 def test_biz_val_linear_corrects_affine_shrinkage_bias():
@@ -288,10 +287,7 @@ def test_biz_val_linear_corrects_affine_shrinkage_bias():
     oof_matrix = np.column_stack([c0_all[oof_idx], c1_all[oof_idx]])
     ens.fit_output_calibrator(oof_matrix, y_all[oof_idx], method="linear")
     rmse_cal = _rmse(ens.predict(X_hold), y_all[hold_idx])
-    assert rmse_cal <= 0.5 * rmse_raw, (
-        f"linear recalibration should recover affine shrinkage bias; "
-        f"raw={rmse_raw:.4f}, cal={rmse_cal:.4f}"
-    )
+    assert rmse_cal <= 0.5 * rmse_raw, f"linear recalibration should recover affine shrinkage bias; raw={rmse_raw:.4f}, cal={rmse_cal:.4f}"
 
 
 # --------------------------------------------------------------------------
@@ -301,6 +297,7 @@ def test_biz_val_linear_corrects_affine_shrinkage_bias():
 # sigmoid on honest holdout RMSE in 8/8 seeds at every OOF size down to n=60.
 # bench: composite/ensemble/_benchmarks/bench_calibration_method.py.
 # --------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("n_oof", [60, 150, 400])
 def test_biz_val_isotonic_beats_sigmoid_on_small_oof_holdout(n_oof):
@@ -331,8 +328,7 @@ def test_biz_val_isotonic_beats_sigmoid_on_small_oof_holdout(n_oof):
     rmse_sig = _rmse(sig.predict(p_hold), y_hold)
 
     assert rmse_iso <= 0.85 * rmse_sig, (
-        f"isotonic must beat sigmoid on the n_oof={n_oof} honest holdout "
-        f"(iso={rmse_iso:.4f}, sig={rmse_sig:.4f}, ratio={rmse_iso / rmse_sig:.3f})"
+        f"isotonic must beat sigmoid on the n_oof={n_oof} honest holdout (iso={rmse_iso:.4f}, sig={rmse_sig:.4f}, ratio={rmse_iso / rmse_sig:.3f})"
     )
 
 
@@ -373,13 +369,9 @@ def test_biz_val_platt_sigmoid_beats_ols_logit_and_raw_on_holdout(n_oof):
     rmse_raw = _rmse(p_hold, y_hold)
 
     assert rmse_platt <= 0.98 * rmse_ols, (
-        f"MLE Platt must beat the legacy OLS-logit sigmoid at n_oof={n_oof} "
-        f"(platt={rmse_platt:.4f}, ols_logit={rmse_ols:.4f})"
+        f"MLE Platt must beat the legacy OLS-logit sigmoid at n_oof={n_oof} (platt={rmse_platt:.4f}, ols_logit={rmse_ols:.4f})"
     )
-    assert rmse_platt <= 0.98 * rmse_raw, (
-        f"MLE Platt must beat the raw blend at n_oof={n_oof} "
-        f"(platt={rmse_platt:.4f}, raw={rmse_raw:.4f})"
-    )
+    assert rmse_platt <= 0.98 * rmse_raw, f"MLE Platt must beat the raw blend at n_oof={n_oof} (platt={rmse_platt:.4f}, raw={rmse_raw:.4f})"
 
 
 def test_default_sigmoid_fit_is_platt():

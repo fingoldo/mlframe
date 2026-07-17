@@ -45,17 +45,25 @@ def test_adaptive_converges_after_two_rounds(planted_strong):
     Xs, ys, Xh, yh = _split(X, y)
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
     best, ranked, baseline = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=3, lambda_stab=0.0,
-        rng=np.random.default_rng(0), n_jobs=1, adaptive_n_models=True,
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=3,
+        lambda_stab=0.0,
+        rng=np.random.default_rng(0),
+        n_jobs=1,
+        adaptive_n_models=True,
     )
     assert set(best) == {0, 1, 2}
     ucb_info = baseline["ucb"]
     assert ucb_info["adaptive_n_models"] is True
     assert ucb_info["n_models_configured"] == 3
-    assert ucb_info["n_models_run"] == 2, (
-        f"expected early-stop at round 2, got n_models_run={ucb_info['n_models_run']}"
-    )
+    assert ucb_info["n_models_run"] == 2, f"expected early-stop at round 2, got n_models_run={ucb_info['n_models_run']}"
 
 
 def test_adaptive_no_op_when_n_models_one(planted_strong):
@@ -66,14 +74,22 @@ def test_adaptive_no_op_when_n_models_one(planted_strong):
     Xs, ys, Xh, yh = _split(X, y)
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (4, 5))]
     _, _, baseline = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
-        rng=np.random.default_rng(0), n_jobs=1, adaptive_n_models=True,
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=1,
+        lambda_stab=0.0,
+        rng=np.random.default_rng(0),
+        n_jobs=1,
+        adaptive_n_models=True,
     )
     ucb_info = baseline["ucb"]
-    assert ucb_info["adaptive_n_models"] is False, (
-        "adaptive must be inactive when n_models<2 (no stability check possible)"
-    )
+    assert ucb_info["adaptive_n_models"] is False, "adaptive must be inactive when n_models<2 (no stability check possible)"
     assert ucb_info["n_models_configured"] == 1
     assert ucb_info["n_models_run"] == 1
 
@@ -86,9 +102,19 @@ def test_adaptive_off_runs_full_ceiling(planted_strong):
     Xs, ys, Xh, yh = _split(X, y)
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
     _, _, baseline = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=3, lambda_stab=0.0,
-        rng=np.random.default_rng(0), n_jobs=1, adaptive_n_models=False,
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=3,
+        lambda_stab=0.0,
+        rng=np.random.default_rng(0),
+        n_jobs=1,
+        adaptive_n_models=False,
     )
     ucb_info = baseline["ucb"]
     assert ucb_info["adaptive_n_models"] is False
@@ -107,14 +133,34 @@ def test_winner_matches_legacy_when_full_ceiling_runs(planted_strong):
     Xs, ys, Xh, yh = _split(X, y)
     candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
     best_adapt, _, _ = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=3, lambda_stab=0.0,
-        rng=np.random.default_rng(7), n_jobs=1, adaptive_n_models=True,
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=3,
+        lambda_stab=0.0,
+        rng=np.random.default_rng(7),
+        n_jobs=1,
+        adaptive_n_models=True,
     )
     best_legacy, _, _ = revalidate_top_n(
-        candidates, LinearRegression(), Xs, ys, Xh, yh,
-        classification=False, metric="rmse", n_models=3, lambda_stab=0.0,
-        rng=np.random.default_rng(7), n_jobs=1, adaptive_n_models=False,
+        candidates,
+        LinearRegression(),
+        Xs,
+        ys,
+        Xh,
+        yh,
+        classification=False,
+        metric="rmse",
+        n_models=3,
+        lambda_stab=0.0,
+        rng=np.random.default_rng(7),
+        n_jobs=1,
+        adaptive_n_models=False,
     )
     # Same winner because the planted regime has only one stable choice; verifies the adaptive
     # exit does NOT introduce drift in clear-separation regimes.

@@ -11,6 +11,7 @@ ONCE outside the candidate loop and reused. These tests pin:
   * SELECTION STABILITY: the chosen calibrator + every alternative's ECE mean/CI
     match the per-candidate ``bootstrap_metric`` reconstruction exactly.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -60,7 +61,12 @@ def test_pick_best_calibrator_selection_identical_to_per_candidate_bootstrap(mon
     strat = y if classes.size == 2 else None
 
     out_new = pick_best_calibrator(
-        probs=None, y=None, oof_probs=raw, oof_y=y, n_bootstrap=300, random_state=11,
+        probs=None,
+        y=None,
+        oof_probs=raw,
+        oof_y=y,
+        n_bootstrap=300,
+        random_state=11,
     )
 
     # Reconstruct the legacy per-candidate path: bootstrap_metric per candidate.
@@ -70,7 +76,12 @@ def test_pick_best_calibrator_selection_identical_to_per_candidate_bootstrap(mon
 
     monkeypatch.setattr(policy, "_bootstrap_ece_with_indices", _legacy_eci)
     out_old = pick_best_calibrator(
-        probs=None, y=None, oof_probs=raw, oof_y=y, n_bootstrap=300, random_state=11,
+        probs=None,
+        y=None,
+        oof_probs=raw,
+        oof_y=y,
+        n_bootstrap=300,
+        random_state=11,
     )
 
     assert out_new["chosen"] == out_old["chosen"]

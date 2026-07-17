@@ -12,6 +12,7 @@ constructs any user-supplied scheduler class. The test PINS that
 contract end-to-end so a future scheduler-handling refactor surfaces
 visibly if it breaks the CosineAnnealingWarmRestarts path.
 """
+
 from __future__ import annotations
 
 import sys
@@ -31,12 +32,13 @@ from torch.optim.lr_scheduler import (
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from mlframe.training.neural import (
-    MLPTorchModel, PytorchLightningRegressor, TorchDataModule,
+    MLPTorchModel,
+    PytorchLightningRegressor,
+    TorchDataModule,
 )
 
 
-def _params(lr_scheduler=None, lr_scheduler_kwargs=None,
-            lr_scheduler_interval="epoch", lr_scheduler_monitor=None):
+def _params(lr_scheduler=None, lr_scheduler_kwargs=None, lr_scheduler_interval="epoch", lr_scheduler_monitor=None):
     return {
         "model_class": MLPTorchModel,
         "model_params": {
@@ -48,20 +50,28 @@ def _params(lr_scheduler=None, lr_scheduler_kwargs=None,
             "lr_scheduler_monitor": lr_scheduler_monitor,
         },
         "network_params": {
-            "nlayers": 1, "first_layer_num_neurons": 8,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 8,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": torch.nn.ReLU,
         },
         "datamodule_class": TorchDataModule,
         "datamodule_params": {
-            "features_dtype": torch.float32, "labels_dtype": torch.float32,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
             "dataloader_params": {"batch_size": 32, "num_workers": 0},
         },
         "trainer_params": {
-            "max_epochs": 4, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 4,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         "random_state": 0,
     }
@@ -71,7 +81,10 @@ def _params(lr_scheduler=None, lr_scheduler_kwargs=None,
 def reg_data():
     X, y = make_regression(n_samples=128, n_features=4, random_state=0)
     X_tr, X_te, y_tr, _ = train_test_split(
-        X.astype(np.float32), y.astype(np.float32), test_size=0.3, random_state=0,
+        X.astype(np.float32),
+        y.astype(np.float32),
+        test_size=0.3,
+        random_state=0,
     )
     return X_tr, X_te, y_tr
 

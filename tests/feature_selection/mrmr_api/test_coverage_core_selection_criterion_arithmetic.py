@@ -10,6 +10,7 @@ Contracts of the greedy core:
 
 The greedy ordering + gain-monotonicity + redundancy-rejection arithmetic had no dedicated test under mrmr_api/.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -21,11 +22,20 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 def _no_fe(**kw):
     base = dict(
-        random_seed=0, verbose=0, fe_max_steps=0, interactions_max_order=1,
-        dcd_enable=False, cluster_aggregate_enable=False, build_friend_graph=False,
-        cat_fe_config=None, fe_hinge_enable=False, fe_modular_enable=False,
-        fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False,
-        fe_row_argmax_enable=False, fe_conditional_gate_enable=False,
+        random_seed=0,
+        verbose=0,
+        fe_max_steps=0,
+        interactions_max_order=1,
+        dcd_enable=False,
+        cluster_aggregate_enable=False,
+        build_friend_graph=False,
+        cat_fe_config=None,
+        fe_hinge_enable=False,
+        fe_modular_enable=False,
+        fe_pairwise_modular_enable=False,
+        fe_integer_lattice_enable=False,
+        fe_row_argmax_enable=False,
+        fe_conditional_gate_enable=False,
     )
     base.update(kw)
     return MRMR(**base)
@@ -36,12 +46,14 @@ def _ordered_signal_data(n=900, seed=4):
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
-    X = pd.DataFrame({
-        "weak": 0.3 * x2,
-        "strong": x0,
-        "mid": 0.8 * x1,
-        "noise": rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "weak": 0.3 * x2,
+            "strong": x0,
+            "mid": 0.8 * x1,
+            "noise": rng.normal(size=n),
+        }
+    )
     y = (2.0 * x0 + 1.0 * x1 + 0.3 * x2 > 0).astype(int)
     return X, y
 
@@ -81,11 +93,13 @@ def test_scaled_copy_rejected_by_redundancy():
     rng = np.random.default_rng(8)
     n = 900
     x0 = rng.normal(size=n)
-    X = pd.DataFrame({
-        "x0": x0,
-        "x0_scaled": 5.0 * x0,           # perfectly redundant given x0 (monotone copy)
-        "noise": rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "x0": x0,
+            "x0_scaled": 5.0 * x0,  # perfectly redundant given x0 (monotone copy)
+            "noise": rng.normal(size=n),
+        }
+    )
     y = (x0 > 0).astype(int)
     MRMR._FIT_CACHE.clear()
     m = _no_fe().fit(X, y)
@@ -99,8 +113,7 @@ def test_relevance_admits_decreasing_strength_signals():
     """With a permissive floor, genuine signals are admitted; the anchor outranks the mid signal in gain."""
     X, y = _ordered_signal_data()
     MRMR._FIT_CACHE.clear()
-    m = _no_fe(min_relevance_gain_relative_to_first=0.0,
-               min_relevance_gain_mode="absolute", min_relevance_gain=1e-9).fit(X, y)
+    m = _no_fe(min_relevance_gain_relative_to_first=0.0, min_relevance_gain_mode="absolute", min_relevance_gain=1e-9).fit(X, y)
     selected_order = [str(m.feature_names_in_[i]) for i in np.asarray(m.support_, dtype=np.intp)]
     # 'strong' must precede 'mid' in selection order (higher relevance picked first).
     assert "strong" in selected_order

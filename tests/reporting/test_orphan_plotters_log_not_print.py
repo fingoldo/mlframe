@@ -4,11 +4,13 @@ INV-41: plot_pr_curve previously print()'d a classification_report to stdout (cp
 bypasses log handlers). It now routes through logger.info. The canonical suite binary curves
 live in reporting/charts/binary.py; these helpers remain as test-only / notebook shims.
 """
+
 from __future__ import annotations
 
 import logging
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -27,10 +29,6 @@ def test_plot_pr_curve_logs_classification_report_not_stdout(capsys, caplog):
 
     captured = capsys.readouterr()
     # The classification report must NOT be printed to stdout.
-    assert "precision" not in captured.out.lower(), (
-        "plot_pr_curve must not print the classification report to stdout (INV-41)"
-    )
+    assert "precision" not in captured.out.lower(), "plot_pr_curve must not print the classification report to stdout (INV-41)"
     # It must reach the logging system instead.
-    assert any("classification report" in r.message.lower() for r in caplog.records), (
-        "plot_pr_curve should log the classification report via logger.info"
-    )
+    assert any("classification report" in r.message.lower() for r in caplog.records), "plot_pr_curve should log the classification report via logger.info"

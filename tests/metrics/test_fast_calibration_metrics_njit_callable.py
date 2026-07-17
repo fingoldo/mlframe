@@ -18,6 +18,7 @@ Fix: call the serial njit binning kernel ``_fast_calibration_binning_serial``
 directly. Output is bit-identical to the dispatcher path at n below the prange
 threshold.
 """
+
 import numpy as np
 
 
@@ -38,8 +39,11 @@ def test_fast_calibration_metrics_is_njit_callable_and_matches_dispatcher():
 
     fp, ft, hits = fast_calibration_binning(y_true, y_pred, nbins=10)
     ref = calibration_metrics_from_freqs(
-        freqs_predicted=fp, freqs_true=ft, hits=hits,
-        nbins=10, use_weights=False,
+        freqs_predicted=fp,
+        freqs_true=ft,
+        hits=hits,
+        nbins=10,
+        use_weights=False,
     )
     assert out == ref, f"fast_calibration_metrics output {out} != dispatcher path {ref}"
 
@@ -49,4 +53,5 @@ def test_prewarm_numba_cache_completes_without_aborting():
     ``fast_calibration_metrics`` call in the first prewarm loop raised
     TypingError, aborting every subsequent kernel warmup."""
     from mlframe.metrics.core import prewarm_numba_cache
+
     prewarm_numba_cache()  # pre-fix: raised numba.core.errors.TypingError

@@ -9,6 +9,7 @@ pins assert the stride formulas (incl the =0 full-n opt-out) and, for the direct
 that a genuinely-redundant form is dropped and a genuinely-complementary form retained under BOTH the cap and
 full-n.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -37,12 +38,16 @@ def test_perm_null_caller_stride_formula(n, max_rows, expect):
 
 def _retention_verdict(cand, incumbents, y_binned, cap_env, monkeypatch):
     import mlframe.feature_selection.filters._fe_retention_subsumption as R
+
     monkeypatch.setenv("MLFRAME_RETENTION_NULL_MAX_ROWS", str(cap_env))
     _orig_dict = dict(R.__dict__)
     R = importlib.reload(R)
     try:
         return R.retention_form_is_subsumed(
-            cand_continuous=cand, incumbent_continuous=incumbents, y_binned=y_binned, seed=0,
+            cand_continuous=cand,
+            incumbent_continuous=incumbents,
+            y_binned=y_binned,
+            seed=0,
         )
     finally:
         monkeypatch.delenv("MLFRAME_RETENTION_NULL_MAX_ROWS", raising=False)
@@ -64,9 +69,9 @@ def test_retention_subsample_preserves_verdict(monkeypatch):
     edges = np.quantile(y_cont, np.linspace(0, 1, 13)[1:-1])
     y_binned = np.searchsorted(edges, y_cont).astype(np.int64)
 
-    incumbent = a + 0.01 * rng.normal(size=n)         # carries signal_a
-    cand_redundant = a + 0.01 * rng.normal(size=n)    # all its y-info is signal_a -> subsumed by incumbent
-    cand_complement = b + 0.01 * rng.normal(size=n)   # signal_b, absent from incumbent -> retained
+    incumbent = a + 0.01 * rng.normal(size=n)  # carries signal_a
+    cand_redundant = a + 0.01 * rng.normal(size=n)  # all its y-info is signal_a -> subsumed by incumbent
+    cand_complement = b + 0.01 * rng.normal(size=n)  # signal_b, absent from incumbent -> retained
 
     for cap in ("250000", "0"):
         red = _retention_verdict(cand_redundant, [incumbent], y_binned, cap, monkeypatch)
@@ -79,11 +84,13 @@ def test_retention_cap_actually_subsamples(monkeypatch):
     """With the cap below n the retention verdict path must see the reduced row count (proven by spying on the
     array length _conditional_perm_null receives)."""
     import mlframe.feature_selection.filters._fe_retention_subsumption as R
+
     monkeypatch.setenv("MLFRAME_RETENTION_NULL_MAX_ROWS", "40000")
     _orig_dict = dict(R.__dict__)
     R = importlib.reload(R)
     try:
         import mlframe.feature_selection.filters._fe_cmi_redundancy_gate as G
+
         orig = G._conditional_perm_null
         seen = {}
 
@@ -93,11 +100,15 @@ def test_retention_cap_actually_subsamples(monkeypatch):
 
         monkeypatch.setattr(G, "_conditional_perm_null", spy)
         rng = np.random.default_rng(0)
-        n = 280_000                                    # 280k // 40k = 7 -> exactly 40k rows (clean soft-cap)
-        a = rng.normal(size=n); b = rng.normal(size=n)
+        n = 280_000  # 280k // 40k = 7 -> exactly 40k rows (clean soft-cap)
+        a = rng.normal(size=n)
+        b = rng.normal(size=n)
         y = np.searchsorted(np.quantile(a + b, np.linspace(0, 1, 9)[1:-1]), a + b).astype(np.int64)
         R.retention_form_is_subsumed(
-            cand_continuous=a + 0.01 * rng.normal(size=n), incumbent_continuous=[a], y_binned=y, seed=0,
+            cand_continuous=a + 0.01 * rng.normal(size=n),
+            incumbent_continuous=[a],
+            y_binned=y,
+            seed=0,
         )
         assert seen.get("n", n) <= 40_000 + 8, f"retention perm-null saw {seen.get('n')} rows, expected <= cap"
     finally:

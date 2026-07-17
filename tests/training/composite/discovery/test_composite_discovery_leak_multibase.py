@@ -8,6 +8,7 @@
 - D3: _linear_residual_multi_fit / forward_stepwise had no finite-row masking,
   so NaN-bearing lag bases silently disabled the default-ON multi-base promotion.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -45,11 +46,12 @@ class TestLeakCorrNaNDilution:
         df = pd.DataFrame({"y": y, "ycopy": ycopy, "noise": noise})
         train_idx = np.arange(n)
         kept = _make_disc()._filter_features(
-            df, ["ycopy", "noise"], y, train_idx,
+            df,
+            ["ycopy", "noise"],
+            y,
+            train_idx,
         )
-        assert "ycopy" not in kept, (
-            "exact y-copy with sparse NaN slipped the leak-corr filter"
-        )
+        assert "ycopy" not in kept, "exact y-copy with sparse NaN slipped the leak-corr filter"
         assert "noise" in kept, "independent noise column wrongly dropped"
 
     def test_clean_strong_correlate_still_dropped(self) -> None:
@@ -79,10 +81,12 @@ class TestIterTransformMultiBase:
             target_col="y",
             transform_name="linear_residual_multi",
             base_column="b1",
-            fitted_params={"alphas": [1.0, 0.5], "beta": 0.0,
-                           "collinear_fallback": False},
-            mi_gain=0.1, mi_y=0.2, mi_t=0.3,
-            valid_domain_frac=1.0, n_train_rows=n,
+            fitted_params={"alphas": [1.0, 0.5], "beta": 0.0, "collinear_fallback": False},
+            mi_gain=0.1,
+            mi_y=0.2,
+            mi_t=0.3,
+            valid_domain_frac=1.0,
+            n_train_rows=n,
             extra_base_columns=("b2",),
         )
         disc = _make_disc()
@@ -128,6 +132,4 @@ class TestMultiBaseFiniteMasking:
             seed_bases=["b2"],
             time_aware=False,
         )
-        assert "b1" in kept and "b2" in kept, (
-            f"promotion did not fire on a NaN lag base; kept={kept}"
-        )
+        assert "b1" in kept and "b2" in kept, f"promotion did not fire on a NaN lag base; kept={kept}"

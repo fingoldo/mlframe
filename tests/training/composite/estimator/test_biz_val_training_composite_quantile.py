@@ -20,6 +20,7 @@ the composite is meaningfully tighter -> floor a modest improvement) so seed
 noise does not trip them but a real regression (transform disabled, alpha not
 wired, crossing not enforced) does.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -70,9 +71,7 @@ def test_biz_val_quantile_per_quantile_coverage_near_nominal():
     # blows the deviation to ~0.25, far outside this band.
     for j, q in enumerate(_QUANTILES):
         cov = float(np.mean(yte <= Q[:, j]))
-        assert abs(cov - q) <= 0.06, (
-            f"q={q}: empirical coverage {cov:.3f} deviates >0.06 from nominal"
-        )
+        assert abs(cov - q) <= 0.06, f"q={q}: empirical coverage {cov:.3f} deviates >0.06 from nominal"
 
 
 def test_biz_val_quantile_intervals_adapt_to_heteroscedasticity():
@@ -82,9 +81,7 @@ def test_biz_val_quantile_intervals_adapt_to_heteroscedasticity():
     _, Q = _fit_predict("linear_residual", "base", X.iloc[tr], y[tr], X.iloc[te])
     width80 = Q[:, 4] - Q[:, 0]
     corr = float(np.corrcoef(width80, np.abs(X["x1"].values[te]))[0, 1])
-    assert corr >= 0.5, (
-        f"80% interval width should widen with the noise driver |x1|; corr={corr:.3f}"
-    )
+    assert corr >= 0.5, f"80% interval width should widen with the noise driver |x1|; corr={corr:.3f}"
 
 
 def test_biz_val_quantile_non_crossing_holds():
@@ -109,8 +106,10 @@ def test_biz_val_quantile_composite_tighter_than_no_transform():
 
     # No-transform baseline: feed a constant zero base so ``diff`` (T = y - base)
     # reduces to modelling y directly -- the head must learn the base level.
-    Xb_tr = X.iloc[tr].copy(); Xb_tr["zero_base"] = 0.0
-    Xb_te = X.iloc[te].copy(); Xb_te["zero_base"] = 0.0
+    Xb_tr = X.iloc[tr].copy()
+    Xb_tr["zero_base"] = 0.0
+    Xb_te = X.iloc[te].copy()
+    Xb_te["zero_base"] = 0.0
     _, Q_raw = _fit_predict("diff", "zero_base", Xb_tr, y[tr], Xb_te)
 
     med_cov_comp = float(np.mean(yte <= Q_comp[:, 2]))
@@ -120,7 +119,4 @@ def test_biz_val_quantile_composite_tighter_than_no_transform():
 
     w_comp = float(np.mean(Q_comp[:, 4] - Q_comp[:, 0]))
     w_raw = float(np.mean(Q_raw[:, 4] - Q_raw[:, 0]))
-    assert w_comp < w_raw, (
-        f"composite 80% band ({w_comp:.3f}) should be tighter than no-transform "
-        f"({w_raw:.3f}) -- the base level is removed by the transform"
-    )
+    assert w_comp < w_raw, f"composite 80% band ({w_comp:.3f}) should be tighter than no-transform ({w_raw:.3f}) -- the base level is removed by the transform"

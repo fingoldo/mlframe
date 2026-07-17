@@ -5,6 +5,7 @@ result there (the small-n divergence is finite-sample MI-estimation variance tha
 integration test pins that contract: at n=50k the STRICT and CPU MRMR selections are identical. Skipped without a
 GPU (STRICT is a no-op) and under MLFRAME_FAST (heavy fit).
 """
+
 import os
 
 import numpy as np
@@ -36,8 +37,7 @@ def _select(X, y, strict, seed):
         MRMR._FIT_CACHE.clear()
     except Exception:
         pass
-    m = MRMR(fe_ntop_features=8, interactions_max_order=2, n_jobs=1, verbose=0,
-             random_seed=seed, skip_retraining_on_same_content=False)
+    m = MRMR(fe_ntop_features=8, interactions_max_order=2, n_jobs=1, verbose=0, random_seed=seed, skip_retraining_on_same_content=False)
     m.fit(X, y)
     names = list(m.feature_names_in_)
     sup = np.asarray(m.support_).ravel()

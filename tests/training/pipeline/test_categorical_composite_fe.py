@@ -9,6 +9,7 @@ cap, and predict-time replay producing byte-identical composite columns from per
 plus one biz_value test proving the WIRED module (not just the isolated trick) recovers a
 pairwise-only signal a raw-columns-only baseline can't.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -63,7 +64,8 @@ def test_apply_categorical_composite_fe_respects_max_source_columns_cap():
     df["e"] = df["b"]
     y = np.random.default_rng(2).integers(0, 2, len(df))
     cfg = PreprocessingExtensionsConfig(
-        categorical_powerset_concat_enabled=True, categorical_composite_max_source_columns=3,
+        categorical_powerset_concat_enabled=True,
+        categorical_composite_max_source_columns=3,
     )
     metadata: dict = {}
     train, val, test = apply_categorical_composite_fe(df, None, None, cfg, y, metadata, verbose=0)

@@ -6,6 +6,7 @@ drive each candidate's chi2 df, hence the keep/reject decision -- are BIT-IDENTI
 that the end-to-end gate output is unchanged. A future "just use a faster approximate count" cannot
 slip through unnoticed.
 """
+
 from __future__ import annotations
 
 import numba
@@ -34,10 +35,7 @@ def test_occupied_bins_matches_np_unique(nbins, dtype):
 def test_occupied_bins_sparse_and_unoccupied_columns():
     # columns with gaps (not every code in [0, max] occupied) + a constant column + a single-row col.
     disc = np.array(
-        [[0, 5, 3, 0],
-         [2, 5, 3, 0],
-         [0, 5, 7, 0],
-         [4, 5, 3, 0]],
+        [[0, 5, 3, 0], [2, 5, 3, 0], [0, 5, 7, 0], [4, 5, 3, 0]],
         dtype=np.int16,
     )
     # col0 occupies {0,2,4}=3; col1 {5}=1; col2 {3,7}=2; col3 {0}=1.
@@ -65,6 +63,7 @@ def test_gate_output_identical_to_np_unique_path():
 
     # reference gate using the old np.unique df path, recomputed inline.
     from mlframe.feature_selection.filters._analytic_mi_null import analytic_mi_null
+
     by = int(np.unique(y).size)
     ref = observed.astype(np.float64).copy()
     alpha = 1.0 - 0.95
@@ -96,7 +95,5 @@ def test_analytic_gate_by_arg_matches_np_unique_derivation(ncls):
     disc = rng.integers(0, nbins, size=(n, K)).astype(np.int32)
     observed = np.abs(rng.standard_normal(K)) * 0.01
     got_default = analytic_batch_noise_gate(disc, observed, y, n, min_nonzero_confidence=0.95)
-    got_by = analytic_batch_noise_gate(
-        disc, observed, y, n, min_nonzero_confidence=0.95, by=int(np.count_nonzero(freqs_y))
-    )
+    got_by = analytic_batch_noise_gate(disc, observed, y, n, min_nonzero_confidence=0.95, by=int(np.count_nonzero(freqs_y)))
     assert np.array_equal(got_default, got_by)

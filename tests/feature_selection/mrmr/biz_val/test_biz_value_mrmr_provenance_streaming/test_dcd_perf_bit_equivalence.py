@@ -45,6 +45,7 @@ The Layer 49 4-scenario suite is the regression net for downstream
 behaviour (support shrinkage, AUC parity); this layer adds the perf +
 identity guards specifically for the SVD-cache change.
 """
+
 from __future__ import annotations
 
 import time
@@ -91,9 +92,13 @@ def _warm_jit_caches():
 
     Xw, yw = _make_layer50_fixture(p=20, n=500, n_clusters=2, features_per_cluster=10, seed=99)
     MRMR(
-        dcd_enable=True, dcd_tau_cluster="auto",
-        dcd_distance="auto", dcd_swap_method="auto",
-        full_npermutations=0, verbose=0, random_seed=0,
+        dcd_enable=True,
+        dcd_tau_cluster="auto",
+        dcd_distance="auto",
+        dcd_swap_method="auto",
+        full_npermutations=0,
+        verbose=0,
+        random_seed=0,
     ).fit(Xw, yw)
 
 
@@ -115,13 +120,18 @@ class TestLayer50_PerfBudget:
     def test_dcd_all_auto_under_30s(self):
         """DCD all-auto MRMR.fit at p=200, n=5000 completes within the 30s budget."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         _warm_jit_caches()
         X, y = _make_layer50_fixture(p=200, n=5000)
         t0 = time.perf_counter()
         m = MRMR(
-            dcd_enable=True, dcd_tau_cluster="auto",
-            dcd_distance="auto", dcd_swap_method="auto",
-            full_npermutations=0, verbose=0, random_seed=0,
+            dcd_enable=True,
+            dcd_tau_cluster="auto",
+            dcd_distance="auto",
+            dcd_swap_method="auto",
+            full_npermutations=0,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         elapsed = time.perf_counter() - t0
         # Sanity: fit actually produced a non-empty support.
@@ -132,7 +142,7 @@ class TestLayer50_PerfBudget:
         if running_under_xdist():
             pytest.skip("timing assertion unreliable under -n contention")
         budget = perf_time_budget(30.0)
-        assert elapsed <= budget, f"Layer 50 DCD all-auto fit took {elapsed:.2f}s > {budget:.0f}s budget " f"(p=200, n=5000, 10 latents); selected={n_sel}"
+        assert elapsed <= budget, f"Layer 50 DCD all-auto fit took {elapsed:.2f}s > {budget:.0f}s budget (p=200, n=5000, 10 latents); selected={n_sel}"
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +168,7 @@ class TestLayer50_SVDCacheSpeedup:
         from mlframe.feature_selection.filters._cluster_aggregate import (
             _standardize_align,
         )
+
         rng = np.random.default_rng(int(seed))
         M = rng.standard_normal((n, k))
         # Latent: first half loads on a shared factor (mirrors the DCD-on
@@ -172,6 +183,7 @@ class TestLayer50_SVDCacheSpeedup:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _select_swap_method_auto,
         )
+
         state._auto_method_cache.clear()
         t0 = time.perf_counter()
         for Z, mn in zip(Z_list, member_names_list):
@@ -186,12 +198,16 @@ class TestLayer50_SVDCacheSpeedup:
         forcing the same 4-SVDs-per-fold cost the pre-fix code paid.
         """
         from mlframe.feature_selection.filters._cluster_aggregate import (
-            _derive_weights, _NONLINEAR_METHODS, _apply_method_nonlinear,
+            _derive_weights,
+            _NONLINEAR_METHODS,
+            _apply_method_nonlinear,
         )
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            _AUTO_METHOD_CANDIDATES, _binarize_aggregate,
+            _AUTO_METHOD_CANDIDATES,
+            _binarize_aggregate,
         )
         from mlframe.feature_selection.filters.info_theory import mi as _mi_func
+
         n_folds = 5
         t0 = time.perf_counter()
         for Z, mn in zip(Z_list, member_names_list):
@@ -222,12 +238,18 @@ class TestLayer50_SVDCacheSpeedup:
                         rep_test = Z_test @ np.asarray(w, dtype=np.float64)
                     rep_test = np.nan_to_num(rep_test, nan=0.0, posinf=0.0, neginf=0.0)
                     rep_binned = _binarize_aggregate(
-                        rep_test, method="quantile", n_bins=10, dtype=np.int32,
+                        rep_test,
+                        method="quantile",
+                        n_bins=10,
+                        dtype=np.int32,
                     )
                     y_test = y[test_idx]
-                    _data = np.column_stack([
-                        rep_binned.astype(np.int64), y_test.astype(np.int64),
-                    ])
+                    _data = np.column_stack(
+                        [
+                            rep_binned.astype(np.int64),
+                            y_test.astype(np.int64),
+                        ]
+                    )
                     _nb_rep = int(rep_binned.max()) + 1 if rep_binned.size else 10
                     _nb_y = int(y_test.max()) + 1 if y_test.size else 2
                     _nbins_arr = np.array([_nb_rep, _nb_y], dtype=np.int64)
@@ -239,6 +261,7 @@ class TestLayer50_SVDCacheSpeedup:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             DCDState,
         )
+
         n, k, n_clusters = 4000, 20, 10
         rng = np.random.default_rng(0)
         y = rng.integers(0, 2, size=n)
@@ -270,8 +293,8 @@ class TestLayer50_SVDCacheSpeedup:
         floor = perf_speedup_floor(1.5)
         assert speedup >= floor, (
             f"Layer 50: SVD-cache speedup regressed to {speedup:.2f}x "
-            f"(with_cache={t_with*1000:.1f}ms, "
-            f"without_cache={t_without*1000:.1f}ms); "
+            f"(with_cache={t_with * 1000:.1f}ms, "
+            f"without_cache={t_without * 1000:.1f}ms); "
             f"floor is {floor:.2f}x"
         )
 
@@ -287,19 +310,24 @@ class TestLayer50_BitEquivalence:
     outputs vs the legacy uncached / loop paths.
     """
 
-    @pytest.mark.parametrize("seed,n,k", [
-        (0, 4000, 20),
-        (1, 500, 8),
-        (2, 1500, 6),
-    ])
+    @pytest.mark.parametrize(
+        "seed,n,k",
+        [
+            (0, 4000, 20),
+            (1, 500, 8),
+            (2, 1500, 6),
+        ],
+    )
     def test_derive_weights_cache_vs_nocache_bit_identical(self, seed, n, k):
         """Same Z fed to _derive_weights with svd_cache=None vs a fresh dict
         cache produces the SAME weight vector for every method that uses
         the SVD (mean_inv_var / pca_pc1 / pca_pc2 / factor_score). rtol 1e-12.
         """
         from mlframe.feature_selection.filters._cluster_aggregate import (
-            _standardize_align, _derive_weights,
+            _standardize_align,
+            _derive_weights,
         )
+
         rng = np.random.default_rng(int(seed))
         M = rng.standard_normal((n, k))
         M[:, : max(2, k // 2)] += 0.6 * rng.standard_normal((n, 1))
@@ -310,14 +338,20 @@ class TestLayer50_BitEquivalence:
             w_uncached = _derive_weights(Z, method, svd_cache=None)
             assert w_cached is not None and w_uncached is not None, method
             np.testing.assert_allclose(
-                w_cached, w_uncached, rtol=1e-12, atol=1e-14,
+                w_cached,
+                w_uncached,
+                rtol=1e-12,
+                atol=1e-14,
                 err_msg=f"Layer 50: method={method} drift between cached / uncached",
             )
 
-    @pytest.mark.parametrize("seed,n,k", [
-        (10, 4000, 20),
-        (11, 800, 12),
-    ])
+    @pytest.mark.parametrize(
+        "seed,n,k",
+        [
+            (10, 4000, 20),
+            (11, 800, 12),
+        ],
+    )
     def test_vectorised_communalities_matches_corrcoef_loop(self, seed, n, k):
         """Layer 50 replaces the per-column ``np.corrcoef`` loop in
         ``_pc1_communalities`` with a centred-matmul. Verify rtol < 1e-10
@@ -325,8 +359,11 @@ class TestLayer50_BitEquivalence:
         Z so a future refactor that breaks the FP-summation order is caught.
         """
         from mlframe.feature_selection.filters._cluster_aggregate import (
-            _standardize_align, _pc1_communalities, _svd_flip_pc1,
+            _standardize_align,
+            _pc1_communalities,
+            _svd_flip_pc1,
         )
+
         rng = np.random.default_rng(int(seed))
         M = rng.standard_normal((n, k))
         M[:, : max(2, k // 2)] += 0.6 * rng.standard_normal((n, 1))
@@ -341,7 +378,10 @@ class TestLayer50_BitEquivalence:
         comm_legacy = np.clip(np.nan_to_num(comm_legacy, nan=0.0), 1e-6, 1.0 - 1e-6)
         comm_new = _pc1_communalities(Z)
         np.testing.assert_allclose(
-            comm_new, comm_legacy, rtol=1e-10, atol=1e-14,
+            comm_new,
+            comm_legacy,
+            rtol=1e-10,
+            atol=1e-14,
             err_msg="Layer 50: vectorised _pc1_communalities drifted vs corrcoef loop",
         )
 
@@ -352,9 +392,12 @@ class TestLayer50_BitEquivalence:
         same cache is reused for all SVD-needing methods in one fold.
         """
         from mlframe.feature_selection.filters._cluster_aggregate import (
-            _standardize_align, _svd_flip_pc1, _svd_flip_pcN,
+            _standardize_align,
+            _svd_flip_pc1,
+            _svd_flip_pcN,
             _pc1_communalities,
         )
+
         rng = np.random.default_rng(42)
         M = rng.standard_normal((2000, 15))
         M[:, :7] += 0.5 * rng.standard_normal((2000, 1))

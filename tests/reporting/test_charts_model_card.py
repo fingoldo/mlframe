@@ -16,12 +16,23 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.model_card import (
-    AUC_AMBER, AUC_GREEN, ECE_RED, R2_AMBER, R2_GREEN,
-    ModelCardVerdict, compose_model_card_figure, model_card_verdict,
-    _classification_verdict, _regression_verdict,
+    AUC_AMBER,
+    AUC_GREEN,
+    ECE_RED,
+    R2_AMBER,
+    R2_GREEN,
+    ModelCardVerdict,
+    compose_model_card_figure,
+    model_card_verdict,
+    _classification_verdict,
+    _regression_verdict,
 )
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec,
+    AnnotationPanelSpec,
+    BarPanelSpec,
+    FigureSpec,
+    HistogramPanelSpec,
+    LinePanelSpec,
     ScatterPanelSpec,
 )
 
@@ -237,8 +248,10 @@ def test_verdict_standalone_raises_on_single_class():
 
 def test_card_renders_matplotlib(tmp_path):
     import os
+
     os.environ.setdefault("MPLBACKEND", "Agg")
     from mlframe.reporting.renderers.base import get_renderer
+
     y, s = _separable_binary()
     fig = compose_model_card_figure(task="classification", y_true=y, y_score=s)
     rend = get_renderer("matplotlib")
@@ -247,6 +260,7 @@ def test_card_renders_matplotlib(tmp_path):
     rend.save(obj, str(out), "png")
     assert out.exists() and out.stat().st_size > 0
     import matplotlib.pyplot as plt
+
     plt.close(obj)
 
 

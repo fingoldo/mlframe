@@ -124,6 +124,5 @@ def test_e2e_default_allowlist_auto_includes_gated_outlier_on_point_mass_data(tm
     trained = _trained_entries(models)
     fitted_models = [getattr(e, "model", None) for e in trained]
     assert any(isinstance(m, GatedOutlierEstimator) for m in fitted_models), (
-        f"gated_outlier not auto-included for point-mass data under the default allowlist; "
-        f"models={[type(m).__name__ for m in fitted_models]}"
+        f"gated_outlier not auto-included for point-mass data under the default allowlist; models={[type(m).__name__ for m in fitted_models]}"
     )

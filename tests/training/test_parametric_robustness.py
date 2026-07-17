@@ -11,6 +11,7 @@ pinned inputs (``test_round11_*``, ``test_round12_*``) stay separate;
 they guard the specific shapes that actually burned us and their
 assertions depend on those shapes being exact.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -45,9 +46,9 @@ from mlframe.training.configs import FeatureTypesConfig
 
 class TestAutoDetectFeatureTypesRobustness:
     """Bugs we hit here:
-      round 11 — null-in-Categorical crashed CB fastpath
-      round 12 — sparse-null high-card column got promoted to text_features
-                 which CatBoost then rejected with 'Dictionary size is 0'
+    round 11 — null-in-Categorical crashed CB fastpath
+    round 12 — sparse-null high-card column got promoted to text_features
+               which CatBoost then rejected with 'Dictionary size is 0'
     """
 
     @given(df=adversarial_frame(n_rows=(50, 150)))
@@ -56,8 +57,7 @@ class TestAutoDetectFeatureTypesRobustness:
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
         )
-        cat_candidates = [c for c, dt in df.schema.items()
-                          if dt == pl.Categorical or dt == pl.Utf8]
+        cat_candidates = [c for c, dt in df.schema.items() if dt == pl.Categorical or dt == pl.Utf8]
         text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_candidates)
         assert isinstance(text, list)
         assert isinstance(emb, list)
@@ -65,14 +65,16 @@ class TestAutoDetectFeatureTypesRobustness:
         for name in text + emb:
             assert name in df.columns, f"{name!r} not in df columns"
 
-    @given(df=adversarial_frame(
-        n_rows=(100, 200),
-        include_sparse_null_col=True,      # round 12 trigger
-        include_high_card_cat=False,       # keep frame small — nested flatmaps are heavy
-        include_null_in_cat=True,          # round 11 trigger
-        include_constant_col=False,
-        include_inf_in_float=False,
-    ))
+    @given(
+        df=adversarial_frame(
+            n_rows=(100, 200),
+            include_sparse_null_col=True,  # round 12 trigger
+            include_high_card_cat=False,  # keep frame small — nested flatmaps are heavy
+            include_null_in_cat=True,  # round 11 trigger
+            include_constant_col=False,
+            include_inf_in_float=False,
+        )
+    )
     def test_sparse_null_column_not_promoted_above_floor(self, df: pl.DataFrame):
         """Guard invariant from round 12: a column that trips n_unique
         threshold but has non_null < floor fraction MUST stay as cat,
@@ -81,16 +83,13 @@ class TestAutoDetectFeatureTypesRobustness:
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
         )  # min_non_null_fraction_for_text_promotion default is 0.01 (getattr'd)
-        cat_candidates = [c for c, dt in df.schema.items()
-                          if dt in (pl.Categorical, pl.Utf8)]
+        cat_candidates = [c for c, dt in df.schema.items() if dt in (pl.Categorical, pl.Utf8)]
         text, _, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_candidates)
         # For every column that IS in the promoted text list, its
         # non_null fraction must be >= 1%.
         for col in text:
             non_null_frac = (df.height - df[col].null_count()) / max(df.height, 1)
-            assert non_null_frac >= 0.01, (
-                f"{col} promoted with non_null_frac={non_null_frac:.4f} < 1% floor"
-            )
+            assert non_null_frac >= 0.01, f"{col} promoted with non_null_frac={non_null_frac:.4f} < 1% floor"
 
     @pytest.mark.slow
     @settings(
@@ -117,15 +116,11 @@ class TestAutoDetectFeatureTypesRobustness:
         parallel runner.
         """
         import os
+
         if os.environ.get("PYTEST_XDIST_WORKER"):
-            pytest.skip(
-                "Polars allocator races with sibling-worker buffer pools "
-                "on this Hypothesis fuzz; run serially with -n0 to exercise."
-            )
-        cfg = FeatureTypesConfig(auto_detect_feature_types=True,
-                                 cat_text_cardinality_threshold=300)
-        cat_candidates = [c for c, dt in df.schema.items()
-                          if dt == pl.Enum or dt == pl.Categorical or dt == pl.Utf8]
+            pytest.skip("Polars allocator races with sibling-worker buffer pools on this Hypothesis fuzz; run serially with -n0 to exercise.")
+        cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=300)
+        cat_candidates = [c for c, dt in df.schema.items() if dt == pl.Enum or dt == pl.Categorical or dt == pl.Utf8]
         text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_candidates)
         # prod_like has small-cardinality cats (<=16 uniques) so nothing
         # should be promoted to text.
@@ -142,29 +137,26 @@ class TestPolarsStrategyPrepareRobustness:
     @given(df=adversarial_frame(n_rows=(50, 150)))
     def test_xgb_strategy_prepare_survives(self, df: pl.DataFrame):
         from mlframe.training.strategies import XGBoostStrategy
+
         strategy = XGBoostStrategy()
-        cat_features = [c for c, dt in df.schema.items()
-                        if dt in (pl.Categorical, pl.Enum, pl.Utf8)]
+        cat_features = [c for c, dt in df.schema.items() if dt in (pl.Categorical, pl.Enum, pl.Utf8)]
         result = strategy.prepare_polars_dataframe(df, cat_features)
         assert isinstance(result, pl.DataFrame)
         assert result.height == df.height
         # Strings should no longer be present (cast to Categorical)
         for name, dt in result.schema.items():
             if name in cat_features:
-                assert dt not in (pl.Utf8, pl.String), (
-                    f"{name} still {dt} after prepare — should be Categorical/Enum"
-                )
+                assert dt not in (pl.Utf8, pl.String), f"{name} still {dt} after prepare — should be Categorical/Enum"
 
-    @given(df=adversarial_frame(n_rows=(50, 150),
-                                include_null_in_cat=True))
+    @given(df=adversarial_frame(n_rows=(50, 150), include_null_in_cat=True))
     def test_cb_strategy_prepare_survives_null_in_cat(self, df: pl.DataFrame):
         """Round 11: CB Polars fastpath + null-in-Categorical used to
         fail with TypeError deep in CB's C++. Strategy's prepare step
         should produce a frame CB accepts."""
         from mlframe.training.strategies import CatBoostStrategy
+
         strategy = CatBoostStrategy()
-        cat_features = [c for c, dt in df.schema.items()
-                        if dt in (pl.Categorical, pl.Enum, pl.Utf8)]
+        cat_features = [c for c, dt in df.schema.items() if dt in (pl.Categorical, pl.Enum, pl.Utf8)]
         result = strategy.prepare_polars_dataframe(df, cat_features)
         assert isinstance(result, pl.DataFrame)
         assert result.height == df.height
@@ -182,24 +174,26 @@ class TestCreateSplitDataframesRobustness:
     frames when an index slice is empty, (c) never lose rows across
     the 3-way partition."""
 
-    @given(df=adversarial_frame(n_rows=(50, 150),
-                                include_null_in_cat=True,
-                                include_inf_in_float=True,
-                                include_constant_col=False,
-                                include_sparse_null_col=False))
+    @given(
+        df=adversarial_frame(n_rows=(50, 150), include_null_in_cat=True, include_inf_in_float=True, include_constant_col=False, include_sparse_null_col=False)
+    )
     def test_3way_partition_preserves_all_rows(self, df: pl.DataFrame):
         import numpy as np
         from mlframe.training.preprocessing import create_split_dataframes
+
         n = df.height
         # Deterministic 80/10/10 split on sequential indices — keeps
         # the test fast while still varying n per example.
         n_train = int(n * 0.8)
         n_val = int(n * 0.1)
         train_idx = np.arange(n_train)
-        val_idx   = np.arange(n_train, n_train + n_val)
-        test_idx  = np.arange(n_train + n_val, n)
+        val_idx = np.arange(n_train, n_train + n_val)
+        test_idx = np.arange(n_train + n_val, n)
         train_df, val_df, test_df = create_split_dataframes(
-            df, train_idx, val_idx, test_idx,
+            df,
+            train_idx,
+            val_idx,
+            test_idx,
         )
         assert train_df.height == n_train
         assert val_df.height == n_val
@@ -210,11 +204,9 @@ class TestCreateSplitDataframesRobustness:
             if split.height > 0:
                 assert split.schema == df.schema
 
-    @given(df=adversarial_frame(n_rows=(50, 100),
-                                include_null_in_cat=True,
-                                include_inf_in_float=False,
-                                include_constant_col=False,
-                                include_sparse_null_col=False))
+    @given(
+        df=adversarial_frame(n_rows=(50, 100), include_null_in_cat=True, include_inf_in_float=False, include_constant_col=False, include_sparse_null_col=False)
+    )
     def test_empty_val_test_returns_empty_dataframes(self, df: pl.DataFrame):
         """When val_idx / test_idx are empty, the split function should
         return an empty ``pl.DataFrame`` — round-12's timestamp bug
@@ -222,12 +214,16 @@ class TestCreateSplitDataframesRobustness:
         edge in prod."""
         import numpy as np
         from mlframe.training.preprocessing import create_split_dataframes
+
         n = df.height
         train_idx = np.arange(n)
-        val_idx   = np.array([], dtype=np.int64)
-        test_idx  = np.array([], dtype=np.int64)
+        val_idx = np.array([], dtype=np.int64)
+        test_idx = np.array([], dtype=np.int64)
         train_df, val_df, test_df = create_split_dataframes(
-            df, train_idx, val_idx, test_idx,
+            df,
+            train_idx,
+            val_idx,
+            test_idx,
         )
         assert train_df.height == n
         assert val_df.height == 0
@@ -247,16 +243,19 @@ class TestFastCalibrationBinningRobustness:
     ``y_pred`` (span = 0). These fuzz tests catch regressions where
     the numba version silently disagrees with the Python fallback."""
 
-    @given(df=adversarial_frame(
-        n_rows=(30, 100),
-        include_null_in_cat=False,
-        include_inf_in_float=False,   # normal floats only for this test
-        include_constant_col=False,
-        include_sparse_null_col=False,
-    ))
+    @given(
+        df=adversarial_frame(
+            n_rows=(30, 100),
+            include_null_in_cat=False,
+            include_inf_in_float=False,  # normal floats only for this test
+            include_constant_col=False,
+            include_sparse_null_col=False,
+        )
+    )
     def test_binning_on_normal_floats_returns_valid_shapes(self, df: pl.DataFrame):
         import numpy as np
         from mlframe.metrics.core import fast_calibration_binning
+
         # adversarial_frame's default num_f32 uses st.floats(width=32) which
         # permits NaN / +-inf without passing include_inf_in_float — they
         # leak through even when we only asked for "normal". Filter
@@ -273,7 +272,9 @@ class TestFastCalibrationBinningRobustness:
         y_pred = 1.0 / (1.0 + np.exp(-raw))  # (0, 1), finite
         y_true = (y_pred > 0.5).astype(np.int8)
         freqs_pred, freqs_true, hits = fast_calibration_binning(
-            y_true=y_true, y_pred=y_pred, nbins=10,
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
         )
         # Invariants: arrays non-negative, hits sum to n, lengths
         # agree.
@@ -287,10 +288,13 @@ class TestFastCalibrationBinningRobustness:
         the span-guard was added."""
         import numpy as np
         from mlframe.metrics.core import fast_calibration_binning
+
         y_pred = np.full(100, 0.3, dtype=np.float64)
         y_true = np.random.default_rng(0).integers(0, 2, size=100).astype(np.int8)
         freqs_pred, freqs_true, hits = fast_calibration_binning(
-            y_true=y_true, y_pred=y_pred, nbins=10,
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
         )
         # All mass lands in a single bin; total hits preserved.
         assert int(hits.sum()) == 100
@@ -330,23 +334,25 @@ class TestTrainSuiteRobustness:
     # prod-like schema.
     @given(df=prod_like_frame_small(n_rows=50))
     @settings(
-        max_examples=3,       # suite fit is SLOW (~5-30s per example)
+        max_examples=3,  # suite fit is SLOW (~5-30s per example)
         deadline=None,
         suppress_health_check=list(HealthCheck),
     )
     def test_xgb_only_suite_completes(self, df: pl.DataFrame, tmp_path):
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training import (
-    
-            ModelHyperparamsConfig, TrainingBehaviorConfig,
-            TrainingSplitConfig, PreprocessingBackendConfig,
-    FeatureSelectionConfig,
-    OutputConfig
-)
+            ModelHyperparamsConfig,
+            TrainingBehaviorConfig,
+            TrainingSplitConfig,
+            PreprocessingBackendConfig,
+            FeatureSelectionConfig,
+            OutputConfig,
+        )
         from .shared import TimestampedFeaturesExtractor
 
         fte = TimestampedFeaturesExtractor(
-            target_column="target", regression=False,
+            target_column="target",
+            regression=False,
             ts_field="timestamp",
         )
 
@@ -360,7 +366,8 @@ class TestTrainSuiteRobustness:
             use_mlframe_ensembles=False,
             feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
             hyperparams_config=ModelHyperparamsConfig(
-                iterations=5, early_stopping_rounds=3,
+                iterations=5,
+                early_stopping_rounds=3,
                 xgb_kwargs={"device": "cpu", "verbosity": 0},
             ),
             behavior_config=TrainingBehaviorConfig(
@@ -375,8 +382,10 @@ class TestTrainSuiteRobustness:
                 imputer_strategy=None,
             ),
             split_config=TrainingSplitConfig(
-                shuffle_val=False, shuffle_test=False,
-                test_size=0.1, val_size=0.1,
+                shuffle_val=False,
+                shuffle_test=False,
+                test_size=0.1,
+                val_size=0.1,
                 wholeday_splitting=False,  # not enough distinct days at fuzz scale
             ),
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
@@ -392,7 +401,7 @@ class TestTrainSuiteRobustness:
     # test_xgb_only_suite_completes above.
     @given(df=prod_like_frame_small(n_rows=50))
     @settings(
-        max_examples=2,       # CB is slower than XGB; even tighter budget
+        max_examples=2,  # CB is slower than XGB; even tighter budget
         deadline=None,
         suppress_health_check=list(HealthCheck),
     )
@@ -403,16 +412,18 @@ class TestTrainSuiteRobustness:
         crashing)."""
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training import (
-    
-            ModelHyperparamsConfig, TrainingBehaviorConfig,
-            TrainingSplitConfig, PreprocessingBackendConfig,
-    FeatureSelectionConfig,
-    OutputConfig
-)
+            ModelHyperparamsConfig,
+            TrainingBehaviorConfig,
+            TrainingSplitConfig,
+            PreprocessingBackendConfig,
+            FeatureSelectionConfig,
+            OutputConfig,
+        )
         from .shared import TimestampedFeaturesExtractor
 
         fte = TimestampedFeaturesExtractor(
-            target_column="target", regression=False,
+            target_column="target",
+            regression=False,
             ts_field="timestamp",
         )
 
@@ -426,7 +437,8 @@ class TestTrainSuiteRobustness:
             use_mlframe_ensembles=False,
             feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
             hyperparams_config=ModelHyperparamsConfig(
-                iterations=5, early_stopping_rounds=3,
+                iterations=5,
+                early_stopping_rounds=3,
                 cb_kwargs={"task_type": "CPU", "verbose": False},
             ),
             behavior_config=TrainingBehaviorConfig(
@@ -441,8 +453,10 @@ class TestTrainSuiteRobustness:
                 imputer_strategy=None,
             ),
             split_config=TrainingSplitConfig(
-                shuffle_val=False, shuffle_test=False,
-                test_size=0.1, val_size=0.1,
+                shuffle_val=False,
+                shuffle_test=False,
+                test_size=0.1,
+                val_size=0.1,
                 wholeday_splitting=False,
             ),
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
@@ -453,29 +467,29 @@ class TestTrainSuiteRobustness:
 
 
 class TestAutoDetectIgnoresNumericPathology:
-    @given(df=adversarial_frame(
-        n_rows=(50, 150),
-        include_null_in_cat=False,
-        include_inf_in_float=True,    # +inf / -inf / NaN across floats
-        include_constant_col=True,    # forces a pl.Int16 all-zero column
-        include_sparse_null_col=False,
-    ))
+    @given(
+        df=adversarial_frame(
+            n_rows=(50, 150),
+            include_null_in_cat=False,
+            include_inf_in_float=True,  # +inf / -inf / NaN across floats
+            include_constant_col=True,  # forces a pl.Int16 all-zero column
+            include_sparse_null_col=False,
+        )
+    )
     def test_numeric_columns_never_promoted_to_text(self, df: pl.DataFrame):
         """Regression guard: no matter how pathological the numeric
         columns are (inf, NaN, all-zero constant), they must not slip
         into ``text_features`` — only Utf8/Categorical/Enum columns
         are text-candidates."""
-        cfg = FeatureTypesConfig(auto_detect_feature_types=True,
-                                 cat_text_cardinality_threshold=10)
+        cfg = FeatureTypesConfig(auto_detect_feature_types=True, cat_text_cardinality_threshold=10)
         # Pretend every column in the frame is a cat candidate — the
         # detector must still classify numerics correctly.
         text, emb, _ = _auto_detect_feature_types(
-            df, cfg, cat_features=list(df.columns),
+            df,
+            cfg,
+            cat_features=list(df.columns),
         )
-        numeric_names = [c for c, dt in df.schema.items()
-                         if dt in (pl.Float32, pl.Float64,
-                                   pl.Int8, pl.Int16, pl.Int32, pl.Int64,
-                                   pl.Boolean)]
+        numeric_names = [c for c, dt in df.schema.items() if dt in (pl.Float32, pl.Float64, pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.Boolean)]
         for n in numeric_names:
             assert n not in text, f"numeric {n} wrongly promoted to text"
             assert n not in emb, f"numeric {n} wrongly promoted to embedding"

@@ -9,6 +9,7 @@ unknown small denominator and adding tiny noise (``x = true_int * step + noise``
 accuracy -- letting downstream feature engineering treat the recovered values as clean
 integers instead of noisy scaled floats.
 """
+
 from __future__ import annotations
 
 import numpy as np

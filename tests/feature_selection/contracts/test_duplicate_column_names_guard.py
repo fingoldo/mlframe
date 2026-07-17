@@ -11,6 +11,7 @@ Verified pre-fix (via ``git stash`` of the prod file in this worktree): each tes
 raised ``AttributeError: 'DataFrame' object has no attribute 'dtype'`` / ``LightGBMError``
 before the guard landed.
 """
+
 from __future__ import annotations
 
 import numpy as np

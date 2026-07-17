@@ -8,6 +8,7 @@ pockets_true) and within a FP reduction-order ULP on ``freqs_predicted``.
 Pre-fix this module had a single njit ``fast_calibration_binning`` and no
 ``_fast_calibration_binning_prange`` symbol — the import below fails on pre-fix code.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -7,6 +7,7 @@ Pre-fix bugs in ``_helpers_training_configs.get_training_configs``:
   * ``_mlp_in_scope`` matched only literal ``"mlp"``/``"recurrent"``. The actual recurrent aliases (lstm/gru/rnn/transformer)
     were never matched, so a recurrent-only suite skipped the MLP/pytorch config path and got MLP_GENERAL_PARAMS=None.
 """
+
 import pytest
 
 from mlframe.training._helpers_training_configs import get_training_configs

@@ -9,13 +9,17 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts import (
-    build_calibration_spec, build_regression_panel_spec,
+    build_calibration_spec,
+    build_regression_panel_spec,
     build_temporal_audit_spec,
 )
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
 from mlframe.reporting.spec import (
-    FigureSpec, HistogramPanelSpec, ScatterPanelSpec, LinePanelSpec,
+    FigureSpec,
+    HistogramPanelSpec,
+    ScatterPanelSpec,
+    LinePanelSpec,
 )
 
 
@@ -66,8 +70,7 @@ class TestCalibrationSpec:
             freqs_true=np.linspace(0.0, 1.0, 10),
             hits=np.array([1000, 800, 600, 400, 300, 200, 150, 100, 80, 50]),
         )
-        render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"),
-                        str(tmp_path / "calib"))
+        render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"), str(tmp_path / "calib"))
         assert os.path.exists(tmp_path / "calib.png")
 
     def test_renders_via_plotly(self, tmp_path):
@@ -76,8 +79,7 @@ class TestCalibrationSpec:
             freqs_true=np.linspace(0.0, 1.0, 10),
             hits=np.array([1000, 800, 600, 400, 300, 200, 150, 100, 80, 50]),
         )
-        render_and_save(spec, parse_plot_output_dsl("plotly[html]"),
-                        str(tmp_path / "calib"))
+        render_and_save(spec, parse_plot_output_dsl("plotly[html]"), str(tmp_path / "calib"))
         assert os.path.exists(tmp_path / "calib.html")
 
     def test_wilson_ci_band_default_on(self):
@@ -107,6 +109,7 @@ class TestCalibrationSpec:
         # compressed toward the cap, so the dominant bin is far smaller than the raw value
         # yet still the largest point.
         from mlframe.reporting.charts.calibration import MAX_BUBBLE_AREA
+
         hits = np.array([1, 1, 1_000_000, 1, 1])
         spec = build_calibration_spec(
             freqs_predicted=np.linspace(0.1, 0.9, 5),
@@ -124,6 +127,7 @@ class TestCalibrationSpec:
 
     def test_inline_labels_auto_disabled_above_max_bins(self):
         from mlframe.reporting.charts.calibration import INLINE_LABEL_MAX_BINS
+
         nbins = INLINE_LABEL_MAX_BINS + 5
         spec = build_calibration_spec(
             freqs_predicted=np.linspace(0.01, 0.99, nbins),
@@ -135,6 +139,7 @@ class TestCalibrationSpec:
 
     def test_inline_labels_kept_at_or_below_max_bins(self):
         from mlframe.reporting.charts.calibration import INLINE_LABEL_MAX_BINS
+
         nbins = INLINE_LABEL_MAX_BINS
         spec = build_calibration_spec(
             freqs_predicted=np.linspace(0.01, 0.99, nbins),
@@ -160,6 +165,7 @@ class TestReliabilityCiToggleWiring:
         # its definition module so the lazy import resolves to the spy. Capture the ORIGINAL
         # reference before patching so the spy does not call itself (recursion).
         import mlframe.reporting.charts.calibration as cal_mod
+
         real = cal_mod.build_calibration_spec
 
         def _spy(*args, **kwargs):
@@ -178,8 +184,12 @@ class TestReliabilityCiToggleWiring:
 
         y_true, y_pred = self._binned()
         fast_calibration_report(
-            y_true=y_true, y_pred=y_pred, nbins=10, show_plots=False,
-            plot_outputs="matplotlib[png]", base_path=str(tmp_path / "cal"),
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
+            show_plots=False,
+            plot_outputs="matplotlib[png]",
+            base_path=str(tmp_path / "cal"),
             reliability_show_ci=False,
         )
         assert captured.get("show_wilson_ci") is False
@@ -192,8 +202,12 @@ class TestReliabilityCiToggleWiring:
 
         y_true, y_pred = self._binned()
         fast_calibration_report(
-            y_true=y_true, y_pred=y_pred, nbins=10, show_plots=False,
-            plot_outputs="matplotlib[png]", base_path=str(tmp_path / "cal"),
+            y_true=y_true,
+            y_pred=y_pred,
+            nbins=10,
+            show_plots=False,
+            plot_outputs="matplotlib[png]",
+            base_path=str(tmp_path / "cal"),
         )
         assert captured.get("show_wilson_ci") is True
 
@@ -206,9 +220,14 @@ class TestReliabilityCiToggleWiring:
 def _fake_audit():
     """Duck-typed ResidualAudit for testing without computing one."""
     return SimpleNamespace(
-        mean=0.05, std=0.5, skew=0.1, excess_kurt=2.5,
-        hypothesis="Normal", suggested_loss="MSE (Normal-MLE)",
-        hetero_significant=False, hetero_spearman=0.02,
+        mean=0.05,
+        std=0.5,
+        skew=0.1,
+        excess_kurt=2.5,
+        hypothesis="Normal",
+        suggested_loss="MSE (Normal-MLE)",
+        hetero_significant=False,
+        hetero_spearman=0.02,
     )
 
 
@@ -221,8 +240,11 @@ class TestRegressionSpec:
         y_true = rng.standard_normal(200)
         y_pred = y_true + rng.standard_normal(200) * 0.2
         spec = build_regression_panel_spec(
-            y_true, y_pred, audit=_fake_audit(),
-            header_str="VAL CB ...", metrics_str="MAE=1.2 R2=0.95",
+            y_true,
+            y_pred,
+            audit=_fake_audit(),
+            header_str="VAL CB ...",
+            metrics_str="MAE=1.2 R2=0.95",
         )
         assert spec.suptitle == "VAL CB ..."
         n_panels = sum(1 for row in spec.panels for c in row if c is not None)
@@ -274,11 +296,13 @@ class TestRegressionSpec:
         rng = np.random.default_rng(0)
         y = rng.standard_normal(100)
         spec = build_regression_panel_spec(
-            y, y + 0.1, audit=_fake_audit(),
-            header_str="hdr", metrics_str="MAE=0.1",
+            y,
+            y + 0.1,
+            audit=_fake_audit(),
+            header_str="hdr",
+            metrics_str="MAE=0.1",
         )
-        render_and_save(spec, parse_plot_output_dsl("plotly[html]"),
-                        str(tmp_path / "reg"))
+        render_and_save(spec, parse_plot_output_dsl("plotly[html]"), str(tmp_path / "reg"))
         assert os.path.exists(tmp_path / "reg.html")
 
 
@@ -304,13 +328,11 @@ class TestTemporalSpec:
     def test_segments_in_title(self):
         rng = np.random.default_rng(0)
         rates = rng.uniform(0.4, 0.6, 20)
-        bins = [
-            SimpleNamespace(bin_start=float(i), target_rate=float(rates[i]), kept=True)
-            for i in range(20)
-        ]
+        bins = [SimpleNamespace(bin_start=float(i), target_rate=float(rates[i]), kept=True) for i in range(20)]
         audit = SimpleNamespace(
             bins=bins,
-            target_name="x", granularity="day",
+            target_name="x",
+            granularity="day",
             target_type="binary_classification",
             timestamp_col="Time",
             segments=[
@@ -324,12 +346,13 @@ class TestTemporalSpec:
 
     def test_renders_via_plotly(self, tmp_path):
         audit = SimpleNamespace(
-            time_bins=np.arange(20), rates=np.linspace(0.1, 0.5, 20),
-            target_name="x", granularity="day",
+            time_bins=np.arange(20),
+            rates=np.linspace(0.1, 0.5, 20),
+            target_name="x",
+            granularity="day",
             target_type="binary_classification",
             segments=[],
         )
         spec = build_temporal_audit_spec(audit)
-        render_and_save(spec, parse_plot_output_dsl("plotly[html]"),
-                        str(tmp_path / "temp"))
+        render_and_save(spec, parse_plot_output_dsl("plotly[html]"), str(tmp_path / "temp"))
         assert os.path.exists(tmp_path / "temp.html")

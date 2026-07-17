@@ -2,6 +2,7 @@
 
 Pre-fix the suite called ``create_date_features`` on every detected datetime col without persisting the resolved methods list; the predict path had no equivalent step, so a model trained on a ``feature_types_config``-supplied datetime col crashed (or silently got wrong derived cols) at inference. Separately, when the FTE used ``delete_original_cols=False`` to keep its ``ts_field`` for downstream consumers, the suite would re-decompose it and emit duplicate / overwriting ``year_ts`` / ``month_ts`` cols on top of FTE's.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -28,13 +29,15 @@ def _make_frame_with_two_dt_cols(n: int = 3_000, seed: int = 0):
     base = pd.Timestamp("2022-01-01")
     ts = pd.to_datetime(base + pd.to_timedelta(rng.integers(0, 365 * 24 * 60, n), unit="m"))
     extra = pd.to_datetime(base + pd.to_timedelta(rng.integers(0, 365 * 24 * 60, n), unit="m"))
-    df = pl.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "ts": pl.Series(ts.values),
-        "extra_dt": pl.Series(extra.values),
-        "y": (1.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
-    })
+    df = pl.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "ts": pl.Series(ts.values),
+            "extra_dt": pl.Series(extra.values),
+            "y": (1.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
+        }
+    )
     return df
 
 
@@ -78,16 +81,11 @@ def test_suite_skips_redecomposition_of_fte_emitted_datetime_columns():
     # FTE owns the ``ts`` decomposition (so the suite-side check below
     # confirms it didn't double-decompose). Use subset, not strict equality.
     _emitted_for_ts = set(fte_emitted["ts"])
-    assert {"ts_year", "ts_month"}.issubset(_emitted_for_ts), (
-        f"FTE missing user-configured year/month methods on ts; "
-        f"emitted={_emitted_for_ts}"
-    )
+    assert {"ts_year", "ts_month"}.issubset(_emitted_for_ts), f"FTE missing user-configured year/month methods on ts; emitted={_emitted_for_ts}"
 
     # Suite-side ``datetime_methods`` must NOT contain ``ts`` (FTE owned it; suite was supposed to skip).
     suite_dt = metadata.get("datetime_methods") or {}
-    assert "ts" not in suite_dt, (
-        f"Suite re-decomposed ts despite FTE already emitting derived cols; metadata.datetime_methods={suite_dt}"
-    )
+    assert "ts" not in suite_dt, f"Suite re-decomposed ts despite FTE already emitting derived cols; metadata.datetime_methods={suite_dt}"
 
 
 def test_suite_decomposes_and_persists_methods_for_fte_unknown_datetime_column():
@@ -104,9 +102,7 @@ def test_suite_decomposes_and_persists_methods_for_fte_unknown_datetime_column()
     assert models, "training returned empty models dict"
 
     suite_dt = metadata.get("datetime_methods") or {}
-    assert "extra_dt" in suite_dt, (
-        f"Suite did not persist methods for FTE-unknown extra_dt; metadata.datetime_methods={suite_dt}"
-    )
+    assert "extra_dt" in suite_dt, f"Suite did not persist methods for FTE-unknown extra_dt; metadata.datetime_methods={suite_dt}"
     persisted = suite_dt["extra_dt"]
     assert set(persisted.keys()) == {"year", "month", "weekday"}, persisted
     # Year uses int32 dtype (per ``_wide_int_methods``), others use int8.

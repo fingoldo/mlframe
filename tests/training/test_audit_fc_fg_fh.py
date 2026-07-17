@@ -11,6 +11,7 @@ F-H: RecurrentDataset.__getitem__ produces a sequence tensor whose
      view (which would silently corrupt the dataset if a downstream
      subclass introduces an in-place op).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,9 +41,7 @@ def test_lookahead_add_param_group_eager_inits_slow():
     # Mid-fit: add a new param group (e.g. a freshly-instantiated head).
     p_new = torch.nn.Parameter(torch.ones(2) * 7.0)
     lh.add_param_group({"params": [p_new]})
-    assert id(p_new) in lh._slow_weights, (
-        "F-C: add_param_group must eager-init slow weights for new params"
-    )
+    assert id(p_new) in lh._slow_weights, "F-C: add_param_group must eager-init slow weights for new params"
     # The cached slow MUST equal the current data of the new param.
     torch.testing.assert_close(lh._slow_weights[id(p_new)], p_new.data)
 
@@ -63,7 +62,8 @@ def test_lookahead_add_param_group_does_not_overwrite_existing_slow():
         pass  # base optimizer rejects duplicate; that's fine
     # Slow value untouched.
     torch.testing.assert_close(
-        lh._slow_weights[id(p)], torch.full((4,), 99.0),
+        lh._slow_weights[id(p)],
+        torch.full((4,), 99.0),
     )
 
 
@@ -84,28 +84,36 @@ def test_predict_raw_caches_accelerator_name_for_next_call():
     )
 
     X, y = make_regression(n_samples=64, n_features=4, random_state=0)
-    X = X.astype(np.float32); y = y.astype(np.float32)
+    X = X.astype(np.float32)
+    y = y.astype(np.float32)
     X_tr, X_te, y_tr, _ = train_test_split(X, y, test_size=0.3, random_state=0)
 
     reg = PytorchLightningRegressor(
         model_class=MLPTorchModel,
-        model_params={"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-2,
-                      "load_best_weights_on_train_end": False},
+        model_params={"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-2, "load_best_weights_on_train_end": False},
         network_params={
-            "nlayers": 1, "first_layer_num_neurons": 8,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 8,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": torch.nn.ReLU,
         },
         datamodule_class=TorchDataModule,
         datamodule_params={
-            "features_dtype": torch.float32, "labels_dtype": torch.float32,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
             "dataloader_params": {"batch_size": 16, "num_workers": 0},
         },
         trainer_params={
-            "max_epochs": 1, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 1,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         random_state=0,
     )
@@ -113,10 +121,7 @@ def test_predict_raw_caches_accelerator_name_for_next_call():
     # First predict establishes the cached accelerator name.
     _ = reg.predict(X_te)
     assert hasattr(reg, "_last_predict_accelerator")
-    assert reg._last_predict_accelerator == "cpu", (
-        f"F-G: expected cached accelerator='cpu', got "
-        f"{reg._last_predict_accelerator!r}"
-    )
+    assert reg._last_predict_accelerator == "cpu", f"F-G: expected cached accelerator='cpu', got {reg._last_predict_accelerator!r}"
 
     # Second predict (trainer is now None) must use the cached value
     # rather than falling through to 'auto'. We can't directly inspect
@@ -142,8 +147,10 @@ def test_recurrent_dataset_getitem_independent_of_source_numpy():
     ]
     labels = np.array([0.5, -0.5], dtype=np.float32)
     ds = RecurrentDataset(
-        sequences=seqs, aux_features=None,
-        labels=labels, sample_weights=None,
+        sequences=seqs,
+        aux_features=None,
+        labels=labels,
+        sample_weights=None,
         is_regression=True,
     )
     item = ds[0]
@@ -155,8 +162,7 @@ def test_recurrent_dataset_getitem_independent_of_source_numpy():
     # .data_ptr() differs from the source array.
     src_ptr = seqs[0].__array_interface__["data"][0]
     assert seq_t.data_ptr() != src_ptr, (
-        "F-H: __getitem__ returned a zero-copy view; an in-place op on "
-        "the per-sample tensor would silently corrupt the source array."
+        "F-H: __getitem__ returned a zero-copy view; an in-place op on the per-sample tensor would silently corrupt the source array."
     )
 
     # Mutate the returned tensor in place; source array must stay intact.
@@ -174,8 +180,10 @@ def test_recurrent_dataset_getitem_still_returns_float32():
     seqs = [np.array([[1.0]], dtype=np.float64)]  # float64 source
     labels = np.array([0.0], dtype=np.float32)
     ds = RecurrentDataset(
-        sequences=seqs, aux_features=None,
-        labels=labels, sample_weights=None,
+        sequences=seqs,
+        aux_features=None,
+        labels=labels,
+        sample_weights=None,
         is_regression=True,
     )
     item = ds[0]

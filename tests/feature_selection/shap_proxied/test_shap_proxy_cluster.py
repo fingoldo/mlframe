@@ -10,8 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import (
-    build_unit_matrix, cluster_correlated_features, cluster_summary)
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import build_unit_matrix, cluster_correlated_features, cluster_summary
 
 
 def _partition(labels):
@@ -103,17 +102,22 @@ def test_gpu_min_features_routes_small_f_to_cpu(monkeypatch):
         return None
 
     monkeypatch.setattr(mod, "_edges_dense_gpu", _mock_gpu)
+
     # Pretend cupy is importable + a GPU is visible so the `gpu = True` branch is taken before
     # the small-f gate. The gate must then flip gpu back to False at f=20 < gpu_min_features=2000.
     class _FakeRuntime:
         @staticmethod
         def getDeviceCount():
             return 1
+
     class _FakeCuda:
         runtime = _FakeRuntime()
+
     class _FakeCp:
         cuda = _FakeCuda()
+
     import sys
+
     monkeypatch.setitem(sys.modules, "cupy", _FakeCp())
 
     X, *_ = _make_clustered(n=400, n_factors=2, refl=3, n_noise=4, seed=4)
@@ -138,15 +142,20 @@ def test_gpu_min_features_explicit_true_overrides_gate(monkeypatch):
         return np.empty(0, np.int64), np.empty(0, np.int64)
 
     monkeypatch.setattr(mod, "_edges_dense_gpu", _mock_gpu)
+
     class _FakeRuntime:
         @staticmethod
         def getDeviceCount():
             return 1
+
     class _FakeCuda:
         runtime = _FakeRuntime()
+
     class _FakeCp:
         cuda = _FakeCuda()
+
     import sys
+
     monkeypatch.setitem(sys.modules, "cupy", _FakeCp())
 
     X, *_ = _make_clustered(n=400, n_factors=2, refl=3, n_noise=4, seed=5)

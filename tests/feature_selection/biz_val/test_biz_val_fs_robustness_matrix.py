@@ -17,8 +17,8 @@ _SEEDS = [0, 1, 7]
 _KINDS = ["regression", "binary", "multiclass", "count", "ordinal"]
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _make(kind, n, seed, *, nan_frac=0.0, with_cat=False):
     """3 signal numeric cols (s0..s2) + ``N_NOISE`` noise (n0..) + target by ``kind``; optional NaN injection and
@@ -47,8 +47,8 @@ def _make(kind, n, seed, *, nan_frac=0.0, with_cat=False):
             idx = rng.choice(n, int(nan_frac * n), replace=False)
             df.loc[df.index[idx], c] = np.nan
     if with_cat:
-        df["cat_inf"] = np.where(s[:, 0] > 0, "hi", "lo")           # informative (tracks s0 sign)
-        df["cat_noise"] = rng.integers(0, 30, n).astype(str)         # high-cardinality pure noise
+        df["cat_inf"] = np.where(s[:, 0] > 0, "hi", "lo")  # informative (tracks s0 sign)
+        df["cat_noise"] = rng.integers(0, 30, n).astype(str)  # high-cardinality pure noise
         df = df.astype({"cat_inf": "category", "cat_noise": "category"})
     return df, y, [f"s{i}" for i in range(N_SIGNAL)], [f"n{i}" for i in range(N_NOISE)]
 

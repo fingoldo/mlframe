@@ -19,6 +19,7 @@ The hook is ``_orthogonal_univariate_fe._mi_classif_batch`` -- the single FE
 relevance scorer all ~20 FE / pair-screening modules consume. Default OFF means
 that call is byte-for-byte the plain-MI path unless ``MLFRAME_FE_IMBALANCE_MI=on``.
 """
+
 from __future__ import annotations
 
 import os
@@ -60,6 +61,7 @@ def _imbalanced_frame(seed=0, n=20000, prior=0.01, p=8):
 # ---------------------------------------------------------------------------
 # UNIT: gate semantics (prior + n_rare two-sided gate, opt-in only)
 # ---------------------------------------------------------------------------
+
 
 def test_default_off_is_byte_identical_to_plain():
     """Env unset => default OFF => _mi_classif_batch == plain numba batch, byte-for-byte.
@@ -154,6 +156,7 @@ def test_prior_threshold_boundary():
 # UNIT: balanced kernel correctness
 # ---------------------------------------------------------------------------
 
+
 def test_balanced_kernel_equals_plain_when_weights_uniform():
     """With per-class weights set so every class has equal total mass on ALREADY-balanced
     data, the reweighted MI must match the plain plug-in MI (the kernel is a correct
@@ -165,10 +168,12 @@ def test_balanced_kernel_equals_plain_when_weights_uniform():
     counts = np.bincount(y, minlength=2).astype(np.float64)
     # weights that make total class mass equal: on balanced data this ~= 1/n scaling,
     # i.e. an exact no-op vs plain plug-in MI.
-    w = (0.5 / counts)
+    w = 0.5 / counts
     bal = _class_balanced_mi_batch_njit(
-        np.ascontiguousarray(X), np.ascontiguousarray(y, dtype=np.int64),
-        np.ascontiguousarray(w, dtype=np.float64), 10,
+        np.ascontiguousarray(X),
+        np.ascontiguousarray(y, dtype=np.int64),
+        np.ascontiguousarray(w, dtype=np.float64),
+        10,
     )
     os.environ["MLFRAME_FE_IMBALANCE_MI"] = "off"
     plain = _mi_classif_batch_numba(X, y, nbins=10)
@@ -200,12 +205,14 @@ def test_balanced_mi_amplifies_rare_separator_magnitude():
 # does NOT recover rare-class features / improve downstream rare AP.
 # ---------------------------------------------------------------------------
 
+
 def test_bench_rejection_near_rank_preserving():
     """Inverse-prior balancing barely re-orders the feature ranking across imbalanced
     frames (Kendall tau ~0.99), so it cannot systematically change a rank-based
     selection -> the WIN claim (a) (plain under-ranks, balanced fixes) does NOT
     reproduce. Pins the rejection."""
     from scipy.stats import kendalltau
+
     os.environ["MLFRAME_FE_IMBALANCE_MI"] = "off"
     n = 20000
     taus = []
@@ -282,6 +289,7 @@ def test_noise_control_rare_by_chance_not_promoted():
 # ---------------------------------------------------------------------------
 # CPROFILE / cost: the gate detection is cheap and the default OFF path adds ~0.
 # ---------------------------------------------------------------------------
+
 
 def test_default_off_adds_negligible_cost():
     """The detection short-circuit (compute_class_weights) on the default OFF path is

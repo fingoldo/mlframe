@@ -14,6 +14,7 @@ Counts are integers, so the vectorised result is BIT-IDENTICAL to the dict path.
 
 bench: src/mlframe/feature_engineering/_benchmarks/bench_mdl_binning_combo_count_vectorized.py
 """
+
 from __future__ import annotations
 
 from collections import Counter
@@ -44,8 +45,8 @@ def test_vectorized_combo_count_bit_identical_to_counter():
         n_query = int(rng.integers(100, 3000))
         hi = int(rng.integers(2, 12))
         # Intentionally let some query combos be absent from train (count 0).
-        train_combo = (rng.integers(0, hi, n_train) * 100 + rng.integers(0, hi, n_train))
-        query_combo = (rng.integers(0, hi + 2, n_query) * 100 + rng.integers(0, hi + 2, n_query))
+        train_combo = rng.integers(0, hi, n_train) * 100 + rng.integers(0, hi, n_train)
+        query_combo = rng.integers(0, hi + 2, n_query) * 100 + rng.integers(0, hi + 2, n_query)
         out_old, uc_old = _old_combo(train_combo, query_combo)
         out_new, uc_new = _new_combo(train_combo, query_combo)
         assert np.array_equal(out_old, out_new)

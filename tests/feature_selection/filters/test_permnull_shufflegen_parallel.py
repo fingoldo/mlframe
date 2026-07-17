@@ -11,6 +11,7 @@ The numba stream is a DIFFERENT-but-valid uniform draw sequence, so the floor it
 equivalent (validated selection-identical on the canonical biz_value suite), and remains DETERMINISTIC for a
 fixed seed (the contract ``test_pooled_gain_floor_perms_prange_identity.test_public_floor_*`` already pins).
 """
+
 from __future__ import annotations
 
 import os

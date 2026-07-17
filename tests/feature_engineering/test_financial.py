@@ -22,15 +22,17 @@ def create_sample_ohlcv(n_rows: int) -> pl.DataFrame:
     """Create sample OHLCV data for testing."""
     np.random.seed(42)
     close = 100 + np.cumsum(np.random.randn(n_rows) * 0.5)
-    return pl.DataFrame({
-        'ticker': ['A'] * n_rows,
-        'open': close + np.random.randn(n_rows) * 0.1,
-        'high': close + np.abs(np.random.randn(n_rows) * 0.5),
-        'low': close - np.abs(np.random.randn(n_rows) * 0.5),
-        'close': close,
-        'volume': np.abs(np.random.randn(n_rows) * 1000 + 5000),
-        'qty': np.abs(np.random.randn(n_rows) * 100 + 500),
-    })
+    return pl.DataFrame(
+        {
+            "ticker": ["A"] * n_rows,
+            "open": close + np.random.randn(n_rows) * 0.1,
+            "high": close + np.abs(np.random.randn(n_rows) * 0.5),
+            "low": close - np.abs(np.random.randn(n_rows) * 0.5),
+            "close": close,
+            "volume": np.abs(np.random.randn(n_rows) * 1000 + 5000),
+            "qty": np.abs(np.random.randn(n_rows) * 100 + 500),
+        }
+    )
 
 
 @given(st.integers(min_value=10, max_value=100))
@@ -50,7 +52,7 @@ def test_add_ohlcv_ratios_custom_lags(lags):
     result = add_ohlcv_ratios_rlags(df, lags=lags)
     # Should have columns for each lag
     for lag in lags:
-        lag_cols = [c for c in result.columns if f'_rlag{lag}' in c]
+        lag_cols = [c for c in result.columns if f"_rlag{lag}" in c]
         assert len(lag_cols) > 0
 
 
@@ -83,10 +85,12 @@ def test_add_ohlcv_ratios_no_nans_in_added():
 @settings(max_examples=20, deadline=None)
 def test_add_fast_rolling_stats_windows(windows):
     """Test rolling stats with various window sizes."""
-    df = pl.DataFrame({
-        'a': np.random.rand(100),
-        'b': np.random.rand(100),
-    })
+    df = pl.DataFrame(
+        {
+            "a": np.random.rand(100),
+            "b": np.random.rand(100),
+        }
+    )
     result = add_fast_rolling_stats(df, rolling_windows=windows)
     assert result is not None
     assert len(result.columns) > len(df.columns)
@@ -95,20 +99,20 @@ def test_add_fast_rolling_stats_windows(windows):
 @given(st.booleans())
 def test_add_fast_rolling_stats_relative(relative):
     """Test relative vs absolute mode."""
-    df = pl.DataFrame({'a': np.random.rand(50) + 1})
+    df = pl.DataFrame({"a": np.random.rand(50) + 1})
     result = add_fast_rolling_stats(df, relative=relative, rolling_windows=[5])
     assert len(result.columns) > 1
 
 
 def test_add_fast_rolling_stats_custom_numaggs():
     """Test with custom aggregation functions."""
-    df = pl.DataFrame({'a': np.random.rand(50)})
-    numaggs = ['rolling_mean', 'rolling_std']
+    df = pl.DataFrame({"a": np.random.rand(50)})
+    numaggs = ["rolling_mean", "rolling_std"]
     result = add_fast_rolling_stats(df, numaggs=numaggs, rolling_windows=[5])
 
     # Should have columns for each numagg
-    mean_cols = [c for c in result.columns if 'mean' in c]
-    std_cols = [c for c in result.columns if 'std' in c]
+    mean_cols = [c for c in result.columns if "mean" in c]
+    std_cols = [c for c in result.columns if "std" in c]
     assert len(mean_cols) > 0
     assert len(std_cols) > 0
 
@@ -128,29 +132,31 @@ def test_add_ohlcv_ratios_cast_f64_to_f32():
 def test_add_ohlcv_ratios_exclude_fields():
     """Test excluding specific fields."""
     df = create_sample_ohlcv(30)
-    result = add_ohlcv_ratios_rlags(df, exclude_fields=['volume', 'qty'])
+    result = add_ohlcv_ratios_rlags(df, exclude_fields=["volume", "qty"])
 
     # Excluded fields shouldn't have rlags
-    volume_rlags = [c for c in result.columns if 'volume' in c and 'rlag' in c]
-    qty_rlags = [c for c in result.columns if 'qty' in c and 'rlag' in c]
+    volume_rlags = [c for c in result.columns if "volume" in c and "rlag" in c]
+    qty_rlags = [c for c in result.columns if "qty" in c and "rlag" in c]
     assert len(volume_rlags) == 0
     assert len(qty_rlags) == 0
 
 
 def test_add_fast_rolling_stats_groupby():
     """Test with groupby column."""
-    df = pl.DataFrame({
-        'ticker': ['A'] * 50 + ['B'] * 50,
-        'value': np.random.rand(100),
-    })
-    result = add_fast_rolling_stats(df, groupby_column='ticker', rolling_windows=[5])
+    df = pl.DataFrame(
+        {
+            "ticker": ["A"] * 50 + ["B"] * 50,
+            "value": np.random.rand(100),
+        }
+    )
+    result = add_fast_rolling_stats(df, groupby_column="ticker", rolling_windows=[5])
     assert len(result) == 100
 
 
 def test_add_ohlcv_ratios_multiple_tickers():
     """Test with multiple tickers."""
     df1 = create_sample_ohlcv(50)
-    df2 = create_sample_ohlcv(50).with_columns(pl.lit('B').alias('ticker'))
+    df2 = create_sample_ohlcv(50).with_columns(pl.lit("B").alias("ticker"))
     df = pl.concat([df1, df2])
 
     result = add_ohlcv_ratios_rlags(df)

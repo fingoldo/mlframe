@@ -9,6 +9,7 @@ NOTE: the audit listed save_split_artifacts as being in training/io.py and using
 but the real implementation is in training/preprocessing.py and uses parquet via
 save_series_or_df(). Tests target the real behavior.
 """
+
 from __future__ import annotations
 from mlframe.training import OutlierDetectionConfig, OutputConfig
 
@@ -30,10 +31,12 @@ def _load_metadata(metadata_dir: Path) -> dict:
     or `.pkl` fallback when zstandard is missing). Replaces the legacy
     `joblib.load(metadata.joblib)` path."""
     import pickle
+
     zst_path = metadata_dir / "metadata.pkl.zst"
     pkl_path = metadata_dir / "metadata.pkl"
     if zst_path.exists():
         import zstandard as zstd
+
         return pickle.loads(zstd.ZstdDecompressor().decompress(zst_path.read_bytes()))
     if pkl_path.exists():
         return pickle.loads(pkl_path.read_bytes())
@@ -41,6 +44,7 @@ def _load_metadata(metadata_dir: Path) -> dict:
 
 
 # ----- _validate_trusted_path -----
+
 
 def test_validate_requires_trusted_root(tmp_path):
     # Path content doesn't matter -- the function rejects on trusted_root=None
@@ -74,8 +78,7 @@ def test_validate_parent_escape_rejected(tmp_path):
         _validate_trusted_path(escape, str(trusted))
 
 
-@pytest.mark.skipif(sys.platform.startswith("win"),
-                    reason="symlink on Windows needs admin; tested on POSIX only")
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="symlink on Windows needs admin; tested on POSIX only")
 def test_validate_symlink_escape_resolved(tmp_path):
     # NOTE: _validate_trusted_path uses os.path.abspath, which does NOT resolve symlinks.
     # A symlink file *inside* trusted_root still has abspath inside trusted_root,
@@ -95,8 +98,7 @@ def test_validate_symlink_escape_resolved(tmp_path):
     _validate_trusted_path(str(linkname), str(trusted))
 
 
-@pytest.mark.skipif(not sys.platform.startswith("win"),
-                    reason="cross-drive only meaningful on Windows")
+@pytest.mark.skipif(not sys.platform.startswith("win"), reason="cross-drive only meaningful on Windows")
 def test_validate_cross_drive_rejected():
     # Windows: commonpath raises ValueError across different drives. Code catches
     # and re-raises as "not inside trusted_root".
@@ -105,6 +107,7 @@ def test_validate_cross_drive_rejected():
 
 
 # ----- _finalize_and_save_metadata -----
+
 
 def test_finalize_saves_and_roundtrips(tmp_path):
     from types import SimpleNamespace
@@ -139,6 +142,7 @@ def test_finalize_saves_and_roundtrips(tmp_path):
 def _make_ctx(**overrides):
     """Helper: minimal ctx for _finalize_and_save_metadata tests."""
     from types import SimpleNamespace
+
     base = dict(
         metadata={"model_name": "m", "target_name": "t", "mlframe_models": []},
         outlier_detector=None,
@@ -202,6 +206,7 @@ def test_finalize_bubbles_ioerror(tmp_path, monkeypatch):
 
 # ----- save_split_artifacts -----
 
+
 def test_save_split_artifacts_writes_parquet(tmp_path):
     n = 20
     train_idx = np.arange(0, 10)
@@ -262,13 +267,15 @@ def test_save_split_artifacts_dict_artifacts(tmp_path):
 def test_save_split_artifacts_noop_without_data_dir(tmp_path):
     # data_dir=None -> nothing written, no error
     save_split_artifacts(
-        train_idx=np.arange(3), val_idx=np.arange(3, 5), test_idx=np.arange(5, 7),
+        train_idx=np.arange(3),
+        val_idx=np.arange(3, 5),
+        test_idx=np.arange(5, 7),
         timestamps=pd.Series(range(7)),
         group_ids_raw=None,
         artifacts=None,
         data_dir=None,
-
         models_dir="models",
-        target_name="t", model_name="m",
+        target_name="t",
+        model_name="m",
     )
     assert list(tmp_path.iterdir()) == []

@@ -7,6 +7,7 @@ these will fail the matching assertion.
 
 Naming: ``test_biz_val_rfecv_<parameter>_<scenario>``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -40,8 +41,7 @@ def _correlated_redundant(n=2000, seed=42):
     X_signal_unique = rng.normal(size=(n, 1))
     X_noise = rng.normal(size=(n, 5))
     X = np.column_stack([X_corr, X_signal_unique, X_noise])
-    y = (X_corr[:, 0] + X_signal_unique[:, 0] + 0.3 * rng.normal(size=n) > 0
-         ).astype(np.int64)
+    y = (X_corr[:, 0] + X_signal_unique[:, 0] + 0.3 * rng.normal(size=n) > 0).astype(np.int64)
     return X, y
 
 
@@ -82,17 +82,20 @@ def test_biz_val_rfecv_n_features_selection_rule_one_se_min_picks_smaller():
 
     common = dict(
         estimator=RandomForestClassifier(random_state=42, n_estimators=30),
-        cv=3, max_refits=8, verbose=0, random_state=42,
+        cv=3,
+        max_refits=8,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=3,
-        std_perf_weight=0.0, feature_cost=0.0,
+        std_perf_weight=0.0,
+        feature_cost=0.0,
     )
     sel_argmax = RFECV(n_features_selection_rule="argmax", **common)
     sel_one_se = RFECV(n_features_selection_rule="one_se_min", **common)
     sel_argmax.fit(df, y)
     sel_one_se.fit(df, y)
     assert sel_one_se.n_features_ <= sel_argmax.n_features_, (
-        f"one_se_min picked {sel_one_se.n_features_}, argmax picked "
-        f"{sel_argmax.n_features_}; one_se_min must be <= argmax"
+        f"one_se_min picked {sel_one_se.n_features_}, argmax picked {sel_argmax.n_features_}; one_se_min must be <= argmax"
     )
 
 
@@ -114,7 +117,10 @@ def test_biz_val_rfecv_stability_selection_recovers_signal_features():
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(X.shape[1])])
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=30),
-        cv=3, max_refits=6, verbose=0, random_state=42,
+        cv=3,
+        max_refits=6,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=3,
         stability_selection=True,
         stability_n_bootstrap=10,
@@ -123,10 +129,7 @@ def test_biz_val_rfecv_stability_selection_recovers_signal_features():
     sel.fit(df, y)
     selected = set(_support_indices(sel))
     overlap = selected & {0, 1, 2}
-    assert len(overlap) >= 2, (
-        f"stability_selection must recover >=2 of 3 signal features; "
-        f"got selected={sorted(selected)}, overlap={overlap}"
-    )
+    assert len(overlap) >= 2, f"stability_selection must recover >=2 of 3 signal features; got selected={sorted(selected)}, overlap={overlap}"
 
 
 # ---------------------------------------------------------------------------
@@ -150,16 +153,16 @@ def test_biz_val_rfecv_must_include_keeps_specified_feature():
 
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=30),
-        cv=3, max_refits=8, verbose=0, random_state=42,
+        cv=3,
+        max_refits=8,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=3,
         must_include=["noise5"],
     )
     sel.fit(df, y)
     selected_names = [df.columns[i] for i in _support_indices(sel)]
-    assert "noise5" in selected_names, (
-        f"must_include=['noise5'] must keep noise5; "
-        f"got selected={selected_names}"
-    )
+    assert "noise5" in selected_names, f"must_include=['noise5'] must keep noise5; got selected={selected_names}"
 
 
 # ---------------------------------------------------------------------------
@@ -187,23 +190,20 @@ def test_biz_val_rfecv_conditional_permutation_keeps_unique_informative_under_co
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(X.shape[1])])
 
     sel = RFECV(
-        estimator=RandomForestClassifier(random_state=42, n_estimators=50,
-                                            max_depth=6),
-        cv=3, max_refits=6, verbose=0, random_state=42,
+        estimator=RandomForestClassifier(random_state=42, n_estimators=50, max_depth=6),
+        cv=3,
+        max_refits=6,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=3,
         importance_getter="conditional_permutation",
     )
     sel.fit(df, y)
     selected = set(_support_indices(sel))
-    assert 4 in selected, (
-        f"CPI must keep unique-informative x4; got selected={sorted(selected)}"
-    )
+    assert 4 in selected, f"CPI must keep unique-informative x4; got selected={sorted(selected)}"
     # And at least one of the correlated cluster {x0..x3} must also
     # survive (each carries the same joint signal).
-    assert any(i in selected for i in (0, 1, 2, 3)), (
-        f"CPI must keep >=1 correlated-cluster member; "
-        f"got selected={sorted(selected)}"
-    )
+    assert any(i in selected for i in (0, 1, 2, 3)), f"CPI must keep >=1 correlated-cluster member; got selected={sorted(selected)}"
 
 
 # ---------------------------------------------------------------------------
@@ -220,14 +220,19 @@ def test_biz_val_rfecv_feature_cost_penalizes_large_subsets():
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=8, seed=42)
     df, _ys = as_df(X, y)
 
     common = dict(
         estimator=RandomForestClassifier(random_state=42, n_estimators=30),
-        cv=3, max_refits=8, verbose=0, random_state=42,
+        cv=3,
+        max_refits=8,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=3,
         n_features_selection_rule="argmax",
     )
@@ -236,8 +241,7 @@ def test_biz_val_rfecv_feature_cost_penalizes_large_subsets():
     sel_free.fit(df, y)
     sel_cost.fit(df, y)
     assert sel_cost.n_features_ <= sel_free.n_features_, (
-        f"feature_cost=0.5 must pick <= features than =0.0; "
-        f"got cost={sel_cost.n_features_}, free={sel_free.n_features_}"
+        f"feature_cost=0.5 must pick <= features than =0.0; got cost={sel_cost.n_features_}, free={sel_free.n_features_}"
     )
 
 
@@ -252,29 +256,30 @@ def test_biz_val_rfecv_leakage_corr_threshold_detects_target_leak():
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=5, seed=42)
     # Inject a column that's effectively y (perfect leak, slight noise
     # so RFECV's strict 0.95 still flags it).
     rng = np.random.default_rng(0)
     leak = y.astype(np.float64) + 0.005 * rng.normal(size=len(y))
     X_with_leak = np.column_stack([X, leak])
-    df = pd.DataFrame(X_with_leak, columns=[f"x{i}" for i in range(
-        X_with_leak.shape[1] - 1)] + ["leak"])
+    df = pd.DataFrame(X_with_leak, columns=[f"x{i}" for i in range(X_with_leak.shape[1] - 1)] + ["leak"])
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=30),
-        cv=3, max_refits=6, verbose=0, random_state=42,
+        cv=3,
+        max_refits=6,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=3,
         leakage_corr_threshold=0.95,
         leakage_action="exclude",
     )
     sel.fit(df, y)
     selected_names = [df.columns[i] for i in _support_indices(sel)]
-    assert "leak" not in selected_names, (
-        f"leakage_action='drop' must remove the perfect-leak column; "
-        f"got selected={selected_names}"
-    )
+    assert "leak" not in selected_names, f"leakage_action='drop' must remove the perfect-leak column; got selected={selected_names}"
 
 
 def test_biz_val_rfecv_swap_top_k_yields_valid_support():
@@ -286,27 +291,34 @@ def test_biz_val_rfecv_swap_top_k_yields_valid_support():
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=8, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=30),
-        cv=3, max_refits=4, verbose=0, random_state=42,
+        cv=3,
+        max_refits=4,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         swap_top_k=3,
     )
     sel.fit(df, y)
     idx = _support_indices(sel)
     assert len(idx) == len(set(idx)), f"support contains duplicates: {idx}"
-    assert all(0 <= i < df.shape[1] for i in idx), (
-        f"support indices out of bounds for p={df.shape[1]}: {idx}"
-    )
+    assert all(0 <= i < df.shape[1] for i in idx), f"support indices out of bounds for p={df.shape[1]}: {idx}"
 
 
-@pytest.mark.parametrize("search_method", [
-    "ModelBasedHeuristic", "ExhaustiveRandom",
-])
+@pytest.mark.parametrize(
+    "search_method",
+    [
+        "ModelBasedHeuristic",
+        "ExhaustiveRandom",
+    ],
+)
 def test_biz_val_rfecv_top_predictors_search_method_completes(search_method):
     """``top_predictors_search_method`` parametrized over the 3 most
     common strategies. Each must complete and produce a valid
@@ -316,13 +328,18 @@ def test_biz_val_rfecv_top_predictors_search_method_completes(search_method):
     from mlframe.feature_selection.wrappers import RFECV
     from mlframe.feature_selection.wrappers._enums import OptimumSearch
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=6, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=20),
-        cv=3, max_refits=4, verbose=0, random_state=42,
+        cv=3,
+        max_refits=4,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         top_predictors_search_method=OptimumSearch(search_method),
     )
@@ -331,9 +348,16 @@ def test_biz_val_rfecv_top_predictors_search_method_completes(search_method):
     assert 1 <= len(idx) <= df.shape[1]
 
 
-@pytest.mark.parametrize("votes_method", [
-    "Borda", "Plurality", "Dowdall", "AM", "GM",
-])
+@pytest.mark.parametrize(
+    "votes_method",
+    [
+        "Borda",
+        "Plurality",
+        "Dowdall",
+        "AM",
+        "GM",
+    ],
+)
 def test_biz_val_rfecv_votes_aggregation_method_completes(votes_method):
     """``votes_aggregation_method`` parametrized over 5 voting rules.
     Each must complete; catches regressions in any of the aggregation
@@ -343,13 +367,18 @@ def test_biz_val_rfecv_votes_aggregation_method_completes(votes_method):
     from mlframe.feature_selection.wrappers import RFECV
     from mlframe.feature_selection.wrappers._enums import VotesAggregation
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=6, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=20),
-        cv=3, max_refits=4, verbose=0, random_state=42,
+        cv=3,
+        max_refits=4,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         votes_aggregation_method=VotesAggregation(votes_method),
     )
@@ -366,13 +395,18 @@ def test_biz_val_rfecv_use_last_fi_run_only_ignores_history():
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=6, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=20),
-        cv=3, max_refits=4, verbose=0, random_state=42,
+        cv=3,
+        max_refits=4,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         use_all_fi_runs=False,
         use_last_fi_run_only=True,
@@ -395,22 +429,26 @@ def test_biz_val_rfecv_random_state_reproducibility(seed):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=8, seed=seed)
     df, _ys = as_df(X, y)
     common = dict(
         estimator=RandomForestClassifier(random_state=42, n_estimators=20),
-        cv=3, max_refits=8, verbose=0,
-        max_noimproving_iters=3, random_state=seed,
+        cv=3,
+        max_refits=8,
+        verbose=0,
+        max_noimproving_iters=3,
+        random_state=seed,
     )
     sel_a = RFECV(**common)
     sel_b = RFECV(**common)
     sel_a.fit(df, y)
     sel_b.fit(df, y)
     assert _support_indices(sel_a) == _support_indices(sel_b), (
-        f"random_state={seed} must produce identical support_; got "
-        f"a={_support_indices(sel_a)}, b={_support_indices(sel_b)}"
+        f"random_state={seed} must produce identical support_; got a={_support_indices(sel_a)}, b={_support_indices(sel_b)}"
     )
 
 
@@ -422,13 +460,18 @@ def test_biz_val_rfecv_cv_folds_robust_to_value(cv_folds):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=20),
-        cv=cv_folds, max_refits=3, verbose=0, random_state=42,
+        cv=cv_folds,
+        max_refits=3,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
     )
     sel.fit(df, y)
@@ -443,13 +486,18 @@ def test_biz_val_rfecv_smooth_perf_parametrize_completes(smooth_perf):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=20),
-        cv=3, max_refits=4, verbose=0, random_state=42,
+        cv=3,
+        max_refits=4,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         smooth_perf=smooth_perf,
     )
@@ -465,13 +513,18 @@ def test_biz_val_rfecv_nofeatures_dummy_scoring_completes(nofeatures_dummy):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=20),
-        cv=3, max_refits=4, verbose=0, random_state=42,
+        cv=3,
+        max_refits=4,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         nofeatures_dummy_scoring=nofeatures_dummy,
     )
@@ -488,13 +541,18 @@ def test_biz_val_rfecv_max_refits_caps_iterations(max_refits):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=15),
-        cv=2, max_refits=max_refits, verbose=0, random_state=42,
+        cv=2,
+        max_refits=max_refits,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=max_refits,
     )
     sel.fit(df, y)
@@ -511,8 +569,10 @@ def test_biz_val_rfecv_scoring_parametrize_completes(scorer_name):
     from sklearn.metrics import get_scorer
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     # RFECV requires a callable scorer (not a string name); resolve
@@ -520,7 +580,10 @@ def test_biz_val_rfecv_scoring_parametrize_completes(scorer_name):
     scorer = get_scorer(scorer_name)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=15),
-        cv=2, max_refits=3, verbose=0, random_state=42,
+        cv=2,
+        max_refits=3,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         scoring=scorer,
     )
@@ -535,13 +598,18 @@ def test_biz_val_rfecv_conduct_final_voting_completes(conduct_voting):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=15),
-        cv=2, max_refits=3, verbose=0, random_state=42,
+        cv=2,
+        max_refits=3,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         conduct_final_voting=conduct_voting,
     )
@@ -556,13 +624,18 @@ def test_biz_val_rfecv_cv_shuffle_completes(cv_shuffle):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=15),
-        cv=3, max_refits=3, verbose=0, random_state=42,
+        cv=3,
+        max_refits=3,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         cv_shuffle=cv_shuffle,
     )
@@ -578,13 +651,18 @@ def test_biz_val_rfecv_early_stopping_val_nsplits_parametrize(nsplits):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=15),
-        cv=3, max_refits=4, verbose=0, random_state=42,
+        cv=3,
+        max_refits=4,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         early_stopping_val_nsplits=nsplits,
     )
@@ -602,13 +680,18 @@ def test_biz_val_rfecv_votes_aggregation_extended(votes_method):
     from mlframe.feature_selection.wrappers import RFECV
     from mlframe.feature_selection.wrappers._enums import VotesAggregation
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=15),
-        cv=2, max_refits=3, verbose=0, random_state=42,
+        cv=2,
+        max_refits=3,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         votes_aggregation_method=VotesAggregation(votes_method),
     )
@@ -616,12 +699,15 @@ def test_biz_val_rfecv_votes_aggregation_extended(votes_method):
     assert 1 <= len(_support_indices(sel)) <= df.shape[1]
 
 
-@pytest.mark.parametrize("seed,p_signal,p_noise", [
-    (1, 3, 8),
-    (7, 4, 6),
-    (42, 2, 10),
-    (99, 3, 12),
-])
+@pytest.mark.parametrize(
+    "seed,p_signal,p_noise",
+    [
+        (1, 3, 8),
+        (7, 4, 6),
+        (42, 2, 10),
+        (99, 3, 12),
+    ],
+)
 def test_biz_val_rfecv_signal_recovery_across_configurations(seed, p_signal, p_noise):
     """Multi-axis parametrize: seed x p_signal x p_noise. Each combo
     must surface >=1 signal feature in the top-half of support_."""
@@ -629,23 +715,29 @@ def test_biz_val_rfecv_signal_recovery_across_configurations(seed, p_signal, p_n
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df, signal_overlap,
+        make_signal_plus_noise,
+        as_df,
+        signal_overlap,
     )
+
     X, y, signal = make_signal_plus_noise(
-        n=500, p_signal=p_signal, p_noise=p_noise, seed=seed,
+        n=500,
+        p_signal=p_signal,
+        p_noise=p_noise,
+        seed=seed,
     )
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=20),
-        cv=2, max_refits=3, verbose=0, random_state=seed,
+        cv=2,
+        max_refits=3,
+        verbose=0,
+        random_state=seed,
         max_noimproving_iters=2,
     )
     sel.fit(df, y)
     # At least 1 of the signal features must be selected.
-    assert signal_overlap(sel, signal) >= 1, (
-        f"Must surface >=1 signal feature; "
-        f"got support={_support_indices(sel)}, signal={signal}"
-    )
+    assert signal_overlap(sel, signal) >= 1, f"Must surface >=1 signal feature; got support={_support_indices(sel)}, signal={signal}"
 
 
 @pytest.mark.parametrize("swap_k", [0, 1, 3, 5])
@@ -656,13 +748,18 @@ def test_biz_val_rfecv_swap_top_k_parametrize_completes(swap_k):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=15),
-        cv=2, max_refits=3, verbose=0, random_state=42,
+        cv=2,
+        max_refits=3,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         swap_top_k=swap_k,
     )
@@ -679,26 +776,34 @@ def test_biz_val_rfecv_max_noimproving_iters_parametrize(noimp_iters):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=15),
-        cv=2, max_refits=10, verbose=0, random_state=42,
+        cv=2,
+        max_refits=10,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=noimp_iters,
     )
     sel.fit(df, y)
     assert 1 <= len(_support_indices(sel)) <= df.shape[1]
 
 
-@pytest.mark.parametrize("mean_weight,std_weight", [
-    (1.0, 0.0),
-    (1.0, 0.1),
-    (1.0, 0.5),
-    (1.0, 1.0),
-    (0.5, 0.5),
-])
+@pytest.mark.parametrize(
+    "mean_weight,std_weight",
+    [
+        (1.0, 0.0),
+        (1.0, 0.1),
+        (1.0, 0.5),
+        (1.0, 1.0),
+        (0.5, 0.5),
+    ],
+)
 def test_biz_val_rfecv_perf_weight_parametrize_completes(mean_weight, std_weight):
     """``mean_perf_weight`` x ``std_perf_weight`` cross-parametrize.
     All combinations must complete + produce valid support_."""
@@ -706,13 +811,18 @@ def test_biz_val_rfecv_perf_weight_parametrize_completes(mean_weight, std_weight
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=15),
-        cv=2, max_refits=3, verbose=0, random_state=42,
+        cv=2,
+        max_refits=3,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         mean_perf_weight=mean_weight,
         std_perf_weight=std_weight,
@@ -721,9 +831,14 @@ def test_biz_val_rfecv_perf_weight_parametrize_completes(mean_weight, std_weight
     assert 1 <= len(_support_indices(sel)) <= df.shape[1]
 
 
-@pytest.mark.parametrize("n_features_rule", [
-    "auto", "argmax", "one_se_min",
-])
+@pytest.mark.parametrize(
+    "n_features_rule",
+    [
+        "auto",
+        "argmax",
+        "one_se_min",
+    ],
+)
 def test_biz_val_rfecv_n_features_selection_rule_parametrize(n_features_rule):
     """``n_features_selection_rule`` parametrize across all three
     documented rules."""
@@ -731,13 +846,18 @@ def test_biz_val_rfecv_n_features_selection_rule_parametrize(n_features_rule):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=15),
-        cv=2, max_refits=4, verbose=0, random_state=42,
+        cv=2,
+        max_refits=4,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         n_features_selection_rule=n_features_rule,
     )
@@ -750,11 +870,13 @@ def test_biz_val_rfecv_property_no_crash_on_random_configs():
     a random sweep of (n, p_signal, p_noise, cv, seed)."""
     pytest.importorskip("hypothesis")
     from hypothesis import given, settings, strategies as st
+
     pytest.importorskip("sklearn")
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
 
     @given(
@@ -767,12 +889,18 @@ def test_biz_val_rfecv_property_no_crash_on_random_configs():
     @settings(max_examples=5, deadline=None)
     def _property(n, p_signal, p_noise, cv, seed):
         X, y, _ = make_signal_plus_noise(
-            n=n, p_signal=p_signal, p_noise=p_noise, seed=seed,
+            n=n,
+            p_signal=p_signal,
+            p_noise=p_noise,
+            seed=seed,
         )
         df, _ys = as_df(X, y)
         sel = RFECV(
             estimator=RandomForestClassifier(random_state=seed, n_estimators=15),
-            cv=cv, max_refits=3, verbose=0, random_state=seed,
+            cv=cv,
+            max_refits=3,
+            verbose=0,
+            random_state=seed,
             max_noimproving_iters=2,
         )
         sel.fit(df, y)
@@ -791,27 +919,28 @@ def test_biz_val_rfecv_leakage_corr_threshold_parametrize(leakage_thr):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=4, seed=42)
     rng = np.random.default_rng(0)
     leak = y.astype(np.float64) + 0.005 * rng.normal(size=len(y))
     X_with_leak = np.column_stack([X, leak])
-    df = pd.DataFrame(X_with_leak, columns=[f"x{i}" for i in range(
-        X_with_leak.shape[1] - 1)] + ["leak"])
+    df = pd.DataFrame(X_with_leak, columns=[f"x{i}" for i in range(X_with_leak.shape[1] - 1)] + ["leak"])
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=15),
-        cv=2, max_refits=3, verbose=0, random_state=42,
+        cv=2,
+        max_refits=3,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         leakage_corr_threshold=leakage_thr,
         leakage_action="exclude",
     )
     sel.fit(df, y)
     selected_names = [df.columns[i] for i in _support_indices(sel)]
-    assert "leak" not in selected_names, (
-        f"leakage_corr_threshold={leakage_thr} + action='exclude' "
-        f"must keep leak out; got selected={selected_names}"
-    )
+    assert "leak" not in selected_names, f"leakage_corr_threshold={leakage_thr} + action='exclude' must keep leak out; got selected={selected_names}"
 
 
 @pytest.mark.parametrize("leakage_action", ["warn", "exclude"])
@@ -822,13 +951,18 @@ def test_biz_val_rfecv_leakage_action_parametrize_completes(leakage_action):
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
-        make_signal_plus_noise, as_df,
+        make_signal_plus_noise,
+        as_df,
     )
+
     X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=4, seed=42)
     df, _ys = as_df(X, y)
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=15),
-        cv=2, max_refits=3, verbose=0, random_state=42,
+        cv=2,
+        max_refits=3,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=2,
         leakage_corr_threshold=0.95,
         leakage_action=leakage_action,
@@ -853,13 +987,19 @@ def test_biz_val_rfecv_checkpoint_resume_produces_same_support(tmp_path):
 
     sel_full = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=20),
-        cv=3, max_refits=8, verbose=0, random_state=42,
+        cv=3,
+        max_refits=8,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=3,
     )
     sel_full.fit(df, y)
     sel_resume = RFECV(
         estimator=RandomForestClassifier(random_state=42, n_estimators=20),
-        cv=3, max_refits=8, verbose=0, random_state=42,
+        cv=3,
+        max_refits=8,
+        verbose=0,
+        random_state=42,
         max_noimproving_iters=3,
         checkpoint_path=cp,
     )
@@ -871,10 +1011,7 @@ def test_biz_val_rfecv_checkpoint_resume_produces_same_support(tmp_path):
     # ``random_state`` -- without that the optimizer reseeds from system entropy per instance and proposes a different
     # candidate sequence, so two same-seed fits (with OR without a checkpoint) would diverge by a borderline noise
     # feature. Pin the strict equality so a regression in that seeding (or in the save/load/signature path) fails loudly.
-    assert full_set == resume_set, (
-        f"checkpoint-enabled fit must produce same support; "
-        f"full={sorted(full_set)}, ckpt={sorted(resume_set)}"
-    )
+    assert full_set == resume_set, f"checkpoint-enabled fit must produce same support; full={sorted(full_set)}, ckpt={sorted(resume_set)}"
 
 
 # ---------------------------------------------------------------------------
@@ -910,6 +1047,7 @@ def test_biz_val_rfecv_sample_weight_changes_support_under_recency():
         """Return mean CV log-loss score per single feature under the given weighting."""
         from sklearn.model_selection import KFold
         from sklearn.metrics import log_loss
+
         est_cls = LogisticRegression
         kf = KFold(n_splits=3, shuffle=True, random_state=42)
         scores = {}
@@ -933,8 +1071,7 @@ def test_biz_val_rfecv_sample_weight_changes_support_under_recency():
     best_uniform = min(scores_uniform, key=scores_uniform.get)
     best_recency = min(scores_recency, key=scores_recency.get)
     assert best_uniform == "B", (
-        f"uniform CV should pick B as the better single feature (older regime is 2x bigger); got "
-        f"scores={scores_uniform}, best={best_uniform!r}"
+        f"uniform CV should pick B as the better single feature (older regime is 2x bigger); got scores={scores_uniform}, best={best_uniform!r}"
     )
     assert best_recency == "A", (
         f"recency-weighted CV should pick A as the better single feature (recent regime dominates the weighted "
@@ -990,6 +1127,7 @@ def test_biz_val_rfecv_auto_rule_pure_noise_fp_gap_pinned():
     pytest.importorskip("sklearn")
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
+
     rng = np.random.default_rng(0)
     p = 15
     X = rng.normal(size=(400, p))
@@ -997,8 +1135,12 @@ def test_biz_val_rfecv_auto_rule_pure_noise_fp_gap_pinned():
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(p)])
     sel = RFECV(
         estimator=RandomForestClassifier(random_state=0, n_estimators=40),
-        cv=3, max_refits=10, verbose=0, random_state=0,
-        max_noimproving_iters=4, n_features_selection_rule="auto",
+        cv=3,
+        max_refits=10,
+        verbose=0,
+        random_state=0,
+        max_noimproving_iters=4,
+        n_features_selection_rule="auto",
     )
     sel.fit(df, y)
     n_sel = len(_support_indices(sel))

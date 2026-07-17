@@ -5,6 +5,7 @@ exists for), overflow/inf handling in the ``x0*x0`` / ratio forms, the ``_abs_pe
 constant / near-constant / 2-row / all-nan / large-mean columns, subsample determinism + outlier-proportion preservation, and the
 regression pin for non-finite inner edges leaking from ``_edges_from_quantiles`` / ``_edges_from_uniform`` into searchsorted.
 """
+
 import numpy as np
 import pytest
 
@@ -15,7 +16,9 @@ from mlframe.feature_selection.filters import _adaptive_nbins as A
 def _forms_gate(y, x0, x1, dtype, *, min_corr=0.6, margin=1.05):
     """Reproduce usability_form_corrs' form materialisation at a fixed dtype and return (cp, cs, gate-passes)."""
     eps = 1e-12
-    _y = np.asarray(y, dtype=dtype).ravel(); _x0 = np.asarray(x0, dtype=dtype).ravel(); _x1 = np.asarray(x1, dtype=dtype).ravel()
+    _y = np.asarray(y, dtype=dtype).ravel()
+    _x0 = np.asarray(x0, dtype=dtype).ravel()
+    _x1 = np.asarray(x1, dtype=dtype).ravel()
 
     def sd(n, d):
         return n / np.where(np.abs(d) < eps, np.nan, d)
@@ -54,7 +57,9 @@ def test_overflow_inf_dropped_not_poisoning_corr():
     """``x0*x0`` overflows to +inf in f32 for |x0|>~1.8e19; the njit finite-mask must DROP those rows, never poison |corr| with inf/nan."""
     rng = np.random.default_rng(1)
     n = 2000
-    x0 = rng.normal(0, 1, n); x1 = rng.normal(1, 1, n); y = rng.normal(0, 1, n)
+    x0 = rng.normal(0, 1, n)
+    x1 = rng.normal(1, 1, n)
+    y = rng.normal(0, 1, n)
     x0[:5] = [2e19, -3e19, 5e19, 1e20, -2e19]
     with np.errstate(over="ignore", invalid="ignore"):
         sq32 = x0.astype(np.float32) * x0.astype(np.float32)
@@ -63,12 +68,15 @@ def test_overflow_inf_dropped_not_poisoning_corr():
     assert np.isfinite(c) and 0.0 <= c <= 1.0  # inf rows dropped, corr stays a valid finite statistic
 
 
-@pytest.mark.parametrize("desc,a,b,expected", [
-    ("constant", np.arange(100.0), np.ones(100), 0.0),
-    ("near_const_1e-30", np.arange(100.0), 1.0 + np.linspace(0, 1e-15, 100), 0.0),
-    ("one_row", np.array([1.0]), np.array([3.0]), 0.0),
-    ("all_nan", np.arange(100.0), np.full(100, np.nan), 0.0),
-])
+@pytest.mark.parametrize(
+    "desc,a,b,expected",
+    [
+        ("constant", np.arange(100.0), np.ones(100), 0.0),
+        ("near_const_1e-30", np.arange(100.0), 1.0 + np.linspace(0, 1e-15, 100), 0.0),
+        ("one_row", np.array([1.0]), np.array([3.0]), 0.0),
+        ("all_nan", np.arange(100.0), np.full(100, np.nan), 0.0),
+    ],
+)
 def test_abs_pearson_degenerate_guards(desc, a, b, expected):
     """Constant / sub-1e-15-variance / <2-row / all-nan columns must return exactly 0.0, never a spurious huge |corr| from a
     catastrophic-cancellation variance that slips the ``va<=0`` / ``den<=0`` guards."""
@@ -89,7 +97,8 @@ def test_subsample_deterministic_and_outlier_preserving():
     n = 3 * U._ABS_PEARSON_MAX_ROWS if U._ABS_PEARSON_MAX_ROWS > 0 else 600000
     big = np.random.default_rng(0).normal(size=n)
     assert np.array_equal(U._subsample_for_corr(big.copy())[0], U._subsample_for_corr(big.copy())[0])
-    z = np.zeros(n); z[np.random.default_rng(7).choice(n, size=n // 3, replace=False)] = 1e6  # random (non-periodic) so outliers don't alias the stride
+    z = np.zeros(n)
+    z[np.random.default_rng(7).choice(n, size=n // 3, replace=False)] = 1e6  # random (non-periodic) so outliers don't alias the stride
     sub = U._subsample_for_corr(z.copy())[0]
     assert np.mean(z > 1e5) == pytest.approx(np.mean(sub > 1e5), abs=5e-3)
     # n below cap -> no stride (identity); exactly at cap -> no stride.

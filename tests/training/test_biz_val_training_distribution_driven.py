@@ -35,9 +35,7 @@ def test_biz_val_tail_composite_extreme_quantile_beats_gaussian():
         X = pd.DataFrame({"f0": f0})
         tr, te = slice(0, 4000), slice(4000, n)
 
-        est = instantiate_recommended_estimator(
-            rec, base_estimator=LinearRegression(), transform_name="diff", base_column="f0", threshold_pct=0.85
-        )
+        est = instantiate_recommended_estimator(rec, base_estimator=LinearRegression(), transform_name="diff", base_column="f0", threshold_pct=0.85)
         est.fit(X.iloc[tr], y[tr])
 
         gpd = est.predict_tail_quantile(X.iloc[te], q)

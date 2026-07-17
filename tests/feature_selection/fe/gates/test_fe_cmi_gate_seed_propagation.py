@@ -7,6 +7,7 @@ identical gate null. The existing CMI-gate suite calls ``apply_cmi_redundancy_ga
 with an explicit ``seed=`` so the wiring bug was invisible; this test drives the seed THROUGH
 ``MRMR.fit``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,12 +21,16 @@ def _fe_world(seed: int, n: int = 4000):
     """Three genuine engineered drivers (a**2/b, log(c)*sin(d), g*h) + noise so the FE pair
     search surfaces >=2 engineered survivors and the conditional-MI gate actually fires."""
     rng = np.random.default_rng(seed)
-    a = rng.uniform(0.5, 3.0, n); b = rng.uniform(0.5, 3.0, n)
-    c = rng.uniform(0.5, 5.0, n); d = rng.uniform(0.0, 2 * np.pi, n)
-    g = rng.uniform(0.5, 3.0, n); h = rng.uniform(0.5, 3.0, n)
+    a = rng.uniform(0.5, 3.0, n)
+    b = rng.uniform(0.5, 3.0, n)
+    c = rng.uniform(0.5, 5.0, n)
+    d = rng.uniform(0.0, 2 * np.pi, n)
+    g = rng.uniform(0.5, 3.0, n)
+    h = rng.uniform(0.5, 3.0, n)
     f = rng.normal(0.0, 1.0, n)
     y = a**2 / b + 3.0 * np.log(c) * np.sin(d) + g * h + f / 5.0
     import pandas as pd
+
     X = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "g": g, "h": h, "f": f})
     return X, y
 

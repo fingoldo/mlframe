@@ -23,6 +23,7 @@ every engineered feature, AUC collapses without any warning.
 Fix: use ``np.result_type(base_out.dtype, engineered_arr.dtype)`` and
 promote BOTH sides to the common dtype before hstack.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,10 +40,12 @@ def _stack_post_fix(base_out, engineered_cols):
     """Reproduces the iter-15 fix."""
     engineered_arr = np.column_stack(engineered_cols)
     common_dtype = np.result_type(base_out.dtype, engineered_arr.dtype)
-    return np.hstack([
-        base_out.astype(common_dtype, copy=False),
-        engineered_arr.astype(common_dtype, copy=False),
-    ])
+    return np.hstack(
+        [
+            base_out.astype(common_dtype, copy=False),
+            engineered_arr.astype(common_dtype, copy=False),
+        ]
+    )
 
 
 def test_pre_fix_truncates_floats_baseline():
@@ -73,10 +76,7 @@ def test_post_fix_engineered_column_not_constant():
     base = np.array([[10], [30], [50], [70]], dtype=np.int64)
     engineered = [np.array([0.1, 0.5, 0.9, 0.3])]
     post = _stack_post_fix(base, engineered)
-    assert post[:, -1].std() > 1e-6, (
-        "engineered column collapsed to constant; downstream models "
-        "would see a useless feature."
-    )
+    assert post[:, -1].std() > 1e-6, "engineered column collapsed to constant; downstream models would see a useless feature."
 
 
 def test_post_fix_all_float_unchanged():
@@ -132,10 +132,12 @@ def test_e2e_mrmr_ndarray_transform_does_not_zero_engineered_cols():
     expected_last_col = np.array([0.10, 0.55, 0.92, 0.33, 0.77])
 
     engineered_arr = np.column_stack(engineered_cols)
-    result = np.hstack([
-        base_int.astype(common_dtype, copy=False),
-        engineered_arr.astype(common_dtype, copy=False),
-    ])
+    result = np.hstack(
+        [
+            base_int.astype(common_dtype, copy=False),
+            engineered_arr.astype(common_dtype, copy=False),
+        ]
+    )
     np.testing.assert_allclose(result[:, -1], expected_last_col, atol=1e-12)
     # The base columns must be preserved bit-identical (as float64).
     np.testing.assert_array_equal(result[:, :2], base_int.astype(common_dtype))

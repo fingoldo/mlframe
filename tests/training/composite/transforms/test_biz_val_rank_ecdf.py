@@ -12,6 +12,7 @@ heavy-tailed monotone-warp synthetic (``y = sinh(2.5*latent)``) the rank-space
 reconstruction median-abs error crushes ``linear_residual`` (measured ratio
 ~0.0014; floor 0.5) whose line inverse explodes on the tails.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -218,7 +219,4 @@ def test_biz_val_rank_ecdf_beats_linear_residual_on_heavy_tailed_warp():
         lin_errs.append(_medae(ylhat, y_te))
     re_err = float(np.median(re_errs))
     lin_err = float(np.median(lin_errs))
-    assert re_err <= lin_err * 0.5, (
-        f"rank_ecdf medAE {re_err:.4f} should be <=0.5x linear_residual medAE "
-        f"{lin_err:.4f} (ratio {re_err / lin_err:.4f})"
-    )
+    assert re_err <= lin_err * 0.5, f"rank_ecdf medAE {re_err:.4f} should be <=0.5x linear_residual medAE {lin_err:.4f} (ratio {re_err / lin_err:.4f})"

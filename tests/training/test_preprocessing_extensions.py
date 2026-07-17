@@ -41,12 +41,23 @@ def test_empty_config_is_noop(small_df):
 # Full PreprocessingExtensionsConfig.scaler Literal: every value routes through
 # the same apply_preprocessing_extensions code path. Fast mode trims to one
 # representative; full mode covers every variant the validator accepts.
-@pytest.mark.parametrize("scaler", fast_subset([
-    "StandardScaler", "StandardScaler_nomean",
-    "RobustScaler", "MinMaxScaler", "MaxAbsScaler",
-    "PowerTransformer_yj", "PowerTransformer_yj_nostd",
-    "QuantileTransformer_uniform", "QuantileTransformer_normal",
-], representative="StandardScaler"))
+@pytest.mark.parametrize(
+    "scaler",
+    fast_subset(
+        [
+            "StandardScaler",
+            "StandardScaler_nomean",
+            "RobustScaler",
+            "MinMaxScaler",
+            "MaxAbsScaler",
+            "PowerTransformer_yj",
+            "PowerTransformer_yj_nostd",
+            "QuantileTransformer_uniform",
+            "QuantileTransformer_normal",
+        ],
+        representative="StandardScaler",
+    ),
+)
 def test_scaler_variants_produce_expected_shape(small_df, scaler):
     cfg = PreprocessingExtensionsConfig(scaler=scaler)
     out, _, _, pipe = apply_preprocessing_extensions(small_df, None, None, cfg, verbose=0)
@@ -58,6 +69,7 @@ def test_normalizer_l2_rejected_at_validation():
     """Regression: row-wise normalization mislabeled as a scaler silently broke
     GBDT models. Removed 2026-05-15 - see README.md Roadmap."""
     from pydantic import ValidationError
+
     with pytest.raises(ValidationError):
         PreprocessingExtensionsConfig(scaler="Normalizer_l2")
 
@@ -91,6 +103,7 @@ def test_polynomial_min_degree():
 
 def test_umap_missing_raises_importerror(monkeypatch, small_df):
     import importlib.util as ilu
+
     orig = ilu.find_spec
     monkeypatch.setattr(ilu, "find_spec", lambda name: None if name == "umap" else orig(name))
     cfg = PreprocessingExtensionsConfig(dim_reducer="UMAP", dim_n_components=2)

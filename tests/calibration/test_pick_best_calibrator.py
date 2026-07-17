@@ -4,6 +4,7 @@ Synthetic miscalibrated probs (sigmoid-shifted noise) should let an Isotonic /
 Beta calibrator beat raw probs on OOF ECE; the policy helper should return a
 valid disposition with ECE CI populated, and emit a PNG when ``emit_plot=True``.
 """
+
 from __future__ import annotations
 
 import os
@@ -31,8 +32,10 @@ def test_pick_best_calibrator_picks_isotonic_on_large_n():
 
     raw, y = _make_miscalibrated(n=2000, seed=11)
     out = pick_best_calibrator(
-        probs=None, y=None,
-        oof_probs=raw, oof_y=y,
+        probs=None,
+        y=None,
+        oof_probs=raw,
+        oof_y=y,
         n_bootstrap=200,  # keep test fast; default 1000 covered by other paths
         random_state=11,
         selection="same_oof",  # this test exercises the legacy same-OOF Kull-2017 CI-overlap ruleset
@@ -66,8 +69,10 @@ def test_pick_best_calibrator_small_n_prefers_beta():
 
     raw, y = _make_miscalibrated(n=200, seed=17)
     out = pick_best_calibrator(
-        probs=None, y=None,
-        oof_probs=raw, oof_y=y,
+        probs=None,
+        y=None,
+        oof_probs=raw,
+        oof_y=y,
         n_bootstrap=200,
         random_state=17,
         selection="same_oof",  # this test exercises the legacy small-n Beta default rule
@@ -87,8 +92,10 @@ def test_pick_best_calibrator_emit_plot_writes_png():
     with tempfile.TemporaryDirectory() as td:
         plot_path = os.path.join(td, "calib_plot.png")
         out = pick_best_calibrator(
-            probs=None, y=None,
-            oof_probs=raw, oof_y=y,
+            probs=None,
+            y=None,
+            oof_probs=raw,
+            oof_y=y,
             n_bootstrap=100,
             random_state=23,
             emit_plot=True,
@@ -101,15 +108,18 @@ def test_pick_best_calibrator_emit_plot_writes_png():
 
 def test_pick_best_calibrator_rejects_too_few_rows():
     from mlframe.calibration.policy import pick_best_calibrator
+
     with pytest.raises(ValueError, match="at least 4 OOF rows"):
         pick_best_calibrator(probs=None, y=None, oof_probs=np.array([0.1, 0.9, 0.5]), oof_y=np.array([0, 1, 0]))
 
 
 def test_pick_best_calibrator_rejects_row_mismatch():
     from mlframe.calibration.policy import pick_best_calibrator
+
     with pytest.raises(ValueError, match="do not match"):
         pick_best_calibrator(
-            probs=None, y=None,
+            probs=None,
+            y=None,
             oof_probs=np.linspace(0, 1, 20),
             oof_y=np.zeros(15),
         )
@@ -117,6 +127,7 @@ def test_pick_best_calibrator_rejects_row_mismatch():
 
 def test_calibration_config_default_policy_on():
     from mlframe.calibration.policy import CalibrationConfig
+
     cfg = CalibrationConfig()
     assert cfg.policy_auto_pick is True
     assert cfg.alpha == 0.05
@@ -131,6 +142,7 @@ def test_iter598_ece_score_mixed_dtype_bit_equivalent():
     widens at the accumulator just like the explicit cast did. Pin
     bit-equivalence across (int64, int8, float64) labels."""
     from mlframe.calibration import policy as _policy
+
     rng = np.random.default_rng(20260531)
     n = 5_000
     y_int = rng.integers(0, 2, size=n, dtype=np.int64)

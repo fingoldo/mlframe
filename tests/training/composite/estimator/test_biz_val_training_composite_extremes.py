@@ -5,6 +5,7 @@ finite sample SATURATES at the largest observed value and under-estimates the
 true 0.999 quantile. The POT/GPD extrapolation in ``TailCompositeEstimator``
 extends beyond the sample max and lands measurably closer to the true tail.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -72,9 +73,7 @@ def test_biz_val_extremes_gpd_beats_empirical_999_pareto():
     # The empirical estimate must materially under-shoot the true tail.
     assert mean_emp > 0.3, f"empirical err unexpectedly low: {mean_emp}"
     # GPD must be at least 1.5x closer to the truth than the empirical estimate.
-    assert mean_gpd < mean_emp / 1.5, (
-        f"GPD rel-err {mean_gpd:.3f} not < empirical {mean_emp:.3f}/1.5"
-    )
+    assert mean_gpd < mean_emp / 1.5, f"GPD rel-err {mean_gpd:.3f} not < empirical {mean_emp:.3f}/1.5"
 
 
 def test_biz_val_extremes_gpd_exceeds_sample_max():
@@ -87,8 +86,11 @@ def test_biz_val_extremes_gpd_exceeds_sample_max():
     n = 3000
     y = stats.pareto.rvs(b=1.5, size=n, random_state=rng)
     est = TailCompositeEstimator(
-        base_estimator=_ZeroBase(), transform_name="diff",
-        base_column="base", threshold_pct=0.90, two_sided=False,
+        base_estimator=_ZeroBase(),
+        transform_name="diff",
+        base_column="base",
+        threshold_pct=0.90,
+        two_sided=False,
     )
     est.fit(_frame(n), y)
     sample_max = float(np.max(y))

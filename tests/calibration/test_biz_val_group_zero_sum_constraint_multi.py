@@ -8,6 +8,7 @@ other (the two partitions overlap), so this test demonstrates that concretely wi
 multi-constraint (Dykstra alternating-projection) helper converges BOTH constraints simultaneously while still
 cutting RMSE versus the raw uncorrected predictions.
 """
+
 from __future__ import annotations
 
 import numpy as np

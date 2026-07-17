@@ -7,6 +7,7 @@ partition when replicates are exact duplicates, and (b) when used with GroupKFol
 KFold lets a replicate leak into both train and validation) to honest (GroupKFold with the reconstructed
 ids never splits an entity's replicates across folds).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -79,8 +80,7 @@ def test_biz_val_reconstructed_groups_close_a_real_leakage_gap():
 
     assert leaky_acc > 0.90, f"sanity: row-level KFold should show inflated near-perfect accuracy from the leak, got {leaky_acc:.3f}"
     assert honest_acc < leaky_acc - 0.15, (
-        f"GroupKFold on reconstructed ids should show a materially lower, more honest accuracy: "
-        f"leaky={leaky_acc:.3f} honest={honest_acc:.3f}"
+        f"GroupKFold on reconstructed ids should show a materially lower, more honest accuracy: leaky={leaky_acc:.3f} honest={honest_acc:.3f}"
     )
 
 

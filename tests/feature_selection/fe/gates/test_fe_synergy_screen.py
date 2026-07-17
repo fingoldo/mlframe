@@ -8,6 +8,7 @@ the documented I4/I5 barrier. These tests pin that the bias-corrected JOINT MI:
 
 This is the gate the I4/I5 re-platform requires before the screen is wired into the rung-0 search.
 """
+
 from __future__ import annotations
 
 import numpy as np

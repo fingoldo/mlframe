@@ -37,6 +37,7 @@ Calibration (measured once, CPU, store-python 3.14):
   (b) signal+FE n=2000: AUC_default == AUC_isolated to 1e-4 at seeds 42 (0.8835) and
       7 (0.8634); identical feature counts. Floors set ~0.05 below the measured min.
 """
+
 from __future__ import annotations
 
 import math
@@ -109,24 +110,21 @@ def _build_signal_fe_frame(seed: int = 42, n: int = 2000):
     log_cnt = np.log1p(pd.Series(cat_user).map(counts).to_numpy().astype(float))
     log_cnt_c = log_cnt - log_cnt.mean()
     noise = rng.standard_normal((n, 4))
-    logit = (
-        0.6 * x_num1
-        + 1.8 * (x_quad ** 2 - 1.0)
-        + 2.0 * np.sin(2.0 * np.pi * x_periodic)
-        + 0.8 * log_cnt_c
-    )
+    logit = 0.6 * x_num1 + 1.8 * (x_quad**2 - 1.0) + 2.0 * np.sin(2.0 * np.pi * x_periodic) + 0.8 * log_cnt_c
     prob = 1.0 / (1.0 + np.exp(-logit))
     y = (rng.uniform(size=n) < prob).astype(np.int64)
-    df = pd.DataFrame({
-        "x_num1": x_num1,
-        "x_quad": x_quad,
-        "x_periodic": x_periodic,
-        "cat_user": cat_user,
-        "n0": noise[:, 0],
-        "n1": noise[:, 1],
-        "n2": noise[:, 2],
-        "n3": noise[:, 3],
-    })
+    df = pd.DataFrame(
+        {
+            "x_num1": x_num1,
+            "x_quad": x_quad,
+            "x_periodic": x_periodic,
+            "cat_user": cat_user,
+            "n0": noise[:, 0],
+            "n1": noise[:, 1],
+            "n2": noise[:, 2],
+            "n3": noise[:, 3],
+        }
+    )
     return df, pd.Series(y, name="y")
 
 
@@ -235,13 +233,8 @@ def test_default_pipeline_null_selection_is_bounded_fast():
     total_cols = X.shape[1]
     ceil_sel = math.ceil(_NOISE_SELECT_FRACTION_CEIL * total_cols)
     nsel = _n_selected(sel)
-    assert nsel <= ceil_sel, (
-        f"default null FWER (fast): selected {nsel}/{total_cols} noise features "
-        f"(ceiling {ceil_sel})"
-    )
-    assert _n_engineered(sel) == 0, (
-        "default null FWER (fast): manufactured engineered recipe(s) from pure noise"
-    )
+    assert nsel <= ceil_sel, f"default null FWER (fast): selected {nsel}/{total_cols} noise features (ceiling {ceil_sel})"
+    assert _n_engineered(sel) == 0, "default null FWER (fast): manufactured engineered recipe(s) from pure noise"
 
 
 @pytest.mark.slow
@@ -260,10 +253,7 @@ def test_default_pipeline_null_manufactures_no_engineered_recipe_from_noise():
     sel = _fit_default(X, y_reg, seed)
     neng = _n_engineered(sel)
     recipe_names = [r.name for r in getattr(sel, "_engineered_recipes_", [])]
-    assert neng == 0, (
-        f"default pipeline manufactured {neng} engineered recipe(s) from pure "
-        f"noise: {recipe_names}"
-    )
+    assert neng == 0, f"default pipeline manufactured {neng} engineered recipe(s) from pure noise: {recipe_names}"
 
 
 # ---------------------------------------------------------------------------
@@ -306,8 +296,11 @@ def test_all_fe_on_prod_default_redundancy_holds_auc(seed):
         warnings.simplefilter("ignore")
         sel_default = MRMR(verbose=0, random_seed=seed, **_all_fe_kwargs()).fit(X_tr, y_tr)
         sel_isolated = MRMR(
-            verbose=0, random_seed=seed,
-            dcd_enable=False, cluster_aggregate_enable=False, build_friend_graph=False,
+            verbose=0,
+            random_seed=seed,
+            dcd_enable=False,
+            cluster_aggregate_enable=False,
+            build_friend_graph=False,
             **_all_fe_kwargs(),
         ).fit(X_tr, y_tr)
 
@@ -315,8 +308,7 @@ def test_all_fe_on_prod_default_redundancy_holds_auc(seed):
     auc_isolated = _holdout_auc(sel_isolated, X_tr, y_tr, X_ho, y_ho)
 
     assert auc_default >= _ALL_FE_PRODDEFAULT_AUC_FLOOR, (
-        f"all-FE-on prod-default downstream AUC {auc_default:.4f} below floor "
-        f"{_ALL_FE_PRODDEFAULT_AUC_FLOOR} at seed={seed}"
+        f"all-FE-on prod-default downstream AUC {auc_default:.4f} below floor {_ALL_FE_PRODDEFAULT_AUC_FLOOR} at seed={seed}"
     )
     assert auc_default >= auc_isolated - _ALL_FE_VS_ISOLATED_BAND, (
         f"prod-default redundancy (dcd/cluster ON) DEGRADED the all-FE selection vs "
@@ -340,18 +332,18 @@ def test_all_fe_on_prod_default_redundancy_holds_auc_fast():
         warnings.simplefilter("ignore")
         sel_default = MRMR(verbose=0, random_seed=seed, **_all_fe_kwargs()).fit(X_tr, y_tr)
         sel_isolated = MRMR(
-            verbose=0, random_seed=seed,
-            dcd_enable=False, cluster_aggregate_enable=False, build_friend_graph=False,
+            verbose=0,
+            random_seed=seed,
+            dcd_enable=False,
+            cluster_aggregate_enable=False,
+            build_friend_graph=False,
             **_all_fe_kwargs(),
         ).fit(X_tr, y_tr)
 
     auc_default = _holdout_auc(sel_default, X_tr, y_tr, X_ho, y_ho)
     auc_isolated = _holdout_auc(sel_isolated, X_tr, y_tr, X_ho, y_ho)
     # Smaller-n floor is looser; the within-band contract is the real sensor.
-    assert auc_default >= 0.70, (
-        f"all-FE-on prod-default downstream AUC {auc_default:.4f} unexpectedly low (fast)"
-    )
+    assert auc_default >= 0.70, f"all-FE-on prod-default downstream AUC {auc_default:.4f} unexpectedly low (fast)"
     assert auc_default >= auc_isolated - _ALL_FE_VS_ISOLATED_BAND, (
-        f"prod-default redundancy degraded the all-FE selection vs isolated (fast): "
-        f"AUC_default={auc_default:.4f} AUC_isolated={auc_isolated:.4f}"
+        f"prod-default redundancy degraded the all-FE selection vs isolated (fast): AUC_default={auc_default:.4f} AUC_isolated={auc_isolated:.4f}"
     )

@@ -6,6 +6,7 @@ Pins the optimization that replaced the O(G*n)-per-alpha boolean-mask loop with 
 factorize + stable argsort grouping (8-37x measured; see
 src/mlframe/training/composite/_benchmarks/bench_cpx29_conformal_mondrian.py).
 """
+
 from __future__ import annotations
 
 import numpy as np

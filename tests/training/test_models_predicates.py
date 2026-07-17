@@ -6,6 +6,7 @@ constants (LINEAR_MODEL_TYPES / TREE_MODEL_TYPES / NEURAL_MODEL_TYPES) are
 the contract -- predicates pin which names route to which family for the
 suite-level dispatch.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -155,6 +156,7 @@ def test_create_linear_model_fits_on_trivial_data():
     # tiny synthetic without raising. Validates the config knobs make it
     # through to the underlying sklearn class.
     import numpy as np
+
     rng = np.random.default_rng(0)
     X = rng.normal(size=(50, 3))
     y = X @ np.array([1.0, -2.0, 0.5]) + rng.normal(scale=0.1, size=50)
@@ -167,4 +169,5 @@ def test_create_linear_model_fits_on_trivial_data():
     # Ridge on well-conditioned data should recover the linear signal
     # closely; pin a generous floor (R^2 >= 0.9).
     from sklearn.metrics import r2_score
+
     assert r2_score(y, preds) >= 0.9

@@ -10,6 +10,7 @@ text columns into ints, then CatBoost rejected them at fit time with
 
 The fix lives in mlframe.training.core._phase_helpers._phase_fit_pipeline.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,13 +33,13 @@ def test_cb_ordinal_autoflip_with_string_categoricals():
 
     rng = np.random.default_rng(0)
     n = 200
-    df = pd.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "cat_low": np.array(["A", "B", "C", "D", "E"], dtype=object)[
-            rng.integers(0, 5, n)
-        ],
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "cat_low": np.array(["A", "B", "C", "D", "E"], dtype=object)[rng.integers(0, 5, n)],
+        }
+    )
 
     pipeline_config = PreprocessingBackendConfig(
         categorical_encoding="ordinal",
@@ -60,9 +61,7 @@ def test_cb_ordinal_autoflip_with_string_categoricals():
     )
     pipeline_config_out = _result[13]
 
-    assert pipeline_config_out.skip_categorical_encoding is True, (
-        "CB + ordinal + string-categoricals must auto-flip skip_categorical_encoding"
-    )
+    assert pipeline_config_out.skip_categorical_encoding is True, "CB + ordinal + string-categoricals must auto-flip skip_categorical_encoding"
 
 
 def test_no_autoflip_when_no_cb():
@@ -72,10 +71,12 @@ def test_no_autoflip_when_no_cb():
 
     rng = np.random.default_rng(0)
     n = 200
-    df = pd.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "cat_low": np.array(["A", "B", "C"], dtype=object)[rng.integers(0, 3, n)],
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "cat_low": np.array(["A", "B", "C"], dtype=object)[rng.integers(0, 3, n)],
+        }
+    )
 
     pipeline_config = PreprocessingBackendConfig(
         categorical_encoding="ordinal",
@@ -97,9 +98,7 @@ def test_no_autoflip_when_no_cb():
     )
     pipeline_config_out = _result[13]
 
-    assert pipeline_config_out.skip_categorical_encoding is False, (
-        "Without CB in models, sklearn linear models need encoded cats - no autoflip expected"
-    )
+    assert pipeline_config_out.skip_categorical_encoding is False, "Without CB in models, sklearn linear models need encoded cats - no autoflip expected"
 
 
 def test_no_autoflip_when_no_cats():
@@ -108,10 +107,12 @@ def test_no_autoflip_when_no_cats():
 
     rng = np.random.default_rng(0)
     n = 200
-    df = pd.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+        }
+    )
 
     pipeline_config = PreprocessingBackendConfig(
         categorical_encoding="ordinal",

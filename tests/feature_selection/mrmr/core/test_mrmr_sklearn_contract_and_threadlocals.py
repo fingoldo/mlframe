@@ -12,6 +12,7 @@ and asserts the post-fix contract:
 * D3 -- the fit ``finally`` restores the MI thread-locals to the values held at fit ENTRY (snapshot), not to
   hardcoded literals, so an inner fit cannot clobber an outer fit's toggles.
 """
+
 import warnings
 
 import numpy as np
@@ -84,10 +85,7 @@ def test_f1_deprecation_warning_still_fires_when_user_passes_deprecated_arg():
     with warnings.catch_warnings(record=True) as rec:
         warnings.simplefilter("always")
         MRMR(skip_retraining_on_same_shape=True)
-    assert any(
-        issubclass(w.category, DeprecationWarning) and "skip_retraining_on_same_shape" in str(w.message)
-        for w in rec
-    )
+    assert any(issubclass(w.category, DeprecationWarning) and "skip_retraining_on_same_shape" in str(w.message) for w in rec)
 
 
 def test_d5_default_seed_resample_is_reproducible():

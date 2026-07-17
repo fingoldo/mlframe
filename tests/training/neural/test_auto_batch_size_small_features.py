@@ -3,6 +3,7 @@ runs into ~4000 batches per epoch (single-thread CPU-bound DataLoader = idle
 GPU). New ceiling lets the memory-budget computation actually bind, so
 narrow-feature frames get ~thousands at a time.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -15,11 +16,10 @@ def test_auto_batch_ceiling_is_permissive_for_small_features():
     # 25 features, plenty of memory: resolver should pick well above old 1024 ceiling.
     bs = resolve_mlp_train_batch_size(
         n_features=25,
-        available_memory_bytes=8 * 1024 ** 3,  # 8 GB budget
+        available_memory_bytes=8 * 1024**3,  # 8 GB budget
     )
     assert bs >= 8192, (
-        f"With 25 features and 8 GB budget auto batch_size should be >= 8192, "
-        f"got {bs}. Old ceiling 1024 made narrow-feature training catastrophically slow."
+        f"With 25 features and 8 GB budget auto batch_size should be >= 8192, got {bs}. Old ceiling 1024 made narrow-feature training catastrophically slow."
     )
 
 
@@ -41,15 +41,14 @@ def test_auto_batch_wide_features_shrinks():
     from mlframe.training.mlp_runtime_defaults import resolve_mlp_train_batch_size
 
     bs_narrow = resolve_mlp_train_batch_size(
-        n_features=25, available_memory_bytes=8 * 1024 ** 3,
+        n_features=25,
+        available_memory_bytes=8 * 1024**3,
     )
     bs_wide = resolve_mlp_train_batch_size(
-        n_features=10_000, available_memory_bytes=8 * 1024 ** 3,
+        n_features=10_000,
+        available_memory_bytes=8 * 1024**3,
     )
-    assert bs_wide < bs_narrow, (
-        f"Wider features should yield smaller batch_size at fixed memory budget. "
-        f"narrow(25)={bs_narrow}, wide(10000)={bs_wide}"
-    )
+    assert bs_wide < bs_narrow, f"Wider features should yield smaller batch_size at fixed memory budget. narrow(25)={bs_narrow}, wide(10000)={bs_wide}"
 
 
 @pytest.mark.fast
@@ -59,11 +58,12 @@ def test_auto_batch_ceiling_not_unbounded():
 
     bs = resolve_mlp_train_batch_size(
         n_features=1,
-        available_memory_bytes=128 * 1024 ** 3,  # 128 GB
+        available_memory_bytes=128 * 1024**3,  # 128 GB
     )
     assert bs <= 65536, f"batch_size ceiling (65536) violated: got {bs}"
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "--no-cov", "-x", "-s", "--tb=short"]))

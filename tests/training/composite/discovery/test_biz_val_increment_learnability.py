@@ -8,6 +8,7 @@ as a plain feature. The precheck measures max_j MI(x_j, residual) on a capped sc
 the base when it clears a small threshold; a pure-noise residual is dropped as before. Provenance-causal
 bases stay exempt regardless of the precheck.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -145,9 +146,7 @@ def test_biz_val_learnable_composite_reconstruction_beats_raw():
     y_hat_composite = base[te] + (a * s[te] + b)
     rmse_composite = float(np.sqrt(np.mean((y[te] - y_hat_composite) ** 2)))
     rmse_raw = float(np.sqrt(np.mean((y[te] - y[tr].mean()) ** 2)))
-    assert rmse_composite <= 0.35 * rmse_raw, (
-        f"composite RMSE {rmse_composite:.3f} should beat raw {rmse_raw:.3f} by a wide margin"
-    )
+    assert rmse_composite <= 0.35 * rmse_raw, f"composite RMSE {rmse_composite:.3f} should beat raw {rmse_raw:.3f} by a wide margin"
 
     # 3. A noise-residual near-copy is still dropped (the precheck does not admit noise).
     y_noise = base + rng.standard_normal(n) * 0.2

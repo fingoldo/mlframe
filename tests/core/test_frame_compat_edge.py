@@ -4,6 +4,7 @@ Complements ``test_frame_compat.py`` with polars nullable / mixed dtypes, duck-t
 polars-like objects (``__module__`` prefix), and the ``to_pandas``-raises -> ``np.asarray``
 fallback branch.
 """
+
 from __future__ import annotations
 
 import numpy as np

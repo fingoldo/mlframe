@@ -5,6 +5,7 @@ every document is empty (all-NaN / all-"" column, common on a tiny inner-CV
 fold). The encoder must degrade gracefully to a faithful, fixed-width matrix so
 the downstream concat layer keeps a stable schema instead of aborting the fit.
 """
+
 from __future__ import annotations
 
 import numpy as np

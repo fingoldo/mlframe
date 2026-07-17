@@ -13,6 +13,7 @@ These tests pin BOTH halves of the contract:
 * The per-feature, full-X MI kernel (``_mi_to_target_prebinned``) is invoked FEWER times with the memo on than a
   naive per-base re-evaluation would invoke it -- proving the redundant work is actually removed.
 """
+
 from __future__ import annotations
 
 import threading
@@ -76,8 +77,11 @@ def _make_unary_ctx(n=4000, f=8, nbins=10, seed=7):
 def test_unary_cached_result_bit_identical_to_per_base_recompute(transform_name):
     """The memoised cached candidate equals a fresh ``_eval_one_transform_impl`` recompute, bit-for-bit."""
     cfg = CompositeTargetDiscoveryConfig(
-        mi_nbins=10, mi_estimator="bin", mi_gain_bootstrap_n=0,
-        min_valid_domain_frac=0.0, random_state=7,
+        mi_nbins=10,
+        mi_estimator="bin",
+        mi_gain_bootstrap_n=0,
+        min_valid_domain_frac=0.0,
+        random_state=7,
     )
     disc = _Disc(cfg)
     transform = get_transform(transform_name)
@@ -89,20 +93,38 @@ def test_unary_cached_result_bit_identical_to_per_base_recompute(transform_name)
 
     # First call populates the memo and returns the freshly-computed result.
     first = eval_one_transform(
-        disc, base, transform_name, transform,
-        base_contexts=base_contexts, y_train=y, y_screen=y, target_col="y",
+        disc,
+        base,
+        transform_name,
+        transform,
+        base_contexts=base_contexts,
+        y_train=y,
+        y_screen=y,
+        target_col="y",
     )
     # Second call must hit the memo (cached path).
     assert transform_name in ctx["_unary_result_memo"]
     cached = eval_one_transform(
-        disc, base, transform_name, transform,
-        base_contexts=base_contexts, y_train=y, y_screen=y, target_col="y",
+        disc,
+        base,
+        transform_name,
+        transform,
+        base_contexts=base_contexts,
+        y_train=y,
+        y_screen=y,
+        target_col="y",
     )
 
     # An INDEPENDENT per-base recompute via the impl (bypasses the memo entirely).
     recompute = _eval_mod._eval_one_transform_impl(
-        disc, base, transform_name, transform,
-        base_contexts=base_contexts, y_train=y, y_screen=y, target_col="y",
+        disc,
+        base,
+        transform_name,
+        transform,
+        base_contexts=base_contexts,
+        y_train=y,
+        y_screen=y,
+        target_col="y",
     )
 
     assert len(first) == len(cached) == len(recompute) == 1
@@ -121,8 +143,11 @@ def test_unary_cached_result_bit_identical_to_per_base_recompute(transform_name)
 def test_unary_memo_returns_independent_copies():
     """Mutating one returned candidate's flags must not leak into a later cached read."""
     cfg = CompositeTargetDiscoveryConfig(
-        mi_nbins=10, mi_estimator="bin", mi_gain_bootstrap_n=0,
-        min_valid_domain_frac=0.0, random_state=7,
+        mi_nbins=10,
+        mi_estimator="bin",
+        mi_gain_bootstrap_n=0,
+        min_valid_domain_frac=0.0,
+        random_state=7,
     )
     disc = _Disc(cfg)
     transform = get_transform("cbrt_y")
@@ -130,13 +155,25 @@ def test_unary_memo_returns_independent_copies():
     base_contexts = {"": ctx}
 
     r1 = eval_one_transform(
-        disc, "", "cbrt_y", transform,
-        base_contexts=base_contexts, y_train=y, y_screen=y, target_col="y",
+        disc,
+        "",
+        "cbrt_y",
+        transform,
+        base_contexts=base_contexts,
+        y_train=y,
+        y_screen=y,
+        target_col="y",
     )
     r1[0]["kept"] = True  # caller-side in-place mutation (mirrors _fit.py FDR pass).
     r2 = eval_one_transform(
-        disc, "", "cbrt_y", transform,
-        base_contexts=base_contexts, y_train=y, y_screen=y, target_col="y",
+        disc,
+        "",
+        "cbrt_y",
+        transform,
+        base_contexts=base_contexts,
+        y_train=y,
+        y_screen=y,
+        target_col="y",
     )
     # The second (cached) read must be a fresh copy unaffected by the r1 mutation.
     assert r2[0]["kept"] is False
@@ -145,8 +182,11 @@ def test_unary_memo_returns_independent_copies():
 def test_unary_memo_reduces_full_x_mi_calls(monkeypatch):
     """With the memo ON, the full-X per-feature MI kernel runs ONCE across B re-evaluations, not B times."""
     cfg = CompositeTargetDiscoveryConfig(
-        mi_nbins=10, mi_estimator="bin", mi_gain_bootstrap_n=0,
-        min_valid_domain_frac=0.0, random_state=7,
+        mi_nbins=10,
+        mi_estimator="bin",
+        mi_gain_bootstrap_n=0,
+        min_valid_domain_frac=0.0,
+        random_state=7,
     )
     disc = _Disc(cfg)
     transform = get_transform("cbrt_y")
@@ -165,8 +205,14 @@ def test_unary_memo_reduces_full_x_mi_calls(monkeypatch):
     n_bases = 3
     for _ in range(n_bases):
         eval_one_transform(
-            disc, "", "cbrt_y", transform,
-            base_contexts=base_contexts, y_train=y, y_screen=y, target_col="y",
+            disc,
+            "",
+            "cbrt_y",
+            transform,
+            base_contexts=base_contexts,
+            y_train=y,
+            y_screen=y,
+            target_col="y",
         )
     # Only the FIRST call computed MI(T_unary, X_full); the next (n_bases-1) hit the memo.
     # The single computing call invokes _mi_to_target_prebinned exactly once (mi_t; mi_y_compare

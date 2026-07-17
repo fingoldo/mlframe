@@ -1,11 +1,12 @@
 """Regression tests for the order-2 maxT pair-MI floor optimizations (2026-07-05):
 
-  1. Row-subsample cap (``MLFRAME_FE_PAIR_MAXT_MAX_ROWS``) on
-     ``pooled_pair_permutation_null_joint_mi_floor`` -- speeds the floor compute
-     while keeping SELECTION unchanged (survivors of ``pair_mi >= floor`` identical).
-  2. Resident-GPU pair-maxT circuit breaker -- once tripped, the GPU path is
-     skipped for the rest of the process (mirrors the CMI breaker).
+1. Row-subsample cap (``MLFRAME_FE_PAIR_MAXT_MAX_ROWS``) on
+   ``pooled_pair_permutation_null_joint_mi_floor`` -- speeds the floor compute
+   while keeping SELECTION unchanged (survivors of ``pair_mi >= floor`` identical).
+2. Resident-GPU pair-maxT circuit breaker -- once tripped, the GPU path is
+   skipped for the rest of the process (mirrors the CMI breaker).
 """
+
 import os
 
 import numpy as np
@@ -59,8 +60,7 @@ def test_max_rows_default_and_parsing(_restore_env):
 
 def test_cap_disabled_equals_full_n(_restore_env):
     data, nb, y, fy, pa, pb = _screen_data()
-    kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y,
-              freqs_y=fy, n_permutations=15, quantile=0.95, random_seed=123)
+    kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y, freqs_y=fy, n_permutations=15, quantile=0.95, random_seed=123)
     os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "0"
     full = pooled_pair_permutation_null_joint_mi_floor(**kw)
     # recompute -- deterministic
@@ -70,8 +70,7 @@ def test_cap_disabled_equals_full_n(_restore_env):
 def test_cap_is_conservative_and_selection_equivalent(_restore_env):
     data, nb, y, fy, pa, pb = _screen_data()
     obs = batch_pair_mi_prange(data, pa, pb, nb, y, fy)  # observed pair-MI at FULL n (the gated value)
-    kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y,
-              freqs_y=fy, n_permutations=15, quantile=0.95, random_seed=123)
+    kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y, freqs_y=fy, n_permutations=15, quantile=0.95, random_seed=123)
 
     os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "0"
     floor_full = pooled_pair_permutation_null_joint_mi_floor(**kw)
@@ -94,8 +93,7 @@ def test_cap_actually_shrinks_n_via_higher_floor(_restore_env):
     # Pin that the cap DOES engage (floor strictly higher than full-n) at an aggressive cap,
     # so a future "no-op cap" regression is caught.
     data, nb, y, fy, pa, pb = _screen_data()
-    kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y,
-              freqs_y=fy, n_permutations=15, quantile=0.95, random_seed=123)
+    kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y, freqs_y=fy, n_permutations=15, quantile=0.95, random_seed=123)
     os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "0"
     floor_full = pooled_pair_permutation_null_joint_mi_floor(**kw)
     os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "6000"

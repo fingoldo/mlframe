@@ -6,6 +6,7 @@ overparameterized regression with many pure-noise columns, a model fit on ALL fe
 greedily removing whichever single feature most improves mean CV R2, repeated until no removal helps, should
 recover a materially better held-out R2 than the full feature set.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -43,7 +44,9 @@ def test_biz_val_greedy_backward_elimination_beats_full_feature_set():
     r2_full = float(r2_score(yte, model_full.predict(Xte)))
     r2_selected = float(r2_score(yte, model_selected.predict(Xte[survivors])))
 
-    assert r2_selected > r2_full + 0.05, f"expected greedy backward elimination to improve held-out R2 by >=0.05, got selected={r2_selected:.4f} full={r2_full:.4f}"
+    assert r2_selected > r2_full + 0.05, (
+        f"expected greedy backward elimination to improve held-out R2 by >=0.05, got selected={r2_selected:.4f} full={r2_full:.4f}"
+    )
 
 
 def test_greedy_backward_elimination_respects_min_features():

@@ -22,6 +22,7 @@ genuine fitted state -- no skip-on-exception escape hatch, no vacuous ``None``-i
 All heavy paths are CPU-forced (the module sets ``CUDA_VISIBLE_DEVICES=''`` at import) and sized to finish well
 under the suite's ~60s/test budget (n<=200, 6 features, ``lgb`` with cv defaults, single seed).
 """
+
 from __future__ import annotations
 
 import logging
@@ -43,6 +44,7 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 try:
     from tests.conftest import is_fast_mode
 except ImportError:  # pragma: no cover
+
     def is_fast_mode() -> bool:
         return False
 
@@ -103,9 +105,7 @@ def _extract_metadata(result):
 def _extract_models(result):
     if isinstance(result, tuple):
         for slot in result:
-            if isinstance(slot, dict) and any(
-                hasattr(k, "value") or isinstance(k, str) for k in slot
-            ) and "model_schemas" not in slot:
+            if isinstance(slot, dict) and any(hasattr(k, "value") or isinstance(k, str) for k in slot) and "model_schemas" not in slot:
                 return slot
         return result[0] if result else None
     return getattr(result, "models", None)
@@ -172,11 +172,7 @@ def test_empty_selection_clears_mrmr_branch_selected_features(noise_binary_6feat
     # The MRMR-branch selected-features surface must be absent OR empty. If a non-empty list survives,
     # the forcing no longer empties selection (a fallback / floor-mode regression) and the test below
     # would be silently meaningless -- fail loudly with the diagnostic.
-    forced_empty = (
-        ("selected_features" not in metadata)
-        or (not sel)
-        or (sel_per_model is not None and not sel_per_model)
-    )
+    forced_empty = ("selected_features" not in metadata) or (not sel) or (sel_per_model is not None and not sel_per_model)
     assert forced_empty, (
         "forcing no longer empties selection: "
         f"selected_features={sel!r}, selected_features_per_model={sel_per_model!r}. "
@@ -224,8 +220,7 @@ def test_empty_selection_degrades_to_no_trained_entry_and_warns(noise_binary_6fe
                 if isinstance(entries, list):
                     total_entries += len(entries)
     assert total_entries == 0, (
-        f"expected NO trained entries when MRMR empties selection and use_ordinary_models=False; "
-        f"got {total_entries} entry/entries: {models!r}"
+        f"expected NO trained entries when MRMR empties selection and use_ordinary_models=False; got {total_entries} entry/entries: {models!r}"
     )
 
     # The prod WARNING at _trainer_train_and_evaluate.py:421 explains the empty-selection skip.
@@ -233,8 +228,7 @@ def test_empty_selection_degrades_to_no_trained_entry_and_warns(noise_binary_6fe
     _has_skip_log = ("removed all features" in _msgs) or ("skipping training" in _msgs.lower())
     assert _has_skip_log, (
         "PROD OBSERVABILITY GAP: empty FS selection trained no model but no "
-        "'removed all features ... skipping training' WARNING was logged. Captured WARN+ records:\n"
-        + (_msgs or "<none>")
+        "'removed all features ... skipping training' WARNING was logged. Captured WARN+ records:\n" + (_msgs or "<none>")
     )
 
 
@@ -280,10 +274,7 @@ def test_report_against_real_fitted_mrmr_surfaces_kept_dropped_reasons(informati
 
     reasons = report["reason_per_feature"]
     assert isinstance(reasons, dict) and reasons, "MRMR report must carry a per-feature reason map"
-    assert set(reasons) == set(cols), (
-        f"reason_per_feature must cover every input column; missing "
-        f"{set(cols) - set(reasons)}, extra {set(reasons) - set(cols)}"
-    )
+    assert set(reasons) == set(cols), f"reason_per_feature must cover every input column; missing {set(cols) - set(reasons)}, extra {set(reasons) - set(cols)}"
     for c in cols:
         assert reasons[c] in ("kept", "dropped")
         assert reasons[c] == ("kept" if c in set(kept) else "dropped")
@@ -366,8 +357,7 @@ def test_report_against_real_fitted_rfecv_surfaces_scores(informative_binary_6fe
 
     scores = report["scores"]
     assert isinstance(scores, dict) and scores, (
-        "RFECV report['scores'] must be a non-empty {feature: float} dict built from the selector's "
-        "per-fold feature importances"
+        "RFECV report['scores'] must be a non-empty {feature: float} dict built from the selector's per-fold feature importances"
     )
     assert all(isinstance(v, float) for v in scores.values())
 
@@ -399,14 +389,15 @@ def test_report_rfecv_scores_read_dict_valued_feature_importances_not_ndarray(in
 
     fi = getattr(sel, "feature_importances_")
     assert isinstance(fi, dict) and fi
-    assert all(isinstance(row, dict) for row in fi.values()), (
-        "fixture invariant drifted: RFECV.feature_importances_ values are no longer per-fold dicts"
-    )
+    assert all(isinstance(row, dict) for row in fi.values()), "fixture invariant drifted: RFECV.feature_importances_ values are no longer per-fold dicts"
 
     support = list(getattr(sel, "support_"))
     kept = [c for c, s in zip(cols, support) if s]
     report = _build_feature_selection_report(
-        pre_pipeline=sel, pre_pipeline_name="lgb ", fitted_columns_in=cols, kept_columns=kept,
+        pre_pipeline=sel,
+        pre_pipeline_name="lgb ",
+        fitted_columns_in=cols,
+        kept_columns=kept,
     )
 
     scores = report["scores"]

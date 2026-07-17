@@ -9,6 +9,7 @@ Headline guarantees:
 - Degenerate weights (a single dominating point) and tiny-n inputs never crash
   and never silently mis-cover (return +inf valid-but-uninformative bands).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,9 +34,7 @@ class TestWeightedQuantileUnit:
         r = rng.normal(size=500)
         w = np.ones(500)
         for alpha in (0.05, 0.1, 0.2):
-            assert weighted_conformal_quantile(r, w, alpha) == pytest.approx(
-                conformal_quantile(r, alpha)
-            )
+            assert weighted_conformal_quantile(r, w, alpha) == pytest.approx(conformal_quantile(r, alpha))
 
     def test_scaling_weights_is_invariant(self) -> None:
         # Importance weights are used only after normalisation; a global scale
@@ -52,7 +51,9 @@ class TestWeightedQuantileUnit:
         r = np.array([0.1, 0.2, 0.3, 5.0, 6.0, 7.0])
         uni = weighted_conformal_quantile(r, np.ones(6), 0.1)
         heavy = weighted_conformal_quantile(
-            r, np.array([0.1, 0.1, 0.1, 5.0, 5.0, 5.0]), 0.1,
+            r,
+            np.array([0.1, 0.1, 0.1, 5.0, 5.0, 5.0]),
+            0.1,
         )
         assert heavy >= uni
 
@@ -71,7 +72,9 @@ class TestWeightedQuantileUnit:
 
     def test_all_zero_weights_is_inf(self) -> None:
         assert weighted_conformal_quantile(
-            np.array([1.0, 2.0, 3.0]), np.zeros(3), 0.1,
+            np.array([1.0, 2.0, 3.0]),
+            np.zeros(3),
+            0.1,
         ) == float("inf")
 
     def test_negative_weight_raises(self) -> None:
@@ -101,7 +104,8 @@ def _fit(seed: int, n: int = 600):
     X = pd.DataFrame({"b": b, "feat": f})
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
-        transform_name="linear_residual", base_column="b",
+        transform_name="linear_residual",
+        base_column="b",
     ).fit(X, y)
     return est
 
@@ -116,9 +120,7 @@ class TestWeightedBound:
         # absolute (constant-width) unweighted band -- the default is now normalized.
         est.calibrate_conformal(Xc, yc, 0.1, score="absolute")
         est.calibrate_conformal_weighted(Xc, yc, 0.1, weights=None)
-        assert est._weighted_conformal_q_[round(0.1, 6)] == pytest.approx(
-            est._conformal_q_[round(0.1, 6)]
-        )
+        assert est._weighted_conformal_q_[round(0.1, 6)] == pytest.approx(est._conformal_q_[round(0.1, 6)])
         lo_u, hi_u = est.predict_interval(Xc, 0.1)
         lo_w, hi_w = est.predict_interval_weighted(Xc, 0.1)
         np.testing.assert_allclose(lo_u, lo_w)
@@ -131,7 +133,10 @@ class TestWeightedBound:
         yc = Xc["b"].to_numpy() + rng.normal(size=400)
         # Callable returns one density ratio per cal row from X_cal.
         est.calibrate_conformal_weighted(
-            Xc, yc, 0.1, weights=lambda X: np.exp(0.3 * X["b"].to_numpy()),
+            Xc,
+            yc,
+            0.1,
+            weights=lambda X: np.exp(0.3 * X["b"].to_numpy()),
         )
         assert round(0.1, 6) in est._weighted_conformal_q_
         lo, hi = est.predict_interval_weighted(Xc.iloc[:3], 0.1)
@@ -141,14 +146,17 @@ class TestWeightedBound:
         est = _fit(0)
         with pytest.raises(RuntimeError, match="no weighted conformal radius"):
             est.predict_interval_weighted(
-                pd.DataFrame({"b": [0.0], "feat": [0.0]}), 0.1,
+                pd.DataFrame({"b": [0.0], "feat": [0.0]}),
+                0.1,
             )
 
     def test_calibrate_before_fit_raises(self) -> None:
         from sklearn.exceptions import NotFittedError
+
         est = CompositeTargetEstimator(
             base_estimator=LinearRegression(),
-            transform_name="linear_residual", base_column="b",
+            transform_name="linear_residual",
+            base_column="b",
         )
         X = pd.DataFrame({"b": [1.0, 2.0], "feat": [3.0, 4.0]})
         with pytest.raises(NotFittedError):
@@ -167,7 +175,10 @@ class TestWeightedBound:
         Xc = pd.DataFrame({"b": [0.3, 0.4], "feat": [0.1, 0.2]})
         with pytest.raises(ValueError, match="entries but"):
             est.calibrate_conformal_weighted(
-                Xc, np.array([0.5, 0.6]), 0.1, weights=np.array([1.0]),
+                Xc,
+                np.array([0.5, 0.6]),
+                0.1,
+                weights=np.array([1.0]),
             )
 
 
@@ -201,7 +212,7 @@ def _shifted_synthetic(seed: int):
     Xt, yt = gen(n_test, mu_test)
     # Exact density ratio of two equal-variance Gaussians in b.
     bc = Xc["b"].to_numpy()
-    w = np.exp(((bc - mu_cal) ** 2 - (bc - mu_test) ** 2) / (2.0 * sd ** 2))
+    w = np.exp(((bc - mu_cal) ** 2 - (bc - mu_test) ** 2) / (2.0 * sd**2))
     return Xc, yc, Xt, yt, w
 
 
@@ -220,7 +231,8 @@ class TestWeightedBizValue:
             ntr = len(yc) // 2
             est = CompositeTargetEstimator(
                 base_estimator=LinearRegression(),
-                transform_name="linear_residual", base_column="b",
+                transform_name="linear_residual",
+                base_column="b",
             ).fit(Xc.iloc[:ntr], yc[:ntr])
             Xcal, ycal, wcal = Xc.iloc[ntr:], yc[ntr:], w[ntr:]
 
@@ -239,12 +251,6 @@ class TestWeightedBizValue:
         mean_unw = float(np.mean(unw_errs))
         mean_wtd = float(np.mean(wtd_errs))
         # The shift must actually hurt the unweighted band on average.
-        assert float(np.mean(unw_covs)) < target - 0.01, (
-            f"unweighted band did not under-cover under shift: "
-            f"mean cov={np.mean(unw_covs):.3f}"
-        )
+        assert float(np.mean(unw_covs)) < target - 0.01, f"unweighted band did not under-cover under shift: mean cov={np.mean(unw_covs):.3f}"
         # Weighted must be measurably closer to the target.
-        assert mean_wtd < mean_unw - 0.005, (
-            f"weighted not closer to target under shift: "
-            f"wtd_err={mean_wtd:.3f} unw_err={mean_unw:.3f}"
-        )
+        assert mean_wtd < mean_unw - 0.005, f"weighted not closer to target under shift: wtd_err={mean_wtd:.3f} unw_err={mean_unw:.3f}"

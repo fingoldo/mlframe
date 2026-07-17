@@ -6,6 +6,7 @@ kernel against (a) hand-computed values on monotone signals and (b) an
 independent reimplementation of the prior Python loop across all directions
 and multiple groups.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,11 +26,15 @@ def _ref(values, group_ids, window_K, direction):
             lu = ld = cu = cd = 0
             for v in d[r]:
                 if v > 0:
-                    cu += 1; cd = 0
-                    if cu > lu: lu = cu
+                    cu += 1
+                    cd = 0
+                    if cu > lu:
+                        lu = cu
                 elif v < 0:
-                    cd += 1; cu = 0
-                    if cd > ld: ld = cd
+                    cd += 1
+                    cu = 0
+                    if cd > ld:
+                        ld = cd
                 else:
                     cu = cd = 0
             run = lu if direction == "up" else (ld if direction == "down" else max(lu, ld))
@@ -46,9 +51,9 @@ def test_strictly_increasing_signal_full_run():
     dn = rolling_longest_monotone_run(values, groups, window_K=10, direction="down")
     fin_up = up[~np.isnan(up)]
     assert fin_up.size == 41  # positions 9..49
-    np.testing.assert_array_equal(fin_up, 10.0)             # whole K-window monotone up
+    np.testing.assert_array_equal(fin_up, 10.0)  # whole K-window monotone up
     np.testing.assert_array_equal(any_[~np.isnan(any_)], 10.0)
-    np.testing.assert_array_equal(dn[~np.isnan(dn)], 1.0)   # no down-run -> length 1
+    np.testing.assert_array_equal(dn[~np.isnan(dn)], 1.0)  # no down-run -> length 1
 
 
 @pytest.mark.parametrize("direction", ["up", "down", "any"])

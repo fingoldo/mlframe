@@ -20,6 +20,7 @@ toggles in the worker thread at function entry and restores in ``finally``.
 Tests verify the propagation mechanism at the function-boundary level
 (does not require a real MRMR.fit -- much faster, less brittle).
 """
+
 from __future__ import annotations
 
 from joblib import Parallel, delayed
@@ -32,10 +33,14 @@ def test_threadlocal_does_not_propagate_to_joblib_workers_baseline():
     thread-local must NOT propagate to backend='threading' workers.
     """
     from mlframe.feature_selection.filters.info_theory import (
-        set_su_normalization, use_su_normalization,
-        set_jmim_aggregator, use_jmim_aggregator,
-        set_bur_lambda, get_bur_lambda,
+        set_su_normalization,
+        use_su_normalization,
+        set_jmim_aggregator,
+        use_jmim_aggregator,
+        set_bur_lambda,
+        get_bur_lambda,
     )
+
     # Reset to known state.
     set_su_normalization(False)
     set_jmim_aggregator(False)
@@ -51,9 +56,7 @@ def test_threadlocal_does_not_propagate_to_joblib_workers_baseline():
     main_state = w(0)
     assert main_state == (True, True, 0.3), main_state
 
-    worker_states = Parallel(n_jobs=4, backend="threading")(
-        delayed(w)(i) for i in range(4)
-    )
+    worker_states = Parallel(n_jobs=4, backend="threading")(delayed(w)(i) for i in range(4))
     # Pre-iter-5: every worker reports (False, False, 0.0). If this
     # invariant ever flips, the iter-5 republish becomes redundant and
     # the test will catch the change.
@@ -72,9 +75,14 @@ def test_evaluate_candidates_republishes_threadlocals_in_worker():
     -> ``cmi_or_csu``, plus the BUR bonus block) reads the caller's intent.
     """
     from mlframe.feature_selection.filters.info_theory import (
-        set_su_normalization, set_jmim_aggregator, set_bur_lambda,
-        use_su_normalization, use_jmim_aggregator, get_bur_lambda,
+        set_su_normalization,
+        set_jmim_aggregator,
+        set_bur_lambda,
+        use_su_normalization,
+        use_jmim_aggregator,
+        get_bur_lambda,
     )
+
     # Main thread off.
     set_su_normalization(False)
     set_jmim_aggregator(False)
@@ -91,22 +99,18 @@ def test_evaluate_candidates_republishes_threadlocals_in_worker():
         set_bur_lambda(float(bur_lambda))
         try:
             # Simulate downstream read inside the worker.
-            return (use_su_normalization(), use_jmim_aggregator(),
-                     get_bur_lambda())
+            return (use_su_normalization(), use_jmim_aggregator(), get_bur_lambda())
         finally:
             set_su_normalization(_prev_su)
             set_jmim_aggregator(_prev_jmim)
             set_bur_lambda(_prev_bur)
 
-    results = Parallel(n_jobs=4, backend="threading")(
-        delayed(worker_using_iter5_pattern)(True, True, 0.3) for _ in range(4)
-    )
+    results = Parallel(n_jobs=4, backend="threading")(delayed(worker_using_iter5_pattern)(True, True, 0.3) for _ in range(4))
     assert all(r == (True, True, 0.3) for r in results), results
 
     # And: main-thread state must be untouched after the workers finish
     # (no pollution leaking back).
-    assert (use_su_normalization(), use_jmim_aggregator(), get_bur_lambda()) == \
-           (False, False, 0.0)
+    assert (use_su_normalization(), use_jmim_aggregator(), get_bur_lambda()) == (False, False, 0.0)
 
 
 def test_evaluate_candidates_signature_carries_iter5_kwargs():
@@ -117,6 +121,7 @@ def test_evaluate_candidates_signature_carries_iter5_kwargs():
     """
     import inspect
     from mlframe.feature_selection.filters.evaluation import evaluate_candidates
+
     sig = inspect.signature(evaluate_candidates)
     for name in ("use_su", "use_jmim", "bur_lambda"):
         assert name in sig.parameters, (

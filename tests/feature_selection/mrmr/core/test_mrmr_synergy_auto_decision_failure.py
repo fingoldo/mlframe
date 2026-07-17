@@ -7,6 +7,7 @@ detector and a detector that legitimately judged the data non-synergistic set
 ``jmim_engaged=False``, so a caller checking only that one key could not tell them apart.
 ``detector_failed`` is now an explicit, always-present boolean disambiguating the two.
 """
+
 from __future__ import annotations
 
 import numpy as np

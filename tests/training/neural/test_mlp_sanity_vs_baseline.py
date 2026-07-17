@@ -14,6 +14,7 @@ Two questions:
    With a 2-output softmax head the rows must sum to 1 by construction;
    anywhere they don't is a normalisation bug.
 """
+
 from __future__ import annotations
 
 import sys
@@ -43,7 +44,11 @@ def linear_regression_data_scaled():
     """y = 3*x0 - 2*x1 + 1.5*x2 + eps with x columns on UNIT scale (so the
     bare-default MLP without upstream StandardScaler still has a fair shot)."""
     X, y = make_regression(
-        n_samples=600, n_features=5, n_informative=3, noise=0.1, random_state=0,
+        n_samples=600,
+        n_features=5,
+        n_informative=3,
+        noise=0.1,
+        random_state=0,
     )
     # Pre-standardise X so the test isolates training mechanics from the
     # F-03 input-normalisation concern.
@@ -56,11 +61,18 @@ def linear_regression_data_scaled():
 @pytest.fixture
 def binary_classification_data():
     X, y = make_classification(
-        n_samples=400, n_features=6, n_informative=4, n_redundant=0,
-        n_classes=2, random_state=0,
+        n_samples=400,
+        n_features=6,
+        n_informative=4,
+        n_redundant=0,
+        n_classes=2,
+        random_state=0,
     )
     X_tr, X_te, y_tr, y_te = train_test_split(
-        X.astype(np.float32), y.astype(np.int64), test_size=0.3, random_state=0,
+        X.astype(np.float32),
+        y.astype(np.int64),
+        test_size=0.3,
+        random_state=0,
     )
     return {"X_train": X_tr, "y_train": y_tr, "X_test": X_te, "y_test": y_te}
 
@@ -130,7 +142,8 @@ def classifier_params():
 
 
 def test_mlp_regressor_matches_linear_baseline_on_linear_data(
-    linear_regression_data_scaled, regressor_params,
+    linear_regression_data_scaled,
+    regressor_params,
 ):
     """On a CLEAN linear regression problem with standardised X, the
     MLP must reach within 0.10 R^2 of sklearn's LinearRegression. A
@@ -163,14 +176,12 @@ def test_mlp_regressor_matches_linear_baseline_on_linear_data(
         f"R^2={r2_lin:+.4f}); a much lower R^2 indicates a training-"
         "mechanics bug (LR, optimiser, loss shape, pipeline regression)."
     )
-    assert r2_lin - r2_mlp < 0.15, (
-        f"MLPRegressor lost {r2_lin - r2_mlp:+.4f} R^2 to LinearRegression "
-        "on linear data; gap should be <0.15."
-    )
+    assert r2_lin - r2_mlp < 0.15, f"MLPRegressor lost {r2_lin - r2_mlp:+.4f} R^2 to LinearRegression on linear data; gap should be <0.15."
 
 
 def test_binary_predict_proba_rows_sum_to_one(
-    binary_classification_data, classifier_params,
+    binary_classification_data,
+    classifier_params,
 ):
     """sklearn classifier contract: ``predict_proba(X)`` rows must sum to
     1.0 (within float precision). With our 2-output softmax head the rows
@@ -188,8 +199,7 @@ def test_binary_predict_proba_rows_sum_to_one(
     max_dev = float(np.abs(row_sums - 1.0).max())
     print(f"\nBinary predict_proba row-sum: max|sum - 1.0| = {max_dev:.6e}")
     assert max_dev < 1e-5, (
-        f"predict_proba rows do not sum to 1.0; max deviation = {max_dev:.6e}. "
-        "sklearn classifier contract requires probabilities sum to 1 per row."
+        f"predict_proba rows do not sum to 1.0; max deviation = {max_dev:.6e}. sklearn classifier contract requires probabilities sum to 1 per row."
     )
 
     # Also sanity: predict_proba(X) and predict(X) must agree -- predict
@@ -226,10 +236,6 @@ def test_binary_predict_proba_columns_aligned_with_sorted_classes(
     pos_mask = X_te[:, 0] > 0
     p_pos_for_positives = proba[pos_mask, 1].mean()
     p_neg_for_negatives = proba[~pos_mask, 0].mean()
-    print(
-        f"\nBinary col alignment (classes_=[-1,+1]):\n"
-        f"  P(y=+1 | x0>0) mean = {p_pos_for_positives:.4f}\n"
-        f"  P(y=-1 | x0<0) mean = {p_neg_for_negatives:.4f}"
-    )
+    print(f"\nBinary col alignment (classes_=[-1,+1]):\n  P(y=+1 | x0>0) mean = {p_pos_for_positives:.4f}\n  P(y=-1 | x0<0) mean = {p_neg_for_negatives:.4f}")
     assert p_pos_for_positives > 0.5
     assert p_neg_for_negatives > 0.5

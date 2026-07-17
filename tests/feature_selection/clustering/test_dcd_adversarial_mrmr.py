@@ -3,6 +3,7 @@ determinism, pickle/transform parity (stresses the new dcd_swap_npermutations
 state + the post-swap _fn_arr_cached reset + recipe replay), and degenerate
 inputs (perfect duplicates, tiny n, NaN columns). Failures are prod bugs.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -18,21 +19,23 @@ def _dup_cluster_frame(n=1500, seed=0):
     rng = np.random.default_rng(seed)
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "strong": other,
-        "dup_a": latent + 0.01 * rng.standard_normal(n),
-        "dup_b": latent + 0.01 * rng.standard_normal(n),
-        "dup_c": latent + 0.01 * rng.standard_normal(n),
-        "noise": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "strong": other,
+            "dup_a": latent + 0.01 * rng.standard_normal(n),
+            "dup_b": latent + 0.01 * rng.standard_normal(n),
+            "dup_c": latent + 0.01 * rng.standard_normal(n),
+            "noise": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((2 * other + latent + 0.3 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
 
 def _fit(X, y, **kw):
     from mlframe.feature_selection.filters.mrmr import MRMR
-    base = dict(dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2,
-                verbose=0, random_seed=0)
+
+    base = dict(dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2, verbose=0, random_seed=0)
     base.update(kw)
     return MRMR(**base).fit(X, y)
 
@@ -58,9 +61,7 @@ def test_dcd_pickle_transform_parity():
     m2 = pickle.loads(pickle.dumps(m))
     out1 = np.asarray(m2.transform(Xte))
     assert out0.shape == out1.shape
-    assert np.array_equal(np.nan_to_num(out0), np.nan_to_num(out1)), (
-        "transform output changed across pickle round-trip"
-    )
+    assert np.array_equal(np.nan_to_num(out0), np.nan_to_num(out1)), "transform output changed across pickle round-trip"
 
 
 def test_dcd_fit_on_perfect_duplicates_no_crash():
@@ -78,9 +79,7 @@ def test_dcd_fit_tiny_n_no_crash():
     rng = np.random.default_rng(4)
     n = 40
     z = rng.standard_normal(n)
-    X = pd.DataFrame({"a": z + 0.05 * rng.standard_normal(n),
-                      "b": z + 0.05 * rng.standard_normal(n),
-                      "c": rng.standard_normal(n)})
+    X = pd.DataFrame({"a": z + 0.05 * rng.standard_normal(n), "b": z + 0.05 * rng.standard_normal(n), "c": rng.standard_normal(n)})
     y = pd.Series((z > 0).astype(int))
     m = _fit(X, y)
     assert len(list(m.get_feature_names_out())) >= 1
@@ -92,9 +91,7 @@ def test_dcd_fit_with_nan_columns_no_crash():
     z = rng.standard_normal(n)
     a = z + 0.05 * rng.standard_normal(n)
     a[::50] = np.nan  # scattered NaNs in a cluster member
-    X = pd.DataFrame({"a": a, "b": z + 0.05 * rng.standard_normal(n),
-                      "c": z + 0.05 * rng.standard_normal(n),
-                      "noise": rng.standard_normal(n)})
+    X = pd.DataFrame({"a": a, "b": z + 0.05 * rng.standard_normal(n), "c": z + 0.05 * rng.standard_normal(n), "noise": rng.standard_normal(n)})
     y = pd.Series((z > 0).astype(int))
     m = _fit(X, y)
     assert len(list(m.get_feature_names_out())) >= 1

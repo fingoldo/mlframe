@@ -22,6 +22,7 @@ Post-fix: when extra_base_columns is non-empty, _phase_composite_discovery
 stacks the primary + each extra column into a (n_total, 1+K) matrix
 before invoking transform.forward.
 """
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -53,7 +54,9 @@ def _build_multi_base_spec(rng: np.random.Generator):
 
     base_train = np.column_stack([b1_full[train_idx], b2_full[train_idx]])
     fitted_params = _linear_residual_multi_fit(
-        y=y_full[train_idx], base=base_train, sample_weight=None,
+        y=y_full[train_idx],
+        base=base_train,
+        sample_weight=None,
     )
 
     spec = CompositeSpec(
@@ -81,17 +84,22 @@ def test_multi_base_spec_forward_stacks_extra_base_columns() -> None:
     on a multi-base spec. Must NOT raise ValueError on alpha-vs-base
     count mismatch."""
     rng = np.random.default_rng(0)
-    spec, train_df, val_df, test_df, train_idx, val_idx, test_idx, y_full = (
-        _build_multi_base_spec(rng)
-    )
+    spec, train_df, val_df, test_df, train_idx, val_idx, test_idx, y_full = _build_multi_base_spec(rng)
     transform = get_transform(spec.transform_name)
 
     # Reproduce the post-fix logic:
     from mlframe.training.core._misc_helpers import _build_full_column_from_splits
+
     extra_bases = tuple(getattr(spec, "extra_base_columns", ()) or ())
     base_primary = _build_full_column_from_splits(
-        spec.base_column, train_df, val_df, test_df,
-        train_idx, val_idx, test_idx, n_total=y_full.shape[0],
+        spec.base_column,
+        train_df,
+        val_df,
+        test_df,
+        train_idx,
+        val_idx,
+        test_idx,
+        n_total=y_full.shape[0],
     )
     assert base_primary.ndim == 1
     assert extra_bases == ("b2",)
@@ -99,8 +107,14 @@ def test_multi_base_spec_forward_stacks_extra_base_columns() -> None:
     for eb in extra_bases:
         cols.append(
             _build_full_column_from_splits(
-                eb, train_df, val_df, test_df,
-                train_idx, val_idx, test_idx, n_total=y_full.shape[0],
+                eb,
+                train_df,
+                val_df,
+                test_df,
+                train_idx,
+                val_idx,
+                test_idx,
+                n_total=y_full.shape[0],
             )
         )
     base_full = np.column_stack(cols)
@@ -122,14 +136,19 @@ def test_multi_base_spec_forward_pre_fix_would_have_failed() -> None:
     so a future regression of the integration code immediately fails this
     sensor instead of crashing inside the suite."""
     rng = np.random.default_rng(1)
-    spec, train_df, val_df, test_df, train_idx, val_idx, test_idx, y_full = (
-        _build_multi_base_spec(rng)
-    )
+    spec, train_df, val_df, test_df, train_idx, val_idx, test_idx, y_full = _build_multi_base_spec(rng)
     transform = get_transform(spec.transform_name)
     from mlframe.training.core._misc_helpers import _build_full_column_from_splits
+
     base_primary = _build_full_column_from_splits(
-        spec.base_column, train_df, val_df, test_df,
-        train_idx, val_idx, test_idx, n_total=y_full.shape[0],
+        spec.base_column,
+        train_df,
+        val_df,
+        test_df,
+        train_idx,
+        val_idx,
+        test_idx,
+        n_total=y_full.shape[0],
     )
     valid = transform.domain_check(y_full, base_primary)
     if not valid.any():
@@ -150,15 +169,23 @@ def test_single_base_spec_path_unchanged() -> None:
     b1_full = rng.standard_normal(n_total).astype(np.float64)
     y_full = 0.7 * b1_full + 1.0 + 0.05 * rng.standard_normal(n_total)
     from mlframe.training.composite.transforms import _linear_residual_fit
+
     fitted_params = _linear_residual_fit(
-        y=y_full[train_idx], base=b1_full[train_idx], sample_weight=None,
+        y=y_full[train_idx],
+        base=b1_full[train_idx],
+        sample_weight=None,
     )
     spec = CompositeSpec(
         name="y-linres-b1",
-        target_col="y", transform_name="linear_residual",
-        base_column="b1", fitted_params=fitted_params,
-        mi_gain=0.5, mi_y=1.0, mi_t=1.5,
-        valid_domain_frac=1.0, n_train_rows=int(len(train_idx)),
+        target_col="y",
+        transform_name="linear_residual",
+        base_column="b1",
+        fitted_params=fitted_params,
+        mi_gain=0.5,
+        mi_y=1.0,
+        mi_t=1.5,
+        valid_domain_frac=1.0,
+        n_train_rows=int(len(train_idx)),
     )
     assert spec.extra_base_columns == ()
     train_df = pd.DataFrame({"b1": b1_full[train_idx]})
@@ -166,9 +193,16 @@ def test_single_base_spec_path_unchanged() -> None:
     test_df = pd.DataFrame({"b1": b1_full[test_idx]})
     transform = get_transform(spec.transform_name)
     from mlframe.training.core._misc_helpers import _build_full_column_from_splits
+
     base_full = _build_full_column_from_splits(
-        spec.base_column, train_df, val_df, test_df,
-        train_idx, val_idx, test_idx, n_total=y_full.shape[0],
+        spec.base_column,
+        train_df,
+        val_df,
+        test_df,
+        train_idx,
+        val_idx,
+        test_idx,
+        n_total=y_full.shape[0],
     )
     assert base_full.ndim == 1
     valid = transform.domain_check(y_full, base_full)

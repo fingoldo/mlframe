@@ -7,6 +7,7 @@ token array the old code materialised purely to feed ``.map``. These pins fail i
 the fast-path gating or the canonical-token contract ever diverges from the
 generic path. Object/mixed columns must keep taking the (unchanged) generic path.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,12 +23,7 @@ from mlframe.feature_selection.filters._target_encoding_fe import (
 def _generic_reference(col_series, lookup, global_mean):
     """The pre-fastpath behaviour: stringify every row then map (no fast path)."""
     cats = _column_to_str(col_series)
-    return (
-        pd.Series(cats, copy=False)
-        .map(lookup)
-        .fillna(global_mean)
-        .to_numpy(dtype=np.float64)
-    )
+    return pd.Series(cats, copy=False).map(lookup).fillna(global_mean).to_numpy(dtype=np.float64)
 
 
 @pytest.mark.parametrize("dtype", [np.int64, np.int32, np.uint16])

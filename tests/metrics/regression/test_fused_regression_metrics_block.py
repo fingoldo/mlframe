@@ -14,6 +14,7 @@ sklearn-equivalent fast_* helpers. This file pins:
   formulation).
 - Multidim inputs raise (the fused kernel is 1-D only).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -43,11 +44,14 @@ def _ref_block(y_true, y_pred):
 
 
 @pytest.mark.parametrize("n", [10_000, 100_000, 500_000])
-@pytest.mark.parametrize("y_mean,y_std", [
-    (0.0, 1.0),       # standard-normal
-    (11500.0, 645.0), # TVT-2026-05-22 shape (large-mean, the catastrophic-cancellation regime)
-    (-50.0, 0.01),    # near-constant target (sensitive R^2 denom)
-])
+@pytest.mark.parametrize(
+    "y_mean,y_std",
+    [
+        (0.0, 1.0),  # standard-normal
+        (11500.0, 645.0),  # TVT-2026-05-22 shape (large-mean, the catastrophic-cancellation regime)
+        (-50.0, 0.01),  # near-constant target (sensitive R^2 denom)
+    ],
+)
 def test_numerical_equivalence_vs_separate_kernels(n, y_mean, y_std):
     rng = np.random.default_rng(0)
     y_true = rng.normal(y_mean, y_std, n).astype(np.float64)
@@ -59,10 +63,7 @@ def test_numerical_equivalence_vs_separate_kernels(n, y_mean, y_std):
     for k in ("MAE", "RMSE", "MaxError", "R2"):
         diff = abs(fused[k] - ref[k])
         tol = max(1e-9, abs(ref[k]) * 1e-9)
-        assert diff < tol, (
-            f"fused {k} = {fused[k]}, ref = {ref[k]}, diff = {diff} (tol = {tol}) "
-            f"at n={n}, y_mean={y_mean}, y_std={y_std}"
-        )
+        assert diff < tol, f"fused {k} = {fused[k]}, ref = {ref[k]}, diff = {diff} (tol = {tol}) at n={n}, y_mean={y_mean}, y_std={y_std}"
 
 
 def test_empty_input_returns_zero_dict():

@@ -12,6 +12,7 @@ Pins:
 * a unit-alpha residual spec (stable inverse) is KEPT;
 * the gate is a no-op when disabled, and a no-op without group ids.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,16 +43,26 @@ def _grouped_frame(n_groups: int = 10, per: int = 150, seed: int = 0):
 
 def _spec(name: str, alpha: float, beta: float = 0.0) -> CompositeSpec:
     return CompositeSpec(
-        name=name, target_col="y", transform_name="linear_residual", base_column="base",
+        name=name,
+        target_col="y",
+        transform_name="linear_residual",
+        base_column="base",
         fitted_params={"alpha": float(alpha), "beta": float(beta)},
-        mi_gain=1.0, mi_y=0.0, mi_t=1.0, valid_domain_frac=1.0, n_train_rows=100,
+        mi_gain=1.0,
+        mi_y=0.0,
+        mi_t=1.0,
+        valid_domain_frac=1.0,
+        n_train_rows=100,
     )
 
 
 def _make_gate_ctx(group_ids):
     cfg = CompositeTargetDiscoveryConfig(
-        enabled=True, random_state=0, yscale_holdout_gate_enabled=True,
-        yscale_holdout_gate_sample_n=2_000, yscale_holdout_gate_min_groups=4,
+        enabled=True,
+        random_state=0,
+        yscale_holdout_gate_enabled=True,
+        yscale_holdout_gate_sample_n=2_000,
+        yscale_holdout_gate_min_groups=4,
         tiny_model_n_estimators=25,
     )
     disc = CompositeTargetDiscovery(cfg)
@@ -67,7 +78,13 @@ def test_biz_val_yscale_gate_drops_collapsing_high_alpha_spec():
     train_idx = np.arange(len(df))
 
     survivors = apply_yscale_holdout_gate(
-        disc, df, "y", [bad, good], ["base", "x1", "x2"], train_idx, y,
+        disc,
+        df,
+        "y",
+        [bad, good],
+        ["base", "x1", "x2"],
+        train_idx,
+        y,
     )
     names = {s.name for s in survivors}
     assert "y-linres-base-BADalpha" not in names, "high-alpha group-collapsing spec must be dropped"
@@ -77,7 +94,10 @@ def test_biz_val_yscale_gate_drops_collapsing_high_alpha_spec():
 def test_biz_val_yscale_gate_noop_when_disabled():
     df, groups, y = _grouped_frame()
     cfg = CompositeTargetDiscoveryConfig(
-        enabled=True, random_state=0, yscale_holdout_gate_enabled=False, tiny_model_n_estimators=25,
+        enabled=True,
+        random_state=0,
+        yscale_holdout_gate_enabled=False,
+        tiny_model_n_estimators=25,
     )
     disc = CompositeTargetDiscovery(cfg)
     disc._group_ids_for_rerank = groups
@@ -111,8 +131,8 @@ def _train_and_val_extrapolating(per=150, n_train_groups=8, n_val_groups=4, seed
         df = pd.DataFrame({"base": base, "x1": x1, "x2": rng.normal(size=g.size), "y": y.astype(np.float64)})
         return df, g.astype(np.int64), y.astype(np.float64)
 
-    train_df, train_groups, train_y = _frame(np.arange(n_train_groups))            # low base levels
-    val_df, _val_groups, val_y = _frame(np.arange(n_train_groups, n_groups))       # high base levels (OOD)
+    train_df, train_groups, train_y = _frame(np.arange(n_train_groups))  # low base levels
+    val_df, _val_groups, val_y = _frame(np.arange(n_train_groups, n_groups))  # high base levels (OOD)
     return train_df, train_groups, train_y, val_df, val_y
 
 
@@ -123,13 +143,18 @@ def test_biz_val_yscale_gate_drops_collapsing_spec_on_val_split():
     good = _spec("y-linres-base-unit", alpha=1.0)
     train_idx = np.arange(len(train_df))
     survivors = apply_yscale_holdout_gate(
-        disc, train_df, "y", [bad, good], ["base", "x1", "x2"], train_idx, train_y,
-        val_df=val_df, val_y=val_y,
+        disc,
+        train_df,
+        "y",
+        [bad, good],
+        ["base", "x1", "x2"],
+        train_idx,
+        train_y,
+        val_df=val_df,
+        val_y=val_y,
     )
     names = {s.name for s in survivors}
-    assert "y-linres-base-BADalpha" not in names, (
-        "high-alpha spec must be dropped: it collapses on the unseen-well VAL split"
-    )
+    assert "y-linres-base-BADalpha" not in names, "high-alpha spec must be dropped: it collapses on the unseen-well VAL split"
     assert "y-linres-base-unit" in names, "stable unit-alpha spec must survive the val-split gate"
 
 
@@ -141,9 +166,16 @@ from mlframe.training.composite.discovery._yscale_holdout_gate import apply_stru
 
 def _spec_t(name: str, transform_name: str, base_column: str, params: dict) -> CompositeSpec:
     return CompositeSpec(
-        name=name, target_col="y", transform_name=transform_name, base_column=base_column,
-        fitted_params=dict(params), mi_gain=1.0, mi_y=0.0, mi_t=1.0,
-        valid_domain_frac=1.0, n_train_rows=100,
+        name=name,
+        target_col="y",
+        transform_name=transform_name,
+        base_column=base_column,
+        fitted_params=dict(params),
+        mi_gain=1.0,
+        mi_y=0.0,
+        mi_t=1.0,
+        valid_domain_frac=1.0,
+        n_train_rows=100,
     )
 
 
@@ -153,8 +185,8 @@ def _per_well_base_frame(n_groups=12, per=200, seed=5):
     rng = np.random.default_rng(seed)
     well_level = rng.uniform(10000.0, 13000.0, n_groups)
     groups = np.repeat(np.arange(n_groups), per)
-    base = well_level[groups] + rng.normal(0.0, 30.0, groups.size)   # ~all between-well level
-    x1 = rng.normal(size=groups.size)                                # row-level, no well level
+    base = well_level[groups] + rng.normal(0.0, 30.0, groups.size)  # ~all between-well level
+    x1 = rng.normal(size=groups.size)  # row-level, no well level
     y = base + 600.0 * x1 + rng.normal(0.0, 50.0, groups.size)
     df = pd.DataFrame({"base": base, "x1": x1, "y": y.astype(np.float64)})
     return df, groups.astype(np.int64), y.astype(np.float64)
@@ -178,6 +210,7 @@ def test_rejection_ledger_records_structural_gate_drops():
     disc.rejection_ledger with stage='structural_fragility' + the dropped spec name + numbers -- previously the
     gate's verdict lived only in a discarded local list."""
     from mlframe.training.composite.discovery._rejection_ledger import ledger_init
+
     df, groups, y = _per_well_base_frame()
     disc = _make_gate_ctx(groups)
     ledger_init(disc)  # fit() does this; the direct-gate test must initialise it
@@ -211,8 +244,7 @@ def test_biz_val_structural_gate_drops_chain_linres_variants_on_per_well_base():
     yj = _spec_t("y-linresYj-base", "chain_linres_yj", "base", chain_params)
     cbrt = _spec_t("y-linresCbrt-base", "chain_linres_cbrt", "base", chain_params)
     alt = _spec_t("y-chainlinres-base", "chain_linear_residual_yj", "base", chain_params)
-    good = _spec_t("y-linresYj-x1", "chain_linres_yj", "x1",
-                   {"bivariate_params": {"alpha": 0.5, "beta": 0.0}, "unary_stage_params": [{}]})
+    good = _spec_t("y-linresYj-x1", "chain_linres_yj", "x1", {"bivariate_params": {"alpha": 0.5, "beta": 0.0}, "unary_stage_params": [{}]})
     survivors = apply_structural_fragility_gate(disc, df, [yj, cbrt, alt, good], np.arange(len(df)), y)
     names = {s.name for s in survivors}
     assert "y-linresYj-base" not in names, "chain_linres_yj on a per-well base must be dropped (re-injects alpha*base)"
@@ -228,10 +260,8 @@ def test_biz_val_structural_gate_drops_chain_monres_on_per_well_base():
     test; the second structural pass (after opt-in steps) + this sensitivity must drop it on a per-well base."""
     df, groups, y = _per_well_base_frame()
     disc = _make_gate_ctx(groups)
-    monres = _spec_t("y-monresYj-base", "chain_monotonic_residual_yj", "base",
-                     {"bivariate_params": {"iso": 1}, "unary_stage_params": [{}]})
-    good = _spec_t("y-monresYj-x1", "chain_monres_yj", "x1",
-                   {"bivariate_params": {"iso": 1}, "unary_stage_params": [{}]})
+    monres = _spec_t("y-monresYj-base", "chain_monotonic_residual_yj", "base", {"bivariate_params": {"iso": 1}, "unary_stage_params": [{}]})
+    good = _spec_t("y-monresYj-x1", "chain_monres_yj", "x1", {"bivariate_params": {"iso": 1}, "unary_stage_params": [{}]})
     survivors = apply_structural_fragility_gate(disc, df, [monres, good], np.arange(len(df)), y)
     names = {s.name for s in survivors}
     assert "y-monresYj-base" not in names, "chain_monres on a per-well base must be dropped (re-injects base)"

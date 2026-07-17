@@ -13,6 +13,7 @@ The pre-fix code (no ``_inverse_decreasing_`` flag, direct head lookup) FAILS th
 swap assertion below; the post-fix code serves each column from the complementary
 head so labels are correct in BOTH sort modes.
 """
+
 from __future__ import annotations
 
 import numpy as np

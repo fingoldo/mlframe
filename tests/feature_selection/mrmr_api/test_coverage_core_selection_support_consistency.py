@@ -9,6 +9,7 @@ These have a precise contract that must hold regardless of FE: get_support stays
 engineered columns), while names_out / transform width agree with each other. With FE disabled, all three collapse
 to the same raw set. These behaviours had no dedicated input-space-consistency test under mrmr_api/.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,11 +21,20 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 def _no_fe(**kw):
     base = dict(
-        random_seed=0, verbose=0, fe_max_steps=0, interactions_max_order=1,
-        dcd_enable=False, cluster_aggregate_enable=False, build_friend_graph=False,
-        cat_fe_config=None, fe_hinge_enable=False, fe_modular_enable=False,
-        fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False,
-        fe_row_argmax_enable=False, fe_conditional_gate_enable=False,
+        random_seed=0,
+        verbose=0,
+        fe_max_steps=0,
+        interactions_max_order=1,
+        dcd_enable=False,
+        cluster_aggregate_enable=False,
+        build_friend_graph=False,
+        cat_fe_config=None,
+        fe_hinge_enable=False,
+        fe_modular_enable=False,
+        fe_pairwise_modular_enable=False,
+        fe_integer_lattice_enable=False,
+        fe_row_argmax_enable=False,
+        fe_conditional_gate_enable=False,
     )
     base.update(kw)
     return MRMR(**base)
@@ -34,13 +44,15 @@ def _data(n=600, seed=0):
     rng = np.random.default_rng(seed)
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)
-    X = pd.DataFrame({
-        "x0": x0,
-        "x1": x1,
-        "x0dup": x0 + rng.normal(0, 1e-6, n),   # near-duplicate of x0 (redundant)
-        "noise": rng.normal(size=n),
-        "noise2": rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "x0": x0,
+            "x1": x1,
+            "x0dup": x0 + rng.normal(0, 1e-6, n),  # near-duplicate of x0 (redundant)
+            "noise": rng.normal(size=n),
+            "noise2": rng.normal(size=n),
+        }
+    )
     y = (x0 + 0.5 * x1 > 0).astype(int)
     return X, y
 
@@ -102,6 +114,7 @@ def test_get_support_excludes_redundant_near_duplicate():
 
 def test_get_feature_names_out_before_fit_raises_notfitted():
     from sklearn.exceptions import NotFittedError
+
     m = _no_fe()
     with pytest.raises(NotFittedError):
         m.get_feature_names_out()
@@ -109,6 +122,7 @@ def test_get_feature_names_out_before_fit_raises_notfitted():
 
 def test_get_support_before_fit_raises_notfitted():
     from sklearn.exceptions import NotFittedError
+
     m = _no_fe()
     with pytest.raises(NotFittedError):
         m.get_support()

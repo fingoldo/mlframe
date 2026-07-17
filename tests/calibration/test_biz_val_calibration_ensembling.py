@@ -6,6 +6,7 @@ systematically under-states confidence when multiple independent members agree) 
 against ground truth on a known conditionally-independent generative model where the true combined posterior
 has a closed form.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -78,8 +79,7 @@ def test_biz_val_odds_ratio_combine_beats_naive_mean_on_conditionally_independen
     # independent members agreeing" signal and is measurably worse. Floor set with margin below the measured gap.
     assert ll_combined == pytest.approx(ll_true, abs=1e-6)
     assert ll_naive > ll_combined + 0.05, (
-        f"naive mean log-loss ({ll_naive:.4f}) should be clearly worse than "
-        f"odds-ratio-combined log-loss ({ll_combined:.4f}) under conditional independence"
+        f"naive mean log-loss ({ll_naive:.4f}) should be clearly worse than odds-ratio-combined log-loss ({ll_combined:.4f}) under conditional independence"
     )
 
 

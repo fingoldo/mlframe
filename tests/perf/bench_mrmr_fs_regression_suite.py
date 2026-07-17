@@ -43,8 +43,9 @@ def _make_df(n_rows: int, n_features: int = 14, seed: int = 145, classification:
     return pd.DataFrame(cols)
 
 
-def run_once(n_rows: int, classification: bool = False, n_features: int = 14, seed: int = 145,
-             no_mrmr: bool = False, ensembles: bool = False, rfecv: bool = False) -> None:
+def run_once(
+    n_rows: int, classification: bool = False, n_features: int = 14, seed: int = 145, no_mrmr: bool = False, ensembles: bool = False, rfecv: bool = False
+) -> None:
     df = _make_df(n_rows=n_rows, n_features=n_features, seed=seed, classification=classification)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=not classification)
     tmp_dir = tempfile.mkdtemp(prefix="mlframe_iter145_")
@@ -69,15 +70,22 @@ def run_once(n_rows: int, classification: bool = False, n_features: int = 14, se
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def profile(n_rows: int, top: int, classification: bool = False, n_features: int = 14, seed: int = 145,
-            no_mrmr: bool = False, ensembles: bool = False, rfecv: bool = False) -> None:
+def profile(
+    n_rows: int,
+    top: int,
+    classification: bool = False,
+    n_features: int = 14,
+    seed: int = 145,
+    no_mrmr: bool = False,
+    ensembles: bool = False,
+    rfecv: bool = False,
+) -> None:
     out = Path(__file__).parent / "results" / ("iter146.prof" if classification else "iter145.prof")
     out.parent.mkdir(parents=True, exist_ok=True)
     pr = cProfile.Profile()
     pr.enable()
     try:
-        run_once(n_rows=n_rows, classification=classification, n_features=n_features, seed=seed,
-                 no_mrmr=no_mrmr, ensembles=ensembles, rfecv=rfecv)
+        run_once(n_rows=n_rows, classification=classification, n_features=n_features, seed=seed, no_mrmr=no_mrmr, ensembles=ensembles, rfecv=rfecv)
     finally:
         pr.disable()
     pr.dump_stats(str(out))
@@ -99,8 +107,16 @@ def main() -> int:
     ap.add_argument("--ensembles", action="store_true")
     ap.add_argument("--rfecv", action="store_true")
     args = ap.parse_args()
-    profile(n_rows=args.n_rows, top=args.top, classification=args.classification, n_features=args.n_features,
-            seed=args.seed, no_mrmr=args.no_mrmr, ensembles=args.ensembles, rfecv=args.rfecv)
+    profile(
+        n_rows=args.n_rows,
+        top=args.top,
+        classification=args.classification,
+        n_features=args.n_features,
+        seed=args.seed,
+        no_mrmr=args.no_mrmr,
+        ensembles=args.ensembles,
+        rfecv=args.rfecv,
+    )
     return 0
 
 

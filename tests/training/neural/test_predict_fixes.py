@@ -10,6 +10,7 @@
 #9  multilabel predict() fell through to argmax -> (N,) labels; it must return
     the (N, K) per-label 0/1 indicator matrix.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -28,15 +29,24 @@ def _classifier(max_epochs=1):
     return PytorchLightningClassifier(
         model_class=MLPTorchModel,
         model_params={"loss_fn": torch.nn.CrossEntropyLoss(), "learning_rate": 1e-3},
-        network_params={"nlayers": 1, "first_layer_num_neurons": 8, "dropout_prob": 0.0,
-                        "activation_function": torch.nn.ReLU},
+        network_params={"nlayers": 1, "first_layer_num_neurons": 8, "dropout_prob": 0.0, "activation_function": torch.nn.ReLU},
         datamodule_class=TorchDataModule,
-        datamodule_params={"read_fcn": None, "data_placement_device": None,
-                           "features_dtype": torch.float32, "labels_dtype": torch.int64,
-                           "dataloader_params": {"batch_size": 32, "num_workers": 0}},
-        trainer_params={"max_epochs": max_epochs, "enable_model_summary": False,
-                        "default_root_dir": None, "log_every_n_steps": 1, "devices": 1,
-                        "logger": False, "accelerator": "cpu"},
+        datamodule_params={
+            "read_fcn": None,
+            "data_placement_device": None,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.int64,
+            "dataloader_params": {"batch_size": 32, "num_workers": 0},
+        },
+        trainer_params={
+            "max_epochs": max_epochs,
+            "enable_model_summary": False,
+            "default_root_dir": None,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "logger": False,
+            "accelerator": "cpu",
+        },
     )
 
 
@@ -61,16 +71,17 @@ def test_setup_predict_batch_size_overrides_dataloader_auto():
     'batch_size' default (the suite seeds 'auto'), so the predict dataloader
     uses the resolved predict batch instead of the train resolver."""
     dm = TorchDataModule(
-        read_fcn=None, data_placement_device=None,
-        features_dtype=torch.float32, labels_dtype=torch.int64,
+        read_fcn=None,
+        data_placement_device=None,
+        features_dtype=torch.float32,
+        labels_dtype=torch.int64,
         dataloader_params={"batch_size": "auto", "num_workers": 0},
     )
     X = np.random.default_rng(0).normal(size=(40, 5)).astype(np.float32)
     dm.setup_predict(X, batch_size=128)
     # Pre-fix dataloader_params['batch_size'] stayed 'auto' and shadowed self.batch_size.
     assert dm.dataloader_params.get("batch_size") == 128, (
-        f"predict batch override must be mirrored into dataloader_params; "
-        f"got {dm.dataloader_params.get('batch_size')!r}"
+        f"predict batch override must be mirrored into dataloader_params; got {dm.dataloader_params.get('batch_size')!r}"
     )
 
 
@@ -96,10 +107,10 @@ def test_predict_device_arg_honored_in_post_fit_path():
         return _RealTrainer(**kwargs)
 
     import unittest.mock as _mock
+
     with _mock.patch.object(_bp.L, "Trainer", _spy_trainer):
         clf.predict(X, device="cpu")
 
     assert captured.get("accelerator") == "cpu", (
-        f"predict(device='cpu') must set accelerator='cpu' in the post-fit path; "
-        f"captured trainer_params accelerator={captured.get('accelerator')!r}"
+        f"predict(device='cpu') must set accelerator='cpu' in the post-fit path; captured trainer_params accelerator={captured.get('accelerator')!r}"
     )

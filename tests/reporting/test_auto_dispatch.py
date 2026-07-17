@@ -81,7 +81,9 @@ class TestDispatch:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tag = render_multi_target_panels(
-                targets=y, probs=proba, classes=classes,
+                targets=y,
+                probs=proba,
+                classes=classes,
                 plot_outputs="matplotlib[png]",
                 multiclass_panels="CONFUSION PR_F1",
                 base_path=str(tmp_path / "mc"),
@@ -94,7 +96,9 @@ class TestDispatch:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tag = render_multi_target_panels(
-                targets=y, probs=proba, classes=labels,
+                targets=y,
+                probs=proba,
+                classes=labels,
                 plot_outputs="matplotlib[png]",
                 multilabel_panels="PR_F1 COOCCURRENCE",
                 base_path=str(tmp_path / "ml"),
@@ -108,7 +112,9 @@ class TestDispatch:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tag = render_multi_target_panels(
-                targets=y, preds=score, group_ids=gid,
+                targets=y,
+                preds=score,
+                group_ids=gid,
                 plot_outputs="matplotlib[png]",
                 ltr_panels="NDCG_K MRR_DIST",
                 base_path=str(tmp_path / "ltr"),
@@ -123,7 +129,9 @@ class TestDispatch:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tag = render_multi_target_panels(
-                targets=y, probs=proba, classes=classes,
+                targets=y,
+                probs=proba,
+                classes=classes,
                 plot_outputs="matplotlib[png]",
                 binary_panels="ROC PR SCORE_DIST KS THRESHOLD GAIN",
                 base_path=str(tmp_path / "bin"),
@@ -137,9 +145,12 @@ class TestDispatch:
         multiclass/multilabel templates do not misfire on a 2-column proba."""
         y, proba, classes = binary_inputs
         tag = render_multi_target_panels(
-            targets=y, probs=proba, classes=classes,
+            targets=y,
+            probs=proba,
+            classes=classes,
             plot_outputs="matplotlib[png]",
-            multiclass_panels="CONFUSION", multilabel_panels="PR_F1",
+            multiclass_panels="CONFUSION",
+            multilabel_panels="PR_F1",
             base_path=str(tmp_path / "bin"),
             target_type="binary_classification",
         )
@@ -165,7 +176,9 @@ class TestDispatch:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tag = render_multi_target_panels(
-                targets=y, probs=proba, classes=classes,
+                targets=y,
+                probs=proba,
+                classes=classes,
                 plot_outputs="matplotlib[png]",
                 multiclass_panels="CONFUSION PR_F1",
                 base_path=str(tmp_path / "mc_boom"),
@@ -180,9 +193,12 @@ class TestDispatch:
         preds = y + rng.normal(0, 0.1, 100)
         failures: list = []
         tag = render_multi_target_panels(
-            targets=y, preds=preds, probs=None,
+            targets=y,
+            preds=preds,
+            probs=None,
             plot_outputs="matplotlib[png]",
-            multiclass_panels="CONFUSION", multilabel_panels="PR_F1",
+            multiclass_panels="CONFUSION",
+            multilabel_panels="PR_F1",
             base_path=str(tmp_path / "reg"),
             panel_failures=failures,
         )
@@ -195,9 +211,12 @@ class TestDispatch:
         y = rng.normal(0, 1, 100)
         preds = y + rng.normal(0, 0.1, 100)
         tag = render_multi_target_panels(
-            targets=y, preds=preds, probs=None,
+            targets=y,
+            preds=preds,
+            probs=None,
             plot_outputs="matplotlib[png]",
-            multiclass_panels="CONFUSION", multilabel_panels="PR_F1",
+            multiclass_panels="CONFUSION",
+            multilabel_panels="PR_F1",
             base_path=str(tmp_path / "reg"),
         )
         assert tag is None
@@ -212,7 +231,9 @@ class TestShortCircuits:
     def test_empty_base_path_is_noop(self, mc_inputs):
         y, proba, classes = mc_inputs
         tag = render_multi_target_panels(
-            targets=y, probs=proba, classes=classes,
+            targets=y,
+            probs=proba,
+            classes=classes,
             plot_outputs="matplotlib[png]",
             multiclass_panels="CONFUSION",
             base_path="",
@@ -222,7 +243,9 @@ class TestShortCircuits:
     def test_empty_plot_outputs_is_noop(self, mc_inputs, tmp_path):
         y, proba, classes = mc_inputs
         tag = render_multi_target_panels(
-            targets=y, probs=proba, classes=classes,
+            targets=y,
+            probs=proba,
+            classes=classes,
             plot_outputs="",
             multiclass_panels="CONFUSION",
             base_path=str(tmp_path / "x"),
@@ -234,7 +257,9 @@ class TestShortCircuits:
         # Multiclass shape -> dispatcher matches multiclass branch, but
         # the template is empty -> falls through to None.
         tag = render_multi_target_panels(
-            targets=y, probs=proba, classes=classes,
+            targets=y,
+            probs=proba,
+            classes=classes,
             plot_outputs="matplotlib[png]",
             multiclass_panels="",  # explicit empty
             base_path=str(tmp_path / "x"),
@@ -244,7 +269,9 @@ class TestShortCircuits:
     def test_empty_multilabel_template_is_noop(self, ml_inputs, tmp_path):
         y, proba, labels = ml_inputs
         tag = render_multi_target_panels(
-            targets=y, probs=proba, classes=labels,
+            targets=y,
+            probs=proba,
+            classes=labels,
             plot_outputs="matplotlib[png]",
             multilabel_panels="",
             base_path=str(tmp_path / "x"),
@@ -254,7 +281,9 @@ class TestShortCircuits:
     def test_empty_ltr_template_is_noop(self, ltr_inputs, tmp_path):
         y, score, gid = ltr_inputs
         tag = render_multi_target_panels(
-            targets=y, preds=score, group_ids=gid,
+            targets=y,
+            preds=score,
+            group_ids=gid,
             plot_outputs="matplotlib[png]",
             ltr_panels="",
             base_path=str(tmp_path / "x"),
@@ -273,7 +302,9 @@ class TestMultiBackend:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             render_multi_target_panels(
-                targets=y, probs=proba, classes=classes,
+                targets=y,
+                probs=proba,
+                classes=classes,
                 plot_outputs="matplotlib[png] + plotly[html]",
                 multiclass_panels="CONFUSION PR_F1",
                 base_path=str(tmp_path / "mc"),
@@ -297,12 +328,15 @@ class TestDispatchPrecedence:
         """
         y, proba, classes = mc_inputs
         # group_ids same length as y; arbitrary partition.
-        gid = np.repeat(np.arange(20), 10)[:len(y)]
+        gid = np.repeat(np.arange(20), 10)[: len(y)]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tag = render_multi_target_panels(
-                targets=y, probs=proba, preds=None,
-                classes=classes, group_ids=gid,
+                targets=y,
+                probs=proba,
+                preds=None,
+                classes=classes,
+                group_ids=gid,
                 plot_outputs="matplotlib[png]",
                 multiclass_panels="CONFUSION",
                 ltr_panels="NDCG_K",
@@ -322,7 +356,9 @@ class TestDispatchPrecedence:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tag = render_multi_target_panels(
-                targets=y, preds=score, probs=None,
+                targets=y,
+                preds=score,
+                probs=None,
                 group_ids=gid,
                 plot_outputs="matplotlib[png]",
                 multiclass_panels="CONFUSION",
@@ -354,7 +390,8 @@ class TestFailureSwallowing:
         # (shape[1] >= 3), so dispatcher returns None cleanly without
         # entering the composer at all. Verify no raise + no file.
         result = render_multi_target_panels(
-            targets=y_bad, probs=proba_bad,
+            targets=y_bad,
+            probs=proba_bad,
             plot_outputs="matplotlib[png]",
             multiclass_panels="CONFUSION",
             base_path=str(tmp_path / "x"),
@@ -374,6 +411,7 @@ class TestFailureSwallowing:
 
         # Patch the composer used by the multiclass branch.
         import mlframe.reporting.charts.multiclass as mc_mod
+
         monkeypatch.setattr(mc_mod, "compose_multiclass_figure", _raising_composer)
 
         # Re-import inside dispatcher path: dispatcher does
@@ -385,7 +423,9 @@ class TestFailureSwallowing:
 
         with caplog.at_level(logging.ERROR, logger=auto_dispatch.logger.name):
             tag = render_multi_target_panels(
-                targets=y, probs=proba, classes=[0, 1, 2],
+                targets=y,
+                probs=proba,
+                classes=[0, 1, 2],
                 plot_outputs="matplotlib[png]",
                 multiclass_panels="CONFUSION",
                 base_path=str(tmp_path / "x"),
@@ -394,8 +434,7 @@ class TestFailureSwallowing:
         # No file written because composer raised before render.
         assert not list(tmp_path.glob("x*"))
         # Caller saw a logged exception.
-        assert any("Multiclass panel rendering failed" in r.getMessage()
-                   for r in caplog.records)
+        assert any("Multiclass panel rendering failed" in r.getMessage() for r in caplog.records)
 
 
 # ----------------------------------------------------------------------------
@@ -411,6 +450,7 @@ class TestReportModelPerfIntegration:
 
     def test_multiclass_via_report_model_perf(self, mc_inputs, tmp_path):
         from mlframe.training.evaluation import report_model_perf
+
         y, proba, classes = mc_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -434,6 +474,7 @@ class TestReportModelPerfIntegration:
 
     def test_multilabel_via_report_model_perf(self, ml_inputs, tmp_path):
         from mlframe.training.evaluation import report_model_perf
+
         y, proba, labels = ml_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -458,19 +499,27 @@ class TestReportModelPerfIntegration:
         """Binary curve panels render default-ON through report_model_perf, the
         decile table lands in the metrics dict, and metrics['charts'] is recorded."""
         from mlframe.training.evaluation import report_model_perf
+
         y, proba, classes = binary_inputs
         metrics: dict = {}
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             report_model_perf(
-                targets=y, columns=[], model_name="testbin", model=None,
-                preds=(proba[:, 1] > 0.5).astype(int), probs=proba, classes=classes,
+                targets=y,
+                columns=[],
+                model_name="testbin",
+                model=None,
+                preds=(proba[:, 1] > 0.5).astype(int),
+                probs=proba,
+                classes=classes,
                 plot_file=str(tmp_path / "smoke"),
                 plot_outputs="matplotlib[png]",
                 binary_panels="ROC PR SCORE_DIST KS THRESHOLD GAIN",
                 target_type="binary_classification",
                 metrics=metrics,
-                show_perf_chart=False, show_fi=False, print_report=False,
+                show_perf_chart=False,
+                show_fi=False,
+                print_report=False,
             )
         assert os.path.exists(tmp_path / "smoke_binary_panels.png")
         assert metrics["charts"]["saved"] == ["binary_panels"]
@@ -487,14 +536,22 @@ class TestReportModelPerfIntegration:
         report_model_perf must NOT write any *_panels file -- legacy
         behaviour preserved."""
         from mlframe.training.evaluation import report_model_perf
+
         y, proba, classes = mc_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             report_model_perf(
-                targets=y, columns=[], model_name="testmc", model=None,
-                preds=np.argmax(proba, axis=1), probs=proba, classes=classes,
+                targets=y,
+                columns=[],
+                model_name="testmc",
+                model=None,
+                preds=np.argmax(proba, axis=1),
+                probs=proba,
+                classes=classes,
                 plot_file=str(tmp_path / "smoke"),
                 # plot_outputs / multiclass_panels NOT supplied -> no-op
-                show_perf_chart=False, show_fi=False, print_report=False,
+                show_perf_chart=False,
+                show_fi=False,
+                print_report=False,
             )
         assert not list(tmp_path.glob("*_panels.png"))

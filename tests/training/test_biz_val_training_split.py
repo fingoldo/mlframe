@@ -11,6 +11,7 @@ field is set to the value the config documents as correct:
   different generative law; aging out the stale rows lifts OOS on the recent
   test block.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -80,8 +81,13 @@ def test_biz_val_split_trainset_aging_limit_drops_stale_regime():
 
     def _test_r2(aging):
         tr, _val, te, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.0, timestamps=timestamps,
-            wholeday_splitting=False, trainset_aging_limit=aging, random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.0,
+            timestamps=timestamps,
+            wholeday_splitting=False,
+            trainset_aging_limit=aging,
+            random_seed=42,
         )
         m = Ridge(alpha=1e-3).fit(x[tr].reshape(-1, 1), y[tr])
         p = m.predict(x[te].reshape(-1, 1))
@@ -89,6 +95,4 @@ def test_biz_val_split_trainset_aging_limit_drops_stale_regime():
 
     r2_no_aging = _test_r2(None)
     r2_aged = _test_r2(0.4)  # keep only the most-recent 40% of train (current regime)
-    assert r2_aged >= r2_no_aging + 0.20, (
-        f"aging should lift OOS on regime shift: none={r2_no_aging:.3f} aged={r2_aged:.3f}"
-    )
+    assert r2_aged >= r2_no_aging + 0.20, f"aging should lift OOS on regime shift: none={r2_no_aging:.3f} aged={r2_aged:.3f}"

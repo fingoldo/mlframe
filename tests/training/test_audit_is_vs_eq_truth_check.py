@@ -33,6 +33,7 @@ P1 sites:
    rejected ``np.bool_(False)`` from config, silently forcing the
    ``len < n`` branch. Fix: ``not use_simple_mode``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -45,17 +46,20 @@ import pytest
 def test_resolve_use_gpu_accepts_numpy_bool_false():
     """Pre-fix np.bool_(False) raised ValueError; post-fix it's accepted."""
     from mlframe.feature_engineering.transformer.random_features import _resolve_use_gpu
+
     out = _resolve_use_gpu(use_gpu=np.bool_(False), work=100, threshold=None)
     assert out is False or out == False  # noqa: E712
 
 
 def test_resolve_use_gpu_accepts_python_bool_false():
     from mlframe.feature_engineering.transformer.random_features import _resolve_use_gpu
+
     assert _resolve_use_gpu(use_gpu=False, work=100, threshold=None) == False  # noqa: E712
 
 
 def test_resolve_use_gpu_string_auto_still_works():
     from mlframe.feature_engineering.transformer.random_features import _resolve_use_gpu
+
     # Without GPU available, "auto" returns False.
     out = _resolve_use_gpu(use_gpu="auto", work=0, threshold=None)
     assert isinstance(out, bool)
@@ -63,6 +67,7 @@ def test_resolve_use_gpu_string_auto_still_works():
 
 def test_resolve_use_gpu_invalid_string_raises():
     from mlframe.feature_engineering.transformer.random_features import _resolve_use_gpu
+
     with pytest.raises(ValueError, match="must be True, False, or 'auto'"):
         _resolve_use_gpu(use_gpu="invalid", work=0, threshold=None)
 
@@ -75,10 +80,8 @@ def test_row_attention_stage4_backend_handles_numpy_bool():
     gone; bool() coerce path present."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "feature_engineering" / "transformer" / "row_attention.py"
-    ).read_text(encoding="utf-8")
+
+    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "feature_engineering" / "transformer" / "row_attention.py").read_text(encoding="utf-8")
     # Pre-fix shape MUST be gone:
     assert "if gpu_stage4 is False:\n        return row_attention_stage4_njit" not in src
     assert "if gpu_stage4 is True:\n        if not is_gpu_available()" not in src
@@ -95,10 +98,8 @@ def test_compute_rff_features_accepts_numpy_bool_standardize():
     Python bool and numpy bool."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "feature_engineering" / "transformer" / "random_features.py"
-    ).read_text(encoding="utf-8")
+
+    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "feature_engineering" / "transformer" / "random_features.py").read_text(encoding="utf-8")
     # Pre-fix shape MUST be gone:
     assert "if standardize is not True and standardize is not False:" not in src
     # Post-fix marker:
@@ -113,6 +114,7 @@ def test_train_eval_select_handles_numpy_bool_false():
     slipped past."""
     import pathlib
     import mlframe as _mlframe
+
     # ``select_target`` was carved out of ``train_eval.py`` into
     # ``_train_eval_select_target.py``; the ``idx is False`` -> isinstance
     # fix lives in the sibling. Concat parent + sibling so the source-grep
@@ -123,7 +125,7 @@ def test_train_eval_select_handles_numpy_bool_false():
     if sib.exists():
         src += "\n" + sib.read_text(encoding="utf-8")
     # Pre-fix shape MUST be gone:
-    assert "if idx is None or idx is False or (hasattr(idx, \"__len__\") and len(idx) == 0):" not in src
+    assert 'if idx is None or idx is False or (hasattr(idx, "__len__") and len(idx) == 0):' not in src
     # Post-fix isinstance marker:
     assert "isinstance(idx, (bool, np.bool_))" in src
 
@@ -136,15 +138,12 @@ def test_screen_use_simple_mode_uses_not_not_is_false():
     ``not use_simple_mode`` works uniformly."""
     import pathlib
     import mlframe as _mlframe
+
     # 2026-05-22 split: screen_predictors moved to _screen_predictors.py.
     # Second split (2026-05-2x): confirm-step body moved to _confirm_predictor.py
     # where this literal now lives.
     _dir = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "filters"
-    src = (
-        (_dir / "screen.py").read_text(encoding="utf-8")
-        + "\n"
-        + (_dir / "_screen_predictors.py").read_text(encoding="utf-8")
-    )
+    src = (_dir / "screen.py").read_text(encoding="utf-8") + "\n" + (_dir / "_screen_predictors.py").read_text(encoding="utf-8")
     _confirm = _dir / "_confirm_predictor.py"
     if _confirm.exists():
         src += "\n" + _confirm.read_text(encoding="utf-8")

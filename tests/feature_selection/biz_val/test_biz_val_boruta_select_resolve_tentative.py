@@ -16,6 +16,7 @@ noise columns each), the single-shot mode falsely "confirms" 5 noise columns in 
 24 possible true confirms recovered vs. 17), the expected trade-off of controlling the family-wise error rate
 rather than testing every feature independently.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -62,8 +63,13 @@ def test_biz_val_boruta_select_resolve_tentative_cuts_false_confirms():
 
         res_single = boruta_select(X, y, _importance_fn, n_iterations=N_ITERATIONS, random_state=seed)
         res_multi = boruta_select(
-            X, y, _importance_fn, n_iterations=N_ITERATIONS, random_state=seed,
-            resolve_tentative=True, correction="bonferroni",
+            X,
+            y,
+            _importance_fn,
+            n_iterations=N_ITERATIONS,
+            random_state=seed,
+            resolve_tentative=True,
+            correction="bonferroni",
         )
         by_single = dict(zip(res_single["feature_names"], res_single["decision"]))
         by_multi = dict(zip(res_multi["feature_names"], res_multi["decision"]))
@@ -105,10 +111,22 @@ def test_boruta_select_convergence_rounds_stops_early_same_confirmed_set():
     X = pd.DataFrame({"rel_1": x_rel_1, "rel_2": x_rel_2, "noise": x_noise})
 
     full = boruta_select(
-        X, y, _importance_fn, n_iterations=30, random_state=3, resolve_tentative=True, correction="bonferroni",
+        X,
+        y,
+        _importance_fn,
+        n_iterations=30,
+        random_state=3,
+        resolve_tentative=True,
+        correction="bonferroni",
     )
     early = boruta_select(
-        X, y, _importance_fn, n_iterations=30, random_state=3, resolve_tentative=True, correction="bonferroni",
+        X,
+        y,
+        _importance_fn,
+        n_iterations=30,
+        random_state=3,
+        resolve_tentative=True,
+        correction="bonferroni",
         convergence_rounds=3,
     )
 

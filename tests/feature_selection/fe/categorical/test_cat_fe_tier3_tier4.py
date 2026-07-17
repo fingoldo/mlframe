@@ -25,10 +25,14 @@ from mlframe.feature_selection.filters.cat_interactions import (
     run_cat_interaction_step,
 )
 from mlframe.feature_selection.filters.engineered_recipes import (
-    EngineeredRecipe, apply_recipe,
+    EngineeredRecipe,
+    apply_recipe,
 )
 from mlframe.feature_selection.filters.info_theory import (
-    entropy, entropy_miller_madow, merge_vars, compute_mi_from_classes,
+    entropy,
+    entropy_miller_madow,
+    merge_vars,
+    compute_mi_from_classes,
 )
 
 
@@ -52,14 +56,21 @@ class TestTargetEncoding:
         data = np.column_stack([x1, x2, y]).astype(np.int32)
         nbins = np.array([2, 2, 2], dtype=np.int64)
         cls_y, _, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         te_vals, cell_means = _compute_target_encoding(
-            factors_data=data, idx_tuple=(0, 1),
+            factors_data=data,
+            idx_tuple=(0, 1),
             target_indices=np.array([2], dtype=np.int64),
-            classes_y=cls_y, nbins=nbins,
-            n_oof_folds=5, smoothing=10.0, dtype=np.int32,
+            classes_y=cls_y,
+            nbins=nbins,
+            n_oof_folds=5,
+            smoothing=10.0,
+            dtype=np.int32,
         )
         assert te_vals.shape == (n,)
         # Encoded values are floats in [0, 1] (since y is binary)
@@ -86,21 +97,30 @@ class TestTargetEncoding:
         data_tr = np.column_stack([x1_tr, x2_tr, y_tr]).astype(np.int32)
         nbins = np.array([2, 2, 2], dtype=np.int64)
         cls_y, _, _ = merge_vars(
-            factors_data=data_tr, vars_indices=np.array([2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data_tr,
+            vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         _, cell_means_global = _compute_target_encoding(
-            factors_data=data_tr, idx_tuple=(0, 1),
+            factors_data=data_tr,
+            idx_tuple=(0, 1),
             target_indices=np.array([2], dtype=np.int64),
-            classes_y=cls_y, nbins=nbins,
-            n_oof_folds=0, smoothing=10.0, dtype=np.int32,
+            classes_y=cls_y,
+            nbins=nbins,
+            n_oof_folds=0,
+            smoothing=10.0,
+            dtype=np.int32,
         )
         # Build a target_encoding recipe and replay on test
         # Build a factorize lookup
         lookup = np.array([0, 1, 2, 3], dtype=np.int64)  # for binary (a,b) all 4 cells
         recipe = EngineeredRecipe(
-            name="te(x1__x2)", kind="target_encoding",
-            src_names=("x1", "x2"), factorize_nbins=(2, 2),
+            name="te(x1__x2)",
+            kind="target_encoding",
+            src_names=("x1", "x2"),
+            factorize_nbins=(2, 2),
             unknown_strategy="clip",
             extra={
                 "cell_means": cell_means_global,
@@ -124,20 +144,32 @@ class TestTargetEncoding:
         data = np.column_stack([x1, x2, y]).astype(np.int32)
         nbins = np.array([2, 2, 2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=2, min_interaction_information=0.1,
-            full_npermutations=0, fwer_correction="none",
-            emit_target_encoding=True, target_encoding_oof_folds=5,
+            enable=True,
+            top_k_pairs=2,
+            min_interaction_information=0.1,
+            full_npermutations=0,
+            fwer_correction="none",
+            emit_target_encoding=True,
+            target_encoding_oof_folds=5,
         )
         _, _, _, state = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "y"],
+            nbins=nbins,
             target_indices=np.array([2], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         te_recipes = [r for r in state.recipes if r.kind == "target_encoding"]
         assert te_recipes, "emit_target_encoding=True should produce TE recipes"
@@ -214,11 +246,16 @@ class TestCoordinateAscent:
         cls_y = rng.integers(0, 2, 100).astype(np.int32)
         fq_y = np.bincount(cls_y, minlength=2).astype(np.float64) / 100
         out = _refine_kway_coordinate_ascent(
-            factors_data=data, kway_results=dummy_kway,
+            factors_data=data,
+            kway_results=dummy_kway,
             candidate_pool=np.array([0, 1, 2, 3, 4], dtype=np.int64),
-            nbins=nbins, classes_y=cls_y, freqs_y=fq_y,
-            max_combined_nbins=64, n_passes=0,
-            dtype=np.int32, verbose=0,
+            nbins=nbins,
+            classes_y=cls_y,
+            freqs_y=fq_y,
+            max_combined_nbins=64,
+            n_passes=0,
+            dtype=np.int32,
+            verbose=0,
         )
         assert out == dummy_kway
 
@@ -233,6 +270,7 @@ class TestSklearnPipelineIntegration:
     def test_mrmr_inside_pipeline_fit_transform(self):
         """MRMR with cat-FE enabled must work inside a sklearn Pipeline."""
         from sklearn.pipeline import Pipeline
+
         rng = np.random.default_rng(2)
         n = 600
         x1 = rng.integers(0, 2, n).astype(np.int8)
@@ -244,17 +282,26 @@ class TestSklearnPipelineIntegration:
             cols[f"n{k}"] = pd.Categorical(noise[:, k])
         df = pd.DataFrame(cols)
         y_s = pd.Series(y, name="target")
-        pipe = Pipeline([
-            ("mrmr", MRMR(
-                full_npermutations=2, baseline_npermutations=2,
-                verbose=0, n_jobs=1,
-                cat_fe_config=CatFEConfig(
-                    enable=True, top_k_pairs=4,
-                    min_interaction_information=0.1,
-                    full_npermutations=0, fwer_correction="none",
+        pipe = Pipeline(
+            [
+                (
+                    "mrmr",
+                    MRMR(
+                        full_npermutations=2,
+                        baseline_npermutations=2,
+                        verbose=0,
+                        n_jobs=1,
+                        cat_fe_config=CatFEConfig(
+                            enable=True,
+                            top_k_pairs=4,
+                            min_interaction_information=0.1,
+                            full_npermutations=0,
+                            fwer_correction="none",
+                        ),
+                    ),
                 ),
-            )),
-        ])
+            ]
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             pipe.fit(df, y_s)
@@ -325,4 +372,5 @@ class TestBigGPUKernel:
         from mlframe.feature_selection.filters.gpu import (
             mi_direct_gpu_batched_pairs,
         )
+
         assert callable(mi_direct_gpu_batched_pairs)

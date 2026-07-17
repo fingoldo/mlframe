@@ -4,6 +4,7 @@ One test per defect identified in the user-supplied prod log. Each test asserts
 the OBSERVABLE behaviour the fix promises - never the implementation detail -
 so refactors that preserve the contract pass without churn.
 """
+
 from __future__ import annotations
 
 import logging
@@ -81,16 +82,20 @@ def test_D_release_clears_dataset_reuse_cache():
     )
     # Patch the heavy RAM clean-up + RSS-measurement helpers to noops so the
     # test is hermetic.
-    with patch.object(mod, "get_process_rss_mb", return_value=0.0), \
-         patch.object(mod, "maybe_clean_ram_and_gpu", return_value=0.0), \
-         patch.object(mod, "estimate_df_size_mb", return_value=0.0):
+    with (
+        patch.object(mod, "get_process_rss_mb", return_value=0.0),
+        patch.object(mod, "maybe_clean_ram_and_gpu", return_value=0.0),
+        patch.object(mod, "estimate_df_size_mb", return_value=0.0),
+    ):
         mod._release_ctx_polars_frames(
-            ctx, baseline_rss_mb=0.0, df_size_mb=0.0,
-            verbose=False, reason="test",
+            ctx,
+            baseline_rss_mb=0.0,
+            df_size_mb=0.0,
+            verbose=False,
+            reason="test",
         )
     assert ctx.artifacts["dataset_reuse_cache"] == {}, (
-        "dataset_reuse_cache must be emptied; otherwise XGB/LGB/CB wrappers "
-        "pin the polars buffers and the polars-release is a no-op."
+        "dataset_reuse_cache must be emptied; otherwise XGB/LGB/CB wrappers pin the polars buffers and the polars-release is a no-op."
     )
 
 
@@ -109,24 +114,21 @@ def test_A_dummy_baselines_respects_compute_valset_metrics_false():
     """
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "_phase_dummy_baselines.py"
-    ).read_text(encoding="utf-8")
+
+    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core" / "_phase_dummy_baselines.py").read_text(encoding="utf-8")
     assert "compute_valset_metrics" in src, (
         "dummy-baselines emit path must read compute_valset_metrics from "
         "reporting_config; user explicitly set it to False and still saw "
         "VAL (DUMMY) metric lines."
     )
-    assert "compute_testset_metrics" in src, (
-        "Symmetric test-side gate must be present too."
-    )
+    assert "compute_testset_metrics" in src, "Symmetric test-side gate must be present too."
 
 
 def test_A_ct_ensemble_respects_compute_valset_metrics_false():
     """Mirror of the dummy-baselines gate, on the cross-target ensemble emit path."""
     import pathlib
     import mlframe as _mlframe
+
     _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
     _xt = _core / "_phase_composite_post_xt_ensemble.py"
     if _xt.exists():
@@ -153,15 +155,18 @@ def test_E_val_placement_downgrade_emits_warning_with_remediation(caplog):
 
     rng = np.random.default_rng(0)
     n = 200
-    df = pd.DataFrame({
-        "f1": rng.normal(size=n),
-        "target": rng.normal(size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "f1": rng.normal(size=n),
+            "target": rng.normal(size=n),
+        }
+    )
     with caplog.at_level(logging.INFO, logger="mlframe.training.splitting"):
         try:
             make_train_test_split(
                 df=df,
-                val_size=0.1, test_size=0.1,
+                val_size=0.1,
+                test_size=0.1,
                 val_placement="backward",
                 timestamps=None,
                 random_seed=0,
@@ -170,11 +175,7 @@ def test_E_val_placement_downgrade_emits_warning_with_remediation(caplog):
             # Downstream split-shape errors are not under test; the log line is.
             pass
 
-    relevant = [
-        r for r in caplog.records
-        if "downgraded" in r.getMessage()
-        and r.name == "mlframe.training.splitting"
-    ]
+    relevant = [r for r in caplog.records if "downgraded" in r.getMessage() and r.name == "mlframe.training.splitting"]
     assert relevant, "expected a log line about val_placement downgrade"
     for r in relevant:
         assert r.levelno == logging.WARNING, (
@@ -182,9 +183,7 @@ def test_E_val_placement_downgrade_emits_warning_with_remediation(caplog):
             "should be WARNING -- temporal honesty silently lost is exactly the kind "
             "of regression this log level was raised to surface."
         )
-        assert "Temporal honesty lost" in r.getMessage(), (
-            "WARNING message must spell out the consequence so operators see it."
-        )
+        assert "Temporal honesty lost" in r.getMessage(), "WARNING message must spell out the consequence so operators see it."
 
 
 # ---------------------------------------------------------------------------
@@ -202,10 +201,8 @@ def test_B_temporal_audit_uses_plot_outputs_when_present():
     """
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "_phase_train_one_target_model_setup.py"
-    ).read_text(encoding="utf-8")
+
+    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core" / "_phase_train_one_target_model_setup.py").read_text(encoding="utf-8")
     assert "plot_outputs=" in src
     assert "_target_temporal_audit" in src
 
@@ -273,23 +270,19 @@ def test_I_mape_warmup_does_not_emit_zero_y_warning(caplog):
 
     with caplog.at_level(logging.WARNING, logger="mlframe.metrics._core_precision_mape"):
         from mlframe.metrics import _core_numba_warmup
+
         # Re-run the warmup explicitly even if the module is already cached so
         # the call paths fire again under our caplog.
-        warmup_fn = getattr(_core_numba_warmup, "warmup_numba_kernels", None) \
-            or getattr(_core_numba_warmup, "warmup", None)
+        warmup_fn = getattr(_core_numba_warmup, "warmup_numba_kernels", None) or getattr(_core_numba_warmup, "warmup", None)
         if warmup_fn is not None:
             try:
                 warmup_fn()
             except Exception:
                 # If warmup signature differs, importing the module already executed it.
                 pass
-    zero_warns = [
-        r for r in caplog.records
-        if "y_true entries are zero" in r.getMessage()
-    ]
+    zero_warns = [r for r in caplog.records if "y_true entries are zero" in r.getMessage()]
     assert not zero_warns, (
-        "MAPE zero-y warning fired during numba warmup; warmup y_true must "
-        f"be a non-zero vector. Captured: {[r.getMessage() for r in zero_warns]}"
+        f"MAPE zero-y warning fired during numba warmup; warmup y_true must be a non-zero vector. Captured: {[r.getMessage() for r in zero_warns]}"
     )
 
 
@@ -317,6 +310,7 @@ def test_shap_xgb_base_score_patch_handles_bracketed_array_string():
     # test_patch_is_noop_on_shap_ge_052), hence the coercer is no longer reachable via ``_shap_tree.float`` there.
     # The bracket-handling logic itself (the contract under test) lives in the module-level ``_safe_float``.
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _safe_float as coerce
+
     assert coerce("[0.5]") == 0.5
     assert abs(coerce("[5.0666666E-1]") - 0.50666666) < 1e-6
     # Multi-element array: take the first.
@@ -336,11 +330,7 @@ def test_J_coerce_to_numpy_does_not_emit_zero_copy_deprecation_warning():
         warnings.simplefilter("always")
         arr = coerce_to_numpy(s)
         assert isinstance(arr, np.ndarray)
-    deprecations = [
-        w for w in caught
-        if issubclass(w.category, DeprecationWarning)
-        and "zero_copy_only" in str(w.message)
-    ]
+    deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning) and "zero_copy_only" in str(w.message)]
     assert not deprecations, (
         "polars 0.20.10+ emits DeprecationWarning on the zero_copy_only kwarg; "
         "the fix must prefer allow_copy=True. "

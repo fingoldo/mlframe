@@ -10,6 +10,7 @@ Default (flag unset) is a SINGLE unparametrized run -- the suite is unchanged an
 that asserts CPU-estimator MI MAGNITUDES (edge-binning STRICT gives different absolute MI -- selection converges at
 large n, magnitude never does) opts out of the STRICT param with ``@pytest.mark.strict_cpu_only``.
 """
+
 import os
 
 import pytest
@@ -18,6 +19,7 @@ import pytest
 def _cuda_available() -> bool:
     try:
         from mlframe.feature_selection.filters._fe_gpu_strict import _cuda_usable
+
         return bool(_cuda_usable())
     except Exception:
         return False

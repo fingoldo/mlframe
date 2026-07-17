@@ -1,4 +1,5 @@
 from mlframe.training import FeatureSelectionConfig, OutlierDetectionConfig, OutputConfig
+
 """
 Comprehensive tests for all 13 mlframe model types.
 
@@ -46,25 +47,19 @@ def _assert_trained_target_entries(entries, *, target_type_label: str):
     single placeholder SimpleNamespace with no fitted model would pass. We now probe each entry
     for the actual contract: it must be a model wrapper carrying a fitted ``.model`` attribute
     that supports predict-shaped output, and the wrapper must expose the feature schema."""
-    assert isinstance(entries, list), (
-        f"{target_type_label}: expected models[ttype]['target'] to be a list, got {type(entries).__name__}"
-    )
-    assert len(entries) >= 1, (
-        f"{target_type_label}: no trained entries returned (empty list)"
-    )
+    assert isinstance(entries, list), f"{target_type_label}: expected models[ttype]['target'] to be a list, got {type(entries).__name__}"
+    assert len(entries) >= 1, f"{target_type_label}: no trained entries returned (empty list)"
     for i, entry in enumerate(entries):
         # Each entry must expose a fitted model handle.
         m = getattr(entry, "model", None)
-        assert m is not None, (
-            f"{target_type_label}: entries[{i}] missing .model handle: {entry!r}"
-        )
+        assert m is not None, f"{target_type_label}: entries[{i}] missing .model handle: {entry!r}"
         # Most fitted estimators expose predict OR predict_proba; require at least one.
         has_predict = callable(getattr(m, "predict", None))
         has_predict_proba = callable(getattr(m, "predict_proba", None))
         assert has_predict or has_predict_proba, (
-            f"{target_type_label}: entries[{i}].model is not a fitted estimator: "
-            f"no predict / predict_proba on {type(m).__name__}"
+            f"{target_type_label}: entries[{i}].model is not a fitted estimator: no predict / predict_proba on {type(m).__name__}"
         )
+
 
 # Models that support categorical features natively (HGB excluded per user request)
 CATEGORICAL_NATIVE_MODELS = ["cb", "lgb", "xgb"]
@@ -243,6 +238,7 @@ class TestCategoricalFeatures:
         # absolute 300-uniq cap applies (legacy behaviour) and all three
         # ``cat_*`` columns stay in cat_features.
         from mlframe.training.configs import FeatureTypesConfig
+
         feature_types_config = FeatureTypesConfig(
             cat_text_cardinality_threshold_pct=0.0,
         )
@@ -370,7 +366,9 @@ class TestGPUSupport:
         _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
     @pytest.mark.parametrize("model_name", ["cb", "xgb"])
-    def test_gpu_configuration(self, model_name, sample_regression_data, temp_data_dir, check_gpu_available, check_catboost_gpu_available, common_init_params, fast_iterations):
+    def test_gpu_configuration(
+        self, model_name, sample_regression_data, temp_data_dir, check_gpu_available, check_catboost_gpu_available, common_init_params, fast_iterations
+    ):
         """Test GPU configuration for cb and xgb (if GPU available)."""
         if not check_gpu_available:
             pytest.skip("GPU not available")
@@ -435,7 +433,9 @@ class TestGPUSupport:
         assert "target" in models[TargetTypes.REGRESSION]
         _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
-    def test_lgb_gpu_configuration(self, sample_regression_data, temp_data_dir, check_lgb_gpu_available, check_gpu_available, common_init_params, fast_iterations):
+    def test_lgb_gpu_configuration(
+        self, sample_regression_data, temp_data_dir, check_lgb_gpu_available, check_gpu_available, common_init_params, fast_iterations
+    ):
         """Test LightGBM GPU configuration (with CUDA Tree Learner check)."""
         if not check_gpu_available:
             pytest.skip("GPU not available")
@@ -574,7 +574,7 @@ class TestGPUSupport:
                     "devices": test_gpus,
                     "strategy": "ddp_spawn",
                 }
-            }
+            },
         }
 
         # Train
@@ -615,7 +615,7 @@ class TestGPUSupport:
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Configure for multi-GPU via config_params_override
-        config_override = {"iterations": fast_iterations, "cb_kwargs": {"task_type": "GPU", "devices": f"0-{num_gpus-1}", "verbose": 0}}
+        config_override = {"iterations": fast_iterations, "cb_kwargs": {"task_type": "GPU", "devices": f"0-{num_gpus - 1}", "verbose": 0}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -814,10 +814,7 @@ class TestOutlierDetection:
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Create IsolationForest outlier detector
-        outlier_detector = Pipeline([
-            ("imp", SimpleImputer()),
-            ("est", IsolationForest(contamination=0.1, n_estimators=50, random_state=42, n_jobs=-1))
-        ])
+        outlier_detector = Pipeline([("imp", SimpleImputer()), ("est", IsolationForest(contamination=0.1, n_estimators=50, random_state=42, n_jobs=-1))])
 
         # Train with outlier detection
         models, metadata = train_mlframe_models_suite(
@@ -855,10 +852,7 @@ class TestOutlierDetection:
         original_size = len(df)
 
         # High contamination to remove more samples
-        outlier_detector = Pipeline([
-            ("imp", SimpleImputer()),
-            ("est", IsolationForest(contamination=0.15, n_estimators=50, random_state=42, n_jobs=-1))
-        ])
+        outlier_detector = Pipeline([("imp", SimpleImputer()), ("est", IsolationForest(contamination=0.15, n_estimators=50, random_state=42, n_jobs=-1))])
 
         # Train with outlier detection
         models, metadata = train_mlframe_models_suite(
@@ -891,10 +885,7 @@ class TestOutlierDetection:
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Create LOF outlier detector (novelty=True for predict support)
-        outlier_detector = Pipeline([
-            ("imp", SimpleImputer()),
-            ("est", LocalOutlierFactor(n_neighbors=20, contamination=0.1, novelty=True, n_jobs=-1))
-        ])
+        outlier_detector = Pipeline([("imp", SimpleImputer()), ("est", LocalOutlierFactor(n_neighbors=20, contamination=0.1, novelty=True, n_jobs=-1))])
 
         # Train with outlier detection
         models, metadata = train_mlframe_models_suite(
@@ -917,7 +908,6 @@ class TestOutlierDetection:
         assert "target" in models[TargetTypes.REGRESSION]
         _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
-
     def test_isolation_forest_with_polars_input(self, sample_outlier_data, temp_data_dir, common_init_params, fast_iterations):
         """Polars DF + sklearn outlier detector: sklearn 1.4+ accepts Polars input;
         _apply_outlier_detection_global uses a polars-aware boolean-mask filter."""
@@ -929,10 +919,12 @@ class TestOutlierDetection:
         df_pl = pl.from_pandas(df_pd)  # Polars input path
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        outlier_detector = Pipeline([
-            ("imp", SimpleImputer()),
-            ("est", IsolationForest(contamination=0.1, n_estimators=50, random_state=42, n_jobs=-1)),
-        ])
+        outlier_detector = Pipeline(
+            [
+                ("imp", SimpleImputer()),
+                ("est", IsolationForest(contamination=0.1, n_estimators=50, random_state=42, n_jobs=-1)),
+            ]
+        )
 
         # Use a polars-native model (cb) so can_skip_pandas_conv = True AND outlier_detector is set.
         # This exercises the code path where _apply_outlier_detection_global receives a Polars DF.
@@ -989,14 +981,13 @@ class TestPredictionValidation:
         model_entry = models[TargetTypes.REGRESSION]["target"][0]
 
         # Check that test predictions exist and are reasonable
-        if hasattr(model_entry, 'test_preds') and model_entry.test_preds is not None:
+        if hasattr(model_entry, "test_preds") and model_entry.test_preds is not None:
             preds = model_entry.test_preds
             assert not np.all(np.isnan(preds)), "Predictions should not be all NaN"
             assert not np.all(np.isinf(preds)), "Predictions should not have infinity"
 
             # Predictions should be in a reasonable range (within 10x of target range)
-            assert np.all(np.abs(preds) < np.abs(y).max() * 10 + 100), \
-                "Predictions should be in reasonable range"
+            assert np.all(np.abs(preds) < np.abs(y).max() * 10 + 100), "Predictions should be in reasonable range"
 
     def test_probabilities_sum_to_one(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test classification probabilities sum to approximately 1."""
@@ -1022,16 +1013,14 @@ class TestPredictionValidation:
         model_entry = models[TargetTypes.BINARY_CLASSIFICATION]["target"][0]
 
         # Check test probabilities if available
-        if hasattr(model_entry, 'test_probs') and model_entry.test_probs is not None:
+        if hasattr(model_entry, "test_probs") and model_entry.test_probs is not None:
             probs = model_entry.test_probs
             if probs.ndim == 2:
                 prob_sums = probs.sum(axis=1)
-                np.testing.assert_allclose(prob_sums, 1.0, atol=1e-5,
-                    err_msg="Classification probabilities should sum to 1")
+                np.testing.assert_allclose(prob_sums, 1.0, atol=1e-5, err_msg="Classification probabilities should sum to 1")
             else:
                 # Binary probs in [0, 1]
-                assert np.all(probs >= 0) and np.all(probs <= 1), \
-                    "Binary probabilities should be in [0, 1]"
+                assert np.all(probs >= 0) and np.all(probs <= 1), "Binary probabilities should be in [0, 1]"
 
     def test_predictions_not_all_nan(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test that predictions are not all NaN."""
@@ -1057,7 +1046,7 @@ class TestPredictionValidation:
         model_entry = models[TargetTypes.REGRESSION]["target"][0]
 
         # Verify predictions are not all NaN
-        for attr in ['train_preds', 'val_preds', 'test_preds']:
+        for attr in ["train_preds", "val_preds", "test_preds"]:
             if hasattr(model_entry, attr):
                 preds = getattr(model_entry, attr)
                 if preds is not None and len(preds) > 0:
@@ -1087,11 +1076,10 @@ class TestPredictionValidation:
         model_entry = models[TargetTypes.REGRESSION]["target"][0]
 
         # Verify predictions have variance (model learned)
-        if hasattr(model_entry, 'test_preds') and model_entry.test_preds is not None:
+        if hasattr(model_entry, "test_preds") and model_entry.test_preds is not None:
             preds = model_entry.test_preds
             if len(preds) > 1:
-                assert np.std(preds) > 1e-10, \
-                    "Predictions should not all be identical (model should learn)"
+                assert np.std(preds) > 1e-10, "Predictions should not all be identical (model should learn)"
 
     @pytest.mark.parametrize("model_name", ["cb", "lgb", "hgb", "ridge"])
     def test_prediction_shape_matches_input(self, model_name, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
@@ -1121,9 +1109,9 @@ class TestPredictionValidation:
         model_entry = models[TargetTypes.REGRESSION]["target"][0]
 
         # Check that shapes match expected sizes from metadata
-        if hasattr(model_entry, 'test_preds') and model_entry.test_preds is not None:
+        if hasattr(model_entry, "test_preds") and model_entry.test_preds is not None:
             # Predictions shape should match test size
-            assert len(model_entry.test_preds) == metadata.get('test_size', len(model_entry.test_preds))
+            assert len(model_entry.test_preds) == metadata.get("test_size", len(model_entry.test_preds))
 
 
 # ================================================================================================
@@ -1134,7 +1122,9 @@ class TestPredictionValidation:
 class TestGPUUsageVerification:
     """Verify GPU is actually used when configured."""
 
-    def test_catboost_gpu_training_params(self, sample_regression_data, temp_data_dir, check_gpu_available, check_catboost_gpu_available, common_init_params, fast_iterations):
+    def test_catboost_gpu_training_params(
+        self, sample_regression_data, temp_data_dir, check_gpu_available, check_catboost_gpu_available, common_init_params, fast_iterations
+    ):
         """Test CatBoost GPU configuration is properly applied."""
         if not check_gpu_available:
             pytest.skip("GPU not available")
@@ -1145,10 +1135,7 @@ class TestGPUUsageVerification:
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Configure for GPU
-        config_override = {
-            "iterations": fast_iterations,
-            "cb_kwargs": {"task_type": "GPU", "verbose": 0}
-        }
+        config_override = {"iterations": fast_iterations, "cb_kwargs": {"task_type": "GPU", "verbose": 0}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -1171,16 +1158,14 @@ class TestGPUUsageVerification:
 
         # Get the trained model and verify GPU params if accessible
         model_entry = models[TargetTypes.REGRESSION]["target"][0]
-        if hasattr(model_entry, 'model'):
+        if hasattr(model_entry, "model"):
             model = model_entry.model
             # CatBoost stores task_type in params
-            if hasattr(model, 'get_all_params'):
+            if hasattr(model, "get_all_params"):
                 # No bare except here -- if get_all_params raises, that itself is a regression
                 # we want to surface, not mask. The pre-fix swallow ate the GPU assertion too.
                 params = model.get_all_params()
-                assert params.get('task_type', 'CPU') in ['GPU', 'gpu'], (
-                    "CatBoost should be configured for GPU"
-                )
+                assert params.get("task_type", "CPU") in ["GPU", "gpu"], "CatBoost should be configured for GPU"
 
     def test_xgboost_gpu_training_params(self, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params, fast_iterations):
         """Test XGBoost GPU configuration is properly applied."""
@@ -1191,10 +1176,7 @@ class TestGPUUsageVerification:
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Configure for GPU
-        config_override = {
-            "iterations": fast_iterations,
-            "xgb_kwargs": {"device": "cuda"}
-        }
+        config_override = {"iterations": fast_iterations, "xgb_kwargs": {"device": "cuda"}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -1217,13 +1199,12 @@ class TestGPUUsageVerification:
 
         # Verify XGBoost GPU config
         model_entry = models[TargetTypes.REGRESSION]["target"][0]
-        if hasattr(model_entry, 'model'):
+        if hasattr(model_entry, "model"):
             model = model_entry.model
-            if hasattr(model, 'get_params'):
+            if hasattr(model, "get_params"):
                 params = model.get_params()
                 # Check device is cuda
-                assert params.get('device', 'cpu') in ['cuda', 'gpu'], \
-                    "XGBoost should be configured for GPU"
+                assert params.get("device", "cpu") in ["cuda", "gpu"], "XGBoost should be configured for GPU"
 
 
 def test_trained_suite_regression_shape(trained_suite_regression):

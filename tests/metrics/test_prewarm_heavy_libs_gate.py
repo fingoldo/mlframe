@@ -6,6 +6,7 @@ shap can opt out of the 6-10s heavy-lib prewarm (lightning + shap +
 mlframe.training.neural). The numba kernel prewarm is unaffected --
 only the lightning/shap/neural import block is gated.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -21,6 +22,7 @@ pytestmark = [pytest.mark.fast]
 def _reload_warmup():
     """Reimport _core_numba_warmup so the module-level imports re-run."""
     import mlframe.metrics._core_numba_warmup as _w
+
     return _w
 
 
@@ -49,9 +51,7 @@ def test_gate_skips_lightning_import_when_set(monkeypatch):
     # pytorch_lightning / shap). The gate short-circuits before the
     # importlib lookup.
     heavy_lookups = [c for c in calls if c in ("lightning", "pytorch_lightning", "shap")]
-    assert heavy_lookups == [], (
-        f"gate=0 should skip heavy-lib import block; observed lookups: {heavy_lookups}"
-    )
+    assert heavy_lookups == [], f"gate=0 should skip heavy-lib import block; observed lookups: {heavy_lookups}"
 
 
 def test_gate_unset_runs_lightning_import(monkeypatch):
@@ -69,10 +69,7 @@ def test_gate_unset_runs_lightning_import(monkeypatch):
         _w._prewarm_numba_cache_body()
 
     heavy_lookups = [c for c in calls if c in ("lightning", "pytorch_lightning", "shap")]
-    assert len(heavy_lookups) >= 1, (
-        "gate unset (default) should consult find_spec for at least one of "
-        f"lightning/pytorch_lightning/shap; observed: {calls}"
-    )
+    assert len(heavy_lookups) >= 1, f"gate unset (default) should consult find_spec for at least one of lightning/pytorch_lightning/shap; observed: {calls}"
 
 
 @pytest.mark.parametrize("value", ["0", "false", "FALSE", "no", "skip", "Skip"])
@@ -91,9 +88,7 @@ def test_gate_accepts_multiple_skip_values(monkeypatch, value):
         _w._prewarm_numba_cache_body()
 
     heavy_lookups = [c for c in calls if c in ("lightning", "pytorch_lightning", "shap")]
-    assert heavy_lookups == [], (
-        f"gate={value!r} should skip; observed: {heavy_lookups}"
-    )
+    assert heavy_lookups == [], f"gate={value!r} should skip; observed: {heavy_lookups}"
 
 
 def test_gate_runs_when_value_is_truthy(monkeypatch):
@@ -111,6 +106,4 @@ def test_gate_runs_when_value_is_truthy(monkeypatch):
         _w._prewarm_numba_cache_body()
 
     heavy_lookups = [c for c in calls if c in ("lightning", "pytorch_lightning", "shap")]
-    assert len(heavy_lookups) >= 1, (
-        f"gate=1 (truthy / non-skip) should NOT skip; observed: {calls}"
-    )
+    assert len(heavy_lookups) >= 1, f"gate=1 (truthy / non-skip) should NOT skip; observed: {calls}"

@@ -14,6 +14,7 @@ active, so only ONE thread ever touches the device, regardless of pair count or 
 gating that routing decision; these tests pin its contract so a future refactor cannot silently drop the
 GPU-contention protection.
 """
+
 from __future__ import annotations
 
 import pytest

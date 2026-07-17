@@ -14,6 +14,7 @@ correlation match, so a contemporaneous near-copy of y that is not a lag is not 
 Cost: one narrow column gather + an O(n) RMSE on the already-bounded (<=30k) holdout sample, negligible next to the
 per-spec tiny-model fits honest-OOF already runs -- a trivial helper, no dispatcher / njit warranted.
 """
+
 from __future__ import annotations
 
 import math
@@ -25,7 +26,9 @@ import pytest
 
 from mlframe.training.composite import CompositeSpec, CompositeTargetDiscovery
 from mlframe.training.composite.discovery._causal_lag import (
-    CAUSAL_LAG_SUFFIXES, causal_lag_predict_rmse, detect_causal_lag_column,
+    CAUSAL_LAG_SUFFIXES,
+    causal_lag_predict_rmse,
+    detect_causal_lag_column,
 )
 from mlframe.training.composite.discovery._honest_oof_select import honest_oof_reconstruction_rmse
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
@@ -58,10 +61,7 @@ def _ar_frame(n_groups: int = 40, per: int = 80, seed: int = 1, phi: float = 0.9
     x1 = rng.normal(size=groups.size)
     base_partial = 0.5 * level[groups] + rng.normal(0.0, 0.2, groups.size)
     base_full = level[groups] + rng.normal(0.0, 0.2, groups.size)
-    df = pd.DataFrame(
-        {"x1": x1, "base_partial": base_partial, "base_full": base_full,
-         "y_prev": y_prev, "y": y.astype(np.float64)}
-    )
+    df = pd.DataFrame({"x1": x1, "base_partial": base_partial, "base_full": base_full, "y_prev": y_prev, "y": y.astype(np.float64)})
     return df, groups.astype(np.int64), y.astype(np.float64), level
 
 
@@ -73,14 +73,26 @@ def _split_upper_tail(groups, level, n_holdout_wells: int = 8):
 
 def _spec(name, transform_name, base_column, params):
     return CompositeSpec(
-        name=name, target_col="y", transform_name=transform_name, base_column=base_column,
-        fitted_params=dict(params), mi_gain=1.0, mi_y=0.0, mi_t=1.0, valid_domain_frac=1.0, n_train_rows=100,
+        name=name,
+        target_col="y",
+        transform_name=transform_name,
+        base_column=base_column,
+        fitted_params=dict(params),
+        mi_gain=1.0,
+        mi_y=0.0,
+        mi_t=1.0,
+        valid_domain_frac=1.0,
+        n_train_rows=100,
     )
 
 
 def _disc(groups, holdout_idx, **cfg_kw):
     cfg = CompositeTargetDiscoveryConfig(
-        enabled=True, random_state=0, tiny_model_n_estimators=40, yscale_holdout_gate_sample_n=30_000, **cfg_kw,
+        enabled=True,
+        random_state=0,
+        tiny_model_n_estimators=40,
+        yscale_holdout_gate_sample_n=30_000,
+        **cfg_kw,
     )
     disc = CompositeTargetDiscovery(cfg)
     disc._group_ids_for_rerank = groups
@@ -200,7 +212,12 @@ class TestHonestOofLagFloor:
 
         disc_lag = _disc(groups, holdout_idx, **gates_off)
         kept_lag = disc_lag._tiny_model_rerank(
-            kept_specs=[spec_a], df=df, target_col="y", usable_features=_FEATS, train_idx=screen_idx, y_full=y,
+            kept_specs=[spec_a],
+            df=df,
+            target_col="y",
+            usable_features=_FEATS,
+            train_idx=screen_idx,
+            y_full=y,
         )
         assert "y-diff-partial" not in [s.name for s in kept_lag], "lag floor must reject a spec that loses to lag_predict"
 
@@ -208,6 +225,11 @@ class TestHonestOofLagFloor:
         spec_b = _spec("y-diff-partial", "diff", "base_partial", {})
         disc_nolag = _disc(groups, holdout_idx, **gates_off)
         kept_nolag = disc_nolag._tiny_model_rerank(
-            kept_specs=[spec_b], df=df_nolag, target_col="y", usable_features=_FEATS, train_idx=screen_idx, y_full=y,
+            kept_specs=[spec_b],
+            df=df_nolag,
+            target_col="y",
+            usable_features=_FEATS,
+            train_idx=screen_idx,
+            y_full=y,
         )
         assert "y-diff-partial" in [s.name for s in kept_nolag], "without a lag column the raw-only floor retains the spec"

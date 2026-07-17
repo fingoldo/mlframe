@@ -5,6 +5,7 @@ The full-data prescreen still defines the search universe (legitimate for the fi
 fold's TRAIN rows only. A feature that survived the global prescreen purely via test-fold leakage is dropped in the
 folds where it fails the train-only prescreen, so the reported CV score is no longer optimistically inflated.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,8 +33,7 @@ def _base(**over):
 def _fit(nested, n=90, p_signal=2, p_noise=100, seed=1):
     X, y, sig = make_signal_plus_noise(n=n, p_signal=p_signal, p_noise=p_noise, seed=seed)
     Xdf, ys = as_df(X, y)
-    r = RFECV(estimator=_logreg(), **_base(
-        prescreen="univariate_ht", prescreen_top_k=15, prescreen_fdr_level=0.99, prescreen_nested=nested))
+    r = RFECV(estimator=_logreg(), **_base(prescreen="univariate_ht", prescreen_top_k=15, prescreen_fdr_level=0.99, prescreen_nested=nested))
     r.fit(Xdf, ys)
     return r, sig
 
@@ -77,9 +77,7 @@ def test_nested_never_more_optimistic_than_leaky(seed):
     can only remove leaked features, so it de-biases downward or matches -- it can never inflate)."""
     best_leaky = _best(_fit(nested=False, seed=seed)[0])
     best_nested = _best(_fit(nested=True, seed=seed)[0])
-    assert best_nested <= best_leaky + 1e-9, (
-        f"seed={seed}: nested={best_nested:.4f} > leaky={best_leaky:.4f}; nested prescreen must not inflate."
-    )
+    assert best_nested <= best_leaky + 1e-9, f"seed={seed}: nested={best_nested:.4f} > leaky={best_leaky:.4f}; nested prescreen must not inflate."
 
 
 def test_nested_prescreen_selects_reasonable_support():

@@ -79,8 +79,7 @@ def test_pointwise_mrmr_picks_confounder_group_aware_picks_signal():
     pooled = get("MRMR").instantiate(use_simple_mode=True, quantization_nbins=8, verbose=0)
     pooled.fit(X, pd.Series(y))
     sup = np.asarray(pooled.support_)
-    pooled_cols = ([cols[i] for i in np.where(sup)[0]] if sup.dtype == bool
-                   else [cols[int(i)] for i in sup.tolist()])
+    pooled_cols = [cols[i] for i in np.where(sup)[0]] if sup.dtype == bool else [cols[int(i)] for i in sup.tolist()]
     assert conf in pooled_cols, f"sanity: pointwise MRMR should be fooled into picking the confounder; got {pooled_cols}"
 
     ga_cols = group_aware_mrmr_select(X, y, g, nbins=8, bins=5)
@@ -124,8 +123,7 @@ def test_biz_val_group_aware_fs_beats_pointwise_on_ndcg():
     ndcg_ga = _ndcg_for(ga_cols)
     ndcg_pw = _ndcg_for(pointwise_cols)
     assert ndcg_ga >= ndcg_pw + 0.10, (
-        f"group-aware FS must beat the pointwise pick on NDCG@10: group_aware={ndcg_ga:.4f} pointwise(confounder)={ndcg_pw:.4f} "
-        f"(ga_cols={ga_cols})"
+        f"group-aware FS must beat the pointwise pick on NDCG@10: group_aware={ndcg_ga:.4f} pointwise(confounder)={ndcg_pw:.4f} (ga_cols={ga_cols})"
     )
 
 
@@ -144,12 +142,17 @@ def test_e2e_ltr_suite_group_aware_fs_drops_confounder():
     fte = SimpleFeaturesAndTargetsExtractor(learning_to_rank_targets=["target"], group_field=gcol)
     with tempfile.TemporaryDirectory() as d:
         _res, meta = train_mlframe_models_suite(
-            df=df, target_name="t", model_name="ltr", features_and_targets_extractor=fte,
-            mlframe_models=["cb"], target_type=TargetTypes.LEARNING_TO_RANK,
+            df=df,
+            target_name="t",
+            model_name="ltr",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            target_type=TargetTypes.LEARNING_TO_RANK,
             feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"quantization_nbins": 8}),
             reporting_config=ReportingConfig(show_perf_chart=False, show_fi=False),
             output_config=OutputConfig(data_dir=d, models_dir="models", save_charts=False),
-            verbose=0, hyperparams_config={"iterations": 15},
+            verbose=0,
+            hyperparams_config={"iterations": 15},
         )
     sel = meta.get("selected_features")
     assert sel, "use_mrmr_fs produced no selected_features for LTR"

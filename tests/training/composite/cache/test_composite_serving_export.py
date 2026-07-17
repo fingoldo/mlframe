@@ -6,6 +6,7 @@ each covered transform, json.dumps/loads round-trip, NotImplementedError on an
 unsupported transform, and explicit clip + domain-fallback behaviour. The
 biz_value test asserts NO sklearn on the serve path AND atol-0 bit-identity.
 """
+
 from __future__ import annotations
 
 import json
@@ -34,6 +35,7 @@ def _make_xy(n=400, seed=0, base_positive=False):
     if base_positive:
         y = np.abs(y) + 1.0
     import pandas as pd
+
     X = pd.DataFrame({"base": base, "feat": feat})
     return X, y
 
@@ -75,6 +77,7 @@ def test_serving_bit_identical(transform_name):
 
 def test_serving_multi_base_bit_identical():
     import pandas as pd
+
     rng = np.random.default_rng(3)
     n = 400
     b1 = rng.normal(5.0, 2.0, n)
@@ -107,9 +110,7 @@ def test_serving_spec_json_round_trip():
     assert reloaded["base_columns"] == ["base"]
     fn = load_serving_spec(reloaded)
     raw = est.estimator_.predict(X)
-    np.testing.assert_array_equal(
-        fn(X["base"].to_numpy(), raw), est.predict(X)
-    )
+    np.testing.assert_array_equal(fn(X["base"].to_numpy(), raw), est.predict(X))
 
 
 def test_serving_spec_json_handles_non_finite_clip():
@@ -223,9 +224,7 @@ def test_biz_val_serving_bit_identical_no_sklearn_on_serve_path():
     try:
         fn = load_serving_spec(spec)
         y_serve = fn(base, raw)
-        assert not any(m == "sklearn" or m.startswith("sklearn.") for m in sys.modules), (
-            "serve path must not import sklearn"
-        )
+        assert not any(m == "sklearn" or m.startswith("sklearn.") for m in sys.modules), "serve path must not import sklearn"
     finally:
         sys.modules.update(removed)
 

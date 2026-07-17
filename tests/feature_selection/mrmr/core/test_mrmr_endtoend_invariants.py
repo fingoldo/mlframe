@@ -36,6 +36,7 @@ a time) and matches the way the four bugs were originally reproduced.
 CPU is forced (``NUMBA_DISABLE_CUDA=1`` + ``CUDA_VISIBLE_DEVICES=''`` +
 ``MLFRAME_DISABLE_HNSW=1``) so the layer is deterministic and CI-portable.
 """
+
 from __future__ import annotations
 
 import json
@@ -110,7 +111,7 @@ _DEFAULT_CASE_N = 25000
 # JSON blob carrying every signal the six invariants assert against. Runs in a
 # child interpreter so the numpy global RNG is pristine per case.
 # ---------------------------------------------------------------------------
-_WORKER = r'''
+_WORKER = r"""
 import os, sys, json, warnings
 os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
@@ -280,7 +281,7 @@ result = dict(
 )
 print("===RESULT_JSON===")
 print(json.dumps(result))
-'''
+"""
 
 
 def _run_case(case: dict, fe_kwargs: dict, timeout: int = 600) -> dict:
@@ -311,7 +312,10 @@ def _run_case(case: dict, fe_kwargs: dict, timeout: int = 600) -> dict:
     for attempt in range(2):
         proc = subprocess.run(
             [sys.executable, "-c", _WORKER, payload],
-            capture_output=True, text=True, timeout=timeout, env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
         )
         out = proc.stdout
         marker = "===RESULT_JSON==="
@@ -325,13 +329,11 @@ def _run_case(case: dict, fe_kwargs: dict, timeout: int = 600) -> dict:
         transient = any(t in last_err.lower() for t in ("paging file", "memoryerror", "cannot allocate", "oom"))
         if transient and attempt == 0:
             import time as _t
+
             _t.sleep(90)
             continue
         break
-    raise RuntimeError(
-        f"worker failed for case={case} fe_kwargs={fe_kwargs}\n"
-        f"--- stderr tail ---\n{last_err}\n--- stdout tail ---\n{out[-1500:]}"
-    )
+    raise RuntimeError(f"worker failed for case={case} fe_kwargs={fe_kwargs}\n--- stderr tail ---\n{last_err}\n--- stdout tail ---\n{out[-1500:]}")
 
 
 # Random-but-deterministic config axis: pair each fuzz case with an fe config.
@@ -345,7 +347,9 @@ def _fe_config_for(idx: int) -> dict:
     # These invariants (notably I4b) assert the minimal-support DROP behaviour, so opt into the
     # drop policy explicitly (the constructor default is "emit_both", which keeps subsumed raws).
     lean = dict(
-        dcd_enable=False, build_friend_graph=False, cluster_aggregate_enable=False,
+        dcd_enable=False,
+        build_friend_graph=False,
+        cluster_aggregate_enable=False,
         redundancy_policy="drop",
     )
     cfg = dict(lean)
@@ -359,10 +363,7 @@ def _fe_config_for(idx: int) -> dict:
 
 
 _GRID = default_fuzz_grid()
-_CASES = [
-    pytest.param(i, c, id=f"{c['target_family']}-{c['distribution']}-{c['task']}-s{c['seed']}-fe{i % 2 == 0 and 2 or 1}")
-    for i, c in enumerate(_GRID)
-]
+_CASES = [pytest.param(i, c, id=f"{c['target_family']}-{c['distribution']}-{c['task']}-s{c['seed']}-fe{i % 2 == 0 and 2 or 1}") for i, c in enumerate(_GRID)]
 
 
 @pytest.fixture(scope="module")
@@ -390,12 +391,10 @@ def test_I1_every_advertised_feature_survives_transform(case_idx, case, _results
     r = _get(case_idx, case, _results_cache)
     missing = [nm for nm in r["names_out"] if nm not in r["out_cols"]]
     assert not missing, (
-        f"I1 [{_INVARIANT_MAP['I1']}]: get_feature_names_out advertises feature(s) "
-        f"transform() does not produce: {missing} (out_cols={r['out_cols']})"
+        f"I1 [{_INVARIANT_MAP['I1']}]: get_feature_names_out advertises feature(s) transform() does not produce: {missing} (out_cols={r['out_cols']})"
     )
     assert not r["recipeless_warnings"], (
-        f"I1 [{_INVARIANT_MAP['I1']}]: a selected engineered feature lacked a "
-        f"replayable recipe (select-then-drop): {r['recipeless_warnings']}"
+        f"I1 [{_INVARIANT_MAP['I1']}]: a selected engineered feature lacked a replayable recipe (select-then-drop): {r['recipeless_warnings']}"
     )
     assert r["n_out_features"] >= 1, "fit produced zero output features (vacuous)"
 
@@ -407,9 +406,7 @@ def test_I1_every_advertised_feature_survives_transform(case_idx, case, _results
 def test_I2_feature_names_out_equals_transform_columns(case_idx, case, _results_cache):
     r = _get(case_idx, case, _results_cache)
     assert r["names_out"] == r["out_ho_cols"], (
-        f"I2 [{_INVARIANT_MAP['I2']}]: get_feature_names_out() != "
-        f"transform(holdout).columns.\n names_out={r['names_out']}\n "
-        f"transform_cols={r['out_ho_cols']}"
+        f"I2 [{_INVARIANT_MAP['I2']}]: get_feature_names_out() != transform(holdout).columns.\n names_out={r['names_out']}\n transform_cols={r['out_ho_cols']}"
     )
 
 
@@ -422,8 +419,7 @@ def test_I3_slice_replay_byte_exact(case_idx, case, _results_cache):
     assert r["slice_shapes_ok"], "I3: slice/full transform shapes diverged"
     bad = [c for c, ok in r["slice_replay"].items() if not ok]
     assert not bad, (
-        f"I3 [{_INVARIANT_MAP['I3']}]: engineered column(s) replayed NON-byte-exact "
-        f"on a row-slice (bin edges recomputed from the slice, not frozen): {bad}"
+        f"I3 [{_INVARIANT_MAP['I3']}]: engineered column(s) replayed NON-byte-exact on a row-slice (bin edges recomputed from the slice, not frozen): {bad}"
     )
 
 
@@ -480,10 +476,7 @@ def test_I4_raw_redundancy_drop_and_keep(case_idx, case, _results_cache):
             f"kept_raws={r['kept_raws']} eng_cols={r['eng_cols']}"
         )
     # Pure-noise feature must never be selected (relevance true-negative).
-    assert r["noise_feature"] not in r["kept_raws"], (
-        f"I4: pure-noise feature {r['noise_feature']!r} was selected "
-        f"(kept_raws={r['kept_raws']})"
-    )
+    assert r["noise_feature"] not in r["kept_raws"], f"I4: pure-noise feature {r['noise_feature']!r} was selected (kept_raws={r['kept_raws']})"
 
 
 @pytest.mark.parametrize("case_idx, case", _CASES)
@@ -499,10 +492,7 @@ def test_I4b_subsumed_raw_not_kept_alongside_capturing_engineered(case_idx, case
     # Off-uniform, FE may legitimately produce nothing on some target families; that case
     # is data-dependent and is skipped (it would also be skipped by the calibration gate below).
     if case["distribution"] == "uniform":
-        assert r["eng_cols"], (
-            "uniform terrain produced no engineered feature -- FE regression "
-            f"(kept_raws={r['kept_raws']})"
-        )
+        assert r["eng_cols"], f"uniform terrain produced no engineered feature -- FE regression (kept_raws={r['kept_raws']})"
     elif not r["eng_cols"]:
         pytest.skip("off-uniform fixture produced no engineered feature -> no subsumption to test")
     # FUNCTIONAL no-harm (ALL distributions): keeping redundant raws must never make the
@@ -541,10 +531,7 @@ def test_I4b_subsumed_raw_not_kept_alongside_capturing_engineered(case_idx, case
             continue
         # only a MULTI-operand composite genuinely subsumes a raw; a single-operand
         # re-expression (``a__He2`` / ``a__relu``) is the raw restated, not a subsumer.
-        captured = any(
-            (raw in _operands_of(ec)) and (len(_operands_of(ec)) >= 2)
-            for ec in r["eng_cols"]
-        )
+        captured = any((raw in _operands_of(ec)) and (len(_operands_of(ec)) >= 2) for ec in r["eng_cols"])
         if captured:
             offenders.append(raw)
     assert not offenders, (
@@ -558,6 +545,7 @@ def _operands_of(expr: str) -> set:
     """Extract single-letter raw operand tokens from an engineered recipe name
     like ``add(mul(log(c),sin(d)),abs(div(sqr(a),abs(b))))``."""
     import re
+
     # raw operands in this generator are single lowercase letters a..k.
     toks = set(re.findall(r"(?<![A-Za-z_])([a-k])(?![A-Za-z_0-9])", expr))
     return toks
@@ -589,9 +577,5 @@ def test_I5_fe_produces_recoverable_structure_uplift(case_idx, case, _results_ca
 def test_I6_input_contract_and_pickle_roundtrip(case_idx, case, _results_cache):
     r = _get(case_idx, case, _results_cache)
     assert r["x_unmutated"], f"I6 [{_INVARIANT_MAP['I6']}]: MRMR.fit mutated the input X."
-    assert r["pickle_names_match"], (
-        f"I6 [{_INVARIANT_MAP['I6']}]: pickle round-trip changed get_feature_names_out()."
-    )
-    assert r["pickle_transform_match"], (
-        f"I6 [{_INVARIANT_MAP['I6']}]: pickle round-trip changed transform() output columns."
-    )
+    assert r["pickle_names_match"], f"I6 [{_INVARIANT_MAP['I6']}]: pickle round-trip changed get_feature_names_out()."
+    assert r["pickle_transform_match"], f"I6 [{_INVARIANT_MAP['I6']}]: pickle round-trip changed transform() output columns."

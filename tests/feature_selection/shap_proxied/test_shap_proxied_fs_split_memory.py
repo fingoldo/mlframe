@@ -46,11 +46,19 @@ def test_split_path_recovers_informatives():
 
     X, y = _make_simple(n=600, p=2000, seed=0)
     sel = ShapProxiedFS(
-        classification=True, metric="brier", optimizer="greedy_forward",
-        max_features=8, top_n=10, n_splits=3, n_revalidation_models=1,
-        trust_guard=False, run_importance_ablation=False,
+        classification=True,
+        metric="brier",
+        optimizer="greedy_forward",
+        max_features=8,
+        top_n=10,
+        n_splits=3,
+        n_revalidation_models=1,
+        trust_guard=False,
+        run_importance_ablation=False,
         within_cluster_refine=False,
-        random_state=0, verbose=False, n_jobs=1,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
     )
     sel.fit(X, y)
     selected = set(sel.selected_features_)
@@ -71,16 +79,24 @@ def test_split_path_drops_parent_frame_reference():
 
     X, y = _make_simple(n=400, p=600, seed=1)
     sel = ShapProxiedFS(
-        classification=True, metric="brier", optimizer="greedy_forward",
-        max_features=6, top_n=5, n_splits=3, n_revalidation_models=1,
-        trust_guard=False, run_importance_ablation=False,
+        classification=True,
+        metric="brier",
+        optimizer="greedy_forward",
+        max_features=6,
+        top_n=5,
+        n_splits=3,
+        n_revalidation_models=1,
+        trust_guard=False,
+        run_importance_ablation=False,
         within_cluster_refine=False,
-        random_state=0, verbose=False, n_jobs=1,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
     )
     sel.fit(X, y)
     assert sel._deferred_holdout is None, (
-        "selector leaked a reference to the parent X via _deferred_holdout; this would "
-        "keep the wide block alive past fit and defeat the iter46 memory lever")
+        "selector leaked a reference to the parent X via _deferred_holdout; this would keep the wide block alive past fit and defeat the iter46 memory lever"
+    )
 
 
 def test_split_path_works_without_prefilter():
@@ -92,13 +108,21 @@ def test_split_path_works_without_prefilter():
 
     X, y = _make_simple(n=300, p=50, seed=2)
     sel = ShapProxiedFS(
-        classification=True, metric="brier", optimizer="greedy_forward",
-        max_features=6, top_n=5, n_splits=3, n_revalidation_models=1,
+        classification=True,
+        metric="brier",
+        optimizer="greedy_forward",
+        max_features=6,
+        top_n=5,
+        n_splits=3,
+        n_revalidation_models=1,
         prefilter_top=None,  # no prefilter -> working_cols stays at full width
         cluster_features=False,
-        trust_guard=False, run_importance_ablation=False,
+        trust_guard=False,
+        run_importance_ablation=False,
         within_cluster_refine=False,
-        random_state=0, verbose=False, n_jobs=1,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
     )
     sel.fit(X, y)
     # Sklearn contract intact.

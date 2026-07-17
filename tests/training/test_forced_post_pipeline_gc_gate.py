@@ -4,6 +4,7 @@ The forced collect relieves Windows commit-charge pressure before composite-disc
 released Polars frame is large; the collect itself costs ~0.85s (object-count driven, not frame-size), so on small
 frames it is pure overhead (~17% of a 1k-row suite run). It is gated on the released-frame size.
 """
+
 from __future__ import annotations
 
 from mlframe.training.core import _phase_helpers as ph

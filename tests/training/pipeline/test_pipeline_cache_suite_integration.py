@@ -16,6 +16,7 @@ re-running for the second model on the same 4M-row frame. The
 content-keyed cache prevents that second pass; this test guards against
 regressions to the name-based key.
 """
+
 from __future__ import annotations
 
 import logging
@@ -81,11 +82,14 @@ class TestPipelineCacheHitAtSuiteLevel:
     """
 
     def test_suite_emits_at_least_one_pipeline_cache_hit(
-        self, tmp_path, caplog,
+        self,
+        tmp_path,
+        caplog,
     ) -> None:
         df = _build_small_classif_df()
         fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False,
+            target_column="target",
+            regression=False,
         )
         caplog.set_level(logging.INFO, logger="mlframe.training.strategies")
 
@@ -97,12 +101,14 @@ class TestPipelineCacheHitAtSuiteLevel:
                 features_and_targets_extractor=fte,
                 mlframe_models=["linear", "mlp"],
                 reporting_config=ReportingConfig(
-                    show_perf_chart=False, show_fi=False,
+                    show_perf_chart=False,
+                    show_fi=False,
                 ),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
                 output_config=OutputConfig(
-                    data_dir=str(tmp_path), models_dir="models",
+                    data_dir=str(tmp_path),
+                    models_dir="models",
                 ),
                 verbose=0,
                 hyperparams_config={"iterations": 30},
@@ -114,9 +120,7 @@ class TestPipelineCacheHitAtSuiteLevel:
 
         # Sanity: the suite produced at least one model entry.
         entries = models[TargetTypes.BINARY_CLASSIFICATION]["target"]
-        assert len(entries) >= 1, (
-            "Suite produced no model entries — cannot assess cache behaviour"
-        )
+        assert len(entries) >= 1, "Suite produced no model entries — cannot assess cache behaviour"
 
         hits, misses = _count_pipeline_cache_hits(caplog)
 
@@ -133,7 +137,9 @@ class TestPipelineCacheHitAtSuiteLevel:
         )
 
     def test_hit_rate_floor_when_strategies_share_requirements(
-        self, tmp_path, caplog,
+        self,
+        tmp_path,
+        caplog,
     ) -> None:
         """Tighter guard: with (linear, mlp) sharing imp+scale+enc,
         the hit-to-miss ratio must be non-trivial. Pre-fix every (linear,
@@ -144,7 +150,8 @@ class TestPipelineCacheHitAtSuiteLevel:
         """
         df = _build_small_classif_df(seed=42, n=400)
         fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False,
+            target_column="target",
+            regression=False,
         )
         caplog.set_level(logging.INFO, logger="mlframe.training.strategies")
 
@@ -156,12 +163,14 @@ class TestPipelineCacheHitAtSuiteLevel:
                 features_and_targets_extractor=fte,
                 mlframe_models=["linear", "mlp"],
                 reporting_config=ReportingConfig(
-                    show_perf_chart=False, show_fi=False,
+                    show_perf_chart=False,
+                    show_fi=False,
                 ),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
                 output_config=OutputConfig(
-                    data_dir=str(tmp_path), models_dir="models",
+                    data_dir=str(tmp_path),
+                    models_dir="models",
                 ),
                 verbose=0,
                 hyperparams_config={"iterations": 30},
@@ -176,6 +185,5 @@ class TestPipelineCacheHitAtSuiteLevel:
         # The original bug had hits=0 by construction, so any positive
         # floor catches it.
         assert hits >= max(1, misses // 2), (
-            f"PipelineCache hit rate too low for shared-requirement pair: "
-            f"hits={hits}, misses={misses}. Floor: hits >= max(1, misses // 2)"
+            f"PipelineCache hit rate too low for shared-requirement pair: hits={hits}, misses={misses}. Floor: hits >= max(1, misses // 2)"
         )

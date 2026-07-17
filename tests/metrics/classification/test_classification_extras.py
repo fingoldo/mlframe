@@ -13,6 +13,7 @@ Each metric gets:
   - the fused-block agreement test (block result must match the individual
     metric within fp tolerance).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,14 +21,22 @@ import pytest
 
 from mlframe.metrics.core import (
     # Binary
-    ks_statistic, matthews_corrcoef_binary, cohen_kappa_binary,
-    balanced_accuracy_binary, g_mean_binary, brier_skill_score,
-    gini_from_auc, specificity_npv_fpr_fnr, f_beta_score,
-    spiegelhalter_z, lift_at_k,
+    ks_statistic,
+    matthews_corrcoef_binary,
+    cohen_kappa_binary,
+    balanced_accuracy_binary,
+    g_mean_binary,
+    brier_skill_score,
+    gini_from_auc,
+    specificity_npv_fpr_fnr,
+    f_beta_score,
+    spiegelhalter_z,
+    lift_at_k,
     fast_binary_confusion_metrics_block,
     fast_binary_probability_metrics_block,
     # Multiclass
-    top_k_accuracy, matthews_corrcoef_multiclass,
+    top_k_accuracy,
+    matthews_corrcoef_multiclass,
     ranked_probability_score,
     fast_multiclass_confusion_metrics_block,
 )
@@ -103,6 +112,7 @@ def test_ks_matches_scipy_for_2_sample():
     """For binary classification KS, scipy's 2-sample ks_2samp on
     class-conditional score arrays produces the same statistic."""
     from scipy.stats import ks_2samp
+
     y, s = _rand_binary(2000, prevalence=0.4, seed=42)
     s_pos = s[y == 1]
     s_neg = s[y == 0]
@@ -117,17 +127,23 @@ def test_ks_ordered_kernel_bit_identical_to_numpy_ref(kind):
     including on heavy ties where tie-handling diverges easily. Pins the rejected
     standalone-njit variant so it stays a valid re-test option."""
     from mlframe.metrics.classification._classification_extras import (
-        _ks_statistic_kernel_ordered, _ks_statistic_numpy,
+        _ks_statistic_kernel_ordered,
+        _ks_statistic_numpy,
     )
+
     rng = np.random.default_rng(123)
     if kind == "random":
-        ys = rng.random(5000); yt = (rng.random(5000) < 0.3).astype(np.int64)
+        ys = rng.random(5000)
+        yt = (rng.random(5000) < 0.3).astype(np.int64)
     elif kind == "lowcard_ties":
-        ys = rng.integers(0, 5, size=5000).astype(np.float64); yt = (rng.random(5000) < 0.4).astype(np.int64)
+        ys = rng.integers(0, 5, size=5000).astype(np.float64)
+        yt = (rng.random(5000) < 0.4).astype(np.int64)
     elif kind == "all_tied":
-        ys = np.full(2000, 0.5); yt = (rng.random(2000) < 0.5).astype(np.int64)
+        ys = np.full(2000, 0.5)
+        yt = (rng.random(2000) < 0.5).astype(np.int64)
     else:
-        ys = rng.random(20000); yt = (rng.random(20000) < 0.01).astype(np.int64)
+        ys = rng.random(20000)
+        yt = (rng.random(20000) < 0.01).astype(np.int64)
     ref = _ks_statistic_numpy(yt, ys)
     order = np.argsort(ys, kind="quicksort")
     fused = float(_ks_statistic_kernel_ordered(order, yt.astype(np.int64), ys.astype(np.float64)))
@@ -140,8 +156,10 @@ def test_ks_size_gate_is_bit_identical_both_sides(kind):
     pre-gathered reference above. Both paths must return bit-identical results to the
     reference on the SAME data, including heavy ties -- the gate only changes speed."""
     from mlframe.metrics.classification._classification_extras import (
-        _KS_FUSED_MAX_N, _ks_statistic_numpy,
+        _KS_FUSED_MAX_N,
+        _ks_statistic_numpy,
     )
+
     rng = np.random.default_rng(2024)
     # Size each case once below and once above the gate; data shape held constant within a case.
     for n in (_KS_FUSED_MAX_N - 1, _KS_FUSED_MAX_N + 1, _KS_FUSED_MAX_N * 4):
@@ -177,6 +195,7 @@ def test_ks_size_gate_routes_to_expected_kernel(monkeypatch):
     the pre-gathered reference kernel. Spy on both to pin the dispatch boundary so a future
     'always fuse' / 'never fuse' change is caught, independent of timing."""
     import mlframe.metrics.classification._classification_extras as ext
+
     calls = {"fused": 0, "ref": 0}
     orig_fused = ext._ks_statistic_kernel_ordered
     orig_ref = ext._ks_statistic_kernel
@@ -213,6 +232,7 @@ def test_ks_very_large_n_routes_to_inline_ordered_kernel(monkeypatch, desc):
     scan wins ~1.05x@200k bit-identically. Pre-fix code (no upper gate) routed all large-n to the pre-gathered
     reference kernel, so this fails on the baseline. Spies pin the routing independent of timing."""
     import mlframe.metrics.classification._classification_extras as ext
+
     calls = {"fused": 0, "ref": 0}
     orig_fused = ext._ks_statistic_kernel_ordered
     orig_ref = ext._ks_statistic_kernel
@@ -247,13 +267,17 @@ def test_ks_upper_gate_is_bit_identical(kind):
     n = ext._KS_INLINE_ORDERED_MIN_N
     rng = np.random.default_rng(99)
     if kind == "random":
-        ys = rng.random(n); yt = (rng.random(n) < 0.3).astype(np.int64)
+        ys = rng.random(n)
+        yt = (rng.random(n) < 0.3).astype(np.int64)
     elif kind == "lowcard_ties":
-        ys = rng.integers(0, 5, size=n).astype(np.float64); yt = (rng.random(n) < 0.4).astype(np.int64)
+        ys = rng.integers(0, 5, size=n).astype(np.float64)
+        yt = (rng.random(n) < 0.4).astype(np.int64)
     elif kind == "all_tied":
-        ys = np.full(n, 0.5); yt = (rng.random(n) < 0.5).astype(np.int64)
+        ys = np.full(n, 0.5)
+        yt = (rng.random(n) < 0.5).astype(np.int64)
     else:
-        ys = rng.random(n); yt = (rng.random(n) < 0.05).astype(np.int64)
+        ys = rng.random(n)
+        yt = (rng.random(n) < 0.05).astype(np.int64)
     ref = _ks_statistic_numpy(yt, ys)
     desc_order = np.argsort(ys)[::-1].copy()
     for got in (ext.ks_statistic(yt, ys), ext.ks_statistic(yt, ys, desc_order=desc_order)):
@@ -271,7 +295,9 @@ def test_ks_fused_gate_perf_sentinel():
     contended to measure steady-state (ref-path block variance too high to trust either number)."""
     from statistics import median
     from mlframe.metrics.classification._classification_extras import (
-        _ks_statistic_kernel, _ks_statistic_kernel_ordered, _KS_FUSED_MAX_N,
+        _ks_statistic_kernel,
+        _ks_statistic_kernel_ordered,
+        _KS_FUSED_MAX_N,
     )
 
     def ref(yt, ys):
@@ -311,6 +337,7 @@ def test_ks_fused_gate_perf_sentinel():
 
 def _timed_block(fn, yt, ys, iters):
     import time
+
     t0 = time.perf_counter()
     for _ in range(iters):
         fn(yt, ys)
@@ -322,12 +349,14 @@ def _timed_block(fn, yt, ys, iters):
 
 def test_mcc_matches_sklearn():
     from sklearn.metrics import matthews_corrcoef
+
     rng = np.random.default_rng(0)
     for _ in range(5):
         y = (rng.uniform(size=500) > 0.6).astype(np.int64)
         p = (rng.uniform(size=500) > 0.5).astype(np.int64)
         assert matthews_corrcoef_binary(y, p) == pytest.approx(
-            matthews_corrcoef(y, p), abs=1e-12,
+            matthews_corrcoef(y, p),
+            abs=1e-12,
         )
 
 
@@ -380,12 +409,14 @@ def test_shared_confusion_counts_derivations_bit_identical():
 
 def test_cohen_kappa_matches_sklearn():
     from sklearn.metrics import cohen_kappa_score
+
     rng = np.random.default_rng(1)
     for _ in range(5):
         y = (rng.uniform(size=500) > 0.5).astype(np.int64)
         p = (rng.uniform(size=500) > 0.5).astype(np.int64)
         assert cohen_kappa_binary(y, p) == pytest.approx(
-            cohen_kappa_score(y, p), abs=1e-12,
+            cohen_kappa_score(y, p),
+            abs=1e-12,
         )
 
 
@@ -394,11 +425,13 @@ def test_cohen_kappa_matches_sklearn():
 
 def test_balanced_accuracy_matches_sklearn():
     from sklearn.metrics import balanced_accuracy_score
+
     rng = np.random.default_rng(2)
     y = (rng.uniform(size=1000) > 0.7).astype(np.int64)
     p = (rng.uniform(size=1000) > 0.5).astype(np.int64)
     assert balanced_accuracy_binary(y, p) == pytest.approx(
-        balanced_accuracy_score(y, p), abs=1e-12,
+        balanced_accuracy_score(y, p),
+        abs=1e-12,
     )
 
 
@@ -477,6 +510,7 @@ def test_specificity_npv_matches_manual():
 
 def test_f_beta_reduces_to_f1():
     from sklearn.metrics import f1_score
+
     rng = np.random.default_rng(3)
     y = (rng.uniform(size=500) > 0.5).astype(np.int64)
     p = (rng.uniform(size=500) > 0.5).astype(np.int64)
@@ -592,6 +626,7 @@ def test_top_k_accuracy_njit_kernel_bit_identical_to_python_loop():
     """The njit hit-count kernel must reproduce the pure-Python double-loop
     count EXACTLY (bit-identical) across class counts, k, dtypes, and
     out-of-range / boundary-tie rows -- pins the perf optimization."""
+
     def _python_top_k_accuracy(y_true, probs_NK, k):
         yt = np.asarray(y_true).astype(np.int64, copy=False)
         p = np.asarray(probs_NK, dtype=np.float64)
@@ -631,11 +666,13 @@ def test_top_k_accuracy_njit_kernel_bit_identical_to_python_loop():
 
 def test_multiclass_mcc_matches_sklearn():
     from sklearn.metrics import matthews_corrcoef
+
     rng = np.random.default_rng(11)
     y = rng.integers(0, 5, size=500).astype(np.int64)
     p = rng.integers(0, 5, size=500).astype(np.int64)
     assert matthews_corrcoef_multiclass(y, p, n_classes=5) == pytest.approx(
-        matthews_corrcoef(y, p), abs=1e-12,
+        matthews_corrcoef(y, p),
+        abs=1e-12,
     )
 
 
@@ -694,8 +731,12 @@ def test_binary_probability_block_matches_individual_metrics():
 
 def test_multiclass_confusion_block_matches_individual_metrics():
     from sklearn.metrics import (
-        accuracy_score, f1_score, precision_score, recall_score,
+        accuracy_score,
+        f1_score,
+        precision_score,
+        recall_score,
     )
+
     rng = np.random.default_rng(22)
     N, K = 1000, 5
     y = rng.integers(0, K, size=N).astype(np.int64)
@@ -703,13 +744,16 @@ def test_multiclass_confusion_block_matches_individual_metrics():
     block = fast_multiclass_confusion_metrics_block(y, p, n_classes=K)
     assert block["accuracy"] == pytest.approx(accuracy_score(y, p), abs=1e-12)
     assert block["macro_f1"] == pytest.approx(
-        f1_score(y, p, average="macro", zero_division=0), abs=1e-12,
+        f1_score(y, p, average="macro", zero_division=0),
+        abs=1e-12,
     )
     assert block["weighted_f1"] == pytest.approx(
-        f1_score(y, p, average="weighted", zero_division=0), abs=1e-12,
+        f1_score(y, p, average="weighted", zero_division=0),
+        abs=1e-12,
     )
     assert block["MCC_multiclass"] == pytest.approx(
-        matthews_corrcoef_multiclass(y, p, n_classes=K), abs=1e-12,
+        matthews_corrcoef_multiclass(y, p, n_classes=K),
+        abs=1e-12,
     )
 
 

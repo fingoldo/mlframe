@@ -10,6 +10,7 @@ The change is FP-reduction-order equivalent (selection-safe for the downstream s
 This pins the GEMM distance to fp64 truth, the softmax built on it to the broadcast reference, and asserts a
 deliberately-wrong GEMM (dropped 2.0 cross-term factor) is caught.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -31,6 +31,7 @@ C3. Composite all-FE-on kitchen-sink benchmark: every FE switch on the
 NEVER xfail. If the composite fit raises or under-fits, fix prod / the
 fixture / the import surface -- do not relax the contract.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -147,13 +148,22 @@ def _kitchen_sink(seed: int = 42, n: int = 3000):
     )
     p = 1.0 / (1.0 + np.exp(-logit))
     y = pd.Series((rng.random(n) < p).astype(int), name="y")
-    X = pd.DataFrame({
-        "x_num1": x_num1, "x_num2": x_num2, "x_quad": x_quad,
-        "x_periodic": x_periodic, "x_threshold": x_threshold,
-        "cat_region": cat_region, "cat_user": cat_user, "price": price,
-        "n0": noise[:, 0], "n1": noise[:, 1], "n2": noise[:, 2],
-        "n3": noise[:, 3],
-    })
+    X = pd.DataFrame(
+        {
+            "x_num1": x_num1,
+            "x_num2": x_num2,
+            "x_quad": x_quad,
+            "x_periodic": x_periodic,
+            "x_threshold": x_threshold,
+            "cat_region": cat_region,
+            "cat_user": cat_user,
+            "price": price,
+            "n0": noise[:, 0],
+            "n1": noise[:, 1],
+            "n2": noise[:, 2],
+            "n3": noise[:, 3],
+        }
+    )
     return X, y
 
 
@@ -254,7 +264,7 @@ class TestLayer52_RosterImportSmoke:
         # AND the raw entry list must clear 50 layers - so a silent prune
         # of either trips the floor.
         assert len(LAYER_PRIMARY_MODULES) >= 50, f"raw roster size dropped below 50: {len(LAYER_PRIMARY_MODULES)}"
-        assert len(distinct) >= 25, f"distinct prod-module count dropped below 25: {len(distinct)}; " f"modules={sorted(distinct)}"
+        assert len(distinct) >= 25, f"distinct prod-module count dropped below 25: {len(distinct)}; modules={sorted(distinct)}"
 
 
 # ---------------------------------------------------------------------------
@@ -317,17 +327,17 @@ class TestLayer52_CompositeAllFEOnBenchmark:
         num_tr = X_tr_t.select_dtypes(include=[np.number]).fillna(0.0)
         num_ho = X_ho_t.select_dtypes(include=[np.number]).fillna(0.0)
         common = [c for c in num_tr.columns if c in num_ho.columns]
-        assert len(common) >= 1, "composite transform produced 0 numeric columns common to " "train + holdout; cannot score AUC"
+        assert len(common) >= 1, "composite transform produced 0 numeric columns common to train + holdout; cannot score AUC"
         clf = LogisticRegression(max_iter=500, C=1.0)
         clf.fit(num_tr[common].to_numpy(), y_tr.to_numpy())
         proba = clf.predict_proba(num_ho[common].to_numpy())[:, 1]
         auc = roc_auc_score(y_ho.to_numpy(), proba)
-        assert auc >= 0.85, f"composite all-FE-on LogReg holdout AUC must be >= 0.85; " f"got {auc:.4f}"
+        assert auc >= 0.85, f"composite all-FE-on LogReg holdout AUC must be >= 0.85; got {auc:.4f}"
 
         # (c) Layer 39 recipe-parity contract under the FULLY enabled
         # composite, not just under L35's subset.
         eng_feats = list(getattr(m, "_engineered_features_", []) or [])
         eng_recipes = list(getattr(m, "_engineered_recipes_", []) or [])
         assert len(eng_feats) == len(eng_recipes), (
-            f"recipe-count parity FAILED under composite all-FE-on: " f"{len(eng_feats)} engineered names but " f"{len(eng_recipes)} recipes"
+            f"recipe-count parity FAILED under composite all-FE-on: {len(eng_feats)} engineered names but {len(eng_recipes)} recipes"
         )

@@ -16,12 +16,14 @@ from sklearn.linear_model import LogisticRegression
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.feature_selection.wrappers.rfecv import _fit
+
     return _fit
 
 
 @pytest.fixture(scope="module")
 def init_sibling():
     from mlframe.feature_selection.wrappers.rfecv import _fit_init
+
     return _fit_init
 
 
@@ -31,6 +33,7 @@ def test_init_fit_state_imported(parent_module, init_sibling):
 
 def test_rfecv_fit_bound_to_class(parent_module):
     from mlframe.feature_selection.wrappers.rfecv import RFECV
+
     # RFECV.fit is the RNG-hygiene wrapper (functools.wraps of the split-out _fit.fit); the wrapper's
     # __wrapped__ is the parent module's fit, proving the monolith-split function is the bound body.
     assert RFECV.fit.__wrapped__ is parent_module.fit
@@ -48,12 +51,14 @@ def test_smoke_fit_runs_with_carved_prelude(parent_module):
 
     rng = np.random.default_rng(7)
     n = 120
-    X = pd.DataFrame({
-        "x1": rng.normal(0, 1, size=n),
-        "x2": rng.normal(0, 1, size=n),
-        "x3": rng.normal(0, 1, size=n),
-        "noise": rng.normal(0, 1, size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": rng.normal(0, 1, size=n),
+            "x2": rng.normal(0, 1, size=n),
+            "x3": rng.normal(0, 1, size=n),
+            "noise": rng.normal(0, 1, size=n),
+        }
+    )
     # y depends on x1, x2 only
     y = (X["x1"] + X["x2"] > 0).astype(int).to_numpy()
 
@@ -74,6 +79,7 @@ def test_smoke_fit_runs_with_carved_prelude(parent_module):
 def test_init_helper_validates_sample_weight_length(init_sibling):
     """The carved sample-weight length check must still raise ValueError pre-fit (was previously inline; behavioural-equivalence sensor)."""
     from mlframe.feature_selection.wrappers.rfecv import RFECV
+
     rfecv = RFECV(estimator=LogisticRegression(), cv=3)
     X = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "b": [4, 3, 2, 1]})
     y = np.array([0, 1, 0, 1])
@@ -85,6 +91,7 @@ def test_init_helper_validates_sample_weight_length(init_sibling):
 def test_init_helper_validates_y_nan(init_sibling):
     """NaN in y must surface as ValueError in the carved validator."""
     from mlframe.feature_selection.wrappers.rfecv import RFECV
+
     rfecv = RFECV(estimator=LogisticRegression(), cv=3)
     X = pd.DataFrame({"a": np.arange(10, dtype=float), "b": np.arange(10, dtype=float)})
     y = np.array([0.0, 1.0, float("nan"), 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0])

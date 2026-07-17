@@ -10,6 +10,7 @@ Two layers:
      ``use_ema=True`` adds an EMA callback to the Lightning Trainer
      and the fit converges without exceptions.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -60,15 +61,9 @@ def test_recurrent_fit_with_ema_does_not_crash():
     seq_len = 8
     n_seq_feats = 3
     n_aux_feats = 2
-    sequences = [
-        rng.normal(size=(seq_len, n_seq_feats)).astype(np.float32)
-        for _ in range(n)
-    ]
+    sequences = [rng.normal(size=(seq_len, n_seq_feats)).astype(np.float32) for _ in range(n)]
     features = rng.normal(size=(n, n_aux_feats)).astype(np.float32)
-    y = (
-        np.array([s.mean() for s in sequences], dtype=np.float32)
-        + features[:, 0]
-    )
+    y = np.array([s.mean() for s in sequences], dtype=np.float32) + features[:, 0]
 
     cfg = RecurrentConfig(
         rnn_type=RNNType.LSTM,
@@ -89,9 +84,7 @@ def test_recurrent_fit_with_ema_does_not_crash():
     reg.fit(features=features, labels=y, sequences=sequences)
     pred = reg.predict(features=features[:20], sequences=sequences[:20])
     assert pred.shape == (20,)
-    assert np.isfinite(pred).all(), (
-        f"EMA-wrapped recurrent predictions had non-finite values: {pred}"
-    )
+    assert np.isfinite(pred).all(), f"EMA-wrapped recurrent predictions had non-finite values: {pred}"
 
 
 def test_recurrent_ema_callback_attached_when_use_ema_true(monkeypatch):
@@ -104,9 +97,11 @@ def test_recurrent_ema_callback_attached_when_use_ema_true(monkeypatch):
 
     cfg = RecurrentConfig(
         input_mode=InputMode.FEATURES_ONLY,
-        max_epochs=1, batch_size=8,
+        max_epochs=1,
+        batch_size=8,
         accelerator="cpu",
-        use_ema=True, ema_decay=0.99,
+        use_ema=True,
+        ema_decay=0.99,
         early_stopping_patience=1,
     )
     reg = RecurrentRegressorWrapper(config=cfg)
@@ -114,6 +109,7 @@ def test_recurrent_ema_callback_attached_when_use_ema_true(monkeypatch):
 
     try:
         from lightning.pytorch.callbacks import WeightAveraging
+
         _native = True
     except ImportError:
         _native = False
@@ -121,8 +117,7 @@ def test_recurrent_ema_callback_attached_when_use_ema_true(monkeypatch):
 
     expected_type = WeightAveraging if _native else StochasticWeightAveraging  # type: ignore[possibly-unbound]
     assert any(isinstance(cb, expected_type) for cb in trainer.callbacks), (
-        f"use_ema=True did not attach {expected_type.__name__} to Trainer.callbacks; "
-        f"observed: {[type(cb).__name__ for cb in trainer.callbacks]}"
+        f"use_ema=True did not attach {expected_type.__name__} to Trainer.callbacks; observed: {[type(cb).__name__ for cb in trainer.callbacks]}"
     )
 
 
@@ -132,7 +127,8 @@ def test_recurrent_no_ema_callback_when_use_ema_false():
 
     cfg = RecurrentConfig(
         input_mode=InputMode.FEATURES_ONLY,
-        max_epochs=1, batch_size=8,
+        max_epochs=1,
+        batch_size=8,
         accelerator="cpu",
         use_ema=False,
     )
@@ -141,13 +137,13 @@ def test_recurrent_no_ema_callback_when_use_ema_false():
 
     try:
         from lightning.pytorch.callbacks import WeightAveraging
+
         bad_types: tuple[type, ...] = (WeightAveraging,)
     except ImportError:
         bad_types = ()
     from lightning.pytorch.callbacks import StochasticWeightAveraging
+
     bad_types = bad_types + (StochasticWeightAveraging,)
 
     for cb in trainer.callbacks:
-        assert not isinstance(cb, bad_types), (
-            f"use_ema=False but {type(cb).__name__} was still attached"
-        )
+        assert not isinstance(cb, bad_types), f"use_ema=False but {type(cb).__name__} was still attached"

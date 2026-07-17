@@ -59,9 +59,8 @@ def test_no_stdlib_json_in_tests() -> None:
         text = path.read_text(encoding="utf-8", errors="replace")
         if _JSON_IMPORT_RE.search(text):
             offenders.append(str(path.relative_to(TESTS_DIR)))
-    assert not offenders, (
-        "Test files must use orjson instead of stdlib json (or add a justified entry to "
-        "_STDLIB_JSON_WHITELIST); offenders: " + ", ".join(offenders)
+    assert not offenders, "Test files must use orjson instead of stdlib json (or add a justified entry to _STDLIB_JSON_WHITELIST); offenders: " + ", ".join(
+        offenders
     )
 
 
@@ -71,19 +70,14 @@ def test_no_ensure_installed_in_tests() -> None:
         text = path.read_text(encoding="utf-8", errors="replace")
         if _ENSURE_INSTALLED_RE.search(text):
             offenders.append(str(path.relative_to(TESTS_DIR)))
-    assert not offenders, (
-        "Test files must use pytest.importorskip(...) instead of ensure_installed(...); "
-        "offenders: " + ", ".join(offenders)
-    )
+    assert not offenders, "Test files must use pytest.importorskip(...) instead of ensure_installed(...); offenders: " + ", ".join(offenders)
 
 
 def test_postcalibration_include_re_is_compiled() -> None:
     pytest.importorskip("sklearn")
     postcalibration = pytest.importorskip("mlframe.calibration.post")
     include_re = getattr(postcalibration, "_INCLUDE_RE", None)
-    assert isinstance(include_re, re.Pattern), (
-        "mlframe.calibration.post._INCLUDE_RE must be a module-level compiled re.Pattern"
-    )
+    assert isinstance(include_re, re.Pattern), "mlframe.calibration.post._INCLUDE_RE must be a module-level compiled re.Pattern"
     # Also validate the lru_cache-wrapped compiler is present and returns a Pattern.
     compile_pattern = getattr(postcalibration, "_compile_pattern", None)
     assert callable(compile_pattern), "_compile_pattern helper must exist"

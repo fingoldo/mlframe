@@ -10,6 +10,7 @@ whenever it scores best on OOF log_loss / AUC, so this is reachable on a default
 The renorm is gated to MULTICLASS only: binary keeps the ``[:, 1]`` semantics and multilabel's per-label
 columns are independent (not a simplex) -- neither may be renormalised.
 """
+
 from __future__ import annotations
 
 import numpy as np

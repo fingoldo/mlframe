@@ -9,6 +9,7 @@ summary, evaluation metrics, base-vs-residual attribution, the leakage check,
 and the readiness flags -- and a no-data card still renders identity /
 provenance / params.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -45,6 +46,7 @@ def _fit_linres(X, y, base_column="base"):
 # ---------------------------------------------------------------------------
 # biz_value: fitted card has EVERY section non-empty + leakage + readiness
 # ---------------------------------------------------------------------------
+
 
 def test_biz_val_model_card_linear_residual_all_sections_nonempty():
     X, y = _make_data()
@@ -104,16 +106,23 @@ def test_biz_val_model_card_linear_residual_all_sections_nonempty():
 
     # Markdown renders every section
     md = card["markdown"]
-    for header in ("## Identity", "## Provenance", "## Fitted parameters",
-                   "## Training summary", "## Evaluation",
-                   "## Base-vs-residual attribution", "## Leakage check",
-                   "## Deployment-readiness checklist"):
+    for header in (
+        "## Identity",
+        "## Provenance",
+        "## Fitted parameters",
+        "## Training summary",
+        "## Evaluation",
+        "## Base-vs-residual attribution",
+        "## Leakage check",
+        "## Deployment-readiness checklist",
+    ):
         assert header in md
 
 
 # ---------------------------------------------------------------------------
 # Unit: no-data card still renders identity / provenance / params
 # ---------------------------------------------------------------------------
+
 
 def test_model_card_no_data_renders_identity_provenance_params():
     X, y = _make_data()

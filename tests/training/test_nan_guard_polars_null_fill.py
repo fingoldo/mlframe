@@ -10,6 +10,7 @@ reached the NaN-intolerant model the guard exists to protect, crashing it.
 The fastpath now fills both null and NaN, and fills all-null/all-NaN columns
 with 0.0 to match sklearn ``SimpleImputer(keep_empty_features=True)``.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -234,7 +234,7 @@ class TestLearnedBeatsColdStart:
             sel.observe_scorer(X, "plug_in", 0.10, y=y, ts=FIXED_TS)
 
         learned = sel.recommend_scorer(X, y)
-        assert learned == "cmim", f"learned-best should override cold-start plug_in -> cmim, " f"got {learned!r}"
+        assert learned == "cmim", f"learned-best should override cold-start plug_in -> cmim, got {learned!r}"
 
     def test_below_confidence_gate_stays_cold_start(self):
         """With observation count below min_observations, recommend_scorer must not switch away from the cold-start prior."""
@@ -302,7 +302,7 @@ class TestMrmrAutoOracleEndToEnd:
             fe_hybrid_orth_top_k=3,
         ).fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added, "auto_oracle should append engineered columns on the redundant " "fixture"
+        assert added, "auto_oracle should append engineered columns on the redundant fixture"
 
     def test_auto_oracle_auc_competitive_with_explicit_best(self):
         """Averaged over SEEDS, auto_oracle's downstream LogReg AUC is within 0.02 of the explicit-best cmim scorer."""
@@ -433,7 +433,7 @@ class TestFingerprintReuse:
         sel = OracleScorerSelector(store_path="fp.parquet")
         fp_sel = sel.fingerprint(X, y)
         fp_oracle = default_fingerprint((X, y), {})
-        assert fp_sel == fp_oracle, "selector must reuse Param-Oracle's default_fingerprint, not a " "duplicate fingerprinter"
+        assert fp_sel == fp_oracle, "selector must reuse Param-Oracle's default_fingerprint, not a duplicate fingerprinter"
         # The bucketed key the selector observes under matches the oracle's.
         from mlframe.utils._param_oracle import bucketize_fingerprint
 

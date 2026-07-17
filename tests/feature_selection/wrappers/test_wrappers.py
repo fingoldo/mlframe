@@ -39,18 +39,21 @@ from mlframe.feature_selection.wrappers import (
 # Try importing boosting libraries
 try:
     from catboost import CatBoostClassifier, CatBoostRegressor
+
     HAS_CATBOOST = True
 except ImportError:
     HAS_CATBOOST = False
 
 try:
     from xgboost import XGBClassifier, XGBRegressor
+
     HAS_XGBOOST = True
 except ImportError:
     HAS_XGBOOST = False
 
 try:
     from lightgbm import LGBMClassifier, LGBMRegressor
+
     HAS_LIGHTGBM = True
 except ImportError:
     HAS_LIGHTGBM = False
@@ -62,13 +65,14 @@ except ImportError:
 # Helper Function Tests (Property-based with Hypothesis)
 # ================================================================================================
 
+
 class TestSplitIntoTrainTest:
     """Property-based tests for split_into_train_test function."""
 
     @given(
         n_samples=st.integers(min_value=10, max_value=100),
         n_features=st.integers(min_value=2, max_value=20),
-        train_frac=st.floats(min_value=0.3, max_value=0.8)
+        train_frac=st.floats(min_value=0.3, max_value=0.8),
     )
     @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
     def test_split_shapes_ndarray(self, n_samples, n_features, train_frac):
@@ -90,13 +94,12 @@ class TestSplitIntoTrainTest:
     @given(
         n_samples=st.integers(min_value=10, max_value=100),
         n_features=st.integers(min_value=2, max_value=20),
-        train_frac=st.floats(min_value=0.3, max_value=0.8)
+        train_frac=st.floats(min_value=0.3, max_value=0.8),
     )
     @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
     def test_split_shapes_dataframe(self, n_samples, n_features, train_frac):
         """Test that split produces correct shapes for DataFrames."""
-        X = pd.DataFrame(np.random.randn(n_samples, n_features),
-                        columns=[f'f{i}' for i in range(n_features)])
+        X = pd.DataFrame(np.random.randn(n_samples, n_features), columns=[f"f{i}" for i in range(n_features)])
         y = pd.Series(np.random.randn(n_samples))
 
         train_size = int(n_samples * train_frac)
@@ -117,9 +120,7 @@ class TestSplitIntoTrainTest:
         test_index = np.arange(70, 100)
         features_indices = [0, 2, 4]
 
-        X_train, y_train, X_test, y_test = split_into_train_test(
-            X, y, train_index, test_index, features_indices
-        )
+        X_train, y_train, X_test, y_test = split_into_train_test(X, y, train_index, test_index, features_indices)
 
         assert X_train.shape == (70, 3)
         assert X_test.shape == (30, 3)
@@ -130,6 +131,7 @@ class TestStoreAveragedCVScores:
 
     def test_basic_averaging(self):
         """Test basic score averaging."""
+
         class MockSelf:
             mean_perf_weight = 1.0
             std_perf_weight = 0.1
@@ -139,10 +141,7 @@ class TestStoreAveragedCVScores:
         evaluated_scores_std = {}
 
         mean, std, final, *_ = store_averaged_cv_scores(
-            pos=5, scores=scores,
-            evaluated_scores_mean=evaluated_scores_mean,
-            evaluated_scores_std=evaluated_scores_std,
-            self=MockSelf()
+            pos=5, scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std, self=MockSelf()
         )
 
         assert np.isclose(mean, np.mean(scores))
@@ -154,6 +153,7 @@ class TestStoreAveragedCVScores:
     @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
     def test_averaging_properties(self, scores):
         """Test that averaging has expected properties."""
+
         class MockSelf:
             mean_perf_weight = 1.0
             std_perf_weight = 0.0
@@ -162,10 +162,7 @@ class TestStoreAveragedCVScores:
         evaluated_scores_std = {}
 
         mean, std, final, *_ = store_averaged_cv_scores(
-            pos=1, scores=scores,
-            evaluated_scores_mean=evaluated_scores_mean,
-            evaluated_scores_std=evaluated_scores_std,
-            self=MockSelf()
+            pos=1, scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std, self=MockSelf()
         )
 
         # Final score equals mean when std_weight is 0
@@ -189,10 +186,12 @@ class TestStoreAveragedCVScoresNaNWarning:
         class MockSelf:
             mean_perf_weight = 1.0
             std_perf_weight = 0.0
+
         return MockSelf()
 
     def test_nan_score_emits_warning(self, caplog):
         import logging
+
         with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers"):
             store_averaged_cv_scores(
                 pos=7,
@@ -210,6 +209,7 @@ class TestStoreAveragedCVScoresNaNWarning:
         """False-positive sensor: clean scores must not warn (otherwise
         every RFECV iteration would spam the log)."""
         import logging
+
         with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers"):
             store_averaged_cv_scores(
                 pos=3,
@@ -226,6 +226,7 @@ class TestStoreAveragedCVScoresNaNWarning:
         not crash the NaN-count check even though the downstream
         ``np.mean([])`` will emit its own RuntimeWarning."""
         import warnings
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             mean, std, final, *_ = store_averaged_cv_scores(
@@ -244,9 +245,9 @@ class TestSelectAppropriateFeatureImportances:
     def test_use_all_fi_runs(self):
         """Test selecting all feature importance runs."""
         feature_importances = {
-            '10_0': {'a': 1, 'b': 2},
-            '10_1': {'a': 1.5, 'b': 1.8},
-            '5_0': {'a': 2, 'b': 1},
+            "10_0": {"a": 1, "b": 2},
+            "10_1": {"a": 1.5, "b": 1.8},
+            "5_0": {"a": 2, "b": 1},
         }
 
         result = select_appropriate_feature_importances(
@@ -264,9 +265,9 @@ class TestSelectAppropriateFeatureImportances:
     def test_use_last_fi_run_only(self):
         """Test selecting only last FI run."""
         feature_importances = {
-            '10_0': {'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5, 'f': 6, 'g': 7, 'h': 8, 'i': 9, 'j': 10},
-            '10_1': {'a': 1.5, 'b': 1.8, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6, 'h': 7, 'i': 8, 'j': 9},
-            '5_0': {'a': 2, 'b': 1, 'c': 3, 'd': 4, 'e': 5},
+            "10_0": {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 6, "g": 7, "h": 8, "i": 9, "j": 10},
+            "10_1": {"a": 1.5, "b": 1.8, "c": 2, "d": 3, "e": 4, "f": 5, "g": 6, "h": 7, "i": 8, "j": 9},
+            "5_0": {"a": 2, "b": 1, "c": 3, "d": 4, "e": 5},
         }
 
         result = select_appropriate_feature_importances(
@@ -286,6 +287,7 @@ class TestSelectAppropriateFeatureImportances:
 # ================================================================================================
 # RFECV Parameter Coverage Tests
 # ================================================================================================
+
 
 class TestRFECVParameters:
     """Tests covering RFECV parameter variations."""
@@ -310,27 +312,23 @@ class TestRFECVParameters:
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            max_nfeatures=max_nfeatures,
-            max_refits=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_nfeatures=max_nfeatures, max_refits=3, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
 
         # max_nfeatures limits search space, not final selection
         # Just verify it completes and selects valid number of features
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
         assert rfecv.n_features_ > 0
 
-    @pytest.mark.parametrize("mean_perf_weight,std_perf_weight", [
-        (1.0, 0.0),
-        (1.0, 0.1),
-        (0.5, 0.5),
-    ])
+    @pytest.mark.parametrize(
+        "mean_perf_weight,std_perf_weight",
+        [
+            (1.0, 0.0),
+            (1.0, 0.1),
+            (0.5, 0.5),
+        ],
+    )
     def test_perf_weights(self, simple_classification_data, mean_perf_weight, std_perf_weight):
         """Test performance weight parameters."""
         X, y, _ = simple_classification_data
@@ -342,12 +340,12 @@ class TestRFECVParameters:
             std_perf_weight=std_perf_weight,
             max_refits=3,
             verbose=0,
-            optimizer_plotting='No',
-            random_state=42
+            optimizer_plotting="No",
+            random_state=42,
         )
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
 
     @pytest.mark.parametrize("feature_cost", [0.0, 0.001, 0.01])
     def test_feature_cost(self, simple_classification_data, feature_cost):
@@ -355,17 +353,10 @@ class TestRFECVParameters:
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            feature_cost=feature_cost,
-            max_refits=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, feature_cost=feature_cost, max_refits=3, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
 
     @pytest.mark.parametrize("cv", [2, 3, 5])
     def test_cv_values(self, simple_classification_data, cv):
@@ -373,17 +364,10 @@ class TestRFECVParameters:
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            cv=cv,
-            max_refits=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, cv=cv, max_refits=2, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'cv_results_')
+        assert hasattr(rfecv, "cv_results_")
 
     @pytest.mark.parametrize("cv_shuffle", [True, False])
     def test_cv_shuffle(self, simple_classification_data, cv_shuffle):
@@ -391,45 +375,37 @@ class TestRFECVParameters:
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            cv_shuffle=cv_shuffle,
-            max_refits=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, cv_shuffle=cv_shuffle, max_refits=2, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
 
-    @pytest.mark.parametrize("votes_aggregation_method", [
-        VotesAggregation.Borda,
-        VotesAggregation.AM,
-        VotesAggregation.Copeland,
-        VotesAggregation.Dowdall,
-    ])
+    @pytest.mark.parametrize(
+        "votes_aggregation_method",
+        [
+            VotesAggregation.Borda,
+            VotesAggregation.AM,
+            VotesAggregation.Copeland,
+            VotesAggregation.Dowdall,
+        ],
+    )
     def test_votes_aggregation(self, simple_classification_data, votes_aggregation_method):
         """Test different votes aggregation methods."""
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            votes_aggregation_method=votes_aggregation_method,
-            max_refits=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, votes_aggregation_method=votes_aggregation_method, max_refits=3, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
 
-    @pytest.mark.parametrize("use_all_fi_runs,use_last_fi_run_only", [
-        (True, False),
-        (False, True),
-    ])
+    @pytest.mark.parametrize(
+        "use_all_fi_runs,use_last_fi_run_only",
+        [
+            (True, False),
+            (False, True),
+        ],
+    )
     def test_fi_run_selection(self, simple_classification_data, use_all_fi_runs, use_last_fi_run_only):
         """Test feature importance run selection parameters."""
         X, y, _ = simple_classification_data
@@ -441,12 +417,12 @@ class TestRFECVParameters:
             use_last_fi_run_only=use_last_fi_run_only,
             max_refits=3,
             verbose=0,
-            optimizer_plotting='No',
-            random_state=42
+            optimizer_plotting="No",
+            random_state=42,
         )
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'feature_importances_')
+        assert hasattr(rfecv, "feature_importances_")
 
     @pytest.mark.parametrize("keep_estimators", [True, False])
     def test_keep_estimators(self, simple_classification_data, keep_estimators):
@@ -454,14 +430,7 @@ class TestRFECVParameters:
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            keep_estimators=keep_estimators,
-            max_refits=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, keep_estimators=keep_estimators, max_refits=2, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
 
@@ -476,31 +445,17 @@ class TestRFECVParameters:
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            frac=frac,
-            max_refits=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, frac=frac, max_refits=2, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
 
     def test_skip_retraining_on_same_shape(self, simple_classification_data):
         """Test skip_retraining_on_same_shape parameter."""
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            skip_retraining_on_same_shape=True,
-            max_refits=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, skip_retraining_on_same_shape=True, max_refits=2, verbose=0, optimizer_plotting="No", random_state=42)
 
         # First fit
         rfecv.fit(X, y)
@@ -518,17 +473,10 @@ class TestRFECVParameters:
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            conduct_final_voting=conduct_final_voting,
-            max_refits=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, conduct_final_voting=conduct_final_voting, max_refits=3, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'support_')
+        assert hasattr(rfecv, "support_")
 
     def test_nofeatures_dummy_scoring(self, simple_classification_data):
         """Test nofeatures_dummy_scoring parameter."""
@@ -537,16 +485,11 @@ class TestRFECVParameters:
         for nofeatures_dummy_scoring in [True, False]:
             estimator = RandomForestClassifier(n_estimators=10, random_state=42)
             rfecv = RFECV(
-                estimator=estimator,
-                nofeatures_dummy_scoring=nofeatures_dummy_scoring,
-                max_refits=2,
-                verbose=0,
-                optimizer_plotting='No',
-                random_state=42
+                estimator=estimator, nofeatures_dummy_scoring=nofeatures_dummy_scoring, max_refits=2, verbose=0, optimizer_plotting="No", random_state=42
             )
 
             rfecv.fit(X, y)
-            assert 0 in rfecv.cv_results_['nfeatures']
+            assert 0 in rfecv.cv_results_["nfeatures"]
 
     def test_max_runtime_mins(self, simple_classification_data):
         """Test max_runtime_mins parameter."""
@@ -557,79 +500,53 @@ class TestRFECVParameters:
             estimator=estimator,
             max_runtime_mins=0.01,  # Very short
             verbose=0,
-            optimizer_plotting='No',
-            random_state=42
+            optimizer_plotting="No",
+            random_state=42,
         )
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
 
     def test_max_refits(self, simple_classification_data):
         """Test max_refits parameter."""
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_refits=3, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
         # Number of evaluated feature sets should be <= max_refits + 1 (includes 0 features)
-        assert len(rfecv.cv_results_['nfeatures']) <= 4
+        assert len(rfecv.cv_results_["nfeatures"]) <= 4
 
     def test_max_noimproving_iters(self, simple_classification_data):
         """Test max_noimproving_iters parameter."""
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            max_noimproving_iters=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_noimproving_iters=2, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
 
     def test_importance_getter_string(self, simple_classification_data):
         """Test importance_getter with string value."""
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            importance_getter='feature_importances_',
-            max_refits=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, importance_getter="feature_importances_", max_refits=2, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'feature_importances_')
+        assert hasattr(rfecv, "feature_importances_")
 
     def test_importance_getter_coef(self, simple_classification_data):
         """Test importance_getter with coef_ for linear models."""
         X, y, _ = simple_classification_data
 
         estimator = LogisticRegression(max_iter=1000, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            importance_getter='coef_',
-            max_refits=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, importance_getter="coef_", max_refits=2, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'feature_importances_')
+        assert hasattr(rfecv, "feature_importances_")
 
     def test_frac_validation(self):
         """Test that invalid frac values raise ValueError."""
@@ -649,27 +566,22 @@ class TestRFECVParameters:
 # Synthetic Dataset Tests with Multiple Estimators
 # ================================================================================================
 
+
 def get_classification_estimators():
     """Get list of classification estimators to test."""
     estimators = [
-        ('LogisticRegression', LogisticRegression(max_iter=1000, random_state=42)),
-        ('RandomForest', RandomForestClassifier(n_estimators=20, random_state=42)),
+        ("LogisticRegression", LogisticRegression(max_iter=1000, random_state=42)),
+        ("RandomForest", RandomForestClassifier(n_estimators=20, random_state=42)),
     ]
 
     if HAS_CATBOOST:
-        estimators.append(('CatBoost', CatBoostClassifier(
-            iterations=10, depth=3, verbose=0, random_state=42
-        )))
+        estimators.append(("CatBoost", CatBoostClassifier(iterations=10, depth=3, verbose=0, random_state=42)))
 
     if HAS_XGBOOST:
-        estimators.append(('XGBoost', XGBClassifier(
-            n_estimators=10, max_depth=3, verbosity=0, random_state=42
-        )))
+        estimators.append(("XGBoost", XGBClassifier(n_estimators=10, max_depth=3, verbosity=0, random_state=42)))
 
     if HAS_LIGHTGBM:
-        estimators.append(('LightGBM', LGBMClassifier(
-            n_estimators=10, max_depth=3, verbose=-1, random_state=42
-        )))
+        estimators.append(("LightGBM", LGBMClassifier(n_estimators=10, max_depth=3, verbose=-1, random_state=42)))
 
     return estimators
 
@@ -677,24 +589,18 @@ def get_classification_estimators():
 def get_regression_estimators():
     """Get list of regression estimators to test."""
     estimators = [
-        ('LinearRegression', LinearRegression()),
-        ('RandomForest', RandomForestRegressor(n_estimators=20, random_state=42)),
+        ("LinearRegression", LinearRegression()),
+        ("RandomForest", RandomForestRegressor(n_estimators=20, random_state=42)),
     ]
 
     if HAS_CATBOOST:
-        estimators.append(('CatBoost', CatBoostRegressor(
-            iterations=10, depth=3, verbose=0, random_state=42
-        )))
+        estimators.append(("CatBoost", CatBoostRegressor(iterations=10, depth=3, verbose=0, random_state=42)))
 
     if HAS_XGBOOST:
-        estimators.append(('XGBoost', XGBRegressor(
-            n_estimators=10, max_depth=3, verbosity=0, random_state=42
-        )))
+        estimators.append(("XGBoost", XGBRegressor(n_estimators=10, max_depth=3, verbosity=0, random_state=42)))
 
     if HAS_LIGHTGBM:
-        estimators.append(('LightGBM', LGBMRegressor(
-            n_estimators=10, max_depth=3, verbose=-1, random_state=42
-        )))
+        estimators.append(("LightGBM", LGBMRegressor(n_estimators=10, max_depth=3, verbose=-1, random_state=42)))
 
     return estimators
 
@@ -707,15 +613,7 @@ class TestRFECVSyntheticClassification:
         """Test that RFECV identifies informative features in binary classification."""
         X, y, informative_indices = simple_classification_data
 
-
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=5,
-            max_noimproving_iters=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_refits=5, max_noimproving_iters=3, verbose=0, optimizer_plotting="No", random_state=42)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -737,29 +635,21 @@ class TestRFECVSyntheticClassification:
         # 5 iters, or (b) the convergence budget is too tight. Loosen to
         # >=0.2 to reflect the measured behaviour; tighten once the dataset
         # or the optimiser budget is revisited.
-        assert recall >= 0.2, f"{name}: Only {recall*100:.0f}% of informative features detected"
+        assert recall >= 0.2, f"{name}: Only {recall * 100:.0f}% of informative features detected"
 
     @pytest.mark.parametrize("name,estimator", get_classification_estimators())
     def test_imbalanced_classification(self, imbalanced_classification_data, name, estimator):
         """Test RFECV on imbalanced classification data."""
         X, y, informative_indices = imbalanced_classification_data
 
-
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=5,
-            max_noimproving_iters=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_refits=5, max_noimproving_iters=3, verbose=0, optimizer_plotting="No", random_state=42)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             rfecv.fit(X, y)
 
         # Should complete without error
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
         assert rfecv.n_features_ > 0
 
     @pytest.mark.parametrize("name,estimator", get_classification_estimators()[:2])  # Subset for speed
@@ -767,21 +657,13 @@ class TestRFECVSyntheticClassification:
         """Test RFECV on multiclass classification data."""
         X, y, informative_indices = multiclass_data
 
-
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=4,
-            max_noimproving_iters=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_refits=4, max_noimproving_iters=2, verbose=0, optimizer_plotting="No", random_state=42)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             rfecv.fit(X, y)
 
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
         assert rfecv.n_features_ > 0
 
     @pytest.mark.parametrize("name,estimator", get_classification_estimators()[:2])
@@ -789,15 +671,7 @@ class TestRFECVSyntheticClassification:
         """Test RFECV on high-dimensional data (p > n)."""
         X, y, informative_indices = high_dimensional_data
 
-
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=4,
-            max_noimproving_iters=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_refits=4, max_noimproving_iters=2, verbose=0, optimizer_plotting="No", random_state=42)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -805,7 +679,7 @@ class TestRFECVSyntheticClassification:
 
         # In high-dimensional case, just verify it completes and selects valid features
         # With limited refits, may not always reduce features
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
         assert rfecv.n_features_ > 0
 
     @pytest.mark.parametrize("name,estimator", get_classification_estimators()[:2])
@@ -813,15 +687,7 @@ class TestRFECVSyntheticClassification:
         """Test RFECV on data with correlated informative features."""
         X, y, informative_indices = correlated_features_data
 
-
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=5,
-            max_noimproving_iters=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_refits=5, max_noimproving_iters=3, verbose=0, optimizer_plotting="No", random_state=42)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -844,15 +710,7 @@ class TestRFECVSyntheticRegression:
         """Test that RFECV identifies informative features in regression."""
         X, y, informative_indices = simple_regression_data
 
-
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=5,
-            max_noimproving_iters=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_refits=5, max_noimproving_iters=3, verbose=0, optimizer_plotting="No", random_state=42)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -879,7 +737,7 @@ class TestRFECVSyntheticRegression:
         # max_refits>=10 -- this small budget is the test's choice, not
         # an RFECV regression.
         floor = 0.2 if name.lower() in ("xgboost", "lightgbm") else 0.4
-        assert recall >= floor, f"{name}: Only {recall*100:.0f}% of informative features detected (floor={floor*100:.0f}%)"
+        assert recall >= floor, f"{name}: Only {recall * 100:.0f}% of informative features detected (floor={floor * 100:.0f}%)"
 
 
 class TestRFECVTransform:
@@ -890,13 +748,7 @@ class TestRFECVTransform:
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_refits=3, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
         X_transformed = rfecv.transform(X)
@@ -922,39 +774,27 @@ class TestRFECVEdgeCases:
         groups = np.repeat(np.arange(20), 10)  # 20 groups, 10 samples each
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_refits=2, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y, groups=groups)
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
 
     def test_cv_results_structure(self, simple_classification_data):
         """Test that cv_results_ has correct structure."""
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_refits=3, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
 
-        assert 'nfeatures' in rfecv.cv_results_
-        assert 'cv_mean_perf' in rfecv.cv_results_
-        assert 'cv_std_perf' in rfecv.cv_results_
+        assert "nfeatures" in rfecv.cv_results_
+        assert "cv_mean_perf" in rfecv.cv_results_
+        assert "cv_std_perf" in rfecv.cv_results_
 
         # All lists should have same length
-        assert len(rfecv.cv_results_['nfeatures']) == len(rfecv.cv_results_['cv_mean_perf'])
-        assert len(rfecv.cv_results_['nfeatures']) == len(rfecv.cv_results_['cv_std_perf'])
+        assert len(rfecv.cv_results_["nfeatures"]) == len(rfecv.cv_results_["cv_mean_perf"])
+        assert len(rfecv.cv_results_["nfeatures"]) == len(rfecv.cv_results_["cv_std_perf"])
 
     def test_unfitted_transform(self):
         """Test RFECV transform when support_ is not set (unfitted).
@@ -964,16 +804,11 @@ class TestRFECVEdgeCases:
         through behaviour silently masked config bugs.
         """
         from sklearn.exceptions import NotFittedError
+
         X = np.random.randn(100, 5)
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_refits=2, verbose=0, optimizer_plotting="No", random_state=42)
 
         with pytest.raises(NotFittedError):
             rfecv.transform(X)
@@ -998,50 +833,41 @@ class TestRFECVEdgeCases:
 
         # Use more estimators for better feature importance
         estimator = RandomForestClassifier(n_estimators=50, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=10,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, max_refits=10, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
 
         # At least some features should be selected
         assert rfecv.n_features_ >= 1
         # The RFECV should complete without error
-        assert hasattr(rfecv, 'support_')
+        assert hasattr(rfecv, "support_")
 
 
 # ================================================================================================
 # Optimizer Method Tests
 # ================================================================================================
 
+
 class TestOptimizerMethods:
     """Test different optimization methods."""
 
-    @pytest.mark.parametrize("method", [
-        OptimumSearch.ModelBasedHeuristic,
-        OptimumSearch.ExhaustiveRandom,
-    ])
+    @pytest.mark.parametrize(
+        "method",
+        [
+            OptimumSearch.ModelBasedHeuristic,
+            OptimumSearch.ExhaustiveRandom,
+        ],
+    )
     def test_search_methods(self, simple_classification_data, method):
         """Test different top_predictors_search_method values."""
         X, y, _ = simple_classification_data
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            top_predictors_search_method=method,
-            max_refits=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
+        rfecv = RFECV(estimator=estimator, top_predictors_search_method=method, max_refits=3, verbose=0, optimizer_plotting="No", random_state=42)
 
         rfecv.fit(X, y)
-        assert hasattr(rfecv, 'n_features_')
+        assert hasattr(rfecv, "n_features_")
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '--tb=short'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--tb=short"])

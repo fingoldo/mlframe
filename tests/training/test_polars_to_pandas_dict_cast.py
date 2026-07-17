@@ -161,7 +161,4 @@ def test_biz_value_whole_array_cast_faster_than_per_chunk():
     # ~5x; CI on a loaded host has shown 2.1x. Pin >=1.5x so a full regression
     # (e.g. the per-chunk loop sneaks back in) trips the gate, while jitter
     # doesn't.
-    assert speedup >= 1.5, (
-        f"whole-array cast not delivering: speedup={speedup:.2f}x "
-        f"(old={t_old*1000/iters:.2f}ms, new={t_new*1000/iters:.2f}ms)"
-    )
+    assert speedup >= 1.5, f"whole-array cast not delivering: speedup={speedup:.2f}x (old={t_old * 1000 / iters:.2f}ms, new={t_new * 1000 / iters:.2f}ms)"

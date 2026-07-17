@@ -18,6 +18,7 @@ Pinned on BOTH estimators:
 Bit-identity is preserved on all-finite matrices (no NaN -> the global
 mask was the identity and the per-pair mask is too), pinned below.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -56,15 +57,17 @@ def test_mi_to_target_one_mostly_nan_column_does_not_zero_the_sweep(estimator):
     X[:, 0] = bad
 
     mi = _mi_to_target(
-        X, target,
-        n_neighbors=3, random_state=0,
-        estimator=estimator, nbins=16, aggregation="mean",
+        X,
+        target,
+        n_neighbors=3,
+        random_state=0,
+        estimator=estimator,
+        nbins=16,
+        aggregation="mean",
     )
     # The 5 dense columns carry real MI; per-pair masking must surface it.
     # Pre-fix returns exactly 0.0 (global mask -> <50 rows -> early 0.0).
-    assert mi > 0.05, (
-        f"[{estimator}] per-pair mask should recover dense-column MI, got {mi}"
-    )
+    assert mi > 0.05, f"[{estimator}] per-pair mask should recover dense-column MI, got {mi}"
 
 
 @pytest.mark.parametrize("estimator", ["bin", "knn"])
@@ -76,9 +79,13 @@ def test_mi_to_target_bit_identical_on_all_finite_matrix(estimator):
     X, target = _informative_matrix(n, k, rng)
 
     mi = _mi_to_target(
-        X, target,
-        n_neighbors=3, random_state=11,
-        estimator=estimator, nbins=16, aggregation="mean",
+        X,
+        target,
+        n_neighbors=3,
+        random_state=11,
+        estimator=estimator,
+        nbins=16,
+        aggregation="mean",
     )
     assert np.isfinite(mi) and mi > 0.0
 
@@ -93,8 +100,12 @@ def test_mi_to_target_bad_column_only_zeros_itself_knn():
 
     # Reference: MI on the clean columns only (drop column 0 entirely).
     clean_mi = _mi_to_target(
-        X[:, 1:], target,
-        n_neighbors=3, random_state=0, estimator="knn", aggregation="sum",
+        X[:, 1:],
+        target,
+        n_neighbors=3,
+        random_state=0,
+        estimator="knn",
+        aggregation="sum",
     )
 
     bad = X[:, 0].copy()
@@ -105,16 +116,17 @@ def test_mi_to_target_bad_column_only_zeros_itself_knn():
     X[:, 0] = bad
 
     poisoned_mi = _mi_to_target(
-        X, target,
-        n_neighbors=3, random_state=0, estimator="knn", aggregation="sum",
+        X,
+        target,
+        n_neighbors=3,
+        random_state=0,
+        estimator="knn",
+        aggregation="sum",
     )
     # SUM aggregation: bad column contributes ~0 (its <50 finite rows gate to
     # 0.0), so the poisoned sweep recovers ~the clean-column total instead of
     # collapsing to 0.0. Floor at half the clean total to absorb noise.
-    assert poisoned_mi >= 0.5 * clean_mi > 0.0, (
-        f"poisoned={poisoned_mi}, clean={clean_mi}: bad column should only "
-        "zero itself, not the whole sweep"
-    )
+    assert poisoned_mi >= 0.5 * clean_mi > 0.0, f"poisoned={poisoned_mi}, clean={clean_mi}: bad column should only zero itself, not the whole sweep"
 
 
 def test_mi_to_target_empty_and_degenerate_inputs():

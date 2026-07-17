@@ -27,8 +27,7 @@ def _frame(seed=0, n=1000):
     xi = rng.normal(size=(n, 3))
     decoy = rng.normal(size=(n, 1))  # continuous high-card column SHAP tends to over-credit
     noise = rng.normal(size=(n, 8))
-    X = pd.DataFrame(np.hstack([xi, decoy, noise]),
-                     columns=[f"inf{i}" for i in range(3)] + ["decoy"] + [f"n{i}" for i in range(8)])
+    X = pd.DataFrame(np.hstack([xi, decoy, noise]), columns=[f"inf{i}" for i in range(3)] + ["decoy"] + [f"n{i}" for i in range(8)])
     y = (xi @ [1.2, 0.9, 0.7] + 0.3 * rng.normal(size=n) > 0).astype(int)
     return X, y
 
@@ -38,9 +37,18 @@ def _fit(use_bias_corrector):
 
     X, y = _frame()
     sel = ShapProxiedFS(
-        classification=True, metric="brier", max_features=4, top_n=10, n_splits=3,
-        n_revalidation_models=1, trust_guard=True, cluster_features=False,
-        use_bias_corrector=use_bias_corrector, random_state=0, verbose=False)
+        classification=True,
+        metric="brier",
+        max_features=4,
+        top_n=10,
+        n_splits=3,
+        n_revalidation_models=1,
+        trust_guard=True,
+        cluster_features=False,
+        use_bias_corrector=use_bias_corrector,
+        random_state=0,
+        verbose=False,
+    )
     sel.fit(X, y)
     return sel
 

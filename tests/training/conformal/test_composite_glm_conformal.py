@@ -9,6 +9,7 @@ Unit: coverage, non-negativity, monotone width vs mu, before-fit / uncalibrated 
 Biz_value: on a Poisson target the empirical coverage is >= 1-alpha AND the band is
 WIDER where mu is larger (the heteroscedastic win a constant-width band cannot deliver).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -134,7 +135,7 @@ class TestGLMConformalBizValue:
         est.calibrate_conformal_glm(Xc, yc, alpha=alpha)
         lo, hi = est.predict_interval_glm(Xte, alpha=alpha)
         covered = np.mean((yte >= lo) & (yte <= hi))
-        assert covered >= 1.0 - alpha - 0.03, f"coverage {covered:.3f} < {1-alpha:.2f}"
+        assert covered >= 1.0 - alpha - 0.03, f"coverage {covered:.3f} < {1 - alpha:.2f}"
 
     def test_variance_scaled_beats_constant_width_band(self) -> None:
         """The variance-scaled band covers each mu-stratum more evenly than a constant
@@ -152,6 +153,7 @@ class TestGLMConformalBizValue:
         # A constant-width band calibrated to the same marginal coverage on cal rows.
         mu_cal = est.predict(Xc)
         import math
+
         abs_res = np.abs(np.asarray(yc, dtype=np.float64) - mu_cal)
         n = abs_res.size
         rank = int(math.ceil((n + 1) * (1.0 - alpha)))
@@ -174,7 +176,4 @@ class TestGLMConformalBizValue:
 
         worst_v = worst_stratum_cov(lo_v, hi_v)
         worst_c = worst_stratum_cov(lo_c, hi_c)
-        assert worst_v > worst_c + 0.05, (
-            f"variance-scaled worst-stratum coverage {worst_v:.3f} should beat "
-            f"constant-band {worst_c:.3f} by >0.05"
-        )
+        assert worst_v > worst_c + 0.05, f"variance-scaled worst-stratum coverage {worst_v:.3f} should beat constant-band {worst_c:.3f} by >0.05"

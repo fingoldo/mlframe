@@ -13,6 +13,7 @@ pure-MI columns -- be reused against the wider union transform; the existing sui
 each fit in a subprocess for the same reason). The ~0.099 pure-MI baseline is asserted by the wider
 suite-FE recovery suite; here we pin the usability-ON goal.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -66,7 +67,4 @@ def test_suite_linear_reaches_floor_with_usability_aware_mrmr():
     assert np.isfinite(mae), "no test predictions found on the fitted linear entries"
     # the irreducible f/5 floor is ~0.05; the union puts the engineered (c,d) interaction in the
     # linear model's input, taking it well below the ~0.099 pure-MI baseline.
-    assert mae <= 0.075, (
-        f"suite linear test MAE {mae:.4f} did not approach the f/5 floor (~0.05) with the "
-        f"usability-aware union (pure-MI baseline is ~0.099)"
-    )
+    assert mae <= 0.075, f"suite linear test MAE {mae:.4f} did not approach the f/5 floor (~0.05) with the usability-aware union (pure-MI baseline is ~0.099)"

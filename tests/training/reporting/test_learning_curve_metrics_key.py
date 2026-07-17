@@ -6,6 +6,7 @@ always writing to ``metrics["learning_curve"]``. A caller passing a custom name 
 learning curves for two different targets in one ``metrics`` dict) would have both silently collide
 under the same key.
 """
+
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
@@ -23,7 +24,13 @@ def test_build_learning_curve_uses_custom_metadata_target_name():
     lc_cfg = LearningCurveConfig(enabled=True, sizes=(0.5, 1.0), n_jobs=1, score_repeats=1)
     metrics: dict = {}
     panel = _build_learning_curve(
-        LinearRegression(), df, y, ["x1", "x2"], "regression", lc_cfg, metrics,
+        LinearRegression(),
+        df,
+        y,
+        ["x1", "x2"],
+        "regression",
+        lc_cfg,
+        metrics,
         metadata_target_name="my_custom_target",
     )
 

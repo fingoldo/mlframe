@@ -3,6 +3,7 @@ declared field on ``FeatureTypesConfig``. Pre-fix the model had
 ``extra="forbid"`` so the field was unsettable; the runtime read it
 via ``getattr(..., 0.01)`` and silently locked it at 0.01.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -42,10 +43,7 @@ def test_min_non_null_fraction_threaded_to_auto_detect():
         min_non_null_fraction_for_text_promotion=0.10,
     )
     text_strict, _, _ = _auto_detect_feature_types(df, cfg_strict, cat_features=[])
-    assert "sparse_text" not in text_strict, (
-        "min_non_null_fraction=0.10 should skip the 5%-non-null column; "
-        "value not threaded through the config."
-    )
+    assert "sparse_text" not in text_strict, "min_non_null_fraction=0.10 should skip the 5%-non-null column; value not threaded through the config."
     cfg_lax = FeatureTypesConfig(
         auto_detect_feature_types=True,
         cat_text_cardinality_threshold=2,

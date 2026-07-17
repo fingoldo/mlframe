@@ -9,6 +9,7 @@ production discovery entry-point with ``save_charts=True`` + a ``data_dir`` on a
 where a ``linear_residual`` composite clears the MI-gain gate, and asserts the PNGs appear.
 It FAILS on the pre-fix function (no ``data_dir`` / ``save_charts`` params, no render).
 """
+
 from __future__ import annotations
 
 import glob
@@ -110,6 +111,4 @@ def test_inv44_no_charts_when_save_charts_false(tmp_path):
         data_dir=data_dir,
         save_charts=False,
     )
-    assert not glob.glob(os.path.join(data_dir, "composite_*.png")), (
-        "INV-44: diagnostic PNGs written despite save_charts=False"
-    )
+    assert not glob.glob(os.path.join(data_dir, "composite_*.png")), "INV-44: diagnostic PNGs written despite save_charts=False"

@@ -3,6 +3,7 @@
 Pins shape contracts + determinism so that future edits to the builders cannot silently change the per-call return
 signature seen by the ~10-15 migrated test sites.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -49,9 +50,7 @@ def test_make_categorical_classification_data_has_cat_features():
     # not strictly object, so the builder contract holds across pandas modes.
     for c in cats:
         _dt = str(df[c].dtype).lower()
-        assert _dt.startswith(("object", "str", "category")), (
-            f"cat column {c!r} should be string-like; got dtype {df[c].dtype!r}"
-        )
+        assert _dt.startswith(("object", "str", "category")), f"cat column {c!r} should be string-like; got dtype {df[c].dtype!r}"
     assert len(y) == 300
 
 

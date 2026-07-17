@@ -13,6 +13,7 @@ Post-fix:
   * ``random_state=None`` (default) keeps the pre-fix non-deterministic
     behaviour: two fits give different predictions
 """
+
 from __future__ import annotations
 
 import sys
@@ -38,7 +39,10 @@ from mlframe.training.neural import (
 def regression_data():
     X, y = make_regression(n_samples=200, n_features=5, noise=1.0, random_state=42)
     X_tr, X_te, y_tr, y_te = train_test_split(
-        X.astype(np.float32), y.astype(np.float32), test_size=0.3, random_state=42,
+        X.astype(np.float32),
+        y.astype(np.float32),
+        test_size=0.3,
+        random_state=42,
     )
     return {"X_train": X_tr, "y_train": y_tr, "X_test": X_te}
 
@@ -46,11 +50,18 @@ def regression_data():
 @pytest.fixture
 def binary_data():
     X, y = make_classification(
-        n_samples=200, n_features=5, n_informative=4, n_redundant=0,
-        n_classes=2, random_state=42,
+        n_samples=200,
+        n_features=5,
+        n_informative=4,
+        n_redundant=0,
+        n_classes=2,
+        random_state=42,
     )
     X_tr, X_te, y_tr, y_te = train_test_split(
-        X.astype(np.float32), y.astype(np.int64), test_size=0.3, random_state=42,
+        X.astype(np.float32),
+        y.astype(np.int64),
+        test_size=0.3,
+        random_state=42,
     )
     return {"X_train": X_tr, "y_train": y_tr, "X_test": X_te}
 
@@ -60,10 +71,13 @@ def _regressor_params(random_state=None):
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-2},
         "network_params": {
-            "nlayers": 1, "first_layer_num_neurons": 16,
+            "nlayers": 1,
+            "first_layer_num_neurons": 16,
             "dropout_prob": 0.1,  # nonzero so dropout RNG is exercised
-            "inputs_dropout_prob": 0.0, "use_layernorm": False,
-            "use_batchnorm": False, "activation_function": torch.nn.ReLU,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
+            "activation_function": torch.nn.ReLU,
         },
         "datamodule_class": TorchDataModule,
         "datamodule_params": {
@@ -72,9 +86,13 @@ def _regressor_params(random_state=None):
             "dataloader_params": {"batch_size": 16, "num_workers": 0},
         },
         "trainer_params": {
-            "max_epochs": 3, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 3,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         "random_state": random_state,
     }
@@ -130,10 +148,7 @@ def test_regressor_different_random_state_yields_different_predictions(regressio
     p2 = r2.predict(regression_data["X_test"])
 
     diff = float(np.abs(p1 - p2).max())
-    assert diff > 1e-4, (
-        f"different random_state should produce different predictions; "
-        f"got max|diff|={diff:.2e}"
-    )
+    assert diff > 1e-4, f"different random_state should produce different predictions; got max|diff|={diff:.2e}"
 
 
 def test_random_state_none_preserves_legacy_nondeterministic_behaviour(regression_data):

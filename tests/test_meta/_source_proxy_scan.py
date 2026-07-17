@@ -11,6 +11,7 @@ Legitimate read_text uses (LOC budgets, CHANGELOG cross-walk, meta-linters, docs
 annotation scanners) are NOT flagged: only a string-constant membership test against a
 read_text-derived name matches.
 """
+
 from __future__ import annotations
 
 import ast

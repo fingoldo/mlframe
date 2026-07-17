@@ -10,6 +10,7 @@ coverage is out of scope (heavy fixtures); we verify the helper contract
 (env-var toggle, INFO threshold, no-crash on logger failures) so the
 instrumentation can't silently regress.
 """
+
 from __future__ import annotations
 
 import logging
@@ -21,13 +22,17 @@ from unittest.mock import patch
 # To exercise it without instantiating the full suite, replicate the helper's
 # shape and verify the contract directly.
 
+
 def _make_timing_helper(*, verbose: bool, env_value: str | None) -> tuple:
     """Mirror the inline definition in _phase_config_setup. Returns
     (helper_fn, records_capture)."""
     import time as _time
 
     _setup_timing_on = (env_value or "1").strip().lower() not in (
-        "0", "false", "no", "off",
+        "0",
+        "false",
+        "no",
+        "off",
     )
     state = {"prev": _time.perf_counter(), "start": _time.perf_counter()}
     log = logging.getLogger("mlframe.training.core._phase_config_setup")
@@ -38,8 +43,7 @@ def _make_timing_helper(*, verbose: bool, env_value: str | None) -> tuple:
         now = _time.perf_counter()
         delta = now - state["prev"]
         lvl = logging.INFO if delta >= 2.0 else logging.DEBUG
-        log.log(lvl, "[setup-timing] %s in %.2fs (cumulative %.2fs)",
-                label, delta, now - state["start"])
+        log.log(lvl, "[setup-timing] %s in %.2fs (cumulative %.2fs)", label, delta, now - state["start"])
         state["prev"] = now
 
     return _step_done, state
@@ -76,8 +80,7 @@ def test_timing_env_var_disables_emission(caplog):
         helper, _ = _make_timing_helper(verbose=True, env_value=v)
         with caplog.at_level(logging.DEBUG, logger="mlframe.training.core._phase_config_setup"):
             helper("noop")
-        assert not any("noop" in r.getMessage() for r in caplog.records), \
-            f"env value {v!r} must disable emission"
+        assert not any("noop" in r.getMessage() for r in caplog.records), f"env value {v!r} must disable emission"
         caplog.clear()
 
 
@@ -93,5 +96,6 @@ def test_phase_config_setup_module_imports():
     """Sanity gate that the inline timing scaffolding parses + the module
     still exports its public surface unchanged."""
     from mlframe.training.core import _phase_config_setup as mod
+
     assert hasattr(mod, "_detect_interactive_mode")
     # No bare statements introduced; module-level smoke import is enough.

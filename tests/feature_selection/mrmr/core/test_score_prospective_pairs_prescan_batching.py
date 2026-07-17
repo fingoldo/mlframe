@@ -15,6 +15,7 @@ results silently diverge), AND dtype consistency (``usability_form_corrs`` casts
 ``_crit_np_dtype()`` -- f32 by default -- internally; a batched caller that skips this and passes raw f64
 computes every form at strictly higher precision than the reference, a real ~1e-9 divergence found via
 direct A/B during development, not assumed)."""
+
 from __future__ import annotations
 
 import numpy as np

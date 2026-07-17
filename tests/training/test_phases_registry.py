@@ -6,6 +6,7 @@ Pre-existing `test_phases_phases.py` exercises a different `phases` module
 (validate_input_columns / dataset_reuse_cache_key); the registry helpers had
 no direct test coverage.
 """
+
 from __future__ import annotations
 
 import logging

@@ -3,6 +3,7 @@
 Each test fails on the pre-fix code (verified via git stash) and passes post-fix.
 CPU-only; no GPU required.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -66,8 +67,12 @@ def test_serial_su_treats_one_realized_bin_as_constant():
     nbins_hint = {"a": 2, "b": 2, "const": 4}  # force const's marginal to be padded to length 4
 
     labels = cluster_correlated_features_su(
-        bins, threshold=0.3, feature_names=["a", "b", "const"], nbins_per_feature=nbins_hint,
-        use_parallel=False, use_gpu=False,
+        bins,
+        threshold=0.3,
+        feature_names=["a", "b", "const"],
+        nbins_per_feature=nbins_hint,
+        use_parallel=False,
+        use_gpu=False,
     )
     labels = np.asarray(labels)
     assert labels.shape[0] == 3

@@ -39,12 +39,14 @@ class _FakeConfig:
 
 def _fake_df(seed: int = 0, n: int = 64) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    return pd.DataFrame({
-        "target": rng.normal(size=n),
-        "base": rng.normal(size=n),
-        "f1": rng.normal(size=n),
-        "f2": rng.normal(size=n),
-    })
+    return pd.DataFrame(
+        {
+            "target": rng.normal(size=n),
+            "base": rng.normal(size=n),
+            "f1": rng.normal(size=n),
+            "f2": rng.normal(size=n),
+        }
+    )
 
 
 def test_discovery_config_signature_is_deterministic():
@@ -94,13 +96,19 @@ def test_discovery_cache_miss_after_version_bump(tmp_path):
     cache = DiscoveryCache(str(tmp_path))
     with mock.patch("mlframe.__version__", "1.0.0-A"):
         key_a = make_discovery_cache_key(
-            df_sig, "target", _discovery_config_signature(cfg), random_state=42,
+            df_sig,
+            "target",
+            _discovery_config_signature(cfg),
+            random_state=42,
         )
         cache.set(key_a, {"specs_export": [{"name": "a"}]})
 
     with mock.patch("mlframe.__version__", "1.0.0-B"):
         key_b = make_discovery_cache_key(
-            df_sig, "target", _discovery_config_signature(cfg), random_state=42,
+            df_sig,
+            "target",
+            _discovery_config_signature(cfg),
+            random_state=42,
         )
         # Bumped version must yield a different key (cache MISS).
         assert key_a != key_b

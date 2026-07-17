@@ -6,6 +6,7 @@ in some runs and wrongly dropped in others, purely because one split happened to
 contribution look negative. Averaging the removal delta across ``n_repeats`` independently-shuffled splits
 before deciding should make that "keep the weak signal feature" decision land correctly far more often.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,9 +43,7 @@ def test_biz_val_greedy_backward_elimination_seed_averaging_more_consistent_than
         if "weak" in survivors_single:
             single_run_keeps += 1
 
-        survivors_averaged = greedy_backward_elimination(
-            Ridge(alpha=1.0), X, y, scoring=r2_score, min_features=1, n_repeats=5, seed_base=trial * 100
-        )
+        survivors_averaged = greedy_backward_elimination(Ridge(alpha=1.0), X, y, scoring=r2_score, min_features=1, n_repeats=5, seed_base=trial * 100)
         if "weak" in survivors_averaged:
             seed_averaged_keeps += 1
 
@@ -64,7 +63,5 @@ def test_greedy_backward_elimination_n_repeats_default_is_bit_identical_to_singl
     cv = KFold(n_splits=3, shuffle=True, random_state=0)
 
     survivors_default = greedy_backward_elimination(Ridge(alpha=1.0), X, y, scoring=r2_score, cv=cv, min_features=1)
-    survivors_explicit_n_repeats_1 = greedy_backward_elimination(
-        Ridge(alpha=1.0), X, y, scoring=r2_score, cv=cv, min_features=1, n_repeats=1
-    )
+    survivors_explicit_n_repeats_1 = greedy_backward_elimination(Ridge(alpha=1.0), X, y, scoring=r2_score, cv=cv, min_features=1, n_repeats=1)
     assert survivors_default == survivors_explicit_n_repeats_1

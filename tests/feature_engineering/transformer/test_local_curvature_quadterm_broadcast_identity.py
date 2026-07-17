@@ -22,6 +22,7 @@ values of ``A_quad`` and ``H`` are unchanged -- so the emitted features are
 2. The full feature output of ``compute_local_curvature_features`` is exactly
    equal across several seeds and dimensions.
 """
+
 from __future__ import annotations
 
 import numpy as np

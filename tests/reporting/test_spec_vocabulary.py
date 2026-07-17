@@ -38,19 +38,15 @@ def _render_both(panel):
 class TestSpecVocabularyRenders:
     def test_vlines(self):
         x = np.arange(20)
-        _render_both(LinePanelSpec(x=x, y=x.astype(float),
-                                   vlines=((5.0, "red", "split"), (12.0, "gray", ""))))
+        _render_both(LinePanelSpec(x=x, y=x.astype(float), vlines=((5.0, "red", "split"), (12.0, "gray", ""))))
 
     def test_vspans(self):
         x = np.arange(20)
-        _render_both(LinePanelSpec(x=x, y=x.astype(float),
-                                   vspans=((3.0, 7.0, "orange", 0.2), (10.0, 15.0, "green", 0.15))))
+        _render_both(LinePanelSpec(x=x, y=x.astype(float), vspans=((3.0, 7.0, "orange", 0.2), (10.0, 15.0, "green", 0.15))))
 
     def test_marker_only_series(self):
         x = np.arange(20)
-        _render_both(LinePanelSpec(x=x, y=(x.astype(float), x.astype(float) * 0.5),
-                                   line_styles=("markers", "-"),
-                                   series_labels=("observed", "fit")))
+        _render_both(LinePanelSpec(x=x, y=(x.astype(float), x.astype(float) * 0.5), line_styles=("markers", "-"), series_labels=("observed", "fit")))
 
     def test_lines_plus_markers(self):
         x = np.arange(20)
@@ -59,9 +55,7 @@ class TestSpecVocabularyRenders:
     def test_band(self):
         x = np.arange(20).astype(float)
         center = np.sin(x / 3.0)
-        _render_both(LinePanelSpec(x=x, y=center,
-                                   band=(center - 0.3, center + 0.3),
-                                   band_label="+-std"))
+        _render_both(LinePanelSpec(x=x, y=center, band=(center - 0.3, center + 0.3), band_label="+-std"))
 
     def test_x_is_time(self):
         x = np.arange(20).astype(float)
@@ -73,8 +67,7 @@ class TestSpecVocabularyRenders:
     def test_marker_series_plotly_mode(self):
         """A markers-only series must emit a markers-mode trace on plotly (not lines)."""
         x = np.arange(20)
-        spec = FigureSpec(panels=((LinePanelSpec(x=x, y=x.astype(float), line_styles=("markers",)),),),
-                          figsize=(6, 4))
+        spec = FigureSpec(panels=((LinePanelSpec(x=x, y=x.astype(float), line_styles=("markers",)),),), figsize=(6, 4))
         fig = get_renderer("plotly").render(spec)
         modes = [t.mode for t in fig.data if t.type in ("scatter", "scattergl")]
         assert "markers" in modes
@@ -222,8 +215,8 @@ class TestMatplotlibShowIPython:
         monkeypatch.setitem(sys.modules, "IPython.display", fake_display_mod)
 
         from mlframe.reporting.spec import ScatterPanelSpec
-        spec = FigureSpec(panels=((ScatterPanelSpec(x=np.array([0.0, 1.0]), y=np.array([0.0, 1.0])),),),
-                          figsize=(4, 3))
+
+        spec = FigureSpec(panels=((ScatterPanelSpec(x=np.array([0.0, 1.0]), y=np.array([0.0, 1.0])),),), figsize=(4, 3))
         renderer = get_renderer("matplotlib")
         fig = renderer.render(spec)
         renderer.show(fig)
@@ -233,8 +226,8 @@ class TestMatplotlibShowIPython:
         """Outside a kernel show() must not raise even with no display (headless)."""
         monkeypatch.delitem(sys.modules, "IPython", raising=False)
         from mlframe.reporting.spec import ScatterPanelSpec
-        spec = FigureSpec(panels=((ScatterPanelSpec(x=np.array([0.0, 1.0]), y=np.array([0.0, 1.0])),),),
-                          figsize=(4, 3))
+
+        spec = FigureSpec(panels=((ScatterPanelSpec(x=np.array([0.0, 1.0]), y=np.array([0.0, 1.0])),),), figsize=(4, 3))
         renderer = get_renderer("matplotlib")
         fig = renderer.render(spec)
         renderer.show(fig)  # must return cleanly

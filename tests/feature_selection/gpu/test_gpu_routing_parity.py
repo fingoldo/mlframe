@@ -8,6 +8,7 @@ margin (top-2 |corr| gap >= GAP); a flip on a genuine <GAP tie is reported, not 
 exact case the opt-in default (MLFRAME_FE_GPU_ROUTING off) guards. A clean run here is the selection-
 equivalence evidence required before flipping the default to opt-out.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -73,7 +74,7 @@ def test_gpu_routing_matches_host(seed):
     X = [np.ascontiguousarray(cols[c], dtype=np.float64) for c in names]
     # A continuous target with mixed polynomial structure so routing has real signal.
     base = cols["gaussian"]
-    y = (base ** 2) - 0.5 * cols["uniform"] + 0.3 * np.log1p(np.abs(cols["gamma"])) + rng.normal(0, 0.1, n)
+    y = (base**2) - 0.5 * cols["uniform"] + 0.3 * np.log1p(np.abs(cols["gamma"])) + rng.normal(0, 0.1, n)
 
     host_choice = [basis_route_by_signal(x, y, degrees=_DEGREES) for x in X]
 

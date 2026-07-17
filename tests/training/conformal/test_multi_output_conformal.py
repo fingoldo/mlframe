@@ -16,6 +16,7 @@ biz_value:
   that pooled one radius or mis-sliced columns would drop a column below the
   floor.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,8 +41,8 @@ def _make_xy(n, seed=0):
         }
     )
     y0 = 2.0 * X["f0"].to_numpy() + rng.normal(0, 0.3, n)
-    y1 = -1.0 * X["f1"].to_numpy() + rng.normal(0, 1.5, n)   # wider noise
-    y2 = 0.5 * X["f2"].to_numpy() + rng.normal(0, 5.0, n)    # widest noise
+    y1 = -1.0 * X["f1"].to_numpy() + rng.normal(0, 1.5, n)  # wider noise
+    y2 = 0.5 * X["f2"].to_numpy() + rng.normal(0, 5.0, n)  # widest noise
     y = np.column_stack([y0, y1, y2])
     return X, y
 
@@ -167,12 +168,8 @@ def test_biz_val_multioutput_conformal_per_column_coverage():
     covered = (y_test >= lower) & (y_test <= upper)
     per_col = covered.mean(axis=0)
     for k, cov in enumerate(per_col):
-        assert cov >= 0.85, (
-            f"column {k} coverage {cov:.3f} below floor 0.85 (nominal {1-alpha})"
-        )
+        assert cov >= 0.85, f"column {k} coverage {cov:.3f} below floor 0.85 (nominal {1 - alpha})"
     # And each column's band width tracks its own noise scale (the per-column
     # point of independent calibration): widest-noise column has the widest band.
     widths = (upper - lower).mean(axis=0)
-    assert widths[2] > widths[1] > widths[0], (
-        f"band widths {widths} should grow with per-column noise scale"
-    )
+    assert widths[2] > widths[1] > widths[0], f"band widths {widths} should grow with per-column noise scale"

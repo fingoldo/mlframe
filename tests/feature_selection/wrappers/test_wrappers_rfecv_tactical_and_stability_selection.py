@@ -1,6 +1,7 @@
 """PR-4 RFECV tests: tactical fixes (z-scoring, must_exclude, leakage detection,
 feature_groups, bootstrap CI on best N) + Stability Selection + Multi-estimator
 voting."""
+
 from __future__ import annotations
 
 import logging
@@ -20,11 +21,13 @@ from tests.training.synthetic import make_sklearn_classification_df
 
 def _rfecv(**kw):
     from mlframe.feature_selection.wrappers import RFECV as _RFECV
+
     return _RFECV(**kw)
 
 
 def _get_feature_importances(*a, **kw):
     from mlframe.feature_selection.wrappers import get_feature_importances as _gfi
+
     return _gfi(*a, **kw)
 
 
@@ -60,14 +63,9 @@ class TestT1_CoefZScoring:
         # With z-scoring, f_small and f_big should be similarly important
         # (within ~3x). Without z-scoring, f_big would be 100x smaller.
         ratio = max(result["f_small"], result["f_big"]) / max(min(result["f_small"], result["f_big"]), 1e-12)
-        assert ratio < 3.0, (
-            f"Z-scoring should make scale-equivalent features have similar "
-            f"importance; got ratio={ratio:.2f}: {result}"
-        )
+        assert ratio < 3.0, f"Z-scoring should make scale-equivalent features have similar importance; got ratio={ratio:.2f}: {result}"
         # noise should still be the smallest
-        assert result["noise"] < min(result["f_small"], result["f_big"]), (
-            f"noise feature should rank lowest: {result}"
-        )
+        assert result["noise"] < min(result["f_small"], result["f_big"]), f"noise feature should rank lowest: {result}"
 
 
 # ----------------------------------------------------------------------------
@@ -80,7 +78,9 @@ class TestT2_MustExclude:
         y = (X["a"] + X["b"] > 0).astype(int).values
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=400, random_state=0),
-            cv=3, max_refits=4, verbose=0,
+            cv=3,
+            max_refits=4,
+            verbose=0,
             must_exclude=["c", "d"],
         )
         rfecv.fit(X, y)
@@ -91,12 +91,15 @@ class TestT2_MustExclude:
     def test_must_exclude_missing_column_raises_by_default(self):
         """E15 (Wave 4, 2026-05-28): typos in must_exclude are now an error."""
         import pytest as _pt
+
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((100, 4)), columns=list("abcd"))
         y = (X["a"] > 0).astype(int).values
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=2, verbose=0,
+            cv=3,
+            max_refits=2,
+            verbose=0,
             must_exclude=["nonexistent", "a"],
         )
         with _pt.raises(ValueError, match="must_exclude"):
@@ -109,7 +112,9 @@ class TestT2_MustExclude:
         y = (X["a"] > 0).astype(int).values
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=2, verbose=0,
+            cv=3,
+            max_refits=2,
+            verbose=0,
             must_exclude=["nonexistent", "a"],
             must_exclude_strict=False,
         )
@@ -132,15 +137,14 @@ class TestT3_LeakageDetection:
         with caplog.at_level(logging.WARNING):
             rfecv = _rfecv(
                 estimator=LogisticRegression(max_iter=200, random_state=0),
-                cv=3, max_refits=2, verbose=0,
+                cv=3,
+                max_refits=2,
+                verbose=0,
                 leakage_corr_threshold=0.95,
             )
             rfecv.fit(X, y)
         leak_warnings = [r for r in caplog.records if "leakage" in r.getMessage().lower() or "Pearson" in r.getMessage()]
-        assert leak_warnings, (
-            f"Expected a leakage WARNING; got records: "
-            f"{[r.getMessage()[:120] for r in caplog.records]}"
-        )
+        assert leak_warnings, f"Expected a leakage WARNING; got records: {[r.getMessage()[:120] for r in caplog.records]}"
 
     def test_no_warning_when_threshold_none(self, caplog):
         rng = np.random.default_rng(0)
@@ -150,7 +154,9 @@ class TestT3_LeakageDetection:
         with caplog.at_level(logging.WARNING):
             rfecv = _rfecv(
                 estimator=LogisticRegression(max_iter=200, random_state=0),
-                cv=3, max_refits=2, verbose=0,
+                cv=3,
+                max_refits=2,
+                verbose=0,
                 leakage_corr_threshold=None,
             )
             rfecv.fit(X, y)
@@ -177,17 +183,16 @@ class TestT4_FeatureGroups:
         y = (driver > 0).astype(int)
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=400, random_state=0),
-            cv=3, max_refits=4, verbose=0,
+            cv=3,
+            max_refits=4,
+            verbose=0,
             feature_groups={"dup_group": [f"dup{i}" for i in range(5)]},
         )
         rfecv.fit(X, y)
         names = set(rfecv.get_feature_names_out())
         dup_in_names = sum(1 for f in [f"dup{i}" for i in range(5)] if f in names)
         # All-or-nothing: must be 0 OR 5
-        assert dup_in_names in (0, 5), (
-            f"feature_groups violated all-or-nothing on dup_group: "
-            f"{dup_in_names}/5 selected"
-        )
+        assert dup_in_names in (0, 5), f"feature_groups violated all-or-nothing on dup_group: {dup_in_names}/5 selected"
 
     def test_group_members_exempt_from_near_dup_dedup(self):
         """Columns declared in feature_groups must survive the fit-entry exact/near-dup dedup so the all-or-nothing
@@ -206,7 +211,9 @@ class TestT4_FeatureGroups:
         y = (driver > 0).astype(int)
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=400, random_state=0),
-            cv=3, max_refits=4, verbose=0,
+            cv=3,
+            max_refits=4,
+            verbose=0,
             feature_groups={"dup_group": [f"dup{i}" for i in range(5)]},
         )
         rfecv.fit(X, y)
@@ -225,7 +232,10 @@ class TestT5_BootstrapCI:
         y = (X["a"] + X["b"] > 0).astype(int).values
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=4, verbose=0, random_state=0,
+            cv=3,
+            max_refits=4,
+            verbose=0,
+            random_state=0,
         )
         rfecv.fit(X, y)
         low, n, high = rfecv.n_features_bootstrap_ci_(n_bootstrap=100, ci=0.9, random_state=0)
@@ -239,34 +249,43 @@ class TestT5_BootstrapCI:
 class TestT6_StabilitySelection:
     def test_stability_selection_recovers_informative_features(self):
         Xdf, y, _ = make_sklearn_classification_df(
-            n_samples=400, n_features=30, n_informative=5,
-            n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
+            n_samples=400,
+            n_features=30,
+            n_informative=5,
+            n_redundant=0,
+            n_clusters_per_class=2,
+            shuffle=False,
+            class_sep=2.0,
+            seed=0,
         )
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=400, random_state=0),
             stability_selection=True,
             stability_n_bootstrap=30,
             stability_threshold=0.5,
-            verbose=0, random_state=0,
+            verbose=0,
+            random_state=0,
         )
         rfecv.fit(Xdf, y)
         names = set(rfecv.get_feature_names_out())
         informative = {f"f{i}" for i in range(5)}
         recall = len(names & informative) / 5
-        assert recall >= 0.6, (
-            f"Stability selection should recover most informative features; "
-            f"got recall={recall:.2f} ({names & informative})"
-        )
+        assert recall >= 0.6, f"Stability selection should recover most informative features; got recall={recall:.2f} ({names & informative})"
 
     def test_stability_selection_freq_attribute_populated(self):
         Xdf, y, _ = make_sklearn_classification_df(
-            n_samples=200, n_features=10, n_informative=3, n_clusters_per_class=2, seed=0,
+            n_samples=200,
+            n_features=10,
+            n_informative=3,
+            n_clusters_per_class=2,
+            seed=0,
         )
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             stability_selection=True,
             stability_n_bootstrap=20,
-            verbose=0, random_state=0,
+            verbose=0,
+            random_state=0,
         )
         rfecv.fit(Xdf, y)
         assert hasattr(rfecv, "stability_selection_freq_")
@@ -277,21 +296,25 @@ class TestT6_StabilitySelection:
     def test_stability_threshold_controls_strictness(self):
         """Higher threshold -> fewer selected (or equal)."""
         Xdf, y, _ = make_sklearn_classification_df(
-            n_samples=200, n_features=15, n_informative=4, n_clusters_per_class=2, seed=0,
+            n_samples=200,
+            n_features=15,
+            n_informative=4,
+            n_clusters_per_class=2,
+            seed=0,
         )
         common = dict(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             stability_selection=True,
             stability_n_bootstrap=20,
-            verbose=0, random_state=0,
+            verbose=0,
+            random_state=0,
         )
         r_low = _rfecv(stability_threshold=0.3, **common)
         r_low.fit(Xdf, y)
         r_high = _rfecv(stability_threshold=0.9, **common)
         r_high.fit(Xdf, y)
         assert r_high.n_features_ <= r_low.n_features_, (
-            f"Higher threshold (0.9) should select <= than lower (0.3); "
-            f"got high={r_high.n_features_}, low={r_low.n_features_}"
+            f"Higher threshold (0.9) should select <= than lower (0.3); got high={r_high.n_features_}, low={r_low.n_features_}"
         )
 
 
@@ -302,13 +325,21 @@ class TestT7_MultiEstimator:
     def test_estimators_list_increases_fi_runs(self):
         """With M estimators we get M FI runs per fold (vs 1 with singular)."""
         Xdf, y, _ = make_sklearn_classification_df(
-            n_samples=200, n_features=10, n_informative=4,
-            n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
+            n_samples=200,
+            n_features=10,
+            n_informative=4,
+            n_clusters_per_class=2,
+            shuffle=False,
+            class_sep=2.0,
+            seed=0,
         )
         # Singular path: should get cv * n_iter runs in feature_importances_
         r_one = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=2, verbose=0, random_state=0,
+            cv=3,
+            max_refits=2,
+            verbose=0,
+            random_state=0,
         )
         r_one.fit(Xdf, y)
         n_runs_one = len(r_one.feature_importances_)
@@ -319,30 +350,39 @@ class TestT7_MultiEstimator:
                 LogisticRegression(max_iter=200, random_state=0),
                 RandomForestClassifier(n_estimators=10, random_state=0, n_jobs=1),
             ],
-            cv=3, max_refits=2, verbose=0, random_state=0,
+            cv=3,
+            max_refits=2,
+            verbose=0,
+            random_state=0,
         )
         r_two.fit(Xdf, y)
         n_runs_two = len(r_two.feature_importances_)
 
-        assert n_runs_two >= 2 * n_runs_one - 5, (
-            f"Multi-estimator should produce ~2x FI runs; "
-            f"singular={n_runs_one}, two_estimators={n_runs_two}"
-        )
+        assert n_runs_two >= 2 * n_runs_one - 5, f"Multi-estimator should produce ~2x FI runs; singular={n_runs_one}, two_estimators={n_runs_two}"
 
     def test_multi_estimator_recovers_informative_on_synthetic(self):
         # Larger n + more refits so MBH has room to converge; multi-estimator
         # paths intrinsically have more variance per probe (mean across
         # heterogeneous models) so we need a slightly easier setup.
         Xdf, y, _ = make_sklearn_classification_df(
-            n_samples=800, n_features=15, n_informative=5,
-            n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=2.5, seed=0,
+            n_samples=800,
+            n_features=15,
+            n_informative=5,
+            n_redundant=0,
+            n_clusters_per_class=2,
+            shuffle=False,
+            class_sep=2.5,
+            seed=0,
         )
         rfecv = _rfecv(
             estimators=[
                 LogisticRegression(max_iter=400, random_state=0),
                 RandomForestClassifier(n_estimators=30, random_state=0, n_jobs=1),
             ],
-            cv=3, max_refits=8, verbose=0, random_state=0,
+            cv=3,
+            max_refits=8,
+            verbose=0,
+            random_state=0,
         )
         rfecv.fit(Xdf, y)
         names = set(rfecv.get_feature_names_out())
@@ -358,7 +398,10 @@ class TestT7_MultiEstimator:
                 LogisticRegression(max_iter=200, random_state=0),
                 RandomForestClassifier(n_estimators=5, random_state=0, n_jobs=1),
             ],
-            cv=2, max_refits=2, verbose=0, random_state=0,
+            cv=2,
+            max_refits=2,
+            verbose=0,
+            random_state=0,
         )
         rfecv.fit(Xdf, y)
         # 2 estimators x 2 folds x ~1 outer iter = ~4 FI runs minimum
@@ -371,8 +414,14 @@ class TestT7_MultiEstimator:
 class TestT8_StabilityPlusMultiEstimator:
     def test_combined_path(self):
         Xdf, y, _ = make_sklearn_classification_df(
-            n_samples=500, n_features=25, n_informative=6,
-            n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
+            n_samples=500,
+            n_features=25,
+            n_informative=6,
+            n_redundant=0,
+            n_clusters_per_class=2,
+            shuffle=False,
+            class_sep=2.0,
+            seed=0,
         )
         rfecv = _rfecv(
             estimator=None,
@@ -383,12 +432,11 @@ class TestT8_StabilityPlusMultiEstimator:
             stability_selection=True,
             stability_n_bootstrap=25,
             stability_threshold=0.5,
-            verbose=0, random_state=0,
+            verbose=0,
+            random_state=0,
         )
         rfecv.fit(Xdf, y)
         names = set(rfecv.get_feature_names_out())
         informative = {f"f{i}" for i in range(6)}
         recall = len(names & informative) / 6
-        assert recall >= 0.5, (
-            f"stability+multi recall too low: {recall} ({names & informative})"
-        )
+        assert recall >= 0.5, f"stability+multi recall too low: {recall} ({names & informative})"

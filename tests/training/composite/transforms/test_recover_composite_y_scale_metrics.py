@@ -14,6 +14,7 @@ These tests pin the contract that:
    the wrap step).
 4. Biz value: the lazy-recovered metrics match the eager metrics exactly.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -86,8 +87,13 @@ def _build_problem():
     pre_wrap_inner = _LinearInner().fit(df[["base", "x1"]].values, T)
 
     return {
-        "df": df, "y": y, "base": base, "T": T, "spec": spec,
-        "params": params, "wrapper": wrapper,
+        "df": df,
+        "y": y,
+        "base": base,
+        "T": T,
+        "spec": spec,
+        "params": params,
+        "wrapper": wrapper,
         "pre_wrap_inner": pre_wrap_inner,
         "Entry": _Entry,
     }
@@ -135,7 +141,8 @@ def _skipped_then_recovered_run(problem):
     Entry = problem["Entry"]
     # Fresh inner so both runs start from identical state.
     fresh_inner = _LinearInner().fit(
-        problem["df"][["base", "x1"]].values, problem["T"],
+        problem["df"][["base", "x1"]].values,
+        problem["T"],
     )
     models = {
         "regression": {
@@ -165,9 +172,7 @@ def _skipped_then_recovered_run(problem):
         test_df_pd=None,
         skip_predict=True,
     )
-    skipped_metadata_snapshot = {
-        k: v for k, v in metadata.items() if "y_scale_metrics" in k
-    }
+    skipped_metadata_snapshot = {k: v for k, v in metadata.items() if "y_scale_metrics" in k}
 
     # Phase 2: lazy recovery on the already-wrapped models.
     recover_composite_y_scale_metrics(
@@ -203,15 +208,13 @@ class TestRecoveryNoDoubleWrap:
         entry = models["regression"]["y-linres-base"][0]
         inner_before = getattr(entry, "model", entry)
         assert isinstance(inner_before, CompositeTargetEstimator), (
-            "after skip_predict=True wrap, inner must already be a "
-            "CompositeTargetEstimator (wrap step succeeded)"
+            "after skip_predict=True wrap, inner must already be a CompositeTargetEstimator (wrap step succeeded)"
         )
         # The inner of THAT wrapper must be the original raw model (not a
         # nested CompositeTargetEstimator).
         nested = getattr(inner_before, "estimator_", None)
         assert not isinstance(nested, CompositeTargetEstimator), (
-            "wrapper.estimator_ is already a CompositeTargetEstimator - "
-            "wrap was double-applied even on the first pass"
+            "wrapper.estimator_ is already a CompositeTargetEstimator - wrap was double-applied even on the first pass"
         )
 
         # Now call the recovery helper. It must NOT double-wrap.
@@ -231,9 +234,7 @@ class TestRecoveryNoDoubleWrap:
         )
 
         inner_after = getattr(entry, "model", entry)
-        assert isinstance(inner_after, CompositeTargetEstimator), (
-            "after recovery, inner is still a CompositeTargetEstimator"
-        )
+        assert isinstance(inner_after, CompositeTargetEstimator), "after recovery, inner is still a CompositeTargetEstimator"
         nested_after = getattr(inner_after, "estimator_", None)
         assert not isinstance(nested_after, CompositeTargetEstimator), (
             "recovery double-wrapped! wrapper.estimator_ became a "
@@ -244,9 +245,7 @@ class TestRecoveryNoDoubleWrap:
 
         # Pre-fix detection: the IDENTITY of the wrapper instance must not
         # change across the recovery call (idempotent at the object level).
-        assert inner_before is inner_after, (
-            "recovery replaced the wrapper instance (id-level non-idempotency)"
-        )
+        assert inner_before is inner_after, "recovery replaced the wrapper instance (id-level non-idempotency)"
 
 
 class TestSkipPredictLeavesMetricsEmpty:
@@ -259,9 +258,7 @@ class TestSkipPredictLeavesMetricsEmpty:
         # After the skip_predict=True call but BEFORE recovery, metadata
         # should not carry y-scale metrics for the composite.
         assert "composite_target_y_scale_metrics" not in snapshot, (
-            "skip_predict=True should NOT populate "
-            "composite_target_y_scale_metrics; got snapshot="
-            f"{snapshot}"
+            f"skip_predict=True should NOT populate composite_target_y_scale_metrics; got snapshot={snapshot}"
         )
 
 
@@ -275,13 +272,9 @@ class TestRecoverComposeYScaleMetrics:
         m = metadata.get("composite_target_y_scale_metrics", {})
         assert "regression" in m, f"recovery missing 'regression' key; got: {list(m.keys())}"
         per_target = m["regression"]
-        assert "y-linres-base" in per_target, (
-            f"recovery missing composite entry; got: {list(per_target.keys())}"
-        )
+        assert "y-linres-base" in per_target, f"recovery missing composite entry; got: {list(per_target.keys())}"
         entries = per_target["y-linres-base"]
-        assert isinstance(entries, list) and len(entries) >= 1, (
-            f"composite entry must be a non-empty list; got: {entries!r}"
-        )
+        assert isinstance(entries, list) and len(entries) >= 1, f"composite entry must be a non-empty list; got: {entries!r}"
 
     def test_recovery_is_idempotent(self) -> None:
         """Calling the helper twice on the same wrapped models produces the same numbers."""
@@ -316,11 +309,7 @@ class TestRecoverComposeYScaleMetrics:
                             first_metrics[split][metric],
                             second_metrics[split][metric],
                             equal_nan=True,
-                        ), (
-                            f"second recovery diverged on {split}/{metric}: "
-                            f"first={first_metrics[split][metric]}, "
-                            f"second={second_metrics[split][metric]}"
-                        )
+                        ), f"second recovery diverged on {split}/{metric}: first={first_metrics[split][metric]}, second={second_metrics[split][metric]}"
 
 
 class TestRecoveryBizValueMatchesEager:
@@ -348,7 +337,4 @@ class TestRecoveryBizValueMatchesEager:
                     continue
                 ev = eager_metrics[split][metric]
                 lv = lazy_metrics[split][metric]
-                assert np.isclose(ev, lv, atol=1e-10, equal_nan=True), (
-                    f"eager vs lazy diverged on {split}/{metric}: "
-                    f"eager={ev}, lazy={lv}"
-                )
+                assert np.isclose(ev, lv, atol=1e-10, equal_nan=True), f"eager vs lazy diverged on {split}/{metric}: eager={ev}, lazy={lv}"

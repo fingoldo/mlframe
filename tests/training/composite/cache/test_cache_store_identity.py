@@ -23,6 +23,7 @@ from mlframe.training.composite.cache_store import (
 
 try:
     from mlframe.training.composite._old_cache_store_cpx28_baseline import DiscoveryCache as OLD
+
     _HAVE_OLD = True
 except Exception:  # pragma: no cover - baseline snapshot absent
     _HAVE_OLD = False

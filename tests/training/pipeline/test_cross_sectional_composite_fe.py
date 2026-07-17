@@ -5,6 +5,7 @@ test at the function level. This file covers the suite-wiring layer: no-op gate,
 predict-time replay -- plus one biz_value test proving the WIRED module recovers a cross-sectional
 outlier signal a raw-feature baseline can't.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,7 +36,9 @@ def test_apply_cross_sectional_composite_fe_noop_when_snapshot_col_unset():
 def test_apply_cross_sectional_composite_fe_schema_aligned_across_splits():
     df = _snapshot_frame()
     cfg = PreprocessingExtensionsConfig(
-        cross_sectional_neighbors_snapshot_col="time_id", cross_sectional_neighbors_feature_cols=["f0", "f1"], cross_sectional_neighbors_k=5,
+        cross_sectional_neighbors_snapshot_col="time_id",
+        cross_sectional_neighbors_feature_cols=["f0", "f1"],
+        cross_sectional_neighbors_k=5,
     )
     metadata: dict = {}
     train, val, test = apply_cross_sectional_composite_fe(df.iloc[:300], df.iloc[300:350], df.iloc[350:], cfg, metadata, verbose=0)
@@ -49,7 +52,9 @@ def test_apply_cross_sectional_composite_fe_polars_roundtrip():
     n = 200
     rng = np.random.default_rng(2)
     df = pl.DataFrame({"time_id": rng.integers(0, 20, n), "f0": rng.normal(size=n).astype(np.float32)})
-    cfg = PreprocessingExtensionsConfig(cross_sectional_neighbors_snapshot_col="time_id", cross_sectional_neighbors_feature_cols=["f0"], cross_sectional_neighbors_k=3)
+    cfg = PreprocessingExtensionsConfig(
+        cross_sectional_neighbors_snapshot_col="time_id", cross_sectional_neighbors_feature_cols=["f0"], cross_sectional_neighbors_k=3
+    )
     train, _, _ = apply_cross_sectional_composite_fe(df, None, None, cfg, {}, verbose=0)
     assert isinstance(train, pl.DataFrame)
     assert "xsnn_distance_ratio" in train.columns
@@ -58,7 +63,9 @@ def test_apply_cross_sectional_composite_fe_polars_roundtrip():
 def test_replay_cross_sectional_composite_fe_matches_fit_time_columns():
     df = _snapshot_frame()
     cfg = PreprocessingExtensionsConfig(
-        cross_sectional_neighbors_snapshot_col="time_id", cross_sectional_neighbors_feature_cols=["f0", "f1"], cross_sectional_neighbors_k=5,
+        cross_sectional_neighbors_snapshot_col="time_id",
+        cross_sectional_neighbors_feature_cols=["f0", "f1"],
+        cross_sectional_neighbors_k=5,
     )
     metadata: dict = {}
     train, _, _ = apply_cross_sectional_composite_fe(df, None, None, cfg, metadata, verbose=0)
@@ -98,7 +105,9 @@ def test_biz_val_cross_sectional_composite_wiring_isolation_signal():
 
     df = pd.DataFrame({"time_id": snapshot_ids, "f0": f[:, 0], "f1": f[:, 1]})
     cfg = PreprocessingExtensionsConfig(
-        cross_sectional_neighbors_snapshot_col="time_id", cross_sectional_neighbors_feature_cols=["f0", "f1"], cross_sectional_neighbors_k=5,
+        cross_sectional_neighbors_snapshot_col="time_id",
+        cross_sectional_neighbors_feature_cols=["f0", "f1"],
+        cross_sectional_neighbors_k=5,
     )
     out_df, _, _ = apply_cross_sectional_composite_fe(df, None, None, cfg, {}, verbose=0)
 

@@ -4,6 +4,7 @@ The trick: under CONFOUNDING (base and a feature share a latent cause), the plai
 base coefficient is biased; the Neyman-orthogonal / FWL estimate recovers the true
 causal coefficient. We assert the orthogonalized base coefficient is MUCH closer to the
 true value (bias >= 3x lower) and that OOS RMSE is no worse than the naive composite."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -51,9 +52,7 @@ def test_biz_val_orthogonal_debiases_base_coef_under_confounding():
     # The naive OLS base coefficient must be substantially biased (sanity: confounding present).
     assert naive_bias > 0.3, f"expected real confounding bias, got naive_bias={naive_bias:.3f}"
     # The orthogonalized estimate must cut the bias by at least 3x (measured ~10x+).
-    assert ortho_bias <= naive_bias / 3.0, (
-        f"orthogonal bias {ortho_bias:.3f} should be <= naive bias {naive_bias:.3f} / 3"
-    )
+    assert ortho_bias <= naive_bias / 3.0, f"orthogonal bias {ortho_bias:.3f} should be <= naive bias {naive_bias:.3f} / 3"
     # And it should be close to the true causal coefficient in absolute terms.
     assert ortho_bias < 0.2, f"orthogonal base_coef_={est.base_coef_:.3f} far from true 1.0"
 
@@ -67,6 +66,4 @@ def test_biz_val_orthogonal_debiases_base_coef_under_confounding():
     naive_rmse = mean_squared_error(yte, naive_pred) ** 0.5
 
     ortho_rmse = mean_squared_error(yte, est.predict(Xte)) ** 0.5
-    assert ortho_rmse <= naive_rmse * 1.05, (
-        f"orthogonal OOS RMSE {ortho_rmse:.4f} must be no worse than naive {naive_rmse:.4f} (+5%)"
-    )
+    assert ortho_rmse <= naive_rmse * 1.05, f"orthogonal OOS RMSE {ortho_rmse:.4f} must be no worse than naive {naive_rmse:.4f} (+5%)"

@@ -8,6 +8,7 @@ The helper is a pure function on a 1-D target array; it returns per-backend loss
 
 Wiring into ``_phase_train_one_target`` is left to a follow-up; the helper output shape is the public contract.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,8 +30,10 @@ def _student_t(n: int = 5000, df: float = 3.0, seed: int = 2) -> np.ndarray:
 
 
 def _contaminated(
-    n: int = 5000, contam_frac: float = 0.05,
-    contam_sigma: float = 5.0, seed: int = 3,
+    n: int = 5000,
+    contam_frac: float = 0.05,
+    contam_sigma: float = 5.0,
+    seed: int = 3,
 ) -> np.ndarray:
     """Mildly contaminated Normal. Default ``contam_sigma=5`` lands kurt
     in the moderate-heavy Huber band [1.5, 20]; bump to 30 for the
@@ -70,9 +73,7 @@ class TestRecommendation:
         """Student-t with df=5 has theoretical kurt = 6 (well in
         ``(1.5, 20]`` Huber band)."""
         rec = recommend_boosting_regression_loss(_student_t(df=5.0))
-        assert 1.5 < rec["excess_kurt"] <= 20.0, (
-            f"setup drift: df=5 sample kurt={rec['excess_kurt']:.2f}"
-        )
+        assert 1.5 < rec["excess_kurt"] <= 20.0, f"setup drift: df=5 sample kurt={rec['excess_kurt']:.2f}"
         assert rec["cb"] == "Huber:delta=1.345"
         assert rec["lgb"] == "huber"
 
@@ -81,9 +82,7 @@ class TestRecommendation:
         kurt typically > 20 -> the extreme band recommends RMSE (Huber
         gradient collapses on the heavy tail)."""
         rec = recommend_boosting_regression_loss(_student_t(df=3.0))
-        assert rec["excess_kurt"] > 20.0, (
-            f"setup drift: df=3 sample kurt={rec['excess_kurt']:.2f}"
-        )
+        assert rec["excess_kurt"] > 20.0, f"setup drift: df=3 sample kurt={rec['excess_kurt']:.2f}"
         assert rec["cb"] == "RMSE"
         assert rec["lgb"] == "regression"
         assert rec["xgb"] == "reg:squarederror"
@@ -94,9 +93,7 @@ class TestRecommendation:
         assert rec["cb"].startswith("Huber"), f"got {rec['cb']!r}"
         assert rec["lgb"] == "huber"
         assert rec["xgb"] == "reg:pseudohubererror"
-        assert 1.5 < rec["excess_kurt"] <= 20.0, (
-            f"setup drift: kurt={rec['excess_kurt']:.2f} outside Huber band"
-        )
+        assert 1.5 < rec["excess_kurt"] <= 20.0, f"setup drift: kurt={rec['excess_kurt']:.2f} outside Huber band"
 
     def test_extreme_contamination_picks_rmse(self) -> None:
         """5% contamination at sigma=30 -> excess_kurt > 20 -> RMSE.
@@ -107,9 +104,7 @@ class TestRecommendation:
         to RMSE so training proceeds; less robust to outliers but the
         2*r gradient always carries signal."""
         rec = recommend_boosting_regression_loss(_contaminated(contam_sigma=30.0))
-        assert rec["excess_kurt"] > 20.0, (
-            f"setup drift: kurt={rec['excess_kurt']:.2f} not in extreme regime"
-        )
+        assert rec["excess_kurt"] > 20.0, f"setup drift: kurt={rec['excess_kurt']:.2f} not in extreme regime"
         assert rec["cb"] == "RMSE"
         assert rec["lgb"] == "regression"
         assert rec["xgb"] == "reg:squarederror"
@@ -151,9 +146,7 @@ class TestProductionRepro:
         tail_idx = rng.choice(n, size=max(int(n * 0.005), 1), replace=False)
         main[tail_idx] = -rng.uniform(50.0, 200.0, size=tail_idx.size)
         rec = recommend_boosting_regression_loss(main)
-        assert rec["excess_kurt"] > 20.0, (
-            f"prod-shape repro drift: kurt={rec['excess_kurt']:.2f}"
-        )
+        assert rec["excess_kurt"] > 20.0, f"prod-shape repro drift: kurt={rec['excess_kurt']:.2f}"
         assert rec["cb"] == "RMSE"
         assert rec["lgb"] == "regression"
         assert rec["xgb"] == "reg:squarederror"

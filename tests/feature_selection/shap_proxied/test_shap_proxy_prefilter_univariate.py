@@ -236,6 +236,7 @@ def test_f_classif_float64_input_matches_sklearn_float64():
 
 # --- K-way GEMM path (iter60) -----------------------------------------------
 
+
 def test_f_classif_gemm_matches_legacy_kloop_binary():
     """GEMM path must reproduce the legacy K-loop per-class accumulation to float64 round-off."""
     rng = np.random.default_rng(601)
@@ -275,7 +276,7 @@ def test_f_classif_gemm_constant_column_sentinel_parity():
     """Sentinel (-inf) on constant columns must match between GEMM and legacy paths."""
     rng = np.random.default_rng(604)
     X = rng.normal(size=(200, 12)).astype(np.float64)
-    X[:, 4] = 1.7   # constant within-class -> zero SSW -> -inf
+    X[:, 4] = 1.7  # constant within-class -> zero SSW -> -inf
     X[:, 9] = -3.0
     y = rng.integers(0, 3, size=200)
     legacy = f_classif_chunked(X, y, batch_size=4, use_gemm=False)

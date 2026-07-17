@@ -8,6 +8,7 @@ Covers:
   - cv_persist_fold_scores=True populates per-step "fold_rmses_per_candidate" diagnostics.
   - _tiny_cv_rmse_raw_y / _tiny_cv_rmse_y_scale accept cv_selector_* kwargs without crash.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -49,12 +50,24 @@ def test_forward_stepwise_mean_baseline_bit_identical(stable_vs_unstable_candida
     y, candidates = stable_vs_unstable_candidates
     # Two runs with the same seed and explicit default args:
     kept_a, diag_a = forward_stepwise_multi_base(
-        y, candidates, seed_bases=[], max_k=2, min_marginal_rmse_gain=0.0,
-        cv_folds=4, random_state=42, time_aware=False,
+        y,
+        candidates,
+        seed_bases=[],
+        max_k=2,
+        min_marginal_rmse_gain=0.0,
+        cv_folds=4,
+        random_state=42,
+        time_aware=False,
     )
     kept_b, diag_b = forward_stepwise_multi_base(
-        y, candidates, seed_bases=[], max_k=2, min_marginal_rmse_gain=0.0,
-        cv_folds=4, random_state=42, time_aware=False,
+        y,
+        candidates,
+        seed_bases=[],
+        max_k=2,
+        min_marginal_rmse_gain=0.0,
+        cv_folds=4,
+        random_state=42,
+        time_aware=False,
         cv_selector_mode="mean",  # explicit default
     )
     assert kept_a == kept_b
@@ -71,34 +84,59 @@ def test_forward_stepwise_t_lcb_may_pick_different_winner(stable_vs_unstable_can
     """
     y, candidates = stable_vs_unstable_candidates
     _, diag_mean = forward_stepwise_multi_base(
-        y, candidates, seed_bases=[], max_k=1, min_marginal_rmse_gain=0.0,
-        cv_folds=4, random_state=42, time_aware=False,
-        cv_selector_mode="mean", cv_persist_fold_scores=True,
+        y,
+        candidates,
+        seed_bases=[],
+        max_k=1,
+        min_marginal_rmse_gain=0.0,
+        cv_folds=4,
+        random_state=42,
+        time_aware=False,
+        cv_selector_mode="mean",
+        cv_persist_fold_scores=True,
     )
     _, diag_lcb = forward_stepwise_multi_base(
-        y, candidates, seed_bases=[], max_k=1, min_marginal_rmse_gain=0.0,
-        cv_folds=4, random_state=42, time_aware=False,
-        cv_selector_mode="t_lcb", cv_selector_confidence=0.95,
+        y,
+        candidates,
+        seed_bases=[],
+        max_k=1,
+        min_marginal_rmse_gain=0.0,
+        cv_folds=4,
+        random_state=42,
+        time_aware=False,
+        cv_selector_mode="t_lcb",
+        cv_selector_confidence=0.95,
         cv_persist_fold_scores=True,
     )
     # rmse_after under t_lcb (penalty-augmented) MUST be >= rmse_after under mean (raw mean):
     # the t-LCB penalty for direction='min' only pushes the score UP.
     assert diag_lcb[0]["rmse_after"] >= diag_mean[0]["rmse_after"], (
-        f"t_lcb rmse_after must be >= mean rmse_after; "
-        f"got lcb={diag_lcb[0]['rmse_after']}, mean={diag_mean[0]['rmse_after']}"
+        f"t_lcb rmse_after must be >= mean rmse_after; got lcb={diag_lcb[0]['rmse_after']}, mean={diag_mean[0]['rmse_after']}"
     )
 
 
 def test_forward_stepwise_persist_fold_scores_populates_diagnostics(stable_vs_unstable_candidates) -> None:
     y, candidates = stable_vs_unstable_candidates
     _, diag_off = forward_stepwise_multi_base(
-        y, candidates, seed_bases=[], max_k=2, min_marginal_rmse_gain=0.0,
-        cv_folds=4, random_state=42, time_aware=False,
+        y,
+        candidates,
+        seed_bases=[],
+        max_k=2,
+        min_marginal_rmse_gain=0.0,
+        cv_folds=4,
+        random_state=42,
+        time_aware=False,
         cv_persist_fold_scores=False,
     )
     _, diag_on = forward_stepwise_multi_base(
-        y, candidates, seed_bases=[], max_k=2, min_marginal_rmse_gain=0.0,
-        cv_folds=4, random_state=42, time_aware=False,
+        y,
+        candidates,
+        seed_bases=[],
+        max_k=2,
+        min_marginal_rmse_gain=0.0,
+        cv_folds=4,
+        random_state=42,
+        time_aware=False,
         cv_persist_fold_scores=True,
     )
     for step in diag_off:
@@ -116,14 +154,27 @@ def test_forward_stepwise_persist_fold_scores_populates_diagnostics(stable_vs_un
 def test_forward_stepwise_quantile_aggregator_applies(stable_vs_unstable_candidates) -> None:
     y, candidates = stable_vs_unstable_candidates
     _, diag_mean = forward_stepwise_multi_base(
-        y, candidates, seed_bases=[], max_k=1, min_marginal_rmse_gain=0.0,
-        cv_folds=4, random_state=42, time_aware=False,
+        y,
+        candidates,
+        seed_bases=[],
+        max_k=1,
+        min_marginal_rmse_gain=0.0,
+        cv_folds=4,
+        random_state=42,
+        time_aware=False,
         cv_selector_mode="mean",
     )
     _, diag_q = forward_stepwise_multi_base(
-        y, candidates, seed_bases=[], max_k=1, min_marginal_rmse_gain=0.0,
-        cv_folds=4, random_state=42, time_aware=False,
-        cv_selector_mode="quantile", cv_selector_quantile_level=0.9,
+        y,
+        candidates,
+        seed_bases=[],
+        max_k=1,
+        min_marginal_rmse_gain=0.0,
+        cv_folds=4,
+        random_state=42,
+        time_aware=False,
+        cv_selector_mode="quantile",
+        cv_selector_quantile_level=0.9,
     )
     # quantile@0.9 for direction='min' reads the upper tail >= mean
     assert diag_q[0]["rmse_after"] >= diag_mean[0]["rmse_after"]
@@ -143,10 +194,18 @@ def test_tiny_cv_rmse_raw_y_accepts_selector_kwargs() -> None:
     y = x.sum(axis=1) + rng.normal(0, 0.1, n)
     # cv_selector_mode='mean' should match the legacy behavior; just verify it returns a float.
     out = _tiny_cv_rmse_raw_y(
-        y, x,
-        family="lgbm_native", n_estimators=10, num_leaves=4, learning_rate=0.1,
-        cv_folds=3, random_state=0, deterministic=True, n_jobs=1,
-        cv_selector_mode="t_lcb", cv_selector_confidence=0.9,
+        y,
+        x,
+        family="lgbm_native",
+        n_estimators=10,
+        num_leaves=4,
+        learning_rate=0.1,
+        cv_folds=3,
+        random_state=0,
+        deterministic=True,
+        n_jobs=1,
+        cv_selector_mode="t_lcb",
+        cv_selector_confidence=0.9,
     )
     # NaN is allowed (small n / fit failure), but the call must not crash; if it's finite, it's > 0
     assert isinstance(out, float)

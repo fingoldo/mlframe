@@ -6,6 +6,7 @@ exercised without a CUDA device on this box, so they are validated by a CPU-side
 the KEYING / co-validation logic that the fix introduced (the part that is wrong under
 id-recycle / single-slot clobber regardless of whether the buffers live on host or device).
 """
+
 import threading
 
 import numpy as np
@@ -88,7 +89,8 @@ def test_con6_pinned_buffer_is_thread_local():
         grs._PINNED_D2H_TLS.buf = "child-marker"
 
     t = threading.Thread(target=_worker)
-    t.start(); t.join()
+    t.start()
+    t.join()
     # The child thread sees its OWN (absent) buffer, not the main thread's -- proving isolation.
     assert seen["child"] is None
     assert grs._PINNED_D2H_TLS.buf == "main-thread-marker"

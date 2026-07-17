@@ -6,6 +6,7 @@ dominate. Heavy full-train profilers time out ~580s; this stays under a
 minute by using n=3000, several real-signal features, and a handful of
 bootstrap runs.
 """
+
 from __future__ import annotations
 
 import cProfile
@@ -23,11 +24,16 @@ def build_df(n: int = 3000, seed: int = 7) -> pd.DataFrame:
     x_b = rng.normal(50.0, 10.0, n)
     x_c = rng.normal(0.0, 1.0, n)
     x_d = rng.uniform(-3.0, 3.0, n)
-    y = 1.5 * x_a + 2.5 * x_b - 0.8 * (x_c ** 2) + np.sin(x_d) + rng.normal(0.0, 1.5, n)
+    y = 1.5 * x_a + 2.5 * x_b - 0.8 * (x_c**2) + np.sin(x_d) + rng.normal(0.0, 1.5, n)
     cols = {
-        "x_a": x_a, "x_b": x_b, "x_c": x_c, "x_d": x_d,
-        "n0": rng.standard_normal(n), "n1": rng.standard_normal(n),
-        "n2": rng.standard_normal(n), "n3": rng.standard_normal(n),
+        "x_a": x_a,
+        "x_b": x_b,
+        "x_c": x_c,
+        "x_d": x_d,
+        "n0": rng.standard_normal(n),
+        "n1": rng.standard_normal(n),
+        "n2": rng.standard_normal(n),
+        "n3": rng.standard_normal(n),
         "y": y,
     }
     return pd.DataFrame(cols)
@@ -42,9 +48,13 @@ def run_once(df: pd.DataFrame):
     cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=2000)
     disc = CompositeTargetDiscovery(config=cfg)
     disc.fit_with_stability_check(
-        df=df, target_col="y", feature_cols=feature_cols,
-        train_idx=np.arange(int(0.8 * n)), val_idx=np.arange(int(0.8 * n), n),
-        n_bootstrap_runs=5, min_keep_fraction=0.5,
+        df=df,
+        target_col="y",
+        feature_cols=feature_cols,
+        train_idx=np.arange(int(0.8 * n)),
+        val_idx=np.arange(int(0.8 * n), n),
+        n_bootstrap_runs=5,
+        min_keep_fraction=0.5,
     )
     return disc
 

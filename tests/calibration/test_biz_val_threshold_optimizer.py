@@ -5,6 +5,7 @@ rare positive class (a well-calibrated model's probabilities for true positives 
 0.5 when positives are rare), giving poor F1. Sweeping the threshold on a validation fold and picking the
 F1-maximizing cutoff should measurably improve F1 over the naive default.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -93,8 +94,7 @@ def test_biz_val_optimize_decision_threshold_per_segment_beats_global_on_heterog
     segment_f1 = f1_score(y_test, segment_pred)
 
     assert segment_f1 > global_f1 + 0.15, (
-        f"per-segment thresholding should measurably beat one global threshold on heterogeneous cohorts: "
-        f"segment_f1={segment_f1:.4f} global_f1={global_f1:.4f}"
+        f"per-segment thresholding should measurably beat one global threshold on heterogeneous cohorts: segment_f1={segment_f1:.4f} global_f1={global_f1:.4f}"
     )
     # the two cohorts genuinely disagree on the optimal cutoff
     assert segment_result["group_thresholds"]["A"] > segment_result["group_thresholds"]["B"] + 0.1

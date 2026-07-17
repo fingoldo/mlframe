@@ -8,6 +8,7 @@ These assert the measurable WIN of the feature:
   3. The meta-learning signal: early-iteration val metrics CORRELATE with the final holdout metric across configs --
      the quantitative early-observation signal that the whole feature exists to provide.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,8 +40,7 @@ def test_biz_val_lgb_iteration_metrics_populated_and_bit_identical(binary_split)
     stride = 4
     n_est = 40
     m = _lgb(n_est)
-    m.fit(d["Xtr"], d["ytr"], eval_set=[(d["Xva"], d["yva"])],
-          capture_iteration_metrics=True, iteration_metrics_stride=stride)
+    m.fit(d["Xtr"], d["ytr"], eval_set=[(d["Xva"], d["yva"])], capture_iteration_metrics=True, iteration_metrics_stride=stride)
 
     im = m.iteration_metrics_
     assert im, "iteration_metrics_ must be populated when capture flag is ON"
@@ -55,9 +55,7 @@ def test_biz_val_lgb_iteration_metrics_populated_and_bit_identical(binary_split)
 
     # Bit-identity at a captured round: recompute the full suite directly on that round's val predictions.
     r = rounds[1]
-    direct = compute_all_metrics(
-        d["yva"], m._Booster.predict(d["Xva"], num_iteration=r + 1), "binary_classification"
-    )
+    direct = compute_all_metrics(d["yva"], m._Booster.predict(d["Xva"], num_iteration=r + 1), "binary_classification")
     for k in direct:
         a, b = im[r][k], direct[k]
         assert (a == b) or (np.isnan(a) and np.isnan(b)), f"metric {k} diverged: {a} != {b}"
@@ -82,8 +80,7 @@ def test_biz_val_early_iteration_predicts_final_holdout(binary_split):
     # Sweep learning_rate, which strongly orders configs by how fast/well they fit at a fixed round budget.
     for lr in (0.005, 0.01, 0.02, 0.05, 0.1, 0.2):
         m = _lgb(n_est, num_leaves=15, learning_rate=lr)
-        m.fit(d["Xtr"], d["ytr"], eval_set=[(d["Xva"], d["yva"])],
-              capture_iteration_metrics=True, iteration_metrics_stride=1)
+        m.fit(d["Xtr"], d["ytr"], eval_set=[(d["Xva"], d["yva"])], capture_iteration_metrics=True, iteration_metrics_stride=1)
         im = m.iteration_metrics_
         assert early_round in im
         early_aucs.append(im[early_round]["ROC_AUC"])
@@ -118,20 +115,28 @@ def test_biz_val_mlp_iteration_metrics_populated():
         model_class=MLPTorchModel,
         model_params={"loss_fn": torch.nn.CrossEntropyLoss(), "learning_rate": 1e-2},
         network_params={
-            "nlayers": 1, "first_layer_num_neurons": 16,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 16,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": torch.nn.ReLU,
         },
         datamodule_class=TorchDataModule,
         datamodule_params={
-            "features_dtype": torch.float32, "labels_dtype": torch.int64,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.int64,
             "dataloader_params": {"batch_size": 64, "num_workers": 0},
         },
         trainer_params={
-            "max_epochs": 4, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 4,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         random_state=0,
     )

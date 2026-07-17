@@ -18,6 +18,7 @@ optimisations applied 2026-05-24:
 * ``apply_polars_categorical_fixes`` skips the trailing ``null_count()``
   diagnostic when ``verbose=False`` (finding #20).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -43,9 +44,7 @@ def test_rolling_median_matches_pandas_baseline_on_finite_windows():
         pd_mid = pd_ref[mid]
         ours_mid = ours[mid]
         finite_mask = np.isfinite(pd_mid)
-        assert np.allclose(ours_mid[finite_mask], pd_mid[finite_mask], equal_nan=True), (
-            f"_rolling_median (k={k}) diverged from pandas baseline on finite cells"
-        )
+        assert np.allclose(ours_mid[finite_mask], pd_mid[finite_mask], equal_nan=True), f"_rolling_median (k={k}) diverged from pandas baseline on finite cells"
 
 
 def test_vectorised_oof_rmse_matches_per_column_loop():

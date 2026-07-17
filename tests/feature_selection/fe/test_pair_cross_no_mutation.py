@@ -4,6 +4,7 @@ Found by the hidden-flaw audit (2026-06-22): the NaN mean-fill used
 ``np.asarray(X[col].to_numpy(), float64)`` (an alias of the DataFrame's float64 block) + ``np.copyto``,
 which overwrote the caller's NaNs in place -- corrupting any downstream missingness-FE. Fixed by copying.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,7 +20,7 @@ def test_pair_cross_does_not_mutate_caller_nans():
     n = 500
     a = rng.normal(0, 1, n)
     b = rng.normal(0, 1, n)
-    a[::37] = np.nan          # genuine missingness the caller may key downstream FE on
+    a[::37] = np.nan  # genuine missingness the caller may key downstream FE on
     b[::53] = np.nan
     X = pd.DataFrame({"a": a.astype(np.float64), "b": b.astype(np.float64)})
     before_a = X["a"].to_numpy(copy=True)

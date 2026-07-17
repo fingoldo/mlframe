@@ -10,6 +10,7 @@ timestamps into strict ordering. That's flaky on slow CI (sub-millisecond clock 
 can collide). We now monkeypatch the cache modules' ``time.time`` to a monotonic counter so
 LRU ordering is exact and the tests are deterministic.
 """
+
 from __future__ import annotations
 
 import pytest

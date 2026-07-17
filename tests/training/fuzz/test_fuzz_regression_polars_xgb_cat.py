@@ -11,6 +11,7 @@ Promoted from ``test_fuzz_suite.py`` n1000 combos:
 * polars-ds one-hot / ordinal rejecting ``pl.Enum`` columns
   ("not string/categorical types") on ``input_type='polars_enum'`` combos.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,17 +43,15 @@ class TestXgbEvalCategoricalAlignment:
 
         enum = pl.Enum(["alpha", "beta"])
         n = 80
-        tr = pl.DataFrame(
-            {"c": pl.Series(["alpha"] * n).cast(enum), "x": np.random.randn(n).astype("float32")}
-        )
+        tr = pl.DataFrame({"c": pl.Series(["alpha"] * n).cast(enum), "x": np.random.randn(n).astype("float32")})
         # val carries 'beta', absent from train rows -- shared enum must keep it safe.
-        va = pl.DataFrame(
-            {"c": pl.Series((["alpha"] * 20 + ["beta"] * 10)).cast(enum), "x": np.random.randn(30).astype("float32")}
-        )
+        va = pl.DataFrame({"c": pl.Series((["alpha"] * 20 + ["beta"] * 10)).cast(enum), "x": np.random.randn(30).astype("float32")})
         ytr = np.random.randint(0, 2, n)
         yva = np.random.randint(0, 2, 30)
         m = XGBClassifierWithDMatrixReuse(
-            n_estimators=5, enable_categorical=True, tree_method="hist",
+            n_estimators=5,
+            enable_categorical=True,
+            tree_method="hist",
         )
         m.fit(tr, ytr, eval_set=[(va, yva)])
         assert m.predict(va).shape[0] == 30
@@ -71,12 +70,13 @@ class TestPolarsdsModeImpute:
         rng = np.random.default_rng(0)
         v = rng.standard_normal(n).astype("float32")
         v[::8] = np.nan
-        df = pl.DataFrame(
-            {"num_0": pl.Series(v), "cat_0": pl.Series([["A", "B", "C"][i % 3] for i in range(n)]).cast(pl.Enum(["A", "B", "C"]))}
-        )
+        df = pl.DataFrame({"num_0": pl.Series(v), "cat_0": pl.Series([["A", "B", "C"][i % 3] for i in range(n)]).cast(pl.Enum(["A", "B", "C"]))})
         cfg = PreprocessingBackendConfig(
-            prefer_polarsds=True, scaler_name=None, imputer_strategy="mode",
-            categorical_encoding=None, skip_categorical_encoding=True,
+            prefer_polarsds=True,
+            scaler_name=None,
+            imputer_strategy="mode",
+            categorical_encoding=None,
+            skip_categorical_encoding=True,
         )
         pipe = create_polarsds_pipeline(df, cfg, verbose=0)
         assert pipe is not None
@@ -102,8 +102,11 @@ class TestPolarsdsEnumEncode:
             }
         )
         cfg = PreprocessingBackendConfig(
-            prefer_polarsds=True, scaler_name=None, imputer_strategy=None,
-            categorical_encoding=encoding, skip_categorical_encoding=False,
+            prefer_polarsds=True,
+            scaler_name=None,
+            imputer_strategy=None,
+            categorical_encoding=encoding,
+            skip_categorical_encoding=False,
         )
         pipe = create_polarsds_pipeline(df, cfg, verbose=0)
         assert pipe is not None
@@ -134,6 +137,7 @@ class TestRankerCategoricalRobustness:
         from mlframe.training.ranking.ranking import _fit_lgb_ranker, predict_ranker_scores
 
         import pandas as pd
+
         Xtr, ytr, gtr, Xva = self._ranker_frames(
             [["A", "B", "C"][i % 3] for i in range(60)],
             [["A", "B"][i % 2] for i in range(40)],
@@ -141,9 +145,17 @@ class TestRankerCategoricalRobustness:
         gids_tr = np.repeat(np.arange(2), [30, 30])
         gids_va = np.repeat(np.arange(2), [20, 20])
         fitted = _fit_lgb_ranker(
-            Xtr, ytr, gids_tr, Xva, ytr[:40], gids_va,
-            obj_kwargs={"objective": "lambdarank"}, model_kwargs={"n_estimators": 5},
-            cat_features=["c"], early_stopping_rounds=None, verbose=False,
+            Xtr,
+            ytr,
+            gids_tr,
+            Xva,
+            ytr[:40],
+            gids_va,
+            obj_kwargs={"objective": "lambdarank"},
+            model_kwargs={"n_estimators": 5},
+            cat_features=["c"],
+            early_stopping_rounds=None,
+            verbose=False,
         )
         # Predict on a RAW object-dtype frame (categories differ) must not raise.
         scores = predict_ranker_scores(fitted, Xva)
@@ -160,9 +172,17 @@ class TestRankerCategoricalRobustness:
         gids_tr = np.repeat(np.arange(2), [30, 30])
         gids_va = np.repeat(np.arange(2), [20, 20])
         fitted = _fit_xgb_ranker(
-            Xtr, ytr, gids_tr, Xva, ytr[:40], gids_va,
-            obj_kwargs={"objective": "rank:ndcg"}, model_kwargs={"n_estimators": 5},
-            cat_features=["c"], early_stopping_rounds=None, verbose=False,
+            Xtr,
+            ytr,
+            gids_tr,
+            Xva,
+            ytr[:40],
+            gids_va,
+            obj_kwargs={"objective": "rank:ndcg"},
+            model_kwargs={"n_estimators": 5},
+            cat_features=["c"],
+            early_stopping_rounds=None,
+            verbose=False,
         )
         scores = predict_ranker_scores(fitted, Xva)
         assert scores.shape[0] == 40
@@ -178,9 +198,17 @@ class TestRankerCategoricalRobustness:
         gids_tr = np.repeat(np.arange(2), [30, 30])
         # Pre-fix: CatBoost Pool raised "must be real number, not NoneType".
         fitted = _fit_cb_ranker(
-            Xtr, ytr, gids_tr, None, None, None,
-            obj_kwargs={"loss_function": "YetiRank"}, model_kwargs={"iterations": 5},
-            cat_features=["c"], early_stopping_rounds=None, verbose=False,
+            Xtr,
+            ytr,
+            gids_tr,
+            None,
+            None,
+            None,
+            obj_kwargs={"loss_function": "YetiRank"},
+            model_kwargs={"iterations": 5},
+            cat_features=["c"],
+            early_stopping_rounds=None,
+            verbose=False,
         )
         scores = predict_ranker_scores(fitted, Xva)
         assert scores.shape[0] == 40

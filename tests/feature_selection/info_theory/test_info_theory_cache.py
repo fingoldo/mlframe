@@ -10,6 +10,7 @@ all four ``(can_use_x_cache, can_use_y_cache)`` truth assignments and pins
 down which keys land in ``entropy_cache`` so the next refactor can't
 quietly change the contract.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,12 +39,15 @@ def _new_entropy_cache() -> dict:
     )
 
 
-@pytest.mark.parametrize("can_use_x_cache,can_use_y_cache", [
-    (False, False),
-    (True, False),
-    (False, True),
-    (True, True),
-])
+@pytest.mark.parametrize(
+    "can_use_x_cache,can_use_y_cache",
+    [
+        (False, False),
+        (True, False),
+        (False, True),
+        (True, True),
+    ],
+)
 def test_conditional_mi_cache_combos(can_use_x_cache, can_use_y_cache):
     factors, nbins = _build_data()
     x = np.array([0], dtype=np.int64)
@@ -91,15 +95,27 @@ def test_conditional_mi_cache_round_trip_idempotent():
     cache = _new_entropy_cache()
 
     first = conditional_mi(
-        factors_data=factors, x=x, y=y, z=z,
-        var_is_nominal=None, factors_nbins=nbins,
-        entropy_cache=cache, can_use_x_cache=True, can_use_y_cache=True,
+        factors_data=factors,
+        x=x,
+        y=y,
+        z=z,
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        entropy_cache=cache,
+        can_use_x_cache=True,
+        can_use_y_cache=True,
     )
     size_after_first = len(cache)
     second = conditional_mi(
-        factors_data=factors, x=x, y=y, z=z,
-        var_is_nominal=None, factors_nbins=nbins,
-        entropy_cache=cache, can_use_x_cache=True, can_use_y_cache=True,
+        factors_data=factors,
+        x=x,
+        y=y,
+        z=z,
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        entropy_cache=cache,
+        can_use_x_cache=True,
+        can_use_y_cache=True,
     )
     assert np.isclose(first, second, rtol=1e-12, atol=0)
     # Second call should not have inserted new keys.

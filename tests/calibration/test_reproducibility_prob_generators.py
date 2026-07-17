@@ -2,6 +2,7 @@
 the caller's stream). The fix routes every draw through a seeded ``check_random_state`` RNG (or, for the njit generator, a seeded njit-local RNG that is independent of
 numpy's global state). Each test pins: same seed -> identical output, and numpy's global RNG state is untouched.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,6 +25,7 @@ def _probs():
 
 def test_con18_logit_space_seeded(_probs):
     from mlframe.calibration.probabilities import generate_similar_probs_logit_space
+
     p, y = _probs
     st = np.random.get_state()
     a = generate_similar_probs_logit_space(p, y, random_state=5)
@@ -36,6 +38,7 @@ def test_con18_logit_space_seeded(_probs):
 
 def test_con18_random_walk_seeded(_probs):
     from mlframe.calibration.probabilities import generate_similar_probs_random_walk
+
     p, y = _probs
     st = np.random.get_state()
     a = generate_similar_probs_random_walk(p, y, n_steps=3, random_state=5)
@@ -48,6 +51,7 @@ def test_con18_random_walk_seeded(_probs):
 
 def test_con18_similar_probs_seeded(_probs):
     from mlframe.calibration.probabilities import generate_similar_probs
+
     p, y = _probs
     st = np.random.get_state()
     a = generate_similar_probs(p, y, random_state=5)
@@ -58,6 +62,7 @@ def test_con18_similar_probs_seeded(_probs):
 
 def test_con18_by_ranking_seeded(_probs):
     from mlframe.calibration.probabilities import generate_similar_probs_by_ranking
+
     p, y = _probs
     st = np.random.get_state()
     a = generate_similar_probs_by_ranking(p, y, random_state=5)
@@ -70,6 +75,7 @@ def test_con18_by_ranking_seeded(_probs):
 
 def test_con18_generate_probs_from_outcomes_seeded():
     from mlframe.calibration.probabilities import generate_probs_from_outcomes
+
     outcomes = (np.arange(500) % 2).astype(np.int64)
     st = np.random.get_state()
     a = generate_probs_from_outcomes(outcomes, random_state=5)

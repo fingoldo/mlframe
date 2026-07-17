@@ -12,6 +12,7 @@ Contract covered:
 5. CI ordering: ci_low <= ci_high for both alpha and beta.
 6. Degenerate n<4: returns the documented NaN-std fallback.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -21,9 +22,18 @@ from mlframe.training.composite.discovery.bayesian import bayesian_alpha_fit_boo
 
 
 _REQUIRED_KEYS = {
-    "alpha_mean", "alpha_std", "alpha_ci_low", "alpha_ci_high",
-    "beta_mean", "beta_std", "beta_ci_low", "beta_ci_high",
-    "alpha_samples", "beta_samples", "n_bootstrap", "ci_level",
+    "alpha_mean",
+    "alpha_std",
+    "alpha_ci_low",
+    "alpha_ci_high",
+    "beta_mean",
+    "beta_std",
+    "beta_ci_low",
+    "beta_ci_high",
+    "alpha_samples",
+    "beta_samples",
+    "n_bootstrap",
+    "ci_level",
 }
 
 
@@ -72,12 +82,8 @@ def test_bootstrap_ci_contains_truth_on_well_specified_dgp():
     alpha_true, beta_true = 2.5, -1.0
     y, base = _synthetic_linear(n=2000, alpha=alpha_true, beta=beta_true, noise_sd=0.3, seed=3)
     out = bayesian_alpha_fit_bootstrap(y, base, n_bootstrap=300, random_state=0)
-    assert out["alpha_ci_low"] <= alpha_true <= out["alpha_ci_high"], (
-        f"alpha truth {alpha_true} outside CI [{out['alpha_ci_low']}, {out['alpha_ci_high']}]"
-    )
-    assert out["beta_ci_low"] <= beta_true <= out["beta_ci_high"], (
-        f"beta truth {beta_true} outside CI [{out['beta_ci_low']}, {out['beta_ci_high']}]"
-    )
+    assert out["alpha_ci_low"] <= alpha_true <= out["alpha_ci_high"], f"alpha truth {alpha_true} outside CI [{out['alpha_ci_low']}, {out['alpha_ci_high']}]"
+    assert out["beta_ci_low"] <= beta_true <= out["beta_ci_high"], f"beta truth {beta_true} outside CI [{out['beta_ci_low']}, {out['beta_ci_high']}]"
     # CI ordering invariant.
     assert out["alpha_ci_low"] <= out["alpha_ci_high"]
     assert out["beta_ci_low"] <= out["beta_ci_high"]
@@ -107,7 +113,11 @@ def test_bootstrap_subsample_n_caps_per_draw_size():
     # subsample_n smaller than n: each bootstrap draw uses subsample_n rows.
     # The result must still be valid (finite, sensible CIs).
     out = bayesian_alpha_fit_bootstrap(
-        y, base, n_bootstrap=80, random_state=0, subsample_n=200,
+        y,
+        base,
+        n_bootstrap=80,
+        random_state=0,
+        subsample_n=200,
     )
     assert np.isfinite(out["alpha_mean"])
     assert np.isfinite(out["beta_mean"])

@@ -9,6 +9,7 @@ Each test pins the CORRECTED contract and fails on the pre-fix code:
 * SA8      _kendall_tau_z uses the tie-corrected variance (matches scipy on tied data).
 * SA9      the continuous-numeric Kendall p-value is computed at full n (no 2000-row subsample).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -190,7 +191,7 @@ class TestStabilityMRMRPFER:
         assert hasattr(sel, "avg_selected_per_bootstrap_")
         q = sel.avg_selected_per_bootstrap_
         pi = sel.support_threshold
-        expected = (q ** 2) / ((2.0 * pi - 1.0) * p)
+        expected = (q**2) / ((2.0 * pi - 1.0) * p)
         assert sel.pfer_bound_ == pytest.approx(expected, rel=1e-9)
 
     def test_pfer_bound_nan_when_fraction_not_half(self):
@@ -232,7 +233,7 @@ class TestRFECVStabilityPFER:
         assert hasattr(sel, "stability_pfer_bound_"), "RFECV stability path must expose the MB PFER bound"
         top_k = max(1, p // 4)
         pi = 0.6
-        expected = (top_k ** 2) / ((2.0 * pi - 1.0) * p)
+        expected = (top_k**2) / ((2.0 * pi - 1.0) * p)
         assert sel.stability_pfer_bound_ == pytest.approx(expected, rel=1e-9)
         assert sel.cv_results_["pfer_bound"][0] == pytest.approx(expected, rel=1e-9)
 

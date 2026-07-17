@@ -10,6 +10,7 @@ _extract_groups, _extract_base_matrix, _is_polars_df) from the facade's partial-
 state -- the facade's bottom re-export triggers the sibling load AFTER those helpers
 are bound.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,8 +18,10 @@ from pathlib import Path
 
 def test_class_still_importable_from_facade() -> None:
     from mlframe.training.composite.estimator import CompositeTargetEstimator
+
     assert CompositeTargetEstimator is not None
     from sklearn.base import BaseEstimator, RegressorMixin
+
     assert issubclass(CompositeTargetEstimator, BaseEstimator)
     assert issubclass(CompositeTargetEstimator, RegressorMixin)
 
@@ -34,6 +37,7 @@ def test_extract_helpers_still_importable() -> None:
         _is_polars_df,
         predict_quantile_ensemble,
     )
+
     for fn in (
         _y_train_clip_bounds,
         _extract_base,
@@ -48,6 +52,7 @@ def test_extract_helpers_still_importable() -> None:
 def test_public_path_reexports_estimator() -> None:
     """``mlframe.training.composite`` re-exports the estimator surface."""
     from mlframe.training.composite import CompositeTargetEstimator, predict_quantile_ensemble
+
     assert CompositeTargetEstimator is not None
     assert callable(predict_quantile_ensemble)
 
@@ -63,6 +68,7 @@ def test_sibling_owns_the_moved_class() -> None:
     """Identity: facade and sibling expose the SAME class object."""
     from mlframe.training.composite import estimator
     from mlframe.training.composite.estimator import _estimator
+
     assert estimator.CompositeTargetEstimator is _estimator.CompositeTargetEstimator
 
 
@@ -71,6 +77,7 @@ def test_sibling_helpers_resolve_to_parent_definitions() -> None:
     the facade's definitions, not a re-defined local copy."""
     from mlframe.training.composite import estimator
     from mlframe.training.composite.estimator import _estimator
+
     for name in ("_y_train_clip_bounds", "_extract_base", "_extract_groups", "_extract_base_matrix", "_is_polars_df"):
         assert getattr(_estimator, name) is getattr(estimator, name), name
 

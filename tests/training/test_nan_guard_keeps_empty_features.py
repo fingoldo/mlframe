@@ -5,6 +5,7 @@ pruned at fit). sklearn SimpleImputer drops all-NaN columns by default (keep_emp
 ``imputer.transform`` returned one fewer column than ``X.columns`` -> ``pd.DataFrame(values_(k-1), columns=k_names)``
 raised "Shape of passed values is (N, k-1), indices imply (N, k)". The guard now uses keep_empty_features=True.
 """
+
 from __future__ import annotations
 
 import numpy as np

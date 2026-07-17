@@ -42,8 +42,11 @@ def test_fhc_seed_uses_first_sorted_model_kind(monkeypatch):
     def _fake_apply(*, train_df, val_df, test_df, train_target, fhc, model_kind, **_kw):
         captured["model_kind"] = model_kind
         return SimpleNamespace(
-            train_df=train_df, val_df=val_df, test_df=test_df,
-            fitted={}, generated_columns=[],
+            train_df=train_df,
+            val_df=val_df,
+            test_df=test_df,
+            fitted={},
+            generated_columns=[],
         )
 
     fhc = FeatureHandlingConfig()
@@ -56,6 +59,7 @@ def test_fhc_seed_uses_first_sorted_model_kind(monkeypatch):
     # ``_maybe_run_feature_handling_apply`` imports ``feature_handling_apply`` lazily from
     # ``mlframe.training.feature_handling``; patch the lookup site so the fake intercepts.
     import mlframe.training.feature_handling as _fh_pkg
+
     monkeypatch.setattr(_fh_pkg, "feature_handling_apply", _fake_apply, raising=False)
     mod._maybe_run_feature_handling_apply(
         ctx=ctx,
@@ -65,9 +69,7 @@ def test_fhc_seed_uses_first_sorted_model_kind(monkeypatch):
         test_df=test_df,
         current_train_target=pd.Series([0, 1, 0, 1]),
     )
-    assert captured.get("model_kind") == "catboost", (
-        f"FHC seed must use sorted_mlframe_models[0]; got {captured}"
-    )
+    assert captured.get("model_kind") == "catboost", f"FHC seed must use sorted_mlframe_models[0]; got {captured}"
 
 
 # ---------------------------------------------------------------------------
@@ -121,9 +123,7 @@ def test_custom_handler_falls_back_when_transformer_fit_rejects_y(caplog):
     with caplog.at_level(logging.WARNING):
         handler.fit(df, y)
     assert transformer.x_seen is not None, "fit(X) fallback must have run after the TypeError"
-    assert any("fit(X) only" in rec.getMessage() for rec in caplog.records), (
-        "fallback path must emit a WARN log line"
-    )
+    assert any("fit(X) only" in rec.getMessage() for rec in caplog.records), "fallback path must emit a WARN log line"
 
 
 # ---------------------------------------------------------------------------
@@ -151,10 +151,6 @@ def test_polynomial_projected_over_5000_emits_memory_warn(caplog):
     with caplog.at_level(logging.WARNING):
         exp.fit(X)
     out = exp.transform(X)
-    assert out.shape[1] == projected, (
-        f"transform output cols must match projected count; got {out.shape[1]} vs {projected}"
-    )
+    assert out.shape[1] == projected, f"transform output cols must match projected count; got {out.shape[1]} vs {projected}"
     warn_msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any("polynomial expansion" in m and "MB" in m for m in warn_msgs), (
-        f"WARN line must include MB cost estimate; saw {warn_msgs}"
-    )
+    assert any("polynomial expansion" in m and "MB" in m for m in warn_msgs), f"WARN line must include MB cost estimate; saw {warn_msgs}"

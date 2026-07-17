@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.multilabel import (
-    _per_label_prf1, compose_multilabel_figure,
+    _per_label_prf1,
+    compose_multilabel_figure,
 )
 
 
@@ -34,7 +35,11 @@ class TestPRF1Parity:
         p, r, f = _per_label_prf1(y_true, y_pred)
         for k in range(K):
             ps, rs, fs, _ = precision_recall_fscore_support(
-                y_true[:, k], y_pred[:, k], average="binary", zero_division=0, labels=[0, 1],
+                y_true[:, k],
+                y_pred[:, k],
+                average="binary",
+                zero_division=0,
+                labels=[0, 1],
             )
             assert p[k] == pytest.approx(ps, abs=1e-12), f"precision col {k}"
             assert r[k] == pytest.approx(rs, abs=1e-12), f"recall col {k}"
@@ -48,11 +53,15 @@ class TestPRF1Parity:
         y_true = np.zeros((n, K), dtype=np.int8)
         y_pred = np.zeros((n, K), dtype=np.int8)
         y_true[:50, 0] = 1
-        y_pred[:40, 0] = 1                       # col 0 has TP; cols 1-3 all-zero
+        y_pred[:40, 0] = 1  # col 0 has TP; cols 1-3 all-zero
         p, r, f = _per_label_prf1(y_true, y_pred)
         for k in range(K):
             ps, rs, fs, _ = precision_recall_fscore_support(
-                y_true[:, k], y_pred[:, k], average="binary", zero_division=0, labels=[0, 1],
+                y_true[:, k],
+                y_pred[:, k],
+                average="binary",
+                zero_division=0,
+                labels=[0, 1],
             )
             assert p[k] == pytest.approx(ps, abs=1e-12)
             assert r[k] == pytest.approx(rs, abs=1e-12)
@@ -93,5 +102,5 @@ class TestCalibGridVectorized:
                 mask = bin_idx == b
                 if mask.any():
                     ref[b] = float(true_k[mask].mean())
-            got = panel.y[k + 1]                 # +1 skips the perfect diagonal
+            got = panel.y[k + 1]  # +1 skips the perfect diagonal
             np.testing.assert_allclose(got, ref, equal_nan=True)

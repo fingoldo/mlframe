@@ -10,6 +10,7 @@ per-column ``discretize_array(method='quantile')`` loop it replaces (already cla
 docstring; pinned here as the actual call-site contract), and (2) the dtype-wrap regression: fails before
 the ``_safe_code_dtype`` pre-widen fix, passes after.
 """
+
 from __future__ import annotations
 
 import numpy as np

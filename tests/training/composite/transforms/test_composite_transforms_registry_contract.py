@@ -15,6 +15,7 @@ multiply boilerplate without adding signal. Per-transform behavioural
 asserts (e.g. ``y_quantile_clip`` clips to bounds, ``ratio`` divides by
 base) already exist in the older ``test_composite_*`` files.
 """
+
 from __future__ import annotations
 
 import orjson
@@ -66,11 +67,11 @@ _TRANSFORM_RTOL: dict[str, float] = {
     "chain_monres_yj": 0.5,
     "chain_linres_cbrt_qn": 0.5,  # composes 3 stages, includes quantile_normal
     # Pack L (2026-05-26).
-    "asinh_residual": 1e-9,           # exact OLS in arcsinh space
-    "centered_ratio": 1e-9,           # exact algebra
-    "polynomial_residual_deg2": 1e-9, # exact OLS solve
-    "rank_residual": 1.0,             # ECDF quantize loss like quantile_normal_y
-    "smoothing_spline_residual": 0.5, # smoothing-spline approximation lossy
+    "asinh_residual": 1e-9,  # exact OLS in arcsinh space
+    "centered_ratio": 1e-9,  # exact algebra
+    "polynomial_residual_deg2": 1e-9,  # exact OLS solve
+    "rank_residual": 1.0,  # ECDF quantize loss like quantile_normal_y
+    "smoothing_spline_residual": 0.5,  # smoothing-spline approximation lossy
     "reciprocal_residual": 1e-6,
     "geometric_mean_residual": 1e-9,  # exact: y / g * g = y
     "pairwise_interaction_residual": 1e-9,
@@ -79,15 +80,15 @@ _TRANSFORM_RTOL: dict[str, float] = {
     "ewma_residual_grouped": 1e-6,
     "rolling_quantile_ratio_grouped": 1e-6,
     "frac_diff_grouped": 1e-6,
-    "quantile_residual_grouped": 1.0,   # binned IQR division, lossy (see quantile_residual)
+    "quantile_residual_grouped": 1.0,  # binned IQR division, lossy (see quantile_residual)
     "monotonic_residual_grouped": 0.5,  # PCHIP interpolation (see monotonic_residual)
     "box_cox_y": 1e-6,
-    "seasonal_residual": 1e-9,          # pure additive per-phase means
+    "seasonal_residual": 1e-9,  # pure additive per-phase means
     "volatility_normalized_residual": 1e-9,  # exact: same floored vol on both legs
-    "asinh_residual_multi": 1e-9,       # exact OLS in arcsinh space
+    "asinh_residual_multi": 1e-9,  # exact OLS in arcsinh space
     "linear_residual_multi_robust": 1e-9,
-    "nadaraya_watson_residual": 1e-9,   # pure additive g(base)
-    "gaussian_copula_residual": 0.5,    # ECDF knot + tail eps-clip loss like quantile_normal_y
+    "nadaraya_watson_residual": 1e-9,  # pure additive g(base)
+    "gaussian_copula_residual": 0.5,  # ECDF knot + tail eps-clip loss like quantile_normal_y
 }
 
 
@@ -133,6 +134,7 @@ def test_transform_fit_returns_json_serializable_dict(name: str):
     domain = _call_domain(t, _Y, _BASE)
     params = _call_fit(t, _Y[domain], _BASE[domain])
     assert isinstance(params, dict)
+
     # Numpy arrays are not directly JSON-serialisable but Transform contract
     # allows ndarray-valued params (bin_edges, knots_y, ...). Round-trip
     # through a thin coercion to numpy -> list so we exercise the same
@@ -174,9 +176,7 @@ def test_transform_forward_inverse_round_trip(name: str):
     # tight-tolerance transforms (diff, ratio, linear_residual) the median
     # is dominated by the row-wise error and matches max-abs to within ULP.
     err = np.median(np.abs(y_back - y_train))
-    assert err <= rtol, (
-        f"transform={name!r} round-trip median err {err:.3e} > rtol {rtol:.3e}"
-    )
+    assert err <= rtol, f"transform={name!r} round-trip median err {err:.3e} > rtol {rtol:.3e}"
 
 
 @pytest.mark.parametrize("name", sorted(TRANSFORMS_REGISTRY))

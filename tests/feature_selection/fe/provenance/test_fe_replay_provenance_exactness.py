@@ -100,7 +100,7 @@ def _build_robust_prewarp_recipe(seed: int = 7, n: int = 3000):
     a = rng.uniform(-2.5, 2.5, n)
     b = rng.uniform(-2.5, 2.5, n)
     a_sp = _spike(rng, a, frac=0.02, scale_iqr=20.0)
-    true = (a ** 3 - 2 * a) * (b ** 2 - b)
+    true = (a**3 - 2 * a) * (b**2 - b)
     y = true + rng.normal(0, 0.1, n)
     spec_a = fit_operand_prewarp(a_sp, y, basis="chebyshev", max_degree=4)
     assert spec_a is not None, "prewarp fit returned None on the contaminated operand"
@@ -180,19 +180,13 @@ def test_unary_binary_recipe_extra_carries_robust_prewarp_provenance():
     ``prewarp_a_winsor_lo/hi`` floats (gaps_fe_masking-07)."""
     recipe, spec_a, _a, _b = _build_robust_prewarp_recipe()
     assert recipe.kind == "unary_binary"
-    assert recipe.extra.get("prewarp_a_robust_fit") is True, (
-        "recipe.extra missing the prewarp_a_robust_fit provenance flag"
-    )
-    assert "prewarp_a_winsor_lo" in recipe.extra and "prewarp_a_winsor_hi" in recipe.extra, (
-        "recipe.extra missing the prewarp_a_winsor_lo/hi provenance bounds"
-    )
+    assert recipe.extra.get("prewarp_a_robust_fit") is True, "recipe.extra missing the prewarp_a_robust_fit provenance flag"
+    assert "prewarp_a_winsor_lo" in recipe.extra and "prewarp_a_winsor_hi" in recipe.extra, "recipe.extra missing the prewarp_a_winsor_lo/hi provenance bounds"
     # The persisted bounds equal the spec's bounds (recorded, not transformed).
     assert float(recipe.extra["prewarp_a_winsor_lo"]) == float(spec_a["winsor_lo"])
     assert float(recipe.extra["prewarp_a_winsor_hi"]) == float(spec_a["winsor_hi"])
     # The unwarped (identity) b-side carries NO prewarp/robust keys.
-    assert not any(k.startswith("prewarp_b") for k in recipe.extra), (
-        "identity b-side should not have persisted any prewarp keys"
-    )
+    assert not any(k.startswith("prewarp_b") for k in recipe.extra), "identity b-side should not have persisted any prewarp keys"
 
 
 def test_robust_prewarp_recipe_survives_pickle_roundtrip():
@@ -205,9 +199,7 @@ def test_robust_prewarp_recipe_survives_pickle_roundtrip():
     assert float(r2.extra["prewarp_a_winsor_lo"]) == float(recipe.extra["prewarp_a_winsor_lo"])
     assert float(r2.extra["prewarp_a_winsor_hi"]) == float(recipe.extra["prewarp_a_winsor_hi"])
     # The coef array (the bytes that actually drive replay) round-trips array-equal.
-    np.testing.assert_array_equal(
-        np.asarray(r2.extra["prewarp_a_coef"]), np.asarray(recipe.extra["prewarp_a_coef"])
-    )
+    np.testing.assert_array_equal(np.asarray(r2.extra["prewarp_a_coef"]), np.asarray(recipe.extra["prewarp_a_coef"]))
 
 
 def test_robust_prewarp_recipe_extra_is_frozen_mappingproxy():
@@ -243,10 +235,7 @@ def test_unary_binary_transform_equals_apply_recipe_exactly():
     names = list(fs.get_feature_names_out())
     recipes = {r.name: r for r in fs._engineered_recipes_}
     ub_names = [nm for nm in names if nm in recipes and recipes[nm].kind == "unary_binary"]
-    assert ub_names, (
-        f"MRMR engineered no unary_binary column on y=a*b (selected {names}); "
-        f"the exact-parity contract has nothing to pin"
-    )
+    assert ub_names, f"MRMR engineered no unary_binary column on y=a*b (selected {names}); the exact-parity contract has nothing to pin"
 
     df_test, _yt, _tt = _make_mul(seed=511, n=3000)
     Xt = np.asarray(fs.transform(df_test))
@@ -254,11 +243,11 @@ def test_unary_binary_transform_equals_apply_recipe_exactly():
         i = names.index(nm)
         direct = np.asarray(apply_recipe(recipes[nm], df_test)).reshape(-1)
         np.testing.assert_allclose(
-            Xt[:, i], direct, rtol=0, atol=0,
-            err_msg=(
-                f"transform() vs apply_recipe() for unary_binary '{nm}' diverged; "
-                f"they execute the same recipe path so this must be bit-equal"
-            ),
+            Xt[:, i],
+            direct,
+            rtol=0,
+            atol=0,
+            err_msg=(f"transform() vs apply_recipe() for unary_binary '{nm}' diverged; they execute the same recipe path so this must be bit-equal"),
         )
 
 
@@ -296,8 +285,7 @@ def test_unary_binary_exact_parity_holds_on_majority_of_seeds():
         exact_seeds += int(all_exact)
     assert produced >= 1, "no seed produced a unary_binary recipe to test"
     assert exact_seeds == produced, (
-        f"transform/apply bit-exact parity held on only {exact_seeds}/{produced} "
-        f"seeds; bit-equality on the same recipe path must hold on every seed"
+        f"transform/apply bit-exact parity held on only {exact_seeds}/{produced} seeds; bit-equality on the same recipe path must hold on every seed"
     )
 
 
@@ -349,7 +337,8 @@ def test_robust_prewarp_replay_nonspiked_rows_bit_equal_to_clean():
     mask = np.ones(n, dtype=bool)
     mask[spike_idx] = False
     np.testing.assert_array_equal(
-        out_clean[mask], out_spiked[mask],
+        out_clean[mask],
+        out_spiked[mask],
         err_msg="non-spiked rows diverged between clean and spiked replay",
     )
 
@@ -371,11 +360,9 @@ def test_recorded_winsor_bounds_are_not_applied_at_replay():
     out1 = np.asarray(apply_recipe(recipe_mut, df)).reshape(-1)
 
     np.testing.assert_array_equal(
-        out0, out1,
-        err_msg=(
-            "mutating the recorded winsor bounds changed the replay output; the "
-            "winsor bounds are provenance-only and must NOT be applied at replay"
-        ),
+        out0,
+        out1,
+        err_msg=("mutating the recorded winsor bounds changed the replay output; the winsor bounds are provenance-only and must NOT be applied at replay"),
     )
 
 
@@ -388,9 +375,9 @@ def test_robust_prewarp_apply_matches_manual_closed_form_exactly():
     df = pd.DataFrame({"a": a_sp, "b": b})
     out = np.asarray(apply_recipe(recipe, df)).reshape(-1)
     warped_a = apply_operand_prewarp(np.asarray(a_sp, dtype=np.float64), spec_a)
-    manual = np.nan_to_num(warped_a * np.asarray(b, dtype=np.float64),
-                           nan=0.0, posinf=0.0, neginf=0.0)
+    manual = np.nan_to_num(warped_a * np.asarray(b, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
     np.testing.assert_array_equal(
-        out, manual,
+        out,
+        manual,
         err_msg="recipe apply diverged from the manual closed-form prewarp(a)*b",
     )

@@ -42,6 +42,7 @@ def test_byte_estimator_handles_attributes_missing():
 
 def test_cache_bytes_total_aggregates_across_entries():
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     _saved = dict(MRMR._FIT_CACHE)
     try:
         MRMR._FIT_CACHE.clear()

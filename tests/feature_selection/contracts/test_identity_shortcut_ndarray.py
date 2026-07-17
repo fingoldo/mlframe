@@ -27,6 +27,7 @@ silently no-op'd for the default sklearn input form.
 Fix: split into a guarded ``if hasattr(X, "columns"):`` block so the
 column access happens only after the existence check.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,6 +40,7 @@ def test_identity_shortcut_ndarray_no_attribute_error():
     succeed. Pre-fix this raised AttributeError on ``X.columns``.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     X = rng.standard_normal((200, 4))
     sel = MRMR(verbose=0)
@@ -56,6 +58,7 @@ def test_identity_shortcut_ndarray_no_attribute_error():
 def test_identity_shortcut_dataframe_preserves_column_names():
     """Negative control: DataFrame X path still uses real column names."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(1)
     X = pd.DataFrame(
         rng.standard_normal((200, 4)),
@@ -75,11 +78,13 @@ def test_identity_shortcut_ndarray_via_cache_hit_completes_without_crash():
     that no exception is raised.
     """
     from mlframe.feature_selection.filters.mrmr import (
-        MRMR, _MRMR_IDENTITY_FP_CACHE,
+        MRMR,
+        _MRMR_IDENTITY_FP_CACHE,
     )
     from mlframe.feature_selection.filters._mrmr_fingerprints import (
         _mrmr_compute_x_fingerprint,
     )
+
     rng = np.random.default_rng(2)
     X = rng.standard_normal((200, 4))
     y = pd.Series(rng.integers(0, 2, 200))

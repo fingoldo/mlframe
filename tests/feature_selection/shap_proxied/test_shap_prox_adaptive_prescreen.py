@@ -64,8 +64,7 @@ def test_shap_prox_rank_stability_top_k_truncation_drops_noise_tail():
     s_top5 = compute_phi_rank_stability(per_fold, top_k=5)
     s_full = compute_phi_rank_stability(per_fold, top_k=n_features)
     assert s_top5 > 0.95, f"top-K=5 should expose the stable head; got {s_top5}"
-    assert s_top5 > s_full + 0.3, (
-        f"top-K should dominate full ranking; top5={s_top5}, full={s_full}")
+    assert s_top5 > s_full + 0.3, f"top-K should dominate full ranking; top5={s_top5}, full={s_full}"
 
 
 @pytest.mark.parametrize(
@@ -100,19 +99,30 @@ def _make_tiny_dataset(n_samples=400, n_features=80, n_informative=6, snr=8.0, s
     logits = X @ coefs + rng.normal(scale=1.0, size=n_samples)
     y = (logits > np.median(logits)).astype(np.int64)
     import pandas as pd
+
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(n_features)]), y
 
 
 def _build_tiny_selector(adaptive: bool, seed: int = 0):
     return ShapProxiedFS(
-        classification=True, metric="brier", optimizer="auto",
-        n_splits=4, n_models=1, top_n=8, n_revalidation_models=1,
-        trust_guard=False, run_importance_ablation=False,
-        within_cluster_refine=False, cluster_features=False,
-        prefilter_top=None, shap_prefilter_enabled=False,
+        classification=True,
+        metric="brier",
+        optimizer="auto",
+        n_splits=4,
+        n_models=1,
+        top_n=8,
+        n_revalidation_models=1,
+        trust_guard=False,
+        run_importance_ablation=False,
+        within_cluster_refine=False,
+        cluster_features=False,
+        prefilter_top=None,
+        shap_prefilter_enabled=False,
         brute_force_max_features=28,
         adaptive_prescreen_by_stability=adaptive,
-        random_state=seed, verbose=False)
+        random_state=seed,
+        verbose=False,
+    )
 
 
 def test_shap_prox_adaptive_prescreen_off_keeps_default_cap_in_report():

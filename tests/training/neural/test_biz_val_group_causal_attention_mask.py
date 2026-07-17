@@ -6,6 +6,7 @@ in a STRICTLY LATER group must NOT change any earlier-group position's attention
 leakage), while changing a position WITHIN the same group (or an earlier group, attendable per the causal
 order) DOES change a later position's output.
 """
+
 from __future__ import annotations
 
 from typing import cast
@@ -68,7 +69,9 @@ def test_biz_val_group_causal_mask_blocks_future_group_leakage_at_attention_leve
 
     # No future-group leakage: positions 0, 1, 2 (all earlier-or-equal groups than 3) must be UNCHANGED when
     # only position 3's input changes.
-    assert torch.allclose(out1[:, :3, :], out_future_changed[:, :3, :], atol=1e-6), "changing the latest-group position leaked into an earlier-group position's attention output"
+    assert torch.allclose(out1[:, :3, :], out_future_changed[:, :3, :], atol=1e-6), (
+        "changing the latest-group position leaked into an earlier-group position's attention output"
+    )
     # Position 3 itself must change (it attends to itself).
     assert not torch.allclose(out1[:, 3, :], out_future_changed[:, 3, :], atol=1e-6)
 
@@ -140,7 +143,9 @@ def _causal_leakage_forward(encoder: TransformerSequenceEncoder, head: nn.Linear
     return cast(torch.Tensor, head(x[:, 2, :]))
 
 
-def _causal_leakage_train(attn_mask: torch.Tensor | None, seed: int, n_feat: int, num_steps: int = 100, batch: int = 32) -> tuple[TransformerSequenceEncoder, nn.Linear]:
+def _causal_leakage_train(
+    attn_mask: torch.Tensor | None, seed: int, n_feat: int, num_steps: int = 100, batch: int = 32
+) -> tuple[TransformerSequenceEncoder, nn.Linear]:
     torch.manual_seed(seed)
     rng = torch.Generator().manual_seed(seed + 1)
     encoder = TransformerSequenceEncoder(input_size=n_feat, hidden_size=12, num_layers=1, n_heads=2, dim_feedforward=24)

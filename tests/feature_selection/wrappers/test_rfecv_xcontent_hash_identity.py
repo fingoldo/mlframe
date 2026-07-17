@@ -4,6 +4,7 @@ Pins the RAM-saving change in ``_fit_init._stream_hash_array`` (RFECV skip-retra
 streamed hash MUST equal ``blake2b(np.ascontiguousarray(arr).tobytes())`` across dtypes, shapes, and
 both C- and F-order inputs, and the pandas/polars numeric-block fingerprints must match each other.
 """
+
 from __future__ import annotations
 
 import hashlib

@@ -20,10 +20,7 @@ def _seed_global_numpy_rng():
     np.random.seed(0)
 
 
-@given(
-    st.floats(min_value=0.1, max_value=100, allow_nan=False, allow_infinity=False),
-    st.integers(min_value=1, max_value=100)
-)
+@given(st.floats(min_value=0.1, max_value=100, allow_nan=False, allow_infinity=False), st.integers(min_value=1, max_value=100))
 @settings(max_examples=50)
 def test_find_next_cumsum_left_index(amount, right_index):
     """Test cumsum index finder returns valid indices."""
@@ -33,10 +30,7 @@ def test_find_next_cumsum_left_index(amount, right_index):
     assert total >= 0
 
 
-@given(
-    st.floats(min_value=0.1, max_value=100, allow_nan=False, allow_infinity=False),
-    st.integers(min_value=0, max_value=50)
-)
+@given(st.floats(min_value=0.1, max_value=100, allow_nan=False, allow_infinity=False), st.integers(min_value=0, max_value=50))
 @settings(max_examples=50)
 def test_find_next_cumsum_right_index(amount, left_index):
     """Test cumsum right index finder returns valid indices."""
@@ -49,7 +43,7 @@ def test_find_next_cumsum_right_index(amount, left_index):
 @given(st.integers(min_value=1, max_value=10))
 def test_get_nwindows_expected(n_windows):
     """Test window count calculation."""
-    windows = {'': list(range(n_windows))}
+    windows = {"": list(range(n_windows))}
     result = get_nwindows_expected(windows)
     assert result == n_windows
 
@@ -57,10 +51,7 @@ def test_get_nwindows_expected(n_windows):
 @given(st.integers(min_value=1, max_value=10), st.integers(min_value=1, max_value=5))
 def test_get_nwindows_expected_multiple_vars(n_windows1, n_windows2):
     """Test window count with multiple variables."""
-    windows = {
-        '': list(range(n_windows1)),
-        'var2': list(range(n_windows2))
-    }
+    windows = {"": list(range(n_windows1)), "var2": list(range(n_windows2))}
     result = get_nwindows_expected(windows)
     assert result == n_windows1 + n_windows2
 
@@ -79,7 +70,7 @@ def test_get_ts_window_name_index(window_size):
     assert "D" in name
 
 
-@given(st.text(min_size=1, max_size=10, alphabet='abcdefghij'))
+@given(st.text(min_size=1, max_size=10, alphabet="abcdefghij"))
 def test_get_ts_window_name_var(var_name):
     """Test window naming for variable-based windows."""
     name = get_ts_window_name(var_name, 1000.0)

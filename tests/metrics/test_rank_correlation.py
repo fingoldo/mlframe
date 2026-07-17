@@ -1,6 +1,7 @@
 """Tests for ``mlframe.metrics.rank_correlation``: batched-Spearman
 correctness vs scipy.stats.spearmanr, NaN handling, ties, and
 numpy-vs-numba equivalence."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -14,6 +15,7 @@ def _scipy_per_row(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
     """Reference: scipy.stats.spearmanr per row (the slow loop the
     batched API replaces)."""
     from scipy.stats import spearmanr
+
     n = X.shape[0]
     out = np.full(n, np.nan, dtype=np.float64)
     for i in range(n):
@@ -33,6 +35,7 @@ def _scipy_per_row(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
 class TestSpearmanrBatchedNumpy:
     def test_random_pairs_match_scipy(self) -> None:
         from mlframe.metrics.rank_correlation import spearmanr_batched
+
         rng = np.random.default_rng(0)
         X = rng.normal(0, 1, (200, 31))
         Y = rng.normal(0, 1, (200, 31))
@@ -42,6 +45,7 @@ class TestSpearmanrBatchedNumpy:
 
     def test_correlated_pairs_close_to_1(self) -> None:
         from mlframe.metrics.rank_correlation import spearmanr_batched
+
         rng = np.random.default_rng(1)
         X = rng.normal(0, 1, (50, 31))
         Y = X + 0.01 * rng.normal(0, 1, X.shape)
@@ -50,6 +54,7 @@ class TestSpearmanrBatchedNumpy:
 
     def test_anti_correlated_close_to_neg1(self) -> None:
         from mlframe.metrics.rank_correlation import spearmanr_batched
+
         rng = np.random.default_rng(2)
         X = rng.normal(0, 1, (50, 31))
         Y = -X + 0.01 * rng.normal(0, 1, X.shape)
@@ -60,6 +65,7 @@ class TestSpearmanrBatchedNumpy:
         """Average-rank ties: ``spearmanr_batched`` must match scipy
         exactly on data with ties."""
         from mlframe.metrics.rank_correlation import spearmanr_batched
+
         X = np.array(
             [
                 [1.0, 2.0, 2.0, 3.0, 4.0, 4.0, 4.0, 5.0],
@@ -78,6 +84,7 @@ class TestSpearmanrBatchedNumpy:
 
     def test_nan_row_yields_nan(self) -> None:
         from mlframe.metrics.rank_correlation import spearmanr_batched
+
         X = np.array([[1.0, 2.0, 3.0, np.nan], [1.0, 2.0, 3.0, 4.0]])
         Y = np.array([[1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0, 4.0]])
         got = spearmanr_batched(X, Y)
@@ -86,6 +93,7 @@ class TestSpearmanrBatchedNumpy:
 
     def test_constant_row_yields_nan(self) -> None:
         from mlframe.metrics.rank_correlation import spearmanr_batched
+
         X = np.array([[1.0, 1.0, 1.0, 1.0]])
         Y = np.array([[1.0, 2.0, 3.0, 4.0]])
         got = spearmanr_batched(X, Y)
@@ -93,6 +101,7 @@ class TestSpearmanrBatchedNumpy:
 
     def test_shape_mismatch_raises(self) -> None:
         from mlframe.metrics.rank_correlation import spearmanr_batched
+
         X = np.ones((5, 10))
         Y = np.ones((5, 9))
         with pytest.raises(ValueError):
@@ -100,6 +109,7 @@ class TestSpearmanrBatchedNumpy:
 
     def test_1d_input_raises(self) -> None:
         from mlframe.metrics.rank_correlation import spearmanr_batched
+
         X = np.arange(10.0)
         Y = np.arange(10.0)
         with pytest.raises(ValueError):
@@ -110,8 +120,10 @@ class TestSpearmanrBatchedNumba:
     def test_numpy_and_numba_agree(self) -> None:
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import (
-            spearmanr_batched, spearmanr_batched_numba,
+            spearmanr_batched,
+            spearmanr_batched_numba,
         )
+
         rng = np.random.default_rng(7)
         X = rng.normal(0, 1, (500, 31))
         Y = rng.normal(0, 1, (500, 31))
@@ -122,6 +134,7 @@ class TestSpearmanrBatchedNumba:
     def test_numba_handles_ties_like_scipy(self) -> None:
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import spearmanr_batched_numba
+
         X = np.array(
             [
                 [1.0, 2.0, 2.0, 3.0, 4.0, 4.0, 4.0, 5.0],
@@ -141,6 +154,7 @@ class TestSpearmanrBatchedNumba:
     def test_numba_nan_propagation(self) -> None:
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import spearmanr_batched_numba
+
         X = np.array([[1.0, 2.0, 3.0, np.nan], [1.0, 2.0, 3.0, 4.0]])
         Y = np.array([[1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0, 4.0]])
         got = spearmanr_batched_numba(X, Y)
@@ -153,9 +167,11 @@ class TestDispatcher:
         """Below the threshold dispatch returns the numpy path -- check
         by running on tiny input and comparing to numpy."""
         from mlframe.metrics.rank_correlation import (
-            spearmanr_batched, spearmanr_batched_dispatch,
+            spearmanr_batched,
+            spearmanr_batched_dispatch,
             set_spearmanr_dispatch_threshold,
         )
+
         set_spearmanr_dispatch_threshold(5_000)
         rng = np.random.default_rng(11)
         X = rng.normal(0, 1, (100, 21))
@@ -167,9 +183,11 @@ class TestDispatcher:
     def test_large_n_uses_numba_when_available(self) -> None:
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import (
-            spearmanr_batched, spearmanr_batched_dispatch,
+            spearmanr_batched,
+            spearmanr_batched_dispatch,
             set_spearmanr_dispatch_threshold,
         )
+
         set_spearmanr_dispatch_threshold(100)
         rng = np.random.default_rng(13)
         X = rng.normal(0, 1, (500, 21))
@@ -186,8 +204,10 @@ class TestSpearmanScalarKernel:
     def test_scalar_dispatch_matches_numpy_continuous(self) -> None:
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import (
-            spearmanr_scalar_dispatch, _spearmanr_batched_numpy,
+            spearmanr_scalar_dispatch,
+            _spearmanr_batched_numpy,
         )
+
         rng = np.random.default_rng(7)
         x = rng.normal(100.0, 20.0, 50_000)
         y = x + rng.normal(0.0, 5.0, 50_000)
@@ -198,8 +218,10 @@ class TestSpearmanScalarKernel:
     def test_scalar_dispatch_matches_numpy_tied(self) -> None:
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import (
-            spearmanr_scalar_dispatch, _spearmanr_batched_numpy,
+            spearmanr_scalar_dispatch,
+            _spearmanr_batched_numpy,
         )
+
         rng = np.random.default_rng(11)
         x = rng.integers(0, 8, 40_000).astype(np.float64)
         y = rng.integers(0, 8, 40_000).astype(np.float64)
@@ -215,6 +237,7 @@ class TestSpearmanScalarKernel:
         """
         pytest.importorskip("numba")
         import mlframe.metrics.rank_correlation as rc
+
         calls = {"n": 0}
         orig = rc._spearmanr_scalar_njit
 
@@ -224,6 +247,7 @@ class TestSpearmanScalarKernel:
 
         monkeypatch.setattr(rc, "_spearmanr_scalar_njit", spy)
         from mlframe.metrics.core import fast_spearman_corr
+
         rng = np.random.default_rng(3)
         x = rng.normal(0.0, 1.0, 10_000)
         y = x + rng.normal(0.0, 0.3, 10_000)
@@ -234,6 +258,7 @@ class TestSpearmanScalarKernel:
     def test_scalar_edge_cases(self) -> None:
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import spearmanr_scalar_dispatch
+
         assert np.isnan(spearmanr_scalar_dispatch(np.array([1.0]), np.array([2.0])))
         assert np.isnan(spearmanr_scalar_dispatch(np.array([1.0, np.nan, 3.0]), np.array([1.0, 2.0, 3.0])))
         assert np.isnan(spearmanr_scalar_dispatch(np.array([5.0, 5.0, 5.0]), np.array([1.0, 2.0, 3.0])))

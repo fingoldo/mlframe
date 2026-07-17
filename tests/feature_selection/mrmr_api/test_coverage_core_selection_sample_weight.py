@@ -9,6 +9,7 @@ Contracts (``_maybe_resample_for_sample_weight``):
 
 These input-validation + functional-effect contracts had no test under mrmr_api/.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,11 +21,20 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 def _no_fe(**kw):
     base = dict(
-        random_seed=0, verbose=0, fe_max_steps=0, interactions_max_order=1,
-        dcd_enable=False, cluster_aggregate_enable=False, build_friend_graph=False,
-        cat_fe_config=None, fe_hinge_enable=False, fe_modular_enable=False,
-        fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False,
-        fe_row_argmax_enable=False, fe_conditional_gate_enable=False,
+        random_seed=0,
+        verbose=0,
+        fe_max_steps=0,
+        interactions_max_order=1,
+        dcd_enable=False,
+        cluster_aggregate_enable=False,
+        build_friend_graph=False,
+        cat_fe_config=None,
+        fe_hinge_enable=False,
+        fe_modular_enable=False,
+        fe_pairwise_modular_enable=False,
+        fe_integer_lattice_enable=False,
+        fe_row_argmax_enable=False,
+        fe_conditional_gate_enable=False,
     )
     base.update(kw)
     return MRMR(**base)

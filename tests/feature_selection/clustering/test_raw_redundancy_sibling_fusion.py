@@ -22,6 +22,7 @@ sensitivity. PRE-FIX it KEEPS ``a`` (verified by disabling the sibling block: ba
 6.66% > 5%); POST-FIX it DROPS ``a``. The over-drop control adds a genuine private linear
 term and asserts ``a`` is then KEPT.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -50,12 +51,17 @@ def _s909_fixture(*, private: bool):
     from tests.feature_selection._mrmr_realistic_data import make_realistic_case
 
     df, y, _meta = make_realistic_case(
-        seed=909, n=25000, distribution="uniform",
-        target_family="ratio_plus_trig", task="classification",
+        seed=909,
+        n=25000,
+        distribution="uniform",
+        target_family="ratio_plus_trig",
+        task="classification",
     )
-    a = df["a"].to_numpy(); bb = df["b"].to_numpy(); c = df["c"].to_numpy()
-    add_ac = a + np.sin(c)          # add(a, sin(c)) -- a enters LINEARLY (non-invertible)
-    div_ab = (a ** 2) / np.exp(bb)  # div(sqr(a), exp(b))
+    a = df["a"].to_numpy()
+    bb = df["b"].to_numpy()
+    c = df["c"].to_numpy()
+    add_ac = a + np.sin(c)  # add(a, sin(c)) -- a enters LINEARLY (non-invertible)
+    div_ab = (a**2) / np.exp(bb)  # div(sqr(a), exp(b))
     y_arr = np.asarray(y).astype(np.int64)
     y_cont = None
     if private:
@@ -65,15 +71,27 @@ def _s909_fixture(*, private: bool):
         y_arr = _bin10(y_cont)
 
     cols = ["a", "b", "c", "add(a,sin(c))", "div(sqr(a),exp(b))"]
-    data = np.column_stack([
-        _bin10(a), _bin10(bb), _bin10(c), _bin10(add_ac), _bin10(div_ab),
-    ])
+    data = np.column_stack(
+        [
+            _bin10(a),
+            _bin10(bb),
+            _bin10(c),
+            _bin10(add_ac),
+            _bin10(div_ab),
+        ]
+    )
     return dict(
-        data=data, cols=cols, selected_cols_idx=[0, 1, 2, 3, 4],
-        raw_name_set={"a", "b", "c"}, y_binned=y_arr, y_continuous=y_cont,
+        data=data,
+        cols=cols,
+        selected_cols_idx=[0, 1, 2, 3, 4],
+        raw_name_set={"a", "b", "c"},
+        y_binned=y_arr,
+        y_continuous=y_cont,
         engineered_continuous={"add(a,sin(c))": add_ac, "div(sqr(a),exp(b))": div_ab},
         replayable_eng_names={"add(a,sin(c))", "div(sqr(a),exp(b))"},
-        recipes=None, raw_X=pd.DataFrame({"a": a, "b": bb, "c": c}), seed=909,
+        recipes=None,
+        raw_X=pd.DataFrame({"a": a, "b": bb, "c": c}),
+        seed=909,
     )
 
 
@@ -84,10 +102,7 @@ def test_s909_noninvertible_additive_fusion_subsumed_raw_drops():
     cfg = _s909_fixture(private=False)
     kept, dropped = drop_redundant_raw_operands(**cfg)
     kept_names = {cfg["cols"][i] for i in kept}
-    assert "a" in dropped, (
-        f"subsumed raw 'a' (fused via add(a,sin(c)), no private term) not dropped; "
-        f"dropped={dropped} kept={sorted(kept_names)}"
-    )
+    assert "a" in dropped, f"subsumed raw 'a' (fused via add(a,sin(c)), no private term) not dropped; dropped={dropped} kept={sorted(kept_names)}"
     assert "a" not in kept_names, f"'a' still in support: {sorted(kept_names)}"
     # The engineered survivors must remain (the drop only removes subsumed raws).
     assert {"add(a,sin(c))", "div(sqr(a),exp(b))"} <= kept_names
@@ -99,9 +114,7 @@ def test_s909_genuine_private_linear_raw_kept_under_sibling_conditioning():
     sibling-conditioning min never over-drops a genuine private raw."""
     cfg = _s909_fixture(private=True)
     kept, dropped = drop_redundant_raw_operands(**cfg)
-    assert "a" not in dropped, (
-        f"OVER-DROP: 'a' has a genuine private linear term (3*a) yet was dropped: {dropped}"
-    )
+    assert "a" not in dropped, f"OVER-DROP: 'a' has a genuine private linear term (3*a) yet was dropped: {dropped}"
     assert "a" in {cfg["cols"][i] for i in kept}
 
 
@@ -132,8 +145,5 @@ def test_floor_margin_mult_keeps_strong_private_raw():
     sweep uses must KEEP it (the lever drops grazing artifacts, never robust private signal)."""
     cfg = _s909_fixture(private=True)
     _kept, dropped = drop_redundant_raw_operands(**dict(cfg), floor_margin_mult=1.5)
-    assert "a" not in dropped, (
-        f"OVER-DROP: 'a' carries a genuine private 3*a term yet dropped under "
-        f"floor_margin_mult=1.5: {dropped}"
-    )
+    assert "a" not in dropped, f"OVER-DROP: 'a' carries a genuine private 3*a term yet dropped under floor_margin_mult=1.5: {dropped}"
     assert "a" in {cfg["cols"][i] for i in _kept}

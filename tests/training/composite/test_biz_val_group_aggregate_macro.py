@@ -8,6 +8,7 @@ group-level auxiliary model does. Feeding its predicted (not realized -- that wo
 back as a per-row feature should let a downstream entity-level model recover the target far better than
 using each row's own noisy feature alone.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,7 +43,9 @@ def test_biz_val_predicted_group_aggregate_feature_beats_entity_only_baseline():
     augmented_mse = -cross_val_score(LinearRegression(), X_aug, y, cv=kf, scoring="neg_mean_squared_error").mean()
 
     improvement = 1.0 - augmented_mse / baseline_mse
-    assert improvement > 0.6, f"expected >60% MSE reduction from adding the predicted macro feature, got {improvement:.4f} (baseline={baseline_mse:.4f}, augmented={augmented_mse:.4f})"
+    assert improvement > 0.6, (
+        f"expected >60% MSE reduction from adding the predicted macro feature, got {improvement:.4f} (baseline={baseline_mse:.4f}, augmented={augmented_mse:.4f})"
+    )
 
 
 def test_predicted_group_aggregate_feature_output_shape_and_broadcast():
@@ -58,7 +61,9 @@ def test_predicted_group_aggregate_feature_output_shape_and_broadcast():
 def test_predicted_group_aggregate_feature_median_agg():
     X, y, group_ids = _make_macro_panel_dataset(n_groups=60, n_per_group=8, seed=2)
     result_mean = predicted_group_aggregate_feature(X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), agg="mean", n_splits=5, random_state=0)
-    result_median = predicted_group_aggregate_feature(X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), agg="median", n_splits=5, random_state=0)
+    result_median = predicted_group_aggregate_feature(
+        X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), agg="median", n_splits=5, random_state=0
+    )
     assert result_mean.shape == result_median.shape
     # mean and median aggregation should differ at least somewhat on noisy data (not bit-identical).
     assert not np.allclose(result_mean["predicted_group_aggregate"].to_numpy(), result_median["predicted_group_aggregate"].to_numpy())
@@ -68,7 +73,9 @@ def test_predicted_group_aggregate_feature_default_unchanged_when_aggs_omitted()
     """``aggs`` is opt-in: omitting it must reproduce the exact prior single-``agg`` output, bit-identical."""
     X, y, group_ids = _make_macro_panel_dataset(n_groups=80, n_per_group=10, seed=3)
     result_default = predicted_group_aggregate_feature(X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), n_splits=5, random_state=0)
-    result_explicit_agg = predicted_group_aggregate_feature(X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), agg="mean", n_splits=5, random_state=0)
+    result_explicit_agg = predicted_group_aggregate_feature(
+        X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), agg="mean", n_splits=5, random_state=0
+    )
     assert list(result_default.columns) == ["predicted_group_aggregate"]
     assert np.array_equal(result_default["predicted_group_aggregate"].to_numpy(), result_explicit_agg["predicted_group_aggregate"].to_numpy())
 
@@ -119,7 +126,9 @@ def test_biz_val_predicted_group_aggregate_feature_multi_agg_speedup_over_per_ca
 
     def _per_stat_calls() -> None:
         for a in aggs:
-            predicted_group_aggregate_feature(X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), agg="mean" if a == "std" else a, n_splits=5, random_state=0)
+            predicted_group_aggregate_feature(
+                X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), agg="mean" if a == "std" else a, n_splits=5, random_state=0
+            )
 
     # Warm up (first-call import/JIT overhead must not pollute the timing).
     _multi_call()
@@ -141,5 +150,5 @@ def test_biz_val_predicted_group_aggregate_feature_multi_agg_speedup_over_per_ca
     speedup = per_stat_median_s / multi_median_s
     assert speedup > 1.15, (
         f"expected the shared-fit multi-agg call to beat {len(aggs)} separate per-statistic calls by >1.15x "
-        f"(interleaved median of {n_reps}, process_time), got {speedup:.2f}x (multi={multi_median_s*1000:.1f}ms, per-stat={per_stat_median_s*1000:.1f}ms)"
+        f"(interleaved median of {n_reps}, process_time), got {speedup:.2f}x (multi={multi_median_s * 1000:.1f}ms, per-stat={per_stat_median_s * 1000:.1f}ms)"
     )

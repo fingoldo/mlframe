@@ -25,9 +25,7 @@ def _make_pool(seed: int, n: int = 4000, n_dup: int = 4, jitter: float = 0.02):
     x = rng.normal(size=n)
     z = rng.normal(size=n)
     y = 2.0 * x + 1.5 * z + rng.normal(scale=1.0, size=n)
-    members = [2.0 * x + rng.normal(scale=0.8, size=n),
-               1.5 * z + rng.normal(scale=0.8, size=n),
-               1.8 * x + 1.3 * z + rng.normal(scale=1.2, size=n)]
+    members = [2.0 * x + rng.normal(scale=0.8, size=n), 1.5 * z + rng.normal(scale=0.8, size=n), 1.8 * x + 1.3 * z + rng.normal(scale=1.2, size=n)]
     strongest = members[-1]
     for _ in range(n_dup):
         members.append(strongest + rng.normal(scale=jitter, size=n))
@@ -89,9 +87,7 @@ def test_biz_val_ct_ensemble_dedup_does_not_help_nnls_or_mean_on_redundant_pool(
         f"dedup unexpectedly beat the full NNLS stack on {nnls_dedup_wins}/10 seeds -- re-examine the qual-19 REJECT"
     )
     # Mean: dedup is harmful on EVERY seed; aggregate worse by a clear margin (measured +2.8%).
-    assert mean_dedup_worse == len(list(seeds)), (
-        f"dedup expected to hurt the uniform-mean ensemble on all seeds; hurt only {mean_dedup_worse}/10"
-    )
+    assert mean_dedup_worse == len(list(seeds)), f"dedup expected to hurt the uniform-mean ensemble on all seeds; hurt only {mean_dedup_worse}/10"
     assert mean_dedup_total > mean_full_total * 1.01, (
         "dedup should measurably RAISE uniform-mean holdout RMSE on the redundant pool (lower-variance cluster removed)"
     )

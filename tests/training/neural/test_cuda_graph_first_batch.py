@@ -29,6 +29,7 @@ upstream test ``test_input_normalization_strategies::
 test_layernorm_is_ok_on_homogeneous_scale_features`` since F-40
 landed (2e52d298's ancestor 2f6fb858).
 """
+
 from __future__ import annotations
 
 import numpy as np

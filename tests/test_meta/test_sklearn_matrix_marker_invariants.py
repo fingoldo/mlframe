@@ -14,6 +14,7 @@ This meta-test pins:
 3. At least N tests are collected under ``-m sklearn_matrix`` (rough drift signal: if the count drops below the floor,
    either a file lost the marker or the test bodies collapsed).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -68,8 +69,7 @@ def test_every_allowlisted_file_declares_marker():
     assert not missing, (
         "the following allowlisted composite-target test files do NOT declare ``pytest.mark.sklearn_matrix`` at "
         "module level; the multi-sklearn CI matrix selects via ``-m sklearn_matrix`` so an unmarked file will "
-        "silently skip the matrix and a breaking sklearn change will ship undetected:\n  "
-        + "\n  ".join(missing)
+        "silently skip the matrix and a breaking sklearn change will ship undetected:\n  " + "\n  ".join(missing)
     )
 
 

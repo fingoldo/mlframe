@@ -15,6 +15,7 @@ the cached model's feature_names / cat_features don't match the current
 DataFrame. A non-None return causes the suite to invalidate the cache
 and retrain.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -63,6 +64,7 @@ def _wrap(model):
 # _extract_polars_cat_columns
 # ---------------------------------------------------------------------------
 
+
 class TestExtractPolarsCatColumns:
     def test_none_df_returns_empty(self):
         assert _extract_polars_cat_columns(None) == []
@@ -73,24 +75,29 @@ class TestExtractPolarsCatColumns:
         assert _extract_polars_cat_columns(df) == []
 
     def test_polars_categorical_detected(self):
-        df = pl.DataFrame({
-            "num": pl.Series("num", [1, 2, 3], dtype=pl.Int32),
-            "cat": pl.Series("cat", ["x", "y", "x"], dtype=pl.Categorical),
-        })
+        df = pl.DataFrame(
+            {
+                "num": pl.Series("num", [1, 2, 3], dtype=pl.Int32),
+                "cat": pl.Series("cat", ["x", "y", "x"], dtype=pl.Categorical),
+            }
+        )
         assert _extract_polars_cat_columns(df) == ["cat"]
 
     def test_polars_enum_detected(self):
         enum_t = pl.Enum(["a", "b"])
-        df = pl.DataFrame({
-            "num": pl.Series("num", [1, 2, 3], dtype=pl.Int32),
-            "en":  pl.Series("en", ["a", "b", "a"], dtype=enum_t),
-        })
+        df = pl.DataFrame(
+            {
+                "num": pl.Series("num", [1, 2, 3], dtype=pl.Int32),
+                "en": pl.Series("en", ["a", "b", "a"], dtype=enum_t),
+            }
+        )
         assert _extract_polars_cat_columns(df) == ["en"]
 
 
 # ---------------------------------------------------------------------------
 # _validate_cached_model_schema — feature-name checks
 # ---------------------------------------------------------------------------
+
 
 class TestFeatureNamesCheck:
     def test_none_model_returns_none(self):
@@ -135,6 +142,7 @@ class TestFeatureNamesCheck:
 # _validate_cached_model_schema — CatBoost cat_features cross-check
 # ---------------------------------------------------------------------------
 
+
 class TestCatBoostCatFeaturesCheck:
     """Reproduce the production bug: a Polars Categorical column in the
     current df that the saved CatBoost model never learned as a
@@ -144,22 +152,26 @@ class TestCatBoostCatFeaturesCheck:
     def test_matching_cat_features_returns_none(self):
         # Saved model: cat_features = ['b'] at index 1.
         m = _FakeCatBoost(feature_names=["a", "b", "c"], cat_feature_indices=[1])
-        df = pl.DataFrame({
-            "a": pl.Series("a", [1.0, 2.0], dtype=pl.Float32),
-            "b": pl.Series("b", ["x", "y"], dtype=pl.Categorical),
-            "c": pl.Series("c", [10, 20], dtype=pl.Int32),
-        })
+        df = pl.DataFrame(
+            {
+                "a": pl.Series("a", [1.0, 2.0], dtype=pl.Float32),
+                "b": pl.Series("b", ["x", "y"], dtype=pl.Categorical),
+                "c": pl.Series("c", [10, 20], dtype=pl.Int32),
+            }
+        )
         assert _validate_cached_model_schema(_wrap(m), df) is None
 
     def test_new_categorical_not_in_saved_model(self):
         # Saved model had cat_features=['b'] only. Now column 'c' is also
         # Polars Categorical — CatBoost would crash at predict_proba.
         m = _FakeCatBoost(feature_names=["a", "b", "c"], cat_feature_indices=[1])
-        df = pl.DataFrame({
-            "a": pl.Series("a", [1.0, 2.0], dtype=pl.Float32),
-            "b": pl.Series("b", ["x", "y"], dtype=pl.Categorical),
-            "c": pl.Series("c", ["p", "q"], dtype=pl.Categorical),  # was Int32 at train
-        })
+        df = pl.DataFrame(
+            {
+                "a": pl.Series("a", [1.0, 2.0], dtype=pl.Float32),
+                "b": pl.Series("b", ["x", "y"], dtype=pl.Categorical),
+                "c": pl.Series("c", ["p", "q"], dtype=pl.Categorical),  # was Int32 at train
+            }
+        )
         reason = _validate_cached_model_schema(_wrap(m), df)
         assert reason is not None
         assert "CatBoost cache mismatch" in reason
@@ -173,10 +185,12 @@ class TestCatBoostCatFeaturesCheck:
         # but dtype narrowed, the backend can still handle it (numeric
         # where cat was expected tends to be tolerated more gracefully).
         m = _FakeCatBoost(feature_names=["a", "b"], cat_feature_indices=[1])
-        df = pl.DataFrame({
-            "a": pl.Series("a", [1.0, 2.0], dtype=pl.Float32),
-            "b": pl.Series("b", [10, 20], dtype=pl.Int32),
-        })
+        df = pl.DataFrame(
+            {
+                "a": pl.Series("a", [1.0, 2.0], dtype=pl.Float32),
+                "b": pl.Series("b", [10, 20], dtype=pl.Int32),
+            }
+        )
         # Columns match exactly; no *new* Polars Categorical column appears.
         # The validator intentionally does not flag this direction.
         assert _validate_cached_model_schema(_wrap(m), df) is None
@@ -189,10 +203,12 @@ class TestCatBoostCatFeaturesCheck:
         # have a Polars Categorical column, predict would still crash,
         # so the validator correctly flags mismatch.
         m = _FakeCatBoost(feature_names=["a", "b"], cat_feature_indices=[99])
-        df = pl.DataFrame({
-            "a": pl.Series("a", [1.0, 2.0], dtype=pl.Float32),
-            "b": pl.Series("b", ["x", "y"], dtype=pl.Categorical),
-        })
+        df = pl.DataFrame(
+            {
+                "a": pl.Series("a", [1.0, 2.0], dtype=pl.Float32),
+                "b": pl.Series("b", ["x", "y"], dtype=pl.Categorical),
+            }
+        )
         reason = _validate_cached_model_schema(_wrap(m), df)
         assert reason is not None
         assert "CatBoost cache mismatch" in reason
@@ -202,10 +218,12 @@ class TestCatBoostCatFeaturesCheck:
         # Saved model has no cat_features AND current df has no Polars
         # Categoricals — perfectly compatible, no mismatch.
         m = _FakeCatBoost(feature_names=["a", "b"], cat_feature_indices=[])
-        df = pl.DataFrame({
-            "a": pl.Series("a", [1.0, 2.0], dtype=pl.Float32),
-            "b": pl.Series("b", [10, 20], dtype=pl.Int32),
-        })
+        df = pl.DataFrame(
+            {
+                "a": pl.Series("a", [1.0, 2.0], dtype=pl.Float32),
+                "b": pl.Series("b", [10, 20], dtype=pl.Int32),
+            }
+        )
         assert _validate_cached_model_schema(_wrap(m), df) is None
 
     def test_pandas_df_does_not_false_positive(self):

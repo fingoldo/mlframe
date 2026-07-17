@@ -12,6 +12,7 @@ Also verifies ``swap_noise_augment`` preserves each column's marginal distributi
 noise beats Gaussian/multiplicative corruption for tabular data: every corrupted value is a real value from
 that same column, never an out-of-distribution one).
 """
+
 from __future__ import annotations
 
 import numpy as np

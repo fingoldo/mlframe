@@ -28,6 +28,7 @@ that downstream broad-except blocks then mask as something unrelated.
     5. models/optimization.py:308,311 (sampled_inputs sort)
        str-key fallback on user-seeded inputs that may be heterogeneous.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -72,7 +73,7 @@ def test_polars_fixes_union_sort_uses_str_key() -> None:
 
 def test_neural_base_classes_sort_dtype_aware() -> None:
     src = _read("training/neural/base.py")
-    assert "if hasattr(_y_arr, \"dtype\") and _y_arr.dtype != object:" in src
+    assert 'if hasattr(_y_arr, "dtype") and _y_arr.dtype != object:' in src
     assert "self.classes_ = np.sort(_y_arr)" in src
     assert "self.classes_ = np.asarray(sorted(_y_arr, key=lambda v: (v is None, str(v))))" in src
 

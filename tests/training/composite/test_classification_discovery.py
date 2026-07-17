@@ -1,4 +1,5 @@
 """Unit tests for CompositeClassificationDiscovery (base-margin auto-selection)."""
+
 from __future__ import annotations
 
 import numpy as np

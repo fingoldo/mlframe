@@ -24,6 +24,7 @@ Fix at _mrmr_fit_impl.py:988:
 3. Detect the "all-zero MI" sub-case and surface "carries NO signal"
    diagnostic.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -38,22 +39,21 @@ def test_fallback_emits_userwarning_on_constant_x():
     must capture a UserWarning when fallback engages.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = 200
-    df = pd.DataFrame({
-        "a": np.ones(n),
-        "b": np.full(n, 2.0),
-        "c": np.full(n, 3.0),
-    })
+    df = pd.DataFrame(
+        {
+            "a": np.ones(n),
+            "b": np.full(n, 2.0),
+            "c": np.full(n, 3.0),
+        }
+    )
     y = pd.Series(rng.integers(0, 2, n))
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         sel = MRMR(verbose=0, min_features_fallback=1).fit(df, y)
-    fallback_warns = [
-        w for w in caught
-        if issubclass(w.category, UserWarning)
-        and "falling back" in str(w.message)
-    ]
+    fallback_warns = [w for w in caught if issubclass(w.category, UserWarning) and "falling back" in str(w.message)]
     assert len(fallback_warns) >= 1
     # Must surface the "carries NO signal" diagnostic when all MIs are 0.
     msg = str(fallback_warns[0].message)
@@ -66,11 +66,16 @@ def test_fallback_simplefilter_error_can_intercept():
     warning into a raise.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(1)
     n = 200
-    df = pd.DataFrame({
-        "a": np.ones(n), "b": np.full(n, 2.0), "c": np.full(n, 3.0),
-    })
+    df = pd.DataFrame(
+        {
+            "a": np.ones(n),
+            "b": np.full(n, 2.0),
+            "c": np.full(n, 3.0),
+        }
+    )
     y = pd.Series(rng.integers(0, 2, n))
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
@@ -83,6 +88,7 @@ def test_no_fallback_warning_when_min_features_fallback_zero():
     doesn't trigger the fallback even on degenerate input -- no warning.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(2)
     n = 200
     df = pd.DataFrame({"a": np.ones(n)})
@@ -90,9 +96,5 @@ def test_no_fallback_warning_when_min_features_fallback_zero():
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         MRMR(verbose=0, min_features_fallback=0).fit(df, y)
-    fallback_warns = [
-        w for w in caught
-        if issubclass(w.category, UserWarning)
-        and "falling back" in str(w.message)
-    ]
+    fallback_warns = [w for w in caught if issubclass(w.category, UserWarning) and "falling back" in str(w.message)]
     assert not fallback_warns

@@ -13,6 +13,7 @@ These tests FAIL on the pre-fix bare-``str`` keying (every group collapses to
 the global value) and PASS once the shared canonical token collapses
 integral-valued int and float labels to the same key.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,13 +43,7 @@ from mlframe.feature_selection.filters._count_freq_interaction_fe import (
 
 
 def test_canonical_group_token_collapses_integral_dtypes() -> None:
-    assert (
-        canonical_group_token(1)
-        == canonical_group_token(1.0)
-        == canonical_group_token(np.int64(1))
-        == canonical_group_token(np.float64(1.0))
-        == "1"
-    )
+    assert canonical_group_token(1) == canonical_group_token(1.0) == canonical_group_token(np.int64(1)) == canonical_group_token(np.float64(1.0)) == "1"
     assert canonical_group_token(2.5) == repr(2.5)
     assert canonical_group_token("well_A") == "well_A"
     # Bool must not be silently treated as 0/1 integer.
@@ -72,18 +67,14 @@ def test_te_and_extra_column_to_str_int_float_agree() -> None:
 
 
 def test_build_composite_keys_int_float_agree() -> None:
-    Xi = pd.DataFrame(
-        {"a": pd.Series([1, 2], dtype="int64"), "b": pd.Series([3, 4], dtype="int64")}
-    )
+    Xi = pd.DataFrame({"a": pd.Series([1, 2], dtype="int64"), "b": pd.Series([3, 4], dtype="int64")})
     Xf = pd.DataFrame(
         {
             "a": pd.Series([1.0, 2.0], dtype="float64"),
             "b": pd.Series([3.0, 4.0], dtype="float64"),
         }
     )
-    assert list(build_composite_keys(Xi, ["a", "b"])) == list(
-        build_composite_keys(Xf, ["a", "b"])
-    )
+    assert list(build_composite_keys(Xi, ["a", "b"])) == list(build_composite_keys(Xf, ["a", "b"]))
 
 
 def test_grouped_agg_broadcast_recovers_groups_on_float_drift() -> None:

@@ -3,6 +3,7 @@
 Covers metrics/_ice_metric.py (#28) and metrics/_fairness_metrics.py (#29).
 The audit warning: pandas nullable Int/Float dtypes return ExtensionArray from ``.values``, breaking downstream ``.astype(np.int8)`` silently.
 """
+
 from __future__ import annotations
 
 import numpy as np

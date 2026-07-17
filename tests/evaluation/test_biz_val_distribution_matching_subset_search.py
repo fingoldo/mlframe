@@ -7,6 +7,7 @@ block's own feature regime, a downstream model trained on a KS-distribution-matc
 generalize far better to a target distribution than one trained on a naive (unmatched) random block subset --
 mismatched blocks carry a systematically WRONG relationship for the target regime, not just extra noise.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -53,7 +54,9 @@ def test_biz_val_matched_subset_beats_naive_subset_on_target_regime():
     rmse_matched = float(mean_squared_error(target_y_true, model_matched.predict(target_df[["x"]])) ** 0.5)
     rmse_naive = float(mean_squared_error(target_y_true, model_naive.predict(target_df[["x"]])) ** 0.5)
 
-    assert rmse_matched < rmse_naive * 0.5, f"expected the distribution-matched subset to beat a naive random subset by >=50% RMSE on the target regime, got matched={rmse_matched:.4f} naive={rmse_naive:.4f}"
+    assert rmse_matched < rmse_naive * 0.5, (
+        f"expected the distribution-matched subset to beat a naive random subset by >=50% RMSE on the target regime, got matched={rmse_matched:.4f} naive={rmse_naive:.4f}"
+    )
     assert result["best_score"] < 0.3, f"expected the best-found subset's mean KS statistic to indicate a genuinely close match, got {result['best_score']:.4f}"
 
 
@@ -113,11 +116,13 @@ def test_biz_val_greedy_swap_beats_random_at_equal_budget():
         f"expected greedy_swap's best_score to beat random's by >=10% at equal budget, "
         f"got greedy={result_greedy['best_score']:.4f} random={result_random['best_score']:.4f}"
     )
-    assert rmse_greedy <= rmse_random * 0.95, f"expected greedy_swap's downstream RMSE to beat random's by >=5% at equal budget, got greedy={rmse_greedy:.4f} random={rmse_random:.4f}"
+    assert rmse_greedy <= rmse_random * 0.95, (
+        f"expected greedy_swap's downstream RMSE to beat random's by >=5% at equal budget, got greedy={rmse_greedy:.4f} random={rmse_random:.4f}"
+    )
 
 
 def _make_correlated_blocks(n_blocks: int, rows_per_block: int, block_offset: int, seed: int) -> pd.DataFrame:
-    """"good" blocks: x and y share a latent factor z, so they're strongly correlated -- like the target."""
+    """ "good" blocks: x and y share a latent factor z, so they're strongly correlated -- like the target."""
     rng = np.random.default_rng(seed)
     rows = []
     for b in range(n_blocks):
@@ -130,7 +135,7 @@ def _make_correlated_blocks(n_blocks: int, rows_per_block: int, block_offset: in
 
 
 def _make_decorrelated_decoy_blocks(n_blocks: int, rows_per_block: int, block_offset: int, seed: int) -> pd.DataFrame:
-    """"decoy" blocks: x and y are drawn from INDEPENDENT latent factors -- each marginal individually looks
+    """ "decoy" blocks: x and y are drawn from INDEPENDENT latent factors -- each marginal individually looks
     just like the target's (same z + noise construction per column), but the joint/correlation structure is
     destroyed (x,y uncorrelated here vs strongly correlated in the target). Per-feature KS cannot tell these
     apart from the "good" blocks; only a joint/multivariate check can.
@@ -167,8 +172,15 @@ def test_biz_val_distribution_matching_subset_search_joint_energy_catches_correl
     # scores that ONE full candidate set (no sampling ambiguity), letting us compare the two fixed candidates directly.
     def score(df: pd.DataFrame, joint_distance_mode):
         result = distribution_matching_subset_search(
-            df, target_df, block_col="block", feature_cols=["x", "y"], n_blocks=10, n_trials=1, random_state=0,
-            search_strategy="random", joint_distance_mode=joint_distance_mode,
+            df,
+            target_df,
+            block_col="block",
+            feature_cols=["x", "y"],
+            n_blocks=10,
+            n_trials=1,
+            random_state=0,
+            search_strategy="random",
+            joint_distance_mode=joint_distance_mode,
         )
         return result["best_score"]
 
@@ -199,9 +211,19 @@ def test_distribution_matching_subset_search_joint_mode_default_is_bit_identical
     target_df = pd.DataFrame({"x": np.random.default_rng(4).normal(size=200)})
 
     for search_strategy in ["random", "greedy_swap"]:
-        r_default = distribution_matching_subset_search(train_df, target_df, block_col="block", feature_cols=["x"], n_blocks=5, n_trials=60, random_state=5, search_strategy=search_strategy)
+        r_default = distribution_matching_subset_search(
+            train_df, target_df, block_col="block", feature_cols=["x"], n_blocks=5, n_trials=60, random_state=5, search_strategy=search_strategy
+        )
         r_explicit_none = distribution_matching_subset_search(
-            train_df, target_df, block_col="block", feature_cols=["x"], n_blocks=5, n_trials=60, random_state=5, search_strategy=search_strategy, joint_distance_mode=None
+            train_df,
+            target_df,
+            block_col="block",
+            feature_cols=["x"],
+            n_blocks=5,
+            n_trials=60,
+            random_state=5,
+            search_strategy=search_strategy,
+            joint_distance_mode=None,
         )
         assert r_default["best_score"] == r_explicit_none["best_score"]
         assert r_default["best_blocks"] == r_explicit_none["best_blocks"]

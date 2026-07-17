@@ -1,4 +1,5 @@
 """Unit + biz_value tests for CompositePanelEstimator (panel / within-entity composite)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -151,7 +152,5 @@ def test_biz_val_panel_beats_pooled_on_fixed_effect_panel():
     pool_pred = pooled.predict(test[["entity", "x"]].astype(float))
     rmse_pool = float(np.sqrt(np.mean((pool_pred - test["y"].to_numpy()) ** 2)))
 
-    assert rmse_panel < rmse_pool * 0.90, (
-        f"panel RMSE {rmse_panel:.4f} should beat pooled {rmse_pool:.4f} by >=10%"
-    )
+    assert rmse_panel < rmse_pool * 0.90, f"panel RMSE {rmse_panel:.4f} should beat pooled {rmse_pool:.4f} by >=10%"
     assert np.all(np.isfinite(p_pred))

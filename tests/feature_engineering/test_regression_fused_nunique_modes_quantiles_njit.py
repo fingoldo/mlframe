@@ -77,9 +77,7 @@ def test_fused_kernel_bit_identical_to_numpy_reference(kind):
         got = np.asarray(N._fused_nunique_modes_quantiles(arr, _Q, "median_unbiased", 10), dtype=np.float64)
         # Exact agreement: integer-valued fields (nunique/modes_qty/ncrossings) and modes/quantiles.
         assert ref.shape == got.shape
-        assert np.allclose(ref, got, rtol=0.0, atol=0.0, equal_nan=True), (
-            f"kind={kind} n={n}\nref={ref}\ngot={got}"
-        )
+        assert np.allclose(ref, got, rtol=0.0, atol=0.0, equal_nan=True), f"kind={kind} n={n}\nref={ref}\ngot={got}"
 
 
 def test_fused_kernel_matches_low_cardinality_multimode():

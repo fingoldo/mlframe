@@ -4,6 +4,7 @@ Hoisting v_full = _rank_to_uniform(y) above the per-column loop must not change
 any score vs re-ranking y inside the loop. Covers all-finite y and y/column
 NaN masks (which still re-rank the masked subset).
 """
+
 from __future__ import annotations
 
 import numpy as np

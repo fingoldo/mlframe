@@ -6,6 +6,7 @@ leg) is the second-largest default-ON pre-FE cost, ~26% of the whole pre-categor
 linear in column count. ``max_cols`` bounds how many columns run this expensive selection; columns
 beyond the cap get no wavelet legs at all (there is no cheap fallback the way Fourier has a fixed grid).
 """
+
 from __future__ import annotations
 
 import numpy as np

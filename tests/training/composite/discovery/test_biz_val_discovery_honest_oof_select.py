@@ -14,6 +14,7 @@ Pins:
 * a genuine inverse COLLAPSE -> ``+inf``; a degenerate measurement is omitted (caller falls back);
 * the selector is a strict no-op without group ids.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -41,9 +42,7 @@ def _frame(n_groups: int = 40, per: int = 300, seed: int = 1):
     base_partial = 0.5 * well_level[groups] + rng.normal(0.0, 0.2, groups.size)
     x1 = rng.normal(size=groups.size)
     y = well_level[groups] + 5.0 * x1 + rng.normal(0.0, 1.0, groups.size)
-    df = pd.DataFrame(
-        {"base_full": base_full, "base_partial": base_partial, "x1": x1, "y": y.astype(np.float64)}
-    )
+    df = pd.DataFrame({"base_full": base_full, "base_partial": base_partial, "x1": x1, "y": y.astype(np.float64)})
     return df, groups.astype(np.int64), y.astype(np.float64), well_level
 
 
@@ -55,14 +54,25 @@ def _split_upper_tail(groups, well_level, n_holdout_wells: int = 8):
 
 def _spec(name, transform_name, base_column, params):
     return CompositeSpec(
-        name=name, target_col="y", transform_name=transform_name, base_column=base_column,
-        fitted_params=dict(params), mi_gain=1.0, mi_y=0.0, mi_t=1.0, valid_domain_frac=1.0, n_train_rows=100,
+        name=name,
+        target_col="y",
+        transform_name=transform_name,
+        base_column=base_column,
+        fitted_params=dict(params),
+        mi_gain=1.0,
+        mi_y=0.0,
+        mi_t=1.0,
+        valid_domain_frac=1.0,
+        n_train_rows=100,
     )
 
 
 def _disc(groups, holdout_idx):
     cfg = CompositeTargetDiscoveryConfig(
-        enabled=True, random_state=0, tiny_model_n_estimators=40, yscale_holdout_gate_sample_n=30_000,
+        enabled=True,
+        random_state=0,
+        tiny_model_n_estimators=40,
+        yscale_holdout_gate_sample_n=30_000,
     )
     disc = CompositeTargetDiscovery(cfg)
     disc._group_ids_for_rerank = groups
@@ -74,9 +84,18 @@ def _internal_cv(df, groups, screen_idx, y, spec):
     base = df[spec.base_column].values[screen_idx]
     ff = [c for c in _FEATS if c != spec.base_column]
     return _tiny_cv_rmse_y_scale(
-        y_train=y[screen_idx], base_train=base, transform=get_transform(spec.transform_name),
-        fitted_params=spec.fitted_params, x_train_matrix=df[ff].values[screen_idx], family="lightgbm",
-        n_estimators=40, num_leaves=15, learning_rate=0.1, cv_folds=3, random_state=0, n_jobs=1,
+        y_train=y[screen_idx],
+        base_train=base,
+        transform=get_transform(spec.transform_name),
+        fitted_params=spec.fitted_params,
+        x_train_matrix=df[ff].values[screen_idx],
+        family="lightgbm",
+        n_estimators=40,
+        num_leaves=15,
+        learning_rate=0.1,
+        cv_folds=3,
+        random_state=0,
+        n_jobs=1,
         groups=groups[screen_idx],
     )
 
@@ -101,14 +120,11 @@ def test_biz_val_honest_oof_outranks_base_additive_that_wins_internal_cv():
     # The two estimators DISAGREE: the additive spec looks competitive on group-internal CV but collapses on honest OOF.
     int_add = _internal_cv(df, groups, screen_idx, y, additive)
     int_honest = _internal_cv(df, groups, screen_idx, y, honest)
-    assert int_add < res[additive.name], (
-        f"premise: additive internal CV ({int_add:.3f}) must be much lower than its honest OOF ({res[additive.name]:.3f})"
-    )
+    assert int_add < res[additive.name], f"premise: additive internal CV ({int_add:.3f}) must be much lower than its honest OOF ({res[additive.name]:.3f})"
     # On internal CV the additive spec is competitive (legacy would keep it near the top); on honest OOF it is buried.
     assert int_add <= int_honest * 1.6, "additive must be competitive on the optimistic group-internal CV (legacy ranks it high)"
     assert res[additive.name] >= 1.20 * res[honest.name], (
-        f"honest OOF must rank additive ({res[additive.name]:.3f}) >= 1.20x the honest spec ({res[honest.name]:.3f}); "
-        f"measured ratio ~4.2"
+        f"honest OOF must rank additive ({res[additive.name]:.3f}) >= 1.20x the honest spec ({res[honest.name]:.3f}); measured ratio ~4.2"
     )
 
 
@@ -121,8 +137,12 @@ def test_biz_val_honest_oof_selection_full_fit_ranks_honest_above_additive():
 
     # Drive the rerank directly (the load-bearing ordering path). train_idx == screening pool, exactly as fit() rebinds it.
     out = disc._tiny_model_rerank(
-        kept_specs=[additive, honest], df=df, target_col="y", usable_features=_FEATS,
-        train_idx=screen_idx, y_full=y,
+        kept_specs=[additive, honest],
+        df=df,
+        target_col="y",
+        usable_features=_FEATS,
+        train_idx=screen_idx,
+        y_full=y,
     )
     names = [s.name for s in out]
     assert honest.name in names, "the honest non-AR spec must be retained"
@@ -161,9 +181,7 @@ def test_domain_check_crash_logs_warning(caplog, monkeypatch):
 
     from mlframe.training.composite.discovery import _honest_oof_select as _mod
 
-    broken_transform = dataclasses.replace(
-        get_transform(spec.transform_name), domain_check=lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom"))
-    )
+    broken_transform = dataclasses.replace(get_transform(spec.transform_name), domain_check=lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
     monkeypatch.setattr(_mod, "get_transform", lambda name: broken_transform)
 
     with caplog.at_level("WARNING", logger="mlframe.training.composite.discovery._honest_oof_select"):
@@ -185,7 +203,11 @@ def test_honest_oof_noop_without_group_ids():
     additive = _spec("y-diff-basepartial", "diff", "base_partial", {})
     honest = _spec("y-linres-basefull", "linear_residual", "base_full", {"alpha": 1.0, "beta": 0.0})
     disc._tiny_model_rerank(
-        kept_specs=[additive, honest], df=df, target_col="y", usable_features=_FEATS,
-        train_idx=screen_idx, y_full=y,
+        kept_specs=[additive, honest],
+        df=df,
+        target_col="y",
+        usable_features=_FEATS,
+        train_idx=screen_idx,
+        y_full=y,
     )
     assert not hasattr(disc, "_honest_oof_rmse"), "no group ids -> honest-OOF selector must not run"

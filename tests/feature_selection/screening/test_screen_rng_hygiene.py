@@ -14,6 +14,7 @@ Companion happy-path test:
 ``tests/feature_selection/test_mrmr_fixes_p0_p1.py::test_fix3_screen_does_not_mutate_global_numpy_rng``
 must continue to pass (see that file for the no-raise case).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,6 +23,7 @@ import pytest
 
 from mlframe.feature_selection.filters import MRMR
 from mlframe.feature_selection.filters import screen as screen_mod
+
 # 2026-05-22: ``screen_predictors`` body lives in ``_screen_predictors.py``;
 # the live call to ``merge_vars`` resolves from THAT module's globals.
 from mlframe.feature_selection.filters import _screen_predictors as screen_predictors_mod

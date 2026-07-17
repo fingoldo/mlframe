@@ -49,7 +49,11 @@ def test_top_pairs_and_heatmap_structure(tmp_path):
     model = _fit_tree(X, y)
     before = set(plt.get_fignums())
     res = si.shap_interaction_summary(
-        model, X, feature_names=names, max_rows=800, top_pairs=5,
+        model,
+        X,
+        feature_names=names,
+        max_rows=800,
+        top_pairs=5,
         plot_file=str(tmp_path / "shap_int.png"),
     )
     assert res.skipped is None
@@ -89,9 +93,7 @@ def test_biz_value_planted_interaction_ranks_first():
     res = si.shap_interaction_summary(model, X, feature_names=names, max_rows=2000, top_pairs=10)
     assert res.pair_names[0] == "f0 x f1", f"expected f0 x f1 top, got {res.pair_names[:3]}"
     # Measured ~4.6x; floor at 2x to absorb seed noise while catching a real regression.
-    assert res.pair_strength[0] >= 2.0 * res.pair_strength[1], (
-        f"planted interaction not materially above #2: {res.pair_strength[:2]}"
-    )
+    assert res.pair_strength[0] >= 2.0 * res.pair_strength[1], f"planted interaction not materially above #2: {res.pair_strength[:2]}"
 
 
 def test_cprofile_bounded_at_cap():

@@ -9,6 +9,7 @@ only on the sparse segment's rows, restricted to the small reliable feature subs
 far better. ``SegmentRoutedEstimator`` should recover close to the specialist's own ranking quality via its
 rank-splice combination.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,7 +30,9 @@ def _make_sparse_segment_dataset(n: int, seed: int):
 
     is_sparse = hist_len <= 2
     y = np.zeros(n)
-    y[~is_sparse] = reliable[~is_sparse, 0] + 0.5 * reliable[~is_sparse, 1] + noise_cols[~is_sparse].sum(axis=1) + rng.normal(scale=0.3, size=(~is_sparse).sum())
+    y[~is_sparse] = (
+        reliable[~is_sparse, 0] + 0.5 * reliable[~is_sparse, 1] + noise_cols[~is_sparse].sum(axis=1) + rng.normal(scale=0.3, size=(~is_sparse).sum())
+    )
     y[is_sparse] = reliable[is_sparse, 0] + 0.5 * reliable[is_sparse, 1] + rng.normal(scale=0.3, size=is_sparse.sum())
     return X, y, is_sparse
 
@@ -56,8 +59,7 @@ def test_biz_val_segment_routed_estimator_beats_global_model_within_sparse_segme
 
     assert rho_routed > 0.9, f"expected the routed specialist to rank the sparse segment well, got rho={rho_routed:.4f}"
     assert rho_routed - rho_main_only > 0.5, (
-        f"expected routing to beat the global model's within-segment ranking by >0.5 Spearman rho, "
-        f"got routed={rho_routed:.4f} vs main_only={rho_main_only:.4f}"
+        f"expected routing to beat the global model's within-segment ranking by >0.5 Spearman rho, got routed={rho_routed:.4f} vs main_only={rho_main_only:.4f}"
     )
 
 
@@ -67,7 +69,10 @@ def test_segment_routed_estimator_rank_splice_preserves_segment_score_multiset()
     calibration untouched."""
     X, y, is_sparse = _make_sparse_segment_dataset(n=1000, seed=1)
     est = SegmentRoutedEstimator(
-        main_estimator=Ridge(alpha=1.0), specialist_estimator=Ridge(alpha=1.0), segment_predicate=_segment_predicate, specialist_features=[0, 1],
+        main_estimator=Ridge(alpha=1.0),
+        specialist_estimator=Ridge(alpha=1.0),
+        segment_predicate=_segment_predicate,
+        specialist_features=[0, 1],
     )
     est.fit(X, y)
     routed_pred = est.predict(X)
@@ -83,7 +88,10 @@ def test_biz_val_segment_routed_estimator_auto_segment_column_matches_manual_pre
     auto-discovery was added -- auto_segment_column defaults to None and must never engage."""
     X, y, is_sparse = _make_sparse_segment_dataset(n=2000, seed=3)
     est = SegmentRoutedEstimator(
-        main_estimator=Ridge(alpha=1.0), specialist_estimator=Ridge(alpha=1.0), segment_predicate=_segment_predicate, specialist_features=[0, 1],
+        main_estimator=Ridge(alpha=1.0),
+        specialist_estimator=Ridge(alpha=1.0),
+        segment_predicate=_segment_predicate,
+        specialist_features=[0, 1],
     )
     est.fit(X, y)
     pred_manual = est.predict(X)
@@ -148,14 +156,17 @@ def test_segment_routed_estimator_rejects_both_predicate_and_auto_column():
         auto_segment_column=-1,
     )
     import pytest
+
     with pytest.raises(ValueError, match="exactly one"):
-        est.fit(*( _make_sparse_segment_dataset(n=50, seed=4)[:2] ))
+        est.fit(*(_make_sparse_segment_dataset(n=50, seed=4)[:2]))
 
 
 def test_segment_routed_estimator_no_sparse_rows_falls_back_to_main_model():
     X, y, _ = _make_sparse_segment_dataset(n=200, seed=2)
     est = SegmentRoutedEstimator(
-        main_estimator=Ridge(alpha=1.0), specialist_estimator=Ridge(alpha=1.0), segment_predicate=lambda X: np.zeros(X.shape[0], dtype=bool),
+        main_estimator=Ridge(alpha=1.0),
+        specialist_estimator=Ridge(alpha=1.0),
+        segment_predicate=lambda X: np.zeros(X.shape[0], dtype=bool),
     )
     est.fit(X, y)
     pred = est.predict(X)

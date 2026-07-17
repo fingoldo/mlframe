@@ -199,7 +199,7 @@ class TestClone:
         _fit_with_warnings_silenced(m, X, y)
         assert hasattr(m, "support_")
         m2 = clone(m)
-        assert not hasattr(m2, "support_"), "clone of a fitted MRMR must be unfitted; sklearn's " "clone() protocol forbids leaking fitted attrs."
+        assert not hasattr(m2, "support_"), "clone of a fitted MRMR must be unfitted; sklearn's clone() protocol forbids leaking fitted attrs."
         # Constructor params still survive.
         assert m.get_params(deep=True) == m2.get_params(deep=True)
 
@@ -251,7 +251,7 @@ class TestPickleRoundTrip:
         blob = pickle.dumps(sel)
         sel2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         # support_ identical content (allow ndarray vs list)
-        assert list(sel.support_) == list(sel2.support_), f"pickle round-trip changed support_; before={list(sel.support_)} " f"after={list(sel2.support_)}"
+        assert list(sel.support_) == list(sel2.support_), f"pickle round-trip changed support_; before={list(sel.support_)} after={list(sel2.support_)}"
         assert list(sel.get_feature_names_out()) == list(sel2.get_feature_names_out())
 
     def test_pickle_round_trip_preserves_transform(self):
@@ -260,7 +260,7 @@ class TestPickleRoundTrip:
         out_a = sel.transform(X)
         sel2 = pickle.loads(pickle.dumps(sel))  # nosec B301 -- round-trip of a locally-created, trusted object
         out_b = sel2.transform(X)
-        assert isinstance(out_b, type(out_a)), f"transform return type changed across pickle; " f"before={type(out_a).__name__} after={type(out_b).__name__}"
+        assert isinstance(out_b, type(out_a)), f"transform return type changed across pickle; before={type(out_a).__name__} after={type(out_b).__name__}"
         if isinstance(out_a, pd.DataFrame):
             assert list(out_a.columns) == list(out_b.columns)
             assert np.array_equal(out_a.values, out_b.values), "pickle round-trip changed transform values"
@@ -280,7 +280,7 @@ class TestPickleRoundTrip:
         assert sel2.dcd_ is not None, "pickle round-trip dropped dcd_ summary"
         # Top-level scalar fields must match (lists/dicts compare value-equal).
         for key in ("n_anchors", "n_pruned", "n_swaps"):
-            assert sel.dcd_[key] == sel2.dcd_[key], f"dcd_['{key}'] changed across pickle: " f"before={sel.dcd_[key]} after={sel2.dcd_[key]}"
+            assert sel.dcd_[key] == sel2.dcd_[key], f"dcd_['{key}'] changed across pickle: before={sel.dcd_[key]} after={sel2.dcd_[key]}"
 
 
 # ---------------------------------------------------------------------------
@@ -305,14 +305,14 @@ class TestFitTransformConsistency:
             out_b = b.transform(X)
         # Same return type.
         assert isinstance(out_a, type(out_b)) or isinstance(out_b, type(out_a)), (
-            f"fit_transform / fit-then-transform return types differ: " f"{type(out_a).__name__} vs {type(out_b).__name__}"
+            f"fit_transform / fit-then-transform return types differ: {type(out_a).__name__} vs {type(out_b).__name__}"
         )
         # Same selected columns.
         assert list(a.get_feature_names_out()) == list(b.get_feature_names_out())
         # Same values.
         va = out_a.values if isinstance(out_a, pd.DataFrame) else np.asarray(out_a)
         vb = out_b.values if isinstance(out_b, pd.DataFrame) else np.asarray(out_b)
-        assert np.array_equal(va, vb), "fit_transform(X, y) values differ from fit(X, y).transform(X) -- " "the TransformerMixin default contract is violated."
+        assert np.array_equal(va, vb), "fit_transform(X, y) values differ from fit(X, y).transform(X) -- the TransformerMixin default contract is violated."
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +327,7 @@ class TestSetOutputPandas:
         """transform() on an ndarray still returns a DataFrame under set_output(pandas)."""
         X, _y, sel = _set_output_pandas_fit()
         out = sel.transform(X.to_numpy())
-        assert isinstance(out, pd.DataFrame), f"set_output(transform='pandas') must return DataFrame; " f"got {type(out).__name__}"
+        assert isinstance(out, pd.DataFrame), f"set_output(transform='pandas') must return DataFrame; got {type(out).__name__}"
 
     def test_set_output_pandas_columns_match_feature_names_out(self):
         """DataFrame column count matches len(get_feature_names_out())."""
@@ -335,7 +335,7 @@ class TestSetOutputPandas:
         out = sel.transform(X)
         assert isinstance(out, pd.DataFrame)
         assert len(out.columns) == len(sel.get_feature_names_out()), (
-            f"set_output(pandas) DataFrame column count " f"({len(out.columns)}) != len(get_feature_names_out()) " f"({len(sel.get_feature_names_out())})"
+            f"set_output(pandas) DataFrame column count ({len(out.columns)}) != len(get_feature_names_out()) ({len(sel.get_feature_names_out())})"
         )
 
 
@@ -354,7 +354,7 @@ class TestPipelineEndToEnd:
         """pipe.fit(X_tr, y_tr).predict(X_te) runs end-to-end and returns the right shape."""
         _X_tr, X_te, _y_tr, _y_te, pipe = _pipeline_fit()
         preds = pipe.predict(X_te)
-        assert preds.shape == (200,), f"Pipeline predict() shape mismatch: got {preds.shape}, " f"expected (200,)"
+        assert preds.shape == (200,), f"Pipeline predict() shape mismatch: got {preds.shape}, expected (200,)"
 
     def test_pipeline_beats_random_on_clean_signal(self):
         """Anchor of usefulness: the pipeline must beat a 0.5 baseline
@@ -366,9 +366,7 @@ class TestPipelineEndToEnd:
         _X_tr, X_te, _y_tr, y_te, pipe = _pipeline_fit()
         score = pipe.score(X_te, y_te)
         assert score > 0.80, (
-            f"Pipeline test-accuracy {score:.3f} is implausibly low for "
-            f"a clean two-signal logistic dataset; MRMR likely dropped "
-            f"x1/x2 from the support."
+            f"Pipeline test-accuracy {score:.3f} is implausibly low for a clean two-signal logistic dataset; MRMR likely dropped x1/x2 from the support."
         )
 
 
@@ -402,7 +400,7 @@ class TestGridSearchCV:
             warnings.simplefilter("ignore")
             grid.fit(X, y)
         chosen = grid.best_params_["mrmr__quantization_nbins"]
-        assert chosen in (5, 10), f"GridSearchCV must pick a candidate from the grid; " f"got {chosen}"
+        assert chosen in (5, 10), f"GridSearchCV must pick a candidate from the grid; got {chosen}"
         # Sanity: best_score_ should be well above random.
         assert grid.best_score_ > 0.80, (
             f"GridSearchCV best_score_={grid.best_score_:.3f} too low "
@@ -437,4 +435,4 @@ class TestCVSupportStability:
                 per_fold_supports.append(names)
                 if "x1" in names:
                     x1_appearances += 1
-        assert x1_appearances == 5, f"x1 missing from {5 - x1_appearances}/5 CV folds; " f"supports={per_fold_supports}"
+        assert x1_appearances == 5, f"x1 missing from {5 - x1_appearances}/5 CV folds; supports={per_fold_supports}"

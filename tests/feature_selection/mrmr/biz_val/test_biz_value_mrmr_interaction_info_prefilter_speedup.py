@@ -29,6 +29,7 @@ Contracts pinned (real numbers, never xfail):
 
 2026-06-01 Layer 96.
 """
+
 from __future__ import annotations
 
 import time
@@ -90,17 +91,20 @@ def _build_cat_xor(seed: int, n: int = 6000):
     cat_b = rng.integers(0, 2, n)
     flip = rng.random(n) < 0.03
     y = (cat_a ^ cat_b) ^ flip.astype(int)
-    X = pd.DataFrame({
-        "cat_a": cat_a.astype(str),
-        "cat_b": cat_b.astype(str),
-        "decoy_0": rng.integers(0, 2, n).astype(str),
-        "decoy_1": rng.integers(0, 3, n).astype(str),
-    })
+    X = pd.DataFrame(
+        {
+            "cat_a": cat_a.astype(str),
+            "cat_b": cat_b.astype(str),
+            "decoy_0": rng.integers(0, 2, n).astype(str),
+            "decoy_1": rng.integers(0, 3, n).astype(str),
+        }
+    )
     return X, y.astype(int)
 
 
 def _warm_numba():
     from mlframe.feature_selection.filters._adaptive_nbins import _plug_in_mi
+
     _ = _plug_in_mi(np.array([0, 1, 0, 1]), np.array([0, 1, 1, 0]))
 
 
@@ -114,6 +118,7 @@ class TestPairScoringSpeedup:
         from mlframe.feature_selection.filters._cat_pair_fe import (
             score_cat_pairs_by_interaction_information,
         )
+
         X, y = _build_wide_cats(0, p=30, n=5000)
         cat_cols = list(X.columns)
         _warm_numba()
@@ -132,8 +137,8 @@ class TestPairScoringSpeedup:
         speedup = t_naive / max(t_cached, 1e-9)
         assert speedup >= 1.5, (
             f"cached II pair scorer only {speedup:.2f}x faster than naive "
-            f"per-pair recompute (naive {t_naive*1000:.1f} ms, cached "
-            f"{t_cached*1000:.1f} ms at p=30 n=5000); expected >= 1.5x. The "
+            f"per-pair recompute (naive {t_naive * 1000:.1f} ms, cached "
+            f"{t_cached * 1000:.1f} ms at p=30 n=5000); expected >= 1.5x. The "
             f"O(p^2)->O(p) marginal/code hoisting is not delivering the win."
         )
 
@@ -149,6 +154,7 @@ class TestBitEquivalence:
         from mlframe.feature_selection.filters._cat_pair_fe import (
             score_cat_pairs_by_interaction_information,
         )
+
         X, y = _build_wide_cats(seed, p=20, n=4000)
         cat_cols = list(X.columns)
         naive = _naive_pair_ii(X, y, cat_cols)
@@ -181,33 +187,23 @@ class TestXorPreserved:
             score_cat_pairs_by_interaction_information,
             engineered_name_cat_pair_cross,
         )
+
         X, y = _build_cat_xor(seed)
         cat_cols = ["cat_a", "cat_b", "decoy_0", "decoy_1"]
         sc = score_cat_pairs_by_interaction_information(X, y, cat_cols)
         xor_name = engineered_name_cat_pair_cross("cat_a", "cat_b")
         xor_rows = sc[sc["engineered_col"] == xor_name]
-        assert len(xor_rows) == 1, (
-            f"seed={seed}: the XOR pair was DROPPED from scoring "
-            f"({len(xor_rows)} rows). Marginal hoisting must never prune."
-        )
+        assert len(xor_rows) == 1, f"seed={seed}: the XOR pair was DROPPED from scoring ({len(xor_rows)} rows). Marginal hoisting must never prune."
         row = xor_rows.iloc[0]
         # Both marginals near-zero -- a naive "needs marginal signal" filter
         # would have killed this pair.
         assert abs(float(row["mi_i"])) < 0.02 and abs(float(row["mi_j"])) < 0.02, (
-            f"seed={seed}: XOR parent marginals are not ~0 "
-            f"(mi_i={row['mi_i']:.4f}, mi_j={row['mi_j']:.4f}); fixture "
-            f"is not a pure-synergy XOR."
+            f"seed={seed}: XOR parent marginals are not ~0 (mi_i={row['mi_i']:.4f}, mi_j={row['mi_j']:.4f}); fixture is not a pure-synergy XOR."
         )
         # ...yet the interaction information is large and the pair tops the
         # ranking -- proving the synergy survived the hoist.
-        assert float(row["ii"]) > 0.2, (
-            f"seed={seed}: XOR pair II={row['ii']:.4f} <= 0.2; the synergy "
-            f"was lost by the optimization."
-        )
-        assert str(sc.iloc[0]["engineered_col"]) == xor_name, (
-            f"seed={seed}: XOR pair not top-1 after caching "
-            f"(top={sc.iloc[0]['engineered_col']})."
-        )
+        assert float(row["ii"]) > 0.2, f"seed={seed}: XOR pair II={row['ii']:.4f} <= 0.2; the synergy was lost by the optimization."
+        assert str(sc.iloc[0]["engineered_col"]) == xor_name, f"seed={seed}: XOR pair not top-1 after caching (top={sc.iloc[0]['engineered_col']})."
 
 
 # ---------------------------------------------------------------------------
@@ -221,26 +217,27 @@ class TestL89ContractsIntact:
             score_cat_pairs_by_interaction_information,
             engineered_name_cat_pair_cross,
         )
+
         wins = 0
         for s in (1, 7, 13, 42, 101):
             X, y = _build_cat_xor(s)
             sc = score_cat_pairs_by_interaction_information(
-                X, y, ["cat_a", "cat_b", "decoy_0", "decoy_1"],
+                X,
+                y,
+                ["cat_a", "cat_b", "decoy_0", "decoy_1"],
             )
             xor_name = engineered_name_cat_pair_cross("cat_a", "cat_b")
             top3 = list(sc.head(3)["engineered_col"])
             xor_row = sc[sc["engineered_col"] == xor_name].iloc[0]
             if float(xor_row["ii"]) > 0.2 and xor_name in top3:
                 wins += 1
-        assert wins >= 4, (
-            f"post-Layer-96 XOR synergy recovered in top-3 on only {wins}/5 "
-            f"seeds; the caching regressed the L89 recovery contract."
-        )
+        assert wins >= 4, f"post-Layer-96 XOR synergy recovered in top-3 on only {wins}/5 seeds; the caching regressed the L89 recovery contract."
 
     def test_redundant_copy_still_negative(self):
         from mlframe.feature_selection.filters._cat_pair_fe import (
             score_cat_pairs_by_interaction_information,
         )
+
         for s in (1, 7, 13, 42, 101):
             rng = np.random.default_rng(int(s))
             n = 6000
@@ -249,11 +246,12 @@ class TestL89ContractsIntact:
             y = (cat_a >= 2).astype(int) ^ (rng.random(n) < 0.03).astype(int)
             X = pd.DataFrame({"cat_a": cat_a.astype(str), "cat_b": cat_b.astype(str)})
             sc = score_cat_pairs_by_interaction_information(
-                X, y.astype(int), ["cat_a", "cat_b"],
+                X,
+                y.astype(int),
+                ["cat_a", "cat_b"],
             )
             assert float(sc["ii"].iloc[0]) < 0.0, (
-                f"seed={s}: redundant copy-cat II {sc['ii'].iloc[0]:.4f} not < 0 "
-                f"after caching; redundancy detection regressed."
+                f"seed={s}: redundant copy-cat II {sc['ii'].iloc[0]:.4f} not < 0 after caching; redundancy detection regressed."
             )
 
 
@@ -268,7 +266,8 @@ def _naive_triple_beam_ii3(X, y, cat_cols, evaluated_triples, n_bins: int = 10):
     the Layer 94 mi_cache replaces."""
     from mlframe.feature_selection.filters._cat_pair_fe import _bin_target
     from mlframe.feature_selection.filters._cat_triple_fe import (
-        _dense_codes, _join_codes,
+        _dense_codes,
+        _join_codes,
     )
     from mlframe.feature_selection.filters._target_encoding_fe import _column_to_str
     from mlframe.feature_selection.filters._adaptive_nbins import _plug_in_mi
@@ -283,12 +282,8 @@ def _naive_triple_beam_ii3(X, y, cat_cols, evaluated_triples, n_bins: int = 10):
         return float(_plug_in_mi(joint, y_bin))
 
     out = {}
-    for (a, b, c) in evaluated_triples:
-        ii3 = (
-            mi((a, b, c))
-            - (mi((a, b)) + mi((a, c)) + mi((b, c)))
-            + (mi((a,)) + mi((b,)) + mi((c,)))
-        )
+    for a, b, c in evaluated_triples:
+        ii3 = mi((a, b, c)) - (mi((a, b)) + mi((a, c)) + mi((b, c))) + (mi((a,)) + mi((b,)) + mi((c,)))
         out[frozenset((a, b, c))] = ii3
     return out
 
@@ -298,6 +293,7 @@ class TestTripleScoringSpeedup:
         from mlframe.feature_selection.filters._cat_triple_fe import (
             score_cat_triples_by_interaction_information,
         )
+
         # Wide cat set so the beam evaluates many triples sharing sub-joints
         # (where the frozenset mi_cache pays off).
         rng = np.random.default_rng(7)
@@ -317,12 +313,13 @@ class TestTripleScoringSpeedup:
         # Run the cached beam once to capture which triples it evaluates, so the
         # naive baseline scores the SAME candidate set (apples to apples).
         sc = score_cat_triples_by_interaction_information(
-            X, y, cat_cols, beam_width=3, top_k_pairs=3,
+            X,
+            y,
+            cat_cols,
+            beam_width=3,
+            top_k_pairs=3,
         )
-        evaluated = [
-            (str(r["cat_a"]), str(r["cat_b"]), str(r["cat_c"]))
-            for _, r in sc.iterrows()
-        ]
+        evaluated = [(str(r["cat_a"]), str(r["cat_b"]), str(r["cat_c"])) for _, r in sc.iterrows()]
 
         n_iter = 3
         t0 = time.perf_counter()
@@ -333,14 +330,18 @@ class TestTripleScoringSpeedup:
         t0 = time.perf_counter()
         for _ in range(n_iter):
             score_cat_triples_by_interaction_information(
-                X, y, cat_cols, beam_width=3, top_k_pairs=3,
+                X,
+                y,
+                cat_cols,
+                beam_width=3,
+                top_k_pairs=3,
             )
         t_cached = (time.perf_counter() - t0) / n_iter
 
         speedup = t_naive / max(t_cached, 1e-9)
         assert speedup >= 1.5, (
             f"cached triple II3 scorer only {speedup:.2f}x faster than naive "
-            f"per-term recompute (naive {t_naive*1000:.1f} ms, cached "
-            f"{t_cached*1000:.1f} ms); expected >= 1.5x. The frozenset mi_cache "
+            f"per-term recompute (naive {t_naive * 1000:.1f} ms, cached "
+            f"{t_cached * 1000:.1f} ms); expected >= 1.5x. The frozenset mi_cache "
             f"is not delivering the sub-joint reuse win."
         )

@@ -80,6 +80,7 @@ def test_max_train_size_rolling_window():
 
 def test_split_reads_frame_shape_no_copy():
     """split() reads only len/shape, never materialises the frame."""
+
     class _FakeFrame:
         shape = (150, 4)
 
@@ -159,9 +160,7 @@ def _cv_score(splitter, x, y):
 
     scores = []
     X = x.reshape(-1, 1)
-    for tr, te in splitter.split(n_samples=len(y)) if isinstance(
-        splitter, PurgedTimeSeriesSplit
-    ) else splitter.split(X):
+    for tr, te in splitter.split(n_samples=len(y)) if isinstance(splitter, PurgedTimeSeriesSplit) else splitter.split(X):
         model = KNeighborsRegressor(n_neighbors=1)
         model.fit(X[tr], y[tr])
         scores.append(r2_score(y[te], model.predict(X[te])))
@@ -180,12 +179,7 @@ def test_biz_val_purged_cv_reports_honest_lower_score_than_leaky_kfold():
     x, y = _make_autocorrelated_overlap_series(n=2000, h=20, seed=1)
 
     leaky = _cv_score(KFold(n_splits=5, shuffle=True, random_state=0), x, y)
-    purged = _cv_score(
-        PurgedTimeSeriesSplit(n_splits=5, purge=20, embargo=20), x, y
-    )
+    purged = _cv_score(PurgedTimeSeriesSplit(n_splits=5, purge=20, embargo=20), x, y)
 
     assert leaky > purged, f"leaky KFold ({leaky:.3f}) should beat purged ({purged:.3f})"
-    assert leaky - purged >= 0.15, (
-        f"purge/embargo must remove adjacency leakage: leaky={leaky:.3f} "
-        f"purged={purged:.3f} gap={leaky - purged:.3f} (floor 0.15)"
-    )
+    assert leaky - purged >= 0.15, f"purge/embargo must remove adjacency leakage: leaky={leaky:.3f} purged={purged:.3f} gap={leaky - purged:.3f} (floor 0.15)"

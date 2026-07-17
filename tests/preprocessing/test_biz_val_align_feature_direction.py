@@ -6,6 +6,7 @@ consistent orientation -- a feature negatively correlated with the target contri
 partially CANCELING the positively-oriented features' signal. Flipping negatively-oriented features first
 should recover a much stronger pooled signal.
 """
+
 from __future__ import annotations
 
 import numpy as np

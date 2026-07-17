@@ -4,6 +4,7 @@ Covers ``bin_predictions`` / ``estimate_calibration_quality_binned`` degenerate 
 ``anderson_darling_statistic`` at n=1 / all-tied / empty, the Miller-Madow ECI correction,
 and ``mean_squared_deviation`` on empty / known inputs.
 """
+
 from __future__ import annotations
 
 import numpy as np

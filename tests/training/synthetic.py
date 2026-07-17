@@ -70,11 +70,7 @@ def make_categorical_classification_data(
     cat_1 = rng.choice([f"cat_A_{i}" for i in range(100)], n_samples)
     cat_2 = rng.choice([f"cat_B_{i}" for i in range(50)], n_samples)
     cat_3 = rng.choice(["X", "Y", "Z"], n_samples)
-    logits = (
-        2.0 * X_numeric[:, 0]
-        + 3.0 * X_numeric[:, 1]
-        + (cat_1 == "cat_A_10").astype(float) * 5.0
-    )
+    logits = 2.0 * X_numeric[:, 0] + 3.0 * X_numeric[:, 1] + (cat_1 == "cat_A_10").astype(float) * 5.0
     probs = 1.0 / (1.0 + np.exp(-logits))
     y = (probs > 0.5).astype(int)
     df = pd.DataFrame(X_numeric, columns=[f"num_{i}" for i in range(n_numeric)])

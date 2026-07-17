@@ -2,6 +2,7 @@
 
 Each test maps 1:1 to a numbered fix in the batch and must FAIL pre-fix, PASS post-fix.
 """
+
 from __future__ import annotations
 
 import ast
@@ -49,16 +50,37 @@ def test_main_dead_imports_removed():
     tree = ast.parse(src)
     # Names known dead at audit time; post-fix, none should appear as bound import names.
     DEAD = {
-        "sys", "timer", "glob", "deepcopy",
-        "exists", "join", "TypeVar", "joblib", "psutil", "stats",
-        "clone", "SimpleImputer", "StandardScaler", "ce",
-        "BaselineDiagnostics", "format_baseline_diagnostics_report",
-        "compute_label_distribution_drift", "format_drift_report",
-        "load_mlframe_model", "LINEAR_MODEL_TYPES", "is_linear_model", "is_neural_model",
-        "format_phase_summary", "make_train_test_split",
-        "process_model", "select_target",
-        "MRMR", "create_fairness_subgroups", "score_ensemble",
-        "run_dummy_baselines", "run_per_target_diagnostics",
+        "sys",
+        "timer",
+        "glob",
+        "deepcopy",
+        "exists",
+        "join",
+        "TypeVar",
+        "joblib",
+        "psutil",
+        "stats",
+        "clone",
+        "SimpleImputer",
+        "StandardScaler",
+        "ce",
+        "BaselineDiagnostics",
+        "format_baseline_diagnostics_report",
+        "compute_label_distribution_drift",
+        "format_drift_report",
+        "load_mlframe_model",
+        "LINEAR_MODEL_TYPES",
+        "is_linear_model",
+        "is_neural_model",
+        "format_phase_summary",
+        "make_train_test_split",
+        "process_model",
+        "select_target",
+        "MRMR",
+        "create_fairness_subgroups",
+        "score_ensemble",
+        "run_dummy_baselines",
+        "run_per_target_diagnostics",
     }
     found = set()
     for node in ast.walk(tree):
@@ -73,6 +95,7 @@ def test_main_dead_imports_removed():
 def test_main_module_still_imports_cleanly():
     # `import mlframe.training.core.main` must not break after pruning.
     import importlib
+
     mod = importlib.import_module("mlframe.training.core.main")
     assert hasattr(mod, "train_mlframe_models_suite")
 
@@ -95,17 +118,19 @@ def test_main_no_dead_models_defaultdict():
 def test_main_setattr_block_has_why_comment():
     sys.path.insert(0, str(CORE.parents[3]))  # repo/src
     from mlframe.training.core._misc_helpers import _bulk_setattr_to_ctx
+
     doc = _bulk_setattr_to_ctx.__doc__
     assert doc, "_bulk_setattr_to_ctx must carry a docstring with the migration WHY"
     low = doc.lower()
     assert "migration" in low or "phase-extraction" in low or "ctx-form" in low or "phase->ctx" in low, (
-        "expected migration-debt WHY rationale in _bulk_setattr_to_ctx.__doc__; "
-        f"got: {doc!r}"
+        f"expected migration-debt WHY rationale in _bulk_setattr_to_ctx.__doc__; got: {doc!r}"
     )
+
     # Behavioural pin on the helper's fail-loud contract: a missing slot must raise rather
     # than silently degrade into an ``AttributeError: 'NoneType' has no attribute ...`` later.
     class _Bag:
         pass
+
     with pytest.raises(KeyError):
         _bulk_setattr_to_ctx(_Bag(), ("definitely_absent_slot",), {})
 
@@ -121,8 +146,7 @@ def test_phase_helpers_no_dead_strategies_for_check():
     pat_use = re.compile(r"\bstrategies_for_check\b")
     assignments = pat_assign.findall(src)
     uses = pat_use.findall(src)
-    assert len(uses) > len(assignments), \
-        "strategies_for_check is bound but never read (kept as dead intermediate)"
+    assert len(uses) > len(assignments), "strategies_for_check is bound but never read (kept as dead intermediate)"
 
 
 # Fix 5: strategy_by_model hoisted out of per-target loop (or factored to helper).
@@ -132,18 +156,16 @@ def test_strategy_by_model_hoisted_out_of_inner_loop():
     # After fix: strategy_by_model must NOT appear AS AN ASSIGNMENT inside that loop body.
     m = re.search(r"for pre_pipeline, pre_pipeline_name in", src)
     assert m is not None, "outer pre_pipeline loop not found"
-    body = src[m.start():]
+    body = src[m.start() :]
     # Find first assignment inside body
     assign_inside = re.search(r"^\s+strategy_by_model\s*=\s*\{id\(m\):", body, re.MULTILINE)
-    assert assign_inside is None, \
-        "strategy_by_model is STILL recomputed inside the pre_pipeline loop; should be hoisted"
+    assert assign_inside is None, "strategy_by_model is STILL recomputed inside the pre_pipeline loop; should be hoisted"
 
 
 # Fix 6: len(list(sorted_models)) -> len(sorted_models).
 def test_no_redundant_list_wrap_on_sorted():
     src = _read("_phase_train_one_target.py")
-    assert "len(list(sorted_models))" not in src, \
-        "redundant `list()` wrap around already-list sorted_models still present"
+    assert "len(list(sorted_models))" not in src, "redundant `list()` wrap around already-list sorted_models still present"
 
 
 # Fix 7: WHY comment on common_params.copy().
@@ -151,9 +173,8 @@ def test_common_params_copy_has_why_comment():
     src = _read("_phase_train_one_target.py")
     idx = src.find("current_common_params = common_params.copy()")
     assert idx >= 0, "expected per-iter common_params.copy() line"
-    window = src[max(0, idx - 600): idx]
-    assert "isolation" in window.lower() or "bleed" in window.lower(), \
-        "expected WHY comment about isolation copy"
+    window = src[max(0, idx - 600) : idx]
+    assert "isolation" in window.lower() or "bleed" in window.lower(), "expected WHY comment about isolation copy"
 
 
 # Fix 8: WHY comment on per-iter psutil RSS probe.
@@ -161,9 +182,8 @@ def test_psutil_rss_sample_has_why_comment():
     src = _read("_phase_train_one_target.py")
     idx = src.find("memory_info().rss")
     assert idx >= 0, "expected per-iter psutil RSS sample"
-    window = src[max(0, idx - 1200): idx]
-    assert "oom" in window.lower() or "rss" in window.lower() and "intentional" in window.lower(), \
-        "expected WHY comment justifying per-iter RSS sample"
+    window = src[max(0, idx - 1200) : idx]
+    assert "oom" in window.lower() or "rss" in window.lower() and "intentional" in window.lower(), "expected WHY comment justifying per-iter RSS sample"
 
 
 # Fix 9: dead try/except around _dropped_high_card_data.clear() removed.
@@ -183,11 +203,8 @@ def test_config_setup_interactive_probe_at_module_scope():
     src = _read("_phase_config_setup.py")
     # Module-level cache of the probe; should be a constant assignment at module
     # scope, not a re-probe inside setup_configuration.
-    has_module_const = bool(re.search(
-        r"^_MLFRAME_INTERACTIVE(_LOGP)?\s*=", src, re.MULTILINE)
-    )
-    assert has_module_const, \
-        "interactive-mode probe should be cached at module-import time"
+    has_module_const = bool(re.search(r"^_MLFRAME_INTERACTIVE(_LOGP)?\s*=", src, re.MULTILINE))
+    assert has_module_const, "interactive-mode probe should be cached at module-import time"
 
 
 # Fix 12: _ensure_logging_visible early-returns if already configured.
@@ -204,6 +221,7 @@ def test_ensure_logging_visible_is_idempotent():
     # Behavioural: a real second call must NOT add a handler.
     sys.path.insert(0, str(CORE.parents[3]))  # repo/src
     from mlframe.training.core._misc_helpers import _ensure_logging_visible
+
     root = logging.getLogger()
     _ensure_logging_visible()
     before = list(root.handlers)
@@ -211,8 +229,7 @@ def test_ensure_logging_visible_is_idempotent():
     _ensure_logging_visible()
     after = list(root.handlers)
     after_fmts = [getattr(h.formatter, "_fmt", None) for h in after]
-    assert len(after) == len(before), \
-        f"second call added handlers ({len(before)} -> {len(after)})"
+    assert len(after) == len(before), f"second call added handlers ({len(before)} -> {len(after)})"
     assert after_fmts == before_fmts, "second call mutated handler formatters"
 
 
@@ -220,10 +237,7 @@ def test_ensure_logging_visible_is_idempotent():
 def test_finalize_suite_single_pass_walk():
     src = _read("_phase_finalize.py")
     tree = ast.parse(src)
-    fn = next(
-        node for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "finalize_suite"
-    )
+    fn = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "finalize_suite")
 
     # Count top-level (depth=1 inside finalize_suite) ``for _ttype/_tt, _Y in ctx.models``-style walks.
     top_for_count = 0
@@ -233,8 +247,7 @@ def test_finalize_suite_single_pass_walk():
             iter_src = ast.unparse(stmt.iter)
             if "ctx.models" in iter_src:
                 top_for_count += 1
-    assert top_for_count == 1, \
-        f"finalize_suite still has {top_for_count} top-level ctx.models walks; expected 1 after combine"
+    assert top_for_count == 1, f"finalize_suite still has {top_for_count} top-level ctx.models walks; expected 1 after combine"
 
 
 # Fix 14: WHY comment on `del df; ctx.df = None`.
@@ -244,7 +257,7 @@ def test_main_del_df_has_why_comment():
     if idx < 0:
         idx = src.find("del df")
     assert idx >= 0, "del df line not found"
-    window = src[max(0, idx - 400): idx]
-    assert ("gc" in window.lower() or "decref" in window.lower()
-            or "reclaim" in window.lower() or "free" in window.lower()), \
+    window = src[max(0, idx - 400) : idx]
+    assert "gc" in window.lower() or "decref" in window.lower() or "reclaim" in window.lower() or "free" in window.lower(), (
         "expected WHY comment on `del df; ctx.df = None`"
+    )

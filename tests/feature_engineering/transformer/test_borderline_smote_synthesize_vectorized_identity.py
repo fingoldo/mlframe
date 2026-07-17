@@ -11,6 +11,7 @@ alpha-float draws, so batching them would silently change WHICH neighbours inter
 selection downstream. This test pins bit-identity against a self-contained reference re-implementing
 the OLD row-loop, including the ``cand.size == 0`` no-draw branch.
 """
+
 from __future__ import annotations
 
 import numpy as np

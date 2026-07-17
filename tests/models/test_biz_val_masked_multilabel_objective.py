@@ -7,6 +7,7 @@ propensity (a realistic confound: customers likely to want a product often alrea
 predict NON-acquisition -- exactly backwards. Masking those cells out of the loss entirely should recover
 materially better held-out discrimination on the genuinely-undetermined (not-yet-owned) cells.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -67,7 +68,9 @@ def test_biz_val_masked_objective_beats_naive_negative_coding():
     auc_masked = float(roc_auc_score(y_true_test[test_not_owned], pred_masked[test_not_owned]))
     auc_naive = float(roc_auc_score(y_true_test[test_not_owned], pred_naive[test_not_owned]))
 
-    assert auc_masked > auc_naive + 0.05, f"expected the masked objective to beat naive negative-coding by >=0.05 AUC on genuinely-undetermined cells, got masked={auc_masked:.4f} naive={auc_naive:.4f}"
+    assert auc_masked > auc_naive + 0.05, (
+        f"expected the masked objective to beat naive negative-coding by >=0.05 AUC on genuinely-undetermined cells, got masked={auc_masked:.4f} naive={auc_naive:.4f}"
+    )
 
 
 def test_flatten_masked_multilabel_sentinel_marks_dont_care_cells():
@@ -146,9 +149,7 @@ def test_biz_val_masked_objective_class_weighting_beats_uniform_on_rare_labels()
     class_weights = compute_inverse_frequency_class_weights(y[: n_rows * 4 // 5], dont_care_mask[: n_rows * 4 // 5])
     sample_weight = flatten_masked_multilabel_class_weights(y, dont_care_mask, class_weights=class_weights)
     dtrain_weighted = xgb.DMatrix(X_train, label=y_masked[:split], weight=sample_weight[:split])
-    model_weighted = xgb.train(
-        params, dtrain_weighted, num_boost_round=30, obj=masked_multilabel_logloss_objective(use_sample_weight=True)
-    )
+    model_weighted = xgb.train(params, dtrain_weighted, num_boost_round=30, obj=masked_multilabel_logloss_objective(use_sample_weight=True))
 
     dtest = xgb.DMatrix(X_test)
     pred_uniform = 1.0 / (1.0 + np.exp(-model_uniform.predict(dtest, output_margin=True)))

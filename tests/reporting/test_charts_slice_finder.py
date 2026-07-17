@@ -100,8 +100,7 @@ def test_three_way_cap_is_logged(caplog):
     cols = {f"f{i}": rng.random(n) for i in range(10)}
     X = pd.DataFrame(cols)
     bad = (X["f0"] > 0.5) & (X["f1"] > 0.5)
-    res = find_weak_slices(X, np.zeros(n), np.where(bad, 5.0, 1.0),
-                           max_arity=3, three_way_top_features=4)
+    res = find_weak_slices(X, np.zeros(n), np.where(bad, 5.0, 1.0), max_arity=3, three_way_top_features=4)
     assert any("3-way restricted to top" in c for c in res.capped)
 
 

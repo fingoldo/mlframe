@@ -10,6 +10,7 @@ Public surface covered:
 
 The screen/orchestrator wrapper ``evaluate_candidates`` is integration-level and is exercised by tests/feature_selection/test_screen.py; we don't duplicate that here.
 """
+
 from __future__ import annotations
 
 import time
@@ -63,7 +64,11 @@ def _make_eval_kwargs(factors_data, factors_nbins, factors_names, y_indices=(3,)
     """Build a complete evaluate_candidate kwargs dict. Individual tests override only the field under test."""
     y_arr = np.asarray(y_indices, dtype=np.int64)
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=factors_data, vars_indices=y_arr, var_is_nominal=None, factors_nbins=factors_nbins, dtype=np.int32,
+        factors_data=factors_data,
+        vars_indices=y_arr,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        dtype=np.int32,
     )
     n_candidates = factors_data.shape[1]
     expected_gains = np.zeros(n_candidates, dtype=np.float64)
@@ -127,9 +132,14 @@ def test_get_candidate_name_multi():
 def test_should_skip_failed_candidate():
     expected_gains = np.zeros(5, dtype=np.float64)
     skip, nexist = should_skip_candidate(
-        cand_idx=2, X=(2,), interactions_order=1,
-        failed_candidates={2}, added_candidates=set(),
-        expected_gains=expected_gains, selected_vars=[], selected_interactions_vars=[],
+        cand_idx=2,
+        X=(2,),
+        interactions_order=1,
+        failed_candidates={2},
+        added_candidates=set(),
+        expected_gains=expected_gains,
+        selected_vars=[],
+        selected_interactions_vars=[],
     )
     assert skip is True
     assert nexist == 0
@@ -138,9 +148,14 @@ def test_should_skip_failed_candidate():
 def test_should_skip_added_candidate():
     expected_gains = np.zeros(5, dtype=np.float64)
     skip, _ = should_skip_candidate(
-        cand_idx=3, X=(3,), interactions_order=1,
-        failed_candidates=set(), added_candidates={3},
-        expected_gains=expected_gains, selected_vars=[], selected_interactions_vars=[],
+        cand_idx=3,
+        X=(3,),
+        interactions_order=1,
+        failed_candidates=set(),
+        added_candidates={3},
+        expected_gains=expected_gains,
+        selected_vars=[],
+        selected_interactions_vars=[],
     )
     assert skip is True
 
@@ -150,9 +165,14 @@ def test_should_skip_already_scored_candidate():
     expected_gains = np.zeros(5, dtype=np.float64)
     expected_gains[1] = 0.42
     skip, _ = should_skip_candidate(
-        cand_idx=1, X=(1,), interactions_order=1,
-        failed_candidates=set(), added_candidates=set(),
-        expected_gains=expected_gains, selected_vars=[], selected_interactions_vars=[],
+        cand_idx=1,
+        X=(1,),
+        interactions_order=1,
+        failed_candidates=set(),
+        added_candidates=set(),
+        expected_gains=expected_gains,
+        selected_vars=[],
+        selected_interactions_vars=[],
     )
     assert skip is True
 
@@ -160,9 +180,14 @@ def test_should_skip_already_scored_candidate():
 def test_should_not_skip_fresh_candidate():
     expected_gains = np.zeros(5, dtype=np.float64)
     skip, nexist = should_skip_candidate(
-        cand_idx=4, X=(4,), interactions_order=1,
-        failed_candidates={0, 1}, added_candidates={2},
-        expected_gains=expected_gains, selected_vars=[], selected_interactions_vars=[],
+        cand_idx=4,
+        X=(4,),
+        interactions_order=1,
+        failed_candidates={0, 1},
+        added_candidates={2},
+        expected_gains=expected_gains,
+        selected_vars=[],
+        selected_interactions_vars=[],
     )
     assert skip is False
     assert nexist == 0
@@ -172,9 +197,14 @@ def test_should_skip_interaction_with_selected_subelement():
     # interactions_order > 1: a k-way candidate is skipped if any sub-element is already in selected_interactions_vars at this stage.
     expected_gains = np.zeros(5, dtype=np.float64)
     skip, _ = should_skip_candidate(
-        cand_idx=4, X=(1, 2), interactions_order=2,
-        failed_candidates=set(), added_candidates=set(),
-        expected_gains=expected_gains, selected_vars=[], selected_interactions_vars=[1],
+        cand_idx=4,
+        X=(1, 2),
+        interactions_order=2,
+        failed_candidates=set(),
+        added_candidates=set(),
+        expected_gains=expected_gains,
+        selected_vars=[],
+        selected_interactions_vars=[1],
     )
     assert skip is True
 
@@ -183,9 +213,14 @@ def test_should_skip_interaction_only_unknown_skips_partial_overlap():
     # interactions_order > 1, only_unknown_interactions default True: any sub-element already in selected_vars triggers skip.
     expected_gains = np.zeros(5, dtype=np.float64)
     skip, nexist = should_skip_candidate(
-        cand_idx=4, X=(1, 2), interactions_order=2,
-        failed_candidates=set(), added_candidates=set(),
-        expected_gains=expected_gains, selected_vars=[1], selected_interactions_vars=[],
+        cand_idx=4,
+        X=(1, 2),
+        interactions_order=2,
+        failed_candidates=set(),
+        added_candidates=set(),
+        expected_gains=expected_gains,
+        selected_vars=[1],
+        selected_interactions_vars=[],
         only_unknown_interactions=True,
     )
     assert skip is True
@@ -197,9 +232,14 @@ def test_should_skip_lineage_filter():
     expected_gains = np.zeros(6, dtype=np.float64)
     lineage = {4: frozenset({1, 2})}
     skip, _ = should_skip_candidate(
-        cand_idx=5, X=(4, 2), interactions_order=2,
-        failed_candidates=set(), added_candidates=set(),
-        expected_gains=expected_gains, selected_vars=[], selected_interactions_vars=[],
+        cand_idx=5,
+        X=(4, 2),
+        interactions_order=2,
+        failed_candidates=set(),
+        added_candidates=set(),
+        expected_gains=expected_gains,
+        selected_vars=[],
+        selected_interactions_vars=[],
         engineered_lineage=lineage,
     )
     assert skip is True
@@ -212,8 +252,12 @@ def test_should_skip_lineage_filter():
 
 def test_handle_best_candidate_updates_when_gain_exceeds():
     new_best, new_cand, run_out = handle_best_candidate(
-        current_gain=0.5, best_gain=0.2, X=(7,), best_candidate=(3,),
-        factors_names=["a", "b", "c", "d", "e", "f", "g", "h"], verbose=0,
+        current_gain=0.5,
+        best_gain=0.2,
+        X=(7,),
+        best_candidate=(3,),
+        factors_names=["a", "b", "c", "d", "e", "f", "g", "h"],
+        verbose=0,
     )
     assert new_best == pytest.approx(0.5)
     assert new_cand == (7,)
@@ -222,8 +266,12 @@ def test_handle_best_candidate_updates_when_gain_exceeds():
 
 def test_handle_best_candidate_keeps_previous_when_gain_lower():
     new_best, new_cand, run_out = handle_best_candidate(
-        current_gain=0.1, best_gain=0.5, X=(7,), best_candidate=(3,),
-        factors_names=["a", "b", "c", "d", "e", "f", "g", "h"], verbose=0,
+        current_gain=0.1,
+        best_gain=0.5,
+        X=(7,),
+        best_candidate=(3,),
+        factors_names=["a", "b", "c", "d", "e", "f", "g", "h"],
+        verbose=0,
     )
     assert new_best == pytest.approx(0.5)
     assert new_cand == (3,)
@@ -234,9 +282,14 @@ def test_handle_best_candidate_detects_runtime_exhaustion():
     # start_time deep in the past with a tiny budget must trip the timeout path.
     past = time.perf_counter() - 3600.0
     _, _, run_out = handle_best_candidate(
-        current_gain=0.1, best_gain=0.5, X=(7,), best_candidate=(3,),
-        factors_names=["a", "b", "c", "d", "e", "f", "g", "h"], verbose=0,
-        max_runtime_mins=0.001, start_time=past,
+        current_gain=0.1,
+        best_gain=0.5,
+        X=(7,),
+        best_candidate=(3,),
+        factors_names=["a", "b", "c", "d", "e", "f", "g", "h"],
+        verbose=0,
+        max_runtime_mins=0.001,
+        start_time=past,
     )
     assert run_out is True
 
@@ -250,8 +303,11 @@ def test_find_best_partial_gain_returns_max():
     partial_gains = {0: (0.1, 0), 1: (0.5, 1), 2: (0.3, 2)}
     candidates = [(0,), (1,), (2,)]
     best_gain, best_key = find_best_partial_gain(
-        partial_gains=partial_gains, failed_candidates=set(), added_candidates=set(),
-        candidates=candidates, selected_vars=[],
+        partial_gains=partial_gains,
+        failed_candidates=set(),
+        added_candidates=set(),
+        candidates=candidates,
+        selected_vars=[],
     )
     assert best_key == 1
     assert best_gain == pytest.approx(0.5)
@@ -262,8 +318,11 @@ def test_find_best_partial_gain_skips_failed_and_added():
     candidates = [(0,), (1,), (2,)]
     # 0 (best) is failed, 2 (next) is added => 1 wins.
     best_gain, best_key = find_best_partial_gain(
-        partial_gains=partial_gains, failed_candidates={0}, added_candidates={2},
-        candidates=candidates, selected_vars=[],
+        partial_gains=partial_gains,
+        failed_candidates={0},
+        added_candidates={2},
+        candidates=candidates,
+        selected_vars=[],
     )
     assert best_key == 1
     assert best_gain == pytest.approx(0.5)
@@ -274,8 +333,11 @@ def test_find_best_partial_gain_skips_selected_subelement():
     partial_gains = {0: (0.9, 0), 1: (0.4, 1)}
     candidates = [(5,), (6,)]
     best_gain, best_key = find_best_partial_gain(
-        partial_gains=partial_gains, failed_candidates=set(), added_candidates=set(),
-        candidates=candidates, selected_vars=[5],
+        partial_gains=partial_gains,
+        failed_candidates=set(),
+        added_candidates=set(),
+        candidates=candidates,
+        selected_vars=[5],
     )
     assert best_key == 1
     assert best_gain == pytest.approx(0.4)
@@ -283,8 +345,11 @@ def test_find_best_partial_gain_skips_selected_subelement():
 
 def test_find_best_partial_gain_empty_returns_none():
     best_gain, best_key = find_best_partial_gain(
-        partial_gains={}, failed_candidates=set(), added_candidates=set(),
-        candidates=[], selected_vars=[],
+        partial_gains={},
+        failed_candidates=set(),
+        added_candidates=set(),
+        candidates=[],
+        selected_vars=[],
     )
     assert best_key is None
     assert best_gain == -LARGE_CONST
@@ -346,7 +411,12 @@ def test_evaluate_candidate_cached_confident_branch_routed_through_su_floor_scal
         # SU on: the branch SU-scales the bootstrapped gain, matching what the shared helper computes on the same X/y.
         set_su_normalization(True)
         expected_su = _su_normalize_relevance(
-            sentinel_gain, (0,), kwargs["y"], factors_data, factors_nbins, np.int32,
+            sentinel_gain,
+            (0,),
+            kwargs["y"],
+            factors_data,
+            factors_nbins,
+            np.int32,
         )
         # SU is a real rescale on this synthetic, so the routed value must differ from the raw sentinel AND equal the helper.
         assert expected_su != pytest.approx(sentinel_gain)

@@ -27,6 +27,7 @@ Two-layer fix:
    ``fit_params``, retry. Last-line safety net for edge cases where
    the proactive guard is bypassed.
 """
+
 from __future__ import annotations
 
 import logging
@@ -66,9 +67,11 @@ class TestMinNonNullTextPromotionGuard:
         rest = [None] * (n - non_null_count)
         vals = filled + rest
         np.random.shuffle(vals)
-        return pl.DataFrame({
-            "sparse_text": pl.Series("sparse_text", vals, dtype=pl.String),
-        })
+        return pl.DataFrame(
+            {
+                "sparse_text": pl.Series("sparse_text", vals, dtype=pl.String),
+            }
+        )
 
     def test_sparse_fraction_not_promoted(self):
         """Prod-shape: n=100_000, 60 unique each once = 60 non-null
@@ -82,8 +85,7 @@ class TestMinNonNullTextPromotionGuard:
         )
         text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
         assert "sparse_text" not in text, (
-            "n_unique=60>50 but non_null_fraction=0.06%<1% floor — "
-            "must stay as cat_feature to avoid CatBoost 'Dictionary size is 0'"
+            "n_unique=60>50 but non_null_fraction=0.06%<1% floor — must stay as cat_feature to avoid CatBoost 'Dictionary size is 0'"
         )
 
     def test_dense_fraction_still_promoted(self):
@@ -113,10 +115,7 @@ class TestMinNonNullTextPromotionGuard:
             cat_text_cardinality_threshold=10,
         )
         text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
-        assert "sparse_text" in text, (
-            "tiny DF with 100% non-null fraction must still promote — "
-            "the guard is relative, not absolute"
-        )
+        assert "sparse_text" in text, "tiny DF with 100% non-null fraction must still promote — the guard is relative, not absolute"
 
     def test_warn_on_skipped_column(self, caplog):
         """When the guard blocks promotion, a WARN fires naming the
@@ -131,10 +130,7 @@ class TestMinNonNullTextPromotionGuard:
         with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
             _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
         msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
-        assert any(
-            "sparse_text" in m and "non_null=60" in m
-            for m in msgs
-        ), f"expected a WARN naming sparse_text and non_null=60; got: {msgs}"
+        assert any("sparse_text" in m and "non_null=60" in m for m in msgs), f"expected a WARN naming sparse_text and non_null=60; got: {msgs}"
 
     def test_pandas_path_also_guarded(self):
         """Same fraction guard applies when input is pandas."""

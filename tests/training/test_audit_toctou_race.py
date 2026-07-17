@@ -25,6 +25,7 @@ FileExistsError uncaught.
     8. training/feature_handling/cache_backend.py:144 (DiskBackend.exists docstring contract).
     9. feature_selection/_benchmarks/kernel_tuning_cache/cli.py:45,86 -- try-open / try-remove.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -57,7 +58,7 @@ def test_composite_cache_invalidate_uses_try_remove() -> None:
 def test_key_bank_save_uses_uuid_tmp_dir() -> None:
     src = _read("feature_engineering/transformer/_key_bank.py")
     # The fix introduces UUID-stamped tmp + ignore_errors / try-except on rename.
-    assert "fingerprint + \".tmp.\"" in src and "_uuid.uuid4().hex[:8]" in src
+    assert 'fingerprint + ".tmp."' in src and "_uuid.uuid4().hex[:8]" in src
     # The rename must be wrapped in try/except OSError.
     assert "tmp_dir.rename(final_dir)" in src and "except OSError as _rn_err" in src
 
@@ -93,10 +94,7 @@ def test_pipelines_verify_sidecar_tolerates_missing() -> None:
     # Post-fix: either the old try/except FileNotFoundError shape OR the
     # new ``if not isfile(sidecar):`` direct branch with explicit env-var
     # gate.
-    assert (
-        "except FileNotFoundError:" in src
-        or "if not isfile(sidecar):" in src
-    )
+    assert "except FileNotFoundError:" in src or "if not isfile(sidecar):" in src
     assert "return True" in src
 
 
@@ -120,9 +118,9 @@ def test_cache_backend_exists_documents_advisory_contract() -> None:
 def test_kernel_tuning_cli_show_and_clear_tolerate_missing() -> None:
     src = _read("feature_selection/_benchmarks/kernel_tuning_cache/cli.py")
     # _cmd_show now uses try/open; the missing file message branches via FileNotFoundError.
-    assert "except FileNotFoundError:\n        print(f\"# no cache at {path}\"" in src
+    assert 'except FileNotFoundError:\n        print(f"# no cache at {path}"' in src
     # _cmd_clear similarly tolerates a race.
-    assert "except FileNotFoundError:\n        print(f\"# already removed:" in src
+    assert 'except FileNotFoundError:\n        print(f"# already removed:' in src
 
 
 # ---------------------------------------------------------------------------

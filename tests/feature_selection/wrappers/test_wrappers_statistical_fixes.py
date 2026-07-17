@@ -1,4 +1,5 @@
 """Regression tests for the statistical-wrapper audit fixes (knockoffs / univariate-HT / noise-floor / auto-tune)."""
+
 from __future__ import annotations
 
 import numpy as np

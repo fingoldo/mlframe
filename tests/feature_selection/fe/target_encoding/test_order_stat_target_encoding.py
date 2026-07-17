@@ -7,6 +7,7 @@ Validated contract:
 * transform replay on held-out rows reproduces the stored full-data per-category stat, unseen -> global;
 * a category below the stat's stability floor falls back to the GLOBAL stat value (rare-cell shrinkage discipline).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -107,8 +108,8 @@ def test_transform_replay_reproduces_stored_stat():
 def test_rare_cell_falls_back_to_global_below_floor():
     """A category with fewer rows than the q10 floor (20) must emit the GLOBAL q10, not its own noisy estimate."""
     rng = np.random.default_rng(5)
-    big = rng.normal(0.0, 1.0, 400)          # category BIG, well above every floor
-    rare = np.array([100.0, 101.0, 102.0])   # category RARE, n=3 < all floors, wildly off-distribution
+    big = rng.normal(0.0, 1.0, 400)  # category BIG, well above every floor
+    rare = np.array([100.0, 101.0, 102.0])  # category RARE, n=3 < all floors, wildly off-distribution
     y = np.concatenate([big, rare])
     df = pd.DataFrame({"c": ["BIG"] * 400 + ["RARE"] * 3})
     _, rec = kfold_target_encode_fit(df, y, ["c"], stats=("q10", "median", "min"), n_folds=5)

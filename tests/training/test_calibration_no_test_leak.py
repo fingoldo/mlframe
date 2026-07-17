@@ -12,6 +12,7 @@ via tuning surface). The fix:
 
 These tests cover both branches of the guard plus the clean-OOF happy path.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -48,8 +49,10 @@ def _make_configs_stub():
     Real ICE signature accepted by ``report_probabilistic_model_perf`` is ``(y_true=..., y_score=...)`` (keyword-only
     on the call site at _reporting.py:905). The stub must accept both positional and keyword forms.
     """
+
     def _metric(*args, **kwargs):
         return 0.0
+
     return SimpleNamespace(integral_calibration_error=_metric)
 
 
@@ -59,7 +62,7 @@ def test_overlapping_calib_idx_and_test_idx_raises_before_fit():
 
     rng = np.random.default_rng(0)
     n_total = 60
-    test_idx = np.arange(40, 60)            # rows 40..59
+    test_idx = np.arange(40, 60)  # rows 40..59
     val_idx = np.arange(20, 40)
     calib_idx = np.array([39, 40, 41, 42])  # rows 40, 41, 42 overlap with test -> 3 leaking rows
 
@@ -173,7 +176,7 @@ def test_oof_fallback_uses_stamped_oof_target_not_positional_slice():
     val_preds = (val_probs[:, 1] > 0.5).astype(int)
 
     oof_probs = rng.uniform(size=(M, 2))
-    oof_target = (np.arange(M) % 2)  # train-aligned labels: mixed 0/1
+    oof_target = np.arange(M) % 2  # train-aligned labels: mixed 0/1
 
     # target_series leading M rows are DELIBERATELY all 0: if the buggy
     # positional slice target_series.iloc[:M] were used, fit_y would be all-0.
@@ -184,7 +187,14 @@ def test_oof_fallback_uses_stamped_oof_target_not_positional_slice():
     model = SimpleNamespace(oof_probs=oof_probs, oof_target=oof_target)
     meta_model = _StubMetaModel()
     original_model = (
-        model, test_preds, test_probs, val_preds, val_probs, ["c0", "c1"], None, {},
+        model,
+        test_preds,
+        test_probs,
+        val_preds,
+        val_probs,
+        ["c0", "c1"],
+        None,
+        {},
     )
 
     post_calibrate_model(

@@ -27,6 +27,7 @@ ALL
 * default disabled byte-identical.
 * pickle / clone round-trips recipes + ctor params.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -85,11 +86,13 @@ def _build_rare_merchant(seed: int, n: int = 8000):
     # the floor collapses onto the one column's own (binning-inflated) MI.
     noise1 = rng.normal(0.0, 1.0, n)
     noise2 = rng.normal(0.0, 1.0, n)
-    X = pd.DataFrame({
-        "merchant": merchant.astype(np.int64),
-        "noise1": noise1,
-        "noise2": noise2,
-    })
+    X = pd.DataFrame(
+        {
+            "merchant": merchant.astype(np.int64),
+            "noise1": noise1,
+            "noise2": noise2,
+        }
+    )
     return X, y.astype(int), is_rare_true
 
 
@@ -167,16 +170,20 @@ class TestRareCategorySignal:
     def test_is_rare_mi_beats_raw(self):
         """is_rare MI reaches or beats raw category-frequency MI on the rare-merchant fixture."""
         from mlframe.feature_selection.filters._extra_fe_families import (
-            generate_rare_category_features, engineered_name_is_rare,
+            generate_rare_category_features,
+            engineered_name_is_rare,
         )
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             frequency_encode_fit,
         )
+
         gains = []
         for s in SEEDS:
             X, y, _ = _build_rare_merchant(s)
             enc, _ = generate_rare_category_features(
-                X, ["merchant"], rare_threshold=0.01,
+                X,
+                ["merchant"],
+                rare_threshold=0.01,
             )
             mi_israre = _mi_one(enc[engineered_name_is_rare("merchant")].to_numpy(), y)
             # Raw category signal == frequency encoding of the merchant id.
@@ -184,9 +191,7 @@ class TestRareCategorySignal:
             mi_rawfreq = _mi_one(freq_df.iloc[:, 0].to_numpy(), y)
             gains.append(mi_israre - mi_rawfreq)
         mean_gain = float(np.mean(gains))
-        assert mean_gain >= 0.0, (
-            f"is_rare MI did not reach raw category-frequency MI " f"(mean delta {mean_gain:.4f}, per-seed " f"{[round(g, 4) for g in gains]})."
-        )
+        assert mean_gain >= 0.0, f"is_rare MI did not reach raw category-frequency MI (mean delta {mean_gain:.4f}, per-seed {[round(g, 4) for g in gains]})."
 
     def test_logreg_auc_lift(self):
         """LogReg AUC on rare-category-augmented features beats raw merchant id by >= 0.10."""
@@ -194,18 +199,26 @@ class TestRareCategorySignal:
             hybrid_rare_category_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
         lifts = []
         for s in SEEDS:
             X, y, _ = _build_rare_merchant(s)
             Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             base = LogisticRegression(max_iter=2000).fit(Xtr[["merchant"]], ytr)
             auc_raw = roc_auc_score(yte, base.predict_proba(Xte[["merchant"]])[:, 1])
 
             _, appended, recipes, _ = hybrid_rare_category_fe(
-                Xtr, ytr.values if hasattr(ytr, "values") else ytr,
-                cat_cols=["merchant"], rare_threshold=0.01, top_k=6,
+                Xtr,
+                ytr.values if hasattr(ytr, "values") else ytr,
+                cat_cols=["merchant"],
+                rare_threshold=0.01,
+                top_k=6,
             )
             assert appended, f"seed={s}: no rare-category survivors."
             Xtr_aug = Xtr[["merchant"]].reset_index(drop=True).copy()
@@ -217,7 +230,7 @@ class TestRareCategorySignal:
             auc_aug = roc_auc_score(yte, aug.predict_proba(Xte_aug)[:, 1])
             lifts.append(auc_aug - auc_raw)
         mean_lift = float(np.mean(lifts))
-        assert mean_lift >= 0.10, f"rare-category AUC lift {mean_lift:.4f} < 0.10 (per-seed " f"{[round(x, 4) for x in lifts]})."
+        assert mean_lift >= 0.10, f"rare-category AUC lift {mean_lift:.4f} < 0.10 (per-seed {[round(x, 4) for x in lifts]})."
 
 
 # ===========================================================================
@@ -234,11 +247,14 @@ class TestConditionalResidualSignal:
             generate_conditional_residual_features,
             engineered_name_conditional_residual,
         )
+
         gains = []
         for s in SEEDS:
             X, y = _build_conditional_income(s)
             enc, _ = generate_conditional_residual_features(
-                X, ["age", "income"], n_bins=10,
+                X,
+                ["age", "income"],
+                n_bins=10,
             )
             rname = engineered_name_conditional_residual("income", "age")
             mi_resid = _mi_one(enc[rname].to_numpy(), y)
@@ -262,19 +278,28 @@ class TestConditionalResidualSignal:
             hybrid_conditional_residual_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
         lifts = []
         for s in SEEDS:
             X, y = _build_conditional_income(s)
             Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             raw_cols = ["age", "income"]
             base = LogisticRegression(max_iter=2000).fit(Xtr[raw_cols], ytr)
             auc_raw = roc_auc_score(yte, base.predict_proba(Xte[raw_cols])[:, 1])
 
             _, appended, recipes, _ = hybrid_conditional_residual_fe(
-                Xtr, ytr.values if hasattr(ytr, "values") else ytr,
-                num_cols=raw_cols, n_bins=10, top_k=6, max_pair_cols=4,
+                Xtr,
+                ytr.values if hasattr(ytr, "values") else ytr,
+                num_cols=raw_cols,
+                n_bins=10,
+                top_k=6,
+                max_pair_cols=4,
             )
             assert appended, f"seed={s}: no conditional-residual survivors."
             Xtr_aug = Xtr[raw_cols].reset_index(drop=True).copy()
@@ -286,7 +311,7 @@ class TestConditionalResidualSignal:
             auc_aug = roc_auc_score(yte, aug.predict_proba(Xte_aug)[:, 1])
             lifts.append(auc_aug - auc_raw)
         mean_lift = float(np.mean(lifts))
-        assert mean_lift >= 0.10, f"conditional-residual AUC lift {mean_lift:.4f} < 0.10 (per-seed " f"{[round(x, 4) for x in lifts]})."
+        assert mean_lift >= 0.10, f"conditional-residual AUC lift {mean_lift:.4f} < 0.10 (per-seed {[round(x, 4) for x in lifts]})."
 
 
 # ===========================================================================
@@ -302,8 +327,10 @@ class TestRankGaussDownstreamLift:
         ADD MI. We assert MI is approximately PRESERVED (within binning noise),
         never that it INCREASES (that would violate the DPI -- the L90 lesson)."""
         from mlframe.feature_selection.filters._extra_fe_families import (
-            generate_rankgauss_features, engineered_name_rankgauss,
+            generate_rankgauss_features,
+            engineered_name_rankgauss,
         )
+
         deltas = []
         for s in SEEDS:
             X, y = _build_heavytail_linear(s)
@@ -328,19 +355,26 @@ class TestRankGaussDownstreamLift:
             hybrid_rankgauss_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
         lifts = []
         for s in SEEDS:
             X, y = _build_heavytail_linear(s)
             Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             raw_cols = ["x1", "z2"]
             base = LogisticRegression(max_iter=2000).fit(Xtr[raw_cols], ytr)
             auc_raw = roc_auc_score(yte, base.predict_proba(Xte[raw_cols])[:, 1])
 
             _, appended, recipes, _ = hybrid_rankgauss_fe(
-                Xtr, ytr.values if hasattr(ytr, "values") else ytr,
-                num_cols=["x1"], top_k=4,
+                Xtr,
+                ytr.values if hasattr(ytr, "values") else ytr,
+                num_cols=["x1"],
+                top_k=4,
             )
             assert appended, f"seed={s}: no rankgauss survivors."
             # The downstream model uses the Gaussianised x1 in place of the raw
@@ -375,12 +409,17 @@ class TestNoYLeak:
     def test_rare_category_no_y_leak(self):
         """A fitted rare-category recipe replays deterministically and carries no y reference."""
         from mlframe.feature_selection.filters._extra_fe_families import (
-            hybrid_rare_category_fe, generate_rare_category_features,
+            hybrid_rare_category_fe,
+            generate_rare_category_features,
         )
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
         X, y, _ = _build_rare_merchant(7)
         _, _appended, recipes, _ = hybrid_rare_category_fe(
-            X, y, cat_cols=["merchant"], top_k=6,
+            X,
+            y,
+            cat_cols=["merchant"],
+            top_k=6,
         )
         assert recipes, "no rare-category recipes."
         for r in recipes:
@@ -394,12 +433,17 @@ class TestNoYLeak:
     def test_conditional_residual_no_y_leak(self):
         """A fitted conditional-residual recipe replays deterministically and carries no y reference."""
         from mlframe.feature_selection.filters._extra_fe_families import (
-            hybrid_conditional_residual_fe, generate_conditional_residual_features,
+            hybrid_conditional_residual_fe,
+            generate_conditional_residual_features,
         )
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
         X, y = _build_conditional_income(13)
         _, _appended, recipes, _ = hybrid_conditional_residual_fe(
-            X, y, num_cols=["age", "income"], top_k=6,
+            X,
+            y,
+            num_cols=["age", "income"],
+            top_k=6,
         )
         assert recipes, "no conditional-residual recipes."
         for r in recipes:
@@ -412,9 +456,11 @@ class TestNoYLeak:
     def test_rankgauss_no_y_leak(self):
         """A fitted rankgauss recipe replays deterministically and carries no y reference."""
         from mlframe.feature_selection.filters._extra_fe_families import (
-            hybrid_rankgauss_fe, generate_rankgauss_features,
+            hybrid_rankgauss_fe,
+            generate_rankgauss_features,
         )
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
         X, y = _build_heavytail_linear(42)
         _, _appended, recipes, _ = hybrid_rankgauss_fe(X, y, num_cols=["x1"], top_k=4)
         assert recipes, "no rankgauss recipes."
@@ -432,10 +478,12 @@ class TestDefaultDisabledByteIdentical:
     def test_mrmr_default_off_adds_nothing(self):
         """With all three new FE families disabled (default), no engineered columns are added."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y, _ = _build_rare_merchant(42, n=2000)
         m = MRMR(max_runtime_mins=0.5)
         for flag in (
-            "fe_rare_category_enable", "fe_conditional_residual_enable",
+            "fe_rare_category_enable",
+            "fe_conditional_residual_enable",
             "fe_rankgauss_enable",
         ):
             assert bool(getattr(m, flag, False)) is False, f"{flag} must default to False."
@@ -456,6 +504,7 @@ class TestDefaultDisabledByteIdentical:
         # own output.
         """With fe_rare_category_enable=True and general-FE competitors isolated, rare-category columns are added."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y, _ = _build_rare_merchant(42, n=4000)
         m = MRMR(
             max_runtime_mins=1.0,
@@ -472,6 +521,7 @@ class TestDefaultDisabledByteIdentical:
     def test_mrmr_conditional_residual_enabled_adds_columns(self):
         """With fe_conditional_residual_enable=True, conditional-residual columns are added."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_conditional_income(42, n=4000)
         m = MRMR(
             max_runtime_mins=1.0,
@@ -494,6 +544,7 @@ class TestDefaultDisabledByteIdentical:
         from mlframe.feature_selection.filters._extra_fe_families import (
             hybrid_conditional_residual_fe,
         )
+
         X, y = _build_conditional_income(42, n=4000)
         raw_only = X[["age", "income", "noise1", "noise2"]]
         wide = raw_only.copy()
@@ -501,11 +552,21 @@ class TestDefaultDisabledByteIdentical:
         for j in range(6):
             wide[f"eng_strong{j}"] = y.astype(float) + rng.normal(0.0, 0.25, len(X))
         _, app_wide, _, _ = hybrid_conditional_residual_fe(
-            wide, y, num_cols=["age", "income"], n_bins=10, top_k=4, mi_gate=True,
+            wide,
+            y,
+            num_cols=["age", "income"],
+            n_bins=10,
+            top_k=4,
+            mi_gate=True,
         )
         _, app_raw, _, _ = hybrid_conditional_residual_fe(
-            wide, y, num_cols=["age", "income"], n_bins=10, top_k=4,
-            mi_gate=True, raw_floor_X=raw_only,
+            wide,
+            y,
+            num_cols=["age", "income"],
+            n_bins=10,
+            top_k=4,
+            mi_gate=True,
+            raw_floor_X=raw_only,
         )
         assert not app_wide, "engineered-polluted floor self-suppresses (the bug)"
         assert app_raw, "raw-anchored floor must keep conditional-residual survivors"
@@ -521,6 +582,7 @@ class TestDefaultDisabledByteIdentical:
         # output). Isolate the family under test by disabling those competitors so
         # the roster reflects the rankgauss mechanism's own output.
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_heavytail_linear(42, n=4000)
         m = MRMR(
             max_runtime_mins=1.0,
@@ -544,9 +606,13 @@ class TestPickleClone:
             hybrid_rare_category_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
         X, y, _ = _build_rare_merchant(1)
         _, _appended, recipes, _ = hybrid_rare_category_fe(
-            X, y, cat_cols=["merchant"], top_k=6,
+            X,
+            y,
+            cat_cols=["merchant"],
+            top_k=6,
         )
         assert recipes
         for r in recipes:
@@ -560,9 +626,13 @@ class TestPickleClone:
             hybrid_conditional_residual_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
         X, y = _build_conditional_income(1)
         _, _appended, recipes, _ = hybrid_conditional_residual_fe(
-            X, y, num_cols=["age", "income"], top_k=6,
+            X,
+            y,
+            num_cols=["age", "income"],
+            top_k=6,
         )
         assert recipes
         for r in recipes:
@@ -576,6 +646,7 @@ class TestPickleClone:
             hybrid_rankgauss_fe,
         )
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
         X, y = _build_heavytail_linear(1)
         _, _appended, recipes, _ = hybrid_rankgauss_fe(X, y, num_cols=["x1"], top_k=4)
         assert recipes
@@ -587,6 +658,7 @@ class TestPickleClone:
     def test_mrmr_clone_preserves_params(self):
         """sklearn clone() preserves every ctor param across all three new FE families."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(
             fe_rare_category_enable=True,
             fe_rare_category_cols=("merchant",),
@@ -618,4 +690,5 @@ class TestPickleClone:
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "-v", "-s", "--no-cov"]))

@@ -21,15 +21,20 @@ import pytest
 
 from mlframe.reporting.charts._acf import acf_fft, pacf_levinson, significance_band
 from mlframe.reporting.charts.quantile import (
-    ALLOWED_QUANTILE_PANEL_TOKENS, compose_quantile_figure,
+    ALLOWED_QUANTILE_PANEL_TOKENS,
+    compose_quantile_figure,
 )
 from mlframe.reporting.charts.regression import (
-    ALLOWED_REGRESSION_PANEL_TOKENS, compose_regression_figure,
+    ALLOWED_REGRESSION_PANEL_TOKENS,
+    compose_regression_figure,
 )
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, BarPanelSpec, LinePanelSpec, ScatterPanelSpec,
+    AnnotationPanelSpec,
+    BarPanelSpec,
+    LinePanelSpec,
+    ScatterPanelSpec,
 )
 
 
@@ -314,6 +319,7 @@ class TestAcfHelper:
 
     def test_acf_tail_caps_long_series(self):
         from mlframe.reporting.charts._acf import MAX_ACF_SERIES
+
         rng = np.random.default_rng(7)
         x = rng.standard_normal(MAX_ACF_SERIES + 50_000)
         _, n_used = acf_fft(x, nlags=5)

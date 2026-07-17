@@ -8,11 +8,13 @@ Covers:
   reliability diagram through the DSL (build_calibration_spec) so plotly HTML
   is produced, not just matplotlib PNG.
 """
+
 from __future__ import annotations
 
 import os
 
 import matplotlib
+
 matplotlib.use("Agg")
 import numpy as np
 import pytest
@@ -58,9 +60,15 @@ def test_per_class_perfplot_filenames_carry_class_id(tmp_path):
     targets, probs = _three_class_synthetic()
     base = str(tmp_path / "split0")
     report_probabilistic_model_perf(
-        targets=targets, columns=["f0", "f1"], model_name="m", model=None,
-        probs=probs, classes=[0, 1, 2], plot_file=base,
-        show_perf_chart=False, print_report=False,
+        targets=targets,
+        columns=["f0", "f1"],
+        model_name="m",
+        model=None,
+        probs=probs,
+        classes=[0, 1, 2],
+        plot_file=base,
+        show_perf_chart=False,
+        print_report=False,
     )
     pngs = sorted(p for p in os.listdir(tmp_path) if p.endswith(".png"))
     for cid in (0, 1, 2):
@@ -72,10 +80,16 @@ def test_plot_outputs_routes_through_dsl_to_html(tmp_path):
     targets, probs = _three_class_synthetic()
     base = str(tmp_path / "split0")
     report_probabilistic_model_perf(
-        targets=targets, columns=["f0", "f1"], model_name="m", model=None,
-        probs=probs, classes=[0, 1, 2], plot_file=base,
+        targets=targets,
+        columns=["f0", "f1"],
+        model_name="m",
+        model=None,
+        probs=probs,
+        classes=[0, 1, 2],
+        plot_file=base,
         plot_outputs="plotly[html]",
-        show_perf_chart=False, print_report=False,
+        show_perf_chart=False,
+        print_report=False,
     )
     htmls = sorted(p for p in os.listdir(tmp_path) if p.endswith(".html"))
     assert len(htmls) == 3, f"expected 3 per-class HTML files, got {htmls}"
@@ -91,9 +105,15 @@ def test_binary_perfplot_single_file(tmp_path):
     probs = np.column_stack([1 - p1, p1])
     base = str(tmp_path / "splitb")
     report_probabilistic_model_perf(
-        targets=targets, columns=["f0"], model_name="m", model=None,
-        probs=probs, classes=[0, 1], plot_file=base,
-        show_perf_chart=False, print_report=False,
+        targets=targets,
+        columns=["f0"],
+        model_name="m",
+        model=None,
+        probs=probs,
+        classes=[0, 1],
+        plot_file=base,
+        show_perf_chart=False,
+        print_report=False,
     )
     pngs = sorted(p for p in os.listdir(tmp_path) if p.endswith(".png"))
     assert pngs == ["splitb_perfplot.png"], pngs

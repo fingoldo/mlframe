@@ -4,6 +4,7 @@ Each guard converts a previously-opaque downstream failure (np.column_stack([]),
 LogisticRegression single-class, Jaccard-of-empty == 1.0, partial-length column
 indexing, duplicate-name category drop) into a clear early error / verdict.
 """
+
 from __future__ import annotations
 
 import matplotlib

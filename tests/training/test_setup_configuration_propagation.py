@@ -19,6 +19,7 @@ Bug surface this guards:
   - Similar latent bugs for any new kwarg added to setup_configuration
     without a corresponding ctx assignment.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -112,32 +113,53 @@ def test_verbose_zero_round_trips_as_int_zero():
     mlframe.reporting.renderers.plotly for kaleido telemetry.
     """
     ctx = setup_configuration(
-        preprocessing_config=None, pipeline_config=None, feature_types_config=None,
-        split_config=None, hyperparams_config=None, behavior_config=None,
-        reporting_config=None, output_config=None, outlier_detection_config=None,
-        feature_selection_config=None, confidence_analysis_config=None,
-        baseline_diagnostics_config=None, dummy_baselines_config=None,
-        quantile_regression_config=None, composite_target_discovery_config=None,
+        preprocessing_config=None,
+        pipeline_config=None,
+        feature_types_config=None,
+        split_config=None,
+        hyperparams_config=None,
+        behavior_config=None,
+        reporting_config=None,
+        output_config=None,
+        outlier_detection_config=None,
+        feature_selection_config=None,
+        confidence_analysis_config=None,
+        baseline_diagnostics_config=None,
+        dummy_baselines_config=None,
+        quantile_regression_config=None,
+        composite_target_discovery_config=None,
         feature_handling_config=None,
-        linear_model_config=None, multilabel_dispatch_config=None,
-        model_name="vtest", target_name="vtest",
-        mlframe_models=None, verbose=0,
+        linear_model_config=None,
+        multilabel_dispatch_config=None,
+        model_name="vtest",
+        target_name="vtest",
+        mlframe_models=None,
+        verbose=0,
     )
-    assert ctx.verbose == 0, (
-        f"ctx.verbose expected 0, got {ctx.verbose!r}. Caller's verbose=0 "
-        f"was silently overridden by TrainingContext default."
-    )
+    assert ctx.verbose == 0, f"ctx.verbose expected 0, got {ctx.verbose!r}. Caller's verbose=0 was silently overridden by TrainingContext default."
     # Also: verbose=None must not crash (None-safe int coercion in the fix)
     ctx_none = setup_configuration(
-        preprocessing_config=None, pipeline_config=None, feature_types_config=None,
-        split_config=None, hyperparams_config=None, behavior_config=None,
-        reporting_config=None, output_config=None, outlier_detection_config=None,
-        feature_selection_config=None, confidence_analysis_config=None,
-        baseline_diagnostics_config=None, dummy_baselines_config=None,
-        quantile_regression_config=None, composite_target_discovery_config=None,
+        preprocessing_config=None,
+        pipeline_config=None,
+        feature_types_config=None,
+        split_config=None,
+        hyperparams_config=None,
+        behavior_config=None,
+        reporting_config=None,
+        output_config=None,
+        outlier_detection_config=None,
+        feature_selection_config=None,
+        confidence_analysis_config=None,
+        baseline_diagnostics_config=None,
+        dummy_baselines_config=None,
+        quantile_regression_config=None,
+        composite_target_discovery_config=None,
         feature_handling_config=None,
-        linear_model_config=None, multilabel_dispatch_config=None,
-        model_name="vtest", target_name="vtest",
-        mlframe_models=None, verbose=None,
+        linear_model_config=None,
+        multilabel_dispatch_config=None,
+        model_name="vtest",
+        target_name="vtest",
+        mlframe_models=None,
+        verbose=None,
     )
     assert ctx_none.verbose == 1, "verbose=None should fall back to the class default of 1"

@@ -14,6 +14,7 @@ The check is greppy on purpose -- a structural ``ast`` walk would be more
 precise but pulls in pyutilz / mypy noise. False positives are vanishingly
 rare given the current package shape.
 """
+
 from __future__ import annotations
 
 import re
@@ -48,10 +49,7 @@ def test_no_cross_module_njit_imports():
         pytest.skip("filters package not present yet")
 
     submodules = sorted(p.stem for p in FILTERS_DIR.glob("*.py") if p.stem != "__init__")
-    njit_names_by_module = {
-        sub: _enumerate_njit_names(FILTERS_DIR / f"{sub}.py")
-        for sub in submodules
-    }
+    njit_names_by_module = {sub: _enumerate_njit_names(FILTERS_DIR / f"{sub}.py") for sub in submodules}
 
     violations: list[str] = []
     for importer in submodules:
@@ -72,11 +70,7 @@ def test_no_cross_module_njit_imports():
             imported = {n.strip() for n in m.group(2).split(",") if n.strip()}
             crossed = imported & njit_names_by_module[source_module]
             if crossed:
-                violations.append(
-                    f"{importer}.py imports @njit symbol(s) "
-                    f"{sorted(crossed)} from sibling {source_module}.py "
-                    f"(should live in _numba_utils.py)"
-                )
+                violations.append(f"{importer}.py imports @njit symbol(s) {sorted(crossed)} from sibling {source_module}.py (should live in _numba_utils.py)")
 
     if violations:
         msg = "Cross-module @njit imports detected:\n  " + "\n  ".join(violations)

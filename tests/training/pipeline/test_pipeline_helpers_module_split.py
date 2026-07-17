@@ -7,6 +7,7 @@ re-exports the cache symbols so existing imports keep working.
 Backward-compat preserved: every symbol previously importable from
 ``mlframe.training.pipeline._pipeline_helpers`` is still importable from there.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -26,6 +27,7 @@ def test_cache_symbols_still_importable_from_facade() -> None:
         _PRE_PIPELINE_CACHE_LOCK,
         _PRE_PIPELINE_CACHE_MAX,
     )
+
     assert callable(_fresh_uncachable)
     assert callable(_content_fingerprint_for_cache)
     assert callable(_pipeline_signature_for_cache)
@@ -45,6 +47,7 @@ def test_pipeline_ops_symbols_still_importable_from_facade() -> None:
         _passthrough_cols_fit_transform,
         _apply_pre_pipeline_transforms,
     )
+
     for fn in (
         _prepare_test_split,
         _extract_feature_selector,
@@ -66,6 +69,7 @@ def test_facade_below_1k_line_threshold() -> None:
 def test_cache_module_owns_the_moved_symbols() -> None:
     """Identity: the facade and the cache module expose the SAME object."""
     from mlframe.training.pipeline import _pipeline_helpers, _pipeline_cache
+
     for name in (
         "_UncachableSentinel",
         "_fresh_uncachable",

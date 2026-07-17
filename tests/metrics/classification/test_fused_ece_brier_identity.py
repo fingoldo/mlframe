@@ -6,6 +6,7 @@ estimators. It must be BIT-IDENTICAL to calling ``compute_ece_and_brier_decompos
 per-bin formulas). The default ``fast_calibration_report`` headline path dispatches to the fused kernel,
 so a divergence here would silently shift every reported ECE / Brier REL / RES.
 """
+
 from __future__ import annotations
 
 import numpy as np

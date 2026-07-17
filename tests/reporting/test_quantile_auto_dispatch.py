@@ -25,11 +25,13 @@ def qr_inputs():
     rng = np.random.default_rng(0)
     n = 300
     y = rng.standard_normal(n)
-    preds = np.column_stack([
-        np.full(n, -1.28),
-        np.zeros(n),
-        np.full(n, 1.28),
-    ])
+    preds = np.column_stack(
+        [
+            np.full(n, -1.28),
+            np.zeros(n),
+            np.full(n, 1.28),
+        ]
+    )
     return y, preds, (0.1, 0.5, 0.9)
 
 
@@ -39,7 +41,9 @@ class TestQRDispatch:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tag = render_multi_target_panels(
-                targets=y, preds=preds, quantile_alphas=alphas,
+                targets=y,
+                preds=preds,
+                quantile_alphas=alphas,
                 plot_outputs="matplotlib[png]",
                 quantile_panels="RELIABILITY WIDTH_DIST",
                 base_path=str(tmp_path / "qr"),
@@ -53,7 +57,8 @@ class TestQRDispatch:
         # to multilabel/multiclass branches (which won't match 1-D y +
         # 2-D preds without classes), then returns None.
         tag = render_multi_target_panels(
-            targets=y, preds=preds,
+            targets=y,
+            preds=preds,
             plot_outputs="matplotlib[png]",
             quantile_panels="RELIABILITY",
             base_path=str(tmp_path / "qr"),
@@ -63,7 +68,9 @@ class TestQRDispatch:
     def test_no_quantile_panels_template_no_dispatch(self, qr_inputs, tmp_path):
         y, preds, alphas = qr_inputs
         tag = render_multi_target_panels(
-            targets=y, preds=preds, quantile_alphas=alphas,
+            targets=y,
+            preds=preds,
+            quantile_alphas=alphas,
             plot_outputs="matplotlib[png]",
             base_path=str(tmp_path / "qr"),
         )
@@ -74,7 +81,9 @@ class TestQRDispatch:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             render_multi_target_panels(
-                targets=y, preds=preds, quantile_alphas=alphas,
+                targets=y,
+                preds=preds,
+                quantile_alphas=alphas,
                 plot_outputs="matplotlib[png] + plotly[html]",
                 quantile_panels="RELIABILITY",
                 base_path=str(tmp_path / "qr"),
@@ -94,12 +103,13 @@ class TestQRDispatch:
         y, preds, alphas = qr_inputs
         with caplog.at_level(logging.ERROR, logger=auto_dispatch.logger.name):
             tag = render_multi_target_panels(
-                targets=y, preds=preds, quantile_alphas=alphas,
+                targets=y,
+                preds=preds,
+                quantile_alphas=alphas,
                 plot_outputs="matplotlib[png]",
                 quantile_panels="RELIABILITY",
                 base_path=str(tmp_path / "qr"),
             )
         # Composer raised -> dispatcher logs + falls through; returns None.
         assert tag is None
-        assert any("Quantile panel rendering failed" in r.getMessage()
-                   for r in caplog.records)
+        assert any("Quantile panel rendering failed" in r.getMessage() for r in caplog.records)

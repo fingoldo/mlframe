@@ -28,6 +28,7 @@ Contracts pinned (real numbers, Bayes-feasible fixtures, never xfail):
 
 Consolidated verbatim from test_biz_value_mrmr_layer88.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -74,12 +75,14 @@ def _build_bimodal_per_group(seed: int, n: int = 8000):
     # y is the mode (small label noise). Raw x can't tell modes apart because
     # group base locations overlap; the within-group rank can.
     y = (mode + (rng.random(n) < 0.03) * (1 - 2 * mode)).astype(int)
-    X = pd.DataFrame({
-        "region": region,
-        "x": x,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "region": region,
+            "x": x,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
     return X, y
 
 
@@ -96,13 +99,16 @@ def _build_within_group_rank(seed: int, n: int = 8000):
     x = gmean[region] + gstd[region] * z
     # The within-group percentile equals the std-normal CDF of z.
     from scipy.stats import norm
+
     pct = norm.cdf(z)
     y = (pct + 0.1 * rng.standard_normal(n) > 0.5).astype(int)
-    X = pd.DataFrame({
-        "region": region,
-        "x": x,
-        "noise_0": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "region": region,
+            "x": x,
+            "noise_0": rng.standard_normal(n),
+        }
+    )
     return X, y
 
 
@@ -121,6 +127,7 @@ class TestBimodalPerGroupSignal:
             score_grouped_quantile_by_mi_uplift,
             engineered_name_grouped_pctrank,
         )
+
         wins = 0
         for s in SEEDS:
             X, y = _build_bimodal_per_group(s)
@@ -132,7 +139,7 @@ class TestBimodalPerGroupSignal:
             # percentile-rank must carry real signal AND add new info over raw x.
             if row["mi"] > 0.1 and row["uplift"] > 0.05:
                 wins += 1
-        assert wins >= 4, f"percentile-rank-within-group recovered the bimodal signal on " f"only {wins}/{len(SEEDS)} seeds; expected >= 4."
+        assert wins >= 4, f"percentile-rank-within-group recovered the bimodal signal on only {wins}/{len(SEEDS)} seeds; expected >= 4."
 
 
 # ---------------------------------------------------------------------------
@@ -146,11 +153,21 @@ def _hash_payload(recipe) -> str:
     sort keys)."""
     extra = dict(recipe.extra)
     payload = {
-        k: v for k, v in extra.items()
-        if k in (
-            "group_sorted", "global_sorted", "iqr_lookup", "p90p10_lookup",
-            "global_iqr", "global_p90p10", "group_edges", "global_edges",
-            "op", "group_col", "num_col",
+        k: v
+        for k, v in extra.items()
+        if k
+        in (
+            "group_sorted",
+            "global_sorted",
+            "iqr_lookup",
+            "p90p10_lookup",
+            "global_iqr",
+            "global_p90p10",
+            "group_edges",
+            "global_edges",
+            "op",
+            "group_col",
+            "num_col",
         )
     }
     # orjson always sorts keys deterministically via OPT_SORT_KEYS; ``default=float``
@@ -169,6 +186,7 @@ class TestQuantileCacheLeakSafe:
         from mlframe.feature_selection.filters._grouped_quantile_fe import (
             generate_grouped_quantile_features,
         )
+
         X, _y = _build_within_group_rank(7)
         # Fitting the per-group quantile edges twice on the SAME train rows must
         # reproduce byte-identical payloads (no RNG in the quantile path).
@@ -177,12 +195,11 @@ class TestQuantileCacheLeakSafe:
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_grouped_quantile_recipe,
         )
+
         for name in raw1:
             r1 = build_grouped_quantile_recipe(name=name, **raw1[name])
             r2 = build_grouped_quantile_recipe(name=name, **raw2[name])
-            assert _hash_payload(r1) == _hash_payload(r2), (
-                f"per-group quantile edges for {name!r} are non-deterministic " f"across fits -- cache is not leak-safe."
-            )
+            assert _hash_payload(r1) == _hash_payload(r2), f"per-group quantile edges for {name!r} are non-deterministic across fits -- cache is not leak-safe."
 
     def test_replay_on_disjoint_split_uses_train_edges(self):
         """Edges fit on TRAIN must NOT change when applied to a val/test split
@@ -192,8 +209,10 @@ class TestQuantileCacheLeakSafe:
             generate_grouped_quantile_features,
         )
         from mlframe.feature_selection.filters.engineered_recipes import (
-            build_grouped_quantile_recipe, apply_recipe,
+            build_grouped_quantile_recipe,
+            apply_recipe,
         )
+
         X, _y = _build_within_group_rank(13)
         Xtr, Xte = train_test_split(X, test_size=0.3, random_state=13)
         _, raw = generate_grouped_quantile_features(Xtr, ["region"], ["x"])
@@ -244,12 +263,18 @@ class TestTargetAwareBeatsFixed:
             score_grouped_quantile_by_mi_uplift,
             engineered_name_target_aware_bin,
         )
+
         n_bins = 5
         wins = 0
         for s in SEEDS:
             X, y = _build_bimodal_per_group(s)
             enc_t, _ = generate_target_aware_group_bins(
-                X, y, ["region"], ["x"], n_bins=n_bins, random_state=s,
+                X,
+                y,
+                ["region"],
+                ["x"],
+                n_bins=n_bins,
+                random_state=s,
             )
             tab_name = engineered_name_target_aware_bin("x", "region")
             fixed = _fixed_within_group_quantile_bins(X, "region", "x", n_bins)
@@ -284,11 +309,16 @@ class TestAucLift:
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         lifts = []
         for s in SEEDS:
             X, y = _build_bimodal_per_group(s)
             Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             raw_cols = ["x", "noise_0", "noise_1"]
             base = LogisticRegression(max_iter=2000)
@@ -296,8 +326,13 @@ class TestAucLift:
             auc_raw = roc_auc_score(yte, base.predict_proba(Xte[raw_cols])[:, 1])
 
             X_aug_tr, appended, recipes, _ = hybrid_grouped_quantile_fe(
-                Xtr, ytr, group_cols=["region"], num_cols=["x"],
-                target_aware=True, top_k=8, random_state=s,
+                Xtr,
+                ytr,
+                group_cols=["region"],
+                num_cols=["x"],
+                target_aware=True,
+                top_k=8,
+                random_state=s,
             )
             assert appended, f"seed={s}: no grouped-quantile survivors."
             aug_cols = raw_cols + appended
@@ -332,10 +367,16 @@ class TestNoYLeak:
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         X, y = _build_bimodal_per_group(7)
         _, _appended, recipes, _ = hybrid_grouped_quantile_fe(
-            X, y, group_cols=["region"], num_cols=["x"],
-            target_aware=True, top_k=8, random_state=7,
+            X,
+            y,
+            group_cols=["region"],
+            num_cols=["x"],
+            target_aware=True,
+            top_k=8,
+            random_state=7,
         )
         assert recipes, "no recipes produced for leakage test."
         for r in recipes:
@@ -354,6 +395,7 @@ class TestNoYLeak:
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_grouped_quantile_recipe,
         )
+
         X, _y = _build_bimodal_per_group(42)
         _enc_a, raw_a = generate_grouped_quantile_features(X, ["region"], ["x"])
         # generate_grouped_quantile_features never sees y; payloads are a pure
@@ -376,16 +418,18 @@ class TestDefaultDisabledByteIdentical:
     def test_mrmr_default_off_does_not_add_grouped_quantile(self):
         """With fe_grouped_quantile_enable defaulting to False, MRMR.fit adds no grouped_quantile_features_."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_bimodal_per_group(42, n=2000)
         m = MRMR(max_runtime_mins=0.5)
         assert bool(getattr(m, "fe_grouped_quantile_enable", False)) is False, "fe_grouped_quantile_enable must default to False."
         m.fit(X, pd.Series(y, name="y"))
         gq_feats = list(getattr(m, "grouped_quantile_features_", []) or [])
-        assert gq_feats == [], f"grouped_quantile added columns with the feature disabled: " f"{gq_feats}"
+        assert gq_feats == [], f"grouped_quantile added columns with the feature disabled: {gq_feats}"
 
     def test_mrmr_enabled_adds_grouped_quantile(self):
         """Enabling fe_grouped_quantile_enable produces at least one engineered column on the bimodal-per-group fixture."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_bimodal_per_group(42, n=3000)
         m = MRMR(
             max_runtime_mins=1.0,
@@ -397,7 +441,7 @@ class TestDefaultDisabledByteIdentical:
         )
         m.fit(X, pd.Series(y, name="y"))
         gq_feats = list(getattr(m, "grouped_quantile_features_", []) or [])
-        assert len(gq_feats) >= 1, "grouped_quantile enabled but produced no engineered columns on " "the bimodal-per-group fixture."
+        assert len(gq_feats) >= 1, "grouped_quantile enabled but produced no engineered columns on the bimodal-per-group fixture."
 
 
 # ---------------------------------------------------------------------------
@@ -416,10 +460,16 @@ class TestPickleClone:
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         X, y = _build_bimodal_per_group(1)
         _, _appended, recipes, _ = hybrid_grouped_quantile_fe(
-            X, y, group_cols=["region"], num_cols=["x"],
-            target_aware=True, top_k=8, random_state=1,
+            X,
+            y,
+            group_cols=["region"],
+            num_cols=["x"],
+            target_aware=True,
+            top_k=8,
+            random_state=1,
         )
         assert recipes, "no recipes for pickle test."
         for r in recipes:
@@ -434,6 +484,7 @@ class TestPickleClone:
         """clone() copies every fe_grouped_quantile_* ctor param without carrying over fitted state."""
         from sklearn.base import clone
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(
             fe_grouped_quantile_enable=True,
             fe_grouped_quantile_group_cols=("region",),
@@ -465,8 +516,10 @@ class TestRare1pctGuard:
             generate_grouped_quantile_features,
         )
         from mlframe.feature_selection.filters.engineered_recipes import (
-            build_grouped_quantile_recipe, apply_recipe,
+            build_grouped_quantile_recipe,
+            apply_recipe,
         )
+
         rng = np.random.default_rng(0)
         n = 6000
         region = rng.integers(0, 10, n)

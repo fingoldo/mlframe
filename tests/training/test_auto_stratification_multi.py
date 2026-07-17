@@ -11,6 +11,7 @@ Post-fix:
 - Multilabel target -> iterative-stratification when available, else first-
   label fallback.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,6 +33,7 @@ def _build_stratify_key(target_by_type):
     without invoking the full suite (heavy fixtures + cb/lgb downloads).
     """
     import numpy as _np
+
     _MAX_COMPOSITE_CARDINALITY = 200
     _stratify_y = None
     _classification_targets = []
@@ -53,6 +55,7 @@ def _build_stratify_key(target_by_type):
         if _ml_arr.ndim == 2 and _ml_arr.shape[1] >= 1:
             try:
                 from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit  # noqa: F401
+
                 _stratify_y = _ml_arr
             except ImportError:
                 _first = _ml_arr[:, 0]
@@ -134,11 +137,15 @@ def test_multilabel_target_first_label_fallback():
     rng = np.random.default_rng(3)
     Y = rng.integers(0, 2, size=(150, 3))
     # Ensure first-label has both classes present with >=2 each.
-    Y[0, 0] = 0; Y[1, 0] = 0; Y[2, 0] = 1; Y[3, 0] = 1
+    Y[0, 0] = 0
+    Y[1, 0] = 0
+    Y[2, 0] = 1
+    Y[3, 0] = 1
     tbt = {_MultiLabel(): {"y_multi": Y}}
     out = _build_stratify_key(tbt)
     try:
         from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit  # noqa
+
         # iterstrat available: full ndarray returned
         assert out is not None
         assert out.shape == (150, 3)
@@ -160,8 +167,10 @@ def test_rare_class_disables_stratification():
 
 def test_regression_target_no_stratify():
     """Sanity: regression targets are never stratified."""
+
     class _Reg:
         name = "REGRESSION"
+
     rng = np.random.default_rng(4)
     y = rng.standard_normal(100)
     tbt = {_Reg(): {"y": y}}

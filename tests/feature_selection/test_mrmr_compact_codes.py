@@ -2,6 +2,7 @@
 int8/int16 (from int32) to cut the big (n, p) matrix 4x/2x. Joint codes stay int32 (deep-joint overflow), and every
 consumer casts the storage UP -- so this is SELECTION-EQUIVALENT. These tests pin the equivalence + the narrowing.
 """
+
 from __future__ import annotations
 
 import warnings

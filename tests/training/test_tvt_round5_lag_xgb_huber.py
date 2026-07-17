@@ -23,6 +23,7 @@ Three RMSE-relevant fixes ship here:
   on a near-zero-mass target is ``sign(noise)`` = constant
   magnitude noise. Huber dominates the full leptokurtic regime.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,10 +34,13 @@ import pytest
 class TestLagPredictDeployableModel:
     def test_predict_returns_lag_column_pandas(self) -> None:
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
-        df = pd.DataFrame({
-            "TVT_prev": np.arange(100.0),
-            "other": np.zeros(100),
-        })
+
+        df = pd.DataFrame(
+            {
+                "TVT_prev": np.arange(100.0),
+                "other": np.zeros(100),
+            }
+        )
         model = _LagPredictDeployableModel(lag_column="TVT_prev")
         preds = model.predict(df)
         assert preds.shape == (100,)
@@ -44,6 +48,7 @@ class TestLagPredictDeployableModel:
 
     def test_predict_raises_on_missing_column(self) -> None:
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+
         df = pd.DataFrame({"a": [1, 2, 3]})
         model = _LagPredictDeployableModel(lag_column="TVT_prev")
         with pytest.raises(KeyError):
@@ -53,6 +58,7 @@ class TestLagPredictDeployableModel:
         """Critical: the production OOF refit slices via ``iloc``;
         the deployable model must work on the resulting fresh frame."""
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+
         df = pd.DataFrame({"TVT_prev": np.arange(1000.0)})
         model = _LagPredictDeployableModel(lag_column="TVT_prev")
         slice_a = df.iloc[100:200].reset_index(drop=True)
@@ -61,6 +67,7 @@ class TestLagPredictDeployableModel:
 
     def test_repr_includes_lag_column(self) -> None:
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+
         model = _LagPredictDeployableModel(lag_column="TVT_prev")
         s = repr(model)
         assert "TVT_prev" in s
@@ -68,6 +75,7 @@ class TestLagPredictDeployableModel:
 
     def test_get_params_returns_lag_column(self) -> None:
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+
         m = _LagPredictDeployableModel(lag_column="TVT_prev")
         assert m.get_params() == {"lag_column": "TVT_prev"}
         assert m.get_params(deep=True) == {"lag_column": "TVT_prev"}
@@ -75,6 +83,7 @@ class TestLagPredictDeployableModel:
 
     def test_set_params_updates_and_returns_self(self) -> None:
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+
         m = _LagPredictDeployableModel(lag_column="TVT_prev")
         out = m.set_params(lag_column="other_lag")
         assert out is m
@@ -82,6 +91,7 @@ class TestLagPredictDeployableModel:
 
     def test_set_params_rejects_unknown(self) -> None:
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+
         m = _LagPredictDeployableModel(lag_column="TVT_prev")
         with pytest.raises(ValueError):
             m.set_params(bogus=42)
@@ -89,14 +99,13 @@ class TestLagPredictDeployableModel:
     def test_fit_is_noop_and_returns_self(self) -> None:
         """OOF refit path calls fit(); must accept any signature without error."""
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+
         m = _LagPredictDeployableModel(lag_column="TVT_prev")
         df = pd.DataFrame({"TVT_prev": [1.0, 2.0, 3.0]})
         out = m.fit(df, np.array([1.0, 2.0, 3.0]))
         assert out is m
         # Should also accept arbitrary fit_params (eval_set, sample_weight, etc).
-        out2 = m.fit(df, np.array([1.0, 2.0, 3.0]),
-                     eval_set=[(df, np.array([1.0, 2.0, 3.0]))],
-                     sample_weight=np.ones(3))
+        out2 = m.fit(df, np.array([1.0, 2.0, 3.0]), eval_set=[(df, np.array([1.0, 2.0, 3.0]))], sample_weight=np.ones(3))
         assert out2 is m
 
     def test_survives_sklearn_clone(self) -> None:
@@ -110,6 +119,7 @@ class TestLagPredictDeployableModel:
         sklearn = pytest.importorskip("sklearn")
         from sklearn.base import clone
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+
         m = _LagPredictDeployableModel(lag_column="TVT_prev")
         m2 = clone(m)
         assert m2 is not m
@@ -123,6 +133,7 @@ class TestLagPredictDeployableModel:
         sklearn = pytest.importorskip("sklearn")
         from sklearn.base import clone
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+
         m = _LagPredictDeployableModel(lag_column="TVT_prev")
         df = pd.DataFrame({"TVT_prev": np.arange(1000.0)})
         y = np.arange(1000.0) + 5.0  # arbitrary, fit ignores it
@@ -137,6 +148,7 @@ class TestXGBModuleLevelCache:
 
     def test_module_level_cache_exists_with_helpers(self) -> None:
         from mlframe.training import xgb_shim
+
         assert hasattr(xgb_shim, "_XGB_DMATRIX_CACHE")
         assert hasattr(xgb_shim, "_xgb_cache_get")
         assert hasattr(xgb_shim, "_xgb_cache_put")
@@ -146,6 +158,7 @@ class TestXGBModuleLevelCache:
 
     def test_cache_round_trip(self) -> None:
         from mlframe.training import xgb_shim
+
         xgb_shim._xgb_cache_clear()
 
         class MockDMatrix:
@@ -158,6 +171,7 @@ class TestXGBModuleLevelCache:
 
     def test_cache_returns_none_on_miss(self) -> None:
         from mlframe.training import xgb_shim
+
         xgb_shim._xgb_cache_clear()
         assert xgb_shim._xgb_cache_get(("missing", 1, 1, 0, ())) is None
 
@@ -167,12 +181,15 @@ class TestXGBModuleLevelCache:
         with identical-content data hits the same cache entry."""
         from mlframe.training import xgb_shim
         from mlframe.training._dataset_cache_fingerprint import compute_signature
+
         xgb_shim._xgb_cache_clear()
         # Original frame.
-        df_a = pd.DataFrame({
-            "a": np.linspace(0, 1, 1000),
-            "b": np.linspace(1, 2, 1000),
-        })
+        df_a = pd.DataFrame(
+            {
+                "a": np.linspace(0, 1, 1000),
+                "b": np.linspace(1, 2, 1000),
+            }
+        )
         # Fresh frame with IDENTICAL content (different id() -- what
         # ``train_X.iloc[idx].reset_index(drop=True)`` produces).
         df_b = df_a.copy()
@@ -193,11 +210,13 @@ class TestXGBModuleLevelCache:
 
     def test_cache_lru_eviction(self) -> None:
         from mlframe.training import xgb_shim
+
         xgb_shim._xgb_cache_clear()
         cap = xgb_shim._XGB_DMATRIX_CACHE_CAP
 
         class MockDMatrix:
-            def __init__(self, name): self.name = name
+            def __init__(self, name):
+                self.name = name
 
         # Fill past cap.
         for i in range(cap + 3):
@@ -214,11 +233,13 @@ class TestXGBModuleLevelCache:
         """Access to an entry should move it to the MRU position so it
         survives further insertions."""
         from mlframe.training import xgb_shim
+
         xgb_shim._xgb_cache_clear()
         cap = xgb_shim._XGB_DMATRIX_CACHE_CAP
 
         class M:
-            def __init__(self, n): self.n = n
+            def __init__(self, n):
+                self.n = n
 
         for i in range(cap):
             xgb_shim._xgb_cache_put((f"k{i}",), M(i))
@@ -232,9 +253,12 @@ class TestXGBModuleLevelCache:
 
     def test_env_var_disables_cache(self, monkeypatch) -> None:
         from mlframe.training import xgb_shim
+
         xgb_shim._xgb_cache_clear()
 
-        class M: pass
+        class M:
+            pass
+
         m = M()
         monkeypatch.setenv("MLFRAME_XGB_CACHE_DISABLE", "1")
         xgb_shim._xgb_cache_put(("k",), m)
@@ -247,6 +271,7 @@ class TestXGBModuleLevelCache:
         produces the same key (this is the load-bearing invariant for
         the module-level cache to work across sklearn.clone())."""
         from mlframe.training.xgb_shim import _signature_of
+
         df = pd.DataFrame({"a": np.arange(1000.0)})
         slice_a = df.iloc[:500].reset_index(drop=True)
         slice_b = df.iloc[:500].reset_index(drop=True)
@@ -257,10 +282,12 @@ class TestXGBModuleLevelCache:
 class TestLossRecommendationRound5HuberUnified:
     def test_excess_kurt_heavy_threshold_back_to_1_5(self) -> None:
         from mlframe.training import loss_recommendation
+
         assert loss_recommendation._EXCESS_KURT_HEAVY == 1.5
 
     def test_medium_kurt_picks_huber(self) -> None:
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
+
         rng = np.random.default_rng(0)
         n = 5000
         # Mildly leptokurtic
@@ -284,6 +311,7 @@ class TestLossRecommendationRound5HuberUnified:
         iter=1 because MAE gradient on near-zero residuals = sign(noise).
         Now picks Huber across the full leptokurtic range."""
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
+
         rng = np.random.default_rng(0)
         # Student-t df=3 has excess_kurt theoretical infinity; large
         # sample will land in (3, 10] range for our purposes.
@@ -297,6 +325,7 @@ class TestLossRecommendationRound5HuberUnified:
 
     def test_gaussian_still_picks_rmse(self) -> None:
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
+
         rng = np.random.default_rng(0)
         y = rng.normal(0, 1, 10000)  # excess_kurt ~ 0
         rec = recommend_boosting_regression_loss(y)
@@ -316,22 +345,21 @@ class TestFingerprintParityAcrossContainers:
     def test_pandas_and_polars_numeric_match(self) -> None:
         pl = pytest.importorskip("polars")
         from mlframe.training._dataset_cache_fingerprint import compute_signature
+
         n = 100
         a = np.linspace(0, 1, n, dtype=np.float32)
         b = np.linspace(1, 2, n, dtype=np.float32)
         pd_df = pd.DataFrame({"a": a, "b": b})
         pl_df = pl.DataFrame({"a": a, "b": b})
-        assert compute_signature(pd_df) == compute_signature(pl_df), (
-            "Polars and pandas of IDENTICAL numeric content must produce "
-            "the same content-fingerprint."
-        )
+        assert compute_signature(pd_df) == compute_signature(pl_df), "Polars and pandas of IDENTICAL numeric content must produce the same content-fingerprint."
 
     def test_pandas_and_polars_with_bool_match(self) -> None:
         pl = pytest.importorskip("polars")
         from mlframe.training._dataset_cache_fingerprint import compute_signature
+
         n = 50
         a = np.arange(n, dtype=np.float32)
-        b = (np.arange(n) % 2 == 0)
+        b = np.arange(n) % 2 == 0
         pd_df = pd.DataFrame({"a": a, "b": b})
         pl_df = pl.DataFrame({"a": a, "b": b})
         assert compute_signature(pd_df) == compute_signature(pl_df)
@@ -339,15 +367,20 @@ class TestFingerprintParityAcrossContainers:
     def test_pandas_and_polars_with_string_match(self) -> None:
         pl = pytest.importorskip("polars")
         from mlframe.training._dataset_cache_fingerprint import compute_signature
+
         cats = ["w1", "w2", "w1", "w3"] * 25
-        pd_df = pd.DataFrame({
-            "v": np.arange(len(cats), dtype=np.float32),
-            "g": cats,
-        })
-        pl_df = pl.DataFrame({
-            "v": np.arange(len(cats), dtype=np.float32),
-            "g": cats,
-        })
+        pd_df = pd.DataFrame(
+            {
+                "v": np.arange(len(cats), dtype=np.float32),
+                "g": cats,
+            }
+        )
+        pl_df = pl.DataFrame(
+            {
+                "v": np.arange(len(cats), dtype=np.float32),
+                "g": cats,
+            }
+        )
         assert compute_signature(pd_df) == compute_signature(pl_df)
 
     def test_different_content_different_hash(self) -> None:
@@ -355,6 +388,7 @@ class TestFingerprintParityAcrossContainers:
         (otherwise we'd false-hit the cache and return a stale Pool /
         DMatrix / Dataset)."""
         from mlframe.training._dataset_cache_fingerprint import compute_signature
+
         a = pd.DataFrame({"v": np.arange(100.0)})
         b = pd.DataFrame({"v": np.arange(100.0) + 1.0})
         assert compute_signature(a) != compute_signature(b)
@@ -396,8 +430,12 @@ class TestMLPEvalSetShapeNormalisation:
             datamodule_class=TorchDataModule,
             datamodule_params=dict(features_dtype=torch.float32, labels_dtype=torch.float32),
             trainer_params=dict(
-                max_epochs=1, accelerator="cpu", devices=1,
-                enable_progress_bar=False, enable_model_summary=False, logger=False,
+                max_epochs=1,
+                accelerator="cpu",
+                devices=1,
+                enable_progress_bar=False,
+                enable_model_summary=False,
+                logger=False,
             ),
         )
         # eval_set arrives wrapped as a 1-element list-of-tuples in the
@@ -418,6 +456,7 @@ class TestExternalValHoldoutOOF:
         """Two trivial raw regressors that just memorise mean(y)."""
         from sklearn.dummy import DummyRegressor
         from mlframe.training.composite.post_shim import PrePipelinePredictShim
+
         m_a = DummyRegressor(strategy="mean")
         m_b = DummyRegressor(strategy="median")
         c_a = PrePipelinePredictShim(m_a, None, "raw#0")
@@ -428,21 +467,27 @@ class TestExternalValHoldoutOOF:
         from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
+
         components, names, specs = self._make_components()
         n_train, n_val = 200, 50
         rng = np.random.default_rng(0)
-        X_train = pd.DataFrame({
-            "a": rng.normal(0, 1, n_train),
-            "b": rng.normal(0, 1, n_train),
-        })
+        X_train = pd.DataFrame(
+            {
+                "a": rng.normal(0, 1, n_train),
+                "b": rng.normal(0, 1, n_train),
+            }
+        )
         y_train = rng.normal(10, 1, n_train).astype(np.float64)
-        X_val = pd.DataFrame({
-            "a": rng.normal(0, 1, n_val),
-            "b": rng.normal(0, 1, n_val),
-        })
+        X_val = pd.DataFrame(
+            {
+                "a": rng.normal(0, 1, n_val),
+                "b": rng.normal(0, 1, n_val),
+            }
+        )
         y_val = rng.normal(50, 1, n_val).astype(np.float64)
         # Fit the raw components on train so they exist.
         from mlframe.training.composite.post_shim import PrePipelinePredictShim
+
         for c in components:
             assert isinstance(c, PrePipelinePredictShim)
             c.model.fit(X_train, y_train)
@@ -474,14 +519,18 @@ class TestExternalValHoldoutOOF:
         from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
+
         components, names, specs = self._make_components()
         from mlframe.training.composite.post_shim import PrePipelinePredictShim
+
         n_train = 200
         rng = np.random.default_rng(0)
-        X_train = pd.DataFrame({
-            "a": rng.normal(0, 1, n_train),
-            "b": rng.normal(0, 1, n_train),
-        })
+        X_train = pd.DataFrame(
+            {
+                "a": rng.normal(0, 1, n_train),
+                "b": rng.normal(0, 1, n_train),
+            }
+        )
         y_train = rng.normal(0, 1, n_train).astype(np.float64)
         for c in components:
             c.model.fit(X_train, y_train)
@@ -505,8 +554,10 @@ class TestExternalValHoldoutOOF:
         from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
+
         components, names, specs = self._make_components()
         from mlframe.training.composite.post_shim import PrePipelinePredictShim
+
         rng = np.random.default_rng(0)
         X_train = pd.DataFrame({"a": rng.normal(0, 1, 200)})
         y_train = rng.normal(0, 1, 200).astype(np.float64)
@@ -533,6 +584,7 @@ class TestExternalValHoldoutOOF:
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
+
         cfg = CompositeTargetDiscoveryConfig()
         assert cfg.oof_holdout_source == "kfold"
 
@@ -547,6 +599,7 @@ class TestExternalValHoldoutOOF:
         from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
+
         sig = inspect.signature(compute_oof_holdout_predictions)
         params = sig.parameters
         assert "external_holdout_X" in params
@@ -573,13 +626,13 @@ class TestLagPredictFailsafeKnob:
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
+
         fields = getattr(CompositeTargetDiscoveryConfig, "model_fields", None)
         assert fields is not None
         assert "lag_predict_failsafe_tolerance" in fields
         cfg = CompositeTargetDiscoveryConfig()
         assert cfg.lag_predict_failsafe_tolerance == 0.10, (
-            f"lag_predict_failsafe_tolerance default is 0.10 since 2026-05-25 group-aware inner eval; got "
-            f"{cfg.lag_predict_failsafe_tolerance}"
+            f"lag_predict_failsafe_tolerance default is 0.10 since 2026-05-25 group-aware inner eval; got {cfg.lag_predict_failsafe_tolerance}"
         )
 
     def test_gate_logic_present_in_phase_composite_post(self) -> None:
@@ -589,12 +642,11 @@ class TestLagPredictFailsafeKnob:
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
+
         cfg = CompositeTargetDiscoveryConfig()
         assert hasattr(cfg, "lag_predict_failsafe_tolerance")
         # The module must expose a callable phase entry so the failsafe path is reachable end-to-end (the inner config read is exercised by the behavioural failsafe E2E sibling, not this smoke).
-        assert callable(getattr(_ppost, "run_composite_post_processing", None)), (
-            "_phase_composite_post no longer exposes run_composite_post_processing"
-        )
+        assert callable(getattr(_ppost, "run_composite_post_processing", None)), "_phase_composite_post no longer exposes run_composite_post_processing"
 
 
 class TestDummyFloorGateCtEnsemble:
@@ -609,6 +661,7 @@ class TestDummyFloorGateCtEnsemble:
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
+
         fields = getattr(CompositeTargetDiscoveryConfig, "model_fields", None)
         assert fields is not None
         assert "ct_ensemble_dummy_floor_enabled" in fields
@@ -625,12 +678,11 @@ class TestDummyFloorGateCtEnsemble:
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
+
         cfg = CompositeTargetDiscoveryConfig()
         assert hasattr(cfg, "ct_ensemble_dummy_floor_enabled")
         assert hasattr(cfg, "ct_ensemble_dummy_floor_tolerance")
-        assert callable(getattr(_ppost, "run_composite_post_processing", None)), (
-            "_phase_composite_post no longer exposes run_composite_post_processing"
-        )
+        assert callable(getattr(_ppost, "run_composite_post_processing", None)), "_phase_composite_post no longer exposes run_composite_post_processing"
 
 
 class TestExtremeArGroupAwareSkip:
@@ -645,6 +697,7 @@ class TestExtremeArGroupAwareSkip:
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
+
         fields = getattr(CompositeTargetDiscoveryConfig, "model_fields", None)
         assert fields is not None
         assert "extreme_ar_group_aware_skip" in fields
@@ -661,12 +714,11 @@ class TestExtremeArGroupAwareSkip:
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
+
         cfg = CompositeTargetDiscoveryConfig()
         assert hasattr(cfg, "extreme_ar_group_aware_skip")
         assert hasattr(cfg, "extreme_ar_threshold")
-        assert callable(getattr(_disc, "run_composite_target_discovery", None)), (
-            "_phase_composite_discovery no longer exposes run_composite_target_discovery"
-        )
+        assert callable(getattr(_disc, "run_composite_target_discovery", None)), "_phase_composite_discovery no longer exposes run_composite_target_discovery"
 
 
 class TestGroupAwareTinyRerank:
@@ -678,8 +730,10 @@ class TestGroupAwareTinyRerank:
     def test_y_scale_accepts_groups_kwarg(self) -> None:
         import inspect
         from mlframe.training.composite.discovery._screening_tiny import (
-            _tiny_cv_rmse_y_scale, _tiny_cv_rmse_raw_y,
+            _tiny_cv_rmse_y_scale,
+            _tiny_cv_rmse_raw_y,
         )
+
         sig_y = inspect.signature(_tiny_cv_rmse_y_scale)
         assert "groups" in sig_y.parameters
         sig_raw = inspect.signature(_tiny_cv_rmse_raw_y)
@@ -690,6 +744,7 @@ class TestGroupAwareTinyRerank:
         end-to-end groups-routing is verified by
         test_groupkfold_used_when_groups_supplied below."""
         from mlframe.training.composite.discovery import _tiny_rerank as mod
+
         rerank = getattr(mod, "_tiny_model_rerank", None)
         assert callable(rerank), "_composite_discovery_tiny_rerank dropped _tiny_model_rerank"
 
@@ -697,9 +752,8 @@ class TestGroupAwareTinyRerank:
         """Behavioural smoke: discovery phase exposes ``run_composite_target_discovery``
         so the suite can call the group-aware entry."""
         from mlframe.training.core import _phase_composite_discovery as _disc
-        assert callable(getattr(_disc, "run_composite_target_discovery", None)), (
-            "_phase_composite_discovery no longer exposes run_composite_target_discovery"
-        )
+
+        assert callable(getattr(_disc, "run_composite_target_discovery", None)), "_phase_composite_discovery no longer exposes run_composite_target_discovery"
 
     def test_groupkfold_used_when_groups_supplied(self) -> None:
         """End-to-end: pass groups to _tiny_cv_rmse_y_scale and verify
@@ -710,6 +764,7 @@ class TestGroupAwareTinyRerank:
             _tiny_cv_rmse_y_scale,
         )
         from mlframe.training.composite.transforms import get_transform
+
         rng = np.random.default_rng(0)
         n = 600
         # Two well-separable groups, each predictable from its own subset.
@@ -721,20 +776,36 @@ class TestGroupAwareTinyRerank:
         # the splitter is being honored.
         base = np.zeros(n, dtype=np.float64)
         y = np.where(
-            groups == 0, x[:, 0] * 5.0, x[:, 1] * 5.0,
+            groups == 0,
+            x[:, 0] * 5.0,
+            x[:, 1] * 5.0,
         ) + rng.normal(0, 0.1, n)
         transform = get_transform("diff")
         kf_rmse = _tiny_cv_rmse_y_scale(
-            y, base, transform, {}, x,
+            y,
+            base,
+            transform,
+            {},
+            x,
             family="lightgbm",
-            n_estimators=20, num_leaves=8, learning_rate=0.1,
-            cv_folds=2, random_state=0,
+            n_estimators=20,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=2,
+            random_state=0,
         )
         gkf_rmse = _tiny_cv_rmse_y_scale(
-            y, base, transform, {}, x,
+            y,
+            base,
+            transform,
+            {},
+            x,
             family="lightgbm",
-            n_estimators=20, num_leaves=8, learning_rate=0.1,
-            cv_folds=2, random_state=0,
+            n_estimators=20,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=2,
+            random_state=0,
             groups=groups,
         )
         assert np.isfinite(kf_rmse)

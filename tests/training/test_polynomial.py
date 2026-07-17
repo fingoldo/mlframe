@@ -17,6 +17,7 @@ the polynomial step the same way iter-44 auto-tunes
 skip the step entirely if even degree=1 exceeds the cap. Each step
 is WARN-logged.
 """
+
 from __future__ import annotations
 
 import logging
@@ -31,10 +32,7 @@ from mlframe.training.pipeline import apply_preprocessing_extensions
 
 def _make_frame(n: int = 200, n_features: int = 30) -> pd.DataFrame:
     rng = np.random.default_rng(0)
-    return pd.DataFrame({
-        f"x{i}": rng.standard_normal(n).astype(np.float64)
-        for i in range(n_features)
-    })
+    return pd.DataFrame({f"x{i}": rng.standard_normal(n).astype(np.float64) for i in range(n_features)})
 
 
 def test_polynomial_flips_interaction_only_when_over_byte_cap(caplog) -> None:
@@ -52,10 +50,9 @@ def test_polynomial_flips_interaction_only_when_over_byte_cap(caplog) -> None:
         out = apply_preprocessing_extensions(df, None, None, cfg, verbose=0)
     assert out is not None
     # Must have logged the interaction_only flip (the first auto-tune step).
-    assert any(
-        "interaction_only=True" in rec.message and "polynomial" in rec.message
-        for rec in caplog.records
-    ), f"expected interaction_only flip WARN; got: {[r.message for r in caplog.records]}"
+    assert any("interaction_only=True" in rec.message and "polynomial" in rec.message for rec in caplog.records), (
+        f"expected interaction_only flip WARN; got: {[r.message for r in caplog.records]}"
+    )
 
 
 def test_polynomial_decrements_degree_when_interaction_only_not_enough(caplog) -> None:
@@ -86,10 +83,9 @@ def test_polynomial_skips_entirely_when_even_degree_1_too_big(caplog) -> None:
         out = apply_preprocessing_extensions(df, None, None, cfg, verbose=0)
     assert out is not None
     # The "skipping polynomial step entirely" WARN must fire.
-    assert any(
-        "skipping" in rec.message and "polynomial" in rec.message
-        for rec in caplog.records
-    ), f"expected skip-polynomial WARN; got: {[r.message for r in caplog.records]}"
+    assert any("skipping" in rec.message and "polynomial" in rec.message for rec in caplog.records), (
+        f"expected skip-polynomial WARN; got: {[r.message for r in caplog.records]}"
+    )
 
 
 def test_polynomial_fits_when_under_byte_cap_no_warn(caplog) -> None:
@@ -105,10 +101,9 @@ def test_polynomial_fits_when_under_byte_cap_no_warn(caplog) -> None:
         out = apply_preprocessing_extensions(df, None, None, cfg, verbose=0)
     assert out is not None
     _warn_msgs = [rec.message for rec in caplog.records]
-    assert not any(
-        "polynomial" in m and ("flipping" in m or "decrementing" in m or "skipping" in m)
-        for m in _warn_msgs
-    ), f"expected no polynomial auto-tune WARN; got: {_warn_msgs}"
+    assert not any("polynomial" in m and ("flipping" in m or "decrementing" in m or "skipping" in m) for m in _warn_msgs), (
+        f"expected no polynomial auto-tune WARN; got: {_warn_msgs}"
+    )
 
 
 def test_memory_safety_max_bytes_none_disables_byte_guard(caplog) -> None:
@@ -125,7 +120,4 @@ def test_memory_safety_max_bytes_none_disables_byte_guard(caplog) -> None:
     assert out is not None
     _warn_msgs = [rec.message for rec in caplog.records]
     # When the byte guard is disabled, the auto-tune messages must NOT fire.
-    assert not any(
-        "polynomial output would allocate" in m
-        for m in _warn_msgs
-    )
+    assert not any("polynomial output would allocate" in m for m in _warn_msgs)

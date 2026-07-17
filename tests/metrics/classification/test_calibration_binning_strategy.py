@@ -10,6 +10,7 @@ Covers:
   numba) and the dropped count is logged.
 - INV-22: Wilson binomial CI half-width on a known n / p.
 """
+
 from __future__ import annotations
 
 import logging
@@ -147,6 +148,7 @@ def test_quantile_bins_equal_population():
 # --------------------------------------------------------------------------- #
 def test_nan_probs_dropped_before_binning(caplog):
     from mlframe.metrics.classification._classification_report import fast_calibration_report
+
     rng = np.random.default_rng(0)
     n = 5000
     p = rng.random(n)
@@ -162,6 +164,7 @@ def test_nan_probs_dropped_before_binning(caplog):
 
 def test_all_nan_probs_does_not_crash():
     from mlframe.metrics.classification._classification_report import fast_calibration_report
+
     n = 100
     y = np.zeros(n, dtype=np.int64)
     p = np.full(n, np.nan)
@@ -181,6 +184,7 @@ def test_wilson_ci_known_value():
     With z=1.959964: center=0.5, half ~= 0.0980 (the canonical Wilson(0.5,100)
     interval is approximately [0.4020, 0.5980])."""
     from mlframe.reporting.charts.calibration import wilson_ci
+
     lower, upper = wilson_ci(np.array([0.5]), np.array([100]))
     z = 1.959963984540054
     denom = 1.0 + z * z / 100.0
@@ -197,6 +201,7 @@ def test_wilson_ci_known_value():
 
 def test_wilson_ci_clips_and_handles_zero_n():
     from mlframe.reporting.charts.calibration import wilson_ci
+
     lower, upper = wilson_ci(np.array([0.0, 1.0, 0.5]), np.array([10, 10, 0]))
     # p_hat=0 / p_hat=1 stay inside [0,1].
     assert lower[0] >= 0.0 and upper[0] <= 1.0

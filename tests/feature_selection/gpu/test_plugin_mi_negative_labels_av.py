@@ -5,6 +5,7 @@ label. A ``y`` containing negative values (a binned continuous target shifted be
 ``hist_y[-10]`` into a length-7 array -> out-of-bounds read -> Windows native access violation (0xC0000005) that
 killed the whole process (the sklearn-fallback ``except`` cannot catch a native AV). Surfaced by fuzz combo c0024.
 """
+
 import numpy as np
 import pytest
 

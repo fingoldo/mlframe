@@ -1,6 +1,7 @@
 """MRMR engineered-recipe replay must WARN (not silently fall back to a nameless ndarray)
 when the predict-time X cannot be wrapped in the fitted feature_names_in_ -- a silent
 fallback resolves src-names-by-name recipes against an unnamed frame -> wrong columns."""
+
 from __future__ import annotations
 
 import logging

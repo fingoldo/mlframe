@@ -5,6 +5,7 @@ Two concerns live together here because both touch the transform registry's doma
 * ``signed_power_y`` -- ``T = sign(y) * |y|^p`` with ``p`` fitted at fit-time to minimise ``|skew(T)|``.  The biz_value test asserts a right-skewed target becomes markedly more symmetric (skew drops >=50%) AND a downstream linear model RMSE improves vs raw y.
 * NaN-only base guard -- for every registry transform an all-non-finite base column must route to the fallback (all-False mask for base-reading transforms) or be genuinely ignored (base-free transforms), so no NaN ever escapes the predict path.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,11 +32,14 @@ from mlframe.training.composite.transforms.unary import (
 
 
 class TestSignedPowerYUnit:
-    @pytest.mark.parametrize("y", [
-        np.array([0.0, 1.0, -1.0, 8.0, -8.0, 1e6, -1e6]),
-        np.linspace(-1000.0, 1000.0, 200),
-        np.exp(np.random.default_rng(3).standard_normal(500)),
-    ])
+    @pytest.mark.parametrize(
+        "y",
+        [
+            np.array([0.0, 1.0, -1.0, 8.0, -8.0, 1e6, -1e6]),
+            np.linspace(-1000.0, 1000.0, 200),
+            np.exp(np.random.default_rng(3).standard_normal(500)),
+        ],
+    )
     def test_round_trip(self, y: np.ndarray) -> None:
         params = signed_power_y_fit(y)
         t = signed_power_y_forward(y, params)
@@ -91,20 +95,19 @@ class TestSignedPowerYBizValue:
         t = signed_power_y_forward(y, params)
         skew_raw = abs(float(stats.skew(y)))
         skew_t = abs(float(stats.skew(t)))
-        assert skew_t <= 0.5 * skew_raw, (
-            f"signed_power_y did not halve skew: raw={skew_raw:.3f} T={skew_t:.3f}"
-        )
+        assert skew_t <= 0.5 * skew_raw, f"signed_power_y did not halve skew: raw={skew_raw:.3f} T={skew_t:.3f}"
 
         x = (z + rng.standard_normal(n) * 0.3).reshape(-1, 1)
         x_tr, x_te, y_tr, y_te = train_test_split(x, y, test_size=0.5, random_state=0)
         rmse_raw = _downstream_rmse(y_tr, y_te, x_tr, x_te, (None, None, None))
         rmse_t = _downstream_rmse(
-            y_tr, y_te, x_tr, x_te,
+            y_tr,
+            y_te,
+            x_tr,
+            x_te,
             (signed_power_y_fit, signed_power_y_forward, signed_power_y_inverse),
         )
-        assert rmse_t <= 0.85 * rmse_raw, (
-            f"signed_power_y downstream RMSE did not improve: raw={rmse_raw:.3f} T={rmse_t:.3f}"
-        )
+        assert rmse_t <= 0.85 * rmse_raw, f"signed_power_y downstream RMSE did not improve: raw={rmse_raw:.3f} T={rmse_t:.3f}"
 
     def test_biz_val_signed_power_y_beats_fixed_cbrt_on_strong_skew(self) -> None:
         """The fitted exponent adapts strength to the target: on a very heavy right skew it reaches a more symmetric T than the fixed-p=1/3 cbrt_y, so |skew| is no worse and typically better."""
@@ -179,9 +182,7 @@ def test_all_nan_base_predict_domain_routes_to_fallback(name: str) -> None:
 
     if t.requires_base:
         # All-NaN base -> no row may be invertible (all flagged -> fallback).
-        assert not pred_mask.any(), (
-            f"transform={name!r} kept rows on an all-NaN base; NaN inverse would escape"
-        )
+        assert not pred_mask.any(), f"transform={name!r} kept rows on an all-NaN base; NaN inverse would escape"
         return
 
     # Base-free transform: fit on real y, run a forward then inverse with a
@@ -194,11 +195,14 @@ def test_all_nan_base_predict_domain_routes_to_fallback(name: str) -> None:
     assert np.all(np.isfinite(y_back)), f"{name}: inverse produced non-finite y on a placeholder base"
 
 
-@pytest.mark.parametrize("transform_name,base_column", [
-    ("diff", "b"),
-    ("linear_residual", "b"),
-    ("ratio", "b"),
-])
+@pytest.mark.parametrize(
+    "transform_name,base_column",
+    [
+        ("diff", "b"),
+        ("linear_residual", "b"),
+        ("ratio", "b"),
+    ],
+)
 def test_estimator_predict_finite_when_base_all_nan(transform_name, base_column) -> None:
     """End-to-end: a base-reading composite estimator predicting on rows whose base column is entirely NaN must return finite y (the train-median fallback), never NaN.
 
@@ -212,13 +216,12 @@ def test_estimator_predict_finite_when_base_all_nan(transform_name, base_column)
     X = pd.DataFrame({"b": b, "feat": f})
     est = CompositeTargetEstimator(
         base_estimator=HistGradientBoostingRegressor(max_iter=30, random_state=0),
-        transform_name=transform_name, base_column=base_column,
+        transform_name=transform_name,
+        base_column=base_column,
     )
     est.fit(X.iloc[:400], y[:400])
 
     X_pred = X.iloc[400:].copy()
     X_pred["b"] = np.nan  # entire base column non-finite at predict
     y_hat = est.predict(X_pred)
-    assert np.all(np.isfinite(y_hat)), (
-        f"{transform_name}: NaN base at predict leaked non-finite y_hat"
-    )
+    assert np.all(np.isfinite(y_hat)), f"{transform_name}: NaN base at predict leaked non-finite y_hat"

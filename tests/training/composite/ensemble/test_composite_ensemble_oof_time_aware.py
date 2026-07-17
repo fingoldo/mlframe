@@ -8,6 +8,7 @@ holdout slice is the trailing rows; train_idx + holdout_idx are
 contiguous, non-overlapping, and the holdout's min index strictly
 exceeds the train's max index.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -61,11 +62,13 @@ class _DummyRegressor:
 def test_time_ordering_signal_produces_contiguous_future_holdout() -> None:
     rng = np.random.default_rng(0)
     n = 500
-    df = pd.DataFrame({
-        "f1": rng.normal(size=n),
-        "f2": rng.normal(size=n),
-        "base": np.arange(n, dtype=np.float64),  # monotone -> looks like time
-    })
+    df = pd.DataFrame(
+        {
+            "f1": rng.normal(size=n),
+            "f2": rng.normal(size=n),
+            "base": np.arange(n, dtype=np.float64),  # monotone -> looks like time
+        }
+    )
     y = rng.normal(size=n)
     timestamps = np.arange(n, dtype=np.float64)
     component_models = [_DummyRegressor()]
@@ -96,10 +99,12 @@ def test_monotone_base_column_no_longer_auto_switches() -> None:
     rng = np.random.default_rng(1)
     n = 400
     base = np.arange(n, dtype=np.float64)  # monotone "timestamp-like" base
-    df = pd.DataFrame({
-        "f1": rng.normal(size=n),
-        "base": base,
-    })
+    df = pd.DataFrame(
+        {
+            "f1": rng.normal(size=n),
+            "base": base,
+        }
+    )
     y = rng.normal(size=n)
     component_models = [_DummyRegressor()]
     holdout_preds, y_holdout, surviving = compute_oof_holdout_predictions(

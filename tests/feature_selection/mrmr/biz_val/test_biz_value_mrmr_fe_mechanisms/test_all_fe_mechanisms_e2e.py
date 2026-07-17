@@ -336,7 +336,7 @@ class TestAllEnabledFitsAndTransforms:
         (orth He2, Fourier sin, kfold_te or cat_num residual)."""
         _X_tr, _y_tr, _X_ho, _y_ho, m, _elapsed = _kitchen_sink_all_fe_fit()
         eng = getattr(m, "_engineered_features_", []) or []
-        assert len(eng) >= 3, f"Expected >= 3 engineered columns to surface from kitchen-sink " f"with all 8 mechanisms enabled; got {eng}"
+        assert len(eng) >= 3, f"Expected >= 3 engineered columns to surface from kitchen-sink with all 8 mechanisms enabled; got {eng}"
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +360,7 @@ class TestAllEnabledLogRegAUC:
         out_tr = m.transform(X_tr)
         out_ho = m.transform(X_ho)
         auc_all = _logreg_auc(out_tr, y_tr, out_ho, y_ho)
-        assert auc_all >= 0.85, f"All-FE-enabled downstream LogReg AUC {auc_all:.4f} did not " f"clear the 0.85 contract; transform cols={list(out_tr.columns)}"
+        assert auc_all >= 0.85, f"All-FE-enabled downstream LogReg AUC {auc_all:.4f} did not clear the 0.85 contract; transform cols={list(out_tr.columns)}"
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +380,7 @@ class TestAllEnabledLiftOverNoFEBaseline:
         out_ho = m.transform(X_ho)
         auc_all = _logreg_auc(out_tr, y_tr, out_ho, y_ho)
         lift = auc_all - auc_raw
-        assert lift >= 0.10, f"All-enabled lift over no-FE baseline {lift:+.4f} did not " f"clear the +0.10 contract; raw={auc_raw:.4f} all={auc_all:.4f}"
+        assert lift >= 0.10, f"All-enabled lift over no-FE baseline {lift:+.4f} did not clear the +0.10 contract; raw={auc_raw:.4f} all={auc_all:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -426,9 +426,7 @@ class TestPerMechanismIndividualLift:
             fe_hybrid_orth_pair_enable=False,
             fe_hybrid_orth_basis="hermite",
         )
-        assert auc - baseline_auc >= 0.02, (
-            f"orth-univariate alone: lift={auc - baseline_auc:+.4f} below +0.02 " f"(baseline={baseline_auc:.4f}, mech={auc:.4f})"
-        )
+        assert auc - baseline_auc >= 0.02, f"orth-univariate alone: lift={auc - baseline_auc:+.4f} below +0.02 (baseline={baseline_auc:.4f}, mech={auc:.4f})"
 
     def test_fourier_lifts_on_periodic(self, fixture, baseline_auc):
         """Fourier alone lifts AUC by >=0.02 on the periodic signal."""
@@ -440,7 +438,7 @@ class TestPerMechanismIndividualLift:
             fe_hybrid_orth_extra_bases=("fourier",),
             fe_hybrid_orth_fourier_freqs=(1.0, 2.0),
         )
-        assert auc - baseline_auc >= 0.02, f"fourier alone: lift={auc - baseline_auc:+.4f} below +0.02 " f"(baseline={baseline_auc:.4f}, mech={auc:.4f})"
+        assert auc - baseline_auc >= 0.02, f"fourier alone: lift={auc - baseline_auc:+.4f} below +0.02 (baseline={baseline_auc:.4f}, mech={auc:.4f})"
 
     def test_spline_lifts_on_threshold(self, fixture, baseline_auc):
         """Spline alone lifts AUC by >=0.02 on the box-threshold signal."""
@@ -452,7 +450,7 @@ class TestPerMechanismIndividualLift:
             fe_hybrid_orth_extra_bases=("spline",),
             fe_hybrid_orth_spline_knots=7,
         )
-        assert auc - baseline_auc >= 0.02, f"spline alone: lift={auc - baseline_auc:+.4f} below +0.02 " f"(baseline={baseline_auc:.4f}, mech={auc:.4f})"
+        assert auc - baseline_auc >= 0.02, f"spline alone: lift={auc - baseline_auc:+.4f} below +0.02 (baseline={baseline_auc:.4f}, mech={auc:.4f})"
 
     def test_cat_num_residual_lifts_on_price_within_region(self, fixture, baseline_auc):
         """cat-num residual alone lifts AUC by >=0.02 on the region-conditional price signal."""
@@ -462,9 +460,7 @@ class TestPerMechanismIndividualLift:
             fe_cat_num_interaction_cat_cols=("cat_region",),
             fe_cat_num_interaction_num_cols=("price",),
         )
-        assert auc - baseline_auc >= 0.02, (
-            f"cat-num residual alone: lift={auc - baseline_auc:+.4f} below +0.02 " f"(baseline={baseline_auc:.4f}, mech={auc:.4f})"
-        )
+        assert auc - baseline_auc >= 0.02, f"cat-num residual alone: lift={auc - baseline_auc:+.4f} below +0.02 (baseline={baseline_auc:.4f}, mech={auc:.4f})"
 
 
 # ---------------------------------------------------------------------------
@@ -542,7 +538,7 @@ class TestPickleAndCloneAllEnabled:
         params_orig = m.get_params()
         params_clone = m2.get_params()
         for key in _all_fe_kwargs().keys():
-            assert params_orig[key] == params_clone[key], f"clone lost FE param '{key}': " f"orig={params_orig[key]!r} clone={params_clone[key]!r}"
+            assert params_orig[key] == params_clone[key], f"clone lost FE param '{key}': orig={params_orig[key]!r} clone={params_clone[key]!r}"
         # Clone is unfitted.
         assert not hasattr(m2, "support_")
 
@@ -553,9 +549,7 @@ class TestPickleAndCloneAllEnabled:
         m_pkl = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         out_post = m_pkl.transform(X_ho)
         # Same columns, same dtypes, same values for numeric cols.
-        assert list(out_pre.columns) == list(out_post.columns), (
-            f"pickle changed transform columns: " f"pre={list(out_pre.columns)} post={list(out_post.columns)}"
-        )
+        assert list(out_pre.columns) == list(out_post.columns), f"pickle changed transform columns: pre={list(out_pre.columns)} post={list(out_post.columns)}"
         for col in out_pre.columns:
             if pd.api.types.is_numeric_dtype(out_pre[col]):
                 np.testing.assert_allclose(
@@ -605,9 +599,7 @@ class TestNoDoubleCountingAbsFamily:
         }
         present = [c for c in out.columns if c in abs_family]
         assert len(present) <= 1, (
-            f"seed={seed}: Spearman dedup failed - found {len(present)} "
-            f"|x_quad|-family columns in transform output: {present}. "
-            f"At most one should survive."
+            f"seed={seed}: Spearman dedup failed - found {len(present)} |x_quad|-family columns in transform output: {present}. At most one should survive."
         )
 
 
@@ -622,7 +614,7 @@ class TestFitTimeBudget:
     def test_all_enabled_fit_under_30s(self):
         """All-FE-enabled fit on (n=3000, p=12) completes in <= 30s."""
         X_tr, _y_tr, _X_ho, _y_ho, _m, elapsed = _kitchen_sink_all_fe_fit()
-        assert elapsed <= 30.0, f"All-FE-enabled fit on (n={len(X_tr)}, p={X_tr.shape[1]}) took " f"{elapsed:.2f}s, exceeding the 30s budget"
+        assert elapsed <= 30.0, f"All-FE-enabled fit on (n={len(X_tr)}, p={X_tr.shape[1]}) took {elapsed:.2f}s, exceeding the 30s budget"
 
 
 # ---------------------------------------------------------------------------
@@ -637,4 +629,4 @@ class TestSupportSizeBounded:
         """Transform output stays at or under fe_ntop_features=25 columns."""
         X_tr, _y_tr, _X_ho, _y_ho, m, _elapsed = _kitchen_sink_all_fe_fit()
         out = m.transform(X_tr)
-        assert len(out.columns) <= 25, f"Transform produced {len(out.columns)} columns with " f"fe_ntop_features=25: {list(out.columns)}"
+        assert len(out.columns) <= 25, f"Transform produced {len(out.columns)} columns with fe_ntop_features=25: {list(out.columns)}"

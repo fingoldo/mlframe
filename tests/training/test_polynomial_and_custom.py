@@ -80,9 +80,7 @@ class TestPolynomialMemoryWarning:
         expander = PolynomialFeatureExpander(degree=2)
         expander.fit(X)
         msgs = [r.getMessage() for r in caplog.records]
-        assert any("polynomial expansion" in m and "5150" in m for m in msgs), (
-            f"large expansion should warn; got messages: {msgs}"
-        )
+        assert any("polynomial expansion" in m and "5150" in m for m in msgs), f"large expansion should warn; got messages: {msgs}"
 
     def test_small_expansion_logs_info(self, caplog):
         caplog.set_level(logging.INFO)
@@ -100,6 +98,7 @@ class TestPolynomialErrors:
 
     def test_transform_before_fit_raises(self):
         from sklearn.exceptions import NotFittedError
+
         e = PolynomialFeatureExpander(degree=2)
         # NotFittedError is the sklearn convention used by the pipeline / cross-val
         # machinery; RuntimeError is the legacy shape kept here for source-history
@@ -136,6 +135,7 @@ class TestCustomTransformerValidator:
     def test_function_rejected(self):
         def my_transform(x):
             return x
+
         with pytest.raises(TypeError):
             validate_custom_transformer(my_transform)
 
@@ -143,14 +143,17 @@ class TestCustomTransformerValidator:
         class FitOnly:
             def fit(self, X, y=None):
                 return self
+
         with pytest.raises(TypeError, match=r"\.transform\(\)"):
             validate_custom_transformer(FitOnly())
 
     def test_non_callable_fit_rejected(self):
         class WeirdFit:
             fit = "not callable"
+
             def transform(self, X):
                 return X
+
         with pytest.raises(TypeError):
             validate_custom_transformer(WeirdFit())
 
@@ -175,6 +178,7 @@ class TestCustomHandlerEndToEnd:
 
     def test_unfitted_transform_raises(self):
         from sklearn.exceptions import NotFittedError
+
         df = pl.DataFrame({"x": [1.0, 2.0, 3.0]})
         params = CustomParams(transformer=StandardScaler(), output_kind="dense")
         handler = CustomHandler(column="x", params=params)

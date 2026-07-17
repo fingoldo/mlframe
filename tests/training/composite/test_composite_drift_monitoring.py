@@ -6,6 +6,7 @@ sketch reuse + missing-sketch guard, prediction PSI.
 biz_value: on a deliberately drifted base / residual stream the monitor raises
 ``alert`` while a stationary continuation of the train distribution does not.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,7 +33,9 @@ def _make_fitted_estimator(seed: int = 0, n: int = 2000):
     y = base + 0.5 * feat + rng.normal(0.0, 0.3, n)
     X = pd.DataFrame({"lag": base, "feat": feat})
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="diff", base_column="lag",
+        base_estimator=LinearRegression(),
+        transform_name="diff",
+        base_column="lag",
     )
     est.fit(X, y)
     return est, X, y
@@ -169,7 +172,9 @@ def test_rolling_rmse_tracks_history() -> None:
 
 def test_unfitted_estimator_rejected() -> None:
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="diff", base_column="lag",
+        base_estimator=LinearRegression(),
+        transform_name="diff",
+        base_column="lag",
     )
     with pytest.raises(ValueError, match="not fitted"):
         CompositeDriftMonitor(est)

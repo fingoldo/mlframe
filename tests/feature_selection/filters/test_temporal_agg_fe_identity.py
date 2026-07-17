@@ -18,6 +18,7 @@ regression test is the explicit ~1e-9 std/mean bound (a buggy accumulator that
 silently drifts would blow past it) plus the history-snapshot exact-equality
 (a wrong argsort split would scramble per-entity order).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -116,9 +117,7 @@ def _reference_expanding_replay(X_test, recipe_extra):
     return out
 
 
-@pytest.mark.parametrize(
-    "stat,tol", [("min", 0.0), ("max", 0.0), ("count", 0.0), ("mean", 1e-9), ("std", 1e-9)]
-)
+@pytest.mark.parametrize("stat,tol", [("min", 0.0), ("max", 0.0), ("count", 0.0), ("mean", 1e-9), ("std", 1e-9)])
 def test_expanding_replay_identity(stat, tol):
     df = _make(seed=1)
     _, recipes = M.generate_expanding_agg_features(df, ["ent"], ["val"], "t", stats=[stat])
@@ -158,9 +157,7 @@ def test_entity_key_series_matches_canonical_token(col):
 def test_entity_key_series_multicol_matches_canonical_token():
     from mlframe.feature_selection.filters._internals import canonical_group_token
 
-    X = pd.DataFrame(
-        {"a": pd.Series([1, 2, 3], dtype="int64"), "b": ["p", "q", "r"]}
-    )
+    X = pd.DataFrame({"a": pd.Series([1, 2, 3], dtype="int64"), "b": ["p", "q", "r"]})
     got = M._entity_key_series(X, ["a", "b"])
     parts = [X[c].astype(object).map(canonical_group_token) for c in ("a", "b")]
     ref = parts[0]

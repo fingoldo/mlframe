@@ -24,6 +24,7 @@ Verified clean (do not refactor):
   - feature_selection/wrappers/_rfecv.py:470 (user-owned checkpoint_path)
   - No tarfile.extractall / zipfile.extractall — no Zip Slip exposure.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -67,9 +68,7 @@ def _read(rel: str) -> str:
 def test_phase_helpers_ltr_save_dir_slugifies_model_name() -> None:
     src = _read("training/core/_phase_helpers.py")
     # Forbid the raw join.
-    assert "os.path.join(_data_dir, _models_dir, ctx.model_name)" not in src, (
-        "LTR _save_dir must slugify ctx.model_name (path-traversal vector otherwise)."
-    )
+    assert "os.path.join(_data_dir, _models_dir, ctx.model_name)" not in src, "LTR _save_dir must slugify ctx.model_name (path-traversal vector otherwise)."
     # Require the slugified form.
     assert "_slugify(ctx.model_name)" in src
 
@@ -119,10 +118,10 @@ def test_hex_key_re_is_fully_anchored() -> None:
     # Behavioural check: a non-hex tail must NOT match.
     import re
     from mlframe.training.composite.cache_store import _HEX_KEY_RE
+
     assert _HEX_KEY_RE.match("deadbeef") is not None
     assert _HEX_KEY_RE.match("deadbeef/../etc") is None, (
-        "_HEX_KEY_RE must be fully anchored so a partial-hex string with "
-        "trailing path-traversal characters fails the fast-path gate."
+        "_HEX_KEY_RE must be fully anchored so a partial-hex string with trailing path-traversal characters fails the fast-path gate."
     )
     assert _HEX_KEY_RE.match("deadbeef\nrogue") is None
     assert _HEX_KEY_RE.match("deadbeefXY") is None
@@ -163,4 +162,5 @@ def test_os_path_join_absolute_eats_prefix_documented() -> None:
     assert os.path.join("/safe/root", "/etc/passwd") == "/etc/passwd"
     # The slugify fix removes the leading slash so the join behaves correctly.
     from pyutilz.strings import slugify
+
     assert os.path.join("/safe/root", slugify("/etc/passwd")).startswith("/safe/root")

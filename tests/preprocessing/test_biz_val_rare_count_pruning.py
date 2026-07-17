@@ -5,6 +5,7 @@ rare (near-unique) values gives a tree model a near-infinite number of trivial s
 to -- pure noise memorization that hurts held-out generalization. Collapsing rare values into a single
 "other" bucket removes that overfitting surface while preserving the informative, well-populated categories.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -52,7 +53,9 @@ def test_biz_val_collapse_rare_categories_reduces_overfitting_on_small_n():
     X_test_encoded_collapsed = _encode(X_test_collapsed).reindex(columns=train_encoded.columns, fill_value=0)
     mse_collapsed = mean_squared_error(y_test, model_collapsed.predict(X_test_encoded_collapsed))
 
-    assert mse_collapsed < mse_raw, f"expected collapsing rare high-cardinality categories to reduce overfitting-driven test MSE, got collapsed={mse_collapsed:.4f} raw={mse_raw:.4f}"
+    assert mse_collapsed < mse_raw, (
+        f"expected collapsing rare high-cardinality categories to reduce overfitting-driven test MSE, got collapsed={mse_collapsed:.4f} raw={mse_raw:.4f}"
+    )
 
 
 def test_collapse_rare_categories_exact_behavior():
@@ -121,7 +124,9 @@ def test_biz_val_collapse_rare_categories_target_aware_preserves_informative_rar
     X_test_aware = collapse_rare_categories(X_test, ["cat"], min_count=60, y=y_test, target_aware=True)
     auc_aware = _fit_and_auc(X_train_aware, y_train, X_test_aware, y_test)
 
-    assert "special" not in X_train_naive["cat"].unique(), "naive count-only collapse is expected to fold the informative rare category into the catch-all bucket"
+    assert "special" not in X_train_naive["cat"].unique(), (
+        "naive count-only collapse is expected to fold the informative rare category into the catch-all bucket"
+    )
     assert "special" in X_train_aware["cat"].unique(), "target-aware collapse must preserve a rare-but-genuinely-informative category"
     # measured: auc_naive=0.500 (informative rare category destroyed, indistinguishable from chance),
     # auc_aware=0.651 -- threshold set ~10% below the measured aware value, well above the naive floor.

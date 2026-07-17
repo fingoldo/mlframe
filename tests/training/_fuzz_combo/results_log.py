@@ -1,4 +1,5 @@
 """Append-only JSONL results log for fuzz combo outcomes."""
+
 from __future__ import annotations
 
 import os

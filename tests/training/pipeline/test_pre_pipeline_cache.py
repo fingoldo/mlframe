@@ -20,6 +20,7 @@ Cache discipline locked here:
 4. LRU eviction keeps the cache to <=2 entries.
 5. ``_pre_pipeline_cache_clear`` empties the cache for explicit reset.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -53,10 +54,12 @@ def _make_pipeline():
 
 def _make_df(n: int = 50, seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    return pd.DataFrame({
-        "a": rng.normal(0, 1, n),
-        "b": rng.normal(5, 2, n),
-    })
+    return pd.DataFrame(
+        {
+            "a": rng.normal(0, 1, n),
+            "b": rng.normal(5, 2, n),
+        }
+    )
 
 
 class TestSignature:
@@ -67,14 +70,17 @@ class TestSignature:
 
     def test_different_hyperparams_different_signature(self) -> None:
         p1 = Pipeline([("imp", SimpleImputer()), ("scaler", StandardScaler())])
-        p2 = Pipeline([
-            ("imp", SimpleImputer()),
-            ("scaler", StandardScaler(with_mean=False)),
-        ])
+        p2 = Pipeline(
+            [
+                ("imp", SimpleImputer()),
+                ("scaler", StandardScaler(with_mean=False)),
+            ]
+        )
         assert _pipeline_signature_for_cache(p1) != _pipeline_signature_for_cache(p2)
 
     def test_different_step_classes_different_signature(self) -> None:
         from sklearn.preprocessing import MinMaxScaler
+
         p1 = Pipeline([("imp", SimpleImputer()), ("scaler", StandardScaler())])
         p2 = Pipeline([("imp", SimpleImputer()), ("scaler", MinMaxScaler())])
         assert _pipeline_signature_for_cache(p1) != _pipeline_signature_for_cache(p2)
@@ -113,8 +119,7 @@ class TestLookupAndStore:
     def test_different_hyperparams_miss(self) -> None:
         train, val = _make_df(seed=0), _make_df(seed=1)
         p1 = _make_pipeline()
-        p2 = Pipeline([("imp", SimpleImputer()),
-                       ("scaler", StandardScaler(with_mean=False))])
+        p2 = Pipeline([("imp", SimpleImputer()), ("scaler", StandardScaler(with_mean=False))])
         _pre_pipeline_cache_set(train, val, p1, train.copy(), val.copy())
         assert _pre_pipeline_cache_get(train, val, p2) is None
 
@@ -159,7 +164,11 @@ class TestClear:
     def test_clear_empties_cache(self) -> None:
         train, val = _make_df(seed=0), _make_df(seed=1)
         _pre_pipeline_cache_set(
-            train, val, _make_pipeline(), train.copy(), val.copy(),
+            train,
+            val,
+            _make_pipeline(),
+            train.copy(),
+            val.copy(),
         )
         assert len(_PRE_PIPELINE_CACHE) == 1
         _pre_pipeline_cache_clear()

@@ -10,6 +10,7 @@ Post-fix: the kwarg is forwarded with the truthful value returned by ``_phase_fi
 The assertion below proves the recipient saw ``False`` (the value injected by the patched
 ``_phase_fit_pipeline``), not ``True`` (the default).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -23,6 +24,7 @@ class _Sentinel(Exception):
 
 def test_polars_pipeline_applied_received_value_from_phase_fit_pipeline(monkeypatch):
     from mlframe.training.core import main as main_mod
+
     # 2026-05-22 split: ``train_mlframe_models_suite`` body lives in
     # ``_main_train_suite.py``; the live call to ``_phase_fit_pipeline`` /
     # ``_phase_pandas_conversion_and_cat_prep`` resolves from THAT
@@ -38,14 +40,22 @@ def test_polars_pipeline_applied_received_value_from_phase_fit_pipeline(monkeypa
         # is forced to False so the wiring test can distinguish it from the default=True.
         out = real_fit(*args, **kwargs)
         return (
-            out[0], out[1], out[2],          # train_df, val_df, test_df
-            out[3], out[4],                  # pipeline, extensions_pipeline
-            out[5], out[6],                  # cat_features, cat_features_polars
-            out[7], out[8],                  # was_polars_input, all_models_polars_native
-            False,                           # polars_pipeline_applied -- forced False so default=True can't masquerade
-            out[10], out[11], out[12],       # train_df_polars_pre, val_df_polars_pre, test_df_polars_pre
-            out[13], out[14],                # pipeline_config, preprocessing_extensions
-            out[15],                         # train_df_pandas_pre_meta
+            out[0],
+            out[1],
+            out[2],  # train_df, val_df, test_df
+            out[3],
+            out[4],  # pipeline, extensions_pipeline
+            out[5],
+            out[6],  # cat_features, cat_features_polars
+            out[7],
+            out[8],  # was_polars_input, all_models_polars_native
+            False,  # polars_pipeline_applied -- forced False so default=True can't masquerade
+            out[10],
+            out[11],
+            out[12],  # train_df_polars_pre, val_df_polars_pre, test_df_polars_pre
+            out[13],
+            out[14],  # pipeline_config, preprocessing_extensions
+            out[15],  # train_df_pandas_pre_meta
         )
 
     def fake_pandas_conv(*args, **kwargs):
@@ -66,11 +76,13 @@ def test_polars_pipeline_applied_received_value_from_phase_fit_pipeline(monkeypa
 
     rng = np.random.default_rng(0)
     n = 64
-    df = pd.DataFrame({
-        "x0": rng.standard_normal(n),
-        "x1": rng.standard_normal(n),
-        "target": rng.standard_normal(n),
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.standard_normal(n),
+            "x1": rng.standard_normal(n),
+            "target": rng.standard_normal(n),
+        }
+    )
     extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
     with pytest.raises(_Sentinel):

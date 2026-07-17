@@ -5,6 +5,7 @@ combine per-model probability arrays, ignoring the flavour that won ``compare_en
 finalize_suite stamps ``metadata['ensembles_chosen'][target_type][target_name] = flavour`` and the predict path
 reads the dict, calling the right combine (arithm / harm / median / geo / quad / rrf / qube) per target slot.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -97,11 +98,13 @@ def test_predict_uses_chosen_flavour_for_per_target_probs():
     rng = np.random.default_rng(0)
     n = 2_000
     # Binary classification so probs are 2-D and harm vs arithm meaningfully differ.
-    df = pl.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "y": rng.integers(0, 2, n).astype("int8"),
-    })
+    df = pl.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "y": rng.integers(0, 2, n).astype("int8"),
+        }
+    )
     fte = SimpleFeaturesAndTargetsExtractor(classification_targets=["y"], classification_exact_values={"y": 1})
     models, metadata = train_mlframe_models_suite(
         df=df,
@@ -140,14 +143,11 @@ def test_predict_uses_chosen_flavour_for_per_target_probs():
     # Recompute the harmonic mean over the same per-model probs the predict path used.
     per_model_probs = [v for k, v in results["probabilities"].items() if k != "ensemble"]
     assert len(per_model_probs) >= 2, "expected >=2 contributing models for the flavour selection to be observable"
-    expected_harm = len(per_model_probs) / np.sum(
-        1.0 / np.clip(np.stack(per_model_probs), 1e-12, None), axis=0
-    )
+    expected_harm = len(per_model_probs) / np.sum(1.0 / np.clip(np.stack(per_model_probs), 1e-12, None), axis=0)
     expected_arith = np.mean(np.stack(per_model_probs), axis=0)
 
     np.testing.assert_allclose(combined_harm, expected_harm, rtol=1e-5, atol=1e-7)
     # And the chosen-flavour replay must NOT be equal to arithmetic mean (sanity: harm and arith must visibly differ).
     assert not np.allclose(combined_harm, expected_arith), (
-        "harm-flavoured per-target probability is identical to arithmetic mean -- replay likely fell through to "
-        "the default code path."
+        "harm-flavoured per-target probability is identical to arithmetic mean -- replay likely fell through to the default code path."
     )

@@ -3,6 +3,7 @@
 Each test corresponds to a specific finding identified by the multi-agent audit; the test name
 references the finding (file:line where the bug lived in the pre-fix code).
 """
+
 from __future__ import annotations
 
 import os
@@ -28,28 +29,34 @@ class TestMpsTradeCountFix:
 
     def test_continuing_long_is_zero_trades(self):
         from mlframe.feature_engineering.mps import _trade_count
+
         assert _trade_count(1, 1) == 0
 
     def test_continuing_short_is_zero_trades(self):
         from mlframe.feature_engineering.mps import _trade_count
+
         assert _trade_count(-1, -1) == 0
 
     def test_staying_flat_is_zero_trades(self):
         from mlframe.feature_engineering.mps import _trade_count
+
         assert _trade_count(0, 0) == 0
 
     def test_opening_from_flat_is_one_trade(self):
         from mlframe.feature_engineering.mps import _trade_count
+
         assert _trade_count(0, 1) == 1
         assert _trade_count(0, -1) == 1
 
     def test_closing_to_flat_is_one_trade(self):
         from mlframe.feature_engineering.mps import _trade_count
+
         assert _trade_count(1, 0) == 1
         assert _trade_count(-1, 0) == 1
 
     def test_flipping_position_is_two_trades(self):
         from mlframe.feature_engineering.mps import _trade_count
+
         assert _trade_count(1, -1) == 2
         assert _trade_count(-1, 1) == 2
 
@@ -59,6 +66,7 @@ class TestMpsCorrectness:
 
     def test_monotone_rise_then_fall(self):
         from mlframe.feature_engineering.mps import find_maximum_profit_system
+
         prices = np.array([100.0, 101.0, 102.0, 103.0, 102.0, 101.0, 100.0, 99.0])
         r = find_maximum_profit_system(prices, tc=0.0)
         # Going long on the rise, short on the fall.
@@ -77,6 +85,7 @@ class TestHurstFixes:
 
     def test_brownian_increment_hurst_near_half(self):
         from mlframe.feature_engineering.hurst import compute_hurst_exponent
+
         rng = np.random.default_rng(0)
         increments = rng.choice([-1.0, 1.0], size=4000)
         # take_diffs=True turns the cumulative path back into i.i.d. increments before R/S.
@@ -86,6 +95,7 @@ class TestHurstFixes:
     def test_max_window_none_works(self):
         """Python wrapper must translate max_window=None to the int sentinel for the njit kernel."""
         from mlframe.feature_engineering.hurst import compute_hurst_exponent
+
         rng = np.random.default_rng(1)
         x = rng.standard_normal(500)
         h, c = compute_hurst_exponent(x, max_window=None)
@@ -93,11 +103,13 @@ class TestHurstFixes:
 
     def test_short_input_returns_nan(self):
         from mlframe.feature_engineering.hurst import compute_hurst_exponent
+
         h, c = compute_hurst_exponent(np.array([1.0, 2.0]), min_window=5)
         assert np.isnan(h) and np.isnan(c)
 
     def test_degenerate_constant_input_returns_nan(self):
         from mlframe.feature_engineering.hurst import compute_hurst_exponent
+
         h, _ = compute_hurst_exponent(np.ones(100))
         # Constant input has zero variance, every R/S degenerates, regression is undefined.
         assert np.isnan(h)
@@ -117,6 +129,7 @@ class TestRollingMovingAverageKahan:
 
     def test_exact_for_arithmetic_progression(self):
         from mlframe.feature_engineering.numerical import rolling_moving_average
+
         arr = np.arange(100, dtype=np.float64)
         ma = rolling_moving_average(arr, n=10)
         # MA over [0..9] = 4.5, [1..10] = 5.5, etc. Exact.
@@ -128,6 +141,7 @@ class TestRollingMovingAverageKahan:
         within ~n*eps*max(|x|) on well-conditioned float64 input.
         """
         from mlframe.feature_engineering.numerical import rolling_moving_average
+
         rng = np.random.default_rng(0)
         arr = rng.standard_normal(10_000).astype(np.float64)
         slow = rolling_moving_average(arr, n=100, compensated=True)
@@ -142,6 +156,7 @@ class TestRollingMovingAverageKahan:
         KAHAN closure constants; divergence signals an accidental DCE failure.
         """
         from mlframe.feature_engineering.numerical import compute_simple_stats_numba
+
         rng = np.random.default_rng(0)
         arr = rng.standard_normal(10_000).astype(np.float64)
         kahan = compute_simple_stats_numba(arr, compensated=True)
@@ -155,6 +170,7 @@ class TestRollingMovingAverageKahan:
     def test_moments_slope_mi_fast_matches_kahan(self):
         """Same invariant for the larger moments/slope/MI kernel under the dual-path wrapper."""
         from mlframe.feature_engineering.numerical import compute_moments_slope_mi
+
         rng = np.random.default_rng(1)
         arr = rng.standard_normal(5_000).astype(np.float64)
         mean = float(arr.mean())
@@ -177,6 +193,7 @@ class TestRollingMovingAverageKahan:
             _compute_moments_slope_mi_compensated,
             _compute_moments_slope_mi_fast,
         )
+
         assert _compute_simple_stats_compensated is not _compute_simple_stats_fast
         assert _compute_moments_slope_mi_compensated is not _compute_moments_slope_mi_fast
 
@@ -185,6 +202,7 @@ class TestRollingMovingAverageKahan:
         compensated path stays at 1 ULP. This is exactly the regime the audit cared about.
         """
         from mlframe.feature_engineering.numerical import rolling_moving_average
+
         rng = np.random.default_rng(0)
         signal = rng.standard_normal(50_000).astype(np.float64)
         big = (signal + 1e9).astype(np.float64)
@@ -202,6 +220,7 @@ class TestRollingMovingAverageKahan:
         """Large constant + small signal: naive sum loses precision; Kahan keeps it. Test that the
         rolling mean recovers the small-signal pattern on top of a huge offset."""
         from mlframe.feature_engineering.numerical import rolling_moving_average
+
         rng = np.random.default_rng(0)
         signal = rng.standard_normal(1000) * 1e-6
         big = signal + 1e9
@@ -214,11 +233,10 @@ class TestRollingMovingAverageKahan:
 class TestNumaggsLengthInvariant:
     from typing import Tuple as _T
 
-    @pytest.mark.parametrize(
-        "n", [10, 100, 1000]
-    )
+    @pytest.mark.parametrize("n", [10, 100, 1000])
     def test_numaggs_length_matches_names(self, n):
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
+
         rng = np.random.default_rng(42)
         arr = rng.standard_normal(n)
         values = compute_numaggs(arr)
@@ -237,6 +255,7 @@ class TestCountaggsInvariant:
 
     def test_string_series_pads_correctly(self):
         from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
+
         s = pd.Series(["a", "a", "b", "c", "c", "c"])
         values = compute_countaggs(s)
         names = get_countaggs_names()
@@ -244,6 +263,7 @@ class TestCountaggsInvariant:
 
     def test_numeric_with_values_numaggs(self):
         from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
+
         s = pd.Series([1, 1, 2, 3, 3, 3, 4, 5])
         kw = dict(counts_compute_values_numaggs=True)
         values = compute_countaggs(s, **kw)
@@ -257,11 +277,11 @@ class TestCountaggsInvariant:
 
 
 class TestTimeseriesFixes:
-
     def test_acf_seeds_lag0_at_zero(self):
         """Audit P0-related: general_acf seeded acfs_index = [1.0] instead of [0.0]; lag-0 index
         and lag-1 index then collided. Now seeded with [0.0]."""
         from mlframe.feature_engineering.timeseries import general_acf
+
         rng = np.random.default_rng(0)
         y = rng.standard_normal(3000)
         res = general_acf(y, lag_len=5, min_samples=100)
@@ -274,6 +294,7 @@ class TestTimeseriesFixes:
     def test_create_windowed_features_requires_df(self):
         """Pre-fix df defaulted to None and later crashed with TypeError on len(df). Now raises ValueError up front."""
         from mlframe.feature_engineering.timeseries import create_windowed_features
+
         with pytest.raises(ValueError, match="df is required"):
             create_windowed_features(df=None)
 
@@ -281,14 +302,20 @@ class TestTimeseriesFixes:
         """Pre-fix `if not end_index:` collapsed end_index=0 with unset. Now end_index=0 produces
         an empty range and returns (None, None); end_index=None means "to len(df)"."""
         from mlframe.feature_engineering.timeseries import create_windowed_features
+
         df = pd.DataFrame({"x": range(10)})
 
         def apply_fcn(df, row_features, targets, features_names, dataset_name):
             return
 
         x, y = create_windowed_features(
-            df=df, start_index=0, end_index=0, past_processing_fcn=apply_fcn,
-            future_processing_fcn=apply_fcn, past_windows={"": [3]}, future_windows={"": [3]},
+            df=df,
+            start_index=0,
+            end_index=0,
+            past_processing_fcn=apply_fcn,
+            future_processing_fcn=apply_fcn,
+            past_windows={"": [3]},
+            future_windows={"": [3]},
         )
         # Empty range -> nothing to compute.
         assert x is None and y is None
@@ -301,9 +328,11 @@ class TestTimeseriesFixes:
         """
         from mlframe.feature_engineering.timeseries import create_and_process_windows
 
-        df = pd.DataFrame({
-            "existing_var": np.arange(20, dtype=np.float64),
-        })
+        df = pd.DataFrame(
+            {
+                "existing_var": np.arange(20, dtype=np.float64),
+            }
+        )
 
         calls: list = []
 
@@ -312,8 +341,8 @@ class TestTimeseriesFixes:
             row_features.append(len(df))
 
         windows = {
-            "missing_var": [5],   # not in df - should be SKIPPED, not abort the loop
-            "existing_var": [10], # must still be processed after the miss
+            "missing_var": [5],  # not in df - should be SKIPPED, not abort the loop
+            "existing_var": [10],  # must still be processed after the miss
         }
 
         create_and_process_windows(
@@ -336,12 +365,17 @@ class TestTimeseriesFixes:
         """`var.dtype in ('category', 'object')` must route to compute_countaggs
         when process_categoricals=True; otherwise the var is skipped entirely."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
+
         df = pd.DataFrame({"cat": pd.Series(["a", "b", "a", "c"], dtype="category")})
         feats: list = []
         names: list = []
         create_aggregated_features(
-            window_df=df, row_features=feats, create_features_names=True,
-            features_names=names, dataset_name="ds", process_categoricals=True,
+            window_df=df,
+            row_features=feats,
+            create_features_names=True,
+            features_names=names,
+            dataset_name="ds",
+            process_categoricals=True,
         )
         assert len(feats) > 0, "process_categoricals=True must emit count-based features"
         assert all("cat" in n for n in names)
@@ -350,12 +384,17 @@ class TestTimeseriesFixes:
         """Categorical variables are silently skipped when neither process_categoricals nor
         counts_processing_mask_regexp matches - regression guard for the branch ordering."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
+
         df = pd.DataFrame({"cat": pd.Series(["a", "b", "a", "c"], dtype="category")})
         feats: list = []
         names: list = []
         create_aggregated_features(
-            window_df=df, row_features=feats, create_features_names=True,
-            features_names=names, dataset_name="ds", process_categoricals=False,
+            window_df=df,
+            row_features=feats,
+            create_features_names=True,
+            features_names=names,
+            dataset_name="ds",
+            process_categoricals=False,
         )
         assert feats == []
         assert names == []
@@ -363,14 +402,20 @@ class TestTimeseriesFixes:
     def test_datetime_diff_branch(self):
         """`'datetime' in dtype.name` -> raw_vals comes from diff().total_seconds()."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
-        df = pd.DataFrame({
-            "ts": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-05", "2024-01-09"]),
-        })
+
+        df = pd.DataFrame(
+            {
+                "ts": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-05", "2024-01-09"]),
+            }
+        )
         feats: list = []
         names: list = []
         create_aggregated_features(
-            window_df=df, row_features=feats, create_features_names=True,
-            features_names=names, dataset_name="ds",
+            window_df=df,
+            row_features=feats,
+            create_features_names=True,
+            features_names=names,
+            dataset_name="ds",
         )
         # Numaggs over [86400, 259200, 345600] (1d, 3d, 4d in seconds) must produce a real mean ~230400.
         # First numagg is `min` and should be > 0 (non-empty diff).
@@ -379,18 +424,25 @@ class TestTimeseriesFixes:
     def test_drawdown_var_adds_extra_numagg(self):
         from mlframe.feature_engineering.timeseries import create_aggregated_features
         from mlframe.feature_engineering.numerical import get_numaggs_names
+
         df = pd.DataFrame({"price": np.linspace(100, 110, 50).tolist() + np.linspace(110, 95, 50).tolist()})
         feats_normal: list = []
         names_normal: list = []
         create_aggregated_features(
-            window_df=df, row_features=feats_normal, create_features_names=True,
-            features_names=names_normal, dataset_name="ds",
+            window_df=df,
+            row_features=feats_normal,
+            create_features_names=True,
+            features_names=names_normal,
+            dataset_name="ds",
         )
         feats_with_dd: list = []
         names_with_dd: list = []
         create_aggregated_features(
-            window_df=df, row_features=feats_with_dd, create_features_names=True,
-            features_names=names_with_dd, dataset_name="ds",
+            window_df=df,
+            row_features=feats_with_dd,
+            create_features_names=True,
+            features_names=names_with_dd,
+            dataset_name="ds",
             drawdown_vars=["price"],
         )
         # drawdown_vars adds extra fields to the numagg block for that column.
@@ -400,24 +452,34 @@ class TestTimeseriesFixes:
 
     def test_differences_features_branch(self):
         from mlframe.feature_engineering.timeseries import create_aggregated_features
+
         df = pd.DataFrame({"price": np.arange(20, dtype=float)})
         feats: list = []
         names: list = []
         create_aggregated_features(
-            window_df=df, row_features=feats, create_features_names=True,
-            features_names=names, dataset_name="ds", differences_features=True,
+            window_df=df,
+            row_features=feats,
+            create_features_names=True,
+            features_names=names,
+            dataset_name="ds",
+            differences_features=True,
         )
         # Pre-fix and post-fix both pass through differences; this just guards the wiring.
         assert any("dif" in n for n in names)
 
     def test_ratios_features_branch(self):
         from mlframe.feature_engineering.timeseries import create_aggregated_features
+
         df = pd.DataFrame({"price": np.linspace(100, 110, 20)})
         feats: list = []
         names: list = []
         create_aggregated_features(
-            window_df=df, row_features=feats, create_features_names=True,
-            features_names=names, dataset_name="ds", ratios_features=True,
+            window_df=df,
+            row_features=feats,
+            create_features_names=True,
+            features_names=names,
+            dataset_name="ds",
+            ratios_features=True,
         )
         assert any("rat" in n for n in names)
 
@@ -428,18 +490,21 @@ class TestTimeseriesFixes:
         from `wgt`'s own numaggs (which legitimately produces NaN entropy on an all-zero series).
         """
         from mlframe.feature_engineering.timeseries import create_aggregated_features
+
         df = pd.DataFrame({"price": np.arange(10, dtype=float), "wgt": np.zeros(10)})
         feats: list = []
         names: list = []
         create_aggregated_features(
-            window_df=df, row_features=feats, create_features_names=True,
-            features_names=names, dataset_name="ds", weighting_vars=("wgt",),
+            window_df=df,
+            row_features=feats,
+            create_features_names=True,
+            features_names=names,
+            dataset_name="ds",
+            weighting_vars=("wgt",),
         )
         # The weighted-by-wgt block on `price` is captioned `ds-price-wgt-wgt-<feat>` per the
         # captions_vars_sep convention; pick just those and assert the 0-padding kicked in.
-        weighted_block_indices = [
-            i for i, n in enumerate(names) if "price-wgt-wgt-" in n
-        ]
+        weighted_block_indices = [i for i, n in enumerate(names) if "price-wgt-wgt-" in n]
         assert weighted_block_indices, "no price-wgt-wgt block was produced; check captions"
         for i in weighted_block_indices:
             assert feats[i] == 0.0, f"expected padded 0.0, got {feats[i]} at name={names[i]}"
@@ -448,27 +513,38 @@ class TestTimeseriesFixes:
         """Audit P0-3 follow-up: q1_idx=0 used to be treated as missing via `if q1_idx and q3_idx`.
         Now `is not None`. Verify robust_features works even when q0.25 is the first numagg."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
+
         df = pd.DataFrame({"x": np.random.default_rng(0).standard_normal(100)})
         feats: list = []
         names: list = []
         create_aggregated_features(
-            window_df=df, row_features=feats, create_features_names=True,
-            features_names=names, dataset_name="ds", robust_features=True,
+            window_df=df,
+            row_features=feats,
+            create_features_names=True,
+            features_names=names,
+            dataset_name="ds",
+            robust_features=True,
         )
         # Robust-subset features are tagged 'rbst' in the name.
         assert any("rbst" in n for n in names)
 
     def test_subset_recursion(self):
         from mlframe.feature_engineering.timeseries import create_aggregated_features
-        df = pd.DataFrame({
-            "value": np.arange(20, dtype=float),
-            "group": ["A"] * 10 + ["B"] * 10,
-        })
+
+        df = pd.DataFrame(
+            {
+                "value": np.arange(20, dtype=float),
+                "group": ["A"] * 10 + ["B"] * 10,
+            }
+        )
         feats: list = []
         names: list = []
         create_aggregated_features(
-            window_df=df, row_features=feats, create_features_names=True,
-            features_names=names, dataset_name="ds",
+            window_df=df,
+            row_features=feats,
+            create_features_names=True,
+            features_names=names,
+            dataset_name="ds",
             subsets={"group": ["A", "B"]},
         )
         # Each subset value must produce its own per-value-feature block.
@@ -483,10 +559,12 @@ class TestTimeseriesFixes:
         """
         from mlframe.feature_engineering.timeseries import compute_splitting_stats
 
-        df = pd.DataFrame({
-            "score": [1.0, 2.0, 3.0],
-            "weight": [10.0, 20.0, 30.0],
-        })
+        df = pd.DataFrame(
+            {
+                "score": [1.0, 2.0, 3.0],
+                "weight": [10.0, 20.0, 30.0],
+            }
+        )
         row_features: list = []
         features_names: list = []
         # numaggs_values=[0.0] paired with name "minr" -> raw_index = int(0*3)-1 = -1; pre-fix iloc
@@ -512,10 +590,10 @@ class TestTimeseriesFixes:
 
 
 class TestNumericalStableFixes:
-
     def test_kahan_dot_seq_raises_on_length_mismatch(self):
         """Audit Low: previously silently truncated to min length; now raises."""
         from mlframe.feature_engineering._numerical_stable import kahan_dot_seq
+
         a = np.array([1.0, 2.0, 3.0])
         b = np.array([1.0, 2.0])
         with pytest.raises((ValueError, Exception)):
@@ -547,6 +625,7 @@ class TestNumericalStableFixes:
 
     def test_welford_mean_var_matches_numpy(self):
         from mlframe.feature_engineering._numerical_stable import welford_mean_var_seq
+
         rng = np.random.default_rng(1)
         arr = rng.standard_normal(1000)
         mean, var, n = welford_mean_var_seq(arr)
@@ -602,7 +681,7 @@ def _welford_moments_reference(arr: np.ndarray, order: str = "M4M3M2"):
     var = M["M2"] / n
     if var <= 0:
         return mean, 0.0, 0.0, 0.0
-    skew = (M["M3"] / n) / (var ** 1.5)
+    skew = (M["M3"] / n) / (var**1.5)
     kurt = (n * M["M4"]) / (M["M2"] * M["M2"]) - 3.0
     return mean, var, skew, kurt
 
@@ -616,6 +695,7 @@ class TestPebayOrderCritical:
     @pytest.fixture(scope="class")
     def expected_moments(self):
         from scipy import stats as sp_stats
+
         rng = np.random.default_rng(13)
         arr = rng.standard_normal(2000).astype(np.float64)
         return arr, (
@@ -655,6 +735,7 @@ class TestPebayOrderCritical:
     def test_production_kernel_matches_canonical(self, expected_moments):
         """Sanity: the actual njit kernel agrees with the canonical Python reference."""
         from mlframe.feature_engineering._numerical_stable import welford_moments_seq
+
         arr, _ = expected_moments
         ref_mean, ref_var, ref_skew, ref_kurt = _welford_moments_reference(arr, order="M4M3M2")
         prod_mean, prod_var, prod_skew, prod_kurt, _ = welford_moments_seq(arr)
@@ -698,6 +779,7 @@ class TestPropertyInvariants:
     @given(prev=st.sampled_from([-1, 0, 1]), new=st.sampled_from([-1, 0, 1]))
     def test_trade_count_symmetric(self, prev, new):
         from mlframe.feature_engineering.mps import _trade_count
+
         # Swapping prev<->new is equivalent to "playing the trades backwards": opening becomes
         # closing and vice-versa, so the count is the same.
         assert _trade_count(prev, new) == _trade_count(new, prev)
@@ -705,12 +787,14 @@ class TestPropertyInvariants:
     @given(prev=st.sampled_from([-1, 0, 1]), new=st.sampled_from([-1, 0, 1]))
     def test_trade_count_bounded(self, prev, new):
         from mlframe.feature_engineering.mps import _trade_count
+
         # Maximum trades for a single transition is 2 (close + open under a flip).
         assert 0 <= _trade_count(prev, new) <= 2
 
     @given(prev=st.sampled_from([-1, 0, 1]), new=st.sampled_from([-1, 0, 1]))
     def test_trade_count_flat_baseline(self, prev, new):
         from mlframe.feature_engineering.mps import _trade_count
+
         # If at least one of prev/new is zero (flat), at most 1 trade is needed.
         if prev == 0 or new == 0:
             assert _trade_count(prev, new) <= 1
@@ -724,6 +808,7 @@ class TestPropertyInvariants:
     def test_rolling_ma_matches_naive(self, n, window, seed):
         """Kahan-compensated rolling MA must agree with `np.mean(window)` per position to ~eps."""
         from mlframe.feature_engineering.numerical import rolling_moving_average
+
         if window > n:
             pytest.skip("window > n is intentionally rejected by the public API")
         rng = np.random.default_rng(seed)
@@ -750,6 +835,7 @@ class TestMpsDpUnderTransactionCost:
 
     def test_high_tc_smooth_trend_stays_long(self):
         from mlframe.feature_engineering.mps import find_maximum_profit_system
+
         # Smooth upward trend with substantial transaction cost: optimal is "stay long".
         prices = np.linspace(100.0, 110.0, 50)
         r = find_maximum_profit_system(prices, tc=0.001, tc_mode="fraction")
@@ -762,6 +848,7 @@ class TestMpsDpUnderTransactionCost:
     def test_transaction_count_does_not_explode(self):
         """Number of position changes must be O(price-reversals), not O(N)."""
         from mlframe.feature_engineering.mps import find_maximum_profit_system
+
         prices = np.linspace(100.0, 110.0, 100)
         r = find_maximum_profit_system(prices, tc=0.001, tc_mode="fraction")
         positions = r["positions"]
@@ -792,6 +879,7 @@ class TestPerformance:
     @pytest.mark.parametrize("n,window", [(10_000, 50), (10_000, 200)])
     def test_rolling_ma_throughput(self, n, window):
         from mlframe.feature_engineering.numerical import rolling_moving_average
+
         rng = np.random.default_rng(0)
         arr = rng.standard_normal(n).astype(np.float64)
 
@@ -818,7 +906,7 @@ class TestPerformance:
         ratio = kahan_time / cumsum_time
         assert ratio < 10.0, (
             f"rolling_moving_average is {ratio:.1f}x slower than np.cumsum baseline "
-            f"(kahan={kahan_time*1e6:.1f}us, cumsum={cumsum_time*1e6:.1f}us); "
+            f"(kahan={kahan_time * 1e6:.1f}us, cumsum={cumsum_time * 1e6:.1f}us); "
             f"check that NUMBA_NJIT_PARAMS isn't blocking JIT caching."
         )
 
@@ -868,11 +956,7 @@ class TestPerformance:
         fast_time = (time.perf_counter() - t0) / reps
 
         slowdown_pct = (slow_time / fast_time - 1.0) * 100.0
-        print(
-            f"\n[fastmath bench n={n} window={window}] "
-            f"off={slow_time*1e6:.1f}us  on={fast_time*1e6:.1f}us  "
-            f"slowdown={slowdown_pct:+.1f}%"
-        )
+        print(f"\n[fastmath bench n={n} window={window}] off={slow_time * 1e6:.1f}us  on={fast_time * 1e6:.1f}us  slowdown={slowdown_pct:+.1f}%")
         # MEASURED 2026-05-14: ~260% slowdown on Windows / numba 0.59 / LLVM. With fastmath=True
         # LLVM reassociates the Kahan compensator to zero AND SIMD-vectorises the resulting plain
         # cumsum (the sequential dependency through `sum_window` is broken once Kahan's `c` is
@@ -884,6 +968,7 @@ class TestPerformance:
         # on Darwin so the sensor still catches catastrophic regressions (>15x = JIT broken)
         # without flagging the intentional precision-vs-speed tradeoff.
         import sys
+
         ceiling = 1500.0 if sys.platform == "darwin" else 500.0
         if running_under_xdist():
             # Under the full ``-n`` run the scalar Kahan arm is starved disproportionately to the SIMD fastmath arm,
@@ -903,9 +988,9 @@ class TestPerformance:
 
 
 class TestEdgeCases:
-
     def test_compute_numaggs_short_array_returns_nans(self):
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
+
         values = compute_numaggs(np.array([1.0]))
         names = get_numaggs_names()
         assert len(values) == len(names)
@@ -914,17 +999,20 @@ class TestEdgeCases:
 
     def test_compute_numaggs_empty_array_returns_nans(self):
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
+
         values = compute_numaggs(np.array([], dtype=np.float64))
         names = get_numaggs_names()
         assert len(values) == len(names)
 
     def test_hurst_constant_array_returns_nan(self):
         from mlframe.feature_engineering.hurst import compute_hurst_exponent
+
         h, c = compute_hurst_exponent(np.full(200, 5.0))
         assert np.isnan(h) and np.isnan(c)
 
     def test_compute_countaggs_single_value(self):
         from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
+
         s = pd.Series(["only_one_category"] * 10)
         values = compute_countaggs(s)
         names = get_countaggs_names()
@@ -932,6 +1020,7 @@ class TestEdgeCases:
 
     def test_kahan_dot_zero_length(self):
         from mlframe.feature_engineering._numerical_stable import kahan_dot_seq
+
         a = np.array([], dtype=np.float64)
         b = np.array([], dtype=np.float64)
         assert kahan_dot_seq(a, b) == 0.0
@@ -955,20 +1044,23 @@ class TestFinancialUnnestOrdering:
 
     def test_struct_indicators_are_unnested(self):
         import polars as pl
+
         pytest.importorskip("polars_talib")
         from mlframe.feature_engineering.financial import add_ohlcv_ta_indicators
 
         rng = np.random.default_rng(0)
         n = 200
-        ohlcv = pl.DataFrame({
-            "ticker": ["AAPL"] * n,
-            "date": list(range(n)),
-            "open": rng.uniform(95, 105, n),
-            "high": rng.uniform(100, 110, n),
-            "low": rng.uniform(90, 100, n),
-            "close": rng.uniform(95, 105, n),
-            "volume": rng.uniform(1e6, 1e7, n),
-        })
+        ohlcv = pl.DataFrame(
+            {
+                "ticker": ["AAPL"] * n,
+                "date": list(range(n)),
+                "open": rng.uniform(95, 105, n),
+                "high": rng.uniform(100, 110, n),
+                "low": rng.uniform(90, 100, n),
+                "close": rng.uniform(95, 105, n),
+                "volume": rng.uniform(1e6, 1e7, n),
+            }
+        )
 
         result = add_ohlcv_ta_indicators(
             ohlcv,
@@ -980,9 +1072,7 @@ class TestFinancialUnnestOrdering:
         # If unnesting succeeded, the result must NOT contain any Struct-dtype columns - every
         # struct-returning indicator should have been flattened into scalar children.
         struct_cols = [name for name, dtype in result.schema.items() if isinstance(dtype, pl.Struct)]
-        assert struct_cols == [], (
-            f"Found unflattened struct columns - the unnest-ordering fix is incomplete: {struct_cols}"
-        )
+        assert struct_cols == [], f"Found unflattened struct columns - the unnest-ordering fix is incomplete: {struct_cols}"
 
         # And the canonical flattened names from the struct indicators must be present.
         result_cols = set(result.columns)

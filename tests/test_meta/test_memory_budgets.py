@@ -28,11 +28,11 @@ import pytest
 # fit + predict on the synthetic data below. Generous — these are
 # guard rails for ~5x regressions, not perf benchmarks.
 _BUDGETS_MB: dict[str, float] = {
-    "ridge":      30.0,
-    "lasso":      30.0,
+    "ridge": 30.0,
+    "lasso": 30.0,
     "elasticnet": 30.0,
-    "huber":      30.0,
-    "sgd":        30.0,
+    "huber": 30.0,
+    "sgd": 30.0,
 }
 
 
@@ -46,10 +46,10 @@ def small_regression_data():
 
 
 @pytest.mark.parametrize("model_type,budget_mb", list(_BUDGETS_MB.items()))
-def test_linear_fit_stays_under_memory_budget(model_type, budget_mb,
-                                              small_regression_data):
+def test_linear_fit_stays_under_memory_budget(model_type, budget_mb, small_regression_data):
     from mlframe.training.configs import LinearModelConfig
     from mlframe.training.models import create_linear_model
+
     X, y = small_regression_data
 
     cfg_kwargs = {"model_type": model_type, "random_state": 42, "max_iter": 200}
@@ -66,10 +66,7 @@ def test_linear_fit_stays_under_memory_budget(model_type, budget_mb,
     finally:
         tracemalloc.stop()
     peak_mb = peak_bytes / (1024 * 1024)
-    assert peak_mb < budget_mb, (
-        f"{model_type}: peak {peak_mb:.2f} MB exceeds budget "
-        f"{budget_mb:.1f} MB during fit + predict on a 200×8 dataset"
-    )
+    assert peak_mb < budget_mb, f"{model_type}: peak {peak_mb:.2f} MB exceeds budget {budget_mb:.1f} MB during fit + predict on a 200×8 dataset"
 
 
 def test_predict_from_probs_under_5mb_for_50k_x_10():
@@ -77,6 +74,7 @@ def test_predict_from_probs_under_5mb_for_50k_x_10():
     output allocation. 50K×10 input → ~4 MB output; budget 5 MB."""
     from mlframe.training.configs import TargetTypes
     from mlframe.training.helpers import _predict_from_probs
+
     rng = np.random.default_rng(42)
     probs = rng.random((50_000, 10))
 
@@ -84,7 +82,9 @@ def test_predict_from_probs_under_5mb_for_50k_x_10():
     tracemalloc.start()
     try:
         _ = _predict_from_probs(
-            probs, TargetTypes.MULTILABEL_CLASSIFICATION, threshold=0.5,
+            probs,
+            TargetTypes.MULTILABEL_CLASSIFICATION,
+            threshold=0.5,
         )
         _, peak_bytes = tracemalloc.get_traced_memory()
     finally:
@@ -92,7 +92,4 @@ def test_predict_from_probs_under_5mb_for_50k_x_10():
     peak_mb = peak_bytes / (1024 * 1024)
     # 50K * 10 * int8 = 0.5 MB output; tracemalloc adds bookkeeping.
     # Loose 5 MB budget catches a ~10x over-allocation regression.
-    assert peak_mb < 5.0, (
-        f"_predict_from_probs allocated {peak_mb:.2f} MB peak — "
-        f"a future refactor likely materialised an unwanted intermediate"
-    )
+    assert peak_mb < 5.0, f"_predict_from_probs allocated {peak_mb:.2f} MB peak — a future refactor likely materialised an unwanted intermediate"

@@ -1,5 +1,6 @@
 """CalibratedClassifierCV inner CV is seeded from the suite seed (A7-03), and the post-hoc-calibration metadata flag
 reflects reality per model family (A7-05)."""
+
 from __future__ import annotations
 
 import numpy as np

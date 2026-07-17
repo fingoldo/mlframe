@@ -39,28 +39,32 @@ from mlframe.training.feature_handling import (
 
 @pytest.fixture
 def small_text_polars():
-    return pl.DataFrame({
-        "txt": [
-            "the quick brown fox",
-            "jumps over the lazy dog",
-            "the lazy dog sleeps",
-            "another sentence about foxes",
-            "polars data science",
-        ],
-    })
+    return pl.DataFrame(
+        {
+            "txt": [
+                "the quick brown fox",
+                "jumps over the lazy dog",
+                "the lazy dog sleeps",
+                "another sentence about foxes",
+                "polars data science",
+            ],
+        }
+    )
 
 
 @pytest.fixture
 def small_text_pandas():
-    return pd.DataFrame({
-        "txt": [
-            "the quick brown fox",
-            "jumps over the lazy dog",
-            "the lazy dog sleeps",
-            "another sentence about foxes",
-            "polars data science",
-        ],
-    })
+    return pd.DataFrame(
+        {
+            "txt": [
+                "the quick brown fox",
+                "jumps over the lazy dog",
+                "the lazy dog sleeps",
+                "another sentence about foxes",
+                "polars data science",
+            ],
+        }
+    )
 
 
 # =====================================================================
@@ -131,6 +135,7 @@ class TestHashingHappyPath:
         """Hashing is stateless, but our wrapper still enforces fit
         for API consistency."""
         from sklearn.exceptions import NotFittedError
+
         enc = TextColumnEncoder(column="txt", params=HashingParams(n_features=64))
         with pytest.raises((NotFittedError, RuntimeError), match="not fitted"):
             enc.transform(small_text_polars)
@@ -149,10 +154,12 @@ class TestSymmetry:
         """A polars frame and a pandas frame with the same content
         produce the same fitted TF-IDF vocabulary."""
         enc_pl = TextColumnEncoder(
-            column="txt", params=TfidfParams(max_features=50, ngram_range=(1, 1)),
+            column="txt",
+            params=TfidfParams(max_features=50, ngram_range=(1, 1)),
         )
         enc_pd = TextColumnEncoder(
-            column="txt", params=TfidfParams(max_features=50, ngram_range=(1, 1)),
+            column="txt",
+            params=TfidfParams(max_features=50, ngram_range=(1, 1)),
         )
         enc_pl.fit(small_text_polars)
         enc_pd.fit(small_text_pandas)
@@ -211,7 +218,8 @@ class TestNoLeak:
         test = pl.DataFrame({"txt": ["foo unseen", "qux unseen", "completely new"]})
 
         enc = TextColumnEncoder(
-            column="txt", params=TfidfParams(max_features=50, ngram_range=(1, 1)),
+            column="txt",
+            params=TfidfParams(max_features=50, ngram_range=(1, 1)),
         )
         enc.fit(train)
         out_train = enc.transform(train)
@@ -272,6 +280,7 @@ class TestCapabilityDetector:
         try:
             import polars_ds  # noqa: F401
             import polars_ds.pipeline  # noqa: F401
+
             _has_full_polars_ds = True
         except ImportError:
             _has_full_polars_ds = False
@@ -289,10 +298,12 @@ class TestCapabilityDetector:
 class TestSignature:
     def test_signature_stable_for_same_params(self):
         e1 = TextColumnEncoder(
-            column="txt", params=TfidfParams(max_features=100, ngram_range=(1, 2)),
+            column="txt",
+            params=TfidfParams(max_features=100, ngram_range=(1, 2)),
         )
         e2 = TextColumnEncoder(
-            column="txt", params=TfidfParams(max_features=100, ngram_range=(1, 2)),
+            column="txt",
+            params=TfidfParams(max_features=100, ngram_range=(1, 2)),
         )
         assert e1.signature() == e2.signature()
 

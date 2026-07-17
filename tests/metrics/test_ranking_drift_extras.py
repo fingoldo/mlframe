@@ -1,13 +1,20 @@
 """Tests for mlframe.metrics._ranking_extras and mlframe.metrics._drift."""
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
 from mlframe.metrics.core import (
-    dcg_at_k, expected_reciprocal_rank, hit_at_k, precision_at_k,
-    population_stability_index, kl_divergence, js_divergence,
-    wasserstein_1d, ks_distribution_distance,
+    dcg_at_k,
+    expected_reciprocal_rank,
+    hit_at_k,
+    precision_at_k,
+    population_stability_index,
+    kl_divergence,
+    js_divergence,
+    wasserstein_1d,
+    ks_distribution_distance,
 )
 
 
@@ -25,8 +32,8 @@ def test_dcg_higher_when_relevance_at_top():
     """Same labels, but better ranking -> higher DCG."""
     g = np.zeros(10, dtype=np.int64)
     y = np.array([3.0, 2.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    s_good = -np.arange(10, dtype=np.float64)   # rel descending
-    s_bad = np.arange(10, dtype=np.float64)     # rel ascending (worst)
+    s_good = -np.arange(10, dtype=np.float64)  # rel descending
+    s_bad = np.arange(10, dtype=np.float64)  # rel ascending (worst)
     assert dcg_at_k(y, s_good, g, k=10) > dcg_at_k(y, s_bad, g, k=10)
 
 
@@ -115,6 +122,7 @@ def test_js_symmetric_and_bounded():
 def test_js_pre_binned_matches_scipy():
     """Pre-binned probability vectors -> JS = scipy.spatial.distance.jensenshannon^2."""
     from scipy.spatial.distance import jensenshannon
+
     p = np.array([0.1, 0.4, 0.5])
     q = np.array([0.4, 0.1, 0.5])
     # scipy returns the JS DISTANCE (sqrt of divergence in bit-units);
@@ -126,6 +134,7 @@ def test_js_pre_binned_matches_scipy():
 
 def test_wasserstein_matches_scipy():
     from scipy.stats import wasserstein_distance
+
     rng = np.random.default_rng(7)
     a = rng.standard_normal(500)
     b = rng.standard_normal(500) + 1.0
@@ -135,6 +144,7 @@ def test_wasserstein_matches_scipy():
 
 def test_ks_distribution_distance_matches_scipy():
     from scipy.stats import ks_2samp
+
     rng = np.random.default_rng(8)
     a = rng.standard_normal(500)
     b = rng.standard_normal(500) + 0.3
@@ -146,8 +156,10 @@ def _wasserstein_1d_numpy_reference(reference, target):
     """Pre-fix numpy implementation: concat+sort merged support + two searchsorted scans."""
     a = np.asarray(reference, dtype=np.float64)
     b = np.asarray(target, dtype=np.float64)
-    a = a[np.isfinite(a)]; b = b[np.isfinite(b)]
-    all_values = np.concatenate((a, b)); all_values.sort(kind="quicksort")
+    a = a[np.isfinite(a)]
+    b = b[np.isfinite(b)]
+    all_values = np.concatenate((a, b))
+    all_values.sort(kind="quicksort")
     deltas = np.diff(all_values)
     cdf_a = np.searchsorted(np.sort(a), all_values[:-1], side="right") / a.size
     cdf_b = np.searchsorted(np.sort(b), all_values[:-1], side="right") / b.size
@@ -155,10 +167,14 @@ def _wasserstein_1d_numpy_reference(reference, target):
 
 
 def _ks_distance_numpy_reference(reference, target):
-    a = np.asarray(reference, dtype=np.float64); b = np.asarray(target, dtype=np.float64)
-    a = a[np.isfinite(a)]; b = b[np.isfinite(b)]
-    a_s = np.sort(a); b_s = np.sort(b)
-    all_values = np.concatenate((a_s, b_s)); all_values.sort()
+    a = np.asarray(reference, dtype=np.float64)
+    b = np.asarray(target, dtype=np.float64)
+    a = a[np.isfinite(a)]
+    b = b[np.isfinite(b)]
+    a_s = np.sort(a)
+    b_s = np.sort(b)
+    all_values = np.concatenate((a_s, b_s))
+    all_values.sort()
     cdf_a = np.searchsorted(a_s, all_values, side="right") / a_s.size
     cdf_b = np.searchsorted(b_s, all_values, side="right") / b_s.size
     return float(np.max(np.abs(cdf_a - cdf_b)))
@@ -171,11 +187,13 @@ def test_fused_drift_kernels_bit_identical_to_numpy_reference():
 
     rng = np.random.default_rng(123)
     # Tied / discrete: exact equality required (positional ties handled identically to searchsorted-right).
-    a = rng.integers(0, 5, 400).astype(np.float64); b = rng.integers(0, 7, 400).astype(np.float64)
+    a = rng.integers(0, 5, 400).astype(np.float64)
+    b = rng.integers(0, 7, 400).astype(np.float64)
     assert wasserstein_1d(a, b) == _wasserstein_1d_numpy_reference(a, b)
     assert ks_distribution_distance(a, b) == _ks_distance_numpy_reference(a, b)
     # Continuous, larger n: FP reduction-order tolerance.
-    a = rng.random(20000); b = rng.random(20000) + 0.15
+    a = rng.random(20000)
+    b = rng.random(20000) + 0.15
     assert wasserstein_1d(a, b) == pytest.approx(_wasserstein_1d_numpy_reference(a, b), abs=1e-12)
     assert ks_distribution_distance(a, b) == _ks_distance_numpy_reference(a, b)
 
@@ -198,7 +216,7 @@ def test_ranking_extras_stable_tiebreak_matches_input_order():
     elsewhere, but the @njit kernels sort stably). Invariant test pinning the stable-order DCG@k / ERR values so a future change of the kernel sort
     (or numba's internal default) is caught.
     """
-    score = np.array([2., 1., 1., 0., 0., 0., 0., 0., 0., 2., 1., 2.], dtype=np.float64)
+    score = np.array([2.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 1.0, 2.0], dtype=np.float64)
     rel = np.zeros_like(score)
     rel[7] = 3.0  # sole relevant doc, sits inside the tied 0.0 block
     g = np.zeros(score.shape[0], dtype=np.int64)
@@ -214,7 +232,7 @@ def test_ranking_extras_stable_tiebreak_matches_input_order():
     err_ref = 0.0
     p_remain = 1.0
     for i in range(score.shape[0]):
-        R = ((2.0 ** rel[stable_order[i]]) - 1.0) / (2.0 ** mg)
+        R = ((2.0 ** rel[stable_order[i]]) - 1.0) / (2.0**mg)
         err_ref += p_remain * R / (i + 1.0)
-        p_remain *= (1.0 - R)
+        p_remain *= 1.0 - R
     assert expected_reciprocal_rank(rel, score, g, k=12, max_grade=mg) == pytest.approx(err_ref)

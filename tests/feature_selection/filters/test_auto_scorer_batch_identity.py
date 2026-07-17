@@ -5,6 +5,7 @@ columns in one kernel call inside _compute_per_scorer_rank_table. This pins
 bit-identity vs the prior per-column _score_plug_in / _score_copula path, and
 that the full rank table is unchanged.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,14 +42,19 @@ def test_rank_table_plug_in_copula_unchanged():
     rng = np.random.default_rng(0)
     n = 1000
     raw = pd.DataFrame({f"r{j}": rng.standard_normal(n) for j in range(4)})
-    eng = pd.DataFrame({
-        f"r{j}__sq": (raw[f"r{j}"] ** 2).to_numpy() for j in range(4)
-    })
+    eng = pd.DataFrame({f"r{j}__sq": (raw[f"r{j}"] ** 2).to_numpy() for j in range(4)})
     y = (raw["r0"] > 0).astype(np.int64).to_numpy()
 
     table, baseline, ranks = _compute_per_scorer_rank_table(
-        raw, eng, y, scorers=["plug_in", "copula"], random_state=0,
-        nbins=10, n_neighbors=3, copula_n_bins=20, dcor_n_sample=500,
+        raw,
+        eng,
+        y,
+        scorers=["plug_in", "copula"],
+        random_state=0,
+        nbins=10,
+        n_neighbors=3,
+        copula_n_bins=20,
+        dcor_n_sample=500,
     )
     # Reference: score each engineered column individually.
     for col in eng.columns:

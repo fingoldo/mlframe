@@ -6,6 +6,7 @@ learned decision boundary's rank order below chance), while a rank-based transfo
 outlier magnitude by construction. ``select_column_transforms`` should detect this and recommend RankGauss
 (or another outlier-robust transform) over identity for such a column.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,9 +30,7 @@ def test_biz_val_auto_transform_select_prefers_robust_transform_for_outlier_cont
 
     assert "outlier_col" in result
     col_result = result["outlier_col"]
-    assert col_result["best_transform"] != "identity", (
-        f"identity should not be picked for a heavy-outlier column: {col_result['all_scores']}"
-    )
+    assert col_result["best_transform"] != "identity", f"identity should not be picked for a heavy-outlier column: {col_result['all_scores']}"
     assert col_result["all_scores"]["identity"] < col_result["best_score"] - 0.1, (
         f"the selected transform should clearly beat identity's collapsed AUC: {col_result['all_scores']}"
     )
@@ -73,9 +72,7 @@ def test_biz_val_select_column_transforms_multivariate_probe_catches_interaction
     df = pd.DataFrame({"x": x_outliers, "context": context})
 
     uni_result = select_column_transforms(df, y, columns=["x"], task="classification", n_splits=3, random_state=0)
-    mv_result = select_column_transforms(
-        df, y, columns=["x"], task="classification", n_splits=3, random_state=0, multivariate_probe=True, n_context_features=1
-    )
+    mv_result = select_column_transforms(df, y, columns=["x"], task="classification", n_splits=3, random_state=0, multivariate_probe=True, n_context_features=1)
 
     assert "x" in uni_result and "x" in mv_result
     uni_best = uni_result["x"]["best_score"]

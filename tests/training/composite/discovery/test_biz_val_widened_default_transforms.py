@@ -19,6 +19,7 @@ This test therefore validates that the TRANSFORM has real value when explicitly 
 caller who suspects marginal distortion and wants to try it directly), not that default-pool
 membership is justified -- that was measured and rejected.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -45,9 +46,15 @@ def _lognormal_frame(n: int = 4000, seed: int = 11):
 def _config(**overrides) -> CompositeTargetDiscoveryConfig:
     """Minimal fast discovery config for the widened-transforms tests, with ``**overrides`` applied."""
     kw = dict(
-        enabled=True, random_state=0, screening="mi", base_candidates=["base", "x0"],
-        honest_holdout_frac=0.2, tiny_model_n_estimators=40, auto_base_null_perms=0,
-        multi_base_enabled=False, interaction_base_discovery_enabled=False,
+        enabled=True,
+        random_state=0,
+        screening="mi",
+        base_candidates=["base", "x0"],
+        honest_holdout_frac=0.2,
+        tiny_model_n_estimators=40,
+        auto_base_null_perms=0,
+        multi_base_enabled=False,
+        interaction_base_discovery_enabled=False,
         auto_chain_discovery_enabled=False,
     )
     kw.update(overrides)

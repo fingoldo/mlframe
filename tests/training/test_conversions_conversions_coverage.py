@@ -37,15 +37,15 @@ def test_apply_preprocessing_extensions_arrow_bridge_preserves_pl_enum():
     from mlframe.training.utils import get_pandas_view_of_polars_df
 
     enum_dt = pl.Enum(["a", "b", "c"])
-    df = pl.DataFrame({
-        "x": [1.0, 2.0, 3.0, 4.0],
-        "cat": pl.Series(["a", "b", "c", "a"], dtype=enum_dt),
-    })
+    df = pl.DataFrame(
+        {
+            "x": [1.0, 2.0, 3.0, 4.0],
+            "cat": pl.Series(["a", "b", "c", "a"], dtype=enum_dt),
+        }
+    )
     pdf = get_pandas_view_of_polars_df(df)
     # Pipeline-level call-site uses the same Arrow bridge -- assert pl.Enum survived.
-    assert isinstance(pdf["cat"].dtype, pd.CategoricalDtype), (
-        f"pipeline._to_pandas must use Arrow bridge; got {pdf['cat'].dtype}"
-    )
+    assert isinstance(pdf["cat"].dtype, pd.CategoricalDtype), f"pipeline._to_pandas must use Arrow bridge; got {pdf['cat'].dtype}"
 
 
 # ---------------------------------------------------------------------------
@@ -72,12 +72,11 @@ def test_convert_one_preserves_datetime_us_precision():
     from mlframe.training.utils import get_pandas_view_of_polars_df
 
     import datetime as _dt
+
     ts = [_dt.datetime(2024, 1, 1) + _dt.timedelta(hours=i) for i in range(4)]
     df = pl.DataFrame({"ts": pl.Series(ts, dtype=pl.Datetime("us"))})
     pdf = get_pandas_view_of_polars_df(df)
-    assert pd.api.types.is_datetime64_any_dtype(pdf["ts"]), (
-        f"pl.Datetime must round-trip to pandas datetime64; got {pdf['ts'].dtype}"
-    )
+    assert pd.api.types.is_datetime64_any_dtype(pdf["ts"]), f"pl.Datetime must round-trip to pandas datetime64; got {pdf['ts'].dtype}"
 
 
 # ---------------------------------------------------------------------------
@@ -94,11 +93,13 @@ def test_passthrough_cols_held_uses_arrow_bridge_for_pl_enum():
 
     enum_dt = pl.Enum(["red", "green", "blue"])
     n = 30
-    df = pl.DataFrame({
-        "a": np.linspace(0.0, 1.0, n),
-        "b": np.linspace(1.0, 2.0, n),
-        "color": pl.Series((["red", "green", "blue"] * 10), dtype=enum_dt),
-    })
+    df = pl.DataFrame(
+        {
+            "a": np.linspace(0.0, 1.0, n),
+            "b": np.linspace(1.0, 2.0, n),
+            "color": pl.Series((["red", "green", "blue"] * 10), dtype=enum_dt),
+        }
+    )
 
     class _PassthroughSelector:
         """Returns the input frame unchanged (in pandas form -- triggers the
@@ -112,13 +113,15 @@ def test_passthrough_cols_held_uses_arrow_bridge_for_pl_enum():
 
     fn = _PassthroughSelector().fit_transform
     out = _passthrough_cols_fit_transform(
-        fn, df, passthrough_cols=["color"], fit=True, target=None,
+        fn,
+        df,
+        passthrough_cols=["color"],
+        fit=True,
+        target=None,
     )
     # Result has the color column with Categorical dtype.
     assert "color" in out.columns
-    assert isinstance(out["color"].dtype, pd.CategoricalDtype), (
-        f"passthrough re-attached column must keep Categorical dtype; got {out['color'].dtype}"
-    )
+    assert isinstance(out["color"].dtype, pd.CategoricalDtype), f"passthrough re-attached column must keep Categorical dtype; got {out['color'].dtype}"
 
 
 # ---------------------------------------------------------------------------
@@ -145,9 +148,7 @@ def test_apply_extensions_pipeline_no_to_pandas_when_invoked_on_polars(monkeypat
     df = pl.DataFrame({"x": [1.0, 2.0, 3.0]})
     out = _apply_extensions_pipeline(df, None)
     # ext_pipeline=None is a no-op fastpath -- no conversion should fire.
-    assert calls["n"] == 0, (
-        f"_apply_extensions_pipeline(None) must NOT invoke to_pandas; saw {calls['n']} calls"
-    )
+    assert calls["n"] == 0, f"_apply_extensions_pipeline(None) must NOT invoke to_pandas; saw {calls['n']} calls"
     # And the no-op preserved the polars frame.
     assert isinstance(out, pl.DataFrame)
 
@@ -182,9 +183,7 @@ def test_pl_enum_different_vocab_orderings_produce_different_codes():
     df_p = pl.DataFrame({"x": pl.Series(["a", "b", "c"], dtype=enum_pred)})
     train_codes = df_t.get_column("x").to_physical().to_list()
     pred_codes = df_p.get_column("x").to_physical().to_list()
-    assert train_codes != pred_codes, (
-        "different Enum orderings must produce different codes (else the metadata vocab pin is moot)"
-    )
+    assert train_codes != pred_codes, "different Enum orderings must produce different codes (else the metadata vocab pin is moot)"
 
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ Covers small file-level helpers that don't require a trained model:
   - _sha256_of_file
   - _verify_sidecar (matching + mismatching + absent sidecar)
 """
+
 from __future__ import annotations
 
 import hashlib

@@ -5,6 +5,7 @@ independent of the imputed value itself. Plain median-imputation-only discards t
 gets the identical fill value, indistinguishable from a genuinely-observed value near the median); the paired
 "was_missing" indicator recovers it.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -49,7 +50,9 @@ def test_biz_val_missing_indicator_pairing_recovers_mnar_signal():
     model_paired = LogisticRegression().fit(df_train_paired[feature_cols], y_train)
     auc_paired = roc_auc_score(y_test, model_paired.predict_proba(df_test_paired[feature_cols])[:, 1])
 
-    assert auc_paired >= auc_impute_only + 0.05, f"expected the paired indicator to recover MNAR signal, got paired={auc_paired:.4f} impute_only={auc_impute_only:.4f}"
+    assert auc_paired >= auc_impute_only + 0.05, (
+        f"expected the paired indicator to recover MNAR signal, got paired={auc_paired:.4f} impute_only={auc_impute_only:.4f}"
+    )
 
 
 def test_missing_indicator_pairing_leaves_complete_columns_untouched():

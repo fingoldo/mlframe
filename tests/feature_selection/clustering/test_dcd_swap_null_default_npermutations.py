@@ -25,6 +25,7 @@ These tests assert a swap fires on the canonical redundancy cluster at the
 DEFAULT ``full_npermutations`` (no override) -- the exact path that was dead
 pre-fix.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -45,19 +46,20 @@ def _three_dups_plus_strong_frame(n: int = 1500, seed: int = 0):
     rng = np.random.default_rng(int(seed))
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "strong": other,
-        "dup_a": latent + 0.01 * rng.standard_normal(n),
-        "dup_b": latent + 0.01 * rng.standard_normal(n),
-        "dup_c": latent + 0.01 * rng.standard_normal(n),
-        "noise_0": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "strong": other,
+            "dup_a": latent + 0.01 * rng.standard_normal(n),
+            "dup_b": latent + 0.01 * rng.standard_normal(n),
+            "dup_c": latent + 0.01 * rng.standard_normal(n),
+            "noise_0": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((2 * other + latent + 0.3 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
 
 class TestSwapNullKnobExists:
-
     def test_dcd_swap_npermutations_in_signature_default_199(self):
         import inspect
 
@@ -65,8 +67,7 @@ class TestSwapNullKnobExists:
 
         sig = inspect.signature(MRMR.__init__)
         assert "dcd_swap_npermutations" in sig.parameters, (
-            "dcd_swap_npermutations must be a public MRMR constructor param so "
-            "the swap null is tunable and decoupled from full_npermutations."
+            "dcd_swap_npermutations must be a public MRMR constructor param so the swap null is tunable and decoupled from full_npermutations."
         )
         assert sig.parameters["dcd_swap_npermutations"].default == 199
         # store_params_in_object must persist it onto the instance.
@@ -82,7 +83,6 @@ class TestSwapNullKnobExists:
 
 
 class TestSwapFiresAtDefaultNpermutations:
-
     def test_swap_fires_at_default_full_npermutations(self):
         """The headline regression: with DEFAULT full_npermutations (=3) and
         the opt-in dcd_cluster_size_threshold=2, a swap must fire on the
@@ -120,15 +120,13 @@ class TestSwapFiresAtDefaultNpermutations:
             dcd_enable=True,
             dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
-            dcd_swap_npermutations=3,   # structurally un-passable without the guard
+            dcd_swap_npermutations=3,  # structurally un-passable without the guard
             dcd_swap_alpha=0.05,
             verbose=0,
             random_seed=0,
         ).fit(X, y)
         assert int(m.dcd_["n_swaps"]) >= 1, (
-            f"The auto-raise backstop must lift B to ceil(1/0.05)=20 so a "
-            f"swap can fire even with dcd_swap_npermutations=3; got "
-            f"n_swaps={m.dcd_['n_swaps']}."
+            f"The auto-raise backstop must lift B to ceil(1/0.05)=20 so a swap can fire even with dcd_swap_npermutations=3; got n_swaps={m.dcd_['n_swaps']}."
         )
 
     def test_full_npermutations_zero_still_skips_swap_null(self):
@@ -150,6 +148,5 @@ class TestSwapFiresAtDefaultNpermutations:
         ).fit(X, y)
         # Deterministic gate alone still accepts the denoising swap on perfect dups.
         assert int(m.dcd_["n_swaps"]) >= 1, (
-            f"full_npermutations=0 must still allow swaps via the deterministic "
-            f"gate (no null requested); got n_swaps={m.dcd_['n_swaps']}."
+            f"full_npermutations=0 must still allow swaps via the deterministic gate (no null requested); got n_swaps={m.dcd_['n_swaps']}."
         )

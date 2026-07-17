@@ -11,6 +11,7 @@ biz_value: on a 3-pair pool {synergistic, additive cross-mix, redundant} the rou
 synergy and demotes the additive cross-mix surrogate the user's weak-F2 hit -- a strictly cleaner candidate set
 than the ratio gate (which admits all three).
 """
+
 from __future__ import annotations
 
 import itertools
@@ -99,8 +100,13 @@ def test_ii_sign_synergy_redundancy_additive(seed):
     ac, bc, yc = _discretize(a), _discretize(b), _discretize(y)
     ky = int(yc.max()) + 1
     ii_syn = pair_interaction_information(
-        _mi_plugin(ac, yc, NBINS, ky), _mi_plugin(bc, yc, NBINS, ky),
-        _mi_plugin(ac * NBINS + bc, yc, NBINS * NBINS, ky), NBINS, NBINS, ky, n,
+        _mi_plugin(ac, yc, NBINS, ky),
+        _mi_plugin(bc, yc, NBINS, ky),
+        _mi_plugin(ac * NBINS + bc, yc, NBINS * NBINS, ky),
+        NBINS,
+        NBINS,
+        ky,
+        n,
     )
     assert ii_syn > 0.1, f"synergy II should be strongly positive, got {ii_syn}"
 
@@ -111,8 +117,13 @@ def test_ii_sign_synergy_redundancy_additive(seed):
     ac, bc, yc = _discretize(a), _discretize(b), _discretize(y)
     ky = int(yc.max()) + 1
     ii_red = pair_interaction_information(
-        _mi_plugin(ac, yc, NBINS, ky), _mi_plugin(bc, yc, NBINS, ky),
-        _mi_plugin(ac * NBINS + bc, yc, NBINS * NBINS, ky), NBINS, NBINS, ky, n,
+        _mi_plugin(ac, yc, NBINS, ky),
+        _mi_plugin(bc, yc, NBINS, ky),
+        _mi_plugin(ac * NBINS + bc, yc, NBINS * NBINS, ky),
+        NBINS,
+        NBINS,
+        ky,
+        n,
     )
     assert ii_red < -0.1, f"redundancy II should be strongly negative, got {ii_red}"
 
@@ -123,8 +134,13 @@ def test_ii_sign_synergy_redundancy_additive(seed):
     ac, cc, yc = _discretize(a), _discretize(c), _discretize(y)
     ky = int(yc.max()) + 1
     ii_add = pair_interaction_information(
-        _mi_plugin(ac, yc, NBINS, ky), _mi_plugin(cc, yc, NBINS, ky),
-        _mi_plugin(ac * NBINS + cc, yc, NBINS * NBINS, ky), NBINS, NBINS, ky, n,
+        _mi_plugin(ac, yc, NBINS, ky),
+        _mi_plugin(cc, yc, NBINS, ky),
+        _mi_plugin(ac * NBINS + cc, yc, NBINS * NBINS, ky),
+        NBINS,
+        NBINS,
+        ky,
+        n,
     )
     # additive completion II is small and FAR below the synergy II.
     assert abs(ii_add) < 0.1, f"additive II should be ~0, got {ii_add}"
@@ -149,16 +165,28 @@ def test_null_floor_rejects_chance_positive_noise_ii():
     pa = np.array([p[0] for p in pairs])
     pb = np.array([p[1] for p in pairs])
     floor = pooled_pair_ii_null_floor(
-        factors_data=factors, nbins=nbins, pair_a=pa, pair_b=pb,
-        marginal_mi_a=np.zeros(len(pairs)), marginal_mi_b=np.zeros(len(pairs)),
-        classes_y=yc, freqs_y=freqs_y, n_permutations=50, quantile=0.95, random_seed=7,
+        factors_data=factors,
+        nbins=nbins,
+        pair_a=pa,
+        pair_b=pb,
+        marginal_mi_a=np.zeros(len(pairs)),
+        marginal_mi_b=np.zeros(len(pairs)),
+        classes_y=yc,
+        freqs_y=freqs_y,
+        n_permutations=50,
+        quantile=0.95,
+        random_seed=7,
     )
     ky = len(freqs_y)
     actual = max(
         pair_interaction_information(
-            _mi_plugin(factors[:, i], yc, NBINS, ky), _mi_plugin(factors[:, j], yc, NBINS, ky),
+            _mi_plugin(factors[:, i], yc, NBINS, ky),
+            _mi_plugin(factors[:, j], yc, NBINS, ky),
             _mi_plugin(factors[:, i] * NBINS + factors[:, j], yc, NBINS * NBINS, ky),
-            NBINS, NBINS, ky, n,
+            NBINS,
+            NBINS,
+            ky,
+            n,
         )
         for i, j in pairs
     )
@@ -176,12 +204,11 @@ def test_null_floor_degenerate_returns_zero():
     nbins = np.array([NBINS, NBINS, NBINS])
     fy = np.bincount(yc).astype(float) / n
     # < 2 pairs -> 0; n_permutations 0 -> 0; single-class target -> 0
-    assert pooled_pair_ii_null_floor(factors, nbins, np.array([0]), np.array([1]),
-                                     np.zeros(1), np.zeros(1), yc, fy, n_permutations=10) == 0.0
-    assert pooled_pair_ii_null_floor(factors, nbins, np.array([0, 1]), np.array([1, 2]),
-                                     np.zeros(2), np.zeros(2), yc, fy, n_permutations=0) == 0.0
-    assert pooled_pair_ii_null_floor(factors, nbins, np.array([0, 1]), np.array([1, 2]),
-                                     np.zeros(2), np.zeros(2), yc, np.array([1.0]), n_permutations=10) == 0.0
+    assert pooled_pair_ii_null_floor(factors, nbins, np.array([0]), np.array([1]), np.zeros(1), np.zeros(1), yc, fy, n_permutations=10) == 0.0
+    assert pooled_pair_ii_null_floor(factors, nbins, np.array([0, 1]), np.array([1, 2]), np.zeros(2), np.zeros(2), yc, fy, n_permutations=0) == 0.0
+    assert (
+        pooled_pair_ii_null_floor(factors, nbins, np.array([0, 1]), np.array([1, 2]), np.zeros(2), np.zeros(2), yc, np.array([1.0]), n_permutations=10) == 0.0
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -217,19 +244,32 @@ def test_routing_demotes_additive_crossmix_keeps_synergy():
 
     cached = {(i,): mmi(i) for i in range(NCOL)}
     pp = {
-        ((0, 1), jmi(0, 1)): 1,   # synergy
-        ((0, 2), jmi(0, 2)): 1,   # cross-mix additive (a + unrelated c2)
-        ((2, 3), jmi(2, 3)): 1,   # additive (two unrelated noise cols)
+        ((0, 1), jmi(0, 1)): 1,  # synergy
+        ((0, 2), jmi(0, 2)): 1,  # cross-mix additive (a + unrelated c2)
+        ((2, 3), jmi(2, 3)): 1,  # additive (two unrelated noise cols)
     }
     pa = np.array([0, 0, 2])
     pb = np.array([1, 2, 3])
     floor = pooled_pair_ii_null_floor(
-        factors_data=fa, nbins=nb, pair_a=pa, pair_b=pb,
-        marginal_mi_a=np.zeros(3), marginal_mi_b=np.zeros(3),
-        classes_y=yc, freqs_y=fy, n_permutations=50, quantile=0.95, random_seed=1,
+        factors_data=fa,
+        nbins=nb,
+        pair_a=pa,
+        pair_b=pb,
+        marginal_mi_a=np.zeros(3),
+        marginal_mi_b=np.zeros(3),
+        classes_y=yc,
+        freqs_y=fy,
+        n_permutations=50,
+        quantile=0.95,
+        random_seed=1,
     )
     kept, routes, iis = route_prospective_pairs(
-        pp, cached_MIs=cached, nbins=nb, nbins_y=ky, n=n, ii_floor=floor,
+        pp,
+        cached_MIs=cached,
+        nbins=nb,
+        nbins_y=ky,
+        n=n,
+        ii_floor=floor,
         synergy_added_idx={2, 3},  # c2, d2 are the speculative bootstrap operands
     )
     assert routes[(0, 1)] == ROUTE_SYNERGY
@@ -268,18 +308,31 @@ def test_routing_keeps_redundant_and_selected_pairs():
 
     cached = {(i,): mmi(i) for i in range(3)}
     pp = {
-        ((0, 1), jmi(0, 1)): 1,   # redundant (b ~= a)
-        ((0, 2), jmi(0, 2)): 1,   # additive cross-mix but operand 2 NOT speculative here
+        ((0, 1), jmi(0, 1)): 1,  # redundant (b ~= a)
+        ((0, 2), jmi(0, 2)): 1,  # additive cross-mix but operand 2 NOT speculative here
     }
     pa = np.array([0, 0])
     pb = np.array([1, 2])
     floor = pooled_pair_ii_null_floor(
-        factors_data=fa, nbins=nb, pair_a=pa, pair_b=pb,
-        marginal_mi_a=np.zeros(2), marginal_mi_b=np.zeros(2),
-        classes_y=yc, freqs_y=fy, n_permutations=40, quantile=0.95, random_seed=3,
+        factors_data=fa,
+        nbins=nb,
+        pair_a=pa,
+        pair_b=pb,
+        marginal_mi_a=np.zeros(2),
+        marginal_mi_b=np.zeros(2),
+        classes_y=yc,
+        freqs_y=fy,
+        n_permutations=40,
+        quantile=0.95,
+        random_seed=3,
     )
     kept, routes, iis = route_prospective_pairs(
-        pp, cached_MIs=cached, nbins=nb, nbins_y=ky, n=n, ii_floor=floor,
+        pp,
+        cached_MIs=cached,
+        nbins=nb,
+        nbins_y=ky,
+        n=n,
+        ii_floor=floor,
         synergy_added_idx=set(),  # nothing speculative -> nothing demoted
     )
     assert routes[(0, 1)] == ROUTE_REDUNDANT
@@ -300,7 +353,12 @@ def test_routing_no_op_when_floor_zero():
     cached = {(i,): 0.01 for i in range(3)}
     pp = {((0, 1), 0.05): 1, ((0, 2), 0.04): 1}
     kept, routes, iis = route_prospective_pairs(
-        pp, cached_MIs=cached, nbins=nb, nbins_y=ky, n=n, ii_floor=0.0,
+        pp,
+        cached_MIs=cached,
+        nbins=nb,
+        nbins_y=ky,
+        n=n,
+        ii_floor=0.0,
         synergy_added_idx={1, 2},
     )
     assert len(kept) == len(pp), "floor==0 must keep every pair (no-op)"

@@ -6,6 +6,7 @@ S1), em-dashes in log strings (S2), and converted module-boundary
 delivered a separate test file before tracking dropped, so these tests
 back-fill that gap.
 """
+
 from __future__ import annotations
 
 import re
@@ -15,6 +16,7 @@ import pytest
 
 
 import mlframe as _mlframe  # noqa: E402  -- derive src path from package; the previous ``D:/Upd/Programming/...`` hardcode silently broke every other machine and the suite SKIPped 11 tests with "main.py not present" etc.
+
 _CORE_ROOT = Path(_mlframe.__file__).resolve().parent / "training"
 
 _CORE_FILES = [
@@ -70,10 +72,7 @@ def test_core_files_have_no_dated_audit_comments(py_file: Path) -> None:
             if pat.search(line):
                 offenders.append((ln_no, line.strip()))
                 break
-    assert not offenders, (
-        f"{py_file.name}: dated audit-history comments still present:\n"
-        + "\n".join(f"  L{n}: {t}" for n, t in offenders[:20])
-    )
+    assert not offenders, f"{py_file.name}: dated audit-history comments still present:\n" + "\n".join(f"  L{n}: {t}" for n, t in offenders[:20])
 
 
 def test_phases_apply_third_party_patches_lazy_only() -> None:
@@ -93,6 +92,7 @@ def test_phases_apply_third_party_patches_lazy_only() -> None:
     import textwrap
 
     import mlframe as _mlframe_pkg
+
     _src_root = os.path.dirname(os.path.dirname(_mlframe_pkg.__file__))
     _env = {**os.environ, "PYTHONPATH": _src_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
     _probe = textwrap.dedent("""
@@ -102,12 +102,14 @@ def test_phases_apply_third_party_patches_lazy_only() -> None:
     """)
     _res = subprocess.run(
         [sys.executable, "-c", _probe],
-        capture_output=True, text=True, timeout=180, env=_env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env=_env,
     )
     assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
     assert "FACTORIES_IN_SYSMODULES=False" in _res.stdout, (
-        f"factories module imported eagerly -- Wave 1.5 lazy-init invariant "
-        f"broken (probe printed {_res.stdout!r})"
+        f"factories module imported eagerly -- Wave 1.5 lazy-init invariant broken (probe printed {_res.stdout!r})"
     )
 
 
@@ -119,6 +121,7 @@ def test_core_main_applies_patches_at_suite_entry(monkeypatch) -> None:
     raise on invalid df is fine, the patches must have been called by then).
     """
     import mlframe.training.core.main as _main_mod
+
     # ``train_mlframe_models_suite`` body lives in ``_main_train_suite.py``;
     # the live prelude resolves ``apply_loky_cpu_count_override`` /
     # ``apply_third_party_patches_once`` from THAT module's globals (patched in
@@ -158,13 +161,9 @@ def test_core_main_applies_patches_at_suite_entry(monkeypatch) -> None:
         )
 
     # Both prelude calls must have happened; loky must come first if both present.
-    assert "loky" in call_order or "patches" in call_order, (
-        "Neither prelude function called before suite entry"
-    )
+    assert "loky" in call_order or "patches" in call_order, "Neither prelude function called before suite entry"
     if "loky" in call_order and "patches" in call_order:
-        assert call_order.index("loky") < call_order.index("patches"), (
-            "loky must apply BEFORE third-party patches"
-        )
+        assert call_order.index("loky") < call_order.index("patches"), "loky must apply BEFORE third-party patches"
 
 
 def test_pipeline_does_not_mutate_env_at_import() -> None:
@@ -183,6 +182,7 @@ def test_pipeline_does_not_mutate_env_at_import() -> None:
     import textwrap
 
     import mlframe as _mlframe_pkg
+
     _src_root = os.path.dirname(os.path.dirname(_mlframe_pkg.__file__))
     _env = {**os.environ, "PYTHONPATH": _src_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
     _probe = textwrap.dedent("""
@@ -196,13 +196,14 @@ def test_pipeline_does_not_mutate_env_at_import() -> None:
     """)
     _res = subprocess.run(
         [sys.executable, "-c", _probe],
-        capture_output=True, text=True, timeout=180, env=_env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env=_env,
     )
     assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
     _lines = {ln.split("=", 1)[0]: ln.split("=", 1)[1] for ln in _res.stdout.strip().splitlines() if "=" in ln}
-    assert _lines.get("PRE") == _lines.get("POST"), (
-        f"pipeline.py mutated env at import: {_lines.get('PRE')} -> {_lines.get('POST')}"
-    )
+    assert _lines.get("PRE") == _lines.get("POST"), f"pipeline.py mutated env at import: {_lines.get('PRE')} -> {_lines.get('POST')}"
 
 
 def test_phases_module_has_threadsafe_registry() -> None:

@@ -6,6 +6,7 @@ sample, not by how many rows those pairs are drawn from, so the drawn line is es
 thousand points. These tests pin that contract so a future cap change (up or down) cannot silently move the rendered
 line beyond a small fraction of the y-range, and that the cap actually bounds the fit input.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,6 +36,7 @@ def test_trend_line_visually_equivalent_to_full_data_fit():
 
         # Reference: fit on a much larger sample than the production cap by monkeying the cap up for one call.
         import mlframe.reporting.renderers._trend as _t
+
         cap_prod = _t._TREND_FIT_CAP
         (_, ylo_c), (_, yhi_c) = robust_fit_endpoints(x, y, "theil-sen")
         _t._TREND_FIT_CAP = 20_000

@@ -140,11 +140,20 @@ def test_opt_in_shap_interaction_and_per_instance_charts_render_when_enabled(tmp
     df = _make_frame(700, binary=True)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     cfg = ReportingConfig(
-        show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]",
+        show_perf_chart=False,
+        show_fi=False,
+        plot_outputs="matplotlib[png]",
         # Trim the other per-split diagnostics so the run is fast and isolates the two opt-in SHAP artifacts.
-        pdp_ice=False, slice_finder=False, decision_curve=False, calibration_drift=False,
-        target_acf=False, model_comparison=False, decile_table=False, model_card=False,
-        shap_interactions=True, shap_per_instance=True,
+        pdp_ice=False,
+        slice_finder=False,
+        decision_curve=False,
+        calibration_drift=False,
+        target_acf=False,
+        model_comparison=False,
+        decile_table=False,
+        model_card=False,
+        shap_interactions=True,
+        shap_per_instance=True,
     )
     data_dir = str(tmp_path)
     train_mlframe_models_suite(
@@ -173,10 +182,19 @@ def test_opt_in_pdp_2d_chart_renders_when_enabled(tmp_path):
     df = _make_frame(700, binary=True)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     cfg = ReportingConfig(
-        show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]",
+        show_perf_chart=False,
+        show_fi=False,
+        plot_outputs="matplotlib[png]",
         # Trim the other per-split diagnostics so the run is fast and isolates the opt-in 2-D PDP artifact.
-        pdp_ice=False, slice_finder=False, decision_curve=False, calibration_drift=False,
-        target_acf=False, model_comparison=False, decile_table=False, model_card=False, shap_panels=False,
+        pdp_ice=False,
+        slice_finder=False,
+        decision_curve=False,
+        calibration_drift=False,
+        target_acf=False,
+        model_comparison=False,
+        decile_table=False,
+        model_card=False,
+        shap_panels=False,
         pdp_2d_charts=True,
     )
     data_dir = str(tmp_path)
@@ -221,9 +239,7 @@ def test_per_model_calibration_chart_is_written_without_missing_dir(tmp_path):
         verbose=0,
     )
     assert TargetTypes.BINARY_CLASSIFICATION in models
-    perfplots = [
-        p for p in glob.glob(os.path.join(data_dir, "charts", "**", "*perfplot*.png"), recursive=True) if os.path.isfile(p)
-    ]
+    perfplots = [p for p in glob.glob(os.path.join(data_dir, "charts", "**", "*perfplot*.png"), recursive=True) if os.path.isfile(p)]
     assert perfplots, "per-model calibration perfplot.png was not saved (chart dir not created before savefig)"
 
 
@@ -283,7 +299,9 @@ def test_multiclass_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg
     skip_if_dependency_missing("hgb")
     df = _make_multiclass_frame(900, n_classes=3)
     fte = SimpleFeaturesAndTargetsExtractor(
-        target_column="target", regression=False, target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
+        target_column="target",
+        regression=False,
+        target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
     )
     data_dir = str(tmp_path)
     models, metadata = train_mlframe_models_suite(
@@ -333,7 +351,9 @@ def test_multilabel_suite_renders_threshold_sweep_default_on(tmp_path, reporting
     skip_if_dependency_missing("hgb")
     df = _make_multilabel_frame(900, n_labels=3)
     fte = SimpleFeaturesAndTargetsExtractor(
-        target_column="target", regression=False, target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
+        target_column="target",
+        regression=False,
+        target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
     )
     data_dir = str(tmp_path)
     models, metadata = train_mlframe_models_suite(
@@ -364,10 +384,17 @@ def test_learning_curve_opt_in_when_enabled(tmp_path):
     df = _make_frame(700, binary=True)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     cfg = ReportingConfig(
-        show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]",
+        show_perf_chart=False,
+        show_fi=False,
+        plot_outputs="matplotlib[png]",
         # Disable the other standalone diagnostics so this run is fast + isolates the learning-curve artifact.
-        pdp_ice=False, slice_finder=False, decision_curve=False, shap_panels=False,
-        calibration_drift=False, target_acf=False, model_comparison=False,
+        pdp_ice=False,
+        slice_finder=False,
+        decision_curve=False,
+        shap_panels=False,
+        calibration_drift=False,
+        target_acf=False,
+        model_comparison=False,
         learning_curve=LearningCurveConfig(enabled=True, sizes=(0.3, 0.6, 1.0)),
     )
     data_dir = str(tmp_path)
@@ -441,10 +468,18 @@ def test_ensemble_prediction_stability_renders_default_on(tmp_path):
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False, ts_field="timestamp")
     data_dir = str(tmp_path)
     cfg = ReportingConfig(
-        show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]",
+        show_perf_chart=False,
+        show_fi=False,
+        plot_outputs="matplotlib[png]",
         # Trim the per-split diagnostics so the run is fast and isolates the ensemble panel.
-        pdp_ice=False, slice_finder=False, shap_panels=False, decision_curve=False,
-        calibration_drift=False, target_acf=False, decile_table=False, model_card=False,
+        pdp_ice=False,
+        slice_finder=False,
+        shap_panels=False,
+        decision_curve=False,
+        calibration_drift=False,
+        target_acf=False,
+        decile_table=False,
+        model_card=False,
     )
     models, metadata = train_mlframe_models_suite(
         df=df,

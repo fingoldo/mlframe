@@ -22,6 +22,7 @@ from sklearn.preprocessing import (
 try:
     from tests.conftest import fast_subset
 except ImportError:  # pragma: no cover
+
     def fast_subset(values, **_):
         return list(values)
 

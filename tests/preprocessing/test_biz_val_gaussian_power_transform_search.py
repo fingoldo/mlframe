@@ -4,6 +4,7 @@ Synthetic: a heavily right-skewed (log-normal-like) feature. The unsupervised se
 that drives absolute skewness far below the raw feature's skewness -- no target/model involved, purely a
 distribution-shape claim.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -94,8 +95,7 @@ def test_biz_val_gaussian_power_transform_search_target_guard_rejects_signal_des
     assert guarded_pick != naive_pick, "expected the guard to steer away from the signal-destroying naive pick"
     guarded_pick_corr = guarded_result["x"]["all_target_corr"][guarded_pick]
     assert guarded_pick_corr >= 0.9 * raw_target_corr, (
-        f"expected the guarded pick ({guarded_pick}) to retain >=90% of the raw target correlation "
-        f"({raw_target_corr:.4f}), got {guarded_pick_corr:.4f}"
+        f"expected the guarded pick ({guarded_pick}) to retain >=90% of the raw target correlation ({raw_target_corr:.4f}), got {guarded_pick_corr:.4f}"
     )
 
 

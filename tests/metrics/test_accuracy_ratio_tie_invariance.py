@@ -4,6 +4,7 @@ satisfy its documented identity AR == 2*AUC-1 on both tied and distinct data.
 Pre-fix the naive cumsum over -score argsort made the CAP area depend on the
 arbitrary intra-tie row order, breaking both properties on tie-heavy inputs.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -57,6 +58,7 @@ def test_accuracy_ratio_vectorised_tiefold_matches_reference_loop():
     sorted-score block starts instead of a per-row Python loop (56x at n=60k). Regression sensor: the vectorised fold
     must be bit-identical to the explicit reference loop across tie-heavy and distinct inputs, and AR == 2*AUC-1 must
     still hold to fp tolerance."""
+
     def _ref_ar(yt, ys):
         yt = np.asarray(yt).astype(np.int64)
         ys = np.asarray(ys, dtype=np.float64)

@@ -11,6 +11,7 @@ So the typical sklearn API battery (fit / set_params / clone) does not apply -- 
 actual surface: shape / dtype / value contracts and one quantitative biz_value check
 (KSG MI of an informative feature beats KSG MI of a pure-noise feature).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,12 +36,14 @@ def informative_xy_classif():
     rng = np.random.default_rng(0)
     n = 400
     y = rng.integers(0, 2, n).astype(np.int64)
-    X = np.column_stack([
-        y.astype(np.float64) + rng.normal(scale=0.3, size=n),  # signal
-        rng.normal(size=n),  # noise
-        rng.normal(size=n),  # noise
-        rng.normal(size=n),  # noise
-    ])
+    X = np.column_stack(
+        [
+            y.astype(np.float64) + rng.normal(scale=0.3, size=n),  # signal
+            rng.normal(size=n),  # noise
+            rng.normal(size=n),  # noise
+            rng.normal(size=n),  # noise
+        ]
+    )
     return X, y
 
 
@@ -50,11 +53,13 @@ def informative_xy_regress():
     rng = np.random.default_rng(0)
     n = 400
     y = rng.normal(size=n)
-    X = np.column_stack([
-        y + rng.normal(scale=0.2, size=n),  # signal
-        rng.normal(size=n),
-        rng.normal(size=n),
-    ])
+    X = np.column_stack(
+        [
+            y + rng.normal(scale=0.2, size=n),  # signal
+            rng.normal(size=n),
+            rng.normal(size=n),
+        ]
+    )
     return X, y
 
 
@@ -147,8 +152,12 @@ class TestKsgMiWithSignificance:
         X, y = informative_xy_classif
         n_feat = X.shape[1]
         mi, p, support = ksg_mi_with_significance(
-            X, y, feature_indices=list(range(n_feat)),
-            n_permutations=10, alpha=0.05, n_jobs=1,
+            X,
+            y,
+            feature_indices=list(range(n_feat)),
+            n_permutations=10,
+            alpha=0.05,
+            n_jobs=1,
         )
         assert isinstance(mi, np.ndarray) and mi.shape == (n_feat,)
         assert isinstance(p, np.ndarray) and p.shape == (n_feat,)
@@ -159,8 +168,11 @@ class TestKsgMiWithSignificance:
     def test_pvalues_in_valid_range(self, informative_xy_classif):
         X, y = informative_xy_classif
         _, p, _ = ksg_mi_with_significance(
-            X, y, feature_indices=[0, 1, 2, 3],
-            n_permutations=10, n_jobs=1,
+            X,
+            y,
+            feature_indices=[0, 1, 2, 3],
+            n_permutations=10,
+            n_jobs=1,
         )
         # Conservative p formula: (1+failures)/(1+n_perms) lives in (0, 1].
         assert (p > 0).all()
@@ -170,8 +182,11 @@ class TestKsgMiWithSignificance:
         """``support`` is the surviving indices ORDERED by observed MI descending."""
         X, y = informative_xy_classif
         mi, _, support = ksg_mi_with_significance(
-            X, y, feature_indices=[0, 1, 2, 3],
-            n_permutations=10, alpha=1.0,  # alpha=1 -> all features pass
+            X,
+            y,
+            feature_indices=[0, 1, 2, 3],
+            n_permutations=10,
+            alpha=1.0,  # alpha=1 -> all features pass
             n_jobs=1,
         )
         assert support.shape == (4,)
@@ -183,8 +198,12 @@ class TestKsgMiWithSignificance:
         """alpha=0 -> p > 0 always (since min p is 1/(1+n_perms)) -> empty support."""
         X, y = informative_xy_classif
         _, _, support = ksg_mi_with_significance(
-            X, y, feature_indices=[0, 1, 2, 3],
-            n_permutations=10, alpha=0.0, n_jobs=1,
+            X,
+            y,
+            feature_indices=[0, 1, 2, 3],
+            n_permutations=10,
+            alpha=0.0,
+            n_jobs=1,
         )
         assert support.shape == (0,)
 
@@ -236,11 +255,13 @@ class TestKsgMiBizValue:
         rng = np.random.default_rng(0)
         n = 600
         y = rng.integers(0, 2, n).astype(np.int64)
-        X = np.column_stack([
-            y.astype(np.float64) + rng.normal(scale=0.3, size=n),  # informative
-            rng.normal(size=n),                                    # noise
-            rng.normal(size=n),                                    # noise
-        ])
+        X = np.column_stack(
+            [
+                y.astype(np.float64) + rng.normal(scale=0.3, size=n),  # informative
+                rng.normal(size=n),  # noise
+                rng.normal(size=n),  # noise
+            ]
+        )
         mi = ksg_mi_with_target(X, y, feature_indices=[0, 1, 2], random_state=0)
         assert mi[0] > mi[1] + 0.05
         assert mi[0] > mi[2] + 0.05
@@ -249,14 +270,21 @@ class TestKsgMiBizValue:
         rng = np.random.default_rng(0)
         n = 600
         y = rng.integers(0, 2, n).astype(np.int64)
-        X = np.column_stack([
-            y.astype(np.float64) + rng.normal(scale=0.3, size=n),  # informative
-            rng.normal(size=n),                                    # noise
-            rng.normal(size=n),                                    # noise
-        ])
+        X = np.column_stack(
+            [
+                y.astype(np.float64) + rng.normal(scale=0.3, size=n),  # informative
+                rng.normal(size=n),  # noise
+                rng.normal(size=n),  # noise
+            ]
+        )
         _, _, support = ksg_mi_with_significance(
-            X, y, feature_indices=[0, 1, 2],
-            n_permutations=30, alpha=0.05, n_jobs=1, random_state=0,
+            X,
+            y,
+            feature_indices=[0, 1, 2],
+            n_permutations=30,
+            alpha=0.05,
+            n_jobs=1,
+            random_state=0,
         )
         assert 0 in support.tolist()
 

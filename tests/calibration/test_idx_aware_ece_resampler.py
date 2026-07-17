@@ -12,6 +12,7 @@ loop is BIT-IDENTICAL to slicing outside. These tests pin:
     BIT-IDENTICAL to the legacy metric_fn-slice path AND to ``bootstrap_metric``;
   * the lead-ece-wrapper contiguous-float64 fast path == the coercion path.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -111,6 +112,7 @@ def test_normalize_binary_labels_fast_path_equals_general_path():
 
     # <2 distinct finite values must still raise.
     import pytest
+
     with pytest.raises(ValueError):
         _normalize_binary_labels(np.array([1, 1, 1]))
 
@@ -152,5 +154,6 @@ def test_normalize_binary_labels_f64_fast_path():
     assert np.array_equal(_normalize_binary_labels(np.array([-1.0, 1.0, 1.0, -1.0])), np.array([0, 1, 1, 0]))
 
     import pytest
+
     with pytest.raises(ValueError):
         _normalize_binary_labels(np.array([1.0, 1.0, 1.0]))

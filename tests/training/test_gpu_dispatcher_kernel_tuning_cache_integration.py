@@ -24,6 +24,7 @@ This sensor pins the post-fix shape at each site so a future refactor
 that re-introduces the hardcoded default without the cache lookup
 gets caught.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -34,6 +35,7 @@ import pytest
 def _read(rel: str) -> str:
     """Read a source file relative to the installed mlframe package root."""
     import mlframe as _mlframe
+
     _path = pathlib.Path(_mlframe.__file__).resolve().parent / rel
     if not _path.exists() and _path.suffix == ".py":
         # Monolith-split compat: the flat module became a subpackage
@@ -49,78 +51,81 @@ def _read(rel: str) -> str:
     return _path.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("rel,marker,site", [
-    # #1: streamed variant lookup_joint_hist. Moved to ``_gpu_batched.py`` when ``gpu.py`` was split
-    # into siblings (the batched joint-hist dispatch, including this cache lookup, now lives there).
-    (
-        "feature_selection/filters/_gpu_batched.py",
-        "lookup_joint_hist(n_samples=n, joint_size=joint_size)",
-        "streamed_joint_hist",
-    ),
-    # #2: batch_pair_mi_gpu cache-driven dispatcher. Migrated to the @kernel_tuner registry + get_or_tune
-    # orchestrator API (the old ``_cache.lookup("batch_pair_mi")`` shape was replaced); the registration is the
-    # forward-stable marker that the site is still wired to per-host tuning rather than hardcoded defaults.
-    (
-        "feature_selection/filters/batch_pair_mi_gpu.py",
-        "kernel_tuner(",
-        "batch_pair_mi_dispatch",
-    ),
-    (
-        "feature_selection/filters/batch_pair_mi_gpu.py",
-        'cli_label="batch_pair_mi"',
-        "batch_pair_mi_cache_key",
-    ),
-    # #3: metrics RMSE BLOCK_N cache lookup (moved to ``_gpu_metrics.py`` when
-    # ``metrics/core.py`` was split into siblings to drop the monolith below 1k LOC).
-    (
-        "metrics/_gpu_metrics.py",
-        '_cache.lookup(\n                "rmse_partial_sum"',
-        "rmse_block_n",
-    ),
-    # #4: _gpu_pairs.py multi-pair shared-mem device probe (moved out of
-    # gpu.py during the multi-pair-MI split). 2026-07-16: the probe call itself was found broken
-    # (get_shared_mem_budget_per_block() called with 0 args -- always raised TypeError, silently
-    # swallowed, so the dynamic probe never actually engaged); fixed to pass (cc_major, cc_minor,
-    # allow_opt_in=True), which no longer imports the function under an alias.
-    (
-        "feature_selection/filters/_gpu_pairs.py",
-        "get_shared_mem_budget_per_block(_summary[",
-        "multi_pair_shared_cap",
-    ),
-    # #5: cat_interactions perm-kernel cache lookup. The @kernel_tuner registration
-    # moved to the ``_cat_confirm_permutation_tuning.py`` sibling when
-    # ``_cat_confirm_permutation.py`` was split below 1k LOC.
-    (
-        "feature_selection/filters/_cat_confirm_permutation_tuning.py",
-        'cli_label="cat_fe_perm_kernel"',
-        "cat_fe_perm_kernel",
-    ),
-    # #6: feature_engineering.py unary cache lookup
-    # 2026-05-22: ``check_prospective_fe_pairs`` (which contains the
-    # unary-elementwise dispatch + cache lookup) moved to
-    # ``_feature_engineering_pairs.py`` during the feature_engineering
-    # monolith split. The marker now lives in the sibling.
-    # unary-elementwise tuning moved out of _feature_engineering_pairs.py into the dedicated
-    # _unary_elementwise_tuning.py sibling during the @kernel_tuner migration; the dispatch site calls
-    # unary_elementwise_backend_choice() from there.
-    (
-        "feature_selection/filters/_unary_elementwise_tuning.py",
-        'cli_label="unary_elementwise"',
-        "unary_elementwise",
-    ),
-    # P2: hermite_fe polyeval lookup (linter may use dict-args or kwargs form)
-    (
-        "feature_selection/filters/hermite_fe.py",
-        '_cache.lookup("polyeval"',
-        "polyeval_thresholds",
-    ),
-    # P2: random_features RFF matmul lookup
-    (
-        "feature_engineering/transformer/random_features.py",
-        'cli_label="rff_matmul"',
-        "rff_matmul_crossover",
-    ),
-])
+@pytest.mark.parametrize(
+    "rel,marker,site",
+    [
+        # #1: streamed variant lookup_joint_hist. Moved to ``_gpu_batched.py`` when ``gpu.py`` was split
+        # into siblings (the batched joint-hist dispatch, including this cache lookup, now lives there).
+        (
+            "feature_selection/filters/_gpu_batched.py",
+            "lookup_joint_hist(n_samples=n, joint_size=joint_size)",
+            "streamed_joint_hist",
+        ),
+        # #2: batch_pair_mi_gpu cache-driven dispatcher. Migrated to the @kernel_tuner registry + get_or_tune
+        # orchestrator API (the old ``_cache.lookup("batch_pair_mi")`` shape was replaced); the registration is the
+        # forward-stable marker that the site is still wired to per-host tuning rather than hardcoded defaults.
+        (
+            "feature_selection/filters/batch_pair_mi_gpu.py",
+            "kernel_tuner(",
+            "batch_pair_mi_dispatch",
+        ),
+        (
+            "feature_selection/filters/batch_pair_mi_gpu.py",
+            'cli_label="batch_pair_mi"',
+            "batch_pair_mi_cache_key",
+        ),
+        # #3: metrics RMSE BLOCK_N cache lookup (moved to ``_gpu_metrics.py`` when
+        # ``metrics/core.py`` was split into siblings to drop the monolith below 1k LOC).
+        (
+            "metrics/_gpu_metrics.py",
+            '_cache.lookup(\n                "rmse_partial_sum"',
+            "rmse_block_n",
+        ),
+        # #4: _gpu_pairs.py multi-pair shared-mem device probe (moved out of
+        # gpu.py during the multi-pair-MI split). 2026-07-16: the probe call itself was found broken
+        # (get_shared_mem_budget_per_block() called with 0 args -- always raised TypeError, silently
+        # swallowed, so the dynamic probe never actually engaged); fixed to pass (cc_major, cc_minor,
+        # allow_opt_in=True), which no longer imports the function under an alias.
+        (
+            "feature_selection/filters/_gpu_pairs.py",
+            "get_shared_mem_budget_per_block(_summary[",
+            "multi_pair_shared_cap",
+        ),
+        # #5: cat_interactions perm-kernel cache lookup. The @kernel_tuner registration
+        # moved to the ``_cat_confirm_permutation_tuning.py`` sibling when
+        # ``_cat_confirm_permutation.py`` was split below 1k LOC.
+        (
+            "feature_selection/filters/_cat_confirm_permutation_tuning.py",
+            'cli_label="cat_fe_perm_kernel"',
+            "cat_fe_perm_kernel",
+        ),
+        # #6: feature_engineering.py unary cache lookup
+        # 2026-05-22: ``check_prospective_fe_pairs`` (which contains the
+        # unary-elementwise dispatch + cache lookup) moved to
+        # ``_feature_engineering_pairs.py`` during the feature_engineering
+        # monolith split. The marker now lives in the sibling.
+        # unary-elementwise tuning moved out of _feature_engineering_pairs.py into the dedicated
+        # _unary_elementwise_tuning.py sibling during the @kernel_tuner migration; the dispatch site calls
+        # unary_elementwise_backend_choice() from there.
+        (
+            "feature_selection/filters/_unary_elementwise_tuning.py",
+            'cli_label="unary_elementwise"',
+            "unary_elementwise",
+        ),
+        # P2: hermite_fe polyeval lookup (linter may use dict-args or kwargs form)
+        (
+            "feature_selection/filters/hermite_fe.py",
+            '_cache.lookup("polyeval"',
+            "polyeval_thresholds",
+        ),
+        # P2: random_features RFF matmul lookup
+        (
+            "feature_engineering/transformer/random_features.py",
+            'cli_label="rff_matmul"',
+            "rff_matmul_crossover",
+        ),
+    ],
+)
 def test_gpu_dispatcher_consults_kernel_tuning_cache(rel, marker, site):
     """Source-level guard: each of the 8 (now 9 -- batch_pair_mi has 2
     related markers) wave-23 sites must contain a kernel_tuning_cache
@@ -141,6 +146,7 @@ def test_wave23_falls_back_to_source_default_when_cache_unavailable():
     a missing pyutilz.performance.kernel_tuning.cache module would break
     every GPU-dispatching call site."""
     import mlframe as _mlframe
+
     root = pathlib.Path(_mlframe.__file__).resolve().parent
     # Pin the wrapping shape at each of the 6 sites that introduced
     # the lookup-with-fallback pattern (the polyeval site uses a named
@@ -180,7 +186,7 @@ def test_wave23_falls_back_to_source_default_when_cache_unavailable():
             f"_kernel_tuning shim OR the _benchmarks.kernel_tuning_cache "
             f"dispatch helper. The lookup path was removed?"
         )
-        assert "except Exception" in src, f"{rel}: the cache lookup must have a try/except fallback; " f"missing pyutilz module would otherwise break dispatch."
+        assert "except Exception" in src, f"{rel}: the cache lookup must have a try/except fallback; missing pyutilz module would otherwise break dispatch."
 
 
 def test_wave23_smoke_imports():

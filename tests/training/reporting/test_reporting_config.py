@@ -38,8 +38,16 @@ class TestReportingConfigTitleTemplate:
         # reporting-coverage expansion; this test pins the post-expansion
         # token set so any future drop is caught immediately.
         assert cfg.title_metrics_tokens == (
-            "ICE", "BR_DECOMP", "ECE", "CMAEW", "LL", "ROC_AUC", "PR_AUC",
-            "KS", "MCC", "BSS",
+            "ICE",
+            "BR_DECOMP",
+            "ECE",
+            "CMAEW",
+            "LL",
+            "ROC_AUC",
+            "PR_AUC",
+            "KS",
+            "MCC",
+            "BSS",
         )
 
     def test_custom_template_is_parsed_in_order(self):
@@ -219,6 +227,7 @@ class TestReportingConfigCustomMetrics:
 
     def test_custom_ice_metric_round_trip(self):
         """A custom ICE metric callable round-trips through construction unchanged (same object identity)."""
+
         def fake_ice(y_true, y_score):
             """Stub ICE metric returning a fixed sentinel value."""
             return 0.42
@@ -241,11 +250,13 @@ class TestUseCacheDefaultFlip:
     def test_training_control_use_cache_default_true(self):
         """TrainingControlConfig.use_cache defaults to True (flipped from the pre-2026-04-27 False default)."""
         from mlframe.training.configs import TrainingControlConfig
+
         assert TrainingControlConfig().use_cache is True
 
     def test_training_control_use_cache_can_be_disabled(self):
         """TrainingControlConfig.use_cache can be explicitly disabled."""
         from mlframe.training.configs import TrainingControlConfig
+
         assert TrainingControlConfig(use_cache=False).use_cache is False
 
 
@@ -278,9 +289,15 @@ class TestReportingConfigSlimming:
         """All 9 legacy show_*_in_title booleans are gone, collapsed into title_metrics_template."""
         # All 9 collapsed into title_metrics_template.
         for legacy in (
-            "show_brier_loss_in_title", "show_cmaew_in_title", "show_roc_auc_in_title",
-            "show_pr_auc_in_title", "show_logloss_in_title", "show_coverage_in_title",
-            "show_points_density_in_title", "show_ece_in_title", "show_brier_decomp_in_title",
+            "show_brier_loss_in_title",
+            "show_cmaew_in_title",
+            "show_roc_auc_in_title",
+            "show_pr_auc_in_title",
+            "show_logloss_in_title",
+            "show_coverage_in_title",
+            "show_points_density_in_title",
+            "show_ece_in_title",
+            "show_brier_decomp_in_title",
         ):
             assert legacy not in ReportingConfig.model_fields, f"{legacy} should have been collapsed"
 
@@ -477,6 +494,7 @@ class TestFeatureImportanceConfigStaleClassCoercion:
         # the rebuilt pydantic schemas hold references to the new class, and
         # restoring the original symbols on the module doesn't undo that.
         from pydantic import BaseModel as _BM
+
         # Mirror enough of the real FeatureImportanceConfig surface that
         # model_dump round-trips through ReportingConfig's validator cleanly.
         # The validator round-trips via ``model_dump()`` then re-instantiates

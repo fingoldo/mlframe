@@ -9,6 +9,7 @@ Public surface (per the U16 audit finding):
 Tests prefer behavioral assertions (per memory ``feedback_behavioral_tests``) — no
 ``inspect.getsource``-string checks.
 """
+
 from __future__ import annotations
 
 import os
@@ -59,8 +60,7 @@ def test_compute_permutation_returns_polars_dataframe():
     assert isinstance(out, pl.DataFrame), f"must return polars DataFrame; got {type(out).__name__}"
     expected_cols = {"importances_mean", "importances_std", "feature"}
     actual_cols = set(out.columns)
-    assert expected_cols.issubset(actual_cols), \
-        f"output must contain {expected_cols}; got {actual_cols}"
+    assert expected_cols.issubset(actual_cols), f"output must contain {expected_cols}; got {actual_cols}"
 
 
 def test_compute_permutation_one_row_per_feature():
@@ -79,17 +79,14 @@ def test_compute_permutation_biz_value_signal_ranks_top():
     model = LinearRegression().fit(X, y)
     out = compute_permutation_importances(model, X, y, columns=cols, n_repeats=5, random_state=0)
     top_feature = out["feature"][0]
-    assert top_feature == "signal", \
+    assert top_feature == "signal", (
         f"signal column must rank #1; got {top_feature} (full importances_mean: {dict(zip(out['feature'].to_list(), out['importances_mean'].to_list()))})"
+    )
     # Tighter biz_value: signal importance must be MUCH larger than any noise importance
     sig_imp = out.filter(pl.col("feature") == "signal")["importances_mean"][0]
-    noise_imps = [
-        out.filter(pl.col("feature") == f"noise_{i}")["importances_mean"][0]
-        for i in range(5)
-    ]
+    noise_imps = [out.filter(pl.col("feature") == f"noise_{i}")["importances_mean"][0] for i in range(5)]
     max_noise = max(noise_imps)
-    assert sig_imp > max_noise * 3.0, \
-        f"signal importance ({sig_imp:.3f}) must dominate noise (max {max_noise:.3f}) by >=3x"
+    assert sig_imp > max_noise * 3.0, f"signal importance ({sig_imp:.3f}) must dominate noise (max {max_noise:.3f}) by >=3x"
 
 
 def test_compute_permutation_deterministic_with_random_state():
@@ -120,8 +117,7 @@ def test_compute_permutation_filters_zero_mean_zero_std():
     feats = out["feature"].to_list()
     assert "signal" in feats, "signal feature must remain in output"
     # constant column has mean=0 std=0 importance — should be filtered out
-    assert "constant" not in feats, \
-        f"constant-importance feature must be filtered; got {feats}"
+    assert "constant" not in feats, f"constant-importance feature must be filtered; got {feats}"
 
 
 # ----------------------------------------------------------------------------
@@ -180,6 +176,7 @@ def test_plot_feature_importance_saves_to_file(tmp_path):
 def test_plot_feature_importance_no_log_when_log_fi_false(caplog):
     """log_fi=False suppresses the text-log line even when log_top_n > 0."""
     import logging
+
     plt.close("all")
     fi = np.array([0.3, 0.1, 0.5])
     cols = ["a", "b", "c"]
@@ -202,6 +199,7 @@ def _capture_barh_xerr(monkeypatch):
     behavioral proxy for "the std reached the bars as error whiskers".
     """
     import matplotlib.axes as _maxes
+
     real_barh = _maxes.Axes.barh
     seen = {}
 
@@ -227,8 +225,13 @@ def test_plot_feature_importance_renders_xerr_whiskers_when_std_given(monkeypatc
     cols = ["a", "b", "c", "d", "e"]
     seen = _capture_barh_xerr(monkeypatch)
     plot_feature_importance(
-        fi, cols, kind="t", show_plots=False, plot_file=str(tmp_path / "fi.png"),
-        log_fi=False, importances_std=std,
+        fi,
+        cols,
+        kind="t",
+        show_plots=False,
+        plot_file=str(tmp_path / "fi.png"),
+        log_fi=False,
+        importances_std=std,
     )
     assert seen.get("xerr") is not None, "importances_std must reach ax.barh as xerr"
     assert seen["has_errorbar"], "barh BarContainer must carry an errorbar (whiskers)"
@@ -246,7 +249,12 @@ def test_plot_feature_importance_no_xerr_when_std_absent(monkeypatch, tmp_path):
     cols = ["a", "b", "c", "d"]
     seen = _capture_barh_xerr(monkeypatch)
     plot_feature_importance(
-        fi, cols, kind="t", show_plots=False, plot_file=str(tmp_path / "fi.png"), log_fi=False,
+        fi,
+        cols,
+        kind="t",
+        show_plots=False,
+        plot_file=str(tmp_path / "fi.png"),
+        log_fi=False,
     )
     assert seen.get("xerr") is None, "no std -> barh must not receive xerr"
     assert not seen.get("has_errorbar", False)
@@ -260,7 +268,12 @@ def test_plot_feature_importance_ignores_misaligned_std(monkeypatch, tmp_path):
     cols = ["a", "b", "c", "d"]
     seen = _capture_barh_xerr(monkeypatch)
     plot_feature_importance(
-        fi, cols, kind="t", show_plots=False, plot_file=str(tmp_path / "fi.png"),
-        log_fi=False, importances_std=bad_std,
+        fi,
+        cols,
+        kind="t",
+        show_plots=False,
+        plot_file=str(tmp_path / "fi.png"),
+        log_fi=False,
+        importances_std=bad_std,
     )
     assert seen.get("xerr") is None, "misaligned std must be dropped, not forwarded"

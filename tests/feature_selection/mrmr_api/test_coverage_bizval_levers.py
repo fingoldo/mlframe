@@ -16,6 +16,7 @@ Levers covered (each compared against its closest baseline = the lever OFF / a c
 All kernel-level tests are <1s; the two end-to-end MRMR fits are budgeted < 30s each. Numba is
 pre-warmed in a module fixture so a cold compile does not blow a budget.
 """
+
 from __future__ import annotations
 
 import time
@@ -54,6 +55,7 @@ def _quantile_bin(v, nbins):
 # mi_correction='miller_madow' biz_value: widens the true-signal-over-noise margin.
 # ----------------------------------------------------------------------------------------------------
 
+
 def test_biz_val_mi_correction_widens_signal_over_highcard_noise_margin():
     """Miller-Madow correction widens the (true-signal MI minus high-card-noise MI) margin vs plug-in.
 
@@ -63,8 +65,8 @@ def test_biz_val_mi_correction_widens_signal_over_highcard_noise_margin():
     n = 800
     y = (rng.random(n) < 0.5).astype(np.int32)
     sig = y.copy()
-    sig[rng.random(n) < 0.15] ^= 1                       # 85%-agreement binary signal
-    noise = rng.integers(0, 40, n).astype(np.int32)      # 40-bin entropy-inflated noise
+    sig[rng.random(n) < 0.15] ^= 1  # 85%-agreement binary signal
+    noise = rng.integers(0, 40, n).astype(np.int32)  # 40-bin entropy-inflated noise
 
     mi_sig = _score(sig, y, 2, 2, mi)
     mi_noise = _score(noise, y, 40, 2, mi)
@@ -82,6 +84,7 @@ def test_biz_val_mi_correction_widens_signal_over_highcard_noise_margin():
 # ----------------------------------------------------------------------------------------------------
 # mi_normalization='su' biz_value: widens the signal/noise relevance RATIO past raw MI.
 # ----------------------------------------------------------------------------------------------------
+
 
 def test_biz_val_su_normalization_widens_signal_to_noise_ratio():
     """SU normalization ranks a binary true signal far above a high-cardinality noise feature, with a
@@ -107,6 +110,7 @@ def test_biz_val_su_normalization_widens_signal_to_noise_ratio():
 # ----------------------------------------------------------------------------------------------------
 # quantization_nbins biz_value: fine bins capture an oscillatory signal coarse bins miss.
 # ----------------------------------------------------------------------------------------------------
+
 
 def test_biz_val_quantization_nbins_captures_oscillatory_signal():
     """A sin(2x) signal is invisible at nbins=2 (oscillation averages out) but recovered at finer bins.
@@ -136,6 +140,7 @@ def test_biz_val_quantization_nbins_captures_oscillatory_signal():
 # ----------------------------------------------------------------------------------------------------
 # Conditional-MI acceptance gate biz_value: drops a redundant copy, keeps a private interaction.
 # ----------------------------------------------------------------------------------------------------
+
 
 def test_biz_val_cmi_gate_drops_redundant_keeps_private_drops_noise():
     """The CMI redundancy gate (constant-free replacement for the prevalence-ratio gate) admits exactly
@@ -177,6 +182,7 @@ def test_biz_val_cmi_gate_drops_redundant_keeps_private_drops_noise():
 # redundancy_aggregator='jmim' biz_value: end-to-end no-harm + full synergy capture on XOR.
 # ----------------------------------------------------------------------------------------------------
 
+
 def test_biz_val_jmim_captures_xor_synergy_no_harm_vs_fleuret():
     """On a pure-XOR target both the Fleuret (default) and JMIM redundancy aggregators must recover the
     synergy and let a downstream depth-4 tree separate the classes perfectly. JMIM must be NO WORSE
@@ -189,19 +195,25 @@ def test_biz_val_jmim_captures_xor_synergy_no_harm_vs_fleuret():
     n = 2000
     a = rng.integers(0, 2, n)
     b = rng.integers(0, 2, n)
-    y = (a ^ b)
+    y = a ^ b
     cols = {"a": a, "b": b}
     for i in range(6):
         cols[f"noise_{i}"] = rng.integers(0, 3, n)
     X = pd.DataFrame(cols)
 
     def fit_auc(aggregator):
-        m = MRMR(verbose=0, full_npermutations=3, baseline_npermutations=2, random_seed=42,
-                 fe_max_steps=1, interactions_max_order=2, redundancy_aggregator=aggregator)
+        m = MRMR(
+            verbose=0,
+            full_npermutations=3,
+            baseline_npermutations=2,
+            random_seed=42,
+            fe_max_steps=1,
+            interactions_max_order=2,
+            redundancy_aggregator=aggregator,
+        )
         Xt = np.asarray(m.fit_transform(X, y))
         assert Xt.shape[1] > 0, f"{aggregator} selected nothing on XOR"
-        return cross_val_score(DecisionTreeClassifier(max_depth=4, random_state=0),
-                               Xt, y, cv=3, scoring="roc_auc").mean()
+        return cross_val_score(DecisionTreeClassifier(max_depth=4, random_state=0), Xt, y, cv=3, scoring="roc_auc").mean()
 
     t = time.time()
     auc_fleuret = fit_auc(None)

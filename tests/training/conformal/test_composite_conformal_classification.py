@@ -5,6 +5,7 @@ Coverage contract: with a held-out calibration set the true label lands in the
 returned set with marginal probability ``>= 1 - alpha``; set size shrinks where
 the model is confident.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -60,6 +61,7 @@ def test_threshold_rejects_bad_alpha():
 # -- unit: before-fit raise -------------------------------------------------
 def test_calibrate_before_fit_raises():
     from sklearn.exceptions import NotFittedError
+
     est = _make_estimator()
     with pytest.raises(NotFittedError):
         est.calibrate_conformal_set(np.zeros((5, 6)), np.zeros(5))
@@ -116,9 +118,7 @@ def test_biz_val_marginal_coverage_holds(score, alpha):
     est, X, y, sl_cal, sl_te = _fit_multiclass(seed=7)
     est.calibrate_conformal_set(X[sl_cal], y[sl_cal], alpha=alpha, score=score)
     cov, size, _ = _coverage(est, X[sl_te], y[sl_te], alpha, score)
-    assert cov >= (1.0 - alpha) - 0.04, (
-        f"{score} coverage {cov:.3f} below target {1 - alpha:.2f} (alpha={alpha})"
-    )
+    assert cov >= (1.0 - alpha) - 0.04, f"{score} coverage {cov:.3f} below target {1 - alpha:.2f} (alpha={alpha})"
     assert size <= est.n_classes_
 
 
@@ -134,10 +134,7 @@ def test_biz_val_set_size_shrinks_with_confidence():
     size = np.array([len(s) for s in sets])
     hi = conf >= np.quantile(conf, 0.75)
     lo = conf <= np.quantile(conf, 0.25)
-    assert size[hi].mean() + 0.3 <= size[lo].mean(), (
-        f"confident mean size {size[hi].mean():.2f} not smaller than "
-        f"uncertain {size[lo].mean():.2f}"
-    )
+    assert size[hi].mean() + 0.3 <= size[lo].mean(), f"confident mean size {size[hi].mean():.2f} not smaller than uncertain {size[lo].mean():.2f}"
 
 
 # -- biz_value: LAC sets are no larger than APS at equal coverage -----------
@@ -148,9 +145,7 @@ def test_biz_val_lac_sets_no_larger_than_aps():
     est.calibrate_conformal_set(X[sl_cal], y[sl_cal], alpha=0.1, score="aps")
     _, size_lac, _ = _coverage(est, X[sl_te], y[sl_te], 0.1, "lac")
     _, size_aps, _ = _coverage(est, X[sl_te], y[sl_te], 0.1, "aps")
-    assert size_lac <= size_aps + 0.05, (
-        f"LAC mean size {size_lac:.3f} should be <= APS {size_aps:.3f}"
-    )
+    assert size_lac <= size_aps + 0.05, f"LAC mean size {size_lac:.3f} should be <= APS {size_aps:.3f}"
 
 
 # -- binary path ------------------------------------------------------------

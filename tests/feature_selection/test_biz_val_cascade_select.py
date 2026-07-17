@@ -6,6 +6,7 @@ the noise columns. The 3-stage cascade (Boruta shadow-feature screen -> forward 
 backward elimination) should narrow down to close to the true informative subset, and a model fit on that
 narrowed subset should generalize materially better than one fit on the full raw feature set.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,7 +34,9 @@ def test_biz_val_cascade_select_beats_full_feature_set_mse():
     X, y = _make_noisy_dataset(n=300, d_informative=4, d_noise=60, seed=0)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
 
-    result = cascade_select(X_train, y_train, lambda: RandomForestRegressor(n_estimators=15, random_state=0), n_boruta_iterations=10, cv=3, scoring="neg_mean_squared_error")
+    result = cascade_select(
+        X_train, y_train, lambda: RandomForestRegressor(n_estimators=15, random_state=0), n_boruta_iterations=10, cv=3, scoring="neg_mean_squared_error"
+    )
     final_features = result["final_selected"]
     assert len(final_features) < X.shape[1] / 2, f"expected the cascade to materially narrow the 64-column feature set, got {len(final_features)} features"
     assert all(f.startswith("info") for f in final_features), f"expected only informative columns to survive the cascade, got {final_features}"

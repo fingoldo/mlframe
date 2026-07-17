@@ -94,17 +94,15 @@ def test_su_clustering_catches_nonlinear_redundancy_pearson_misses():
 
     pearson_labels = cluster_correlated_features(X, threshold=0.7, use_gpu=False)
     # Pearson should NOT link f0 and f4 (sin is anti-symmetric around 0).
-    assert pearson_labels[0] != pearson_labels[4], (
-        f"Pearson unexpectedly linked f0/f4 (expected miss on sin): labels={pearson_labels.tolist()}"
-    )
+    assert pearson_labels[0] != pearson_labels[4], f"Pearson unexpectedly linked f0/f4 (expected miss on sin): labels={pearson_labels.tolist()}"
 
     su_labels = cluster_correlated_features_su(
-        bins, threshold=0.25, feature_names=names,
+        bins,
+        threshold=0.25,
+        feature_names=names,
     )
     # SU SHOULD link f0 and f4.
-    assert su_labels[0] == su_labels[4], (
-        f"SU clustering missed the non-linear f0~f4 link: labels={su_labels.tolist()}"
-    )
+    assert su_labels[0] == su_labels[4], f"SU clustering missed the non-linear f0~f4 link: labels={su_labels.tolist()}"
 
 
 def test_su_clustering_constant_column_singleton():
@@ -141,9 +139,7 @@ def test_su_clustering_respects_feature_names_ordering():
     }
     # Permuted order: alpha/beta should still cluster as the first/third
     # positions because both encode z.
-    labels = cluster_correlated_features_su(
-        bins, threshold=0.3, feature_names=["alpha", "noise", "beta"]
-    )
+    labels = cluster_correlated_features_su(bins, threshold=0.3, feature_names=["alpha", "noise", "beta"])
     assert labels[0] == labels[2], f"alpha/beta not grouped under permuted order: {labels}"
     assert labels[1] != labels[0], f"noise was grouped with z-encoders: {labels}"
 
@@ -173,9 +169,7 @@ def test_pipeline_mrmr_then_shap_proxied_fs_selects_su_backend():
         verbose=0,
     ).fit(X, y)
     artifacts = mrmr.export_artifacts()
-    assert isinstance(artifacts.get("bins"), dict) and len(artifacts["bins"]) > 0, (
-        "MRMR did not export bins -- precondition for SU clustering"
-    )
+    assert isinstance(artifacts.get("bins"), dict) and len(artifacts["bins"]) > 0, "MRMR did not export bins -- precondition for SU clustering"
 
     common = dict(
         random_state=0,
@@ -188,8 +182,8 @@ def test_pipeline_mrmr_then_shap_proxied_fs_selects_su_backend():
         revalidate=False,
         trust_guard=False,
         run_importance_ablation=False,
-        cluster_features=True,        # force the clustering branch
-        cluster_auto_threshold=10,    # tiny so 'auto' fires too
+        cluster_features=True,  # force the clustering branch
+        cluster_auto_threshold=10,  # tiny so 'auto' fires too
         brute_force_max_features=12,
         shap_prefilter_enabled=False,
     )
@@ -198,26 +192,20 @@ def test_pipeline_mrmr_then_shap_proxied_fs_selects_su_backend():
     sps_su = ShapProxiedFS(precomputed=artifacts, **common).fit(X, y)
     rep_su = sps_su.shap_proxy_report_
     assert "clustering" in rep_su, "clustering block missing under SU path"
-    assert rep_su["clustering"].get("backend") == "su", (
-        f"expected backend='su', got {rep_su['clustering']!r}"
-    )
+    assert rep_su["clustering"].get("backend") == "su", f"expected backend='su', got {rep_su['clustering']!r}"
 
     # iter75: backend = 'su' even WITHOUT precomputed under auto-mode at small width.
     # The selector bins X on the fly via categorize_dataset so SU runs unconditionally.
     sps_auto = ShapProxiedFS(**common).fit(X, y)
     rep_auto = sps_auto.shap_proxy_report_
     assert "clustering" in rep_auto
-    assert rep_auto["clustering"].get("backend") == "su", (
-        f"iter75: expected default auto-mode backend='su' without precomputed, got {rep_auto['clustering']!r}"
-    )
+    assert rep_auto["clustering"].get("backend") == "su", f"iter75: expected default auto-mode backend='su' without precomputed, got {rep_auto['clustering']!r}"
     assert rep_auto["clustering"].get("bins_source") == "on_the_fly"
 
     # Explicit cluster_backend='pearson' restores the legacy Pearson path.
     sps_pearson = ShapProxiedFS(cluster_backend="pearson", **common).fit(X, y)
     rep_p = sps_pearson.shap_proxy_report_
-    assert rep_p["clustering"].get("backend") == "pearson", (
-        f"explicit cluster_backend='pearson' did not select Pearson: {rep_p['clustering']!r}"
-    )
+    assert rep_p["clustering"].get("backend") == "pearson", f"explicit cluster_backend='pearson' did not select Pearson: {rep_p['clustering']!r}"
 
 
 def test_pipeline_su_backend_opt_out():
@@ -237,13 +225,17 @@ def test_pipeline_su_backend_opt_out():
         task="binary",
         seed=1,
     )
-    artifacts = MRMR(
-        retain_artifacts=True,
-        dcd_enable=False,
-        build_friend_graph=False,
-        cluster_aggregate_enable=False,
-        verbose=0,
-    ).fit(X, y).export_artifacts()
+    artifacts = (
+        MRMR(
+            retain_artifacts=True,
+            dcd_enable=False,
+            build_friend_graph=False,
+            cluster_aggregate_enable=False,
+            verbose=0,
+        )
+        .fit(X, y)
+        .export_artifacts()
+    )
 
     sps = ShapProxiedFS(
         precomputed=artifacts,
@@ -264,6 +256,4 @@ def test_pipeline_su_backend_opt_out():
         shap_prefilter_enabled=False,
     ).fit(X, y)
     rep = sps.shap_proxy_report_
-    assert rep.get("clustering", {}).get("backend") == "pearson", (
-        f"opt-out did not return to pearson: {rep.get('clustering')!r}"
-    )
+    assert rep.get("clustering", {}).get("backend") == "pearson", f"opt-out did not return to pearson: {rep.get('clustering')!r}"

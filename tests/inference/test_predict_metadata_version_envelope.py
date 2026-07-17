@@ -19,6 +19,7 @@ runs at every metadata load and enforces:
 - schema_version < current -> WARN, continue.
 - composite_target_env_signature drift vs live env_signature() -> WARN.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,6 +31,7 @@ def test_legacy_v1_bundle_no_composite_accepted():
     """Bundles written before schema_version=2 existed must still load
     (back-compat). INFO-level message, no warning, no raise."""
     from mlframe.training.core.predict import _validate_metadata_version_envelope
+
     # Empty metadata dict represents a stripped-down legacy bundle.
     _validate_metadata_version_envelope({}, "fake/legacy/path")
 
@@ -39,6 +41,7 @@ def test_legacy_bundle_with_composite_specs_raises():
     v1 vs v2 semantic difference is unknowable -- refuse to load rather
     than silently applying potentially-wrong spec interpretation."""
     from mlframe.training.core.predict import _validate_metadata_version_envelope
+
     with pytest.raises(ValueError, match="composite-spec contract requires schema_version >= 2"):
         _validate_metadata_version_envelope(
             {"composite_target_specs": {"target1": {"name": "a"}}},
@@ -51,20 +54,25 @@ def test_unsupported_future_schema_version_raises():
     refuse to load on this build rather than silently running wrong-
     semantics code."""
     from mlframe.training.core.predict import _validate_metadata_version_envelope
+
     with pytest.raises(ValueError, match="unsupported schema_version=99"):
         _validate_metadata_version_envelope(
-            {"schema_version": 99}, "fake/path",
+            {"schema_version": 99},
+            "fake/path",
         )
 
 
 def test_current_schema_version_accepted_silently(caplog):
     """schema_version equal to current must accept with no warning."""
     from mlframe.training.core.predict import (
-        _validate_metadata_version_envelope, _CURRENT_SCHEMA_VERSION,
+        _validate_metadata_version_envelope,
+        _CURRENT_SCHEMA_VERSION,
     )
+
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core.predict"):
         _validate_metadata_version_envelope(
-            {"schema_version": _CURRENT_SCHEMA_VERSION}, "fake/path",
+            {"schema_version": _CURRENT_SCHEMA_VERSION},
+            "fake/path",
         )
     # No WARN/ERROR records expected.
     warns = [r for r in caplog.records if r.levelno >= logging.WARNING]
@@ -75,14 +83,11 @@ def test_old_schema_version_warns_but_proceeds(caplog):
     """schema_version below current must WARN (so the operator sees the
     skew) but NOT raise -- back-compat is the contract."""
     from mlframe.training.core.predict import _validate_metadata_version_envelope
+
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core.predict"):
         # Pre-fix this passed silently; post-fix emits a WARN.
         _validate_metadata_version_envelope({"schema_version": 1}, "fake/path")
-    assert any(
-        "schema_version=1" in rec.message
-        for rec in caplog.records
-        if rec.levelno >= logging.WARNING
-    ), "expected WARN naming the old schema_version"
+    assert any("schema_version=1" in rec.message for rec in caplog.records if rec.levelno >= logging.WARNING), "expected WARN naming the old schema_version"
 
 
 def test_composite_env_signature_drift_warns_when_supplied(caplog, monkeypatch):
@@ -102,18 +107,13 @@ def test_composite_env_signature_drift_warns_when_supplied(caplog, monkeypatch):
     metadata = {
         "schema_version": 2,
         "composite_target_env_signature": {
-            "mlframe": "0.50-STORED", "catboost": "1.0.0",
+            "mlframe": "0.50-STORED",
+            "catboost": "1.0.0",
         },
     }
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core.predict"):
         _validate_metadata_version_envelope(metadata, "fake/path")
-    assert any(
-        "env signature drift" in rec.message
-        for rec in caplog.records
-    ), (
-        f"expected env-skew WARN; got: "
-        f"{[r.message for r in caplog.records]}"
-    )
+    assert any("env signature drift" in rec.message for rec in caplog.records), f"expected env-skew WARN; got: {[r.message for r in caplog.records]}"
 
 
 def test_validator_wired_at_both_predict_entry_points():
@@ -123,6 +123,7 @@ def test_validator_wired_at_both_predict_entry_points():
     existed; predict_from_models loaded metadata with no checks."""
     import pathlib
     import mlframe as _mlframe
+
     # After the 2026-05-21 monolith split, the two entry points moved to
     # ``_predict_main.py``; the 2026-05-22 sub-split further moved each
     # into its own ``_predict_main_from_models.py`` /
@@ -133,8 +134,10 @@ def test_validator_wired_at_both_predict_entry_points():
     src = "\n".join(
         (_core / nm).read_text(encoding="utf-8")
         for nm in (
-            "predict.py", "_predict_main.py",
-            "_predict_main_from_models.py", "_predict_main_suite.py",
+            "predict.py",
+            "_predict_main.py",
+            "_predict_main_from_models.py",
+            "_predict_main_suite.py",
         )
         if (_core / nm).exists()
     )
@@ -154,5 +157,6 @@ def test_non_dict_metadata_does_not_crash():
     crash on those -- nothing to validate, just return."""
     from types import SimpleNamespace
     from mlframe.training.core.predict import _validate_metadata_version_envelope
+
     _validate_metadata_version_envelope(SimpleNamespace(), "fake/path")
     _validate_metadata_version_envelope(None, "fake/path")  # type: ignore[arg-type]

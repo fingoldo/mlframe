@@ -19,6 +19,7 @@ shared memory, never a correctness risk). Measured 1.34x faster end-to-end at th
 (n_samples=79,237, one pair-subchunk of 5,427 pairs, max_joint=441, n_classes_y=20: 2.157s -> 1.613s),
 bit-identical to both the CPU reference and the global-only kernel.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -60,7 +61,11 @@ def test_hist_kernel_shared_fits_budget_rejects_oversized_histogram():
 @pytest.mark.skipif(not bpmg._CUDA_AVAIL, reason="numba.cuda not available on this host")
 def test_shared_kernel_matches_reference_at_production_like_shape():
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
-        n_samples=8000, n_cols=100, nbins_val=21, n_classes_y=20, seed=3,
+        n_samples=8000,
+        n_cols=100,
+        nbins_val=21,
+        n_classes_y=20,
+        seed=3,
     )
     assert bpmg._hist_kernel_shared_fits_budget(21 * 21, 20) > 0, "sanity: gate must fire at this shape"
 
@@ -74,7 +79,11 @@ def test_shared_kernel_matches_reference_across_pair_and_row_subchunk_boundaries
     """Force BOTH pair-subchunking and row-chunking so the shared-memory kernel is re-launched (and
     re-zeroed) many times per accumulator -- confirms no state leaks across chunk boundaries."""
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
-        n_samples=4000, n_cols=60, nbins_val=17, n_classes_y=12, seed=9,
+        n_samples=4000,
+        n_cols=60,
+        nbins_val=17,
+        n_classes_y=12,
+        seed=9,
     )
     mi_ref = bpmg.batch_pair_mi_njit_prange(data, pair_a, pair_b, nbins, classes_y, freqs_y)
 
@@ -96,7 +105,11 @@ def test_falls_back_to_global_kernel_when_histogram_too_large_for_shared_mem():
     """A max_joint x n_classes_y combination too large for shared memory must still produce a correct
     result via the global-atomics fallback kernel, not raise or silently corrupt."""
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
-        n_samples=3000, n_cols=30, nbins_val=63, n_classes_y=30, seed=1,
+        n_samples=3000,
+        n_cols=30,
+        nbins_val=63,
+        n_classes_y=30,
+        seed=1,
     )
     assert bpmg._hist_kernel_shared_fits_budget(63 * 63, 30) == 0, "sanity: gate must reject this shape"
 

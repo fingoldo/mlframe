@@ -48,17 +48,21 @@ def _xor_cat_frame(seed, n, as_categorical):
     av = [f"A{v}" for v in a]
     bv = [f"B{v}" for v in b]
     if as_categorical:
-        df = pd.DataFrame({
-            "cat_a": pd.Categorical(av),
-            "cat_b": pd.Categorical(bv),
-            "noise": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "cat_a": pd.Categorical(av),
+                "cat_b": pd.Categorical(bv),
+                "noise": rng.normal(size=n),
+            }
+        )
     else:
-        df = pd.DataFrame({
-            "cat_a": pd.Series(av, dtype="object"),
-            "cat_b": pd.Series(bv, dtype="object"),
-            "noise": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "cat_a": pd.Series(av, dtype="object"),
+                "cat_b": pd.Series(bv, dtype="object"),
+                "noise": rng.normal(size=n),
+            }
+        )
     return df, pd.Series(y, name="y")
 
 
@@ -74,10 +78,7 @@ def test_regression_categorical_factorize_replay_not_constant(as_categorical):
     sel = MRMR(verbose=0, random_seed=42, fe_max_steps=1)
     sel.fit(df_tr, y_tr)
 
-    recipes = [
-        r for r in getattr(sel, "_engineered_recipes_", [])
-        if r.kind in ("factorize", "target_encoding")
-    ]
+    recipes = [r for r in getattr(sel, "_engineered_recipes_", []) if r.kind in ("factorize", "target_encoding")]
     # The XOR fixture is designed so the (cat_a, cat_b) pair carries all signal;
     # the cat-FE step must surface it. If it didn't, this fixture / config drifted.
     assert recipes, "cat-FE produced no factorize/target_encoding recipe -- fixture or config drift"
@@ -85,8 +86,7 @@ def test_regression_categorical_factorize_replay_not_constant(as_categorical):
 
     # The fix stamps the fit-time category->code map onto the recipe.
     assert "cat_code_maps" in r.extra, (
-        "factorize recipe over categorical source is missing the cat_code_maps "
-        "replay table -- transform will all-zero string sources"
+        "factorize recipe over categorical source is missing the cat_code_maps replay table -- transform will all-zero string sources"
     )
 
     out_tr = sel.transform(df_tr)
@@ -105,8 +105,7 @@ def test_regression_categorical_factorize_replay_not_constant(as_categorical):
     for p, c in zip(pairs_tr, col_tr):
         prev = pair_to_code.get(p)
         assert prev is None or prev == c, (
-            f"value-pair {p} mapped to two different codes ({prev}, {c}) on the "
-            f"SAME train transform -- replay is not a deterministic function of X"
+            f"value-pair {p} mapped to two different codes ({prev}, {c}) on the SAME train transform -- replay is not a deterministic function of X"
         )
         pair_to_code[p] = c
 
@@ -115,13 +114,9 @@ def test_regression_categorical_factorize_replay_not_constant(as_categorical):
     out_te = sel.transform(df_te)
     col_te = np.asarray(out_te[r.name].to_numpy())
     pairs_te = list(zip(df_te["cat_a"].astype(str), df_te["cat_b"].astype(str)))
-    mismatches = sum(
-        1 for p, c in zip(pairs_te, col_te)
-        if p in pair_to_code and pair_to_code[p] != c
-    )
+    mismatches = sum(1 for p, c in zip(pairs_te, col_te) if p in pair_to_code and pair_to_code[p] != c)
     assert mismatches == 0, (
-        f"{mismatches} holdout rows got a DIFFERENT code than the train mapping "
-        f"for the same value-pair -- train/serve skew in factorize replay"
+        f"{mismatches} holdout rows got a DIFFERENT code than the train mapping for the same value-pair -- train/serve skew in factorize replay"
     )
 
 
@@ -132,6 +127,7 @@ def test_build_category_code_map_reproduces_discretiser_codes():
     from mlframe.feature_selection.filters.engineered_recipes._recipe_extract import (
         build_category_code_map,
     )
+
     # Categorical: codes follow category-dictionary order (sorted here).
     cat = pd.Categorical(["red", "green", "blue", "red"])
     m_cat = build_category_code_map(pd.Series(cat))
@@ -165,6 +161,7 @@ def test_category_code_map_replay_matches_categorize_dataset_exactly(ser, label)
         build_category_code_map,
         _coerce_to_int_with_nan_handling,
     )
+
     df = pd.DataFrame({"c": ser})
     data, cols, nbins = categorize_dataset(df=df, missing_strategy="separate_bin")
     fit_codes = data[:, cols.index("c")].astype(int)
@@ -172,9 +169,7 @@ def test_category_code_map_replay_matches_categorize_dataset_exactly(ser, label)
     nb = int(nbins[cols.index("c")])
     vals = np.asarray(ser.to_numpy(), dtype=object)
     replay = _coerce_to_int_with_nan_handling(vals, nb, "r", "c", "clip", m)
-    assert np.array_equal(fit_codes, replay), (
-        f"{label}: replay codes {replay.tolist()} != fit codes {fit_codes.tolist()}"
-    )
+    assert np.array_equal(fit_codes, replay), f"{label}: replay codes {replay.tolist()} != fit codes {fit_codes.tolist()}"
 
 
 # ---------------------------------------------------------------------------
@@ -223,10 +218,7 @@ def test_block_nan_shift_applies_to_nanfree_partner_column(as_categorical):
     fit_b = data[:, cols.index("cat_b")].astype(int)
 
     # The block-level flag the stamping site computes (ANY cat col has NaN).
-    block_has_nan = bool(
-        df.select_dtypes(include=("category", "object", "string", "bool"))
-        .isna().to_numpy().any()
-    )
+    block_has_nan = bool(df.select_dtypes(include=("category", "object", "string", "bool")).isna().to_numpy().any())
     assert block_has_nan, "fixture must have a NaN somewhere in the cat block"
 
     m_a = build_category_code_map(s_a, block_has_nan=block_has_nan)
@@ -235,25 +227,16 @@ def test_block_nan_shift_applies_to_nanfree_partner_column(as_categorical):
     # The NaN-free partner must NOT carry a NaN bin yet must still be +1 shifted.
     assert _NAN_CODE_KEY not in m_b, "NaN-free partner should own no NaN cell"
     assert _NAN_CODE_KEY in m_a, "NaN-bearing column must route NaN -> 0"
-    assert min(v for v in m_b.values()) >= 1, (
-        "NaN-free partner codes must be block-shifted to 1..K, not 0..K-1"
-    )
+    assert min(v for v in m_b.values()) >= 1, "NaN-free partner codes must be block-shifted to 1..K, not 0..K-1"
 
     # Map-driven replay must reproduce the fit codes BIT-EXACTLY for BOTH columns.
     nb_a = int(nbins[cols.index("cat_a")])
     nb_b = int(nbins[cols.index("cat_b")])
-    replay_a = _coerce_to_int_with_nan_handling(
-        np.asarray(s_a.to_numpy(), dtype=object), nb_a, "r", "cat_a", "clip", m_a
-    )
-    replay_b = _coerce_to_int_with_nan_handling(
-        np.asarray(s_b.to_numpy(), dtype=object), nb_b, "r", "cat_b", "clip", m_b
-    )
-    assert np.array_equal(fit_a, replay_a), (
-        f"cat_a replay {replay_a[:8].tolist()} != fit {fit_a[:8].tolist()}"
-    )
+    replay_a = _coerce_to_int_with_nan_handling(np.asarray(s_a.to_numpy(), dtype=object), nb_a, "r", "cat_a", "clip", m_a)
+    replay_b = _coerce_to_int_with_nan_handling(np.asarray(s_b.to_numpy(), dtype=object), nb_b, "r", "cat_b", "clip", m_b)
+    assert np.array_equal(fit_a, replay_a), f"cat_a replay {replay_a[:8].tolist()} != fit {fit_a[:8].tolist()}"
     assert np.array_equal(fit_b, replay_b), (
-        f"NaN-free partner cat_b replay {replay_b[:8].tolist()} != fit "
-        f"{fit_b[:8].tolist()} -- block +1 shift not applied (off-by-one skew)"
+        f"NaN-free partner cat_b replay {replay_b[:8].tolist()} != fit {fit_b[:8].tolist()} -- block +1 shift not applied (off-by-one skew)"
     )
 
 
@@ -274,7 +257,7 @@ def _combined_frame(seed, n, n_classes, p_numeric, nan_in_cat_b=False):
         y = pd.qcut(lin, n_classes, labels=False, duplicates="drop").astype(np.int64)
     av = np.array([f"A{v}" for v in a], dtype=object)
     bv = np.array([f"B{v}" for v in b], dtype=object)
-    av[rng.random(n) < 0.15] = None      # NaN in cat_a (object) at fit
+    av[rng.random(n) < 0.15] = None  # NaN in cat_a (object) at fit
     Xn[rng.random(n) < 0.15, 0] = np.nan  # NaN in numeric signal col
     if nan_in_cat_b:
         bv = bv.copy()
@@ -301,9 +284,9 @@ def test_combined_cat_nan_wide_clf_no_serve_skew(n_classes):
     sel.fit(df_tr, y_tr)
 
     recipes = [
-        r for r in getattr(sel, "_engineered_recipes_", [])
-        if r.kind in ("factorize", "target_encoding")
-        and set(getattr(r, "src_names", ())) >= {"cat_a", "cat_b"}
+        r
+        for r in getattr(sel, "_engineered_recipes_", [])
+        if r.kind in ("factorize", "target_encoding") and set(getattr(r, "src_names", ())) >= {"cat_a", "cat_b"}
     ]
     assert recipes, "combined fixture produced no cat_a__cat_b interaction recipe"
     r = recipes[0]
@@ -315,8 +298,7 @@ def test_combined_cat_nan_wide_clf_no_serve_skew(n_classes):
     map_b = r.extra["cat_code_maps"].get("cat_b")
     assert map_b, "cat_b code map absent"
     assert min(int(v) for v in map_b.values()) >= 1, (
-        f"NaN-free partner cat_b not block-shifted (min code "
-        f"{min(int(v) for v in map_b.values())}); off-by-one serve skew"
+        f"NaN-free partner cat_b not block-shifted (min code {min(int(v) for v in map_b.values())}); off-by-one serve skew"
     )
 
     out_tr = sel.transform(df_tr)
@@ -337,10 +319,7 @@ def test_combined_cat_nan_wide_clf_no_serve_skew(n_classes):
     out_te = sel.transform(df_te)
     col_te = np.asarray(out_te[r.name].to_numpy())
     pairs_te = list(zip(df_te["cat_a"].astype(str), df_te["cat_b"].astype(str)))
-    mismatches = sum(
-        1 for p, c in zip(pairs_te, col_te)
-        if p in pair_to_code and pair_to_code[p] != c
-    )
+    mismatches = sum(1 for p, c in zip(pairs_te, col_te) if p in pair_to_code and pair_to_code[p] != c)
     assert mismatches == 0, (
         f"{mismatches} holdout rows got a DIFFERENT engineered code than the "
         f"train mapping for the same (cat_a, cat_b) pair -- train/serve skew "
@@ -358,12 +337,8 @@ def test_combined_nan_does_not_break_numeric_relevance():
     fni = list(sel.feature_names_in_)
     sel_names = {fni[i] for i in sel.support_ if i < len(fni)}
     # At least one planted signal (numeric x0/x5 or the cat interaction) survives.
-    engineered = {
-        r.name for r in getattr(sel, "_engineered_recipes_", [])
-    }
-    assert (sel_names & {"x0", "x5"}) or (sel_names & engineered), (
-        f"combined NaN load destroyed all planted signal; selected {sel_names}"
-    )
+    engineered = {r.name for r in getattr(sel, "_engineered_recipes_", [])}
+    assert (sel_names & {"x0", "x5"}) or (sel_names & engineered), f"combined NaN load destroyed all planted signal; selected {sel_names}"
     out = sel.transform(df_tr)
     # Raw NaN preserved on x0 (separate_bin keeps it for NaN-aware models).
     if "x0" in out.columns:
@@ -396,9 +371,7 @@ def test_nan_in_cat_at_serve_not_fit_and_vice_versa():
     m = build_category_code_map(fit_vals, block_has_nan=False)
     assert _NAN_CODE_KEY not in m and min(m.values()) == 0, "fit NaN-free -> unshifted 0..K-1"
     # Fit-row replay bit-exact.
-    replay_fit = _coerce_to_int_with_nan_handling(
-        np.asarray(fit_vals.to_numpy(), dtype=object), nb, "r", "c", "clip", m
-    )
+    replay_fit = _coerce_to_int_with_nan_handling(np.asarray(fit_vals.to_numpy(), dtype=object), nb, "r", "c", "clip", m)
     assert np.array_equal(fit_codes, replay_fit)
     # Serve row carries a NaN unseen at fit -> resolves to sentinel bin (no crash,
     # not silently code 0 == the real category 'x').
@@ -415,9 +388,7 @@ def test_nan_in_cat_at_serve_not_fit_and_vice_versa():
     nb2 = int(nbins2[cols2.index("c")])
     m2 = build_category_code_map(fit_vals2, block_has_nan=True)
     assert m2.get(_NAN_CODE_KEY) == 0 and min(v for k, v in m2.items() if k != _NAN_CODE_KEY) >= 1
-    replay_fit2 = _coerce_to_int_with_nan_handling(
-        np.asarray(fit_vals2.to_numpy(), dtype=object), nb2, "r", "c", "clip", m2
-    )
+    replay_fit2 = _coerce_to_int_with_nan_handling(np.asarray(fit_vals2.to_numpy(), dtype=object), nb2, "r", "c", "clip", m2)
     assert np.array_equal(fit_codes2, replay_fit2), "fit-with-NaN replay must be bit-exact"
     # Serve frame with only real categories -> their shifted codes, no NaN cell.
     serve_vals2 = np.asarray(["z", "x", "y"], dtype=object)
@@ -449,9 +420,7 @@ def test_classification_recovers_signal_and_uses_classif_path(n_classes):
     fni = list(sel.feature_names_in_)
     sel_names = {fni[i] for i in sel.support_ if i < len(fni)}
     # The two signal columns must be among the (few) selected features.
-    assert {"x0", "x1"} & sel_names, (
-        f"{n_classes}-class target: neither signal column selected; got {sel_names}"
-    )
+    assert {"x0", "x1"} & sel_names, f"{n_classes}-class target: neither signal column selected; got {sel_names}"
     assert len(sel.support_) >= 1
 
 
@@ -466,17 +435,14 @@ def test_wide_p299_recovers_planted_signal_bounded():
     rng = np.random.default_rng(0)
     n, p = 2000, 299
     X = rng.normal(size=(n, p))
-    y = (2.0 * X[:, 0] + 2.0 * X[:, 5] + 2.0 * X[:, 100]
-         + 0.2 * rng.normal(size=n) > 0).astype(np.int64)
+    y = (2.0 * X[:, 0] + 2.0 * X[:, 5] + 2.0 * X[:, 100] + 0.2 * rng.normal(size=n) > 0).astype(np.int64)
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(p)])
     sel = MRMR(verbose=0, random_seed=42, fe_max_steps=0)
     sel.fit(df, pd.Series(y, name="y"))
     fni = list(sel.feature_names_in_)
     sel_names = {fni[i] for i in sel.support_ if i < len(fni)}
     recovered = {"x0", "x5", "x100"} & sel_names
-    assert len(recovered) >= 2, (
-        f"wide p=299: recovered only {recovered} of the planted signal triplet"
-    )
+    assert len(recovered) >= 2, f"wide p=299: recovered only {recovered} of the planted signal triplet"
 
 
 # ---------------------------------------------------------------------------

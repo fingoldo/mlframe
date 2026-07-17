@@ -16,6 +16,7 @@ asserts the wiring contract:
 - ``MLFRAME_DISABLE_COMPOSITE=1`` env var disables discovery even
   when the config opts in.
 """
+
 from __future__ import annotations
 
 import os
@@ -48,7 +49,8 @@ def _build_minimal_fte(target_col: str = "target"):
     from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
     return SimpleFeaturesAndTargetsExtractor(
-        target_column=target_col, regression=True,
+        target_column=target_col,
+        regression=True,
     )
 
 
@@ -71,8 +73,7 @@ class TestCompositeIntegration:
             model_name="composite_off",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"),
-                           "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
             verbose=0,
         )
         assert metadata.get("schema_version") == 2
@@ -103,8 +104,7 @@ class TestCompositeIntegration:
             model_name="composite_on",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"),
-                           "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
             verbose=0,
             composite_target_discovery_config=cfg,
         )
@@ -113,15 +113,12 @@ class TestCompositeIntegration:
         # Specs nested under {target_type: {target_name: [list of specs]}}.
         assert "regression" in specs or TargetTypes.REGRESSION in specs
         regression_specs = specs.get("regression") or specs.get(TargetTypes.REGRESSION) or {}
-        assert "target" in regression_specs, (
-            f"expected composite specs under regression/target, got {regression_specs}"
-        )
+        assert "target" in regression_specs, f"expected composite specs under regression/target, got {regression_specs}"
         spec_list = regression_specs["target"]
         assert len(spec_list) >= 1
         # Each spec carries the canonical fields.
         for s in spec_list:
-            assert {"name", "target_col", "transform_name",
-                    "base_column", "fitted_params"}.issubset(s)
+            assert {"name", "target_col", "transform_name", "base_column", "fitted_params"}.issubset(s)
             assert s["target_col"] == "target"
             assert s["base_column"] == "TVT_prev"
 
@@ -151,28 +148,20 @@ class TestCompositeIntegration:
             model_name="composite_yscale",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"),
-                           "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
             verbose=0,
             composite_target_discovery_config=cfg,
         )
         # Find the composite target entry.
-        regression_models = (models.get("regression")
-                             or models.get(__import__("mlframe.training.configs",
-                                                       fromlist=["TargetTypes"])
-                                           .TargetTypes.REGRESSION) or {})
+        regression_models = (
+            models.get("regression") or models.get(__import__("mlframe.training.configs", fromlist=["TargetTypes"]).TargetTypes.REGRESSION) or {}
+        )
         # 2026-05-16: composite-target naming switched to short aliases per
         # composite_transforms.py:1380 ('linear_residual' -> 'linres' etc.),
         # so the public key is e.g. 'target-linres-TVT_prev'. Match both
         # the legacy long form and the new short alias for compatibility.
-        composite_keys = [
-            k for k in regression_models
-            if "__linear_residual__TVT_prev" in k or "-linres-TVT_prev" in k
-        ]
-        assert composite_keys, (
-            f"expected at least one composite-target key in models[regression], "
-            f"got {list(regression_models.keys())}"
-        )
+        composite_keys = [k for k in regression_models if "__linear_residual__TVT_prev" in k or "-linres-TVT_prev" in k]
+        assert composite_keys, f"expected at least one composite-target key in models[regression], got {list(regression_models.keys())}"
         composite_entries = regression_models[composite_keys[0]]
         assert composite_entries, "composite target should have at least one entry"
 
@@ -183,10 +172,7 @@ class TestCompositeIntegration:
             inner_model = getattr(entry, "model", None) or entry
             if isinstance(inner_model, CompositeTargetEstimator):
                 wrapped_count += 1
-        assert wrapped_count > 0, (
-            "no entries wrapped in CompositeTargetEstimator; predictions will "
-            "still be in T-scale"
-        )
+        assert wrapped_count > 0, "no entries wrapped in CompositeTargetEstimator; predictions will still be in T-scale"
 
         # Verify predictions are in y-scale by predicting on a sample
         # row and checking the magnitude is within the y range, not
@@ -202,8 +188,7 @@ class TestCompositeIntegration:
             # y-scale predictions: most values should be within the y envelope.
             # T-scale (residual) predictions would cluster near zero, far below.
             assert preds.min() > 0.5 * y_range[0], (
-                f"prediction min {preds.min():.2f} far below y_range {y_range}; "
-                "looks like T-scale (residual) instead of y-scale"
+                f"prediction min {preds.min():.2f} far below y_range {y_range}; looks like T-scale (residual) instead of y-scale"
             )
             assert preds.max() < 1.5 * y_range[1]
 
@@ -234,8 +219,7 @@ class TestCompositeIntegration:
             model_name="composite_oof_gate",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"),
-                           "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
             verbose=0,
             composite_target_discovery_config=cfg,
         )
@@ -243,19 +227,13 @@ class TestCompositeIntegration:
         # left a single best component instead. Both are valid
         # outcomes; the test just verifies the OOF code path
         # completes without crashing.
-        regression = (
-            models.get("regression")
-            or models.get(__import__("mlframe.training.configs",
-                                      fromlist=["TargetTypes"]).TargetTypes.REGRESSION)
-            or {}
-        )
+        regression = models.get("regression") or models.get(__import__("mlframe.training.configs", fromlist=["TargetTypes"]).TargetTypes.REGRESSION) or {}
         ensemble_keys = [k for k in regression if k.startswith("_CT_ENSEMBLE__")]
         # Ensemble entry may or may not exist depending on whether
         # the gate fired.
         # Validate: at least one composite-target entry exists either
         # way (post-wrap from PR5).
-        composite_keys = [k for k in regression
-                          if "linear_residual" in k or "diff" in k]
+        composite_keys = [k for k in regression if "linear_residual" in k or "diff" in k]
         assert len(composite_keys + ensemble_keys) > 0
 
     def test_y_scale_metrics_populated_after_wrap(self, tmp_path) -> None:
@@ -285,23 +263,20 @@ class TestCompositeIntegration:
             model_name="composite_yscale_metrics",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"),
-                           "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
             verbose=0,
             composite_target_discovery_config=cfg,
         )
         y_metrics = metadata.get("composite_target_y_scale_metrics", {})
         assert y_metrics, "expected y-scale metrics to be populated"
         regression_metrics = y_metrics.get("regression") or y_metrics.get(
-            __import__("mlframe.training.configs",
-                       fromlist=["TargetTypes"]).TargetTypes.REGRESSION,
+            __import__("mlframe.training.configs", fromlist=["TargetTypes"]).TargetTypes.REGRESSION,
         )
         assert regression_metrics
         # At least one composite entry, and it has train metrics.
         # Accept both legacy long-form 'linear_residual' and the short
         # alias 'linres' (composite_transforms.py:1380, 2026-05-16).
-        composite_keys = [k for k in regression_metrics
-                          if "linear_residual" in k or "linres" in k]
+        composite_keys = [k for k in regression_metrics if "linear_residual" in k or "linres" in k]
         assert composite_keys
         per_entry_metrics = regression_metrics[composite_keys[0]]
         assert per_entry_metrics  # at least one entry
@@ -323,7 +298,8 @@ class TestCompositeIntegration:
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training.composite import (
-            CompositeCrossTargetEnsemble, CompositeTargetEstimator,
+            CompositeCrossTargetEnsemble,
+            CompositeTargetEstimator,
         )
 
         df = _tvt_dataset(n=400)
@@ -342,8 +318,7 @@ class TestCompositeIntegration:
             model_name="composite_ensemble",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"),
-                           "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
             verbose=0,
             composite_target_discovery_config=cfg,
         )
@@ -354,20 +329,17 @@ class TestCompositeIntegration:
         # despite the gate firing) so we keep both checks separate
         # and assert BOTH succeed.
         from mlframe.training.configs import TargetTypes as _TT
+
         regression_models_via_enum = models.get(_TT.REGRESSION) or {}
         regression_models_via_str = models.get("regression") or {}
         # StrEnum invariant: both lookups must agree.
         assert regression_models_via_enum.keys() == regression_models_via_str.keys(), (
-            "models dict has divergent string vs enum keys -- StrEnum "
-            "invariant violated; cross-target ensemble write path likely "
-            "used wrong key type."
+            "models dict has divergent string vs enum keys -- StrEnum invariant violated; cross-target ensemble write path likely used wrong key type."
         )
         regression_models = regression_models_via_enum
         # Look for the ensemble key.
         ensemble_keys = [k for k in regression_models if k.startswith("_CT_ENSEMBLE__")]
-        assert ensemble_keys, (
-            f"expected _CT_ENSEMBLE__ entry, got keys={list(regression_models.keys())}"
-        )
+        assert ensemble_keys, f"expected _CT_ENSEMBLE__ entry, got keys={list(regression_models.keys())}"
         ens_entries = regression_models[ensemble_keys[0]]
         assert len(ens_entries) == 1
         ens_entry = ens_entries[0]
@@ -376,6 +348,7 @@ class TestCompositeIntegration:
         # needed an Imputer/StandardScaler pre-pipeline routed through predict;
         # unwrap one shim level so the isinstance check tests the real inner.
         from mlframe.training.composite.post_shim import PrePipelinePredictShim
+
         if isinstance(ens_model, PrePipelinePredictShim):
             ens_model = ens_model.model
         # The honest gate-chain can degrade the ensemble through up to THREE
@@ -410,7 +383,8 @@ class TestCompositeIntegration:
         # 1.5x bounds when a composite wrap is in place to provide the
         # clip.
         _has_composite_clip = isinstance(
-            ens_model, (CompositeCrossTargetEnsemble, CompositeTargetEstimator),
+            ens_model,
+            (CompositeCrossTargetEnsemble, CompositeTargetEstimator),
         )
         if _has_composite_clip:
             y_range = (df["target"].min(), df["target"].max())
@@ -428,11 +402,7 @@ class TestCompositeIntegration:
         # Pin the union of valid shapes so the sensor catches a missing
         # metadata block in EITHER path without bouncing on the path the
         # gate-chain happened to land on.
-        ens_meta = (
-            metadata.get("composite_target_ensemble", {})
-            .get("regression", {})
-            .get("target")
-        )
+        ens_meta = metadata.get("composite_target_ensemble", {}).get("regression", {}).get("target")
         assert ens_meta is not None
         _has_ensemble_block = "weights" in ens_meta and "component_names" in ens_meta
         _has_fallback_marker = ens_meta.get("strategy") == "single_best_fallback"
@@ -473,13 +443,11 @@ class TestCompositeIntegration:
                 model_name="composite_banner",
                 features_and_targets_extractor=_build_minimal_fte(),
                 mlframe_models=["linear"],
-                output_config={"data_dir": str(tmp_path / "data"),
-                               "models_dir": "models"},
+                output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
                 verbose=0,
                 composite_target_discovery_config=cfg,
             )
-        banners = [r for r in caplog.records
-                   if "[CompositeCrossTargetEnsemble] entry:" in r.getMessage()]
+        banners = [r for r in caplog.records if "[CompositeCrossTargetEnsemble] entry:" in r.getMessage()]
         assert banners, (
             "expected at least one entry banner from cross-target "
             "ensemble gate so users can diagnose missing-ensemble case; "
@@ -521,8 +489,7 @@ class TestCompositeIntegration:
             model_name="composite_yscale_dummy",
             features_and_targets_extractor=_build_minimal_fte(),
             mlframe_models=["linear"],
-            output_config={"data_dir": str(tmp_path / "data"),
-                           "models_dir": "models"},
+            output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
             verbose=0,
             composite_target_discovery_config=cfg,
         )
@@ -531,9 +498,7 @@ class TestCompositeIntegration:
         # ('__linear_residual__') and the new short alias ('-linres-') -
         # composite_transforms.py:1380 switched to short names 2026-05-16.
         composite_names = [n for n in db if "__linear_residual__" in n or "-linres-" in n]
-        assert composite_names, (
-            f"expected a composite target dummy entry; got keys={list(db.keys())}"
-        )
+        assert composite_names, f"expected a composite target dummy entry; got keys={list(db.keys())}"
         rep = db[composite_names[0]]
         ys = rep.get("y_scale_strongest_metrics")
         assert ys, (
@@ -555,10 +520,7 @@ class TestCompositeIntegration:
             # data y has std ~ 3-5, so RMSE_y in [1, 20] is sane and
             # SUBSTANTIALLY larger than the T-scale RMSE (residual std
             # ~ 0.3).
-            assert 0.5 < ys[split]["RMSE"] < 50, (
-                f"y-scale RMSE_y={ys[split]['RMSE']:.4g} out of range; "
-                f"either inversion math is wrong or test data drifted"
-            )
+            assert 0.5 < ys[split]["RMSE"] < 50, f"y-scale RMSE_y={ys[split]['RMSE']:.4g} out of range; either inversion math is wrong or test data drifted"
 
     def test_env_var_kill_switch_disables_even_when_config_opts_in(self, tmp_path) -> None:
         """``MLFRAME_DISABLE_COMPOSITE=1`` must override the config."""
@@ -582,8 +544,7 @@ class TestCompositeIntegration:
                 model_name="composite_killswitch",
                 features_and_targets_extractor=_build_minimal_fte(),
                 mlframe_models=["linear"],
-                output_config={"data_dir": str(tmp_path / "data"),
-                               "models_dir": "models"},
+                output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models"},
                 verbose=0,
                 composite_target_discovery_config=cfg,
             )

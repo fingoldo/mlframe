@@ -6,6 +6,7 @@ anchoring the booster on a discovered univariate base margin beats the same
 booster trained flat, on an untouched test split -- and discovery finds that
 anchor automatically instead of the caller hand-picking it.
 """
+
 from __future__ import annotations
 
 import numpy as np

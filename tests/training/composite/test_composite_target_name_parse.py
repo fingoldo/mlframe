@@ -20,6 +20,7 @@ and PASSES post-fix. The ``_preserved`` tests pin that every genuine
 composite name (short-alias, legacy ``__``, multi-base, unary, dashed
 target/base) still routes correctly.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -49,13 +50,13 @@ def _old_substring_scan(name: str) -> bool:
 # --- Names the OLD scan mis-classified as composite (regression: must be False now) ---
 
 PRE_FIX_FALSE_POSITIVES = [
-    "-linres-x",                 # empty target segment
-    "y-linres-",                 # empty base segment
-    "-diff-x",                   # empty target, short alias
-    "col-ratio-",                # empty base, short alias
-    "mid-spline-",               # empty base
-    "__linear_residual__x",      # empty legacy target
-    "x__linear_residual__",      # empty legacy base
+    "-linres-x",  # empty target segment
+    "y-linres-",  # empty base segment
+    "-diff-x",  # empty target, short alias
+    "col-ratio-",  # empty base, short alias
+    "mid-spline-",  # empty base
+    "__linear_residual__x",  # empty legacy target
+    "x__linear_residual__",  # empty legacy base
 ]
 
 
@@ -63,14 +64,9 @@ PRE_FIX_FALSE_POSITIVES = [
 def test_strict_parse_rejects_malformed_names(name):
     # Sanity: confirm the OLD logic genuinely accepted this name, so the
     # assertion below is a real regression guard (fails on pre-fix code).
-    assert _old_substring_scan(name) is True, (
-        f"test fixture stale: old scan no longer accepts {name!r}"
-    )
+    assert _old_substring_scan(name) is True, f"test fixture stale: old scan no longer accepts {name!r}"
     # Post-fix: a malformed / empty-segment name is NOT a composite target.
-    assert is_composite_target_name(name) is False, (
-        f"{name!r} is not a valid {{target}}-{{alias}}-{{base}} triple "
-        f"and must label MTTR, not MTRESID"
-    )
+    assert is_composite_target_name(name) is False, f"{name!r} is not a valid {{target}}-{{alias}}-{{base}} triple and must label MTTR, not MTRESID"
 
 
 # --- Real composite names: must still be detected (no regression) ---
@@ -79,11 +75,11 @@ REAL_COMPOSITE_NAMES = [
     "y-linres-lag1",
     "TVT-linres-TVT_prev",
     "y-monres-base",
-    "y-cbrtY-lag1",                 # unary
-    "y-linresM-lag1+lag2",          # multi-base ('+' join)
+    "y-cbrtY-lag1",  # unary
+    "y-linresM-lag1+lag2",  # multi-base ('+' join)
     "y-spline-x",
     "y-interact-x",
-    "y__linear_residual__lag1",     # legacy double-underscore
+    "y__linear_residual__lag1",  # legacy double-underscore
     "y__monotonic_residual__base",  # legacy
     "quarterly-margin-ratio-of-revenue",  # dashed base, alias is internal token
 ]
@@ -91,9 +87,7 @@ REAL_COMPOSITE_NAMES = [
 
 @pytest.mark.parametrize("name", REAL_COMPOSITE_NAMES)
 def test_strict_parse_accepts_real_composites(name):
-    assert is_composite_target_name(name) is True, (
-        f"{name!r} is a canonical composite name and must label MTRESID"
-    )
+    assert is_composite_target_name(name) is True, f"{name!r} is a canonical composite name and must label MTRESID"
 
 
 # --- Plain user / raw target names: must NOT be detected ---
@@ -102,8 +96,8 @@ NON_COMPOSITE_NAMES = [
     "raw_y",
     "y",
     "",
-    "net-ratiometric-index",   # 'ratio' only a substring of 'ratiometric'
-    "super-diffusion-model",   # 'diff' only a substring of 'diffusion'
+    "net-ratiometric-index",  # 'ratio' only a substring of 'ratiometric'
+    "super-diffusion-model",  # 'diff' only a substring of 'diffusion'
     "revenue-growth-rate-2024",
 ]
 
@@ -119,10 +113,7 @@ def test_compose_roundtrips_through_strict_parse():
     production consumer) -- the two halves of the naming contract."""
     for transform_name in TRANSFORM_NAME_SHORT:
         name = compose_target_name("y", transform_name, "base")
-        assert is_composite_target_name(name) is True, (
-            f"compose/parse contract broken for transform {transform_name!r} "
-            f"-> {name!r}"
-        )
+        assert is_composite_target_name(name) is True, f"compose/parse contract broken for transform {transform_name!r} -> {name!r}"
 
 
 def test_ambiguous_three_token_user_columns_documented():

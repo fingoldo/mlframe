@@ -18,6 +18,7 @@ This drives a real MRMR fit on the generator's smooth-interaction case (the bug 
 post-greedy fallback, so it needs the full fit) and asserts the support is not collapsed to a
 single raw and retains the interaction operand ``b``.
 """
+
 from __future__ import annotations
 
 import os
@@ -45,12 +46,20 @@ def test_smooth_interaction_fallback_not_suppressed_by_dropped_composite():
     """s319: the bilinear ``a*b`` operands must survive the empty-raw fallback even when the
     ``mul(a,b)`` composite that captures them is dropped from the output."""
     df, y, meta = make_realistic_case(
-        seed=319, n=25000, distribution="uniform",
-        target_family="smooth_interaction", task="regression",
+        seed=319,
+        n=25000,
+        distribution="uniform",
+        target_family="smooth_interaction",
+        task="regression",
     )
     fs = MRMR(
-        verbose=0, random_seed=319, fe_max_steps=2, fe_auto_escalation_enable=True,
-        dcd_enable=False, build_friend_graph=False, cluster_aggregate_enable=False,
+        verbose=0,
+        random_seed=319,
+        fe_max_steps=2,
+        fe_auto_escalation_enable=True,
+        dcd_enable=False,
+        build_friend_graph=False,
+        cluster_aggregate_enable=False,
     ).fit(df, y)
     support = set(fs.get_feature_names_out())
     # CONTRACT (re-framed 2026-06-23): this test's TRUE contract is the I5 NO-HARM biz-value bar named
@@ -66,8 +75,10 @@ def test_smooth_interaction_fallback_not_suppressed_by_dropped_composite():
     # (1) The interaction operands a AND b must BOTH be captured -- as raw survivors OR referenced inside a
     #     surviving engineered feature (not collapsed to a single operand as in the pre-fix bug).
     import re as _re
+
     def _tokens(_nm):
         return set(_re.findall(r"[A-Za-z_]\w*", _nm)) & set(df.columns)
+
     captured = set().union(*(_tokens(nm) for nm in support)) if support else set()
     assert {"a", "b"} <= captured, (
         f"interaction operands a,b not both captured (raw or within a compound) -> under-selection "
@@ -76,6 +87,7 @@ def test_smooth_interaction_fallback_not_suppressed_by_dropped_composite():
     # (2) I5 NO-HARM: FE feature space must not be worse than all-raw by more than the 0.05 bar.
     from sklearn.ensemble import HistGradientBoostingRegressor
     from sklearn.model_selection import cross_val_score
+
     X_fe = fs.transform(df)
     r2_fe = cross_val_score(HistGradientBoostingRegressor(random_state=0), X_fe, y, cv=3, scoring="r2").mean()
     r2_raw = cross_val_score(HistGradientBoostingRegressor(random_state=0), df.to_numpy(), y, cv=3, scoring="r2").mean()

@@ -105,9 +105,7 @@ def test_compose_constant_feature_annotates():
 
 def test_custom_axis_names_used():
     X = _grid_data()
-    fig = compose_pdp_2d_figure(
-        _ProductModel(), X, "f0", "f1", feat_x_name="alpha", feat_y_name="beta", grid=8, sample_rows=200
-    )
+    fig = compose_pdp_2d_figure(_ProductModel(), X, "f0", "f1", feat_x_name="alpha", feat_y_name="beta", grid=8, sample_rows=200)
     ax = fig.axes[0]
     assert ax.get_xlabel() == "alpha" and ax.get_ylabel() == "beta"
     plt.close(fig)

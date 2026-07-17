@@ -7,6 +7,7 @@ Two quantitative wins:
 2. ``predict_std`` is LARGER in an EXTRAPOLATION region (few/no nearby train
    rows) than in a DENSE region -- the hallmark of an epistemic signal.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,7 +36,7 @@ def test_biz_val_bagging_lowers_oos_rmse_on_noisy_target():
     n = 1200
     base = rng.uniform(0.0, 10.0, size=n)
     feat = rng.uniform(-3.0, 3.0, size=n)
-    signal = base + np.sin(feat) + 0.4 * feat ** 2
+    signal = base + np.sin(feat) + 0.4 * feat**2
     y = signal + rng.normal(0.0, 1.5, size=n)  # heavy observation noise
     X = pd.DataFrame({"lag": base, "feat": feat})
 
@@ -50,16 +51,15 @@ def test_biz_val_bagging_lowers_oos_rmse_on_noisy_target():
     rmse_single = _rmse(single.predict(X_te), truth_te)
 
     bag = BaggedCompositeEstimator(
-        base_estimator=_proto(), n_estimators=25, random_state=7,
+        base_estimator=_proto(),
+        n_estimators=25,
+        random_state=7,
     ).fit(X_tr, y_tr)
     rmse_bag = _rmse(bag.predict(X_te), truth_te)
 
     # Measured ~25-40% reduction; floor at a conservative 8% so seed noise
     # never trips but a regression that breaks averaging fails.
-    assert rmse_bag <= 0.92 * rmse_single, (
-        f"bagging should lower OOS RMSE: single={rmse_single:.4f} "
-        f"bag={rmse_bag:.4f}"
-    )
+    assert rmse_bag <= 0.92 * rmse_single, f"bagging should lower OOS RMSE: single={rmse_single:.4f} bag={rmse_bag:.4f}"
 
 
 def test_biz_val_predict_std_larger_in_sparse_region():
@@ -75,31 +75,34 @@ def test_biz_val_predict_std_larger_in_sparse_region():
     feat_sparse = rng.uniform(4.0, 6.0, size=n_sparse)
     feat = np.concatenate([feat_dense, feat_sparse])
     base = rng.uniform(0.0, 10.0, size=feat.size)
-    y = base + feat ** 3 + rng.normal(0.0, 0.5, size=feat.size)
+    y = base + feat**3 + rng.normal(0.0, 0.5, size=feat.size)
     X = pd.DataFrame({"lag": base, "feat": feat})
 
     bag = BaggedCompositeEstimator(
-        base_estimator=_proto(), n_estimators=40, random_state=3,
+        base_estimator=_proto(),
+        n_estimators=40,
+        random_state=3,
     ).fit(X, y)
 
-    dense_q = pd.DataFrame({
-        "lag": rng.uniform(2.0, 8.0, size=200),
-        "feat": rng.uniform(-1.5, 1.5, size=200),
-    })
-    sparse_q = pd.DataFrame({
-        "lag": rng.uniform(2.0, 8.0, size=200),
-        "feat": rng.uniform(4.5, 5.5, size=200),
-    })
+    dense_q = pd.DataFrame(
+        {
+            "lag": rng.uniform(2.0, 8.0, size=200),
+            "feat": rng.uniform(-1.5, 1.5, size=200),
+        }
+    )
+    sparse_q = pd.DataFrame(
+        {
+            "lag": rng.uniform(2.0, 8.0, size=200),
+            "feat": rng.uniform(4.5, 5.5, size=200),
+        }
+    )
 
     std_dense = float(np.mean(bag.predict_std(dense_q)))
     std_sparse = float(np.mean(bag.predict_std(sparse_q)))
 
     # Spread in the sparse band should clearly exceed the dense band (members
     # disagree where there is little training data). Floor at 1.5x.
-    assert std_sparse >= 1.5 * std_dense, (
-        f"epistemic std should grow in the sparse region: dense={std_dense:.4f} "
-        f"sparse={std_sparse:.4f}"
-    )
+    assert std_sparse >= 1.5 * std_dense, f"epistemic std should grow in the sparse region: dense={std_dense:.4f} sparse={std_sparse:.4f}"
 
 
 def _bag(aggregation, seed, n_estimators=25, trim_fraction=0.2):
@@ -139,10 +142,7 @@ def test_biz_val_bagging_trimmed_mean_beats_mean_on_outlier_contamination():
         rmse_trim = _rmse(_bag("trimmed_mean", sd).fit(Xtr, ytr).predict(Xte), truth_te)
         if rmse_trim <= 0.98 * rmse_mean:
             wins += 1
-    assert wins >= 4, (
-        f"trimmed_mean should beat mean by >=2% RMSE on a majority of outlier-contaminated seeds; "
-        f"won {wins}/{len(seeds)}"
-    )
+    assert wins >= 4, f"trimmed_mean should beat mean by >=2% RMSE on a majority of outlier-contaminated seeds; won {wins}/{len(seeds)}"
 
 
 def test_biz_val_bagging_trimmed_mean_default_near_mean_on_clean_data():
@@ -160,9 +160,7 @@ def test_biz_val_bagging_trimmed_mean_default_near_mean_on_clean_data():
     Xtr, ytr, Xte, truth_te = X[:cut], y[:cut], X[cut:], truth[cut:]
     rmse_mean = _rmse(_bag("mean", 7).fit(Xtr, ytr).predict(Xte), truth_te)
     rmse_trim = _rmse(_bag("trimmed_mean", 7).fit(Xtr, ytr).predict(Xte), truth_te)
-    assert rmse_trim <= 1.05 * rmse_mean, (
-        f"trimmed_mean must stay within 5% of mean on clean data: mean={rmse_mean:.4f} trim={rmse_trim:.4f}"
-    )
+    assert rmse_trim <= 1.05 * rmse_mean, f"trimmed_mean must stay within 5% of mean on clean data: mean={rmse_mean:.4f} trim={rmse_trim:.4f}"
 
 
 def test_biz_val_bagging_default_aggregation_is_trimmed_mean_not_mean():
@@ -179,9 +177,7 @@ def test_biz_val_bagging_default_aggregation_is_trimmed_mean_not_mean():
     ).fit(Xtr, ytr)
     assert default_bag.aggregation == "trimmed_mean"
     members = default_bag._member_predictions(Xte)
-    assert not np.array_equal(default_bag.predict(Xte), members.mean(axis=0)), (
-        "default aggregation must be trimmed_mean (robust), not the legacy plain mean"
-    )
+    assert not np.array_equal(default_bag.predict(Xte), members.mean(axis=0)), "default aggregation must be trimmed_mean (robust), not the legacy plain mean"
 
 
 def _contam_data(seed, frac, n=1200, p=8):

@@ -5,6 +5,7 @@ params/clone roundtrip, degenerate (constant y, tiny n), the importorskipped ngb
 contract -- per-row std correlates with the true local noise scale on a heteroscedastic synthetic AND a
 constant-width interval is beaten (lower Winkler) by the heteroscedastic one.
 """
+
 from __future__ import annotations
 
 import cProfile
@@ -49,8 +50,12 @@ def _heteroscedastic(n=3000, seed=0):
 
 def _fit(X, y, **kw):
     est = HeteroscedasticCompositeEstimator(
-        base_estimator=_base_estimator(), transform_name="linear_residual",
-        base_column="base", prefer_ngboost=False, alpha=0.1, **kw,
+        base_estimator=_base_estimator(),
+        transform_name="linear_residual",
+        base_column="base",
+        prefer_ngboost=False,
+        alpha=0.1,
+        **kw,
     )
     return est.fit(X, y)
 
@@ -84,13 +89,16 @@ def test_predict_var_is_std_squared():
     est = _fit(X, y)
     std = est.predict_std(X)
     var = est.predict_var(X)
-    assert np.allclose(var, std ** 2)
+    assert np.allclose(var, std**2)
 
 
 def test_params_and_clone_roundtrip():
     est = HeteroscedasticCompositeEstimator(
-        base_estimator=_base_estimator(), transform_name="linear_residual",
-        base_column="base", prefer_ngboost=False, alpha=0.2,
+        base_estimator=_base_estimator(),
+        transform_name="linear_residual",
+        base_column="base",
+        prefer_ngboost=False,
+        alpha=0.2,
     )
     p = est.get_params()
     assert p["alpha"] == 0.2 and p["base_column"] == "base"
@@ -118,8 +126,11 @@ def test_ngboost_path_when_available():
     ngboost = pytest.importorskip("ngboost")  # noqa: F841
     X, y = _homoscedastic(n=800)
     est = HeteroscedasticCompositeEstimator(
-        base_estimator=_base_estimator(), transform_name="linear_residual",
-        base_column="base", prefer_ngboost=True, alpha=0.1,
+        base_estimator=_base_estimator(),
+        transform_name="linear_residual",
+        base_column="base",
+        prefer_ngboost=True,
+        alpha=0.1,
     )
     est.fit(X, y)
     assert est.backend_ == "ngboost"

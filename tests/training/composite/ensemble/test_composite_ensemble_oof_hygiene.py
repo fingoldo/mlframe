@@ -10,6 +10,7 @@
   so same-group rows spanned refit-train and holdout and leaked into the OOF
   surface the NNLS weights consume.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,8 +34,7 @@ class TestAlignFitSampleWeight:
         """N1: on a scattered fit_mask the aligned weights must be sw[mask],
         NOT the (wrong) prefix sw[:n_fit]."""
         sw = np.arange(10, dtype=np.float64)
-        fit_mask = np.array([True, False, True, True, False,
-                             True, False, True, True, False])
+        fit_mask = np.array([True, False, True, True, False, True, False, True, True, False])
         aligned = _align_fit_sw(sw, fit_mask, int(fit_mask.sum()))
         np.testing.assert_array_equal(aligned, sw[fit_mask])
         # The old prefix slice would have been a different (wrong) vector.
@@ -55,9 +55,7 @@ class TestAlignFitSampleWeight:
         fit_mask = out[4]
         assert fit_mask is not None
         # Scattered (not a contiguous prefix): the fit rows are not 0..k-1.
-        assert not np.array_equal(
-            np.nonzero(fit_mask)[0], np.arange(int(fit_mask.sum()))
-        )
+        assert not np.array_equal(np.nonzero(fit_mask)[0], np.arange(int(fit_mask.sum())))
 
 
 class _ESComposite(BaseEstimator, RegressorMixin):
@@ -76,7 +74,9 @@ class _ESComposite(BaseEstimator, RegressorMixin):
 
 def _make_composite_component(X, y, base):
     inner = _ESComposite().fit(
-        X, y - base, eval_set=(X.iloc[:10], (y - base)[:10]),
+        X,
+        y - base,
+        eval_set=(X.iloc[:10], (y - base)[:10]),
     )
     spec = {
         "transform_name": "diff",
@@ -117,9 +117,7 @@ class TestKfoldCompositeESCarve:
             random_state=0,
             kfold=2,
         )
-        assert "c0" in names, (
-            "ES composite component dropped from kfold OOF (no eval_set carve)"
-        )
+        assert "c0" in names, "ES composite component dropped from kfold OOF (no eval_set carve)"
         assert oof.shape[0] > 0 and np.isfinite(oof).any()
 
 
@@ -167,7 +165,4 @@ class TestOuterSplitGroupAware:
             group_ids=gid,
         )
         overlap = _GidRecordingRaw.fit_gids & _GidRecordingRaw.pred_gids
-        assert not overlap, (
-            f"group(s) {sorted(overlap)[:5]} span outer fit and holdout "
-            f"(group-blind split leak)"
-        )
+        assert not overlap, f"group(s) {sorted(overlap)[:5]} span outer fit and holdout (group-blind split leak)"

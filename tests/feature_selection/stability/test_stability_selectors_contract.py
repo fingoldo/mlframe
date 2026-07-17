@@ -39,6 +39,7 @@ signature). The clone/get_params/set_params test for MRMRTreeRescued is
 written to the CORRECT behaviour and xfailed (strict=False) so it flips green
 the moment the ctor is given an explicit signature.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -75,22 +76,30 @@ def _make_stability_mrmr():
     support is non-empty (every touched feature kept) -> transform width > 0."""
     from mlframe.feature_selection.filters.stability import StabilityMRMR
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return StabilityMRMR(
-        estimator=MRMR(verbose=0), n_bootstraps=3, sample_fraction=0.7,
-        support_threshold=0.0, random_state=0,
+        estimator=MRMR(verbose=0),
+        n_bootstraps=3,
+        sample_fraction=0.7,
+        support_threshold=0.0,
+        random_state=0,
     )
 
 
 def _make_mrmr_tree_rescued():
     from mlframe.feature_selection.filters import MRMRTreeRescued
+
     return MRMRTreeRescued(verbose=0, fe_max_steps=0, random_seed=0)
 
 
 def _make_stability_fe():
     from mlframe.feature_selection.filters._stability_fe import StabilityFESelector
+
     return StabilityFESelector(
         base_mrmr_params={"verbose": 0, "fe_max_steps": 0, "random_seed": 0},
-        n_bootstraps=2, sample_fraction=0.7, support_threshold=0.0,
+        n_bootstraps=2,
+        sample_fraction=0.7,
+        support_threshold=0.0,
         random_state=0,
     )
 
@@ -101,7 +110,6 @@ def _make_stability_fe():
 
 
 class TestStabilityMRMRContract:
-
     def test_is_base_estimator_transformer(self):
         sel = _make_stability_mrmr()
         assert isinstance(sel, BaseEstimator)
@@ -155,10 +163,12 @@ class TestStabilityMRMRContract:
         """[selector, LogisticRegression] Pipeline fits + predicts -- the
         production wiring path through sklearn."""
         X, y = _binary_frame()
-        pipe = Pipeline([
-            ("sel", _make_stability_mrmr()),
-            ("clf", LogisticRegression(max_iter=500, random_state=0)),
-        ])
+        pipe = Pipeline(
+            [
+                ("sel", _make_stability_mrmr()),
+                ("clf", LogisticRegression(max_iter=500, random_state=0)),
+            ]
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             pipe.fit(X, y)
@@ -186,7 +196,6 @@ class TestStabilityMRMRContract:
 
 
 class TestMRMRTreeRescuedContract:
-
     def test_is_base_estimator_transformer(self):
         sel = _make_mrmr_tree_rescued()
         assert isinstance(sel, BaseEstimator)
@@ -238,10 +247,12 @@ class TestMRMRTreeRescuedContract:
         """Pipeline fit does NOT clone its steps, so the varargs ctor bug does
         not block this path -- [selector, LogisticRegression] fits + predicts."""
         X, y = _binary_frame()
-        pipe = Pipeline([
-            ("sel", _make_mrmr_tree_rescued()),
-            ("clf", LogisticRegression(max_iter=500, random_state=0)),
-        ])
+        pipe = Pipeline(
+            [
+                ("sel", _make_mrmr_tree_rescued()),
+                ("clf", LogisticRegression(max_iter=500, random_state=0)),
+            ]
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             pipe.fit(X, y)
@@ -257,7 +268,6 @@ class TestMRMRTreeRescuedContract:
 
 @pytest.mark.slow
 class TestStabilityFESelectorContract:
-
     def test_is_base_estimator_transformer(self):
         sel = _make_stability_fe()
         assert isinstance(sel, BaseEstimator)
@@ -307,10 +317,12 @@ class TestStabilityFESelectorContract:
 
     def test_sklearn_pipeline_integration(self):
         X, y = _binary_frame()
-        pipe = Pipeline([
-            ("sel", _make_stability_fe()),
-            ("clf", LogisticRegression(max_iter=500, random_state=0)),
-        ])
+        pipe = Pipeline(
+            [
+                ("sel", _make_stability_fe()),
+                ("clf", LogisticRegression(max_iter=500, random_state=0)),
+            ]
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             pipe.fit(X, y)
@@ -329,6 +341,7 @@ def _hetero_small_panel():
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
+
     return {
         "tree": RandomForestClassifier(n_estimators=30, random_state=0),
         "linear": make_pipeline(StandardScaler(), LogisticRegression(max_iter=500)),
@@ -351,12 +364,8 @@ def test_hetero_vote_same_seed_identical_votes():
 
     X, y = _hetero_frame()
     panel = _hetero_small_panel()
-    a1, i1 = heterogeneous_relevance_vote(
-        X, y, classification=True, n_shadow_trials=2, models=panel, random_state=0
-    )
-    a2, i2 = heterogeneous_relevance_vote(
-        X, y, classification=True, n_shadow_trials=2, models=_hetero_small_panel(), random_state=0
-    )
+    a1, i1 = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=2, models=panel, random_state=0)
+    a2, i2 = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=2, models=_hetero_small_panel(), random_state=0)
     assert a1 == a2
     assert i1["vote_fraction"] == i2["vote_fraction"]
 
@@ -373,11 +382,10 @@ def test_hetero_vote_nan_in_x_raises():
     X_nan.iloc[0, 0] = np.nan
     panel = _hetero_small_panel()
     with pytest.raises(ValueError, match="NaN"):
-        heterogeneous_relevance_vote(
-            X_nan, y, classification=True, n_shadow_trials=2, models=panel, random_state=0
-        )
+        heterogeneous_relevance_vote(X_nan, y, classification=True, n_shadow_trials=2, models=panel, random_state=0)
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "-v", "--no-cov", "-p", "no:randomly", "-p", "no:cacheprovider"]))

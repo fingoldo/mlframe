@@ -5,6 +5,7 @@ model predictions sometimes violate, swapping the violating pair (a) drives the 
 exactly 0 and (b) improves (never worsens) log-loss against ground truth, since the swap only fires on rows
 where the raw prediction contradicts KNOWN structure.
 """
+
 from __future__ import annotations
 
 import numpy as np

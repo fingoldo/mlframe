@@ -10,6 +10,7 @@ This file is a structural meta-sensor: it asserts the registration dictionaries 
 all of them have been consumed. We import the conftest module-level registries and exercise each fixture once to
 trigger registration; then we assert the bookkeeping dict contains all expected names. We do NOT mutate any
 fixture; the actual mutation-detection logic is in the autouse session fixture itself."""
+
 from __future__ import annotations
 
 import pytest
@@ -66,8 +67,7 @@ def test_df_shape_signature_handles_polars(sample_polars_data) -> None:
     pl_df, _feature_names, _y = sample_polars_data
     sig = _df_shape_signature(pl_df)
     assert sig != (None, None, None), (
-        "Immutability sensor signature degraded to the failure-tuple for a polars frame; .columns.tolist() path "
-        "is missing the hasattr fallback."
+        "Immutability sensor signature degraded to the failure-tuple for a polars frame; .columns.tolist() path is missing the hasattr fallback."
     )
     shape, cols, dtypes = sig
     assert isinstance(shape, tuple) and len(shape) == 2 and shape[0] > 0 and shape[1] > 0

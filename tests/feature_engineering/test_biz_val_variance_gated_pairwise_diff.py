@@ -6,6 +6,7 @@ otherwise explode the candidate count uselessly), while (b) preserving genuinely
 target that depends on the DIFFERENCE between two individually-uninformative, highly-correlated columns is
 invisible in either raw column alone but recoverable from their diff.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,7 +47,9 @@ def test_biz_val_variance_gated_diff_prunes_near_constant_keeps_informative():
     auc_diff = roc_auc_score(y, LogisticRegression(max_iter=500).fit(diffs[["c1__diff__c2"]], y).predict_proba(diffs[["c1__diff__c2"]])[:, 1])
 
     assert auc_diff > 0.95, f"expected the surviving diff feature to strongly recover the target, got AUC={auc_diff:.4f}"
-    assert auc_diff > auc_raw, f"expected the diff feature to beat the raw columns (which bury the signal under a shared large-variance factor), got diff={auc_diff:.4f} raw={auc_raw:.4f}"
+    assert auc_diff > auc_raw, (
+        f"expected the diff feature to beat the raw columns (which bury the signal under a shared large-variance factor), got diff={auc_diff:.4f} raw={auc_raw:.4f}"
+    )
 
 
 def test_variance_gated_diff_column_naming_and_shape():

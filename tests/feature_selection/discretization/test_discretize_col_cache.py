@@ -65,6 +65,7 @@ def test_shared_feature_columns_reused_across_targets():
 
     # Confirm the cache is actually consulted (feature-column entries exist after the first categorize).
     from mlframe.feature_selection.filters.discretization import _discretization_dataset as _dd
+
     assert len(_dd._NUMERIC_CODE_CACHE) >= 5, "feature columns were not cached after first categorize"
 
     data_b, cols_b, _ = categorize_dataset(df=df_b, method="quantile", n_bins=8, nbins_strategy=None)
@@ -81,6 +82,7 @@ def test_cache_not_consulted_on_supervised_strategy():
     clear_numeric_code_cache()
     df = _frame(2)
     from mlframe.feature_selection.filters.discretization import _discretization_dataset as _dd
+
     try:
         categorize_dataset(df=df, method="quantile", n_bins=10, nbins_strategy="mdlp", y_for_strategy=df["target"].to_numpy())
     except Exception:

@@ -20,6 +20,7 @@ What this pins that nothing else in tests/ does:
 All heavy fits use small configs (n<=3000, tree_n_estimators<=40, a handful of co-occurrence pairs) so each @slow
 test stays well under the per-test budget; MLFRAME_FAST=1 skips them and the pure-function gate tests keep a fast path.
 """
+
 from __future__ import annotations
 
 import os
@@ -149,8 +150,7 @@ def test_tree_member_engineers_replays_and_prunes():
 @pytest.mark.timeout(200)
 def test_tree_rich_ops_mul_only_restricts_to_tmul():
     X, y = _interaction_frame(n=900, seed=0, p_noise=8)
-    h = HybridSelector(use_tree_member=True, tree_rich_ops=("mul",), tree_n_estimators=30,
-                       tree_cooccur_pairs=6, random_state=0).fit(X, y)
+    h = HybridSelector(use_tree_member=True, tree_rich_ops=("mul",), tree_n_estimators=30, tree_cooccur_pairs=6, random_state=0).fit(X, y)
     assert h._tree_prod_names_, "mul-only tree member should still engineer products"
     assert all(nm.startswith("tmul_") for nm in h._tree_prod_names_)
     assert all(op == "mul" for (_a, _b, op) in h._tree_op_.values())
@@ -167,8 +167,7 @@ def test_transform_replays_tree_ops_bit_equal_on_fresh_rows():
     for nm in h._tree_prod_names_:
         if nm in aug.columns:
             a, b, op = h._tree_op_[nm]
-            expected = np.nan_to_num(_TREE_OPS[op](Xfresh[a].values.astype(float), Xfresh[b].values.astype(float)),
-                                     nan=0.0, posinf=0.0, neginf=0.0)
+            expected = np.nan_to_num(_TREE_OPS[op](Xfresh[a].values.astype(float), Xfresh[b].values.astype(float)), nan=0.0, posinf=0.0, neginf=0.0)
             np.testing.assert_array_equal(aug[nm].values, expected)  # pure op of raw[a],raw[b] -> bit-equal
             replayed_any = True
     assert replayed_any, "expected at least one tree op column to replay on fresh rows"
@@ -280,8 +279,7 @@ def test_prescreen_false_keeps_all_augmented_columns_relevant():
 def test_fe_mode_pickle_replays_engineered_columns_value_equal():
     X, y = _interaction_frame(n=1000, seed=3, p_noise=10)
     Xfresh = _interaction_frame(n=60, seed=77, p_noise=10)[0]
-    h = HybridSelector(use_fe=True, use_tree_member=True, tree_n_estimators=30, tree_cooccur_pairs=6,
-                       random_state=3).fit(X, y)
+    h = HybridSelector(use_fe=True, use_tree_member=True, tree_n_estimators=30, tree_cooccur_pairs=6, random_state=3).fit(X, y)
     # this fit must actually have engineered something for the contract to be meaningful
     assert h.n_engineered_ > 0, "fixture must engineer columns for the FE-pickle replay contract to bind"
     eng_survivors = [c for c in h.raw_selected_ if c not in set(h.feature_names_in_)]
@@ -301,8 +299,7 @@ def test_fe_mode_pickle_replays_engineered_columns_value_equal():
 @pytest.mark.timeout(200)
 def test_get_support_excludes_engineered_names():
     X, y = _interaction_frame(n=1000, seed=3, p_noise=10)
-    h = HybridSelector(use_fe=True, use_tree_member=True, tree_n_estimators=30, tree_cooccur_pairs=6,
-                       random_state=3).fit(X, y)
+    h = HybridSelector(use_fe=True, use_tree_member=True, tree_n_estimators=30, tree_cooccur_pairs=6, random_state=3).fit(X, y)
     eng_survivors = [c for c in h.raw_selected_ if c not in set(h.feature_names_in_)]
     assert eng_survivors, "fixture must engineer + select something for the exclusion to be non-vacuous"
     mask = h.get_support()
@@ -336,21 +333,15 @@ def test_biz_value_tree_member_recovers_interaction_product_signal():
 
     X, y = _interaction_frame(n=1000, seed=1, p_noise=8)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=1, stratify=y)
-    h = HybridSelector(vote=1, use_fe=True, use_tree_member=True, tree_n_estimators=30,
-                       tree_cooccur_pairs=6, random_state=1).fit(Xtr, ytr)
+    h = HybridSelector(vote=1, use_fe=True, use_tree_member=True, tree_n_estimators=30, tree_cooccur_pairs=6, random_state=1).fit(Xtr, ytr)
     # the gate admits a z0*z1 product AND it survives into the selection
-    prod_names = [nm for nm in h.raw_selected_
-                  if nm in h._tree_op_ and h._tree_op_[nm][:2] in (("z0", "z1"), ("z1", "z0"))
-                  and h._tree_op_[nm][2] == "mul"]
+    prod_names = [nm for nm in h.raw_selected_ if nm in h._tree_op_ and h._tree_op_[nm][:2] in (("z0", "z1"), ("z1", "z0")) and h._tree_op_[nm][2] == "mul"]
     assert prod_names, "the tree member must engineer + select a z0*z1 product on a pure-interaction target"
     pnm = prod_names[0]
 
     Ztr, Zte = h.transform(Xtr), h.transform(Xte)
-    auc_product = roc_auc_score(yte, LogisticRegression(max_iter=1000).fit(Ztr[[pnm]], ytr)
-                                .predict_proba(Zte[[pnm]])[:, 1])
-    auc_operands = roc_auc_score(yte, LogisticRegression(max_iter=1000).fit(Xtr[["z0", "z1"]], ytr)
-                                 .predict_proba(Xte[["z0", "z1"]])[:, 1])
+    auc_product = roc_auc_score(yte, LogisticRegression(max_iter=1000).fit(Ztr[[pnm]], ytr).predict_proba(Zte[[pnm]])[:, 1])
+    auc_operands = roc_auc_score(yte, LogisticRegression(max_iter=1000).fit(Xtr[["z0", "z1"]], ytr).predict_proba(Xte[["z0", "z1"]])[:, 1])
     assert auc_product >= 0.88, f"the tree product should linearly recover the interaction signal: {auc_product:.3f}"
     assert auc_operands <= 0.60, f"raw operands alone should be near chance for a linear model: {auc_operands:.3f}"
-    assert auc_product - auc_operands >= 0.30, (
-        f"tree product must beat raw operands by a wide margin: {auc_product:.3f} vs {auc_operands:.3f}")
+    assert auc_product - auc_operands >= 0.30, f"tree product must beat raw operands by a wide margin: {auc_product:.3f} vs {auc_operands:.3f}"

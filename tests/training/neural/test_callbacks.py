@@ -135,17 +135,13 @@ class TestAggregatingValidationCallback:
 
     def test_initialization(self):
         """Test callback initialization."""
+
         def dummy_metric(y_true, y_score):
             return 0.5
 
-        callback = AggregatingValidationCallback(
-            metric_name='accuracy',
-            metric_fcn=dummy_metric,
-            on_epoch=True,
-            on_step=False
-        )
+        callback = AggregatingValidationCallback(metric_name="accuracy", metric_fcn=dummy_metric, on_epoch=True, on_step=False)
 
-        assert callback.metric_name == 'accuracy'
+        assert callback.metric_name == "accuracy"
         assert callback.metric_fcn == dummy_metric
         assert callback.on_epoch is True
         assert callback.on_step is False
@@ -154,13 +150,11 @@ class TestAggregatingValidationCallback:
 
     def test_init_accumulators(self):
         """Test init_accumulators resets lists."""
+
         def dummy_metric(y_true, y_score):
             return 0.5
 
-        callback = AggregatingValidationCallback(
-            metric_name='test',
-            metric_fcn=dummy_metric
-        )
+        callback = AggregatingValidationCallback(metric_name="test", metric_fcn=dummy_metric)
 
         # Add some data
         callback.batched_predictions.append(torch.tensor([1, 2, 3]))
@@ -174,13 +168,11 @@ class TestAggregatingValidationCallback:
 
     def test_on_validation_batch_end(self):
         """Test on_validation_batch_end appends predictions and labels."""
+
         def dummy_metric(y_true, y_score):
             return 0.5
 
-        callback = AggregatingValidationCallback(
-            metric_name='test',
-            metric_fcn=dummy_metric
-        )
+        callback = AggregatingValidationCallback(metric_name="test", metric_fcn=dummy_metric)
 
         # Mock outputs - callback expects TUPLE, not dict
         predictions = torch.tensor([0.1, 0.9, 0.3])
@@ -196,13 +188,11 @@ class TestAggregatingValidationCallback:
 
     def test_on_validation_batch_end_multiple_batches(self):
         """Test accumulating multiple batches."""
+
         def dummy_metric(y_true, y_score):
             return 0.5
 
-        callback = AggregatingValidationCallback(
-            metric_name='test',
-            metric_fcn=dummy_metric
-        )
+        callback = AggregatingValidationCallback(metric_name="test", metric_fcn=dummy_metric)
 
         # Add multiple batches - callback expects TUPLE, not dict
         for i in range(3):
@@ -216,16 +206,12 @@ class TestAggregatingValidationCallback:
 
     def test_on_validation_epoch_end(self):
         """Test on_validation_epoch_end computes and logs metric."""
+
         def dummy_metric(y_true, y_score):
             # Return accuracy
             return float((y_true == (y_score > 0.5)).sum()) / len(y_true)
 
-        callback = AggregatingValidationCallback(
-            metric_name='accuracy',
-            metric_fcn=dummy_metric,
-            on_epoch=True,
-            on_step=False
-        )
+        callback = AggregatingValidationCallback(metric_name="accuracy", metric_fcn=dummy_metric, on_epoch=True, on_step=False)
 
         # Add batches
         callback.batched_predictions.append(torch.tensor([0.1, 0.9, 0.3, 0.8]))
@@ -239,19 +225,20 @@ class TestAggregatingValidationCallback:
         # Verify log was called with correct prefix
         mock_module.log.assert_called_once()
         args, kwargs = mock_module.log.call_args
-        assert kwargs['name'] == 'val_accuracy'
-        assert isinstance(kwargs['value'], float)
-        assert kwargs['on_epoch'] is True
-        assert kwargs['on_step'] is False
-        assert kwargs['prog_bar'] is True
+        assert kwargs["name"] == "val_accuracy"
+        assert isinstance(kwargs["value"], float)
+        assert kwargs["on_epoch"] is True
+        assert kwargs["on_step"] is False
+        assert kwargs["prog_bar"] is True
 
     def test_on_validation_epoch_end_respects_prog_bar_false(self):
         """``prog_bar=False`` must reach ``pl_module.log``; it was previously hardcoded to True regardless of the ctor arg."""
+
         def dummy_metric(y_true, y_score):
             return 0.5
 
         callback = AggregatingValidationCallback(
-            metric_name='test',
+            metric_name="test",
             metric_fcn=dummy_metric,
             prog_bar=False,
         )
@@ -263,17 +250,15 @@ class TestAggregatingValidationCallback:
         callback.on_validation_epoch_end(None, mock_module)
 
         args, kwargs = mock_module.log.call_args
-        assert kwargs['prog_bar'] is False
+        assert kwargs["prog_bar"] is False
 
     def test_on_validation_epoch_end_resets_accumulators(self):
         """Test that on_validation_epoch_end resets accumulators."""
+
         def dummy_metric(y_true, y_score):
             return 0.5
 
-        callback = AggregatingValidationCallback(
-            metric_name='test',
-            metric_fcn=dummy_metric
-        )
+        callback = AggregatingValidationCallback(metric_name="test", metric_fcn=dummy_metric)
 
         # Add batches
         callback.batched_predictions.append(torch.tensor([0.1, 0.9]))
@@ -297,10 +282,7 @@ class TestAggregatingValidationCallback:
             captured_predictions.append(y_score)
             return 0.5
 
-        callback = AggregatingValidationCallback(
-            metric_name='test',
-            metric_fcn=capture_metric
-        )
+        callback = AggregatingValidationCallback(metric_name="test", metric_fcn=capture_metric)
 
         # Add multiple batches
         callback.batched_predictions.append(torch.tensor([0.1, 0.2]))
@@ -327,29 +309,19 @@ class TestBestEpochModelCheckpoint:
 
     def test_initialization_mode_min(self):
         """Test initialization with mode='min'."""
-        callback = BestEpochModelCheckpoint(
-            monitor='val_loss',
-            mode='min',
-            dirpath='checkpoints',
-            filename='best'
-        )
+        callback = BestEpochModelCheckpoint(monitor="val_loss", mode="min", dirpath="checkpoints", filename="best")
 
         assert callback.best_epoch is None
-        assert callback.best_score == float('inf')
+        assert callback.best_score == float("inf")
         assert callback.monitor_op(1, 2) is True  # 1 < 2
         assert callback.monitor_op(2, 1) is False
 
     def test_initialization_mode_max(self):
         """Test initialization with mode='max'."""
-        callback = BestEpochModelCheckpoint(
-            monitor='val_acc',
-            mode='max',
-            dirpath='checkpoints',
-            filename='best'
-        )
+        callback = BestEpochModelCheckpoint(monitor="val_acc", mode="max", dirpath="checkpoints", filename="best")
 
         assert callback.best_epoch is None
-        assert callback.best_score == float('-inf')
+        assert callback.best_score == float("-inf")
         assert callback.monitor_op(2, 1) is True  # 2 > 1
         assert callback.monitor_op(1, 2) is False
 
@@ -357,15 +329,11 @@ class TestBestEpochModelCheckpoint:
         """Test that invalid mode raises exception."""
         # Lightning's ModelCheckpoint validates mode in parent class
         from lightning.fabric.utilities.exceptions import MisconfigurationException
-        with pytest.raises(MisconfigurationException, match="mode"):
-            BestEpochModelCheckpoint(
-                monitor='val_loss',
-                mode='invalid',
-                dirpath='checkpoints',
-                filename='best'
-            )
 
-    @patch('mlframe.training.neural._base_callbacks.logger')
+        with pytest.raises(MisconfigurationException, match="mode"):
+            BestEpochModelCheckpoint(monitor="val_loss", mode="invalid", dirpath="checkpoints", filename="best")
+
+    @patch("mlframe.training.neural._base_callbacks.logger")
     def test_initialization_logs_message(self, mock_logger):
         """Test that initialization logs a message.
 
@@ -374,33 +342,23 @@ class TestBestEpochModelCheckpoint:
         so patch the sibling's logger -- patching base.py's no longer
         intercepts the init-time log line.
         """
-        callback = BestEpochModelCheckpoint(
-            monitor='val_loss',
-            mode='min',
-            dirpath='checkpoints',
-            filename='best'
-        )
+        callback = BestEpochModelCheckpoint(monitor="val_loss", mode="min", dirpath="checkpoints", filename="best")
 
         # Check that logger.info was called
         mock_logger.info.assert_called()
 
     def test_on_validation_end_first_epoch(self):
         """Test on_validation_end on first epoch (always improves)."""
-        callback = BestEpochModelCheckpoint(
-            monitor='val_loss',
-            mode='min',
-            dirpath='checkpoints',
-            filename='best'
-        )
+        callback = BestEpochModelCheckpoint(monitor="val_loss", mode="min", dirpath="checkpoints", filename="best")
 
         # Mock trainer and pl_module
         mock_trainer = Mock()
         mock_trainer.current_epoch = 0
-        mock_trainer.callback_metrics = {'val_loss': torch.tensor(0.5)}
+        mock_trainer.callback_metrics = {"val_loss": torch.tensor(0.5)}
 
         mock_module = Mock()
 
-        with patch('builtins.print'):
+        with patch("builtins.print"):
             callback.on_validation_end(mock_trainer, mock_module)
 
         assert callback.best_epoch == 0
@@ -408,12 +366,7 @@ class TestBestEpochModelCheckpoint:
 
     def test_on_validation_end_improvement(self):
         """Test on_validation_end when metric improves."""
-        callback = BestEpochModelCheckpoint(
-            monitor='val_loss',
-            mode='min',
-            dirpath='checkpoints',
-            filename='best'
-        )
+        callback = BestEpochModelCheckpoint(monitor="val_loss", mode="min", dirpath="checkpoints", filename="best")
 
         callback.best_epoch = 0
         callback.best_score = 0.5
@@ -421,11 +374,11 @@ class TestBestEpochModelCheckpoint:
         # Mock trainer with improved metric
         mock_trainer = Mock()
         mock_trainer.current_epoch = 1
-        mock_trainer.callback_metrics = {'val_loss': torch.tensor(0.3)}
+        mock_trainer.callback_metrics = {"val_loss": torch.tensor(0.3)}
 
         mock_module = Mock()
 
-        with patch('builtins.print'):
+        with patch("builtins.print"):
             callback.on_validation_end(mock_trainer, mock_module)
 
         assert callback.best_epoch == 1
@@ -433,12 +386,7 @@ class TestBestEpochModelCheckpoint:
 
     def test_on_validation_end_no_improvement(self):
         """Test on_validation_end when metric doesn't improve."""
-        callback = BestEpochModelCheckpoint(
-            monitor='val_loss',
-            mode='min',
-            dirpath='checkpoints',
-            filename='best'
-        )
+        callback = BestEpochModelCheckpoint(monitor="val_loss", mode="min", dirpath="checkpoints", filename="best")
 
         callback.best_epoch = 0
         callback.best_score = 0.3
@@ -446,11 +394,11 @@ class TestBestEpochModelCheckpoint:
         # Mock trainer with worse metric
         mock_trainer = Mock()
         mock_trainer.current_epoch = 1
-        mock_trainer.callback_metrics = {'val_loss': torch.tensor(0.5)}
+        mock_trainer.callback_metrics = {"val_loss": torch.tensor(0.5)}
 
         mock_module = Mock()
 
-        with patch('builtins.print'):
+        with patch("builtins.print"):
             callback.on_validation_end(mock_trainer, mock_module)
 
         # Should not update
@@ -459,23 +407,18 @@ class TestBestEpochModelCheckpoint:
 
     def test_on_validation_end_metric_not_found(self):
         """Test on_validation_end when monitor metric not in callback_metrics."""
-        callback = BestEpochModelCheckpoint(
-            monitor='val_loss',
-            mode='min',
-            dirpath='checkpoints',
-            filename='best'
-        )
+        callback = BestEpochModelCheckpoint(monitor="val_loss", mode="min", dirpath="checkpoints", filename="best")
 
         # Mock trainer without the monitored metric
         mock_trainer = Mock()
         mock_trainer.current_epoch = 0
-        mock_trainer.callback_metrics = {'other_metric': torch.tensor(0.5)}
+        mock_trainer.callback_metrics = {"other_metric": torch.tensor(0.5)}
 
         mock_module = Mock()
 
         # See test_initialization_logs_message: BestEpochModelCheckpoint lives
         # in sibling _base_callbacks.py post-carve; patch that module's logger.
-        with patch('mlframe.training.neural._base_callbacks.logger.warning') as mock_warn:
+        with patch("mlframe.training.neural._base_callbacks.logger.warning") as mock_warn:
             callback.on_validation_end(mock_trainer, mock_module)
 
         # Should issue warning via logger
@@ -484,21 +427,16 @@ class TestBestEpochModelCheckpoint:
 
     def test_on_validation_end_tensor_conversion(self):
         """Test that tensor metrics are converted to float."""
-        callback = BestEpochModelCheckpoint(
-            monitor='val_acc',
-            mode='max',
-            dirpath='checkpoints',
-            filename='best'
-        )
+        callback = BestEpochModelCheckpoint(monitor="val_acc", mode="max", dirpath="checkpoints", filename="best")
 
         # Mock trainer with tensor metric
         mock_trainer = Mock()
         mock_trainer.current_epoch = 0
-        mock_trainer.callback_metrics = {'val_acc': torch.tensor(0.85)}
+        mock_trainer.callback_metrics = {"val_acc": torch.tensor(0.85)}
 
         mock_module = Mock()
 
-        with patch('builtins.print'):
+        with patch("builtins.print"):
             callback.on_validation_end(mock_trainer, mock_module)
 
         # best_score should be float, not tensor
@@ -507,12 +445,7 @@ class TestBestEpochModelCheckpoint:
 
     def test_on_validation_end_mode_max(self):
         """Test on_validation_end with mode='max'."""
-        callback = BestEpochModelCheckpoint(
-            monitor='val_acc',
-            mode='max',
-            dirpath='checkpoints',
-            filename='best'
-        )
+        callback = BestEpochModelCheckpoint(monitor="val_acc", mode="max", dirpath="checkpoints", filename="best")
 
         callback.best_epoch = 0
         callback.best_score = 0.8
@@ -520,11 +453,11 @@ class TestBestEpochModelCheckpoint:
         # Mock trainer with improved metric (higher is better)
         mock_trainer = Mock()
         mock_trainer.current_epoch = 1
-        mock_trainer.callback_metrics = {'val_acc': torch.tensor(0.9)}
+        mock_trainer.callback_metrics = {"val_acc": torch.tensor(0.9)}
 
         mock_module = Mock()
 
-        with patch('builtins.print'):
+        with patch("builtins.print"):
             callback.on_validation_end(mock_trainer, mock_module)
 
         assert callback.best_epoch == 1
@@ -547,11 +480,7 @@ class TestPeriodicLearningRateFinder:
 
     def test_initialization_with_kwargs(self):
         """Test initialization with additional kwargs."""
-        callback = PeriodicLearningRateFinder(
-            period=3,
-            min_lr=1e-8,
-            max_lr=1.0
-        )
+        callback = PeriodicLearningRateFinder(period=3, min_lr=1e-8, max_lr=1.0)
 
         assert callback.period == 3
 
@@ -569,7 +498,7 @@ class TestPeriodicLearningRateFinder:
         mock_module = Mock()
         mock_module.learning_rate = 0.001
 
-        with patch('builtins.print'):
+        with patch("builtins.print"):
             callback.on_train_epoch_start(mock_trainer, mock_module)
 
         # lr_find should be called at epoch 0
@@ -588,7 +517,7 @@ class TestPeriodicLearningRateFinder:
         mock_module = Mock()
         mock_module.learning_rate = 0.001
 
-        with patch('builtins.print'):
+        with patch("builtins.print"):
             callback.on_train_epoch_start(mock_trainer, mock_module)
 
         callback.lr_find.assert_called_once()
@@ -625,7 +554,7 @@ class TestPeriodicLearningRateFinder:
             mock_trainer = Mock()
             mock_trainer.current_epoch = epoch
 
-            with patch('builtins.print'):
+            with patch("builtins.print"):
                 callback.on_train_epoch_start(mock_trainer, mock_module)
 
         # Should be called 4 times (epochs 0, 2, 4, 6)
@@ -643,7 +572,7 @@ class TestPeriodicLearningRateFinder:
         mock_module = Mock()
         mock_module.learning_rate = 0.001
 
-        with patch('mlframe.training.neural._base_callbacks.logger') as mock_logger:
+        with patch("mlframe.training.neural._base_callbacks.logger") as mock_logger:
             callback.on_train_epoch_start(mock_trainer, mock_module)
 
         # Should log 2 messages (before and after)
@@ -663,7 +592,7 @@ class TestPeriodicLearningRateFinder:
             mock_trainer = Mock()
             mock_trainer.current_epoch = epoch
 
-            with patch('builtins.print'):
+            with patch("builtins.print"):
                 callback.on_train_epoch_start(mock_trainer, mock_module)
 
         # Should be called 6 times (every epoch)
@@ -683,7 +612,7 @@ class TestPeriodicLearningRateFinder:
             mock_trainer = Mock()
             mock_trainer.current_epoch = epoch
 
-            with patch('builtins.print'):
+            with patch("builtins.print"):
                 callback.on_train_epoch_start(mock_trainer, mock_module)
 
         # Should be called 2 times (epochs 0 and 100)
@@ -700,21 +629,14 @@ class TestCallbacksIntegration:
 
     def test_multiple_callbacks_together(self):
         """Test using multiple callbacks together."""
+
         def dummy_metric(y_true, y_score):
             return 0.5
 
         callbacks = [
             NetworkGraphLoggingCallback(),
-            AggregatingValidationCallback(
-                metric_name='acc',
-                metric_fcn=dummy_metric
-            ),
-            BestEpochModelCheckpoint(
-                monitor='val_loss',
-                mode='min',
-                dirpath='checkpoints',
-                filename='best'
-            )
+            AggregatingValidationCallback(metric_name="acc", metric_fcn=dummy_metric),
+            BestEpochModelCheckpoint(monitor="val_loss", mode="min", dirpath="checkpoints", filename="best"),
         ]
 
         # All should be instantiated without errors
@@ -756,7 +678,7 @@ class TestCallbacksMutationTests:
         mock_module = Mock()
         mock_module.learning_rate = 0.001
 
-        with patch('builtins.print'):
+        with patch("builtins.print"):
             callback.on_train_epoch_start(mock_trainer, mock_module)
 
         # Should run at epoch 0
@@ -785,7 +707,7 @@ class TestCallbacksMutationTests:
         # Epoch 5 should run
         mock_trainer = Mock()
         mock_trainer.current_epoch = 5
-        with patch('builtins.print'):
+        with patch("builtins.print"):
             callback.on_train_epoch_start(mock_trainer, mock_module)
 
         assert callback.lr_find.call_count == 1

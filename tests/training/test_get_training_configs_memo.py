@@ -11,6 +11,7 @@ Tests pin:
 4. Cache cap (``_GTC_CACHE_MAX``) bounds the dict size via FIFO eviction.
 5. Returned object is a deepcopy -- mutating the result must not poison subsequent hits.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -34,6 +35,7 @@ def test_repeated_identical_kwargs_hits_cache_after_first_call():
 
     def _stub(**_kw):
         from types import SimpleNamespace
+
         call_count["n"] += 1
         return SimpleNamespace(catboost_dict=dict(iterations=100), kwargs=tuple(sorted(_kw.items())))
 
@@ -51,6 +53,7 @@ def test_different_has_gpu_flag_separate_cache_entries():
 
     def _stub(**_kw):
         from types import SimpleNamespace
+
         call_count["n"] += 1
         return SimpleNamespace(has_gpu=_kw.get("has_gpu"))
 
@@ -68,6 +71,7 @@ def test_unhashable_kwarg_falls_through_to_direct_call():
 
     def _stub(**_kw):
         from types import SimpleNamespace
+
         call_count["n"] += 1
         return SimpleNamespace()
 
@@ -84,17 +88,17 @@ def test_unhashable_kwarg_falls_through_to_direct_call():
 
 def test_cache_cap_bounds_dict_via_fifo_eviction():
     """``_GTC_CACHE_MAX`` is respected -- once the cap is hit, the oldest entry evicts."""
+
     def _stub(**_kw):
         from types import SimpleNamespace
+
         return SimpleNamespace(payload=_kw.get("iterations"))
 
     with patch("mlframe.training.trainer.get_training_configs", side_effect=_stub):
         for i in range(tc._GTC_CACHE_MAX + 3):
             tc._get_training_configs_cached(has_gpu=False, iterations=i)
 
-    assert len(tc._GTC_CACHE) == tc._GTC_CACHE_MAX, (
-        f"cache must be capped at {tc._GTC_CACHE_MAX}; got {len(tc._GTC_CACHE)}"
-    )
+    assert len(tc._GTC_CACHE) == tc._GTC_CACHE_MAX, f"cache must be capped at {tc._GTC_CACHE_MAX}; got {len(tc._GTC_CACHE)}"
 
 
 def test_returned_object_is_deepcopy_so_caller_mutation_does_not_poison_hits():
@@ -111,12 +115,8 @@ def test_returned_object_is_deepcopy_so_caller_mutation_does_not_poison_hits():
 
         second = tc._get_training_configs_cached(has_gpu=False, iterations=100)
 
-    assert second.catboost_dict["iterations"] == 100, (
-        "deepcopy on return must isolate cache from caller mutation"
-    )
-    assert not hasattr(second, "poisoned_field"), (
-        "cache must not propagate caller-injected attributes"
-    )
+    assert second.catboost_dict["iterations"] == 100, "deepcopy on return must isolate cache from caller mutation"
+    assert not hasattr(second, "poisoned_field"), "cache must not propagate caller-injected attributes"
 
 
 def test_none_subgroups_is_stable_cache_key():
@@ -125,6 +125,7 @@ def test_none_subgroups_is_stable_cache_key():
 
     def _stub(**_kw):
         from types import SimpleNamespace
+
         call_count["n"] += 1
         return SimpleNamespace()
 

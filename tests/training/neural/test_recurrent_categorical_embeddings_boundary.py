@@ -7,6 +7,7 @@ boundary; the wrapper factorizes the tabular cats to int codes BEFORE the scaler
 tabular block so the cat path no-ops cleanly. Also covers a fit->pickle->predict bit-identical round-trip, unseen-category-at-predict, the knob-off
 fallback, and a biz_value check that learnable embeddings beat an ordinal cat-code on a non-monotone category->target signal.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -55,11 +56,13 @@ def _cfg(input_mode=InputMode.HYBRID, num_classes=2, rnn_type=RNNType.GRU):
 def _make_data(n=_N, seed=0):
     rng = np.random.default_rng(seed)
     cats = rng.choice(_COLORS, size=n)
-    feats = pd.DataFrame({
-        "num_a": rng.normal(size=n).astype(np.float32),
-        "color": cats,                                    # string categorical (object dtype)
-        "num_b": rng.normal(size=n).astype(np.float32),
-    })
+    feats = pd.DataFrame(
+        {
+            "num_a": rng.normal(size=n).astype(np.float32),
+            "color": cats,  # string categorical (object dtype)
+            "num_b": rng.normal(size=n).astype(np.float32),
+        }
+    )
     seqs = [rng.normal(size=(int(rng.integers(3, 8)), 2)).astype(np.float32) for _ in range(n)]
     return feats, seqs, cats, rng
 
@@ -164,10 +167,12 @@ def test_knob_off_disables_factorization():
     # encoding; we pass an all-numeric frame so the fit completes.
     rng = np.random.default_rng(5)
     n = _N
-    feats = pd.DataFrame({
-        "cat_code": rng.integers(0, 3, size=n).astype(np.float32),
-        "num_0": rng.normal(size=n).astype(np.float32),
-    })
+    feats = pd.DataFrame(
+        {
+            "cat_code": rng.integers(0, 3, size=n).astype(np.float32),
+            "num_0": rng.normal(size=n).astype(np.float32),
+        }
+    )
     seqs = [rng.normal(size=(int(rng.integers(3, 8)), 2)).astype(np.float32) for _ in range(n)]
     y = feats["num_0"].to_numpy().astype(np.float32)
     reg = RecurrentRegressorWrapper(config=_cfg(), random_state=42, use_learnable_cat_embeddings=False)
@@ -194,16 +199,20 @@ def test_biz_value_learnable_embeddings_beat_ordinal_on_nonmonotone_signal():
     y = np.array([lut[c] for c in cats], dtype=np.float32)
     seqs = [rng.normal(size=(5, 2)).astype(np.float32) for _ in range(n)]
 
-    feats_emb = pd.DataFrame({
-        "num_a": rng.normal(scale=0.01, size=n).astype(np.float32),
-        "color": cats,
-    })
+    feats_emb = pd.DataFrame(
+        {
+            "num_a": rng.normal(scale=0.01, size=n).astype(np.float32),
+            "color": cats,
+        }
+    )
     # Ordinal baseline: the SAME factorize codes, fed as a plain numeric column (no cat_features -> no embedding).
     codes, _uniques = pd.factorize(pd.Series(cats), sort=False)
-    feats_ord = pd.DataFrame({
-        "num_a": feats_emb["num_a"].to_numpy(),
-        "color_code": codes.astype(np.float32),
-    })
+    feats_ord = pd.DataFrame(
+        {
+            "num_a": feats_emb["num_a"].to_numpy(),
+            "color_code": codes.astype(np.float32),
+        }
+    )
 
     cfg_emb = _cfg()
     cfg_emb.max_epochs = 40

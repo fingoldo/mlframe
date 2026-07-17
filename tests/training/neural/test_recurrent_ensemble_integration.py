@@ -10,6 +10,7 @@ recurrent model, wraps each in a member-entry compatible with ``score_ensemble``
 ``ctx.models[type][target]``, then ``_rerun_ensemble_with_recurrent`` calls back into ``score_ensemble`` with the
 augmented member list. ``ctx.metadata['recurrent_ensemble_integration']`` records the rerun for observability.
 """
+
 from __future__ import annotations
 
 import os
@@ -42,13 +43,15 @@ def _build_synthetic_dataset(seed: int = 0):
     # Target draws on the SEQUENCE mean (so LSTM has signal) plus a per-row tabular feature.
     extra_tabular = rng.standard_normal(N_ROWS).astype("float32")
     target = (seq_means[:, 0] * 1.2 + extra_tabular * 0.5 + rng.standard_normal(N_ROWS).astype("float32") * 0.1).astype("float32")
-    df = pd.DataFrame({
-        "num_0": seq_means[:, 0],
-        "num_1": seq_means[:, 1],
-        "num_2": seq_means[:, 2],
-        "num_3": extra_tabular,
-        "target": target,
-    })
+    df = pd.DataFrame(
+        {
+            "num_0": seq_means[:, 0],
+            "num_1": seq_means[:, 1],
+            "num_2": seq_means[:, 2],
+            "num_3": extra_tabular,
+            "target": target,
+        }
+    )
     return df, sequences
 
 
@@ -105,13 +108,10 @@ def test_recurrent_member_joins_ensemble_after_integration(tmp_path):
                 # We also expect at least 2 total members (the CB booster + the LSTM); the rerun would have
                 # been skipped by ``len(members) < 2`` otherwise, so this is implied, but assert defensively.
                 assert info.get("total_members", 0) >= 2, (
-                    f"Augmented ensemble member count was {info.get('total_members')} - expected the CB booster "
-                    f"alongside the LSTM."
+                    f"Augmented ensemble member count was {info.get('total_members')} - expected the CB booster alongside the LSTM."
                 )
                 matched_any = True
-    assert matched_any, (
-        f"No recurrent_ensemble_integration entry listed an LSTM member. recurrent_ensemble_integration={rec_meta!r}"
-    )
+    assert matched_any, f"No recurrent_ensemble_integration entry listed an LSTM member. recurrent_ensemble_integration={rec_meta!r}"
 
 
 def test_recurrent_skipped_gracefully_when_predict_fails(monkeypatch, tmp_path):

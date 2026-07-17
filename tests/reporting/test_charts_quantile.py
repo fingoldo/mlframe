@@ -14,13 +14,18 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.quantile import (
-    ALLOWED_QUANTILE_PANEL_TOKENS, compose_quantile_figure,
+    ALLOWED_QUANTILE_PANEL_TOKENS,
+    compose_quantile_figure,
     _model_diagnostics_decompose,
 )
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec,
+    AnnotationPanelSpec,
+    BarPanelSpec,
+    FigureSpec,
+    HistogramPanelSpec,
+    LinePanelSpec,
 )
 
 
@@ -30,11 +35,13 @@ def synth_qr_3alpha():
     rng = np.random.default_rng(0)
     n = 500
     y = rng.standard_normal(n)
-    preds = np.column_stack([
-        np.full(n, -1.2815515655446004),
-        np.zeros(n),
-        np.full(n, 1.2815515655446004),
-    ])
+    preds = np.column_stack(
+        [
+            np.full(n, -1.2815515655446004),
+            np.zeros(n),
+            np.full(n, 1.2815515655446004),
+        ]
+    )
     alphas = (0.1, 0.5, 0.9)
     return y, preds, alphas
 
@@ -46,6 +53,7 @@ def synth_qr_5alpha():
     n = 500
     y = rng.standard_normal(n)
     from scipy.stats import norm
+
     alphas = (0.05, 0.25, 0.5, 0.75, 0.95)
     preds = np.tile(norm.ppf(alphas), (n, 1))
     return y, preds, alphas
@@ -58,12 +66,20 @@ def synth_qr_5alpha():
 
 class TestAllowedTokens:
     def test_allowed_set(self):
-        assert ALLOWED_QUANTILE_PANEL_TOKENS == frozenset({
-            "RELIABILITY", "COVERAGE", "PINBALL_BY_ALPHA", "INTERVAL_BAND",
-            "WIDTH_DIST", "PIT_HIST",
-            "QUANTILE_RELIABILITY", "PINBALL_DECOMP", "QUANTILE_CROSSING",
-            "FAN_CHART",
-        })
+        assert ALLOWED_QUANTILE_PANEL_TOKENS == frozenset(
+            {
+                "RELIABILITY",
+                "COVERAGE",
+                "PINBALL_BY_ALPHA",
+                "INTERVAL_BAND",
+                "WIDTH_DIST",
+                "PIT_HIST",
+                "QUANTILE_RELIABILITY",
+                "PINBALL_DECOMP",
+                "QUANTILE_CROSSING",
+                "FAN_CHART",
+            }
+        )
 
 
 # ----------------------------------------------------------------------------
@@ -125,9 +141,9 @@ class TestPanelTypes:
     def test_pit_hist_placeholder_when_K_lt_3(self, synth_qr_3alpha):
         # K = 2 alphas (drop median) -> honest annotation placeholder, not a fake histogram.
         from mlframe.reporting.spec import AnnotationPanelSpec
+
         y, p, alphas = synth_qr_3alpha
-        spec = compose_quantile_figure(y, p[:, [0, 2]], (alphas[0], alphas[2]),
-                                        panels_template="PIT_HIST")
+        spec = compose_quantile_figure(y, p[:, [0, 2]], (alphas[0], alphas[2]), panels_template="PIT_HIST")
         panel = spec.panels[0][0]
         assert isinstance(panel, AnnotationPanelSpec)
         assert "requires k >= 3" in panel.text.lower()
@@ -177,8 +193,7 @@ class TestComposer:
 
     def test_suptitle(self, synth_qr_3alpha):
         y, p, alphas = synth_qr_3alpha
-        spec = compose_quantile_figure(y, p, alphas, panels_template="RELIABILITY",
-                                        suptitle="QR baseline")
+        spec = compose_quantile_figure(y, p, alphas, panels_template="RELIABILITY", suptitle="QR baseline")
         assert spec.suptitle == "QR baseline"
 
 
@@ -193,8 +208,7 @@ class TestRender:
         spec = compose_quantile_figure(y, p, alphas)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"),
-                            str(tmp_path / "qr"))
+            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"), str(tmp_path / "qr"))
         assert os.path.exists(tmp_path / "qr.png")
         assert os.path.getsize(tmp_path / "qr.png") > 5000
 
@@ -203,8 +217,7 @@ class TestRender:
         spec = compose_quantile_figure(y, p, alphas)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            render_and_save(spec, parse_plot_output_dsl("plotly[html]"),
-                            str(tmp_path / "qr"))
+            render_and_save(spec, parse_plot_output_dsl("plotly[html]"), str(tmp_path / "qr"))
         assert os.path.exists(tmp_path / "qr.html")
 
 
@@ -221,6 +234,7 @@ def synth_qr_calibrated():
     so feeding exactly that as q_tau yields a calibrated, never-crossing predictor.
     """
     from scipy.stats import norm
+
     rng = np.random.default_rng(0)
     n = 6000
     x = rng.standard_normal(n)
@@ -238,6 +252,7 @@ def synth_qr_miscalibrated():
     recalibrated observed coverage sits well BELOW nominal tau -- a large, detectable deviation.
     """
     from scipy.stats import norm
+
     rng = np.random.default_rng(0)
     n = 6000
     x = rng.standard_normal(n)
@@ -315,7 +330,10 @@ class TestQuantileReliabilityPanelTypes:
     def test_quantile_crossing_placeholder_when_single_alpha(self, synth_qr_calibrated):
         y, p, alphas = synth_qr_calibrated
         spec = compose_quantile_figure(
-            y, p[:, [1]], (alphas[1],), panels_template="QUANTILE_CROSSING",
+            y,
+            p[:, [1]],
+            (alphas[1],),
+            panels_template="QUANTILE_CROSSING",
         )
         panel = spec.panels[0][0]
         assert isinstance(panel, AnnotationPanelSpec)
@@ -324,13 +342,14 @@ class TestQuantileReliabilityPanelTypes:
     def test_new_tokens_render_matplotlib(self, synth_qr_calibrated, tmp_path):
         y, p, alphas = synth_qr_calibrated
         spec = compose_quantile_figure(
-            y, p, alphas,
+            y,
+            p,
+            alphas,
             panels_template="QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING",
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"),
-                            str(tmp_path / "qr6"))
+            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"), str(tmp_path / "qr6"))
         assert os.path.exists(tmp_path / "qr6.png")
         assert os.path.getsize(tmp_path / "qr6.png") > 5000
 
@@ -376,7 +395,9 @@ class TestQuantileReliabilityBizValue:
         assert float(rates.max()) > 0.9, f"crossing rate too low {rates.max()}"
 
     def test_biz_corp_miscalibration_jumps_on_shift(
-        self, synth_qr_calibrated, synth_qr_miscalibrated,
+        self,
+        synth_qr_calibrated,
+        synth_qr_miscalibrated,
     ):
         if _model_diagnostics_decompose() is None:
             pytest.skip("model-diagnostics not importable")
@@ -398,6 +419,7 @@ class TestQuantileReliabilityPerf:
         # Above the 100k cap the panel must still emit the same fixed-resolution curve, fast.
         from mlframe.reporting.charts.quantile import _RELIABILITY_GRID
         from scipy.stats import norm
+
         rng = np.random.default_rng(0)
         n = 200_000
         x = rng.standard_normal(n)
@@ -418,6 +440,7 @@ class TestQuantileReliabilityPerf:
             pytest.skip("model-diagnostics not importable")
         import time
         from scipy.stats import norm
+
         rng = np.random.default_rng(0)
         n = 1_000_000
         x = rng.standard_normal(n)

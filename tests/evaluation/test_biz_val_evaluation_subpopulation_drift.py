@@ -6,6 +6,7 @@ the shifted minority subgroup and not a genuinely stable subgroup, and (b) recov
 prevalence ratio to within sampling tolerance, proving it's a meaningfully quantitative early-warning signal
 for "a subgroup-only feature built on this column is at overfit risk," not just a boolean smoke test.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -14,6 +14,7 @@ maxT-floor debias are all retained as an OPT-IN. These tests pin:
     it (the floor is NOT weakened by the ratio relaxation -- IRON RULE);
   * the DEFAULT is OFF => selection is byte-stable vs the raw-plug-in path.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -32,12 +33,14 @@ warnings.filterwarnings("ignore")
 class TestMillerMadowMICorrection:
     def test_closed_form_bias_subtraction(self):
         from mlframe.feature_selection.filters.info_theory import mi_miller_madow_correct
+
         # I - (k_x-1)(k_y-1)/2n
         assert mi_miller_madow_correct(0.5, 10, 5, 1000) == pytest.approx(0.5 - 9 * 4 / 2000.0)
         assert mi_miller_madow_correct(1.18, 100, 10, 500) == pytest.approx(1.18 - 99 * 9 / 1000.0)
 
     def test_degenerate_cardinality_passthrough(self):
         from mlframe.feature_selection.filters.info_theory import mi_miller_madow_correct
+
         # k_x <= 1 or k_y <= 1 -> the bias term is 0 / negative; pass the plug-in through.
         assert mi_miller_madow_correct(0.5, 1, 5, 1000) == 0.5
         assert mi_miller_madow_correct(0.5, 10, 1, 1000) == 0.5
@@ -45,6 +48,7 @@ class TestMillerMadowMICorrection:
 
     def test_vanishes_at_large_n(self):
         from mlframe.feature_selection.filters.info_theory import mi_miller_madow_correct
+
         # ->0 as n->inf : large-n selection byte-untouched.
         big = mi_miller_madow_correct(0.5, 100, 10, 10_000_000)
         assert abs(big - 0.5) < 1e-4
@@ -53,6 +57,7 @@ class TestMillerMadowMICorrection:
 class TestOccupiedK:
     def test_counts_nonempty_bins(self):
         from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gates import _occupied_k
+
         # codes use only 3 of 10 nominal bins -> occupied-K = 3 (#4 collapse).
         codes = np.array([0, 0, 4, 4, 9, 9, 9], dtype=np.int64)
         assert _occupied_k(codes) == 3
@@ -67,6 +72,7 @@ class TestMMDebiasedPrevalenceRatio:
         from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gates import (
             mm_debiased_prevalence_ratio,
         )
+
         # He2(a)*b @ n=500: raw 0.65/1.18 = 0.554 (< 0.90 bar) -> MM (occ K_joint=100) > 0.90.
         raw = 0.65 / 1.18
         mm = mm_debiased_prevalence_ratio(0.65, 1.18, k_eng=10, k_joint=100, k_y=10, n=500)
@@ -78,6 +84,7 @@ class TestMMDebiasedPrevalenceRatio:
         from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gates import (
             mm_debiased_prevalence_ratio,
         )
+
         # Tiny joint MI vs a huge MM term -> corrected denom <= 0; must NOT explode/sign-flip,
         # must fall back to the raw ratio (the existing gate behaviour).
         raw = 0.1 / 0.05
@@ -88,6 +95,7 @@ class TestMMDebiasedPrevalenceRatio:
         from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gates import (
             mm_debiased_prevalence_ratio,
         )
+
         assert mm_debiased_prevalence_ratio(0.3, 0.0, k_eng=10, k_joint=100, k_y=10, n=500) == 0.0
         # single-class target -> no correction, raw ratio.
         assert mm_debiased_prevalence_ratio(0.3, 0.6, k_eng=10, k_joint=100, k_y=1, n=500) == pytest.approx(0.5)
@@ -100,8 +108,7 @@ class TestMaxTFloorMMCoUpdate:
     def _wide_synergy(self, n=1500, n_noise=40, seed=20260603):
         rng = np.random.default_rng(seed)
         x = {f"x{i}": rng.normal(size=n) for i in range(1, 7)}
-        lin = (1.5 * np.sign(x["x1"] * x["x2"]) + 1.2 * np.sign(x["x3"] * x["x4"])
-               + 1.0 * np.sign(x["x5"] * x["x6"] + 0.3 * x["x5"]))
+        lin = 1.5 * np.sign(x["x1"] * x["x2"]) + 1.2 * np.sign(x["x3"] * x["x4"]) + 1.0 * np.sign(x["x5"] * x["x6"] + 0.3 * x["x5"])
         y = (rng.random(n) < 1.0 / (1.0 + np.exp(-lin))).astype(int)
         d = dict(x)
         for j in range(n_noise):
@@ -113,26 +120,34 @@ class TestMaxTFloorMMCoUpdate:
         from mlframe.feature_selection.filters.discretization import categorize_dataset
         from mlframe.feature_selection.filters.info_theory import merge_vars, batch_pair_mi_prange
         from mlframe.feature_selection.filters._permutation_null import (
-            pooled_pair_permutation_null_joint_mi_floor, pairwise_mm_joint_bias,
+            pooled_pair_permutation_null_joint_mi_floor,
+            pairwise_mm_joint_bias,
         )
+
         df = self._wide_synergy()
         cols = list(df.columns)
         data, _c, nb = categorize_dataset(df=df, method="quantile", n_bins=8, dtype=np.int16)
         yi = cols.index("y")
-        cy, fy, _ = merge_vars(factors_data=data, vars_indices=[yi], var_is_nominal=None,
-                               factors_nbins=nb, dtype=np.int16)
+        cy, fy, _ = merge_vars(factors_data=data, vars_indices=[yi], var_is_nominal=None, factors_nbins=nb, dtype=np.int16)
         feat = [cols.index(c) for c in cols if c != "y"]
         pairs = list(combinations(feat, 2))
         pa = np.fromiter((p[0] for p in pairs), dtype=np.int64, count=len(pairs))
         pb = np.fromiter((p[1] for p in pairs), dtype=np.int64, count=len(pairs))
         mis = batch_pair_mi_prange(data, pa, pb, np.ascontiguousarray(nb), cy, fy)
         floor_mm = pooled_pair_permutation_null_joint_mi_floor(
-            factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=cy, freqs_y=fy,
-            n_permutations=25, quantile=0.95, random_seed=42, mm_debias=True,
+            factors_data=data,
+            nbins=nb,
+            pair_a=pa,
+            pair_b=pb,
+            classes_y=cy,
+            freqs_y=fy,
+            n_permutations=25,
+            quantile=0.95,
+            random_seed=42,
+            mm_debias=True,
         )
         bias = pairwise_mm_joint_bias(data, pa, pb, nb, int(fy.shape[0]))
-        gk = {tuple(sorted((cols.index(a), cols.index(b))))
-              for a, b in [("x1", "x2"), ("x3", "x4"), ("x5", "x6")]}
+        gk = {tuple(sorted((cols.index(a), cols.index(b)))) for a, b in [("x1", "x2"), ("x3", "x4"), ("x5", "x6")]}
         gen_clear, noise_below = [], []
         for k, (a, b) in enumerate(pairs):
             cmp = mis[k] - bias[k]
@@ -142,13 +157,9 @@ class TestMaxTFloorMMCoUpdate:
             elif cols[a].startswith("noise_") and cols[b].startswith("noise_"):
                 noise_below.append(cmp <= floor_mm)
         # Genuine synergy clears the MM-debiased floor; the floor is NOT weakened.
-        assert all(gen_clear) and len(gen_clear) == 3, (
-            f"genuine synergy pairs did not all clear the MM floor {floor_mm}"
-        )
+        assert all(gen_clear) and len(gen_clear) == 3, f"genuine synergy pairs did not all clear the MM floor {floor_mm}"
         # The overwhelming majority of noise pairs sit at/below the MM floor (outer guard intact).
-        assert float(np.mean(noise_below)) >= 0.95, (
-            f"only {np.mean(noise_below):.2%} of noise pairs at/below the MM floor {floor_mm}"
-        )
+        assert float(np.mean(noise_below)) >= 0.95, f"only {np.mean(noise_below):.2%} of noise pairs at/below the MM floor {floor_mm}"
 
     def test_raw_vs_mm_floor_consistent_scale(self):
         """The MM floor and the per-pair-debiased pair_mi are on the SAME scale, so the
@@ -159,18 +170,17 @@ class TestMaxTFloorMMCoUpdate:
         from mlframe.feature_selection.filters._permutation_null import (
             pooled_pair_permutation_null_joint_mi_floor,
         )
+
         df = self._wide_synergy()
         cols = list(df.columns)
         data, _c, nb = categorize_dataset(df=df, method="quantile", n_bins=8, dtype=np.int16)
         yi = cols.index("y")
-        cy, fy, _ = merge_vars(factors_data=data, vars_indices=[yi], var_is_nominal=None,
-                               factors_nbins=nb, dtype=np.int16)
+        cy, fy, _ = merge_vars(factors_data=data, vars_indices=[yi], var_is_nominal=None, factors_nbins=nb, dtype=np.int16)
         feat = [cols.index(c) for c in cols if c != "y"]
         pairs = list(combinations(feat, 2))
         pa = np.fromiter((p[0] for p in pairs), dtype=np.int64, count=len(pairs))
         pb = np.fromiter((p[1] for p in pairs), dtype=np.int64, count=len(pairs))
-        kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=cy,
-                  freqs_y=fy, n_permutations=25, quantile=0.95, random_seed=42)
+        kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=cy, freqs_y=fy, n_permutations=25, quantile=0.95, random_seed=42)
         floor_raw = pooled_pair_permutation_null_joint_mi_floor(mm_debias=False, **kw)
         floor_mm = pooled_pair_permutation_null_joint_mi_floor(mm_debias=True, **kw)
         # MM shifts the floor DOWN (per-pair bias subtracted) but it stays finite + below raw.
@@ -199,7 +209,7 @@ class TestMMDebiasDefaultOff:
         b = rng.random(n) + 0.1
         c = rng.random(n) + 0.1
         d = rng.random(n) * 2 * np.pi
-        y = 0.2 * a ** 2 / b + np.log(c * 2.0) * np.sin(d / 3.0)
+        y = 0.2 * a**2 / b + np.log(c * 2.0) * np.sin(d / 3.0)
         df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d})
         ys = pd.Series(y, name="y")
 

@@ -69,6 +69,7 @@ def test_resolve_xgboost_instance():
 
 def test_resolve_hgb_instance():
     from sklearn.ensemble import HistGradientBoostingRegressor
+
     est = HistGradientBoostingRegressor()
     key, _, strat = _resolve_model_spec(est)
     assert key == "HistGradientBoostingRegressor"
@@ -99,6 +100,7 @@ def test_duplicate_keys_get_suffixed():
 
 def test_tuple_name_is_slugified():
     from sklearn.linear_model import Ridge
+
     used = set()
     k1, _, _ = _resolve_model_spec(("my model v1!", Ridge()), used_keys=used)
     # spaces and exclamation collapse to underscores.
@@ -110,6 +112,7 @@ def test_tuple_name_is_slugified():
 
 def test_tuple_with_non_string_name_raises():
     from sklearn.linear_model import Ridge
+
     with pytest.raises(TypeError):
         _resolve_model_spec((123, Ridge()))
 
@@ -122,6 +125,7 @@ def test_get_strategy_accepts_estimator_instance():
 
 def test_get_strategy_accepts_tuple():
     from sklearn.linear_model import Ridge
+
     strat = get_strategy(("custom", Ridge()))
     assert isinstance(strat, LinearModelStrategy)
 

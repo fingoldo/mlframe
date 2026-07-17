@@ -141,11 +141,13 @@ def test_fs_low_rfecv_timeseries_autodetect_polars(caplog):
 
     n = 60
     rng = np.random.default_rng(0)
-    X = pl.DataFrame({
-        "f0": rng.normal(size=n),
-        "f1": np.linspace(0, 1, n),
-        "f2": rng.normal(size=n),
-    })
+    X = pl.DataFrame(
+        {
+            "f0": rng.normal(size=n),
+            "f1": np.linspace(0, 1, n),
+            "f2": rng.normal(size=n),
+        }
+    )
     y = (rng.normal(size=n) > 0).astype(np.int64)
     ts = np.arange(n, dtype=np.int64)  # strictly monotonic timestamps
 
@@ -153,9 +155,7 @@ def test_fs_low_rfecv_timeseries_autodetect_polars(caplog):
     rfecv = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1)
     rfecv.fit(X, y, timestamps=ts)
     _cv = getattr(rfecv, "cv_", None) or getattr(rfecv, "cv", None)
-    assert isinstance(_cv, TimeSeriesSplit), (
-        f"expected TimeSeriesSplit auto-detect on monotonic-timestamps hint, got {type(_cv).__name__}"
-    )
+    assert isinstance(_cv, TimeSeriesSplit), f"expected TimeSeriesSplit auto-detect on monotonic-timestamps hint, got {type(_cv).__name__}"
 
 
 # ----------------------------------------------------------------------------
@@ -203,13 +203,9 @@ def test_fe1_pandas_cat_union_no_test_leak():
     # ``z`` is a category ONLY in test; it must not leak into train.cat.categories.
     test = pd.DataFrame({"c": pd.Categorical(["a", "z"])})
 
-    train_out, val_out, test_out = _align_xgb_cat_categories(
-        model_type_name="xgb", train_df=train, val_df=val, test_df=test
-    )
+    train_out, val_out, test_out = _align_xgb_cat_categories(model_type_name="xgb", train_df=train, val_df=val, test_df=test)
     train_cats = set(train_out["c"].cat.categories)
-    assert "z" not in train_cats, (
-        f"test-only category 'z' leaked into train categories: {train_cats}"
-    )
+    assert "z" not in train_cats, f"test-only category 'z' leaked into train categories: {train_cats}"
 
 
 def test_fe1_pandas_cat_union_picks_up_val_only_categories():
@@ -221,9 +217,7 @@ def test_fe1_pandas_cat_union_picks_up_val_only_categories():
     val = pd.DataFrame({"c": pd.Categorical(["a", "x"])})  # 'x' only in val
     test = None
 
-    train_out, _, _ = _align_xgb_cat_categories(
-        model_type_name="xgb", train_df=train, val_df=val, test_df=test
-    )
+    train_out, _, _ = _align_xgb_cat_categories(model_type_name="xgb", train_df=train, val_df=val, test_df=test)
     assert "x" in set(train_out["c"].cat.categories)
 
 
@@ -248,16 +242,16 @@ def test_fe4_cb_ordinal_cat_features_warns(caplog):
     # of _phase_fit_pipeline reads cat-like columns directly from the train_df schema.
     train = pl.DataFrame({"c": ["a", "b", "a", "b"], "x": [1.0, 2.0, 3.0, 4.0]})
 
-    pipe_cfg = PreprocessingBackendConfig(
-        categorical_encoding="ordinal", skip_categorical_encoding=False, scaler_name=None
-    )
+    pipe_cfg = PreprocessingBackendConfig(categorical_encoding="ordinal", skip_categorical_encoding=False, scaler_name=None)
     prep_cfg = PreprocessingConfig()
     ft_cfg = FeatureTypesConfig()
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.core._phase_helpers")
     try:
         _phase_fit_pipeline(
-            train_df=train, val_df=None, test_df=None,
+            train_df=train,
+            val_df=None,
+            test_df=None,
             mlframe_models=["cb"],
             pipeline_config=pipe_cfg,
             preprocessing_config=prep_cfg,

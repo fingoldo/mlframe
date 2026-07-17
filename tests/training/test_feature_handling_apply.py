@@ -57,17 +57,20 @@ from mlframe.training.feature_handling import (
 def synthetic_train_df():
     rng = np.random.RandomState(0)
     n = 200
-    return pl.DataFrame({
-        "review": [
-            "great product fast shipping recommended",
-            "terrible quality waste of money",
-            "mid quality acceptable for the price",
-            "amazing value highly recommended",
-            "poor build quality returned it",
-        ] * (n // 5),
-        "country": rng.choice(["US", "UK", "DE", "FR", "JP"], size=n).tolist(),
-        "x_num": rng.randn(n).astype(np.float32),
-    })
+    return pl.DataFrame(
+        {
+            "review": [
+                "great product fast shipping recommended",
+                "terrible quality waste of money",
+                "mid quality acceptable for the price",
+                "amazing value highly recommended",
+                "poor build quality returned it",
+            ]
+            * (n // 5),
+            "country": rng.choice(["US", "UK", "DE", "FR", "JP"], size=n).tolist(),
+            "x_num": rng.randn(n).astype(np.float32),
+        }
+    )
 
 
 @pytest.fixture
@@ -94,15 +97,14 @@ class TestSparseAwarePath:
         assert res.train.sparse_block is not None
         assert issparse(res.train.sparse_block)
         # Disambiguated names
-        assert all(
-            n.startswith("review__tfidf__")
-            for n in res.feature_names
-        )
+        assert all(n.startswith("review__tfidf__") for n in res.feature_names)
 
     def test_lgb_two_track_output(self, synthetic_train_df):
         fhc = tfidf_only(max_features=20)
         res = feature_handling_apply(
-            train_df=synthetic_train_df, fhc=fhc, model_kind="lgb",
+            train_df=synthetic_train_df,
+            fhc=fhc,
+            model_kind="lgb",
             candidate_text_columns=["review"],
         )
         assert res.train.sparse_block is not None
@@ -118,7 +120,9 @@ class TestDenseOnlyPath:
         # 30 cols < 512 -> densify in place, no SVD.
         fhc = tfidf_only(max_features=30)
         res = feature_handling_apply(
-            train_df=synthetic_train_df, fhc=fhc, model_kind="hgb",
+            train_df=synthetic_train_df,
+            fhc=fhc,
+            model_kind="hgb",
             candidate_text_columns=["review"],
         )
         assert res.train.sparse_block is None
@@ -128,13 +132,17 @@ class TestDenseOnlyPath:
     def test_hgb_auto_svd_above_threshold(self, synthetic_train_df, caplog):
         caplog.set_level(logging.WARNING)
         fhc = FeatureHandlingConfig(
-            default_text=[TextHandlerSpec(
-                method="hashing",
-                params=HashingParams(n_features=2 ** 14),  # 16384 cols
-            )],
+            default_text=[
+                TextHandlerSpec(
+                    method="hashing",
+                    params=HashingParams(n_features=2**14),  # 16384 cols
+                )
+            ],
         )
         res = feature_handling_apply(
-            train_df=synthetic_train_df, fhc=fhc, model_kind="hgb",
+            train_df=synthetic_train_df,
+            fhc=fhc,
+            model_kind="hgb",
             candidate_text_columns=["review"],
         )
         # SVD applied -> dense block <= svd_default_dim=256
@@ -151,7 +159,9 @@ class TestEndToEndModelFit:
     def test_logreg_fits_on_assembled_matrix(self, synthetic_train_df, synthetic_target):
         fhc = tfidf_only(max_features=30)
         res = feature_handling_apply(
-            train_df=synthetic_train_df, fhc=fhc, model_kind="linear",
+            train_df=synthetic_train_df,
+            fhc=fhc,
+            model_kind="linear",
             candidate_text_columns=["review"],
         )
         # Linear is sparse-aware. Use the sparse block directly.
@@ -167,7 +177,9 @@ class TestEndToEndModelFit:
         # Dense numeric block from x_num
         num_block = synthetic_train_df.select("x_num").to_numpy().astype(np.float32)
         res = feature_handling_apply(
-            train_df=synthetic_train_df, fhc=fhc, model_kind="xgb",
+            train_df=synthetic_train_df,
+            fhc=fhc,
+            model_kind="xgb",
             candidate_text_columns=["review"],
             numeric_block_train=num_block,
             numeric_feature_names=["x_num"],
@@ -213,10 +225,7 @@ class TestCacheReuse:
             )
         # All three should hit the cache after the first fit -- exactly
         # one TextColumnEncoder.fit call for the entire run.
-        assert call_count[0] == 1, (
-            f"TextColumnEncoder.fit called {call_count[0]} times across "
-            f"3 models; expected 1 (cache miss only on first model)"
-        )
+        assert call_count[0] == 1, f"TextColumnEncoder.fit called {call_count[0]} times across 3 models; expected 1 (cache miss only on first model)"
 
     def test_cache_hit_yields_identical_matrix(self, synthetic_train_df):
         """Round-3 T4: cache HIT must return same data, not a stale
@@ -225,12 +234,18 @@ class TestCacheReuse:
         cache = FeatureCache(CacheConfig(persistence="off"))
 
         res1 = feature_handling_apply(
-            train_df=synthetic_train_df, fhc=fhc, model_kind="xgb",
-            cache=cache, candidate_text_columns=["review"],
+            train_df=synthetic_train_df,
+            fhc=fhc,
+            model_kind="xgb",
+            cache=cache,
+            candidate_text_columns=["review"],
         )
         res2 = feature_handling_apply(
-            train_df=synthetic_train_df, fhc=fhc, model_kind="lgb",
-            cache=cache, candidate_text_columns=["review"],
+            train_df=synthetic_train_df,
+            fhc=fhc,
+            model_kind="lgb",
+            cache=cache,
+            candidate_text_columns=["review"],
         )
         # Both should have same vocab fitted on train -> same sparse
         # matrix shape AND content for the review column.
@@ -247,10 +262,12 @@ class TestCacheReuse:
 class TestTargetEncoderIntegration:
     def test_target_mean_yields_dense_block(self, synthetic_train_df, synthetic_target):
         fhc = FeatureHandlingConfig(
-            default_cat=[CatHandlerSpec(
-                method="target_mean",
-                params=TargetEncodeParams(kind="target_mean", smoothing=10.0, cv=3),
-            )],
+            default_cat=[
+                CatHandlerSpec(
+                    method="target_mean",
+                    params=TargetEncodeParams(kind="target_mean", smoothing=10.0, cv=3),
+                )
+            ],
             default_text=[],
         )
         res = feature_handling_apply(
@@ -266,10 +283,12 @@ class TestTargetEncoderIntegration:
 
     def test_target_encoder_requires_train_target(self, synthetic_train_df):
         fhc = FeatureHandlingConfig(
-            default_cat=[CatHandlerSpec(
-                method="target_mean",
-                params=TargetEncodeParams(kind="target_mean", smoothing=10.0),
-            )],
+            default_cat=[
+                CatHandlerSpec(
+                    method="target_mean",
+                    params=TargetEncodeParams(kind="target_mean", smoothing=10.0),
+                )
+            ],
             default_text=[],
         )
         with pytest.raises(ValueError, match="train_target"):
@@ -292,7 +311,9 @@ class TestAutoDetect:
         # No candidate_text_columns argument -> detector runs.
         fhc = tfidf_only(max_features=10)
         res = feature_handling_apply(
-            train_df=synthetic_train_df, fhc=fhc, model_kind="xgb",
+            train_df=synthetic_train_df,
+            fhc=fhc,
+            model_kind="xgb",
             candidate_text_columns=None,  # explicit auto-detect
         )
         # synthetic review column has variety + tokens -> should be text
@@ -310,6 +331,7 @@ class TestSuiteKwarg:
         accept a FeatureHandlingConfig instance without raising."""
         import inspect
         from mlframe.training.core import train_mlframe_models_suite
+
         sig = inspect.signature(train_mlframe_models_suite)
         assert "feature_handling_config" in sig.parameters
 
@@ -319,15 +341,18 @@ class TestSuiteKwarg:
         from mlframe.training.feature_handling import (
             LearnableEmbeddingParams,
         )
+
         # learnable_text_embedding on XGB is invalid (neural-only).
         bad_fhc = FeatureHandlingConfig(
             per_model={
-                "xgb": ModelHandlingOverride(text=[
-                    TextHandlerSpec(
-                        method="learnable_text_embedding",
-                        params=LearnableEmbeddingParams(),
-                    ),
-                ]),
+                "xgb": ModelHandlingOverride(
+                    text=[
+                        TextHandlerSpec(
+                            method="learnable_text_embedding",
+                            params=LearnableEmbeddingParams(),
+                        ),
+                    ]
+                ),
             },
         )
         # Direct call to validate -- mimics what the suite does early.
@@ -349,8 +374,11 @@ class TestHeldOutTransform:
 
         fhc = tfidf_only(max_features=20)
         res = feature_handling_apply(
-            train_df=train, val_df=val, test_df=test,
-            fhc=fhc, model_kind="xgb",
+            train_df=train,
+            val_df=val,
+            test_df=test,
+            fhc=fhc,
+            model_kind="xgb",
             candidate_text_columns=["review"],
         )
         # All three split matrices share column count (vocabulary).

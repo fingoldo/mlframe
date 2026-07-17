@@ -7,6 +7,7 @@ secret-field token set (`authorization` / `credentials`). The agent
 never delivered a separate test file before tracking dropped; these
 tests back-fill that gap and lock in the Wave 4+5 polish contracts.
 """
+
 from __future__ import annotations
 
 import re
@@ -16,6 +17,7 @@ import pytest
 
 
 import mlframe as _mlframe  # noqa: E402  -- derive src path from the package itself so the test works regardless of install location (the previous ``D:/Upd/Programming/...`` hardcode silently returned empty file lists on every other machine, with pytest auto-skipping the parametrized test under "got empty parameter set").
+
 _FH_ROOT = Path(_mlframe.__file__).resolve().parent / "training" / "feature_handling"
 
 _FH_FILES = sorted(_FH_ROOT.glob("*.py"))
@@ -42,10 +44,7 @@ def test_feature_handling_files_have_no_dated_audit_comments(py_file: Path) -> N
             if pat.search(line):
                 offenders.append((ln_no, line.strip()))
                 break
-    assert not offenders, (
-        f"{py_file.name}: dated audit-history comments still present:\n"
-        + "\n".join(f"  L{n}: {t}" for n, t in offenders[:20])
-    )
+    assert not offenders, f"{py_file.name}: dated audit-history comments still present:\n" + "\n".join(f"  L{n}: {t}" for n, t in offenders[:20])
 
 
 def test_secret_field_matches_authorization_and_credentials() -> None:
@@ -77,9 +76,7 @@ def test_no_noop_lock_dead_code_in_cache_backend() -> None:
     ``cache_backend``."""
     from mlframe.training.feature_handling import cache_backend
 
-    assert not hasattr(cache_backend, "_noop_lock"), (
-        "_noop_lock placeholder should have been removed in Wave 4+5"
-    )
+    assert not hasattr(cache_backend, "_noop_lock"), "_noop_lock placeholder should have been removed in Wave 4+5"
 
 
 def test_target_encoders_typecheck_imports_clean() -> None:
@@ -89,10 +86,7 @@ def test_target_encoders_typecheck_imports_clean() -> None:
     src = (_FH_ROOT / "target_encoders.py").read_text(encoding="utf-8")
     # noqa: F821 should NOT appear -- the TYPE_CHECKING block makes
     # pd/pl available to type checkers without runtime cost.
-    assert "noqa: F821" not in src, (
-        "target_encoders.py reintroduced a # noqa: F821 silencer; "
-        "the TYPE_CHECKING import is supposed to satisfy F821 properly"
-    )
+    assert "noqa: F821" not in src, "target_encoders.py reintroduced a # noqa: F821 silencer; the TYPE_CHECKING import is supposed to satisfy F821 properly"
 
 
 def test_locking_holder_pid_atomic_write(tmp_path, monkeypatch) -> None:
@@ -154,8 +148,7 @@ def test_locking_holder_pid_atomic_write(tmp_path, monkeypatch) -> None:
 
     # Atomic write fingerprint: at least one of os.replace / os.rename was used.
     assert called_atomic["replace"] or called_atomic["rename"], (
-        "_write_holder_pid did not use os.replace/os.rename - "
-        "implementation is not atomic; SIGKILL race re-introduced"
+        "_write_holder_pid did not use os.replace/os.rename - implementation is not atomic; SIGKILL race re-introduced"
     )
 
 
@@ -166,7 +159,4 @@ def test_pl_isinstance_guard_in_utils() -> None:
     src = (_FH_ROOT.parent / "utils.py").read_text(encoding="utf-8")
     # The guard pattern can appear several ways; assert at least one
     # of them precedes the polars isinstance check.
-    assert "pl is not None" in src or "_HAS_POLARS" in src, (
-        "utils.py is missing the polars-installed guard before "
-        "isinstance(df, pl.DataFrame)"
-    )
+    assert "pl is not None" in src or "_HAS_POLARS" in src, "utils.py is missing the polars-installed guard before isinstance(df, pl.DataFrame)"

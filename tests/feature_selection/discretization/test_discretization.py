@@ -27,6 +27,7 @@ from mlframe.feature_selection.filters import (
     compute_mi_from_classes,
 )
 
+
 class TestDiscretization:
     """Tests for discretization functions."""
 
@@ -50,8 +51,7 @@ class TestDiscretization:
         assert result.min() >= 0
         assert result.max() < n_bins
 
-    @given(arrays(dtype=np.float64, shape=st.integers(100, 500),
-                  elements=st.floats(min_value=-100, max_value=100, allow_nan=False, allow_infinity=False)))
+    @given(arrays(dtype=np.float64, shape=st.integers(100, 500), elements=st.floats(min_value=-100, max_value=100, allow_nan=False, allow_infinity=False)))
     @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow], deadline=None)
     def test_discretize_array_properties(self, x):
         """Property-based test for discretization."""
@@ -65,7 +65,7 @@ class TestDiscretization:
     def test_categorize_dataset_shape(self):
         """Test categorize_dataset preserves shape."""
         rng = np.random.default_rng(42)
-        X = pd.DataFrame(rng.standard_normal((100, 5)), columns=['a', 'b', 'c', 'd', 'e'])
+        X = pd.DataFrame(rng.standard_normal((100, 5)), columns=["a", "b", "c", "d", "e"])
 
         result, nbins_arr, categorical_vars = categorize_dataset(X, n_bins=10)
 
@@ -78,5 +78,5 @@ class TestDiscretization:
 # ================================================================================================
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '--tb=short', '-x'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--tb=short", "-x"])

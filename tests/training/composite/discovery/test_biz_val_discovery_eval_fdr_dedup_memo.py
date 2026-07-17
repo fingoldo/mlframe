@@ -22,6 +22,7 @@ Three findings landed against ``discovery/_eval.py`` / ``discovery/_eval_stats.p
   it on ``hash(valid_screen.tobytes())`` makes N transforms compute it ONCE,
   bit-identical.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -75,6 +76,7 @@ def test_bootstrap_gain_p_value_one_sided_and_robust() -> None:
 
 def _entry(name: str, p_value: float, mi_gain: float = 0.01) -> dict:
     """A minimal candidate-entry stub shaped like ``eval_one_transform`` output."""
+
     class _Spec:
         def __init__(self, nm: str, g: float) -> None:
             self.name = nm
@@ -99,8 +101,7 @@ def test_apply_fdr_drops_noise_specs_and_keeps_signal() -> None:
     candidates = [
         _entry("sig_a", 1e-5),
         _entry("sig_b", 1e-4),
-        *[_entry(f"noise_{i}", p) for i, p in enumerate(
-            np.linspace(0.4, 0.99, 18))],
+        *[_entry(f"noise_{i}", p) for i, p in enumerate(np.linspace(0.4, 0.99, 18))],
     ]
     n_dropped = apply_fdr_control_to_candidates(candidates, alpha=0.10)
     assert n_dropped >= 15
@@ -141,17 +142,10 @@ def test_biz_val_fdr_reduces_false_positives_on_all_null_specs() -> None:
         bh_fp.append(int(benjamini_hochberg_reject(p, alpha).sum()))
     mean_naive = float(np.mean(naive_fp))
     mean_bh = float(np.mean(bh_fp))
-    assert mean_naive >= 1.5, (
-        f"uncorrected gate should admit ~alpha*m={alpha*m:.1f} false positives, "
-        f"got {mean_naive:.2f}; test not exercising the inflation"
-    )
-    assert mean_bh <= 0.5, (
-        f"BH FDR control should admit ~0 false positives on all-null specs, "
-        f"got {mean_bh:.2f}"
-    )
+    assert mean_naive >= 1.5, f"uncorrected gate should admit ~alpha*m={alpha * m:.1f} false positives, got {mean_naive:.2f}; test not exercising the inflation"
+    assert mean_bh <= 0.5, f"BH FDR control should admit ~0 false positives on all-null specs, got {mean_bh:.2f}"
     assert mean_bh <= 0.3 * mean_naive, (
-        f"BH false-positive rate {mean_bh:.2f} is not materially below the "
-        f"uncorrected {mean_naive:.2f}; the multiplicity correction is gone"
+        f"BH false-positive rate {mean_bh:.2f} is not materially below the uncorrected {mean_naive:.2f}; the multiplicity correction is gone"
     )
 
 
@@ -203,9 +197,9 @@ def test_biz_val_dedup_removes_mi_baseline_inflation() -> None:
     rng = np.random.default_rng(5)
     n = 4000
     strong = rng.normal(size=n)
-    y = strong + 0.2 * rng.normal(size=n)            # y depends on strong.
-    near_dup = strong + 1e-4 * rng.normal(size=n)    # ~1.0-corr sibling.
-    weak = rng.normal(size=n)                         # independent of y.
+    y = strong + 0.2 * rng.normal(size=n)  # y depends on strong.
+    near_dup = strong + 1e-4 * rng.normal(size=n)  # ~1.0-corr sibling.
+    weak = rng.normal(size=n)  # independent of y.
     x_full = np.column_stack([strong, near_dup, weak]).astype(np.float64)
 
     binned = _prebin_feature_columns(x_full, nbins=16)
@@ -218,10 +212,7 @@ def test_biz_val_dedup_removes_mi_baseline_inflation() -> None:
 
     # The duplicate sibling carries near-identical MI to ``strong``; dropping it
     # removes the double-count, changing the mean baseline materially.
-    assert abs(mi_with_dup - mi_dedup) > 1e-3, (
-        f"dedup did not change the MI baseline ({mi_with_dup:.4f} vs "
-        f"{mi_dedup:.4f}); the inflation is not being removed"
-    )
+    assert abs(mi_with_dup - mi_dedup) > 1e-3, f"dedup did not change the MI baseline ({mi_with_dup:.4f} vs {mi_dedup:.4f}); the inflation is not being removed"
 
 
 # ----------------------------------------------------------------------
@@ -235,8 +226,7 @@ def _make_config(**overrides):
     defaults = dict(
         enabled=True,
         base_candidates="auto",
-        transforms=("diff", "linear_residual", "additive_residual",
-                    "ratio", "logratio", "median_residual"),
+        transforms=("diff", "linear_residual", "additive_residual", "ratio", "logratio", "median_residual"),
         top_k_after_mi=32,
         top_m_after_tiny=8,
         mi_sample_n=2000,
@@ -276,8 +266,11 @@ def _run(df: pd.DataFrame, config):
     val_idx = np.arange(int(0.8 * n), n)
     disc = CompositeTargetDiscovery(config)
     disc.fit(
-        df, target_col="y", feature_cols=["base", "other"],
-        train_idx=train_idx, val_idx=val_idx,
+        df,
+        target_col="y",
+        feature_cols=["base", "other"],
+        train_idx=train_idx,
+        val_idx=val_idx,
     )
     return disc
 
@@ -311,18 +304,12 @@ def test_p18_memo_is_bit_identical_to_unmemoised_recompute() -> None:
 
     memo_by_name = {s.name: s for s in disc_memo.specs_}
     nomemo_by_name = {s.name: s for s in disc_nomemo.specs_}
-    assert set(memo_by_name) == set(nomemo_by_name), (
-        "memo vs no-memo produced different spec sets"
-    )
+    assert set(memo_by_name) == set(nomemo_by_name), "memo vs no-memo produced different spec sets"
     assert memo_by_name, "discovery produced no specs; test is vacuous"
     for name, s_memo in memo_by_name.items():
         s_no = nomemo_by_name[name]
-        assert s_memo.mi_y == s_no.mi_y, (
-            f"{name}: mi_y diverged {s_memo.mi_y!r} != {s_no.mi_y!r}"
-        )
-        assert s_memo.mi_gain == s_no.mi_gain, (
-            f"{name}: mi_gain diverged {s_memo.mi_gain!r} != {s_no.mi_gain!r}"
-        )
+        assert s_memo.mi_y == s_no.mi_y, f"{name}: mi_y diverged {s_memo.mi_y!r} != {s_no.mi_y!r}"
+        assert s_memo.mi_gain == s_no.mi_gain, f"{name}: mi_gain diverged {s_memo.mi_gain!r} != {s_no.mi_gain!r}"
 
 
 class _StripMemoRunner:
@@ -336,8 +323,7 @@ class _StripMemoRunner:
 
         orig_eval = eval_mod.eval_one_transform
 
-        def _patched(self, base, transform_name, transform, *, base_contexts,
-                     **kw):
+        def _patched(self, base, transform_name, transform, *, base_contexts, **kw):
             ctx = base_contexts.get(base)
             if ctx is not None and ctx.get(memo_key) is not None:
                 ctx = dict(ctx)
@@ -345,8 +331,7 @@ class _StripMemoRunner:
                 ctx["_mi_y_compare_memo_lock"] = None
                 base_contexts = dict(base_contexts)
                 base_contexts[base] = ctx
-            return orig_eval(self, base, transform_name, transform,
-                             base_contexts=base_contexts, **kw)
+            return orig_eval(self, base, transform_name, transform, base_contexts=base_contexts, **kw)
 
         eval_mod.eval_one_transform = _patched
         fit_mod.eval_one_transform = _patched
@@ -419,8 +404,13 @@ def test_p18_memo_present_on_base_contexts_and_used() -> None:
     # ``valid_screen`` and trigger the memoised baseline recompute.
     tr = get_transform("logratio")
     out1 = eval_mod.eval_one_transform(
-        disc, "base", "logratio", tr,
-        base_contexts=base_contexts, y_train=y_train, y_screen=y_screen,
+        disc,
+        "base",
+        "logratio",
+        tr,
+        base_contexts=base_contexts,
+        y_train=y_train,
+        y_screen=y_screen,
         target_col="y",
     )
     assert memo, "shrunk-domain mi_y_compare memo was never populated"
@@ -431,8 +421,13 @@ def test_p18_memo_present_on_base_contexts_and_used() -> None:
     # memo (no new key) and read back the identical cached scalar.
     tr2 = get_transform("logratio")
     out2 = eval_mod.eval_one_transform(
-        disc, "base", "logratio", tr2,
-        base_contexts=base_contexts, y_train=y_train, y_screen=y_screen,
+        disc,
+        "base",
+        "logratio",
+        tr2,
+        base_contexts=base_contexts,
+        y_train=y_train,
+        y_screen=y_screen,
         target_col="y",
     )
     assert set(memo) == cached_keys, "second call added a memo key (not a hit)"
@@ -457,10 +452,7 @@ def test_fdr_control_default_on_is_noop_without_bootstrap() -> None:
     disc_off = _run(df, _make_config(mi_gain_fdr_control=False, mi_gain_bootstrap_n=0))
     names_on = sorted(s.name for s in disc_on.specs_)
     names_off = sorted(s.name for s in disc_off.specs_)
-    assert names_on == names_off, (
-        "FDR control changed the spec set with the bootstrap disabled; it must "
-        "be a strict no-op there"
-    )
+    assert names_on == names_off, "FDR control changed the spec set with the bootstrap disabled; it must be a strict no-op there"
 
 
 if __name__ == "__main__":

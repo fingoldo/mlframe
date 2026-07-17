@@ -7,6 +7,7 @@ artifact with zero true relationship to the target should not show the same harm
 replicates the source writeup's finding that adversarial-AUC contribution alone is a poor predictor of whether
 a feature actually helps or hurts generalization.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,9 +59,7 @@ def _make_data(seed: int):
 def test_biz_val_adversarial_feature_audit_keeps_genuinely_predictive_shifted_feature():
     X_train, y_train, X_test = _make_data(seed=0)
 
-    result = adversarial_validation_feature_audit(
-        X_train, y_train, X_test, top_k_features=5, seed=0, lgbm_params={"n_estimators": 50, "verbosity": -1}
-    )
+    result = adversarial_validation_feature_audit(X_train, y_train, X_test, top_k_features=5, seed=0, lgbm_params={"n_estimators": 50, "verbosity": -1})
 
     assert result["adversarial_auc"] > 0.8, f"the synthetic drift should be strongly adversarial-detectable, got {result['adversarial_auc']:.3f}"
 
@@ -80,9 +79,7 @@ def test_biz_val_adversarial_feature_audit_keeps_genuinely_predictive_shifted_fe
 
 def test_adversarial_feature_audit_returns_correlation_field():
     X_train, y_train, X_test = _make_data(seed=1)
-    result = adversarial_validation_feature_audit(
-        X_train, y_train, X_test, top_k_features=5, seed=1, lgbm_params={"n_estimators": 50, "verbosity": -1}
-    )
+    result = adversarial_validation_feature_audit(X_train, y_train, X_test, top_k_features=5, seed=1, lgbm_params={"n_estimators": 50, "verbosity": -1})
     assert "importance_vs_generalization_correlation" in result
     assert len(result["audited_features"]) > 0
 

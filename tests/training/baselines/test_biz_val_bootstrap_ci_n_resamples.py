@@ -8,6 +8,7 @@ on a synthetic where the bound is well-defined, and the config default is 2000.
 
 Bench: src/mlframe/training/baselines/_benchmarks/bench_bootstrap_ci_n_resamples.py
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -21,7 +22,8 @@ def _ci_bounds(y, p, B, seed):
     s = _numba_bootstrap_rmse_samples(
         np.ascontiguousarray(y, np.float64),
         np.ascontiguousarray(p, np.float64),
-        int(B), int(seed),
+        int(B),
+        int(seed),
     )
     return float(np.percentile(s, 2.5)), float(np.percentile(s, 97.5))
 
@@ -52,7 +54,4 @@ def test_biz_val_n_resamples_2000_lowers_ci_jitter_vs_1000():
 
     j1000 = jitter(1000)
     j2000 = jitter(2000)
-    assert j2000 < j1000 * 0.80, (
-        f"B=2000 should cut CI jitter >=20% vs B=1000: j1000={j1000:.5f} "
-        f"j2000={j2000:.5f} ratio={j2000 / j1000:.3f}"
-    )
+    assert j2000 < j1000 * 0.80, f"B=2000 should cut CI jitter >=20% vs B=1000: j1000={j1000:.5f} j2000={j2000:.5f} ratio={j2000 / j1000:.3f}"

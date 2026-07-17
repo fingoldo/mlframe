@@ -33,6 +33,7 @@ in a non-P0 surface still degraded observability or metric integrity:
    HammingLoss configuration; CB trained with single-label default. Post-fix:
    WARN log so operators see why MultiLogloss wasn't picked.
 """
+
 from __future__ import annotations
 
 import logging
@@ -50,6 +51,7 @@ import numpy as np
 def _read_phase_train_one_target_combined():
     import pathlib
     import mlframe as _mlframe
+
     _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
     return "\n".join(
         (_core / nm).read_text(encoding="utf-8")
@@ -63,7 +65,6 @@ def _read_phase_train_one_target_combined():
         )
         if (_core / nm).exists()
     )
-
 
 
 def test_multilabel_log_loss_failed_class_warns_and_uses_nanmean(caplog):
@@ -81,10 +82,12 @@ def test_multilabel_log_loss_failed_class_warns_and_uses_nanmean(caplog):
 
     # Inline the post-fix body so the sensor is independent of the live
     # ``fn`` factory which depends on a primary_metric branch.
-    yi = np.array([
-        [0, -1, 1],
-        [1, -1, 0],
-    ])
+    yi = np.array(
+        [
+            [0, -1, 1],
+            [1, -1, 0],
+        ]
+    )
     pi = np.zeros_like(yi, dtype=float)
 
     losses: list[float] = []
@@ -112,14 +115,12 @@ def test_multilabel_log_loss_failed_class_warns_and_uses_nanmean(caplog):
     # sibling is searched so the WARN-log shape sensor stays valid.
     import pathlib
     import mlframe as _mlframe
+
     _baselines = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "baselines"
     src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(_baselines.glob("*.py")))
-    assert "multilabel log-loss: %d/%d class component(s) failed" in src, (
-        "Wave 16 P1 regression: per-class log_loss WARN log shape gone."
-    )
+    assert "multilabel log-loss: %d/%d class component(s) failed" in src, "Wave 16 P1 regression: per-class log_loss WARN log shape gone."
     assert "return float(np.nanmean(losses))" in src, (
-        "Wave 16 P1 regression: still using mean() instead of nanmean() over "
-        "per-class log-loss; biased average over surviving classes returns."
+        "Wave 16 P1 regression: still using mean() instead of nanmean() over per-class log-loss; biased average over surviving classes returns."
     )
 
 
@@ -155,13 +156,15 @@ def test_has_any_infinity_true_on_numpy_conversion_failure(caplog, monkeypatch):
 
     class _BadNum:
         shape = (3, 1)
+
         def to_numpy(self, *a, **k):
             raise ValueError("synthetic numpy conversion failure")
 
     monkeypatch.setattr(pp, "_pandas_float_like_columns", lambda d: ["f0"])
     real_getitem = pd.DataFrame.__getitem__
     monkeypatch.setattr(
-        pd.DataFrame, "__getitem__",
+        pd.DataFrame,
+        "__getitem__",
         lambda self, key: _BadNum() if isinstance(key, list) else real_getitem(self, key),
     )
     with caplog.at_level(logging.WARNING, logger="mlframe.training.preprocessing"):
@@ -201,6 +204,7 @@ def test_detect_skip_emits_debug_when_col_raises(caplog):
 
     class _BadCol(pd.DataFrame):
         """pandas DataFrame whose __getitem__ raises -> dtype access fails."""
+
         def __getitem__(self, key):
             if isinstance(key, str):
                 raise RuntimeError(f"synthetic dtype failure for {key!r}")
@@ -210,10 +214,9 @@ def test_detect_skip_emits_debug_when_col_raises(caplog):
     with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.discovery.auto_detect"):
         result = cad.detect_time_column_candidates(df)
     assert result == []
-    assert any(
-        "detect_time_column_candidates: skipping col=" in rec.message
-        for rec in caplog.records
-    ), f"expected DEBUG log; got: {[r.message for r in caplog.records]}"
+    assert any("detect_time_column_candidates: skipping col=" in rec.message for rec in caplog.records), (
+        f"expected DEBUG log; got: {[r.message for r in caplog.records]}"
+    )
 
 
 # ---- #4: composite_screening CV fold -------------------------------------
@@ -226,6 +229,7 @@ def test_composite_screening_failed_fold_warns(caplog):
     during the screening monolith split; check both locations."""
     import pathlib
     import mlframe as _mlframe
+
     root = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "composite" / "discovery"
     candidates = [root / "screening.py", root / "_screening_tiny.py"]
     src_combined = ""
@@ -234,8 +238,7 @@ def test_composite_screening_failed_fold_warns(caplog):
             src_combined += p.read_text(encoding="utf-8")
             src_combined += "\n"
     assert "composite_screening: tiny-model CV fold failed" in src_combined, (
-        "Wave 16 P1 regression: failed CV fold no longer emits a WARN; "
-        "Screening RMSE silently biased toward well-behaved folds."
+        "Wave 16 P1 regression: failed CV fold no longer emits a WARN; Screening RMSE silently biased toward well-behaved folds."
     )
 
 
@@ -266,6 +269,7 @@ def test_multilabel_cb_stack_failure_warns(caplog):
     class CatBoostClassifier:  # name drives the type-name gate in prod
         def get_param(self):
             return {"loss_function": None}
+
         def set_params(self, **kw):
             set_calls.append(kw)
 
@@ -292,6 +296,7 @@ def test_multilabel_cb_stack_success_sets_multilogloss(caplog):
     class CatBoostClassifier:
         def get_param(self):
             return {"loss_function": None}
+
         def set_params(self, **kw):
             set_calls.append(kw)
 

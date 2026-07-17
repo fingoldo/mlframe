@@ -10,6 +10,7 @@ itself, so the same key recovers the legacy ``id(_comp)`` fallback. The frame-id
 against ``id()`` recycling across GC; without it a freed inner landing at the same address would
 return a stale prediction array.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -99,6 +100,7 @@ def test_S48_lookup_peels_one_shim_and_keys_on_frame_for_unwrapped_and_wrapped()
     no ``.model``) peels to itself so ``id(inner) == id(comp)``, recovering the old fallback in one key.
     The frame-id stays in the key so two distinct frames never alias under id() recycling.
     """
+
     def lookup_key(comp, frame_key):
         inner = getattr(comp, "model", comp)
         return (id(inner),) + frame_key
@@ -116,9 +118,7 @@ def test_S48_lookup_peels_one_shim_and_keys_on_frame_for_unwrapped_and_wrapped()
     assert inner_wrapper.n_predict == 1
 
     wrapped = _FakeShim(inner_wrapper)
-    assert cache.get(lookup_key(wrapped, frame_key)) is not None, (
-        "wrapped component must peel one shim and HIT the wrap-pass cache without re-predicting"
-    )
+    assert cache.get(lookup_key(wrapped, frame_key)) is not None, "wrapped component must peel one shim and HIT the wrap-pass cache without re-predicting"
     assert inner_wrapper.n_predict == 1
 
     unwrapped = _FakeFittedInner()
@@ -128,6 +128,4 @@ def test_S48_lookup_peels_one_shim_and_keys_on_frame_for_unwrapped_and_wrapped()
     )
 
     other_frame = _F()
-    assert cache.get(lookup_key(wrapped, (id(other_frame), other_frame.shape))) is None, (
-        "frame identity must stay in the key; a different frame must MISS"
-    )
+    assert cache.get(lookup_key(wrapped, (id(other_frame), other_frame.shape))) is None, "frame identity must stay in the key; a different frame must MISS"

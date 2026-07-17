@@ -5,6 +5,7 @@ absent from both ``y_true`` and ``y_pred`` contributed a zeroed P/R/F1 and DEFLA
 ``classification_report`` macro-averages over the union of classes present in y_true or y_pred. ``macro_over_present``
 (default True) restores that; ``macro_over_present=False`` keeps the legacy divide-by-nclasses behaviour.
 """
+
 from __future__ import annotations
 
 import numpy as np

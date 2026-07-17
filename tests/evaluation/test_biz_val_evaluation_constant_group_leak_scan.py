@@ -4,6 +4,7 @@ The win: reproduces the exact source scenario (target near-constant when grouped
 confirms the leaky column is flagged, while a genuinely non-leaky grouping column (target variance matches
 the overall pool within each group) is correctly not flagged.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -80,9 +81,7 @@ def test_biz_val_constant_group_target_scan_combo_finds_compound_key_leak_invisi
     assert by_col["branch"]["flagged"] is False, by_col["branch"]
     assert by_col["weekday"]["flagged"] is False, by_col["weekday"]
 
-    combo = constant_group_target_scan(
-        df, y_combo_leak, candidate_cols=["branch", "weekday"], min_group_size=20, combo_max_size=2
-    )
+    combo = constant_group_target_scan(df, y_combo_leak, candidate_cols=["branch", "weekday"], min_group_size=20, combo_max_size=2)
     by_key = {row["column"]: row for _, row in combo.iterrows()}
     combo_row = by_key[("branch", "weekday")]
     assert combo_row["flagged"] is True, combo_row
@@ -112,9 +111,7 @@ def test_constant_group_target_scan_combo_max_cols_bounds_combination_count():
     df = pd.DataFrame(cols)
     y = rng.random(n)
 
-    result = constant_group_target_scan(
-        df, y, candidate_cols=list(cols.keys()), min_group_size=10, combo_max_size=2, combo_max_cols=3
-    )
+    result = constant_group_target_scan(df, y, candidate_cols=list(cols.keys()), min_group_size=10, combo_max_size=2, combo_max_cols=3)
     combo_rows = [row for row in result["column"] if isinstance(row, tuple)]
     # C(3, 2) = 3 combinations from the first 3 columns only, not C(6, 2) = 15.
     assert len(combo_rows) == 3

@@ -6,6 +6,7 @@ test) while three other features (2, 3, 4) are purely additive, the ``per_featur
 rank features 0 and 1 at the top of ``interaction_contribution`` -- i.e. it must correctly ISOLATE the
 interacting features from the additive ones, not just report a global ratio.
 """
+
 from __future__ import annotations
 
 import numpy as np

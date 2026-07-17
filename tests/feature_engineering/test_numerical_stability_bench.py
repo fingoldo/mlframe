@@ -25,6 +25,7 @@ Run as: pytest tests/feature_engineering/test_numerical_stability_bench.py -s -v
 
 Or directly: python -m mlframe.tests.feature_engineering.test_numerical_stability_bench
 """
+
 from __future__ import annotations
 
 import time
@@ -59,10 +60,12 @@ def _make_distributions(seed=0):
         "large_mean_small_var": 1e6 + rng.standard_normal(100_000) * 0.1,
         "small_variance_1e9": 1e9 + rng.standard_normal(100_000) * 1e-3,
         "lognormal": np.exp(rng.standard_normal(100_000)),
-        "high_kurtosis": np.concatenate([
-            rng.standard_normal(90_000),
-            rng.standard_normal(10_000) * 10.0,
-        ]),
+        "high_kurtosis": np.concatenate(
+            [
+                rng.standard_normal(90_000),
+                rng.standard_normal(10_000) * 10.0,
+            ]
+        ),
     }
 
 
@@ -136,7 +139,8 @@ def test_bench_moments_precision():
     distributions = _make_distributions(seed=42)
     print()
     header = f"{'distribution':<26} {'naive_skew_err':>14} {'welf_skew_err':>14} {'naive_kurt_err':>14} {'welf_kurt_err':>14}"
-    print(header); print("-" * len(header))
+    print(header)
+    print("-" * len(header))
     for name, arr in distributions.items():
         ref_skew, ref_kurt = _ref_skew_kurt(arr)
         _, _, n_skew, n_kurt, _ = naive_moments_two_pass_seq(arr)
@@ -190,7 +194,7 @@ def test_bench_runtime_overhead():
             welford_mean_var_seq(arr)
         t_welford = (time.perf_counter() - t0) / 50 * 1000
         print(f"{'naive_mean_var_2pass':<30} {N:>10} {t_naive:>12.3f} {'1.00':>12}")
-        print(f"{'welford_mean_var':<30} {N:>10} {t_welford:>12.3f} {t_welford/t_naive:>12.2f}")
+        print(f"{'welford_mean_var':<30} {N:>10} {t_welford:>12.3f} {t_welford / t_naive:>12.2f}")
         # moments
         t0 = time.perf_counter()
         for _ in range(50):
@@ -201,7 +205,7 @@ def test_bench_runtime_overhead():
             welford_moments_seq(arr)
         t_welford_m = (time.perf_counter() - t0) / 50 * 1000
         print(f"{'naive_moments_2pass':<30} {N:>10} {t_naive_m:>12.3f} {'1.00':>12}")
-        print(f"{'welford_moments':<30} {N:>10} {t_welford_m:>12.3f} {t_welford_m/t_naive_m:>12.2f}")
+        print(f"{'welford_moments':<30} {N:>10} {t_welford_m:>12.3f} {t_welford_m / t_naive_m:>12.2f}")
 
 
 def test_bench_skew_sign_flips_on_hard():
@@ -223,9 +227,7 @@ def test_bench_skew_sign_flips_on_hard():
     print(f"  welford_skew={w_skew:.6e} welford_kurt={w_kurt:.6e}")
     # Welford skew sign must match reference
     if not np.isnan(ref_skew):
-        assert np.sign(w_skew) == np.sign(ref_skew) or abs(ref_skew) < 1e-3, (
-            f"Welford skew sign-flipped: ref={ref_skew}, welford={w_skew}"
-        )
+        assert np.sign(w_skew) == np.sign(ref_skew) or abs(ref_skew) < 1e-3, f"Welford skew sign-flipped: ref={ref_skew}, welford={w_skew}"
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ that is not actually enriched for the regime that matches test on ``x``. Peeling
 iteration forces the classifier onto ``x``, producing a fold whose validation error tracks true test error far
 more closely.
 """
+
 from __future__ import annotations
 
 import numpy as np

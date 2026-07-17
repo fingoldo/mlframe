@@ -36,7 +36,11 @@ class TestGroupShuffleSplit:
     def test_groups_kept_intact_across_splits(self, synthetic_grouped_frame):
         df, groups = synthetic_grouped_frame
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1, groups=groups, random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.1,
+            groups=groups,
+            random_seed=42,
         )
         train_g = set(groups[train_idx].tolist())
         val_g = set(groups[val_idx].tolist())
@@ -53,7 +57,11 @@ class TestGroupShuffleSplit:
         approx matches because all groups are equal-sized."""
         df, groups = synthetic_grouped_frame
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1, groups=groups, random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.1,
+            groups=groups,
+            random_seed=42,
         )
         n = len(df)
         # Allow ±5% slack since GroupShuffleSplit operates on group counts
@@ -63,7 +71,11 @@ class TestGroupShuffleSplit:
     def test_zero_test_size_route(self, synthetic_grouped_frame):
         df, groups = synthetic_grouped_frame
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, test_size=0.0, val_size=0.1, groups=groups, random_seed=42,
+            df,
+            test_size=0.0,
+            val_size=0.1,
+            groups=groups,
+            random_seed=42,
         )
         assert len(test_idx) == 0
         # Train + val should still respect groups
@@ -88,15 +100,17 @@ class TestStratifyGroupsCombined:
         # splitter has real work to do.
         y = ((np.asarray(groups) % 4) == 0).astype(np.int64)
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
-            groups=groups, stratify_y=y, random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.1,
+            groups=groups,
+            stratify_y=y,
+            random_seed=42,
         )
         # Group containment: no group spans two slices.
         g = np.asarray(groups)
         for a, b in [(train_idx, val_idx), (train_idx, test_idx), (val_idx, test_idx)]:
-            assert not (set(g[a].tolist()) & set(g[b].tolist())), (
-                "stratified-group split must keep every group in exactly one slice"
-            )
+            assert not (set(g[a].tolist()) & set(g[b].tolist())), "stratified-group split must keep every group in exactly one slice"
 
 
 class TestGroupsLengthValidation:
@@ -128,8 +142,12 @@ class TestTimeBasedGroupSpanning:
         # any time boundary.
         ts = pd.Series(pd.date_range("2024-01-01", periods=n, freq="1h"))
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
-            groups=groups, timestamps=ts, wholeday_splitting=False,
+            df,
+            test_size=0.2,
+            val_size=0.1,
+            groups=groups,
+            timestamps=ts,
+            wholeday_splitting=False,
             random_seed=42,
         )
         train_g = set(groups[train_idx].tolist())
@@ -160,8 +178,12 @@ class TestTimeBasedGroupSpanning:
         ts.iloc[17] = ts.iloc[28]  # row 17 way late -> different split
         with caplog.at_level("WARNING"):
             train_idx, val_idx, test_idx, *_ = make_train_test_split(
-                df, test_size=0.2, val_size=0.1,
-                groups=groups, timestamps=ts, wholeday_splitting=False,
+                df,
+                test_size=0.2,
+                val_size=0.1,
+                groups=groups,
+                timestamps=ts,
+                wholeday_splitting=False,
                 random_seed=42,
             )
         # Either no spanning happened (depending on random arrangement) OR the
@@ -180,7 +202,11 @@ class TestBackwardCompatGroupsNone:
     def test_no_groups_falls_back_to_train_test_split(self, synthetic_grouped_frame):
         df, _ = synthetic_grouped_frame
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1, groups=None, random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.1,
+            groups=None,
+            random_seed=42,
         )
         # No constraint asserted on group integrity (we explicitly didn't
         # pass groups). Just verify shapes are reasonable.

@@ -7,6 +7,7 @@ frequency encoding measurably preserves predictive signal on test that a train-f
 the raw category loses entirely (every test category is unseen in train -> falls back to the constant global
 mean -> zero correlation with target on test).
 """
+
 from __future__ import annotations
 
 import numpy as np

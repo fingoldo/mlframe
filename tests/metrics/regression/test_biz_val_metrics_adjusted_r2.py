@@ -8,6 +8,7 @@ Ground truth: ``y = x0 + noise`` (x0, noise ~ N(0,1)) has population R^2 exactly
 (p-1) extra noise predictors contribute nothing, so the honest fit stays 0.5. Measured here (7 seeds x the p/n>=0.1
 cell set): mean |adjusted-true|=0.080 vs |plain-true|=0.138, adjusted wins 27/35 cells. Floors set ~10-15% below.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,7 +35,7 @@ def test_biz_val_adjusted_r2_closer_to_true_than_plain_when_p_matters():
     combos = [(40, 8), (50, 10), (50, 20), (100, 20), (100, 30)]
     adj_win, cells = 0, 0
     plain_err, adj_err = [], []
-    for (n, p) in combos:
+    for n, p in combos:
         for seed in range(7):
             y, yp = _fit(n, p, seed)
             pe = abs(fast_r2_score(y, yp) - TRUE_R2)
@@ -46,9 +47,7 @@ def test_biz_val_adjusted_r2_closer_to_true_than_plain_when_p_matters():
                 adj_win += 1
     assert adj_win >= 22, f"adjusted-R2 won only {adj_win}/{cells} cells (floor 22)"
     # Mean abs error to truth: measured 0.138 -> 0.080; require >=25% reduction (floor below measured ~42%).
-    assert np.mean(adj_err) <= 0.75 * np.mean(plain_err), (
-        f"adjusted mean err {np.mean(adj_err):.4f} not <= 0.75 * plain {np.mean(plain_err):.4f}"
-    )
+    assert np.mean(adj_err) <= 0.75 * np.mean(plain_err), f"adjusted mean err {np.mean(adj_err):.4f} not <= 0.75 * plain {np.mean(plain_err):.4f}"
 
 
 def test_biz_val_adjusted_r2_no_harm_at_small_p_over_n():
@@ -56,7 +55,7 @@ def test_biz_val_adjusted_r2_no_harm_at_small_p_over_n():
     means within 0.01 so the correction can never become the default-flip 'win' it is not."""
     combos = [(500, 5), (1000, 10), (2000, 5)]
     plain_err, adj_err = [], []
-    for (n, p) in combos:
+    for n, p in combos:
         for seed in range(7):
             y, yp = _fit(n, p, seed)
             plain_err.append(abs(fast_r2_score(y, yp) - TRUE_R2))

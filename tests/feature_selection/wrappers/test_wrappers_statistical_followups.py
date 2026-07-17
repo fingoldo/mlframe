@@ -5,6 +5,7 @@ F10 noise-floor supports binary / multiclass / continuous targets (was binary-on
 F11 continuous-target chi2 path tolerates qcut NaN bins (heavily-tied / NaN y).
 F12 chi2 small-cell warning (Cochran's rule) on sparse contingency tables.
 """
+
 from __future__ import annotations
 
 import logging
@@ -70,38 +71,41 @@ class TestNoiseFloorTaskTypes:
     def test_multiclass_target_does_not_crash(self):
         pytest.importorskip("sklearn")
         from sklearn.ensemble import RandomForestClassifier
+
         rng = np.random.default_rng(0)
         n, p = 300, 6
         X = pd.DataFrame(rng.standard_normal((n, p)), columns=[f"f{i}" for i in range(p)])
         y = rng.integers(0, 3, n)  # 3-class -> pre-fix roc_auc + StratifiedKFold crashed in cross_val_score
         X["f0"] = X["f0"] + y  # give f0 signal
         out = select_features_noise_floor(
-            lambda: RandomForestClassifier(n_estimators=20, random_state=0),
-            X, y, ranking=list(X.columns), n_grid=[1, 2, 3, 6], cv=3, n_perm=3)
+            lambda: RandomForestClassifier(n_estimators=20, random_state=0), X, y, ranking=list(X.columns), n_grid=[1, 2, 3, 6], cv=3, n_perm=3
+        )
         assert "n_star" in out and out["n_star"] >= 0
 
     def test_continuous_target_does_not_crash(self):
         pytest.importorskip("sklearn")
         from sklearn.ensemble import RandomForestRegressor
+
         rng = np.random.default_rng(0)
         n, p = 300, 6
         X = pd.DataFrame(rng.standard_normal((n, p)), columns=[f"f{i}" for i in range(p)])
         y = X["f0"].to_numpy() * 2.0 + rng.standard_normal(n) * 0.1  # continuous -> pre-fix StratifiedKFold crashed
         out = select_features_noise_floor(
-            lambda: RandomForestRegressor(n_estimators=20, random_state=0),
-            X, y, ranking=list(X.columns), n_grid=[1, 2, 3, 6], cv=3, n_perm=3)
+            lambda: RandomForestRegressor(n_estimators=20, random_state=0), X, y, ranking=list(X.columns), n_grid=[1, 2, 3, 6], cv=3, n_perm=3
+        )
         assert "n_star" in out and out["n_star"] >= 0
 
     def test_binary_target_still_works(self):
         pytest.importorskip("sklearn")
         from sklearn.ensemble import RandomForestClassifier
+
         rng = np.random.default_rng(0)
         n, p = 300, 6
         X = pd.DataFrame(rng.standard_normal((n, p)), columns=[f"f{i}" for i in range(p)])
         y = (X["f0"].to_numpy() > 0).astype(int)
         out = select_features_noise_floor(
-            lambda: RandomForestClassifier(n_estimators=20, random_state=0),
-            X, y, ranking=list(X.columns), n_grid=[1, 2, 3, 6], cv=3, n_perm=3)
+            lambda: RandomForestClassifier(n_estimators=20, random_state=0), X, y, ranking=list(X.columns), n_grid=[1, 2, 3, 6], cv=3, n_perm=3
+        )
         assert "n_star" in out
 
 

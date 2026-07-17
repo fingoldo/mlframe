@@ -18,6 +18,7 @@ These tests deliberately stay small (n_rows ~500, n_features ~10) so CI walls st
 speedup multipliers are reserved for the C3 bench. The contract here is the cache-key composition +
 correctness + monotonic non-regression of the per-stage wall.
 """
+
 from __future__ import annotations
 
 import time
@@ -57,10 +58,20 @@ def test_shap_prox_trust_reval_default_no_cache_subset_identical():
 
     def _fit():
         sel = ShapProxiedFS(
-            classification=True, metric="brier", optimizer="bruteforce",
-            max_features=4, top_n=6, n_splits=3, n_revalidation_models=1,
-            trust_guard=True, n_anchors=8, revalidate=True, cluster_features=False,
-            random_state=0, verbose=False, n_jobs=1,
+            classification=True,
+            metric="brier",
+            optimizer="bruteforce",
+            max_features=4,
+            top_n=6,
+            n_splits=3,
+            n_revalidation_models=1,
+            trust_guard=True,
+            n_anchors=8,
+            revalidate=True,
+            cluster_features=False,
+            random_state=0,
+            verbose=False,
+            n_jobs=1,
         )
         sel.fit(X, y)
         return sel
@@ -96,19 +107,33 @@ def test_revalidate_top_n_cache_hit_identical_winner_and_populates_dir(tmp_path:
     cache_dir = tmp_path / "reval_cache"
 
     best_a, ranked_a, base_a = revalidate_top_n(
-        candidates, tpl, X_search, y_search, X_hold, y_hold,
-        classification=True, n_models=1, n_jobs=1, disk_cache_dir=cache_dir,
+        candidates,
+        tpl,
+        X_search,
+        y_search,
+        X_hold,
+        y_hold,
+        classification=True,
+        n_models=1,
+        n_jobs=1,
+        disk_cache_dir=cache_dir,
     )
     # First call (miss) MUST have populated the cache directory.
     files = list(cache_dir.iterdir())
     assert len(files) >= 1
-    assert all(f.name.startswith("honest_loss_") for f in files), (
-        f"all reval entries should be in the honest_loss_ namespace, got {[f.name for f in files]}"
-    )
+    assert all(f.name.startswith("honest_loss_") for f in files), f"all reval entries should be in the honest_loss_ namespace, got {[f.name for f in files]}"
 
     best_b, ranked_b, base_b = revalidate_top_n(
-        candidates, tpl, X_search, y_search, X_hold, y_hold,
-        classification=True, n_models=1, n_jobs=1, disk_cache_dir=cache_dir,
+        candidates,
+        tpl,
+        X_search,
+        y_search,
+        X_hold,
+        y_hold,
+        classification=True,
+        n_models=1,
+        n_jobs=1,
+        disk_cache_dir=cache_dir,
     )
     # Winner bit-identical (cache hit returned the same float loss).
     assert tuple(best_a) == tuple(best_b)
@@ -136,26 +161,51 @@ def test_proxy_trust_guard_cache_hit_identical_report(tmp_path: Path):
     tpl = make_default_estimator(classification=True, random_state=0, n_estimators=50)
     # Compute a phi / base for the search frame -- the trust guard scores anchors against this.
     phi, base, y_aligned = compute_shap_matrix(
-        tpl, X_search, y_search, classification=True, out_of_fold=True, n_splits=3,
+        tpl,
+        X_search,
+        y_search,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
         rng=np.random.default_rng(0),
     )
     cache_dir = tmp_path / "trust_cache"
 
     rep_a = proxy_trust_guard(
-        phi, base, y_aligned, tpl, X_search, X_hold, y_hold,
-        classification=True, n_anchors=8, rng=np.random.default_rng(0),
-        min_card=1, max_card=4, n_jobs=1, disk_cache_dir=cache_dir,
+        phi,
+        base,
+        y_aligned,
+        tpl,
+        X_search,
+        X_hold,
+        y_hold,
+        classification=True,
+        n_anchors=8,
+        rng=np.random.default_rng(0),
+        min_card=1,
+        max_card=4,
+        n_jobs=1,
+        disk_cache_dir=cache_dir,
     )
     # Cache directory MUST be populated after the miss path.
     files = list(cache_dir.iterdir())
-    assert any(f.name.startswith("honest_loss_") for f in files), (
-        f"trust_guard entries should be in honest_loss_ namespace, got {[f.name for f in files]}"
-    )
+    assert any(f.name.startswith("honest_loss_") for f in files), f"trust_guard entries should be in honest_loss_ namespace, got {[f.name for f in files]}"
 
     rep_b = proxy_trust_guard(
-        phi, base, y_aligned, tpl, X_search, X_hold, y_hold,
-        classification=True, n_anchors=8, rng=np.random.default_rng(0),
-        min_card=1, max_card=4, n_jobs=1, disk_cache_dir=cache_dir,
+        phi,
+        base,
+        y_aligned,
+        tpl,
+        X_search,
+        X_hold,
+        y_hold,
+        classification=True,
+        n_anchors=8,
+        rng=np.random.default_rng(0),
+        min_card=1,
+        max_card=4,
+        n_jobs=1,
+        disk_cache_dir=cache_dir,
     )
     # Headline fidelity number bit-identical (the per-anchor honest losses came from disk).
     np.testing.assert_allclose(rep_a["spearman"], rep_b["spearman"])
@@ -187,8 +237,14 @@ def test_disk_cache_cross_stage_namespacing(tmp_path: Path):
 
     # 1) Populate the cache with OOF-SHAP entries (shap_phi_*).
     phi, base, y_aligned = compute_shap_matrix(
-        tpl, X_search, y_search, classification=True, out_of_fold=True, n_splits=3,
-        rng=np.random.default_rng(0), cache_dir=shared_dir,
+        tpl,
+        X_search,
+        y_search,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
+        rng=np.random.default_rng(0),
+        cache_dir=shared_dir,
     )
     shap_files = [f.name for f in shared_dir.iterdir() if f.name.startswith("shap_phi_")]
     assert len(shap_files) >= 1, "OOF-SHAP should have written shap_phi_ entries"
@@ -196,8 +252,16 @@ def test_disk_cache_cross_stage_namespacing(tmp_path: Path):
     # 2) Populate the SAME cache with revalidate_top_n entries (honest_loss_*).
     candidates = [(0.1, [0, 1, 2]), (0.2, [1, 2, 3])]
     revalidate_top_n(
-        candidates, tpl, X_search, y_search, X_hold, y_hold,
-        classification=True, n_models=1, n_jobs=1, disk_cache_dir=shared_dir,
+        candidates,
+        tpl,
+        X_search,
+        y_search,
+        X_hold,
+        y_hold,
+        classification=True,
+        n_models=1,
+        n_jobs=1,
+        disk_cache_dir=shared_dir,
     )
     all_files = [f.name for f in shared_dir.iterdir()]
     honest_files = [n for n in all_files if n.startswith("honest_loss_")]
@@ -221,10 +285,20 @@ def test_shapproxiedfs_two_fit_cache_dir_writes_honest_loss_entries(tmp_path: Pa
     cache_dir = tmp_path / "e2e_cache"
 
     sel = ShapProxiedFS(
-        classification=True, metric="brier", optimizer="bruteforce",
-        max_features=4, top_n=6, n_splits=3, n_revalidation_models=1,
-        trust_guard=True, n_anchors=6, revalidate=True, cluster_features=False,
-        random_state=0, verbose=False, n_jobs=1,
+        classification=True,
+        metric="brier",
+        optimizer="bruteforce",
+        max_features=4,
+        top_n=6,
+        n_splits=3,
+        n_revalidation_models=1,
+        trust_guard=True,
+        n_anchors=6,
+        revalidate=True,
+        cluster_features=False,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
         cache_dir=str(cache_dir),
     )
     sel.fit(X, y)

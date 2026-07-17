@@ -62,9 +62,7 @@ class TestNullableBooleanCoercion:
         )
         pdf = get_pandas_view_of_polars_df(df)
 
-        assert str(pdf["hide_budget"].dtype) == "Int8", (
-            f"Nullable Boolean must coerce to Int8 with pd.NA, got {pdf['hide_budget'].dtype}"
-        )
+        assert str(pdf["hide_budget"].dtype) == "Int8", f"Nullable Boolean must coerce to Int8 with pd.NA, got {pdf['hide_budget'].dtype}"
         # Values preserved: True→1, False→0, None→pd.NA
         assert pdf["hide_budget"].iloc[0] == 1
         assert pdf["hide_budget"].iloc[1] == 0
@@ -181,9 +179,7 @@ class TestEnsembleHarmonicDivByZero:
             warnings.simplefilter("always")
             out = self._call_harm(preds)
         div_zero = [w for w in caught if "divide by zero" in str(w.message).lower()]
-        assert not div_zero, (
-            f"Harmonic mean must not emit divide-by-zero warnings; got: {[str(w.message) for w in div_zero]}"
-        )
+        assert not div_zero, f"Harmonic mean must not emit divide-by-zero warnings; got: {[str(w.message) for w in div_zero]}"
         # Downstream consumers expect a finite probability vector.
         assert np.isfinite(out).all()
 
@@ -318,9 +314,7 @@ class TestCatBoostFastpathStickyFlag:
         # on pandas.DataFrame varies across pandas versions (older: full
         # ``pandas.core.frame``; newer: re-exported as top-level ``pandas``).
         # Accept either spelling so the sticky-flag sensor stays version-portable.
-        assert calls == ["pandas.core.frame.DataFrame"] or calls == ["pandas.DataFrame"], (
-            f"sticky shortcut must pass pandas to fn; saw: {calls}"
-        )
+        assert calls == ["pandas.core.frame.DataFrame"] or calls == ["pandas.DataFrame"], f"sticky shortcut must pass pandas to fn; saw: {calls}"
 
     def test_flag_absent_retains_normal_fastpath_retry(self):
         """Without the flag, the helper must attempt fn(pl.DataFrame) first
@@ -454,9 +448,7 @@ class TestPipelineCacheKindIsolation:
         xgb_key = _build_key(xgb_strat)
         lgb_key = _build_key(lgb_strat)
         assert xgb_key != lgb_key, (
-            f"pipeline_cache keys must differ for polars-native vs pandas-"
-            f"consuming strategies sharing cache_key+tier. xgb={xgb_key}, "
-            f"lgb={lgb_key}"
+            f"pipeline_cache keys must differ for polars-native vs pandas-consuming strategies sharing cache_key+tier. xgb={xgb_key}, lgb={lgb_key}"
         )
         assert xgb_key.endswith("_kindpl")
         assert lgb_key.endswith("_kindpd")
@@ -538,10 +530,7 @@ class TestEnsembleNameAnnotations:
         _cov_tag = f" [{_cov_src[0]} COV={_cov_src[1]:.0f}%]" if _cov_src else ""
 
         # The tag format is what the log grep keys on.
-        assert _cov_tag == " [VAL COV=10%]", (
-            f"Conf Ensemble COV tag regressed: got {_cov_tag!r}. The format "
-            f"' [VAL COV=xx%]' is the log-grep contract."
-        )
+        assert _cov_tag == " [VAL COV=10%]", f"Conf Ensemble COV tag regressed: got {_cov_tag!r}. The format ' [VAL COV=xx%]' is the log-grep contract."
 
         # And the composition matches the prefix that gets logged.
         internal_method = "arithm"
@@ -745,9 +734,7 @@ class TestCategoryDriftHealingSuggestions:
                 # branch (card_tr >= 100 would need 100 levels; stay at 20 for
                 # the "low cardinality" branch and assert "__UNSEEN__" bucket
                 # suggestion shows).
-                "many_levels": pl.Series([all_cats[i % len(all_cats)] for i in range(n)]).cast(
-                    pl.Enum(all_cats)
-                ),
+                "many_levels": pl.Series([all_cats[i % len(all_cats)] for i in range(n)]).cast(pl.Enum(all_cats)),
                 # Timestamp-ish to make the temporal split nontrivial.
                 "ts": [float(i) for i in range(n)],
                 "target": rng.integers(0, 2, n),
@@ -786,10 +773,7 @@ class TestCategoryDriftHealingSuggestions:
             # split ratio; skip rather than false-fail in that case. The
             # structural guarantee (message format) is still validated
             # below against a hand-built message.
-            pytest.skip(
-                "drift WARN not triggered by this synthetic dataset — "
-                "structural check below verifies format independently."
-            )
+            pytest.skip("drift WARN not triggered by this synthetic dataset — structural check below verifies format independently.")
         msg = drift_records[0].getMessage()
         assert "suggested actions" in msg, f"Drift WARN must include 'suggested actions' block:\n{msg}"
 
@@ -816,9 +800,7 @@ class TestCategoryDriftHealingSuggestions:
             else:
                 healing = "__UNSEEN__"
             assert healing == expected_keyword, (
-                f"cardinality {card_tr}: expected {expected_keyword!r}, got "
-                f"{healing!r} — the suggestion tiers in core.py must match "
-                f"this test's expectations."
+                f"cardinality {card_tr}: expected {expected_keyword!r}, got {healing!r} — the suggestion tiers in core.py must match this test's expectations."
             )
 
 
@@ -903,9 +885,7 @@ class TestLazyConversionDefenseInDepth:
         # A tier_polars call can still occur for polars-native strategies
         # earlier in the sweep (none here since we pinned mlframe_models
         # to lgb), but for LGB all entries must be "pd".
-        assert not polars_kinds, (
-            f"Lazy-conversion post-assert failed to catch polars leak into _build_tier_dfs: {polars_kinds!r}"
-        )
+        assert not polars_kinds, f"Lazy-conversion post-assert failed to catch polars leak into _build_tier_dfs: {polars_kinds!r}"
 
 
 # =====================================================================
@@ -1186,6 +1166,7 @@ class TestCatBoostStickyFlagDefensiveAtLoad:
         # Pre-fix the flag was NOT set defensively; assert post-set sticks for the next
         # predict_with_fallback call, captured by test_short_circuit_fires_on_first_call_for_reloaded_cb.
         from mlframe.training import train_eval as te_mod
+
         assert hasattr(te_mod, "process_model")
 
     def test_short_circuit_fires_on_first_call_for_reloaded_cb(self):
@@ -1247,9 +1228,7 @@ class TestEnsembleAdaptiveMedianFilter:
         — mirrors a tree-suite's prediction layout."""
         rng = np.random.default_rng(seed)
         median = rng.random((n_rows, 1))
-        return median, [
-            np.clip(median + rng.normal(0, jitter_scale, (n_rows, 1)), 0, 1) for _ in range(n_members)
-        ]
+        return median, [np.clip(median + rng.normal(0, jitter_scale, (n_rows, 1)), 0, 1) for _ in range(n_members)]
 
     def test_default_relative_thresholds_keep_clustered_members(self, capsys):
         """Six members all within similar distance of the median → none
@@ -1268,10 +1247,7 @@ class TestEnsembleAdaptiveMedianFilter:
         captured = capsys.readouterr()
         # No member must be excluded — the filter must NOT print any
         # "ens member N excluded" lines for clustered members.
-        assert "ens member" not in captured.out, (
-            f"clustered members should not be filtered under default "
-            f"relative thresholds; got:\n{captured.out}"
-        )
+        assert "ens member" not in captured.out, f"clustered members should not be filtered under default relative thresholds; got:\n{captured.out}"
 
     def test_relative_filter_catches_real_outlier(self, caplog):
         """Six clustered members + one 10× outlier → only the outlier
@@ -1292,10 +1268,7 @@ class TestEnsembleAdaptiveMedianFilter:
         )
         log_lines = [r.getMessage() for r in caplog.records]
         excluded_lines = [ln for ln in log_lines if "ens member" in ln and "excluded" in ln]
-        assert len(excluded_lines) == 1, (
-            f"exactly one outlier should be excluded; got {len(excluded_lines)}:\n"
-            + "\n".join(excluded_lines)
-        )
+        assert len(excluded_lines) == 1, f"exactly one outlier should be excluded; got {len(excluded_lines)}:\n" + "\n".join(excluded_lines)
         # The excluded one is the last (index 6 — the outlier we added).
         assert "ens member 6 excluded" in excluded_lines[0]
         # Surviving 6 → "Using 6 members of ensemble" line.
@@ -1323,9 +1296,7 @@ class TestEnsembleAdaptiveMedianFilter:
         log_lines = [r.getMessage() for r in caplog.records]
         # With strict 0.01 absolute, all clustered ~0.04 members get
         # excluded → triggers the "filters too restrictive" fallback.
-        assert any("filters too restrictive" in ln or "ens member" in ln for ln in log_lines), (
-            f"expected restrictive-filter log; got: {log_lines}"
-        )
+        assert any("filters too restrictive" in ln or "ens member" in ln for ln in log_lines), f"expected restrictive-filter log; got: {log_lines}"
 
     def test_disabled_filter_no_op(self, capsys):
         """Both threshold styles set to 0 ⇒ no filtering, no log noise."""
@@ -1396,9 +1367,7 @@ class TestConfEnsembleCovTagFormatting:
 
         # Composed prefix + downstream token must have a clean separator.
         prefix = f"Conf Ensemble arithm notext[N=6]{_cov_tag}downstream_token"
-        assert "%]downstream" not in prefix, (
-            f"tokens slammed together — trailing space in _cov_tag lost: {prefix!r}"
-        )
+        assert "%]downstream" not in prefix, f"tokens slammed together — trailing space in _cov_tag lost: {prefix!r}"
 
     def test_empty_cov_tag_stays_empty(self):
         """When coverage data is absent, the tag must be exactly empty —
@@ -1466,8 +1435,7 @@ class TestCatBoostStickyFlagDefensiveAtCreation:
         # _trainer_configure.py:446. Assert it can land on a fresh CB.
         cb_model._mlframe_polars_fastpath_broken = True
         assert getattr(cb_model, "_mlframe_polars_fastpath_broken", False) is True, (
-            "CB instance refused the sticky attribute -- _trainer_configure's "
-            "defensive set would be silently inert on this build."
+            "CB instance refused the sticky attribute -- _trainer_configure's defensive set would be silently inert on this build."
         )
 
     def test_clone_in_strategy_loop_preserves_flag(self):
@@ -1483,8 +1451,7 @@ class TestCatBoostStickyFlagDefensiveAtCreation:
         base._mlframe_polars_fastpath_broken = True
         cloned = clone(base)
         assert not getattr(cloned, "_mlframe_polars_fastpath_broken", False), (
-            "sklearn.clone() should strip the non-param attribute "
-            "(invariant the production preservation block relies on)."
+            "sklearn.clone() should strip the non-param attribute (invariant the production preservation block relies on)."
         )
         # Production preservation predicate (mirrors _phase_train_one_target.py).
         if getattr(base, "_mlframe_polars_fastpath_broken", False):
@@ -1524,9 +1491,7 @@ class TestCatBoostStickyFlagDefensiveAtCreation:
         _predict_with_fallback(fake, pl_df, method="predict_proba")
 
         # Only ONE call, with pandas — no polars attempt + retry.
-        assert calls == ["DataFrame"], (
-            f"defensive sticky flag must trigger short-circuit on first predict; got {calls}"
-        )
+        assert calls == ["DataFrame"], f"defensive sticky flag must trigger short-circuit on first predict; got {calls}"
 
 
 # =====================================================================
@@ -1626,9 +1591,7 @@ class TestCBValPoolCacheContentFallback:
 
         # If the content-fallback fired, fn was called with our fake Pool.
         assert calls == ["_FakePool"], (
-            f"content-fallback didn't fire — fn was called with {calls!r} "
-            f"instead of the cached Pool. The 2026-04-24 cache-miss "
-            f"regression has returned."
+            f"content-fallback didn't fire — fn was called with {calls!r} instead of the cached Pool. The 2026-04-24 cache-miss regression has returned."
         )
 
         # Cleanup.
@@ -1673,9 +1636,7 @@ class TestCBValPoolCacheContentFallback:
             "_mlframe_dtypes_sig fingerprint on the val Pool so the predict-side "
             "content-fallback lookup can match across id-shifts (2026-04-24 cache-miss fix)."
         )
-        assert sig is not None and len(sig) == 2, (
-            f"expected a 2-element dtype tuple for the 2-column val_df, got {sig!r}"
-        )
+        assert sig is not None and len(sig) == 2, f"expected a 2-element dtype tuple for the 2-column val_df, got {sig!r}"
         _CB_VAL_POOL_CACHE.clear()
 
 
@@ -1739,6 +1700,4 @@ class TestCBSinglePoolBuildOnTestPredict:
             f"the double Pool build — fn was called {len(kinds)}× "
             f"({kinds!r}). Expected 1 call with pandas only."
         )
-        assert kinds[0] == "DataFrame", (
-            f"short-circuit must convert to pandas; first call was with {kinds[0]!r}"
-        )
+        assert kinds[0] == "DataFrame", f"short-circuit must convert to pandas; first call was with {kinds[0]!r}"

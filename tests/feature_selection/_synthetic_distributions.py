@@ -43,6 +43,7 @@ positive support, or ``abs``/``exp``). Monotone maps do not change MI, so the
 genuine signal the formula encodes is preserved exactly -- the realised operand is
 still "lognormal-shaped" (or t-shaped, etc.), just relocated to a legal domain.
 """
+
 from __future__ import annotations
 
 from typing import Callable, Dict, Iterable, Mapping, Sequence

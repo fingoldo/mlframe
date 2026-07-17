@@ -8,6 +8,7 @@ Two changes, both bit-identical-by-construction:
 These tests pin the OUTPUT identity across the relevant input regimes so a future refactor that breaks either
 fast path (e.g. mis-gating the unique skip on shifted labels, or dropping a probs column) is caught.
 """
+
 import numpy as np
 import pytest
 
@@ -51,7 +52,7 @@ def test_gate_skip_is_bit_identical_to_unique_path():
     """On already-0..K-1 multiclass (gate skips unique) the result equals an explicit labels= call that forces the unique path."""
     for k in (3, 5):
         yt, sc = _mk_multiclass(4000, k, seed=3 + k)
-        v_gate = ice(yt, sc)                       # gate skips np.unique
+        v_gate = ice(yt, sc)  # gate skips np.unique
         v_explicit = ice(yt, sc, labels=np.arange(k))  # labels given -> different branch, same numerics
         assert v_gate == v_explicit, f"k={k}"
 
@@ -61,7 +62,7 @@ def test_missing_class_with_full_range_no_remap():
     rng = np.random.default_rng(7)
     k = 5
     yt = rng.integers(0, k, 4000).astype(np.int64)
-    yt[yt == 2] = 3          # drop class 2
+    yt[yt == 2] = 3  # drop class 2
     yt[0], yt[1] = 0, k - 1  # ensure full range
     sc = rng.random((4000, k))
     sc /= sc.sum(1, keepdims=True)

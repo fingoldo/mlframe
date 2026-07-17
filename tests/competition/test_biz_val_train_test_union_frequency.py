@@ -120,9 +120,7 @@ def test_biz_val_train_test_union_frequency_beats_train_only_under_drift():
 
     assert corr_train_only < 0.55, f"expected degraded train-only correlation, got {corr_train_only:.3f}"
     assert corr_union >= 0.70, f"expected union correlation >= 0.70, got {corr_union:.3f}"
-    assert corr_union > corr_train_only + 0.15, (
-        f"expected union to beat train-only by a real margin: union={corr_union:.3f} train_only={corr_train_only:.3f}"
-    )
+    assert corr_union > corr_train_only + 0.15, f"expected union to beat train-only by a real margin: union={corr_union:.3f} train_only={corr_train_only:.3f}"
 
     # sanity: train-side encoding also aligns with the same union counts used for test
     assert len(union_train_encoded) == len(train_series)
@@ -181,9 +179,7 @@ def test_biz_val_hierarchical_split_helps_novel_full_version_strings():
     # the combined (geometric-mean-of-all-levels) feature still folds in the noisy
     # full-patch level, so check it against a weaker bar - the strong bar belongs to the
     # raw major_minor component, which is exactly where the precise train history lives
-    hier_train_encoded, hier_test_encoded = train_test_union_frequency_encode(
-        train_series, test_series, hierarchical_split_sep="."
-    )
+    hier_train_encoded, hier_test_encoded = train_test_union_frequency_encode(train_series, test_series, hierarchical_split_sep=".")
     corr_hier_combined = spearmanr(hier_test_encoded.to_numpy(), y_true_test).statistic
 
     components = train_test_union_frequency_encode_hierarchical_components(train_series, test_series, ".")
@@ -196,8 +192,7 @@ def test_biz_val_hierarchical_split_helps_novel_full_version_strings():
         f"expected major_minor to beat flat by a real margin: major_minor={corr_major_minor:.3f} flat={corr_flat:.3f}"
     )
     assert corr_hier_combined > abs(corr_flat), (
-        f"expected combined hierarchical feature to still beat flat: "
-        f"combined={corr_hier_combined:.3f} flat={corr_flat:.3f}"
+        f"expected combined hierarchical feature to still beat flat: combined={corr_hier_combined:.3f} flat={corr_flat:.3f}"
     )
 
     assert len(hier_train_encoded) == len(train_series)

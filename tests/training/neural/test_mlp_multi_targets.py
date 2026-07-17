@@ -54,13 +54,15 @@ class TestMLPGetClassifObjectiveKwargs:
 
     def test_binary_returns_empty(self):
         out = NeuralNetStrategy().get_classif_objective_kwargs(
-            TargetTypes.BINARY_CLASSIFICATION, n_classes=2,
+            TargetTypes.BINARY_CLASSIFICATION,
+            n_classes=2,
         )
         assert out == {}  # default cross_entropy + int64 already correct
 
     def test_multiclass_returns_cross_entropy_int64(self):
         out = NeuralNetStrategy().get_classif_objective_kwargs(
-            TargetTypes.MULTICLASS_CLASSIFICATION, n_classes=3,
+            TargetTypes.MULTICLASS_CLASSIFICATION,
+            n_classes=3,
         )
         assert out["loss_fn"] is F.cross_entropy
         assert out["labels_dtype"] == torch.int64
@@ -68,7 +70,8 @@ class TestMLPGetClassifObjectiveKwargs:
 
     def test_multilabel_returns_bce_with_logits_float32_task_type(self):
         out = NeuralNetStrategy().get_classif_objective_kwargs(
-            TargetTypes.MULTILABEL_CLASSIFICATION, n_classes=3,
+            TargetTypes.MULTILABEL_CLASSIFICATION,
+            n_classes=3,
         )
         assert out["loss_fn"] is F.binary_cross_entropy_with_logits
         assert out["labels_dtype"] == torch.float32
@@ -102,9 +105,11 @@ class TestMLPMulticlassEndToEnd:
 
     def test_smoke_fits_predicts_returns_3_class_probs(self, synthetic_3class_data):
         from tests.conftest import is_fast_mode
+
         df, y = synthetic_3class_data
         fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False,
+            target_column="target",
+            regression=False,
             target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
         )
         # The MLP relies on early-stopping to bound epochs; under heavy -n
@@ -117,10 +122,13 @@ class TestMLPMulticlassEndToEnd:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             models, _ = train_mlframe_models_suite(
-                df=df, target_name="target", model_name="mc_smoke",
+                df=df,
+                target_name="target",
+                model_name="mc_smoke",
                 features_and_targets_extractor=fte,
                 mlframe_models=["mlp"],
-                use_mlframe_ensembles=False, verbose=0,
+                use_mlframe_ensembles=False,
+                verbose=0,
                 **kwargs,
             )
         assert TargetTypes.MULTICLASS_CLASSIFICATION in models
@@ -130,15 +138,20 @@ class TestMLPMulticlassEndToEnd:
         indexing in evaluation.py (``preds = model.classes_[preds]``)."""
         df, y = synthetic_3class_data
         fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False,
+            target_column="target",
+            regression=False,
             target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             models, _ = train_mlframe_models_suite(
-                df=df, target_name="target", model_name="mc_classes",
+                df=df,
+                target_name="target",
+                model_name="mc_classes",
                 features_and_targets_extractor=fte,
-                mlframe_models=["mlp"], use_mlframe_ensembles=False, verbose=0,
+                mlframe_models=["mlp"],
+                use_mlframe_ensembles=False,
+                verbose=0,
             )
         # Drill into the trained model
         for tt, target_models in models.items():
@@ -147,8 +160,7 @@ class TestMLPMulticlassEndToEnd:
                     inner = getattr(ns, "model", None)
                     if inner is not None and hasattr(inner, "classes_"):
                         assert isinstance(inner.classes_, np.ndarray), (
-                            f"classes_ for {type(inner).__name__} is "
-                            f"{type(inner.classes_).__name__}, expected ndarray"
+                            f"classes_ for {type(inner).__name__} is {type(inner.classes_).__name__}, expected ndarray"
                         )
 
 
@@ -167,9 +179,7 @@ def synthetic_3label_data():
     Y = (rng.standard_normal((n, 3)) > 0).astype(np.int8)
     Y[Y.sum(axis=1) == 0, 0] = 1  # avoid all-zero rows
     df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
-    pdf = pl.from_pandas(df).with_columns(
-        pl.Series("target", Y.tolist(), dtype=pl.List(pl.Int8))
-    )
+    pdf = pl.from_pandas(df).with_columns(pl.Series("target", Y.tolist(), dtype=pl.List(pl.Int8)))
     return pdf, Y
 
 
@@ -179,15 +189,20 @@ class TestMLPMultilabelEndToEnd:
     def test_smoke_fits_with_2d_y(self, synthetic_3label_data):
         pdf, Y = synthetic_3label_data
         fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False,
+            target_column="target",
+            regression=False,
             target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             models, _ = train_mlframe_models_suite(
-                df=pdf, target_name="target", model_name="ml_smoke",
+                df=pdf,
+                target_name="target",
+                model_name="ml_smoke",
                 features_and_targets_extractor=fte,
-                mlframe_models=["mlp"], use_mlframe_ensembles=False, verbose=0,
+                mlframe_models=["mlp"],
+                use_mlframe_ensembles=False,
+                verbose=0,
             )
         assert TargetTypes.MULTILABEL_CLASSIFICATION in models
 
@@ -197,15 +212,20 @@ class TestMLPMultilabelEndToEnd:
         MultiOutputClassifier."""
         pdf, Y = synthetic_3label_data
         fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False,
+            target_column="target",
+            regression=False,
             target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             models, _ = train_mlframe_models_suite(
-                df=pdf, target_name="target", model_name="ml_no_wrap",
+                df=pdf,
+                target_name="target",
+                model_name="ml_no_wrap",
                 features_and_targets_extractor=fte,
-                mlframe_models=["mlp"], use_mlframe_ensembles=False, verbose=0,
+                mlframe_models=["mlp"],
+                use_mlframe_ensembles=False,
+                verbose=0,
             )
         for tt, target_models in models.items():
             for tn, ns_list in target_models.items():
@@ -213,10 +233,7 @@ class TestMLPMultilabelEndToEnd:
                     inner = getattr(ns, "model", None)
                     if inner is not None:
                         cls_name = type(inner).__name__
-                        assert cls_name != "MultiOutputClassifier", (
-                            f"MLP got wrapped in MultiOutputClassifier "
-                            f"despite supports_native_multilabel=True"
-                        )
+                        assert cls_name != "MultiOutputClassifier", f"MLP got wrapped in MultiOutputClassifier despite supports_native_multilabel=True"
 
 
 # ----------------------------------------------------------------------------
@@ -236,8 +253,7 @@ class TestTorchDataModule2DLabels:
         ds = TorchDataset(features=X, labels=Y, labels_dtype=torch.float32, batch_size=0)
         # Labels tensor must keep (10, 3) shape, NOT flatten to (30,).
         assert ds.labels.shape == (10, 3), (
-            f"Multilabel labels got flattened to {tuple(ds.labels.shape)}; "
-            "TorchDataModule should preserve 2-D for multilabel target."
+            f"Multilabel labels got flattened to {tuple(ds.labels.shape)}; TorchDataModule should preserve 2-D for multilabel target."
         )
 
     def test_1d_labels_unchanged(self):

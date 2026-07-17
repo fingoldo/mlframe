@@ -4,6 +4,7 @@ The win: a genuine behavioral shift concentrated in the RECENT window (e.g. a wo
 away by a single all-history aggregate but clearly visible in a short-lookback window -- so a classifier
 using the short-window aggregate as a feature should beat one using only the all-history aggregate.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,8 +47,12 @@ def test_biz_val_multi_window_aggregate_recent_window_beats_all_history_aggregat
     history_df, query_df, y = _make_data(seed=0)
 
     result = multi_window_aggregate(
-        history_df, entity_col="entity", time_col="t", as_of=query_df,
-        agg_funcs={"amount": ["sum", "count", "mean"]}, lookback_horizons=[90, 10_000],
+        history_df,
+        entity_col="entity",
+        time_col="t",
+        as_of=query_df,
+        agg_funcs={"amount": ["sum", "count", "mean"]},
+        lookback_horizons=[90, 10_000],
     )
 
     recent_mean = result[["amount_mean_last_90"]].fillna(0.0)
@@ -90,8 +95,12 @@ def test_multi_window_aggregate_auto_select_default_off_is_bit_identical():
     """auto_select is opt-in: omitting the new params must reproduce the exact pre-extension output."""
     history_df, query_df, _ = _make_data(seed=1)
     kwargs = dict(
-        history_df=history_df, entity_col="entity", time_col="t", as_of=query_df,
-        agg_funcs={"amount": ["sum", "count", "mean"]}, lookback_horizons=[90, 365, 10_000],
+        history_df=history_df,
+        entity_col="entity",
+        time_col="t",
+        as_of=query_df,
+        agg_funcs={"amount": ["sum", "count", "mean"]},
+        lookback_horizons=[90, 365, 10_000],
     )
     baseline = multi_window_aggregate(**kwargs)
     with_defaults = multi_window_aggregate(**kwargs, auto_select=False)
@@ -114,10 +123,19 @@ def test_biz_val_multi_window_aggregate_auto_select_keeps_useful_drops_redundant
     candidate_horizons = [90, 5, 10_000]
 
     selected_out, info = multi_window_aggregate(
-        history_df, entity_col="entity", time_col="t", as_of=query_df,
-        agg_funcs={"amount": ["sum", "count", "mean"]}, lookback_horizons=candidate_horizons,
-        auto_select=True, target=y, cv=5, scoring="roc_auc", min_lift=0.02,
-        estimator=LogisticRegression(max_iter=1000, C=0.1), return_selection_info=True,
+        history_df,
+        entity_col="entity",
+        time_col="t",
+        as_of=query_df,
+        agg_funcs={"amount": ["sum", "count", "mean"]},
+        lookback_horizons=candidate_horizons,
+        auto_select=True,
+        target=y,
+        cv=5,
+        scoring="roc_auc",
+        min_lift=0.02,
+        estimator=LogisticRegression(max_iter=1000, C=0.1),
+        return_selection_info=True,
     )
 
     kept = set(info["kept_horizons"])

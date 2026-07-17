@@ -5,6 +5,7 @@ A1-05: apply_drops across train/val/test mirrors is atomic (all or none) -- a pe
 A1-11: group-aware split with an empty protected set SKIPS the pre-screen rather than risking the group key.
 A1-03: MRMR/RFECV selector seeds default from the split seed when the operator didn't pin one.
 """
+
 from __future__ import annotations
 
 import types
@@ -84,6 +85,7 @@ def test_a1_05_apply_drops_atomic_on_mirror_failure(monkeypatch):
     ctx = _make_ctx(train, use_groups=False)
 
     import mlframe.feature_selection.pre_screen as ps_mod
+
     real_apply = ps_mod.apply_drops
     calls = {"n": 0}
 
@@ -105,9 +107,14 @@ def test_a1_05_apply_drops_atomic_on_mirror_failure(monkeypatch):
 
 def test_a1_03_mrmr_seed_defaults_from_split_seed():
     from mlframe.training.core._setup_helpers_pre_pipelines import _build_pre_pipelines
+
     pps, names = _build_pre_pipelines(
-        use_ordinary_models=False, rfecv_models=[], rfecv_models_params={},
-        use_mrmr_fs=True, mrmr_kwargs={}, fs_random_seed=123,
+        use_ordinary_models=False,
+        rfecv_models=[],
+        rfecv_models_params={},
+        use_mrmr_fs=True,
+        mrmr_kwargs={},
+        fs_random_seed=123,
     )
     mrmr = [p for p in pps if p is not None][0]
     assert mrmr.random_seed == 123
@@ -115,9 +122,14 @@ def test_a1_03_mrmr_seed_defaults_from_split_seed():
 
 def test_a1_03_mrmr_explicit_seed_wins_over_split_seed():
     from mlframe.training.core._setup_helpers_pre_pipelines import _build_pre_pipelines
+
     pps, names = _build_pre_pipelines(
-        use_ordinary_models=False, rfecv_models=[], rfecv_models_params={},
-        use_mrmr_fs=True, mrmr_kwargs={"random_seed": 7}, fs_random_seed=123,
+        use_ordinary_models=False,
+        rfecv_models=[],
+        rfecv_models_params={},
+        use_mrmr_fs=True,
+        mrmr_kwargs={"random_seed": 7},
+        fs_random_seed=123,
     )
     mrmr = [p for p in pps if p is not None][0]
     assert mrmr.random_seed == 7
@@ -125,9 +137,14 @@ def test_a1_03_mrmr_explicit_seed_wins_over_split_seed():
 
 def test_a1_01_group_split_defaults_mrmr_strict_groups():
     from mlframe.training.core._setup_helpers_pre_pipelines import _build_pre_pipelines
+
     pps, names = _build_pre_pipelines(
-        use_ordinary_models=False, rfecv_models=[], rfecv_models_params={},
-        use_mrmr_fs=True, mrmr_kwargs={}, fs_use_groups=True,
+        use_ordinary_models=False,
+        rfecv_models=[],
+        rfecv_models_params={},
+        use_mrmr_fs=True,
+        mrmr_kwargs={},
+        fs_use_groups=True,
     )
     mrmr = [p for p in pps if p is not None][0]
     assert mrmr.strict_groups is True

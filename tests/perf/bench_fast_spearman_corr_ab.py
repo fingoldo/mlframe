@@ -19,6 +19,7 @@ reduction vs the current path that reshapes to (1,N) and routes through the 2-D 
 Run: python tests/perf/_iter70_bench.py  (from worktree root, PYTHONPATH=src)
 Skip the mixed-signature timing section unless on a build where it does not crash.
 """
+
 from __future__ import annotations
 
 import timeit
@@ -77,19 +78,20 @@ def rankdata_only_microbench():
         for _ in range(5):
             rankdata(YT2, axis=1, nan_policy="propagate")
             rankdata(yt, method="average")
-        t2 = min(timeit.repeat(lambda: (rankdata(YT2, axis=1, nan_policy="propagate"),
-                                        rankdata(YP2, axis=1, nan_policy="propagate")),
-                               number=20, repeat=20)) / 20
-        t1 = min(timeit.repeat(lambda: (rankdata(yt, method="average"),
-                                        rankdata(yp, method="average")),
-                               number=20, repeat=20)) / 20
-        print(f"n={n}: 2D-batched {t2*1e6:.1f}us  1D {t1*1e6:.1f}us  speedup {t2/t1:.2f}x")
+        t2 = (
+            min(timeit.repeat(lambda: (rankdata(YT2, axis=1, nan_policy="propagate"), rankdata(YP2, axis=1, nan_policy="propagate")), number=20, repeat=20))
+            / 20
+        )
+        t1 = min(timeit.repeat(lambda: (rankdata(yt, method="average"), rankdata(yp, method="average")), number=20, repeat=20)) / 20
+        print(f"n={n}: 2D-batched {t2 * 1e6:.1f}us  1D {t1 * 1e6:.1f}us  speedup {t2 / t1:.2f}x")
 
 
 def main():
-    print("iter70: REJECTED -- see module docstring. Measured rankdata-only delta below "
-          "(run in a clean process WITHOUT mlframe imported; the in-process scalar A/B "
-          "segfaults this numba+scipy.stats build).")
+    print(
+        "iter70: REJECTED -- see module docstring. Measured rankdata-only delta below "
+        "(run in a clean process WITHOUT mlframe imported; the in-process scalar A/B "
+        "segfaults this numba+scipy.stats build)."
+    )
     print("=== rankdata-only microbench ===")
     rankdata_only_microbench()
 

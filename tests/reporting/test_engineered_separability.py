@@ -91,10 +91,12 @@ def test_biz_val_separable_blobs_beat_overlap_control():
     rng = np.random.default_rng(42)
     n = 2000
     half = n // 2
-    z_sep = np.vstack([
-        rng.standard_normal((half, 2)) + np.array([0.0, 0.0]),
-        rng.standard_normal((half, 2)) + np.array([4.0, 4.0]),
-    ])
+    z_sep = np.vstack(
+        [
+            rng.standard_normal((half, 2)) + np.array([0.0, 0.0]),
+            rng.standard_normal((half, 2)) + np.array([4.0, 4.0]),
+        ]
+    )
     y = np.concatenate([np.zeros(half), np.ones(half)])
     sep = separability_score(z_sep, y)
 

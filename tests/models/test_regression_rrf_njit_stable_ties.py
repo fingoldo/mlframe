@@ -5,6 +5,7 @@ reciprocal-rank mass regardless of array index. Both the njit kernel and the num
 scipy ``rankdata(method="average")`` semantics; the dispatcher routes float64 / C-contiguous inputs to
 njit by default, so this pins njit == numpy on TIED probabilities.
 """
+
 import numpy as np
 import pytest
 from scipy.stats import rankdata

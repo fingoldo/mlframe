@@ -15,6 +15,7 @@ Coverage:
   with strictly lower variance AND lower per-group residual MSE than
   the single-alpha-across-wells linear_residual fit.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -65,9 +66,7 @@ class TestFit:
         params = _linear_residual_grouped_fit(y, base, groups=groups)
         for i, a in enumerate(true_alphas):
             fitted = params["per_group_alphas"][f"g{i}"]
-            assert abs(fitted - a) < 0.05, (
-                f"group g{i}: expected alpha ~{a:.2f}, got {fitted:.3f}"
-            )
+            assert abs(fitted - a) < 0.05, f"group g{i}: expected alpha ~{a:.2f}, got {fitted:.3f}"
 
     def test_small_group_falls_back_to_global(self) -> None:
         """Group with n < min_group_size MUST use global alpha rather
@@ -86,10 +85,7 @@ class TestFit:
         params = _linear_residual_grouped_fit(y, base, groups=groups)
         # 'tiny' group must inherit global alpha (close to 0.9 since big
         # dominates), not its own -2.0 estimate.
-        assert abs(
-            params["per_group_alphas"]["tiny"]
-            - params["alpha_global"]
-        ) < 1e-9
+        assert abs(params["per_group_alphas"]["tiny"] - params["alpha_global"]) < 1e-9
         assert params["group_sizes"]["tiny"] == n_tiny
 
     def test_round_trip_y_to_T_to_y(self) -> None:
@@ -126,7 +122,10 @@ class TestFit:
         groups_pred = np.asarray(["Z", "Z", "A"])
         T_hat = np.array([0.5, 0.5, 0.5])  # placeholder T-scale preds
         y_back = _linear_residual_grouped_inverse(
-            T_hat, base_pred, params, groups=groups_pred,
+            T_hat,
+            base_pred,
+            params,
+            groups=groups_pred,
         )
         # Group 'A' row uses A's params; 'Z' rows use global. With one
         # group fit, A == global so all three look identical (up to T).
@@ -195,12 +194,9 @@ class TestRegistry:
         assert t.requires_groups is True
 
     def test_other_transforms_do_not_require_groups(self) -> None:
-        for name in ("diff", "ratio", "logratio", "linear_residual",
-                     "linear_residual_multi"):
+        for name in ("diff", "ratio", "logratio", "linear_residual", "linear_residual_multi"):
             t = get_transform(name)
-            assert t.requires_groups is False, (
-                f"transform '{name}' should not require groups"
-            )
+            assert t.requires_groups is False, f"transform '{name}' should not require groups"
 
     def test_domain_check_delegates_to_linear_residual(self) -> None:
         y = np.array([1.0, 2.0, np.nan])
@@ -237,8 +233,7 @@ class TestBizValueGroupedBeatsSingle:
             ys.append(y)
             bases.append(b)
             groups.extend([well] * n_per_well)
-        return (np.concatenate(ys), np.concatenate(bases),
-                np.asarray(groups))
+        return (np.concatenate(ys), np.concatenate(bases), np.asarray(groups))
 
     def test_grouped_residual_variance_strictly_lower(self) -> None:
         y, base, groups = self._make_per_well_dgp()
@@ -253,10 +248,7 @@ class TestBizValueGroupedBeatsSingle:
         # Single-alpha fit residual carries the per-well coefficient
         # spread; var should be substantial relative to noise (~0.04).
         # Grouped residual is just per-well noise (~0.04).
-        assert var_grouped < var_single * 0.5, (
-            f"grouped residual variance must be << single's; "
-            f"single={var_single:.4f}, grouped={var_grouped:.4f}"
-        )
+        assert var_grouped < var_single * 0.5, f"grouped residual variance must be << single's; single={var_single:.4f}, grouped={var_grouped:.4f}"
 
     def test_round_trip_preserves_y_on_per_well_dgp(self) -> None:
         y, base, groups = self._make_per_well_dgp()
@@ -276,10 +268,7 @@ class TestBizValueGroupedBeatsSingle:
         p = grouped.fit(y, base, groups=groups)
         for well, true_alpha in [("A", 0.95), ("B", 0.55), ("C", 1.05)]:
             fitted = p["per_group_alphas"][well]
-            assert abs(fitted - true_alpha) < 0.05, (
-                f"well {well}: fitted alpha {fitted:.3f} too far from "
-                f"DGP truth {true_alpha:.2f}"
-            )
+            assert abs(fitted - true_alpha) < 0.05, f"well {well}: fitted alpha {fitted:.3f} too far from DGP truth {true_alpha:.2f}"
         # With 3 groups, JS shrinkage is 0 by design.
         assert p["shrinkage_factor"] == 0.0
 
@@ -327,18 +316,14 @@ class TestShrinkageRecentersBeta:
             ys.append(y_g)
             bases.append(b)
             groups.extend([f"g{i}"] * n_per_group)
-        return (np.concatenate(ys), np.concatenate(bases),
-                np.asarray(groups))
+        return (np.concatenate(ys), np.concatenate(bases), np.asarray(groups))
 
     def test_shrinkage_actually_fires_on_this_dgp(self) -> None:
         """Guard the regression: if the DGP stops triggering c > 0 the
         bias test below would pass vacuously."""
         y, base, groups = self._make_shrinking_dgp()
         p = _linear_residual_grouped_fit(y, base, groups=groups)
-        assert p["shrinkage_factor"] > 0.0, (
-            "DGP must trigger James-Stein shrinkage for this regression "
-            f"to be meaningful; got c={p['shrinkage_factor']}"
-        )
+        assert p["shrinkage_factor"] > 0.0, f"DGP must trigger James-Stein shrinkage for this regression to be meaningful; got c={p['shrinkage_factor']}"
         # A partial shrink (0 < c < 1) is the most discriminating case:
         # alphas actually move (otherwise re-centring is a no-op) and the
         # re-centring must scale with c, not just the full-shrink edge.
@@ -367,10 +352,7 @@ class TestShrinkageRecentersBeta:
             mean_resid = float(np.mean(resid))
             # Scale tolerance to the target spread; the manufactured bias
             # is O(c · Δalpha · mean(base)) ~ several units here.
-            assert abs(mean_resid) < 1e-6, (
-                f"group {g_key}: per-group residual mean must be ~0 after "
-                f"JS shrinkage (beta re-centred), got {mean_resid:.6g}"
-            )
+            assert abs(mean_resid) < 1e-6, f"group {g_key}: per-group residual mean must be ~0 after JS shrinkage (beta re-centred), got {mean_resid:.6g}"
 
     def test_round_trip_still_exact_after_shrink(self) -> None:
         """Re-centring beta must not break the forward/inverse round
@@ -404,10 +386,7 @@ class TestShrinkageRecentersBeta:
         # Measured pre-fix on this DGP: rms_bias ~ O(1) target units.
         # Post-fix it collapses to ~1e-14. Floor well below the pre-fix
         # value but above FP noise.
-        assert rms_bias < 1e-3, (
-            f"RMS of per-group residual-mean bias must be ~0 after "
-            f"re-centring; got {rms_bias:.6g}"
-        )
+        assert rms_bias < 1e-3, f"RMS of per-group residual-mean bias must be ~0 after re-centring; got {rms_bias:.6g}"
 
 
 # ---------------------------------------------------------------------------
@@ -428,16 +407,19 @@ class TestCompositeTargetEstimatorGrouped:
             x_other = rng.normal(size=n_per_well)
             y = alpha * b + 0.2 * x_other + rng.normal(scale=0.2, size=n_per_well)
             for i in range(n_per_well):
-                rows.append({"well_id": well_id, "b1": b[i],
-                              "x_other": x_other[i], "y": y[i]})
+                rows.append({"well_id": well_id, "b1": b[i], "x_other": x_other[i], "y": y[i]})
         df = pd.DataFrame(rows)
         return df.drop(columns="y"), df["y"].to_numpy()
 
     def test_fit_predict_round_trip(self) -> None:
         from mlframe.training.composite import CompositeTargetEstimator
+
         X, y = self._make_per_well_df(n_per_well=200)
         inner = lgb.LGBMRegressor(
-            n_estimators=40, num_leaves=15, verbose=-1, random_state=0,
+            n_estimators=40,
+            num_leaves=15,
+            verbose=-1,
+            random_state=0,
         )
         wrap = CompositeTargetEstimator(
             base_estimator=inner,
@@ -456,6 +438,7 @@ class TestCompositeTargetEstimatorGrouped:
     def test_requires_group_column(self) -> None:
         """linear_residual_grouped without group_column must error at fit."""
         from mlframe.training.composite import CompositeTargetEstimator
+
         X, y = self._make_per_well_df(n_per_well=100)
         inner = lgb.LGBMRegressor(n_estimators=10, verbose=-1)
         wrap = CompositeTargetEstimator(
@@ -471,6 +454,7 @@ class TestCompositeTargetEstimatorGrouped:
         """Biz_value: same inner LGB, same data, only transform differs.
         Grouped wrapper must produce lower test RMSE than ungrouped."""
         from mlframe.training.composite import CompositeTargetEstimator
+
         X, y = self._make_per_well_df(n_per_well=400)
         train_X = X.iloc[:1000]
         train_y = y[:1000]
@@ -479,7 +463,10 @@ class TestCompositeTargetEstimatorGrouped:
 
         def _rmse(transform_name, group_column):
             inner = lgb.LGBMRegressor(
-                n_estimators=60, num_leaves=15, verbose=-1, random_state=0,
+                n_estimators=60,
+                num_leaves=15,
+                verbose=-1,
+                random_state=0,
             )
             wrap = CompositeTargetEstimator(
                 base_estimator=inner,
@@ -499,18 +486,18 @@ class TestCompositeTargetEstimatorGrouped:
 
         rmse_single = _rmse("linear_residual", None)
         rmse_grouped = _rmse("linear_residual_grouped", "well_id")
-        assert rmse_grouped < rmse_single, (
-            f"grouped wrapper must beat single-alpha on per-well DGP; "
-            f"single={rmse_single:.4f}, grouped={rmse_grouped:.4f}"
-        )
+        assert rmse_grouped < rmse_single, f"grouped wrapper must beat single-alpha on per-well DGP; single={rmse_single:.4f}, grouped={rmse_grouped:.4f}"
 
     def test_predict_on_unseen_well_falls_back_to_global(self) -> None:
         """Wrapper.predict on a row with a well_id not seen at fit must
         not raise; the row uses global alpha + beta."""
         from mlframe.training.composite import CompositeTargetEstimator
+
         X, y = self._make_per_well_df(n_per_well=200)
         inner = lgb.LGBMRegressor(
-            n_estimators=20, verbose=-1, random_state=0,
+            n_estimators=20,
+            verbose=-1,
+            random_state=0,
         )
         wrap = CompositeTargetEstimator(
             base_estimator=inner,
@@ -520,11 +507,13 @@ class TestCompositeTargetEstimatorGrouped:
         )
         wrap.fit(X, y)
         # Construct a predict frame with a NEW well_id 'Z'.
-        new_rows = pd.DataFrame({
-            "well_id": ["Z", "Z", "A"],
-            "b1": [10.0, 11.0, 9.0],
-            "x_other": [0.0, 0.5, -0.5],
-        })
+        new_rows = pd.DataFrame(
+            {
+                "well_id": ["Z", "Z", "A"],
+                "b1": [10.0, 11.0, 9.0],
+                "x_other": [0.0, 0.5, -0.5],
+            }
+        )
         preds = wrap.predict(new_rows)
         assert preds.shape == (3,)
         assert np.all(np.isfinite(preds))

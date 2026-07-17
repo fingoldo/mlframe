@@ -24,6 +24,7 @@ Gates pinned here:
   + floor-disabled byte-identical (``fe_pair_maxt_null_permutations=0``).
   + a unit test of the null helper: genuine joint-MI >> null-max; noise ~ null-max.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -40,6 +41,7 @@ GENUINE_OPERANDS = {"x1", "x2", "x3", "x4", "x5", "x6"}
 
 def _parents_of(name: str) -> set:
     import re
+
     return set(re.findall(r"(x[1-6]|noise_\d+)", name))
 
 
@@ -89,9 +91,12 @@ def _wide_synergy_frame(n=None, n_noise=74, seed=20260603):
     # product / bilinear), each with ~zero per-operand marginal MI but strong
     # joint dependence with y; the rest is pure Gaussian noise.
     rng = np.random.default_rng(seed)
-    x1 = rng.normal(size=n); x2 = rng.normal(size=n)
-    x3 = rng.normal(size=n); x4 = rng.normal(size=n)
-    x5 = rng.normal(size=n); x6 = rng.normal(size=n)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    x3 = rng.normal(size=n)
+    x4 = rng.normal(size=n)
+    x5 = rng.normal(size=n)
+    x6 = rng.normal(size=n)
     s_xor = np.sign(x1 * x2)
     s_prod = x3 * x4
     s_bilin = x5 * x6 + 0.3 * x5
@@ -117,9 +122,12 @@ def _fit_engineered(perms, *, n_noise=40, **overrides):
     inside the 60s pytest budget while still surfacing several spurious pairs.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     X, y = _wide_synergy_frame(n_noise=n_noise)
     cfg = dict(
-        verbose=0, random_seed=42, fe_max_steps=1,
+        verbose=0,
+        random_seed=42,
+        fe_max_steps=1,
         fe_synergy_screen_max_features=n_noise + 20,
         fe_synergy_min_prevalence=1.05,
         fe_synergy_max_pairs=20,
@@ -156,20 +164,15 @@ class TestOrder2MaxTFloorWideNoise:
         # that the floor-OFF run may already be clean on this fixture; assert the floor's contract in BOTH
         # regimes -- strictly reduce spurious when any leak through, else never introduce spurious on a clean run.
         if len(spur_off) >= 1:
-            assert len(spur_on) < len(spur_off), (
-                f"order-2 floor did not reduce spurious noise pairs: OFF={spur_off} ON={spur_on}"
-            )
+            assert len(spur_on) < len(spur_off), f"order-2 floor did not reduce spurious noise pairs: OFF={spur_off} ON={spur_on}"
         else:
-            assert len(spur_on) == 0, (
-                f"order-2 floor introduced spurious pairs on an already-clean floor-off run: ON={spur_on}"
-            )
+            assert len(spur_on) == 0, f"order-2 floor introduced spurious pairs on an already-clean floor-off run: ON={spur_on}"
         # Genuine synergy pairs are NOT dropped by the floor. Count COVERAGE of the three genuine pairs
         # (fused compound OR separate features), not raw feature count -- escalation may fuse two pairs into one.
         cov_on = _covered_genuine_pairs(eng_on)
         cov_off = _covered_genuine_pairs(eng_off)
         assert len(cov_on) >= len(cov_off) and len(cov_on) >= 3, (
-            f"order-2 floor dropped genuine synergy pairs: "
-            f"OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
+            f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
         )
 
 
@@ -181,19 +184,26 @@ class TestOrder2MaxTFloorWideNoise:
 class TestOrder2MaxTFloorSelfGating:
     def _small_xor_engineered(self, perms):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(11)
         n = 2000
         x1 = rng.integers(0, 2, n)
         x2 = rng.integers(0, 2, n)
         y = (x1 ^ x2).astype(np.int64)
-        X = pd.DataFrame({
-            "x1": x1.astype(float), "x2": x2.astype(float),
-            "n0": rng.standard_normal(n), "n1": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "x1": x1.astype(float),
+                "x2": x2.astype(float),
+                "n0": rng.standard_normal(n),
+                "n1": rng.standard_normal(n),
+            }
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             m = MRMR(
-                verbose=0, random_seed=7, fe_max_steps=1,
+                verbose=0,
+                random_seed=7,
+                fe_max_steps=1,
                 fe_synergy_screen_max_features=10,
                 fe_pair_maxt_null_permutations=perms,
             ).fit(X, pd.Series(y))
@@ -204,14 +214,8 @@ class TestOrder2MaxTFloorSelfGating:
         # so the floor is 0.0 (no-op): floor-on and floor-off must be identical.
         sup_off, eng_off = self._small_xor_engineered(perms=0)
         sup_on, eng_on = self._small_xor_engineered(perms=25)
-        assert sup_off == sup_on, (
-            f"small-p XOR support changed under the floor (should be no-op): "
-            f"OFF={sup_off} ON={sup_on}"
-        )
-        assert eng_off == eng_on, (
-            f"small-p XOR engineered set changed under the floor (should be no-op): "
-            f"OFF={eng_off} ON={eng_on}"
-        )
+        assert sup_off == sup_on, f"small-p XOR support changed under the floor (should be no-op): OFF={sup_off} ON={sup_on}"
+        assert eng_off == eng_on, f"small-p XOR engineered set changed under the floor (should be no-op): OFF={eng_off} ON={eng_on}"
 
 
 # =============================================================================
@@ -263,17 +267,22 @@ class TestOrder2MaxTFloorDisabled:
         acceptance path -- intentionally selected here to keep the floor observable.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         # n_noise=74 (not the prior 40): the FE per-pair gates now filter clean noise more aggressively, so at n_noise=40 the floor-OFF
         # run surfaces 0 spurious pairs and cannot exercise the floor. The wider noise pool restores best-of-pool chance-max hits.
         X, y = _wide_synergy_frame(n_noise=74)
-        base = dict(verbose=0, random_seed=42, fe_max_steps=1,
-                    fe_synergy_screen_max_features=94,
-                    # fe_fast_search=False: this test pins the EXHAUSTIVE-search floor mechanism, so it
-                    # runs the exhaustive path rather than the default fast profile (2026-06-14).
-                    fe_fast_search=False,
-                    # Isolate the order-2 maxT floor: the default CMI-redundancy gate
-                    # would otherwise remove the spurious pairs the floor backstops.
-                    fe_acceptance="prevalence_ratio")
+        base = dict(
+            verbose=0,
+            random_seed=42,
+            fe_max_steps=1,
+            fe_synergy_screen_max_features=94,
+            # fe_fast_search=False: this test pins the EXHAUSTIVE-search floor mechanism, so it
+            # runs the exhaustive path rather than the default fast profile (2026-06-14).
+            fe_fast_search=False,
+            # Isolate the order-2 maxT floor: the default CMI-redundancy gate
+            # would otherwise remove the spurious pairs the floor backstops.
+            fe_acceptance="prevalence_ratio",
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             m_on = MRMR(fe_pair_maxt_null_permutations=25, **base).fit(X, y)
@@ -285,20 +294,15 @@ class TestOrder2MaxTFloorDisabled:
         # Floor contract in BOTH regimes: reduce spurious when any leak through the other gates, else stay
         # clean (the FE per-pair gates may already remove every spurious pair on this fixture).
         if len(spur_off) >= 1:
-            assert len(spur_on) < len(spur_off), (
-                f"order-2 floor did not reduce spurious noise pairs under default gates: OFF={spur_off} ON={spur_on}"
-            )
+            assert len(spur_on) < len(spur_off), f"order-2 floor did not reduce spurious noise pairs under default gates: OFF={spur_off} ON={spur_on}"
         else:
-            assert len(spur_on) == 0, (
-                f"order-2 floor introduced spurious pairs on an already-clean floor-off run: ON={spur_on}"
-            )
+            assert len(spur_on) == 0, f"order-2 floor introduced spurious pairs on an already-clean floor-off run: ON={spur_on}"
         # Genuine synergy pairs are NOT dropped by the floor. Count COVERAGE of the three genuine pairs
         # (fused compound OR separate features), not raw feature count -- escalation may fuse two pairs into one.
         cov_on = _covered_genuine_pairs(eng_on)
         cov_off = _covered_genuine_pairs(eng_off)
         assert len(cov_on) >= len(cov_off) and len(cov_on) >= 3, (
-            f"order-2 floor dropped genuine synergy pairs: "
-            f"OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
+            f"order-2 floor dropped genuine synergy pairs: OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
         )
 
 
@@ -311,14 +315,18 @@ class TestPooledPairPermutationNullHelper:
     def _discretize(self, X, y, n_bins=8):
         from mlframe.feature_selection.filters.discretization import categorize_dataset
         from mlframe.feature_selection.filters.info_theory import merge_vars
+
         df = X.copy()
         df["y"] = y.values if hasattr(y, "values") else y
         cols = list(df.columns)
         data, _c, nbins = categorize_dataset(df=df, method="quantile", n_bins=n_bins, dtype=np.int16)
         y_idx = cols.index("y")
         classes_y, freqs_y, _ = merge_vars(
-            factors_data=data, vars_indices=[y_idx],
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int16,
+            factors_data=data,
+            vars_indices=[y_idx],
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int16,
         )
         return data, nbins, cols, classes_y, freqs_y
 
@@ -327,6 +335,7 @@ class TestPooledPairPermutationNullHelper:
         from mlframe.feature_selection.filters._permutation_null import (
             pooled_pair_permutation_null_joint_mi_floor,
         )
+
         X, y = _wide_synergy_frame(n_noise=74)
         data, nbins, cols, classes_y, freqs_y = self._discretize(X, y)
 
@@ -337,14 +346,19 @@ class TestPooledPairPermutationNullHelper:
         mis = batch_pair_mi_prange(data, pa, pb, nbins, classes_y, freqs_y)
 
         floor = pooled_pair_permutation_null_joint_mi_floor(
-            factors_data=data, nbins=nbins, pair_a=pa, pair_b=pb,
-            classes_y=classes_y, freqs_y=freqs_y,
-            n_permutations=25, quantile=0.95, random_seed=42,
+            factors_data=data,
+            nbins=nbins,
+            pair_a=pa,
+            pair_b=pb,
+            classes_y=classes_y,
+            freqs_y=freqs_y,
+            n_permutations=25,
+            quantile=0.95,
+            random_seed=42,
         )
         assert floor > 0.0, "null floor should be positive on a wide pool"
 
-        genuine_keys = {tuple(sorted((cols.index(a), cols.index(b)))) for a, b in
-                        [("x1", "x2"), ("x3", "x4"), ("x5", "x6")]}
+        genuine_keys = {tuple(sorted((cols.index(a), cols.index(b)))) for a, b in [("x1", "x2"), ("x3", "x4"), ("x5", "x6")]}
         gen_mis, noise_mis = [], []
         for k, (a, b) in enumerate(pairs):
             key = tuple(sorted((a, b)))
@@ -357,20 +371,16 @@ class TestPooledPairPermutationNullHelper:
         noise_mis = np.array(noise_mis)
 
         # Genuine synergy joint MI clears the null-max floor with margin.
-        assert (gen_mis > floor).all(), (
-            f"genuine synergy joint MIs {gen_mis} not all above null floor {floor}"
-        )
+        assert (gen_mis > floor).all(), f"genuine synergy joint MIs {gen_mis} not all above null floor {floor}"
         # The overwhelming majority of noise pairs sit at/below the floor.
         below = float((noise_mis <= floor).mean())
-        assert below >= 0.95, (
-            f"only {below:.2%} of noise pairs at/below the null floor {floor}; "
-            f"noise max={noise_mis.max():.5f}"
-        )
+        assert below >= 0.95, f"only {below:.2%} of noise pairs at/below the null floor {floor}; noise max={noise_mis.max():.5f}"
 
     def test_degenerate_pool_returns_zero_floor(self):
         from mlframe.feature_selection.filters._permutation_null import (
             pooled_pair_permutation_null_joint_mi_floor,
         )
+
         # n too small.
         data = np.zeros((4, 3), dtype=np.int16)
         nbins = np.array([2, 2, 2], dtype=np.int64)
@@ -378,20 +388,44 @@ class TestPooledPairPermutationNullHelper:
         pb = np.array([1, 2, 2], dtype=np.int64)
         classes_y = np.array([0, 1, 0, 1], dtype=np.int16)
         freqs_y = np.array([0.5, 0.5], dtype=np.float64)
-        assert pooled_pair_permutation_null_joint_mi_floor(
-            factors_data=data, nbins=nbins, pair_a=pa, pair_b=pb,
-            classes_y=classes_y, freqs_y=freqs_y, n_permutations=25,
-        ) == 0.0
+        assert (
+            pooled_pair_permutation_null_joint_mi_floor(
+                factors_data=data,
+                nbins=nbins,
+                pair_a=pa,
+                pair_b=pb,
+                classes_y=classes_y,
+                freqs_y=freqs_y,
+                n_permutations=25,
+            )
+            == 0.0
+        )
         # n_permutations == 0 disables.
         data2 = np.zeros((100, 3), dtype=np.int16)
-        cy = np.zeros(100, dtype=np.int16); cy[::2] = 1
-        assert pooled_pair_permutation_null_joint_mi_floor(
-            factors_data=data2, nbins=nbins, pair_a=pa, pair_b=pb,
-            classes_y=cy, freqs_y=freqs_y, n_permutations=0,
-        ) == 0.0
+        cy = np.zeros(100, dtype=np.int16)
+        cy[::2] = 1
+        assert (
+            pooled_pair_permutation_null_joint_mi_floor(
+                factors_data=data2,
+                nbins=nbins,
+                pair_a=pa,
+                pair_b=pb,
+                classes_y=cy,
+                freqs_y=freqs_y,
+                n_permutations=0,
+            )
+            == 0.0
+        )
         # fewer than 2 candidate pairs.
-        assert pooled_pair_permutation_null_joint_mi_floor(
-            factors_data=data2, nbins=nbins,
-            pair_a=np.array([0], dtype=np.int64), pair_b=np.array([1], dtype=np.int64),
-            classes_y=cy, freqs_y=freqs_y, n_permutations=25,
-        ) == 0.0
+        assert (
+            pooled_pair_permutation_null_joint_mi_floor(
+                factors_data=data2,
+                nbins=nbins,
+                pair_a=np.array([0], dtype=np.int64),
+                pair_b=np.array([1], dtype=np.int64),
+                classes_y=cy,
+                freqs_y=freqs_y,
+                n_permutations=25,
+            )
+            == 0.0
+        )

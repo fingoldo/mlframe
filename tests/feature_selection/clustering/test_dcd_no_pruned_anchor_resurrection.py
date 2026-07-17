@@ -27,6 +27,7 @@ docstring promises set-default semantics; direct API consumers
 Fix at line 432: refuse to anchor on a column with
 ``pool_pruned_mask[anchor] == True`` - return empty set immediately.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,14 +38,23 @@ def _state(n_cols=4):
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
         make_dcd_state,
     )
+
     rng = np.random.default_rng(0)
     fd = rng.integers(0, 4, (200, n_cols)).astype(np.int32)
     fn = np.array([4] * n_cols, dtype=np.int64)
-    return make_dcd_state(
-        X_raw=None, factors_data=fd, factors_nbins=fn,
-        cols=[f"c{i}" for i in range(n_cols)], nbins=fn,
-        target_indices=None, distance="su",
-    ), fd, fn
+    return (
+        make_dcd_state(
+            X_raw=None,
+            factors_data=fd,
+            factors_nbins=fn,
+            cols=[f"c{i}" for i in range(n_cols)],
+            nbins=fn,
+            target_indices=None,
+            distance="su",
+        ),
+        fd,
+        fn,
+    )
 
 
 def test_pruned_anchor_returns_empty_set_no_resurrection():
@@ -54,11 +64,16 @@ def test_pruned_anchor_returns_empty_set_no_resurrection():
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
         discover_cluster_members,
     )
+
     state, fd, fn = _state()
     state.pool_pruned_mask[0] = True
     result = discover_cluster_members(
-        state, just_selected=0, candidate_pool=[1, 2, 3],
-        entropy_cache=None, factors_data=fd, factors_nbins=fn,
+        state,
+        just_selected=0,
+        candidate_pool=[1, 2, 3],
+        entropy_cache=None,
+        factors_data=fd,
+        factors_nbins=fn,
     )
     assert result == set()
     assert 0 not in state.cluster_anchors
@@ -71,12 +86,17 @@ def test_non_pruned_anchor_works_normally():
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
         discover_cluster_members,
     )
+
     state, fd, fn = _state()
     # tau_cluster default may not accept on random data; just verify
     # the function completes and creates the anchor key.
     result = discover_cluster_members(
-        state, just_selected=0, candidate_pool=[1, 2, 3],
-        entropy_cache=None, factors_data=fd, factors_nbins=fn,
+        state,
+        just_selected=0,
+        candidate_pool=[1, 2, 3],
+        entropy_cache=None,
+        factors_data=fd,
+        factors_nbins=fn,
     )
     # The key 0 must exist (even if empty set) so the in-loop code
     # path of MRMR.fit can append to it later.
@@ -91,13 +111,18 @@ def test_multiple_pruned_anchors_all_refused():
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
         discover_cluster_members,
     )
+
     state, fd, fn = _state()
     state.pool_pruned_mask[0] = True
     state.pool_pruned_mask[2] = True
     for pruned_anchor in (0, 2):
         result = discover_cluster_members(
-            state, just_selected=pruned_anchor, candidate_pool=[1, 3],
-            entropy_cache=None, factors_data=fd, factors_nbins=fn,
+            state,
+            just_selected=pruned_anchor,
+            candidate_pool=[1, 3],
+            entropy_cache=None,
+            factors_data=fd,
+            factors_nbins=fn,
         )
         assert result == set()
         assert pruned_anchor not in state.cluster_anchors

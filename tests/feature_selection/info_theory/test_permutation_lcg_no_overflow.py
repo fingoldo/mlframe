@@ -26,6 +26,7 @@ Fix at permutation.py:510 - use Python ``int`` arithmetic with
 explicit ``& MASK64`` masking. Bit-exact to the njit ``parallel_mi``
 LCG (which IS the iter-18 reproducibility contract this branch mirrors).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -41,17 +42,21 @@ def test_no_overflow_warning_under_strict_filterwarnings():
     ``warnings.filterwarnings('error')`` is active.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = 200
-    df = pd.DataFrame({
-        "const": np.ones(n),
-        "sig": rng.standard_normal(n),
-        "noise": rng.standard_normal(n),
-    })
+    df = pd.DataFrame(
+        {
+            "const": np.ones(n),
+            "sig": rng.standard_normal(n),
+            "noise": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((df["sig"] > 0).astype(np.int64))
     with warnings.catch_warnings():
         warnings.filterwarnings(
-            "error", message="overflow encountered in scalar",
+            "error",
+            message="overflow encountered in scalar",
             category=RuntimeWarning,
         )
         # The fit must complete without raising.
@@ -65,22 +70,18 @@ def test_no_overflow_warning_emitted_in_normal_mode():
     overflow pattern.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(1)
     n = 200
-    df = pd.DataFrame({
-        "sig": rng.standard_normal(n),
-        "noise": rng.standard_normal(n),
-    })
+    df = pd.DataFrame(
+        {
+            "sig": rng.standard_normal(n),
+            "noise": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((df["sig"] > 0).astype(np.int64))
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         MRMR(verbose=0, build_friend_graph=False).fit(df, y)
-    overflow_warnings = [
-        w for w in caught
-        if (issubclass(w.category, RuntimeWarning)
-            and "overflow encountered in scalar" in str(w.message))
-    ]
-    assert not overflow_warnings, (
-        f"emitted {len(overflow_warnings)} overflow RuntimeWarning(s): "
-        f"{[str(w.message) for w in overflow_warnings[:3]]}"
-    )
+    overflow_warnings = [w for w in caught if (issubclass(w.category, RuntimeWarning) and "overflow encountered in scalar" in str(w.message))]
+    assert not overflow_warnings, f"emitted {len(overflow_warnings)} overflow RuntimeWarning(s): {[str(w.message) for w in overflow_warnings[:3]]}"

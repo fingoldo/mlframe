@@ -49,6 +49,7 @@ class TestLeakageProbe:
 
     def test_oof_breaks_naive_memorisation(self):
         from sklearn.metrics import roc_auc_score
+
         rng = np.random.RandomState(0)
         n = 1000
         # Each row in its own category (perfect-cardinality).
@@ -64,16 +65,17 @@ class TestLeakageProbe:
 
         # OOF
         enc = LeakageSafeEncoder(
-            method="target_mean", smoothing=10.0, cv=5, random_state=0,
+            method="target_mean",
+            smoothing=10.0,
+            cv=5,
+            random_state=0,
         )
         oof = enc.fit_transform(cats, y)
         oof_auc = roc_auc_score(y, oof)
         # OOF on random target should be near random (around 0.5).
         # Don't pin a tight bound -- random fluctuation can make this
         # 0.4-0.6; the lock is "much less than naive".
-        assert oof_auc < 0.7, (
-            f"OOF AUC {oof_auc:.3f} too high; leak may be present"
-        )
+        assert oof_auc < 0.7, f"OOF AUC {oof_auc:.3f} too high; leak may be present"
 
     def test_oof_train_then_transform_held_out(self):
         """After fit_transform on train, the fitted encoder should
@@ -112,9 +114,16 @@ def synthetic_train():
 
 
 class TestMethodShape:
-    @pytest.mark.parametrize("method", [
-        "target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe",
-    ])
+    @pytest.mark.parametrize(
+        "method",
+        [
+            "target_mean",
+            "target_m_estimate",
+            "target_james_stein",
+            "target_loo",
+            "woe",
+        ],
+    )
     def test_fit_transform_returns_correct_shape(self, method, synthetic_train):
         cats, y = synthetic_train
         enc = LeakageSafeEncoder(method=method, smoothing=5.0, cv=5, random_state=0)
@@ -122,9 +131,15 @@ class TestMethodShape:
         assert out.shape == (len(cats),)
         assert np.isfinite(out).all()
 
-    @pytest.mark.parametrize("method", [
-        "target_mean", "target_m_estimate", "target_james_stein", "target_loo",
-    ])
+    @pytest.mark.parametrize(
+        "method",
+        [
+            "target_mean",
+            "target_m_estimate",
+            "target_james_stein",
+            "target_loo",
+        ],
+    )
     def test_transform_returns_correct_shape(self, method, synthetic_train):
         cats, y = synthetic_train
         enc = LeakageSafeEncoder(method=method, smoothing=5.0, cv=5, random_state=0)

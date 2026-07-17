@@ -28,6 +28,7 @@ are pinned 5-15% under the measured minima.
 Requires optbinning >= 0.21 for sklearn 1.6+ compatibility (0.20.x calls the
 removed ``check_array(force_all_finite=...)``; 0.21 uses ``ensure_all_finite``).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,8 +45,8 @@ from tests.feature_selection.conftest import fast_subset  # noqa: E402
 
 # A strong-noisy-logistic signal yields signal IV ~3.0-3.6 (never 0); a 2-valued
 # perfect separator yields IV 0 (optbinning keeps one bin) -- see module docstring.
-_SIGNAL_IV_FLOOR = 2.7          # 5-15% below the measured per-seed minimum 3.08
-_IV_RATIO_FLOOR = 18.0          # measured min ratio 23.2; floor ~20% under
+_SIGNAL_IV_FLOOR = 2.7  # 5-15% below the measured per-seed minimum 3.08
+_IV_RATIO_FLOOR = 18.0  # measured min ratio 23.2; floor ~20% under
 _N_NOISE = 6
 _SEEDS = (0, 1, 2, 3)
 
@@ -60,9 +61,7 @@ def _make_noisy_logistic_df(n: int = 800, n_noise: int = _N_NOISE, seed: int = 0
     x = rng.normal(size=n)
     p = 1.0 / (1.0 + np.exp(-2.5 * x))
     y = (rng.uniform(size=n) < p).astype(int)
-    df = pd.DataFrame(
-        {"signal_step": x, **{f"noise_{i}": rng.normal(size=n) for i in range(n_noise)}}
-    )
+    df = pd.DataFrame({"signal_step": x, **{f"noise_{i}": rng.normal(size=n) for i in range(n_noise)}})
     return df, pd.Series(y, name="y")
 
 
@@ -109,9 +108,7 @@ def test_fs_pipeline_fit_drops_noise_keeps_signal(seed):
     transformed = bp_pipe.transform(df)
 
     assert transformed.shape[0] == df.shape[0], "transform must preserve row count"
-    assert transformed.shape[1] < df.shape[1], (
-        f"FS transform must be narrower than input; got {transformed.shape[1]} >= {df.shape[1]}"
-    )
+    assert transformed.shape[1] < df.shape[1], f"FS transform must be narrower than input; got {transformed.shape[1]} >= {df.shape[1]}"
 
     bp = dict(bp_pipe.steps)["BP"]
     support = set(str(c) for c in bp.get_support(names=True))
@@ -120,8 +117,7 @@ def test_fs_pipeline_fit_drops_noise_keeps_signal(seed):
     noise_cols = [c for c in df.columns if c.startswith("noise_")]
     dropped_noise = [c for c in noise_cols if c not in support]
     assert len(dropped_noise) >= len(noise_cols) / 2, (
-        f"IV gate must drop >= half the noise; dropped {len(dropped_noise)}/{len(noise_cols)}; "
-        f"support={sorted(support)}"
+        f"IV gate must drop >= half the noise; dropped {len(dropped_noise)}/{len(noise_cols)}; support={sorted(support)}"
     )
 
 
@@ -165,13 +161,10 @@ def test_biz_value_signal_iv_dominates_noise_no_skip(seed):
     noise_ivs = [iv for name, iv in iv_map.items() if name.startswith("noise_")]
     max_noise_iv = max(noise_ivs)
 
-    assert signal_iv >= _SIGNAL_IV_FLOOR, (
-        f"signal IV {signal_iv:.3f} below floor {_SIGNAL_IV_FLOOR}; iv_map={iv_map}"
-    )
+    assert signal_iv >= _SIGNAL_IV_FLOOR, f"signal IV {signal_iv:.3f} below floor {_SIGNAL_IV_FLOOR}; iv_map={iv_map}"
     assert signal_iv > 0.0, "noisy-logistic signal must never collapse to IV==0 (the de-flake invariant)"
     assert signal_iv >= _IV_RATIO_FLOOR * max_noise_iv, (
-        f"signal IV {signal_iv:.3f} must be >= {_IV_RATIO_FLOOR}x max noise IV "
-        f"{max_noise_iv:.3f}; iv_map={iv_map}"
+        f"signal IV {signal_iv:.3f} must be >= {_IV_RATIO_FLOOR}x max noise IV {max_noise_iv:.3f}; iv_map={iv_map}"
     )
 
 
@@ -201,15 +194,12 @@ def test_perfect_separator_collapses_to_zero_iv_documents_skip_smell():
     y = (x > 0).astype(int)
     df = pd.DataFrame({"signal_step": np.sign(x), "noise_0": rng.normal(size=n)})
     ys = pd.Series(y, name="y")
-    _, _, bp_nocats_fs, _ = get_binningprocess_featureselectors(
-        df, n_jobs=1, iv_kwargs={"min": 0.05, "strategy": "highest"}
-    )
+    _, _, bp_nocats_fs, _ = get_binningprocess_featureselectors(df, n_jobs=1, iv_kwargs={"min": 0.05, "strategy": "highest"})
     bp_nocats_fs.fit(df, ys)
     bp = dict(bp_nocats_fs.steps)["BP"]
     sep_table = bp.get_binned_variable("signal_step").binning_table
     assert float(sep_table.iv) == 0.0, (
-        "perfect 2-valued separator must collapse to IV==0 (no split) -- the de-flake rationale; "
-        f"got IV={float(sep_table.iv):.4f}"
+        f"perfect 2-valued separator must collapse to IV==0 (no split) -- the de-flake rationale; got IV={float(sep_table.iv):.4f}"
     )
 
 
@@ -233,15 +223,11 @@ def test_withcats_fs_fit_with_categorical(seed):
     transformed = bp_withcats_fs.transform(df)
 
     assert transformed.shape[0] == df.shape[0], "transform must preserve row count"
-    assert 0 < transformed.shape[1] <= df.shape[1], (
-        f"withcats transform width must be in (0, {df.shape[1]}]; got {transformed.shape[1]}"
-    )
+    assert 0 < transformed.shape[1] <= df.shape[1], f"withcats transform width must be in (0, {df.shape[1]}]; got {transformed.shape[1]}"
 
     bp = dict(bp_withcats_fs.steps)["BP"]
     support = set(str(c) for c in bp.get_support(names=True))
-    assert "cat_feat" in support, (
-        f"signal-carrying categorical column must survive the IV gate; support={sorted(support)}"
-    )
+    assert "cat_feat" in support, f"signal-carrying categorical column must survive the IV gate; support={sorted(support)}"
 
 
 def test_withcats_fs_fit_with_categorical_fast():
@@ -268,9 +254,7 @@ def test_fs_pipeline_memory_cache_smoke(tmp_path):
     df, y = _make_noisy_logistic_df(n=800, seed=0)
     iv_kwargs = {"min": 0.2, "strategy": "highest"}
 
-    _, _, bp_cached, _ = get_binningprocess_featureselectors(
-        df, n_jobs=1, memory=str(tmp_path), iv_kwargs=iv_kwargs
-    )
+    _, _, bp_cached, _ = get_binningprocess_featureselectors(df, n_jobs=1, memory=str(tmp_path), iv_kwargs=iv_kwargs)
     bp_cached.fit(df, y)
     cached_w = bp_cached.transform(df).shape[1]
 
@@ -279,8 +263,6 @@ def test_fs_pipeline_memory_cache_smoke(tmp_path):
     uncached_w = bp_uncached.transform(df).shape[1]
 
     assert cached_w < df.shape[1], f"cached FS pipeline must still select; width {cached_w} >= {df.shape[1]}"
-    assert cached_w == uncached_w, (
-        f"memory= must not change the selection; cached width {cached_w} != uncached {uncached_w}"
-    )
+    assert cached_w == uncached_w, f"memory= must not change the selection; cached width {cached_w} != uncached {uncached_w}"
     cache_files = list(tmp_path.rglob("*"))
     assert any(f.is_file() for f in cache_files), "memory= cache dir must hold at least one cached artefact"

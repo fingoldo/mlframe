@@ -22,9 +22,7 @@ def test_show_table_path_returns_dataframe_without_unbound_name():
     rng = np.random.default_rng(0)
     y_pred = rng.uniform(0.01, 0.99, size=500)
     y_true = (rng.uniform(size=500) < y_pred).astype(np.int8)
-    res = quality.show_classifier_calibration(
-        y_true, y_pred, title="t", nbins=5, nintervals=1, show_table=True, skip_plotting=True
-    )
+    res = quality.show_classifier_calibration(y_true, y_pred, title="t", nbins=5, nintervals=1, show_table=True, skip_plotting=True)
     import pandas as pd
 
     assert isinstance(res, pd.DataFrame)
@@ -34,9 +32,7 @@ def test_show_classifier_calibration_returns_dict_normal_path():
     rng = np.random.default_rng(0)
     y_pred = rng.uniform(0.01, 0.99, size=500)
     y_true = (rng.uniform(size=500) < y_pred).astype(np.int8)
-    res = quality.show_classifier_calibration(
-        y_true, y_pred, title="t", nbins=5, nintervals=1, show_table=False, skip_plotting=True
-    )
+    res = quality.show_classifier_calibration(y_true, y_pred, title="t", nbins=5, nintervals=1, show_table=False, skip_plotting=True)
     assert isinstance(res, dict)
 
 

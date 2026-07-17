@@ -24,6 +24,7 @@ The selection-content assertions (A vs B) are the business signal but are select
 robust mechanism pin: a monkeypatch spy on ``MRMR.fit`` that records, per call, whether ``sample_weight is not None``. The spy is
 the load-bearing sensor -- weights-not-None must appear iff the flag is True.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -68,8 +69,8 @@ def _make_two_subpop_frame(seed: int = _SEED) -> pd.DataFrame:
 
     y = np.empty(n, dtype=np.float64)
     noise = 0.05 * rng.standard_normal(n)
-    y[~is_b_slice] = 3.0 * a[~is_b_slice] + noise[~is_b_slice]      # majority: y = f(A)
-    y[is_b_slice] = 3.0 * b[is_b_slice] + noise[is_b_slice]         # minority: y = f(B)
+    y[~is_b_slice] = 3.0 * a[~is_b_slice] + noise[~is_b_slice]  # majority: y = f(A)
+    y[is_b_slice] = 3.0 * b[is_b_slice] + noise[is_b_slice]  # minority: y = f(B)
 
     return pd.DataFrame(
         {
@@ -201,9 +202,7 @@ def _top_ranked(records):
 class TestWeightAwareFeatureSelectionSuite:
     """End-to-end weight-aware FS through ``train_mlframe_models_suite``."""
 
-    def test_flag_false_ignores_weights_and_selects_majority_feature_A(
-        self, temp_data_dir, common_init_params, fast_iterations, monkeypatch
-    ):
+    def test_flag_false_ignores_weights_and_selects_majority_feature_A(self, temp_data_dir, common_init_params, fast_iterations, monkeypatch):
         """flag=False: ``sample_weight`` must NOT reach MRMR.fit (spy records all-None) and the uniform MI screen, dominated
         by the 80% A-slice, must keep ``A``. The spy's sw-None pin is the robust sensor; the A-in-selection check is the
         business signal."""
@@ -211,25 +210,24 @@ class TestWeightAwareFeatureSelectionSuite:
         records = _install_mrmr_fit_spy(monkeypatch)
 
         models, _ = _run_suite(
-            df, _mrmr_fs_config(use_sample_weights_in_fs=False),
-            temp_data_dir, common_init_params, fast_iterations,
+            df,
+            _mrmr_fs_config(use_sample_weights_in_fs=False),
+            temp_data_dir,
+            common_init_params,
+            fast_iterations,
             weight_schemas=("uniform", "weighted"),
         )
 
         assert TargetTypes.REGRESSION in models
         assert len(records) >= 1, "MRMR.fit was never called -- FS did not run"
         # Mechanism pin: with the flag OFF, weights never reach the selector.
-        assert all(not r["sw_not_none"] for r in records), (
-            "use_sample_weights_in_fs=False but sample_weight reached MRMR.fit"
-        )
+        assert all(not r["sw_not_none"] for r in records), "use_sample_weights_in_fs=False but sample_weight reached MRMR.fit"
         # Business signal (selection-noise-tolerant via union across fits): majority feature A is kept.
         selected = _union_selected(records)
         if selected:
             assert "A" in selected, f"uniform-weighted FS should keep majority feature A, got {sorted(selected)}"
 
-    def test_flag_true_honours_weights_and_selects_minority_feature_B(
-        self, temp_data_dir, common_init_params, fast_iterations, monkeypatch
-    ):
+    def test_flag_true_honours_weights_and_selects_minority_feature_B(self, temp_data_dir, common_init_params, fast_iterations, monkeypatch):
         """flag=True with the 'weighted' schema up-weighting the 20% B-slice: ``sample_weight`` MUST reach MRMR.fit on the
         weighted schema (spy records sw-not-None at least once) and the weight-aware MI screen, now dominated by B-rows,
         must keep ``B``."""
@@ -237,8 +235,11 @@ class TestWeightAwareFeatureSelectionSuite:
         records = _install_mrmr_fit_spy(monkeypatch)
 
         models, _ = _run_suite(
-            df, _mrmr_fs_config(use_sample_weights_in_fs=True),
-            temp_data_dir, common_init_params, fast_iterations,
+            df,
+            _mrmr_fs_config(use_sample_weights_in_fs=True),
+            temp_data_dir,
+            common_init_params,
+            fast_iterations,
             weight_schemas=("weighted",),
         )
 
@@ -247,19 +248,13 @@ class TestWeightAwareFeatureSelectionSuite:
         # Mechanism pin (load-bearing, correct behaviour): under the flag, the weighted schema's weights reach MRMR.fit.
         # The per-strategy ``clone()`` strips the setattr-applied marker; it is re-asserted on the clone so _wants_sw
         # stays True and ``sample_weight`` is forwarded into MRMR.fit.
-        assert any(r["sw_not_none"] for r in records), (
-            "use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit"
-        )
+        assert any(r["sw_not_none"] for r in records), "use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit"
         # Business signal: the up-weighted B-slice flips the selection to B.
         selected = _union_selected(records)
         if selected:
-            assert "B" in selected, (
-                f"weight-aware FS should flip selection to up-weighted minority feature B, got {sorted(selected)}"
-            )
+            assert "B" in selected, f"weight-aware FS should flip selection to up-weighted minority feature B, got {sorted(selected)}"
 
-    def test_weights_change_which_feature_is_selected(
-        self, temp_data_dir, common_init_params, fast_iterations, monkeypatch
-    ):
+    def test_weights_change_which_feature_is_selected(self, temp_data_dir, common_init_params, fast_iterations, monkeypatch):
         """Two statistically-equivalent frames (same generative process, distinct seeds), two suite runs differing ONLY in
         the flag: the top-ranked feature must flip (A-first under uniform vs B-first under weighted). A stable-across-flag
         ranking means weights are inert. Distinct seeds also keep the process-global pre-pipeline cache from letting the
@@ -269,8 +264,11 @@ class TestWeightAwareFeatureSelectionSuite:
 
         records_off = _install_mrmr_fit_spy(monkeypatch)
         _run_suite(
-            df_off, _mrmr_fs_config(use_sample_weights_in_fs=False),
-            temp_data_dir, common_init_params, fast_iterations,
+            df_off,
+            _mrmr_fs_config(use_sample_weights_in_fs=False),
+            temp_data_dir,
+            common_init_params,
+            fast_iterations,
             weight_schemas=("uniform", "weighted"),
         )
         # Snapshot the off-run records BEFORE installing the second spy: monkeypatch stacks, so the on-run's spy
@@ -280,8 +278,11 @@ class TestWeightAwareFeatureSelectionSuite:
 
         records_on = _install_mrmr_fit_spy(monkeypatch)
         _run_suite(
-            df_on, _mrmr_fs_config(use_sample_weights_in_fs=True),
-            temp_data_dir, common_init_params, fast_iterations,
+            df_on,
+            _mrmr_fs_config(use_sample_weights_in_fs=True),
+            temp_data_dir,
+            common_init_params,
+            fast_iterations,
             weight_schemas=("weighted",),
         )
         top_on = _top_ranked(records_on)
@@ -289,21 +290,15 @@ class TestWeightAwareFeatureSelectionSuite:
         # Mechanism contrast: weights reach the selector only under the flag. flag=False side is a hard pin (weights
         # must NOT leak); flag=True side is the correct behaviour the marker-stripping clone broke.
         assert all(not f for f in off_sw_flags)
-        assert any(r["sw_not_none"] for r in records_on), (
-            "use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit"
-        )
+        assert any(r["sw_not_none"] for r in records_on), "use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit"
 
         # Business signal: the weight-aware MI screen flips the top-ranked feature from the majority A (uniform) to the
         # up-weighted minority B (weighted). Both A and B survive selection at this n, so the rank flip is the signal.
         if top_off is not None and top_on is not None:
-            assert top_off != top_on, (
-                f"weight-aware FS produced identical top-ranked feature to uniform FS (both {top_off!r}); weights inert"
-            )
+            assert top_off != top_on, f"weight-aware FS produced identical top-ranked feature to uniform FS (both {top_off!r}); weights inert"
             assert top_on == "B", f"weighted FS should rank up-weighted minority B first, got {top_on!r}"
 
-    def test_flag_false_reuses_single_fs_fit_across_weight_schemas(
-        self, temp_data_dir, common_init_params, fast_iterations, monkeypatch
-    ):
+    def test_flag_false_reuses_single_fs_fit_across_weight_schemas(self, temp_data_dir, common_init_params, fast_iterations, monkeypatch):
         """FS-cache reuse invariant. flag=False is the default-OFF contract: FS is computed ONCE per target and reused across
         weight schemas. With two schemas in one run ('uniform','weighted') exactly ONE real MRMR fit must occur for the single
         target -- the second schema hits the FS cache. A second fit would mean the cache key spuriously folds the weight schema
@@ -312,8 +307,11 @@ class TestWeightAwareFeatureSelectionSuite:
         records = _install_mrmr_fit_spy(monkeypatch)
 
         _run_suite(
-            df, _mrmr_fs_config(use_sample_weights_in_fs=False),
-            temp_data_dir, common_init_params, fast_iterations,
+            df,
+            _mrmr_fs_config(use_sample_weights_in_fs=False),
+            temp_data_dir,
+            common_init_params,
+            fast_iterations,
             weight_schemas=("uniform", "weighted"),
         )
 
@@ -328,9 +326,7 @@ class TestWeightAwareFeatureSelectionSuite:
 
 
 @pytest.mark.parametrize("use_flag", [False, True])
-def test_weight_aware_fs_marker_reaches_selector_via_suite(
-    use_flag, temp_data_dir, common_init_params, fast_iterations, monkeypatch
-):
+def test_weight_aware_fs_marker_reaches_selector_via_suite(use_flag, temp_data_dir, common_init_params, fast_iterations, monkeypatch):
     """Fast representative covering both flag values: the spy confirms ``sample_weight`` is forwarded to MRMR.fit iff the flag
     is True. Tiny single-schema run so it stays well under the per-test budget; the heavy selection-content assertions live in
     the slow class above."""
@@ -340,8 +336,11 @@ def test_weight_aware_fs_marker_reaches_selector_via_suite(
 
     schemas = ("weighted",) if use_flag else ("uniform",)
     models, _ = _run_suite(
-        df, _mrmr_fs_config(use_sample_weights_in_fs=use_flag),
-        temp_data_dir, common_init_params, fast_iterations,
+        df,
+        _mrmr_fs_config(use_sample_weights_in_fs=use_flag),
+        temp_data_dir,
+        common_init_params,
+        fast_iterations,
         weight_schemas=schemas,
     )
 
@@ -349,9 +348,7 @@ def test_weight_aware_fs_marker_reaches_selector_via_suite(
     assert len(records) >= 1
     if use_flag:
         # Correct behaviour: weights reach MRMR.fit under the flag (marker re-asserted on the per-strategy clone).
-        assert any(r["sw_not_none"] for r in records), (
-            "use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit"
-        )
+        assert any(r["sw_not_none"] for r in records), "use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit"
     else:
         assert all(not r["sw_not_none"] for r in records), "flag=False: sample_weight must NOT reach MRMR.fit"
 

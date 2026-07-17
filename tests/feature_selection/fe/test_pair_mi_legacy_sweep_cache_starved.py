@@ -14,6 +14,7 @@ the batch precompute now always does at n_pairs>=8), ``compute_pairs_mis`` must 
 underlying ``mi_direct`` kernel at all -- proving the O(p^2) *expensive-compute* cost, not just the
 O(p^2) *iteration* cost, is eliminated.
 """
+
 from __future__ import annotations
 
 from itertools import combinations
@@ -72,9 +73,7 @@ def test_legacy_sweep_skips_mi_direct_when_cache_fully_prepopulated(monkeypatch)
         fe_min_pair_mi_prevalence=1.05,
     )
 
-    assert len(calls) == 0, (
-        f"expected 0 mi_direct calls (every pair pre-cached by the batch precompute), got {len(calls)}"
-    )
+    assert len(calls) == 0, f"expected 0 mi_direct calls (every pair pre-cached by the batch precompute), got {len(calls)}"
 
 
 def test_legacy_sweep_only_computes_missing_pairs(monkeypatch):

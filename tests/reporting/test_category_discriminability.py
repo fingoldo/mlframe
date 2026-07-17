@@ -117,11 +117,13 @@ def test_compose_figure_single_panel():
 def test_high_cardinality_and_numeric_columns_skipped():
     rng = np.random.default_rng(4)
     n = 3000
-    X = pd.DataFrame({
-        "id": [f"u{i}" for i in range(n)],          # 3000 unique -> high cardinality, skipped
-        "num": rng.random(n),                        # numeric, not auto-detected
-        "cat": rng.choice(["p", "q"], size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "id": [f"u{i}" for i in range(n)],  # 3000 unique -> high cardinality, skipped
+            "num": rng.random(n),  # numeric, not auto-detected
+            "cat": rng.choice(["p", "q"], size=n),
+        }
+    )
     y = (rng.random(n) < 0.5).astype(int)
     rows = category_discriminability_table(X, y, top_k=20)
     feats = {feat for feat, *_ in rows}

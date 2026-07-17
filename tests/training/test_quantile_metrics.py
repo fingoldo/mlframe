@@ -12,8 +12,13 @@ import numpy as np
 import pytest
 
 from mlframe.metrics.quantile import (
-    coverage, mean_interval_width, pinball_loss, pinball_loss_per_alpha,
-    pit_values, quantile_summary, winkler_score,
+    coverage,
+    mean_interval_width,
+    pinball_loss,
+    pinball_loss_per_alpha,
+    pit_values,
+    quantile_summary,
+    winkler_score,
 )
 
 
@@ -23,11 +28,13 @@ def std_normal_data():
     n = 500
     y = rng.standard_normal(n)
     # Constant predictions at the theoretical std-normal quantiles.
-    preds = np.column_stack([
-        np.full(n, -1.2815515655446004),  # q_0.1
-        np.zeros(n),                       # q_0.5
-        np.full(n, 1.2815515655446004),   # q_0.9
-    ])
+    preds = np.column_stack(
+        [
+            np.full(n, -1.2815515655446004),  # q_0.1
+            np.zeros(n),  # q_0.5
+            np.full(n, 1.2815515655446004),  # q_0.9
+        ]
+    )
     alphas = (0.1, 0.5, 0.9)
     return y, preds, alphas
 
@@ -35,6 +42,7 @@ def std_normal_data():
 class TestPinballLoss:
     def test_matches_sklearn(self, std_normal_data):
         from sklearn.metrics import mean_pinball_loss
+
         y, preds, alphas = std_normal_data
         for j, a in enumerate(alphas):
             mine = pinball_loss(y, preds[:, j], a)
@@ -43,6 +51,7 @@ class TestPinballLoss:
 
     def test_per_alpha_dict(self, std_normal_data):
         from sklearn.metrics import mean_pinball_loss
+
         y, preds, alphas = std_normal_data
         per_a = pinball_loss_per_alpha(y, preds, alphas)
         for j, a in enumerate(alphas):
@@ -67,7 +76,9 @@ class TestPinballLoss:
     def test_per_alpha_shape_mismatch_raises(self):
         with pytest.raises(ValueError, match="shape\\[1\\]"):
             pinball_loss_per_alpha(
-                np.array([1.0, 2.0]), np.array([[1.0], [2.0]]), [0.1, 0.5],
+                np.array([1.0, 2.0]),
+                np.array([[1.0], [2.0]]),
+                [0.1, 0.5],
             )
 
 
@@ -136,8 +147,7 @@ class TestWinkler:
 
     def test_invalid_alpha_miscov_rejected(self):
         with pytest.raises(ValueError, match=r"\(0, 1\)"):
-            winkler_score(np.array([0.5]), np.array([0.0]), np.array([1.0]),
-                          alpha_miscov=0.0)
+            winkler_score(np.array([0.5]), np.array([0.0]), np.array([1.0]), alpha_miscov=0.0)
 
 
 class TestPIT:
@@ -166,6 +176,7 @@ class TestPIT:
         n = 5000
         y = rng.standard_normal(n)
         from scipy.stats import norm
+
         alphas = np.linspace(0.05, 0.95, 19)
         preds = np.tile(norm.ppf(alphas), (n, 1))
         pit = pit_values(y, preds, alphas)
@@ -175,6 +186,7 @@ class TestPIT:
         # boundaries also adds a sliver of mass at the endpoints that
         # the strict KS budget would catch.
         from scipy.stats import kstest
+
         ks_stat, _ = kstest(pit, "uniform", args=(alphas[0], alphas[-1] - alphas[0]))
         assert ks_stat < 0.08, f"PIT KS stat {ks_stat:.4f} > 0.08 -- model not well-calibrated"
 
@@ -218,12 +230,9 @@ class TestPIT:
                 P[:, 2], P[:, 3] = P[:, 3].copy(), P[:, 2].copy()
             y = base + rng.normal(scale=0.5, size=4000)
             got = pit_values(y, P, alphas)
-            ref = reference(np.asarray(y, dtype=np.float64),
-                            np.asarray(P, dtype=np.float64), alphas)
+            ref = reference(np.asarray(y, dtype=np.float64), np.asarray(P, dtype=np.float64), alphas)
             assert np.array_equal(got, ref), (
-                f"PIT njit kernel diverged from numpy reference "
-                f"(tied={tied}, nonmono={nonmono}); "
-                f"maxdiff={np.max(np.abs(got - ref)):.2e}"
+                f"PIT njit kernel diverged from numpy reference (tied={tied}, nonmono={nonmono}); maxdiff={np.max(np.abs(got - ref)):.2e}"
             )
 
 

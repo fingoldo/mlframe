@@ -7,6 +7,7 @@ pandas decision block, replays winners on the source frame via the (already form
 engineered columns in the source framework. This pins that a polars fit engineers the SAME triplet columns as pandas and
 selects equivalently -- the fix must be a no-op on the selection, only removing the format restriction.
 """
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -26,10 +27,7 @@ def _fit(df, y):
 
 
 def _triplet_cols(sel):
-    return sorted(
-        c for c in (getattr(sel, "hybrid_orth_features_", None) or [])
-        if c.split("__", 1)[0].count("*") == 2
-    )
+    return sorted(c for c in (getattr(sel, "hybrid_orth_features_", None) or []) if c.split("__", 1)[0].count("*") == 2)
 
 
 def test_triplet_fe_runs_on_polars_and_matches_pandas():
@@ -40,8 +38,7 @@ def test_triplet_fe_runs_on_polars_and_matches_pandas():
     noise = rng.standard_normal((n, 4))  # decoys so selection is non-trivial
     y = (np.sign(x1 * x2 * x3) > 0).astype(int)
 
-    data = {"x1": x1, "x2": x2, "x3": x3,
-            "n0": noise[:, 0], "n1": noise[:, 1], "n2": noise[:, 2], "n3": noise[:, 3]}
+    data = {"x1": x1, "x2": x2, "x3": x3, "n0": noise[:, 0], "n1": noise[:, 1], "n2": noise[:, 2], "n3": noise[:, 3]}
     X_pd = pd.DataFrame(data)
     X_pl = pl.DataFrame(data)
 
@@ -56,16 +53,11 @@ def test_triplet_fe_runs_on_polars_and_matches_pandas():
     assert tri_pl, "polars input engineered NO triplet columns -- the FE family was skipped (the bug this seam fixes)"
     # Same engineered triplet set and same final selection (the fix is selection-equivalent, format only).
     assert tri_pl == tri_pd, f"polars triplet columns diverged from pandas:\n  pd={tri_pd}\n  pl={tri_pl}"
-    assert sorted(map(str, sel_pl.support_)) == sorted(map(str, sel_pd.support_)), (
-        "polars vs pandas selection diverged"
-    )
+    assert sorted(map(str, sel_pl.support_)) == sorted(map(str, sel_pd.support_)), "polars vs pandas selection diverged"
 
 
 def _quad_cols(sel):
-    return sorted(
-        c for c in (getattr(sel, "hybrid_orth_features_", None) or [])
-        if c.split("__", 1)[0].count("*") == 3
-    )
+    return sorted(c for c in (getattr(sel, "hybrid_orth_features_", None) or []) if c.split("__", 1)[0].count("*") == 3)
 
 
 def test_quadruplet_fe_runs_on_polars_and_matches_pandas():
@@ -75,13 +67,11 @@ def test_quadruplet_fe_runs_on_polars_and_matches_pandas():
     x1, x2, x3, x4 = (rng.standard_normal(n) for _ in range(4))
     noise = rng.standard_normal((n, 3))
     y = (np.sign(x1 * x2 * x3 * x4) > 0).astype(int)
-    data = {"x1": x1, "x2": x2, "x3": x3, "x4": x4,
-            "n0": noise[:, 0], "n1": noise[:, 1], "n2": noise[:, 2]}
+    data = {"x1": x1, "x2": x2, "x3": x3, "x4": x4, "n0": noise[:, 0], "n1": noise[:, 1], "n2": noise[:, 2]}
     X_pd, X_pl = pd.DataFrame(data), pl.DataFrame(data)
 
     def _fit_q(df):
-        s = MRMR(fe_hybrid_orth_quadruplet_enable=True, fe_hybrid_orth_quadruplet_max_degree=1,
-                 verbose=0, random_seed=1)
+        s = MRMR(fe_hybrid_orth_quadruplet_enable=True, fe_hybrid_orth_quadruplet_max_degree=1, verbose=0, random_seed=1)
         s.fit(df, pd.Series(y))
         return s
 

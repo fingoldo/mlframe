@@ -38,7 +38,9 @@ class TestLineageFilterDefault:
         # A 2-way candidate with no overlapping selected vars should NOT
         # be skipped under either path.
         skip, n = should_skip_candidate(
-            cand_idx=5, X=(2, 3), interactions_order=2,
+            cand_idx=5,
+            X=(2, 3),
+            interactions_order=2,
             **base_state,
         )
         assert skip is False
@@ -46,7 +48,9 @@ class TestLineageFilterDefault:
 
     def test_no_engineered_lineage_passing_none_explicit(self, base_state):
         skip, n = should_skip_candidate(
-            cand_idx=5, X=(2, 3), interactions_order=2,
+            cand_idx=5,
+            X=(2, 3),
+            interactions_order=2,
             engineered_lineage=None,
             **base_state,
         )
@@ -64,7 +68,9 @@ class TestLineageFilterActive:
         col -- redundant, must be skipped."""
         engineered_lineage = {10: frozenset({0, 1})}
         skip, _ = should_skip_candidate(
-            cand_idx=15, X=(0, 10), interactions_order=2,
+            cand_idx=15,
+            X=(0, 10),
+            interactions_order=2,
             engineered_lineage=engineered_lineage,
             **base_state,
         )
@@ -76,7 +82,9 @@ class TestLineageFilterActive:
         interaction, should NOT be skipped."""
         engineered_lineage = {10: frozenset({0, 1})}
         skip, _ = should_skip_candidate(
-            cand_idx=15, X=(2, 10), interactions_order=2,
+            cand_idx=15,
+            X=(2, 10),
+            interactions_order=2,
             engineered_lineage=engineered_lineage,
             **base_state,
         )
@@ -89,7 +97,9 @@ class TestLineageFilterActive:
         no new info, redundant."""
         engineered_lineage = {10: frozenset({0, 1}), 11: frozenset({0, 2})}
         skip, _ = should_skip_candidate(
-            cand_idx=20, X=(10, 11), interactions_order=2,
+            cand_idx=20,
+            X=(10, 11),
+            interactions_order=2,
             engineered_lineage=engineered_lineage,
             **base_state,
         )
@@ -101,15 +111,16 @@ class TestLineageFilterActive:
         # implicit dependency on parent 0, but the filter as designed
         # only catches DIRECT parent-of-X-itself patterns. Document the
         # limitation here for future tightening.
-        assert skip is False, \
-            "Current lineage filter only catches direct parent-in-candidate overlap"
+        assert skip is False, "Current lineage filter only catches direct parent-in-candidate overlap"
 
     def test_higher_order_kway_with_engineered_parent(self, base_state):
         """3-way candidate ``(0, 1, 10)`` where idx=10 is ``kway(0, 1)``.
         Parents {0, 1} both appear in the candidate -- skip."""
         engineered_lineage = {10: frozenset({0, 1})}
         skip, _ = should_skip_candidate(
-            cand_idx=15, X=(0, 1, 10), interactions_order=3,
+            cand_idx=15,
+            X=(0, 1, 10),
+            interactions_order=3,
             engineered_lineage=engineered_lineage,
             **base_state,
         )
@@ -120,7 +131,9 @@ class TestLineageFilterActive:
         single-var candidates never trigger the filter."""
         engineered_lineage = {10: frozenset({0, 1})}
         skip, _ = should_skip_candidate(
-            cand_idx=10, X=(10,), interactions_order=1,
+            cand_idx=10,
+            X=(10,),
+            interactions_order=1,
             engineered_lineage=engineered_lineage,
             **base_state,
         )
@@ -132,7 +145,9 @@ class TestLineageFilterActive:
 class TestLineageFilterEdgeCases:
     def test_empty_lineage_dict_is_no_op(self, base_state):
         skip, _ = should_skip_candidate(
-            cand_idx=5, X=(0, 1), interactions_order=2,
+            cand_idx=5,
+            X=(0, 1),
+            interactions_order=2,
             engineered_lineage={},
             **base_state,
         )
@@ -146,7 +161,9 @@ class TestLineageFilterEdgeCases:
             11: frozenset({2, 3}),
         }
         skip, _ = should_skip_candidate(
-            cand_idx=20, X=(4, 5), interactions_order=2,
+            cand_idx=20,
+            X=(4, 5),
+            interactions_order=2,
             engineered_lineage=engineered_lineage,
             **base_state,
         )

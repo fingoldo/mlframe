@@ -4,6 +4,7 @@ Each test pins a quantitative win of a constructor param on a noisy frame where 
 support_threshold (FP-rate monotone in the threshold), n_bootstraps (more resamples -> fewer FPs), sample_fraction (a too-high
 fraction correlates the bootstraps and leaks noise). Baseline is the single-shot selector / the param's weaker value.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -83,7 +84,10 @@ def test_biz_val_stability_n_bootstraps_reduces_false_positives():
 
     def mean_fp(B):
         fps = [
-            len(set(StabilityMRMR(_NoisyTopK(k=5), n_bootstraps=B, sample_fraction=0.6, support_threshold=0.6, random_state=s).fit(X, y).support_.tolist()) - true)
+            len(
+                set(StabilityMRMR(_NoisyTopK(k=5), n_bootstraps=B, sample_fraction=0.6, support_threshold=0.6, random_state=s).fit(X, y).support_.tolist())
+                - true
+            )
             for s in range(8)
         ]
         return float(np.mean(fps))

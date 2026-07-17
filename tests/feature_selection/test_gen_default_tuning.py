@@ -15,6 +15,7 @@ fit) ever runs, and write only under ``tmp_path``. They cover:
 * ``--force`` re-sweeps even a present kernel;
 * the anonymization maps backend_choice -> abstract cpu/gpu and drops wall_ms.
 """
+
 from __future__ import annotations
 
 import os
@@ -64,9 +65,11 @@ def _seed_hw_fingerprint(cache_dir: str) -> None:
 # Fixtures: a fake registry + a tmp per-host cache so no real sweep runs.
 # --------------------------------------------------------------------------- #
 
+
 def _fake_spec(kernel_name="fake_kernel", *, gpu=True, salt=3):
     """A minimal real TunerSpec with a deterministic code_version. ``variant_fns``
     is a tiny local function so ``code_version()`` is stable + non-None."""
+
     def _ref(x):  # body hashed into code_version
         return x + 1
 
@@ -141,12 +144,25 @@ def patched_registry():
 # classify_device / anonymize_regions  (pure -- no cache, no pyutilz heavy path)
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.parametrize("token,expected", [
-    ("cuda", "gpu"), ("cupy", "gpu"), ("gpu", "gpu"),
-    ("njit_serial", "cpu"), ("njit_parallel", "cpu"), ("numpy", "cpu"),
-    ("serial", "cpu"), ("parallel", "cpu"), ("sklearn", "cpu"), ("hnsw", "cpu"),
-    ("", "cpu"), (None, "cpu"), ("unknown_backend", "cpu"),
-])
+
+@pytest.mark.parametrize(
+    "token,expected",
+    [
+        ("cuda", "gpu"),
+        ("cupy", "gpu"),
+        ("gpu", "gpu"),
+        ("njit_serial", "cpu"),
+        ("njit_parallel", "cpu"),
+        ("numpy", "cpu"),
+        ("serial", "cpu"),
+        ("parallel", "cpu"),
+        ("sklearn", "cpu"),
+        ("hnsw", "cpu"),
+        ("", "cpu"),
+        (None, "cpu"),
+        ("unknown_backend", "cpu"),
+    ],
+)
 def test_classify_device(token, expected):
     assert gdt.classify_device(token) == expected
 
@@ -176,6 +192,7 @@ def test_anonymize_does_not_mutate_input():
 # generate_defaults: valid sorted JSON for current kernels + code_versions
 # --------------------------------------------------------------------------- #
 
+
 def test_generate_emits_valid_sorted_json(tmp_cache, patched_registry):
     reg = patched_registry
     spec = reg.spec
@@ -183,8 +200,7 @@ def test_generate_emits_valid_sorted_json(tmp_cache, patched_registry):
 
     # Seed the per-host cache with measured regions at the live code_version so
     # get_regions returns them (tune_fn is a no-op).
-    KernelTuningCache().update(spec.kernel_name, axes=list(spec.axes.keys()), regions=_seed_regions(),
-                               code_version=spec.code_version(), salt=spec.salt)
+    KernelTuningCache().update(spec.kernel_name, axes=list(spec.axes.keys()), regions=_seed_regions(), code_version=spec.code_version(), salt=spec.salt)
 
     doc = gdt.generate_defaults(output_path=out, skip_existing=True, **reg.kwargs)
 
@@ -211,8 +227,7 @@ def test_generate_kernels_sorted_by_name(tmp_cache):
     a = _fake_spec("zzz_kernel")
     b = _fake_spec("aaa_kernel")
     for s in (a, b):
-        KernelTuningCache().update(s.kernel_name, axes=list(s.axes.keys()), regions=_seed_regions(),
-                                   code_version=s.code_version(), salt=s.salt)
+        KernelTuningCache().update(s.kernel_name, axes=list(s.axes.keys()), regions=_seed_regions(), code_version=s.code_version(), salt=s.salt)
     doc = gdt.generate_defaults(
         output_path=str(tmp_cache / "d.json"),
         discover_fn=lambda package="mlframe": {a.kernel_name: a, b.kernel_name: b},
@@ -225,13 +240,13 @@ def test_generate_kernels_sorted_by_name(tmp_cache):
 # register_default_cache loads it; a LOCAL miss returns the DEFAULT region.
 # --------------------------------------------------------------------------- #
 
+
 def test_register_default_cache_loads_and_local_miss_returns_default(tmp_path, tmp_cache, patched_registry, monkeypatch):
     reg = patched_registry
     spec = reg.spec
     out = str(tmp_cache / "default_kernel_tuning.json")
 
-    KernelTuningCache().update(spec.kernel_name, axes=list(spec.axes.keys()), regions=_seed_regions(),
-                               code_version=spec.code_version(), salt=spec.salt)
+    KernelTuningCache().update(spec.kernel_name, axes=list(spec.axes.keys()), regions=_seed_regions(), code_version=spec.code_version(), salt=spec.salt)
     doc = gdt.generate_defaults(output_path=out, **reg.kwargs)
     gdt.write_defaults(doc, out)
 
@@ -244,9 +259,13 @@ def test_register_default_cache_loads_and_local_miss_returns_default(tmp_path, t
 
     monkeypatch.setenv("PYUTILZ_KERNEL_DISABLE_SWEEP", "1")
     result = local.get_or_tune(
-        spec.kernel_name, dims={"n_samples": 500, "n_pairs": 50},
-        tuner=spec.tuner, axes=list(spec.axes.keys()), fallback=spec.fallback,
-        code_version=spec.code_version(), once_per_process=False,
+        spec.kernel_name,
+        dims={"n_samples": 500, "n_pairs": 50},
+        tuner=spec.tuner,
+        axes=list(spec.axes.keys()),
+        fallback=spec.fallback,
+        code_version=spec.code_version(),
+        once_per_process=False,
     )
     bc = result if isinstance(result, str) else result.get("backend_choice")
     assert bc == "cupy", f"local miss should serve the DEFAULT (cupy), not the hand fallback; got {result!r}"
@@ -258,8 +277,7 @@ def test_default_ignored_when_code_version_stale(tmp_path, tmp_cache, patched_re
     reg = patched_registry
     spec = reg.spec
     out = str(tmp_cache / "default_kernel_tuning.json")
-    KernelTuningCache().update(spec.kernel_name, axes=list(spec.axes.keys()), regions=_seed_regions(),
-                               code_version=spec.code_version(), salt=spec.salt)
+    KernelTuningCache().update(spec.kernel_name, axes=list(spec.axes.keys()), regions=_seed_regions(), code_version=spec.code_version(), salt=spec.salt)
     gdt.write_defaults(gdt.generate_defaults(output_path=out, **reg.kwargs), out)
 
     _use_empty_host(tmp_path, monkeypatch, "empty_host2")
@@ -267,9 +285,13 @@ def test_default_ignored_when_code_version_stale(tmp_path, tmp_cache, patched_re
     local = KernelTuningCache()
     monkeypatch.setenv("PYUTILZ_KERNEL_DISABLE_SWEEP", "1")
     result = local.get_or_tune(
-        spec.kernel_name, dims={"n_samples": 500, "n_pairs": 50},
-        tuner=spec.tuner, axes=list(spec.axes.keys()), fallback=spec.fallback,
-        code_version="a-different-code-version", once_per_process=False,
+        spec.kernel_name,
+        dims={"n_samples": 500, "n_pairs": 50},
+        tuner=spec.tuner,
+        axes=list(spec.axes.keys()),
+        fallback=spec.fallback,
+        code_version="a-different-code-version",
+        once_per_process=False,
     )
     bc = result if isinstance(result, str) else result.get("backend_choice")
     assert bc == "njit_serial", f"stale default must fall through to hand fallback; got {result!r}"
@@ -279,6 +301,7 @@ def test_default_ignored_when_code_version_stale(tmp_path, tmp_cache, patched_re
 # skip_existing skips already-present kernels (no sweep, entry preserved).
 # --------------------------------------------------------------------------- #
 
+
 def test_skip_existing_skips_present_kernel(tmp_cache, patched_registry):
     reg = patched_registry
     spec = reg.spec
@@ -286,36 +309,43 @@ def test_skip_existing_skips_present_kernel(tmp_cache, patched_registry):
 
     # Pre-write a defaults file that ALREADY has the kernel at the live cv with a
     # sentinel region we can detect was carried over (not re-derived).
-    sentinel = {"schema_version": gdt.DEFAULTS_SCHEMA_VERSION, "kernels": {
-        spec.kernel_name: {
-            "axes": list(spec.axes.keys()),
-            "code_version": spec.code_version(),
-            "regions": [{"n_samples_max": None, "n_pairs_max": None,
-                         "backend_choice": "SENTINEL", "device": "cpu"}],
-            "salt": spec.salt,
-        }
-    }}
+    sentinel = {
+        "schema_version": gdt.DEFAULTS_SCHEMA_VERSION,
+        "kernels": {
+            spec.kernel_name: {
+                "axes": list(spec.axes.keys()),
+                "code_version": spec.code_version(),
+                "regions": [{"n_samples_max": None, "n_pairs_max": None, "backend_choice": "SENTINEL", "device": "cpu"}],
+                "salt": spec.salt,
+            }
+        },
+    }
     gdt.write_defaults(sentinel, out)
 
     doc = gdt.generate_defaults(output_path=out, skip_existing=True, **reg.kwargs)
     assert reg.tune_calls == 0, "skip_existing must not sweep an already-current kernel"
-    assert doc["kernels"][spec.kernel_name]["regions"][0]["backend_choice"] == "SENTINEL", \
-        "the existing entry must be carried over verbatim"
+    assert doc["kernels"][spec.kernel_name]["regions"][0]["backend_choice"] == "SENTINEL", "the existing entry must be carried over verbatim"
 
 
 def test_force_resweeps_even_if_present(tmp_cache, patched_registry):
     reg = patched_registry
     spec = reg.spec
     out = str(tmp_cache / "default_kernel_tuning.json")
-    sentinel = {"schema_version": gdt.DEFAULTS_SCHEMA_VERSION, "kernels": {
-        spec.kernel_name: {"axes": list(spec.axes.keys()), "code_version": spec.code_version(),
-                           "regions": [{"backend_choice": "SENTINEL"}], "salt": spec.salt}
-    }}
+    sentinel = {
+        "schema_version": gdt.DEFAULTS_SCHEMA_VERSION,
+        "kernels": {
+            spec.kernel_name: {
+                "axes": list(spec.axes.keys()),
+                "code_version": spec.code_version(),
+                "regions": [{"backend_choice": "SENTINEL"}],
+                "salt": spec.salt,
+            }
+        },
+    }
     gdt.write_defaults(sentinel, out)
 
     # Seed the per-host cache so the re-derived entry has real regions.
-    KernelTuningCache().update(spec.kernel_name, axes=list(spec.axes.keys()), regions=_seed_regions(),
-                               code_version=spec.code_version(), salt=spec.salt)
+    KernelTuningCache().update(spec.kernel_name, axes=list(spec.axes.keys()), regions=_seed_regions(), code_version=spec.code_version(), salt=spec.salt)
 
     doc = gdt.generate_defaults(output_path=out, force=True, **reg.kwargs)
     assert reg.tune_calls == 1, "force must re-sweep even a present kernel"
@@ -326,12 +356,12 @@ def test_force_resweeps_even_if_present(tmp_cache, patched_registry):
 # --check drift detection (ignores generated_utc).
 # --------------------------------------------------------------------------- #
 
+
 def test_check_ignores_timestamp(tmp_cache, patched_registry):
     reg = patched_registry
     spec = reg.spec
     out = str(tmp_cache / "default_kernel_tuning.json")
-    KernelTuningCache().update(spec.kernel_name, axes=list(spec.axes.keys()), regions=_seed_regions(),
-                               code_version=spec.code_version(), salt=spec.salt)
+    KernelTuningCache().update(spec.kernel_name, axes=list(spec.axes.keys()), regions=_seed_regions(), code_version=spec.code_version(), salt=spec.salt)
     doc = gdt.generate_defaults(output_path=out, **reg.kwargs)
     gdt.write_defaults(doc, out)
 

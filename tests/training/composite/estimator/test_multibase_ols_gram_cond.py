@@ -13,6 +13,7 @@ The fast-path sensor (``test_multibase_fit_uses_gram_eigvalsh_for_cond``) fails
 on pre-fix code: HEAD computes the cond gate with ``np.linalg.svd`` and never
 calls ``np.linalg.eigvalsh`` in that gate.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,13 +59,23 @@ def _cases():
     rng = np.random.default_rng(7)
     n = 4000
     out = {}
-    b = rng.normal(size=(n, 4)); out["clean"] = (b.sum(1) + rng.normal(size=n), b)
-    b = rng.normal(size=(n, 3)); b[:, 2] = b[:, 0] + rng.normal(0, 1e-6, n); out["near_collinear"] = (b.sum(1) + rng.normal(size=n), b)
-    b = rng.normal(size=(n, 2)); b[:, 1] = 5.0; out["constant_col"] = (b[:, 0] + rng.normal(size=n), b)
-    b = rng.normal(size=(n, 3)); b[:30, 0] = np.nan; out["trailing_nan"] = (b.sum(1) + rng.normal(size=n), b)
-    b = rng.normal(size=(n, 1)); out["k1"] = (b[:, 0] + rng.normal(size=n), b)
+    b = rng.normal(size=(n, 4))
+    out["clean"] = (b.sum(1) + rng.normal(size=n), b)
+    b = rng.normal(size=(n, 3))
+    b[:, 2] = b[:, 0] + rng.normal(0, 1e-6, n)
+    out["near_collinear"] = (b.sum(1) + rng.normal(size=n), b)
+    b = rng.normal(size=(n, 2))
+    b[:, 1] = 5.0
+    out["constant_col"] = (b[:, 0] + rng.normal(size=n), b)
+    b = rng.normal(size=(n, 3))
+    b[:30, 0] = np.nan
+    out["trailing_nan"] = (b.sum(1) + rng.normal(size=n), b)
+    b = rng.normal(size=(n, 1))
+    out["k1"] = (b[:, 0] + rng.normal(size=n), b)
     # scale-mismatched bases (BKW unit-norm scaling must keep these non-collinear)
-    b = rng.normal(size=(n, 2)); b[:, 1] *= 1e6; out["scale_mismatch"] = (b.sum(1) + rng.normal(size=n), b)
+    b = rng.normal(size=(n, 2))
+    b[:, 1] *= 1e6
+    out["scale_mismatch"] = (b.sum(1) + rng.normal(size=n), b)
     return out
 
 

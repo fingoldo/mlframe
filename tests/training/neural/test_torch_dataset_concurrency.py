@@ -23,6 +23,7 @@ Surfaced by user request 2026-05-11: "мне нужно много тестов 
 бенчмарков чтобы доказать, что это и правда работает и не убивает
 производительность".
 """
+
 from __future__ import annotations
 
 import time
@@ -125,9 +126,7 @@ class TestByteCap:
         base = np.random.rand(100, 4).astype(np.float32)
         huge = base.view(BigBytesArray)
         ds = TorchDataset(features=huge, labels=None, batch_size=10)
-        assert ds._eager_features is False, (
-            "above-cap frame should NOT trigger eager conversion"
-        )
+        assert ds._eager_features is False, "above-cap frame should NOT trigger eager conversion"
         # ``self.features`` should retain the original lazy carrier
         # (still an ndarray, not a torch.Tensor).
         assert isinstance(ds.features, np.ndarray)
@@ -177,36 +176,34 @@ class TestSharedMemory:
     def test_default_features_shared(self):
         features = np.random.rand(100, 4).astype(np.float32)
         ds = TorchDataset(features=features, labels=None, batch_size=10)
-        assert ds.features.is_shared(), (
-            "Default share_memory=True should promote CPU features tensor"
-        )
+        assert ds.features.is_shared(), "Default share_memory=True should promote CPU features tensor"
 
     def test_default_labels_shared(self):
         features = np.random.rand(100, 4).astype(np.float32)
         labels = np.random.rand(100).astype(np.float32)
         ds = TorchDataset(features=features, labels=labels, batch_size=10)
-        assert ds.labels.is_shared(), (
-            "Default share_memory=True should promote labels tensor"
-        )
+        assert ds.labels.is_shared(), "Default share_memory=True should promote labels tensor"
 
     def test_default_sample_weight_shared(self):
         features = np.random.rand(100, 4).astype(np.float32)
         labels = np.random.rand(100).astype(np.float32)
         sample_weight = np.random.rand(100).astype(np.float32)
         ds = TorchDataset(
-            features=features, labels=labels,
-            sample_weight=sample_weight, batch_size=10,
+            features=features,
+            labels=labels,
+            sample_weight=sample_weight,
+            batch_size=10,
         )
-        assert ds.sample_weight.is_shared(), (
-            "Default share_memory=True should promote sample_weight tensor"
-        )
+        assert ds.sample_weight.is_shared(), "Default share_memory=True should promote sample_weight tensor"
 
     def test_share_memory_disabled_keeps_unshared(self):
         features = np.random.rand(100, 4).astype(np.float32)
         labels = np.random.rand(100).astype(np.float32)
         ds = TorchDataset(
-            features=features, labels=labels,
-            batch_size=10, share_memory=False,
+            features=features,
+            labels=labels,
+            batch_size=10,
+            share_memory=False,
         )
         assert ds.features.is_shared() is False
         assert ds.labels.is_shared() is False
@@ -285,6 +282,7 @@ class TestEagerVsLazyPerformance:
             """DataFrame-like wrapper that proxies everything to a
             real DataFrame but reports a huge nbytes so byte-cap
             short-circuits to the lazy path."""
+
             def __init__(self, df):
                 self._df = df
                 self.columns = df.columns
@@ -319,10 +317,7 @@ class TestEagerVsLazyPerformance:
                 pytest.skip("lazy path doesn't recognise wrapper carrier")
             t_eager = self._bench_getitem(ds_eager, n_batches)
             t_lazy = self._bench_getitem(ds_lazy, n_batches)
-            assert t_lazy / t_eager >= 1.5, (
-                f"Wave 22 perf regression: eager={t_eager*1000:.1f}ms "
-                f"lazy={t_lazy*1000:.1f}ms (ratio={t_lazy/t_eager:.2f}x)"
-            )
+            assert t_lazy / t_eager >= 1.5, f"Wave 22 perf regression: eager={t_eager * 1000:.1f}ms lazy={t_lazy * 1000:.1f}ms (ratio={t_lazy / t_eager:.2f}x)"
         else:
             pytest.skip("BigBytesFrame wrapper didn't trip byte cap")
 
@@ -343,26 +338,26 @@ class TestEagerVsLazyPerformance:
         feat_tensor = torch.from_numpy(features_arr.copy()).to(torch.float32)
         # Warm
         for i in range(5):
-            _ = feat_tensor[i * bs:(i + 1) * bs]
+            _ = feat_tensor[i * bs : (i + 1) * bs]
         t0 = time.perf_counter()
         for i in range(n_batches):
-            _ = feat_tensor[i * bs:(i + 1) * bs]
+            _ = feat_tensor[i * bs : (i + 1) * bs]
         t_eager = time.perf_counter() - t0
 
         # Pre-Wave-22 lazy: per-batch iloc + to_numpy + from_numpy + to(dtype).
         for i in range(5):
-            _ = torch.from_numpy(features_df.iloc[i * bs:(i + 1) * bs, :].to_numpy()).to(torch.float32)
+            _ = torch.from_numpy(features_df.iloc[i * bs : (i + 1) * bs, :].to_numpy()).to(torch.float32)
         t0 = time.perf_counter()
         for i in range(n_batches):
-            _ = torch.from_numpy(features_df.iloc[i * bs:(i + 1) * bs, :].to_numpy()).to(torch.float32)
+            _ = torch.from_numpy(features_df.iloc[i * bs : (i + 1) * bs, :].to_numpy()).to(torch.float32)
         t_lazy = time.perf_counter() - t0
 
         # The eager path should be at least 3x faster on pandas. Real
         # measurements show 10-20x; threshold conservatively at 3x for CI.
         speedup = t_lazy / t_eager
         assert speedup >= 3.0, (
-            f"Wave 22 perf claim regression: eager={t_eager*1000:.1f}ms "
-            f"legacy={t_lazy*1000:.1f}ms speedup={speedup:.1f}x "
+            f"Wave 22 perf claim regression: eager={t_eager * 1000:.1f}ms "
+            f"legacy={t_lazy * 1000:.1f}ms speedup={speedup:.1f}x "
             f"(expected >= 3x). On pandas input the legacy per-batch "
             f"iloc+to_numpy was the dominant cost; eager path saves it."
         )
@@ -383,10 +378,7 @@ class TestEagerVsLazyPerformance:
         # Conservative: each batch should average < 1 ms on any CI host.
         # Real-world on a workstation is ~0.014 ms (measured 2026-05-11);
         # CI VMs ~5x slower would still be under 0.1 ms.
-        assert per_batch_ms < 1.0, (
-            f"Wave 22 eager-path regression: {per_batch_ms:.3f} ms/batch "
-            f"(expected < 1.0 ms)"
-        )
+        assert per_batch_ms < 1.0, f"Wave 22 eager-path regression: {per_batch_ms:.3f} ms/batch (expected < 1.0 ms)"
 
     def test_share_memory_no_perf_regression(self):
         """Wave 23's share_memory_() must not slow down per-batch reads
@@ -406,10 +398,7 @@ class TestEagerVsLazyPerformance:
         # In single-process, share_memory_ should add <10% overhead. We
         # check share <= 2x unshared as a loose bound that catches real
         # regressions while staying noise-tolerant.
-        assert t_shared <= t_unshared * 2.0, (
-            f"share_memory perf regression: shared={t_shared*1000:.1f}ms "
-            f"unshared={t_unshared*1000:.1f}ms"
-        )
+        assert t_shared <= t_unshared * 2.0, f"share_memory perf regression: shared={t_shared * 1000:.1f}ms unshared={t_unshared * 1000:.1f}ms"
 
 
 # ---------------------------------------------------------------------------
@@ -429,13 +418,12 @@ class TestPersistentWorkersWiring:
         features = np.random.rand(n, 4).astype(np.float32)
         labels = np.random.rand(n).astype(np.float32)
         dm = TorchDataModule(
-            train_features=features, train_labels=labels,
+            train_features=features,
+            train_labels=labels,
             dataloader_params={"num_workers": 2, "batch_size": 16},
         )
         loader = dm._create_dataloader(features=features, labels=labels)
-        assert loader.persistent_workers is True, (
-            "num_workers=2 should auto-enable persistent_workers"
-        )
+        assert loader.persistent_workers is True, "num_workers=2 should auto-enable persistent_workers"
 
     def test_persistent_not_set_when_workers_zero(self):
         from mlframe.training.neural.data import TorchDataModule
@@ -444,7 +432,8 @@ class TestPersistentWorkersWiring:
         features = np.random.rand(n, 4).astype(np.float32)
         labels = np.random.rand(n).astype(np.float32)
         dm = TorchDataModule(
-            train_features=features, train_labels=labels,
+            train_features=features,
+            train_labels=labels,
             dataloader_params={"num_workers": 0, "batch_size": 16},
         )
         loader = dm._create_dataloader(features=features, labels=labels)
@@ -461,7 +450,8 @@ class TestPersistentWorkersWiring:
         features = np.random.rand(n, 4).astype(np.float32)
         labels = np.random.rand(n).astype(np.float32)
         dm = TorchDataModule(
-            train_features=features, train_labels=labels,
+            train_features=features,
+            train_labels=labels,
             dataloader_params={
                 "num_workers": 2,
                 "batch_size": 16,

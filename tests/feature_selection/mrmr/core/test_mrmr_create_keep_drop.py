@@ -51,6 +51,7 @@ verdict), genuine regressions fail loudly.
 
 Run with: MLFRAME_DISABLE_HNSW=1 (set by the harness); each fit is seeded.
 """
+
 from __future__ import annotations
 
 import os
@@ -72,6 +73,7 @@ SEED = 42
 # Per-fit wall budget. A cold n=50k fit measured ~50s incl. numba warmup; 300s is
 # generous slack so a slow first-JIT case never trips the global 60s timeout.
 FIT_TIMEOUT = 300
+
 
 def _artifact_path(name: str) -> str:
     """In-repo (env-overridable) path for liveness/ledger artifacts. The previous
@@ -204,10 +206,11 @@ def _sig(want, exclude=()):
 
 # ====================== weak-scaled ======================
 
+
 def _ws1(seed, n):
     rng = np.random.default_rng(seed)
     a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
-    y = 0.30 * (a ** 2) / b + 0.01 * e
+    y = 0.30 * (a**2) / b + 0.01 * e
     return pd.DataFrame({"a": a, "b": b, "e": e}), pd.Series(y, name="y")
 
 
@@ -250,7 +253,7 @@ def _ws4(seed, n):
     # g is the true driver (unobserved); g_partner is a spurious proxy that must
     # NOT be kept. y = 0.08*a^2/b + 0.40*g + 0.02*e ; g not in df.
     g = rng.uniform(0, 1, n)
-    y = 0.08 * (a ** 2) / b + 0.40 * g + 0.02 * e
+    y = 0.08 * (a**2) / b + 0.40 * g + 0.02 * e
     return pd.DataFrame({"a": a, "b": b, "e": e, "g_partner": g_partner}), pd.Series(y, name="y")
 
 
@@ -284,13 +287,14 @@ _reg(
 
 # ====================== nested-composite ======================
 
+
 def _F1(seed, n):
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
     e = rng.normal(0, 1, n)
     f = rng.normal(0, 1, n)  # unobserved
-    y = a ** 2 / b + f / 5.0 + 0.3 * e
+    y = a**2 / b + f / 5.0 + 0.3 * e
     return pd.DataFrame({"a": a, "b": b, "e": e}), pd.Series(y, name="y")
 
 
@@ -304,7 +308,7 @@ def _F2(seed, n):
     c = rng.uniform(1, 5, n)
     d = rng.uniform(0, 2 * np.pi, n)
     e = rng.normal(0, 1, n)
-    y = a ** 2 / b + 3.0 * np.log(c) * np.sin(d) + 0.3 * e
+    y = a**2 / b + 3.0 * np.log(c) * np.sin(d) + 0.3 * e
     return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
 
 
@@ -326,7 +330,7 @@ def _F3(seed, n):
     d = rng.uniform(0, 2 * np.pi, n)
     h = rng.uniform(0, 2 * np.pi, n)
     e = rng.normal(0, 1, n)
-    y = a ** 2 / b + 0.7 * np.sqrt(np.abs(g)) * np.sin(h) + 2.5 * np.log(c) * np.cos(d) + 0.3 * e
+    y = a**2 / b + 0.7 * np.sqrt(np.abs(g)) * np.sin(h) + 2.5 * np.log(c) * np.cos(d) + 0.3 * e
     return pd.DataFrame({"a": a, "b": b, "c": c, "g": g, "d": d, "h": h, "e": e}), pd.Series(y, name="y")
 
 
@@ -355,7 +359,7 @@ def _F4(seed, n):
     b = rng.uniform(1, 5, n)
     d = rng.uniform(0, 2 * np.pi, n)
     e = rng.normal(0, 1, n)
-    y = a ** 2 / b + 1.5 * np.log(b) * np.sin(d) + 0.3 * e
+    y = a**2 / b + 1.5 * np.log(b) * np.sin(d) + 0.3 * e
     return pd.DataFrame({"a": a, "b": b, "d": d, "e": e}), pd.Series(y, name="y")
 
 
@@ -386,7 +390,7 @@ def _F5(seed, n):
     c = rng.uniform(1, 5, n)
     d = rng.uniform(0, 2 * np.pi, n)
     e = rng.normal(0, 1, n)
-    y = (a ** 2 / b) * (np.log(c) * np.sin(d)) + 0.3 * e
+    y = (a**2 / b) * (np.log(c) * np.sin(d)) + 0.3 * e
     return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
 
 
@@ -410,7 +414,7 @@ def _F6(seed, n):
     c = rng.uniform(1, 5, n)
     d = rng.uniform(0, 2 * np.pi, n)
     e = rng.normal(0, 1, n)
-    y = (a ** 2 / b + np.log(c)) / (1.0 + np.sin(d) ** 2) + 0.3 * e
+    y = (a**2 / b + np.log(c)) / (1.0 + np.sin(d) ** 2) + 0.3 * e
     return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
 
 
@@ -428,10 +432,11 @@ _reg(
 
 # ====================== competing-correlated ======================
 
+
 def _CC1(seed, n):
     rng = np.random.default_rng(seed)
     a, c, e = (rng.uniform(0, 1, n) for _ in range(3))
-    y = a ** 2 + 0.30 * c
+    y = a**2 + 0.30 * c
     df = pd.DataFrame({"a": a, "a_exp": np.exp(a), "a_log": np.log(a + 1.0), "c": c, "e": e})
     return df, pd.Series(y, name="y")
 
@@ -453,10 +458,8 @@ _reg(
 def _CC2(seed, n):
     rng = np.random.default_rng(seed)
     a, b, e1, e2 = (rng.uniform(0, 1, n) for _ in range(4))
-    y = (a ** 2) / (b + 0.5)
-    df = pd.DataFrame(
-        {"a": a, "b": b, "a_cbrt": np.cbrt(a), "b_log": np.log(b + 1.0), "e1": e1, "e2": e2}
-    )
+    y = (a**2) / (b + 0.5)
+    df = pd.DataFrame({"a": a, "b": b, "a_cbrt": np.cbrt(a), "b_log": np.log(b + 1.0), "e1": e1, "e2": e2})
     return df, pd.Series(y, name="y")
 
 
@@ -472,10 +475,8 @@ _reg(
 def _CC3(seed, n):
     rng = np.random.default_rng(seed)
     a, b, d, e = (rng.uniform(0, 1, n) for _ in range(4))
-    y = (a ** 2) * b + 0.20 * d
-    df = pd.DataFrame(
-        {"a": a, "b": b, "d": d, "a_exp": np.exp(a), "a_recip": 1.0 / (a + 0.5), "b_sqrt": np.sqrt(b), "e": e}
-    )
+    y = (a**2) * b + 0.20 * d
+    df = pd.DataFrame({"a": a, "b": b, "d": d, "a_exp": np.exp(a), "a_recip": 1.0 / (a + 0.5), "b_sqrt": np.sqrt(b), "e": e})
     return df, pd.Series(y, name="y")
 
 
@@ -493,7 +494,7 @@ def _CC4(seed, n):
     a, c, e = (rng.uniform(0, 1, n) for _ in range(3))
     f = rng.uniform(0, 1, n)  # unobserved
     y = np.log(a + 1.0) * c + 0.40 * f
-    df = pd.DataFrame({"a": a, "c": c, "a_sqr": a ** 2, "c_exp": np.exp(c), "e": e})
+    df = pd.DataFrame({"a": a, "c": c, "a_sqr": a**2, "c_exp": np.exp(c), "e": e})
     return df, pd.Series(y, name="y")
 
 
@@ -527,9 +528,7 @@ def _CC6(seed, n):
     rng = np.random.default_rng(seed)
     a, b, d, e1, e2 = (rng.uniform(0, 1, n) for _ in range(5))
     y = np.sqrt(a * b) + 0.20 * d
-    df = pd.DataFrame(
-        {"a": a, "b": b, "d": d, "ab": a * b, "ab_log": np.log(a * b + 1.0), "a_exp": np.exp(a), "e1": e1, "e2": e2}
-    )
+    df = pd.DataFrame({"a": a, "b": b, "d": d, "ab": a * b, "ab_log": np.log(a * b + 1.0), "a_exp": np.exp(a), "e1": e1, "e2": e2})
     return df, pd.Series(y, name="y")
 
 
@@ -552,10 +551,11 @@ _reg(
 
 # ====================== noise-traps ======================
 
+
 def _NT1(seed, n):
     rng = np.random.default_rng(seed)
     a, b, c, e = (rng.uniform(0, 1, n) for _ in range(4))
-    y = a ** 2 / (b + 0.5) + 0.05 * np.sin(3 * c)
+    y = a**2 / (b + 0.5) + 0.05 * np.sin(3 * c)
     return pd.DataFrame({"a": a, "b": b, "c": c, "e": e}), pd.Series(y, name="y")
 
 
@@ -642,6 +642,7 @@ _reg(
 
 # ====================== mixed-strength-n ======================
 
+
 def _MS1(seed, n):
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
@@ -651,7 +652,7 @@ def _MS1(seed, n):
     e = rng.uniform(0, 1, n)
     g = rng.uniform(0, 1, n)
     h = rng.uniform(0, 1, n)
-    y = a ** 2 / b + 0.6 * (c - d) + e / 40.0
+    y = a**2 / b + 0.6 * (c - d) + e / 40.0
     return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e, "g": g, "h": h}), pd.Series(y, name="y")
 
 
@@ -759,7 +760,7 @@ def _MS5(seed, n):
     r = rng.uniform(0, 1, n)
     s = rng.uniform(0, 1, n)
     u = rng.uniform(0, 1, n)  # unobserved
-    y = 4.0 * (a ** 2 / (b + 0.5)) + 1.2 * np.sin(c) * np.sqrt(d) + 0.18 * np.log(e + 1.0) + u / 5.0 + 0.0 * w
+    y = 4.0 * (a**2 / (b + 0.5)) + 1.2 * np.sin(c) * np.sqrt(d) + 0.18 * np.log(e + 1.0) + u / 5.0 + 0.0 * w
     return (
         pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e, "w": w, "r": r, "s": s}),
         pd.Series(y, name="y"),
@@ -807,9 +808,7 @@ def _evaluate(formula, spec, selected, df_cols):
             label = " | ".join("+".join(sorted(w)) for w in sig["any_of"])
             kr = {"want": label, "covered": ok}
             if not ok:
-                failures.append(
-                    dict(kind="missing_signal", expected=f"any_of[{label}]", actual=str(selected))
-                )
+                failures.append(dict(kind="missing_signal", expected=f"any_of[{label}]", actual=str(selected)))
         else:
             ok = _covers(selected, df_cols, sig["want"], sig.get("exclude", ()))
             label = "+".join(sorted(sig["want"]))
@@ -818,9 +817,7 @@ def _evaluate(formula, spec, selected, df_cols):
                 label += f" (excl {','.join(excl)})"
             kr = {"want": label, "covered": ok}
             if not ok:
-                failures.append(
-                    dict(kind="missing_signal", expected=label, actual=str(selected))
-                )
+                failures.append(dict(kind="missing_signal", expected=label, actual=str(selected)))
         keep_results.append(kr)
 
     drop_results = []
@@ -857,7 +854,9 @@ def _fit_and_eval(formula, n, fe_max_steps=1):
     # The per-formula ``drop`` sets assert subsumed raw operands are pruned, so opt into the
     # drop policy (the constructor default is "emit_both", which keeps subsumed raws).
     kwargs = dict(
-        verbose=0, random_seed=SEED, fe_max_steps=fe_max_steps if fe_max_steps else 1,
+        verbose=0,
+        random_seed=SEED,
+        fe_max_steps=fe_max_steps if fe_max_steps else 1,
         redundancy_policy="drop",
     )
     fs = MRMR(**kwargs)
@@ -963,10 +962,16 @@ EXPECTED_XFAILS = {
     ("ws1_easy_ratio_sqr", 25000): _C_DIVISOR,
     ("ws1_easy_ratio_sqr", 50000): _C_DIVISOR,
     ("ws1_easy_ratio_sqr", BROAD_N): _C_DIVISOR,
-    ("ws2_log_sin_product", BROAD_N): "class1-residual: a noise-only engineered col add(sin(e1),abs(e2)) drags e2 in; cross-signal noise-FE admission, not a tuning gap",
+    (
+        "ws2_log_sin_product",
+        BROAD_N,
+    ): "class1-residual: a noise-only engineered col add(sin(e1),abs(e2)) drags e2 in; cross-signal noise-FE admission, not a tuning gap",
     ("ws4_weak_sqr_with_unobserved", BROAD_N): _C_DIVISOR_WS4,
     ("ws5_double_ratio_product_hard", BROAD_N): _C_NEST,
-    ("F1_easy_single_ratio_plus_noise", BROAD_N): "class1-residual: pure-noise e admitted alongside the correct ratio; marginal-uplift noise-FE, not a tuning gap",
+    (
+        "F1_easy_single_ratio_plus_noise",
+        BROAD_N,
+    ): "class1-residual: pure-noise e admitted alongside the correct ratio; marginal-uplift noise-FE, not a tuning gap",
     ("F2_easy_two_pairs_marginal_zero_guard", 1000): _C_PROTECT,
     ("F2_easy_two_pairs_marginal_zero_guard", 5000): _C_PROTECT,
     ("F2_easy_two_pairs_marginal_zero_guard", 20000): _C_PROTECT,
@@ -1081,4 +1086,5 @@ def _dump_ledger():
                 json.dump(_LEDGER, fh, indent=2)
         except Exception as exc2:
             import warnings
+
             warnings.warn(f"ckd ledger dump failed entirely: {exc2!r}")

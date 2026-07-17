@@ -6,6 +6,7 @@ The shim previously lived as a local class inside ``run_composite_post_processin
 2. The shim routes ``fit`` and ``predict`` through ``pre_pipeline.transform``.
 3. ``compute_oof_holdout_predictions`` does NOT drop shim-wrapped components.
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,8 +26,7 @@ from mlframe.training.composite.post_shim import PrePipelinePredictShim
 
 
 class _RecordingScaler(BaseEstimator):
-    """StandardScaler-like estimator that records every ``transform`` call so tests can assert pre_pipeline routing.
-    """
+    """StandardScaler-like estimator that records every ``transform`` call so tests can assert pre_pipeline routing."""
 
     def __init__(self) -> None:
         self.calls = 0

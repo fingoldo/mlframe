@@ -21,15 +21,21 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.regression import (
-    ALLOWED_REGRESSION_PANEL_TOKENS, DEFAULT_HEXBIN_THRESHOLD,
-    DEFAULT_REGRESSION_PANELS, build_regression_panel_spec,
+    ALLOWED_REGRESSION_PANEL_TOKENS,
+    DEFAULT_HEXBIN_THRESHOLD,
+    DEFAULT_REGRESSION_PANELS,
+    build_regression_panel_spec,
     compose_regression_figure,
 )
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
 from mlframe.reporting.spec import (
-    BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec,
-    LinePanelSpec, ScatterPanelSpec,
+    BarPanelSpec,
+    FigureSpec,
+    HeatmapPanelSpec,
+    HistogramPanelSpec,
+    LinePanelSpec,
+    ScatterPanelSpec,
 )
 from mlframe.training.targets import audit_residuals
 
@@ -48,9 +54,7 @@ def synth_reg():
 
 
 def test_allowed_tokens_include_core_and_diagnostics():
-    assert ALLOWED_REGRESSION_PANEL_TOKENS == frozenset(
-        {"SCATTER", "RESID_HIST", "RESID_VS_PRED", "ERR_BY_DECILE", "WORM", "RESID_ACF"}
-    )
+    assert ALLOWED_REGRESSION_PANEL_TOKENS == frozenset({"SCATTER", "RESID_HIST", "RESID_VS_PRED", "ERR_BY_DECILE", "WORM", "RESID_ACF"})
     # Default template is the integrator's concern; WORM / RESID_ACF are opt-in via the template until wired.
     assert DEFAULT_REGRESSION_PANELS == "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE"
 
@@ -105,8 +109,7 @@ def test_scatter_density_heatmap_above_threshold():
 
 def test_resid_vs_pred_has_iqr_band(synth_reg):
     yt, yp = synth_reg
-    fig = compose_regression_figure(yt, yp, audit=audit_residuals(yt, yp),
-                                    panels_template="RESID_VS_PRED")
+    fig = compose_regression_figure(yt, yp, audit=audit_residuals(yt, yp), panels_template="RESID_VS_PRED")
     line = _flat(fig)[0]
     assert isinstance(line, LinePanelSpec)
     assert line.band is not None
@@ -117,8 +120,13 @@ def test_resid_vs_pred_has_iqr_band(synth_reg):
 def test_legacy_adapter_two_panel_keeps_figsize(synth_reg):
     yt, yp = synth_reg
     fig = build_regression_panel_spec(
-        yt, yp, audit=audit_residuals(yt, yp), header_str="h", metrics_str="m",
-        panels_template="SCATTER RESID_HIST", figsize=(16.0, 5.0),
+        yt,
+        yp,
+        audit=audit_residuals(yt, yp),
+        header_str="h",
+        metrics_str="m",
+        panels_template="SCATTER RESID_HIST",
+        figsize=(16.0, 5.0),
     )
     assert isinstance(fig, FigureSpec)
     assert fig.figsize == (16.0, 5.0)

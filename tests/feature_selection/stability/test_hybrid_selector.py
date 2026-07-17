@@ -5,6 +5,7 @@ per-member selections, so the bulk of the behaviour is tested by injecting that 
 -- no expensive MRMR/SHAP/Boruta fits. A single end-to-end test (generous timeout) exercises the real plumbing:
 the three shared artifacts are populated once and the members run.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -21,6 +22,7 @@ def _selector(**kw):
     Shared FI: informative high, inf_2 weak, noise ~0.
     """
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
+
     kw.setdefault("anchor_fe", False)  # these tests exercise the PLAIN cluster-vote; the anchored path has its own test
     h = HybridSelector(**kw)
     h.members_ = {"inf_0": ["inf_0", "red_0", "red_1"], "inf_1": ["inf_1"], "inf_2": ["inf_2"], "noise_0": ["noise_0"]}
@@ -38,9 +40,9 @@ def test_vote1_keeps_all_clusters_and_dedups_redundant():
     """vote=1 (default): every voted cluster kept; redundant inf_0 cluster collapses to its best-FI member."""
     h = _selector(vote=1, fi_guard=False, expand_clusters=False)
     sel = set(h._combine(MEMBER_SEL, COLS))
-    assert {"inf_0", "inf_1", "inf_2"} <= sel          # all informative recovered (incl. single-member inf_2)
-    assert "noise_0" in sel                            # vote=1 admits the single-member noise too
-    assert "red_0" not in sel and "red_1" not in sel   # redundant copies de-duplicated to the rep inf_0
+    assert {"inf_0", "inf_1", "inf_2"} <= sel  # all informative recovered (incl. single-member inf_2)
+    assert "noise_0" in sel  # vote=1 admits the single-member noise too
+    assert "red_0" not in sel and "red_1" not in sel  # redundant copies de-duplicated to the rep inf_0
 
 
 def test_vote2_drops_single_member_clusters_noise_and_weak_signal():
@@ -73,6 +75,7 @@ def test_expand_clusters_re_emits_redundant_members():
 def test_fi_guard_default_is_off():
     import inspect
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
+
     p = inspect.signature(HybridSelector.__init__).parameters
     assert p["fi_guard"].default is False and p["vote"].default == 1
 
@@ -82,9 +85,9 @@ def test_anchored_combine_keeps_mrmr_substrate_and_only_adds():
     clusters MRMR missed -- never drop an MRMR pick. So the selection is a superset of mrmr_selected."""
     h = _selector(vote=1, anchor_fe=True)
     sel = set(h._combine(MEMBER_SEL, COLS))
-    assert {"inf_0", "inf_1"} <= sel                  # MRMR's picks kept verbatim
-    assert {"inf_2", "noise_0"} <= sel                # others ADD their vote>=1 clusters MRMR missed
-    assert set(MEMBER_SEL["mrmr"]) <= sel             # superset of the MRMR substrate (the anchor guarantee)
+    assert {"inf_0", "inf_1"} <= sel  # MRMR's picks kept verbatim
+    assert {"inf_2", "noise_0"} <= sel  # others ADD their vote>=1 clusters MRMR missed
+    assert set(MEMBER_SEL["mrmr"]) <= sel  # superset of the MRMR substrate (the anchor guarantee)
     # vote=2: each add-cluster has only ONE other voter -> no additions -> exactly the MRMR substrate
     h2 = _selector(vote=2, anchor_fe=True)
     assert set(h2._combine(MEMBER_SEL, COLS)) == {"inf_0", "inf_1"}
@@ -95,6 +98,7 @@ def test_anchor_fe_default_is_off():
     plain cluster-vote is the default. Kept as an explicit option, not the default."""
     import inspect
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
+
     assert inspect.signature(HybridSelector.__init__).parameters["anchor_fe"].default is False
 
 
@@ -115,10 +119,11 @@ def test_end_to_end_no_fe_shared_artifacts_and_recovery():
     """use_fe=False: the three shared artifacts are computed once over the raw frame and the members run; the
     hybrid recovers the informative block and de-duplicates the redundant cluster. (Deterministic raw-only path.)"""
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
+
     X, y, base = _linear_dataset()
     h = HybridSelector(vote=1, use_fe=False, random_state=0).fit(X, y)
-    assert set(h.fi_) == set(X.columns)                       # raw-only FI when FE off
-    assert any(len(ms) > 1 for ms in h.members_.values())     # redundant copies clustered
+    assert set(h.fi_) == set(X.columns)  # raw-only FI when FE off
+    assert any(len(ms) > 1 for ms in h.members_.values())  # redundant copies clustered
     assert set(h.member_selections_) == {"mrmr", "shap", "boruta"}
     assert h.n_engineered_ == 0 and list(h.transform(X).columns) == list(h.raw_selected_)
     assert len(set(h.raw_selected_) & set(base)) >= 3
@@ -131,6 +136,7 @@ def test_fe_default_augments_and_transform_replays():
     its columns match the selected set (the leakage-free recipe replay). FE is data-dependent, so we assert the
     plumbing invariants rather than a fixed engineered count."""
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
+
     # interaction-bearing target so MRMR-FE has a product worth engineering
     rng = np.random.default_rng(0)
     n = 1500
@@ -143,13 +149,13 @@ def test_fe_default_augments_and_transform_replays():
     X = pd.DataFrame(cols)
 
     h = HybridSelector(vote=1, use_fe=True, random_state=0).fit(X, y)
-    assert inspect_default("use_fe") is True                  # FE is the shipped default
-    assert set(X.columns) <= set(h.fi_)                       # shared FI spans raw (+ any engineered)
+    assert inspect_default("use_fe") is True  # FE is the shipped default
+    assert set(X.columns) <= set(h.fi_)  # shared FI spans raw (+ any engineered)
     # engineered = MRMR-engineered cols + the tree member's co-occurrence PRODUCT cols (both folded into X_aug and
     # counted by n_engineered_); the tree member is default-ON and also FE-gated, so its products count as engineered.
     eng_cols = set(h._eng_rename.values()) | set(getattr(h, "_tree_prod_names_", []))
     assert h.n_engineered_ == len([c for c in h.raw_selected_ if c in eng_cols])
-    Z = h.transform(X)                                        # transform must replay engineering, not KeyError
+    Z = h.transform(X)  # transform must replay engineering, not KeyError
     assert list(Z.columns) == [c for c in h.raw_selected_ if c in Z.columns]
     assert Z.shape[0] == X.shape[0]
 
@@ -157,6 +163,7 @@ def test_fe_default_augments_and_transform_replays():
 def inspect_default(param):
     import inspect
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
+
     return inspect.signature(HybridSelector.__init__).parameters[param].default
 
 
@@ -165,6 +172,7 @@ def _corr_clusters_reference(X, thr=0.92):
     """The pre-vectorization greedy reference (per-pair Python compare). The shipped corr_clusters replaced this
     with an adjacency-matrix + flatnonzero scan; this reference pins that the vectorization is BYTE-IDENTICAL."""
     import numpy as _np
+
     cols = list(X.columns)
     C = _np.nan_to_num(_np.corrcoef(X.values, rowvar=False))
     if C.ndim == 0:
@@ -173,10 +181,13 @@ def _corr_clusters_reference(X, thr=0.92):
     for i, c in enumerate(cols):
         if c in assigned:
             continue
-        reps.append(c); members[c] = [c]; assigned.add(c)
+        reps.append(c)
+        members[c] = [c]
+        assigned.add(c)
         for j in range(i + 1, len(cols)):
             if cols[j] not in assigned and abs(C[i, j]) >= thr:
-                members[c].append(cols[j]); assigned.add(cols[j])
+                members[c].append(cols[j])
+                assigned.add(cols[j])
     return reps, members
 
 
@@ -186,26 +197,28 @@ def test_corr_clusters_vectorized_byte_identical_to_reference(p, seed):
     same rep order (first unassigned column) and same member order (ascending column index), across widths and
     cluster structures (mostly-singleton AND big-cluster frames)."""
     from mlframe.feature_selection.hybrid_selector import corr_clusters
+
     rng = np.random.default_rng(seed)
     # mix of tight clusters (few latents replicated) + pure-noise singletons -> exercises both scan branches
     n_latent = max(2, p // 4)
     base = rng.standard_normal((300, n_latent))
     cols = {}
     for k in range(p):
-        if k % 3 == 0:                                  # ~1/3 are noisy copies of a latent -> form clusters
+        if k % 3 == 0:  # ~1/3 are noisy copies of a latent -> form clusters
             cols[f"c{k}"] = base[:, k % n_latent] + 0.02 * rng.standard_normal(300)
-        else:                                            # the rest are pure-noise singletons
+        else:  # the rest are pure-noise singletons
             cols[f"c{k}"] = rng.standard_normal(300)
     X = pd.DataFrame(cols)
     reps_v, mem_v = corr_clusters(X)
     reps_r, mem_r = _corr_clusters_reference(X)
-    assert reps_v == reps_r                              # identical representative order
-    assert mem_v == mem_r                               # identical member lists (keys + ascending-index order)
+    assert reps_v == reps_r  # identical representative order
+    assert mem_v == mem_r  # identical member lists (keys + ascending-index order)
 
 
 def test_corr_clusters_single_column_edge():
     """Single-column frame: corrcoef collapses to 0-d; both paths must return the lone column as its own cluster."""
     from mlframe.feature_selection.hybrid_selector import corr_clusters
+
     X = pd.DataFrame({"only": np.arange(10, dtype=float)})
     reps, members = corr_clusters(X)
     assert reps == ["only"] and members == {"only": ["only"]}

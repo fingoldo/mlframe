@@ -1,4 +1,5 @@
 """Additional coverage for discretization.py -- exercise each method-dispatch branch + edge cases."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -17,6 +18,7 @@ from mlframe.feature_selection.filters.discretization import (
 
 try:
     from mlframe.feature_selection.filters.discretization import categorize_1d_array
+
     _HAVE_1D = True
 except ImportError:
     _HAVE_1D = False
@@ -98,6 +100,7 @@ def test_categorize_dataset_smoke():
     test swallowed the resulting TypeError via pytest.skip and never
     actually exercised the function."""
     import pandas as pd
+
     rng = np.random.default_rng(7)
     df = pd.DataFrame(
         {

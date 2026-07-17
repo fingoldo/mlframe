@@ -12,6 +12,7 @@ pin the two load-bearing properties that keep the opt-in hook safe:
      size-mismatched prior seed is silently skipped (never crashes / never
      leaks a stale-degree coefficient vector into the live population).
 """
+
 import numpy as np
 import pytest
 
@@ -24,14 +25,20 @@ def _pair_target(n=3000, seed=0):
     rng = np.random.default_rng(seed)
     a = rng.normal(size=n)
     b = rng.normal(size=n)
-    inner = (a ** 3 - 2.0 * a) * (b ** 2 - 1.0)
+    inner = (a**3 - 2.0 * a) * (b**2 - 1.0)
     y = (inner + 0.3 * rng.normal(size=n) > 0).astype(np.int64)
     return a, b, y
 
 
 _COMMON = dict(
-    discrete_target=True, max_degree=4, min_degree=2, n_trials=250,
-    seed=42, sweep_degrees=True, basis="chebyshev", optimizer="cma_batch",
+    discrete_target=True,
+    max_degree=4,
+    min_degree=2,
+    n_trials=250,
+    seed=42,
+    sweep_degrees=True,
+    basis="chebyshev",
+    optimizer="cma_batch",
     multi_fidelity=False,
 )
 
@@ -59,7 +66,11 @@ def test_size_mismatched_prior_seed_silently_skipped():
     # A 3-element vector cannot equal ca_size+cb_size for any degree>=2 pair
     # (smallest is 2*(min_degree+1) = 6); it is silently skipped.
     bad = optimise_hermite_pair(
-        x_a=a, x_b=b, y=y, cross_fit_prior_seeds=[np.zeros(3)], **_COMMON,
+        x_a=a,
+        x_b=b,
+        y=y,
+        cross_fit_prior_seeds=[np.zeros(3)],
+        **_COMMON,
     )
     assert bad is not None
     assert np.array_equal(base.coef_a, bad.coef_a)
@@ -90,6 +101,5 @@ def test_seeded_path_rescored_on_this_data():
     warm = optimise_hermite_pair(x_a=a, x_b=b, y=y, cross_fit_prior_seeds=prior, **_COMMON)
     # On a noise target both must agree on admission (None == not admitted).
     assert (cold is None) == (warm is None), (
-        "cross-fit prior changed ADMISSION on a noise target -- LEAK BUG: "
-        f"cold={'None' if cold is None else 'kept'} warm={'None' if warm is None else 'kept'}"
+        f"cross-fit prior changed ADMISSION on a noise target -- LEAK BUG: cold={'None' if cold is None else 'kept'} warm={'None' if warm is None else 'kept'}"
     )

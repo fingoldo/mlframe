@@ -19,6 +19,7 @@ replacement path. The two automated call sites are:
 
 These tests verify the API + the call-site wiring.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,10 +33,16 @@ from mlframe.training.neural.flat import generate_mlp
 
 def _make_module() -> MLPTorchModel:
     net = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1,
-        first_layer_num_neurons=8, dropout_prob=0.0,
-        inputs_dropout_prob=0.0, use_layernorm=False, use_batchnorm=False,
-        activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     return MLPTorchModel(loss_fn=nn.MSELoss(), metrics=[], network=net)
 
@@ -46,7 +53,9 @@ def test_invalidate_predict_caches_clears_cuda_graph_cache():
     # Manually plant a sentinel cache entry; we don't need real CUDA to
     # check that the invalidator clears the dict.
     m._cuda_graph_predict_cache[("sentinel", torch.float32, "cpu")] = (
-        "graph_handle", torch.zeros(1), torch.zeros(1),
+        "graph_handle",
+        torch.zeros(1),
+        torch.zeros(1),
     )
     assert len(m._cuda_graph_predict_cache) == 1
     m._invalidate_predict_caches()
@@ -89,31 +98,42 @@ def test_on_train_end_invalidates_caches_via_smoke_fit():
     from sklearn.model_selection import train_test_split
 
     X, y = make_regression(n_samples=64, n_features=4, random_state=0)
-    X = X.astype(np.float32); y = y.astype(np.float32)
+    X = X.astype(np.float32)
+    y = y.astype(np.float32)
     X_tr, _, y_tr, _ = train_test_split(X, y, test_size=0.3, random_state=0)
 
-    torch.manual_seed(0); np.random.seed(0)
+    torch.manual_seed(0)
+    np.random.seed(0)
     reg = PytorchLightningRegressor(
         model_class=MLPTorchModel,
         model_params={
-            "loss_fn": nn.MSELoss(), "learning_rate": 1e-2,
+            "loss_fn": nn.MSELoss(),
+            "learning_rate": 1e-2,
             "load_best_weights_on_train_end": False,  # focus this test on F-D
         },
         network_params={
-            "nlayers": 1, "first_layer_num_neurons": 8,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 8,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": nn.ReLU,
         },
         datamodule_class=TorchDataModule,
         datamodule_params={
-            "features_dtype": torch.float32, "labels_dtype": torch.float32,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
             "dataloader_params": {"batch_size": 16, "num_workers": 0},
         },
         trainer_params={
-            "max_epochs": 1, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 1,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         random_state=0,
     )
@@ -123,9 +143,5 @@ def test_on_train_end_invalidates_caches_via_smoke_fit():
 
     # Run fit + verify caches are empty post-fit.
     reg.fit(X_tr, y_tr)
-    assert reg.model._cuda_graph_predict_cache == {}, (
-        "F-D: on_train_end did not invalidate _cuda_graph_predict_cache"
-    )
-    assert reg.model._compiled_predict_fn is None, (
-        "F-D: on_train_end did not invalidate _compiled_predict_fn"
-    )
+    assert reg.model._cuda_graph_predict_cache == {}, "F-D: on_train_end did not invalidate _cuda_graph_predict_cache"
+    assert reg.model._compiled_predict_fn is None, "F-D: on_train_end did not invalidate _compiled_predict_fn"

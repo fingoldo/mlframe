@@ -18,6 +18,7 @@ This test asserts:
    n=600, n_resamples=300.
 4. Macro-metric path still returns None (legacy contract preserved).
 """
+
 from __future__ import annotations
 
 import time
@@ -28,6 +29,7 @@ import pytest
 def _sklearn_paired_loop(y, p1, p2, n_resamples, seed, minimize=True):
     """Reference impl: pre-optimization sklearn-per-call paired loop."""
     from sklearn.metrics import log_loss as _ll
+
     rng = np.random.default_rng(seed)
     n = len(y)
     deltas = np.empty(n_resamples, dtype=np.float64)
@@ -49,6 +51,7 @@ def _sklearn_paired_loop(y, p1, p2, n_resamples, seed, minimize=True):
 def _vec_paired(y, p1, p2, n_resamples, seed, minimize=True):
     """Mirror of the new vectorised path in _paired_bootstrap_vs_runner_up."""
     from mlframe.training.baselines.dummy import _vectorized_bootstrap_logloss_samples
+
     s1 = _vectorized_bootstrap_logloss_samples(y, p1, n_resamples, seed)
     s2 = _vectorized_bootstrap_logloss_samples(y, p2, n_resamples, seed)
     mask = np.isfinite(s1) & np.isfinite(s2)
@@ -74,10 +77,7 @@ def test_paired_vectorised_matches_sklearn_loop_percentiles():
     for q in (2.5, 50.0, 97.5):
         v = float(np.percentile(vec, q))
         r = float(np.percentile(ref, q))
-        assert abs(v - r) < 0.02, (
-            f"Paired delta percentile q={q}: vectorised={v:.4f} vs "
-            f"sklearn-loop={r:.4f} -- drift exceeds 0.02 tolerance"
-        )
+        assert abs(v - r) < 0.02, f"Paired delta percentile q={q}: vectorised={v:.4f} vs sklearn-loop={r:.4f} -- drift exceeds 0.02 tolerance"
 
 
 def test_paired_p_strongest_beats_rate_matches_sklearn():
@@ -96,9 +96,7 @@ def test_paired_p_strongest_beats_rate_matches_sklearn():
     ref = _sklearn_paired_loop(y, p1, p2, n_resamples=400, seed=23)
     rate_vec = float(np.mean(vec < 0))
     rate_ref = float(np.mean(ref < 0))
-    assert abs(rate_vec - rate_ref) < 0.01, (
-        f"p_strongest_beats rate diverges: vec={rate_vec:.3f} vs ref={rate_ref:.3f}"
-    )
+    assert abs(rate_vec - rate_ref) < 0.01, f"p_strongest_beats rate diverges: vec={rate_vec:.3f} vs ref={rate_ref:.3f}"
 
 
 def test_paired_vectorised_is_faster_than_sklearn_loop():
@@ -125,8 +123,7 @@ def test_paired_vectorised_is_faster_than_sklearn_loop():
 
     speedup = t_sk / max(t_vec, 1e-9)
     assert speedup >= 5.0, (
-        f"Vectorised paired bootstrap only {speedup:.1f}x faster than sklearn "
-        f"loop (vec={t_vec*1000:.1f}ms, sklearn={t_sk*1000:.1f}ms); >=5x required."
+        f"Vectorised paired bootstrap only {speedup:.1f}x faster than sklearn loop (vec={t_vec * 1000:.1f}ms, sklearn={t_sk * 1000:.1f}ms); >=5x required."
     )
 
 
@@ -140,6 +137,7 @@ def test_paired_macro_path_still_returns_none():
     # right kind of structure for 1D / 2D inputs and the caller still respects
     # the gate by reading the source-level guard.
     from mlframe.training.baselines.dummy import _vectorized_bootstrap_logloss_samples
+
     rng = np.random.default_rng(3)
     # 2D macro shape (n, K) is allowed by the helper itself; the gate against
     # log_loss_macro is at the caller (_paired_bootstrap_vs_runner_up) which

@@ -9,6 +9,7 @@ or op-reorder that perturbs a single ULP fails here.
 
 Bench: feature_engineering/_benchmarks/bench_kalman_filter_njit.py (165-290x).
 """
+
 from __future__ import annotations
 
 import math
@@ -19,15 +20,14 @@ import pytest
 from mlframe.feature_engineering import bayesian as B
 
 
-def _kf_reference(observations, prior_traj, *, transition_sigma,
-                  observation_sigma, initial_variance):
+def _kf_reference(observations, prior_traj, *, transition_sigma, observation_sigma, initial_variance):
     """Verbatim pre-njit pure-Python baseline."""
     T = observations.size
     out = np.full((T, 5), np.nan, dtype=np.float64)
     if T == 0:
         return out
-    Q = transition_sigma ** 2
-    R = observation_sigma ** 2
+    Q = transition_sigma**2
+    R = observation_sigma**2
     init_obs = float(observations[0]) if np.isfinite(observations[0]) else 0.0
     mean = init_obs
     var = float(initial_variance)
@@ -43,10 +43,7 @@ def _kf_reference(observations, prior_traj, *, transition_sigma,
             K = var_pred / (innovation_var + 1e-12)
             mean = mean_pred + K * innovation
             var = (1.0 - K) * var_pred
-            log_lik = -0.5 * (
-                math.log(2.0 * math.pi * innovation_var)
-                + (innovation * innovation) / innovation_var
-            )
+            log_lik = -0.5 * (math.log(2.0 * math.pi * innovation_var) + (innovation * innovation) / innovation_var)
         else:
             mean = mean_pred
             var = var_pred
@@ -77,15 +74,21 @@ def test_kf_single_segment_bit_identical_to_python(n, nan_frac):
         pytest.skip("numba unavailable -> _kf_single_segment uses the Python path it is pinned against")
     obs, prior = _make(n, seed=n + int(nan_frac * 100), nan_frac=nan_frac)
     got = B._kf_single_segment(
-        obs, prior, transition_sigma=0.5, observation_sigma=1.0, initial_variance=1.0,
+        obs,
+        prior,
+        transition_sigma=0.5,
+        observation_sigma=1.0,
+        initial_variance=1.0,
     )
     ref = _kf_reference(
-        obs, prior, transition_sigma=0.5, observation_sigma=1.0, initial_variance=1.0,
+        obs,
+        prior,
+        transition_sigma=0.5,
+        observation_sigma=1.0,
+        initial_variance=1.0,
     )
     assert got.shape == ref.shape
-    assert np.array_equal(got, ref, equal_nan=True), (
-        f"njit KF diverged from Python reference at n={n} nan_frac={nan_frac}"
-    )
+    assert np.array_equal(got, ref, equal_nan=True), f"njit KF diverged from Python reference at n={n} nan_frac={nan_frac}"
 
 
 def test_kalman_filter_posterior_1d_bit_identical_with_groups():
@@ -100,20 +103,28 @@ def test_kalman_filter_posterior_1d_bit_identical_with_groups():
     group_ids = rng.integers(0, 4, n)
 
     res = B.kalman_filter_posterior_1d(
-        obs, prior, group_ids=group_ids,
-        transition_sigma=0.5, observation_sigma=1.0, initial_variance=1.0,
+        obs,
+        prior,
+        group_ids=group_ids,
+        transition_sigma=0.5,
+        observation_sigma=1.0,
+        initial_variance=1.0,
     )
 
     # Rebuild expected via reference per group segment.
     from mlframe.feature_engineering.grouped import iter_group_segments
+
     sort_idx, starts, ends = iter_group_segments(group_ids)
     exp_mean = np.full(n, np.nan)
     exp_ll = np.full(n, np.nan)
     for s, e in zip(starts, ends):
         idx = sort_idx[s:e]
         ref = _kf_reference(
-            obs[idx], prior[idx],
-            transition_sigma=0.5, observation_sigma=1.0, initial_variance=1.0,
+            obs[idx],
+            prior[idx],
+            transition_sigma=0.5,
+            observation_sigma=1.0,
+            initial_variance=1.0,
         )
         exp_mean[idx] = ref[:, 0]
         exp_ll[idx] = ref[:, 4]

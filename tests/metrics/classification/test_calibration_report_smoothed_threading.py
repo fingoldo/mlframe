@@ -53,8 +53,12 @@ class TestSuiteThreadingDefaultOn:
         CARRIES the smoothed overlay -- raw arrays threaded end-to-end with no explicit reliability_smoothed flag."""
         y, score = _overconfident()
         fast_calibration_report(
-            y_true=y, y_pred=score, nbins=15, show_plots=False,
-            plot_outputs="matplotlib[png]", base_path=str(tmp_path / "cal"),
+            y_true=y,
+            y_pred=score,
+            nbins=15,
+            show_plots=False,
+            plot_outputs="matplotlib[png]",
+            base_path=str(tmp_path / "cal"),
         )
         kw = _spec_spy["kwargs"]
         # Raw per-row arrays threaded down (the SAME object, no copy) so the smoother subsamples internally.
@@ -69,8 +73,12 @@ class TestSuiteThreadingDefaultOn:
         """Default-ON: no reliability_smoothed passed anywhere -> overlay still present on the suite path."""
         y, score = _overconfident(seed=1)
         fast_calibration_report(
-            y_true=y, y_pred=score, nbins=10, show_plots=False,
-            plot_outputs="plotly[html]", base_path=str(tmp_path / "cal2"),
+            y_true=y,
+            y_pred=score,
+            nbins=10,
+            show_plots=False,
+            plot_outputs="plotly[html]",
+            base_path=str(tmp_path / "cal2"),
         )
         assert _overlay_from_spec(_spec_spy["spec"]) is not None
 
@@ -78,9 +86,13 @@ class TestSuiteThreadingDefaultOn:
         """reliability_smoothed=False at the report boundary suppresses the overlay end-to-end."""
         y, score = _overconfident(seed=2)
         fast_calibration_report(
-            y_true=y, y_pred=score, nbins=15, show_plots=False,
+            y_true=y,
+            y_pred=score,
+            nbins=15,
+            show_plots=False,
             reliability_smoothed=False,
-            plot_outputs="matplotlib[png]", base_path=str(tmp_path / "cal3"),
+            plot_outputs="matplotlib[png]",
+            base_path=str(tmp_path / "cal3"),
         )
         assert _spec_spy["kwargs"].get("reliability_smoothed") is False
         assert _overlay_from_spec(_spec_spy["spec"]) is None
@@ -88,7 +100,9 @@ class TestSuiteThreadingDefaultOn:
     def test_prebinned_only_call_still_works_without_overlay(self):
         """The pre-binned-only composer call (no raw arrays) must still build a valid spec, overlay simply absent."""
         spec = cal_mod.build_calibration_spec(
-            np.linspace(0.05, 0.95, 10), np.linspace(0.0, 1.0, 10), np.full(10, 500),
+            np.linspace(0.05, 0.95, 10),
+            np.linspace(0.0, 1.0, 10),
+            np.full(10, 500),
         )
         assert _overlay_from_spec(spec) is None
 
@@ -102,9 +116,14 @@ class TestReportProbabilisticThreading:
         y, score = _overconfident(seed=3)
         probs = np.column_stack([1.0 - score, score])
         report_probabilistic_model_perf(
-            targets=y, columns=["f0"], model_name="m", model=None,
-            probs=probs, classes=[0, 1],
-            show_perf_chart=False, print_report=False,
+            targets=y,
+            columns=["f0"],
+            model_name="m",
+            model=None,
+            probs=probs,
+            classes=[0, 1],
+            show_perf_chart=False,
+            print_report=False,
             plot_file=str(tmp_path / "perf"),
             plot_outputs="matplotlib[png]",
         )

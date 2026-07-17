@@ -12,6 +12,7 @@ threaded through to it, mirroring ``test_fe_gpu_strict_auto_default.py``'s direc
 
 Gating decisions only -- never the computed feature values / MI scores (those stay backend-selected but
 bit-identical per backend; see the per-kernel GPU/CPU parity suites)."""
+
 import pytest
 
 import mlframe.feature_selection.filters._fe_gpu_strict as strict_mod
@@ -125,9 +126,11 @@ def test_fe_gpu_discretize_and_binning_enabled_forward_shape(monkeypatch):
     """_fe_gpu_discretize_enabled / _fe_gpu_binning_enabled both gate on the caller's own (n_rows, n_cands) shape."""
     _force_strict_with_cuda(monkeypatch)
     import pyutilz.core.pythonlib as _pl
+
     monkeypatch.setattr(_pl, "is_cuda_available", lambda: True)
     from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import (
-        _fe_gpu_discretize_enabled, _fe_gpu_binning_enabled,
+        _fe_gpu_discretize_enabled,
+        _fe_gpu_binning_enabled,
     )
 
     assert _fe_gpu_discretize_enabled(n_rows=100, n_cands=2) is False

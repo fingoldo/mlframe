@@ -18,6 +18,7 @@
   is unpopulated. Prevents the suite-end summary from showing "-" when
   the trained models did get evaluated (just not on val).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -41,6 +42,7 @@ class TestMlpExtremeArGroupAwareSkip:
         catch-all so adding behavior knobs is safe). Default off so
         MLP trains by default; opt-in for extreme-AR group-aware regimes."""
         from mlframe.training._model_configs import TrainingBehaviorConfig
+
         fields = getattr(TrainingBehaviorConfig, "model_fields", {})
         assert "mlp_extreme_ar_group_aware_skip" in fields
         assert "mlp_extreme_ar_threshold" in fields
@@ -60,17 +62,14 @@ class TestMlpExtremeArGroupAwareSkip:
             _phase_train_one_target_body,
             _phase_train_one_target_post,
         )
-        src = (
-            _module_source(_phase_train_one_target_body)
-            + "\n"
-            + _module_source(_phase_train_one_target_post)
-        )
+
+        src = _module_source(_phase_train_one_target_body) + "\n" + _module_source(_phase_train_one_target_post)
         assert "mlp_extreme_ar_group_aware_skip" in src
         assert "mlp_extreme_ar_threshold" in src
         assert "lag1_autocorr_per_group" in src
         assert "prefer_group_aware" in src
         assert "extreme-AR + group-aware skip fired" in src
-        assert "if mlframe_model_name == \"mlp\":" in src
+        assert 'if mlframe_model_name == "mlp":' in src
         # No leftover env-var references for the MLP skip.
         assert "MLFRAME_MLP_EXTREME_AR_GROUP_AWARE_SKIP" not in src
         assert "MLFRAME_MLP_EXTREME_AR_THRESHOLD" not in src
@@ -81,6 +80,7 @@ class TestAlwaysBuildCtEnsembleForRaw:
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
+
         fields = getattr(CompositeTargetDiscoveryConfig, "model_fields", None)
         assert fields is not None
         assert "always_build_ct_ensemble_for_raw" in fields
@@ -92,6 +92,7 @@ class TestAlwaysBuildCtEnsembleForRaw:
         is on AND a regression target has trained models, synthesise
         an empty-spec entry so the existing loop covers raw-only."""
         from mlframe.training.core import _phase_composite_post
+
         src = _module_source(_phase_composite_post)
         assert "always_build_ct_ensemble_for_raw" in src
         assert "synthesised raw-only entries" in src
@@ -108,6 +109,7 @@ class TestAlwaysBuildCtEnsembleForRaw:
         The import must resolve from ``mlframe.training.configs``.
         """
         from mlframe.training.core import _phase_composite_post
+
         src = _module_source(_phase_composite_post)
         assert "from ..target_types import" not in src
         assert "from ..configs import TargetTypes" in src
@@ -123,13 +125,11 @@ class TestVerdictTableTestFallback:
         the file crossed the monolith threshold. Either one may host
         the fallback logic depending on the current split."""
         from mlframe.training.core import (
-            _phase_composite_post, _phase_composite_post_summary,
+            _phase_composite_post,
+            _phase_composite_post_summary,
         )
-        return (
-            _module_source(_phase_composite_post)
-            + "\n"
-            + _module_source(_phase_composite_post_summary)
-        )
+
+        return _module_source(_phase_composite_post) + "\n" + _module_source(_phase_composite_post_summary)
 
     def test_fallback_logic_present(self) -> None:
         """When val metrics are missing for all trained models, the
@@ -137,8 +137,8 @@ class TestVerdictTableTestFallback:
         the operator sees the cross-split comparison)."""
         src = self._summary_src()
         # Both passes (val first, then test fallback) must be present.
-        assert "_entry_metric(_m, \"val\"" in src
-        assert "_entry_metric(_m, \"test\"" in src
+        assert '_entry_metric(_m, "val"' in src
+        assert '_entry_metric(_m, "test"' in src
         assert "test fallback" in src
         # The "_best_split" tracker prevents tagging val-found models
         # as test fallback by accident.
@@ -175,9 +175,7 @@ class TestSlidingWindowGrMatchBatchedAgreesWithLoop:
             tw_mean = tw_win.mean(axis=1, keepdims=True)
             tw_std = tw_win.std(axis=1, keepdims=True) + 1e-6
             tw_win_n = (tw_win - tw_mean) / tw_std
-            h_pad = np.concatenate(
-                [np.full(W, np.nan), h_gr, np.full(W, np.nan)]
-            ).astype(np.float64)
+            h_pad = np.concatenate([np.full(W, np.nan), h_gr, np.full(W, np.nan)]).astype(np.float64)
             h_win = np.lib.stride_tricks.sliding_window_view(h_pad, L)
             h_finite = np.all(np.isfinite(h_win), axis=1)
             for i in range(n):
@@ -205,12 +203,8 @@ class TestSlidingWindowGrMatchBatchedAgreesWithLoop:
             tw_centers_tvt = tw_tvt[W : len(tw_gr) - W]
             tw_mean = tw_win.mean(axis=1, keepdims=True)
             tw_std = tw_win.std(axis=1, keepdims=True) + 1e-6
-            tw_win_n = np.ascontiguousarray(
-                ((tw_win - tw_mean) / tw_std).astype(np.float32, copy=False)
-            )
-            h_pad = np.concatenate(
-                [np.full(W, np.nan), h_gr, np.full(W, np.nan)]
-            ).astype(np.float64)
+            tw_win_n = np.ascontiguousarray(((tw_win - tw_mean) / tw_std).astype(np.float32, copy=False))
+            h_pad = np.concatenate([np.full(W, np.nan), h_gr, np.full(W, np.nan)]).astype(np.float64)
             h_win = np.lib.stride_tricks.sliding_window_view(h_pad, L)
             h_finite = np.all(np.isfinite(h_win), axis=1)
             for start in range(0, n, chunk):
@@ -218,9 +212,7 @@ class TestSlidingWindowGrMatchBatchedAgreesWithLoop:
                 m = h_finite[start:stop]
                 if not m.any():
                     continue
-                rows = np.ascontiguousarray(
-                    h_win[start:stop][m]
-                ).astype(np.float32, copy=False)
+                rows = np.ascontiguousarray(h_win[start:stop][m]).astype(np.float32, copy=False)
                 mu = rows.mean(axis=1, keepdims=True)
                 s = rows.std(axis=1, keepdims=True) + np.float32(1e-6)
                 rows_n = (rows - mu) / s
@@ -246,9 +238,8 @@ class TestSlidingWindowGrMatchBatchedAgreesWithLoop:
         for name, x, y in zip(("tvt", "score", "idx"), a, b):
             # NaN mask must match exactly.
             import numpy as np
-            assert (
-                (np.isnan(x) == np.isnan(y)).all()
-            ), f"NaN-mask mismatch on {name}"
+
+            assert (np.isnan(x) == np.isnan(y)).all(), f"NaN-mask mismatch on {name}"
             m = np.isfinite(x) & np.isfinite(y)
             if name == "idx":
                 # Argmax may tie-break differently between sequential
@@ -257,15 +248,16 @@ class TestSlidingWindowGrMatchBatchedAgreesWithLoop:
                 # are within fp32 tolerance. On random data ties are
                 # vanishingly rare so we require exact match here.
                 import numpy as np
+
                 assert (x[m] == y[m]).all(), f"argmax differs on {name}"
             elif name == "tvt":
                 import numpy as np
+
                 assert (x[m] == y[m]).all(), f"selected tvt differs"
             else:
                 import numpy as np
-                assert np.allclose(x[m], y[m], atol=1e-4), (
-                    f"score mismatch on {name}"
-                )
+
+                assert np.allclose(x[m], y[m], atol=1e-4), f"score mismatch on {name}"
 
 
 class TestDtwBincountAggregation:
@@ -298,7 +290,9 @@ class TestDtwBincountAggregation:
             i_idx = i_idx[mask]
             j_idx = j_idx[mask]
             sum_tvt = np.bincount(
-                i_idx, weights=tw_tvt[j_idx], minlength=n_q,
+                i_idx,
+                weights=tw_tvt[j_idx],
+                minlength=n_q,
             ).astype(np.float64, copy=False)
             count = np.bincount(i_idx, minlength=n_q).astype(np.float64)
             valid = count > 0
@@ -330,6 +324,7 @@ class TestDtwBincountAggregation:
         pred_a, count_a = _loop(path, n_q, tw_tvt)
         pred_b, count_b = _batched(path, n_q, tw_tvt)
         import numpy as np
+
         np.testing.assert_array_equal(count_a, count_b)
         # NaN locations must match.
         assert (np.isnan(pred_a) == np.isnan(pred_b)).all()

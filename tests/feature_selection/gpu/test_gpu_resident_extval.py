@@ -3,6 +3,7 @@ selection-equivalent to the host path (_materialise_extval_njit float64 + discre
 replaces -- so wiring it into _emit_pair_features keeps the ext-val MI sweep (and thus FE selection) unchanged
 while the (n,K) candidate matrix stays off the H2D bus.
 """
+
 from __future__ import annotations
 
 import numpy as np

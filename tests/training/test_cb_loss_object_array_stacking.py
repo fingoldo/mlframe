@@ -6,6 +6,7 @@ Guards the ``np.array(<object-array>.tolist())`` stacking optimization in
 ``_ensure_cb_mtr_loss`` / ``_ensure_cb_multilabel_loss`` -- the object-array branch
 that the usual 2-D-array tests skip (they never enter the ``dtype == object`` path).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -28,9 +29,7 @@ def test_multilabel_loss_set_from_object_array_target():
     model = cb.CatBoostClassifier(iterations=2, verbose=0)  # no loss_function wired
     Y = (np.random.default_rng(0).random((60, 3)) < 0.4).astype(np.int64)  # multilabel
     _ensure_cb_multilabel_loss(model, _as_object_rows(Y))
-    assert model.get_params().get("loss_function") == "MultiLogloss", (
-        "object-array multilabel target must be stacked to 2-D and configured MultiLogloss"
-    )
+    assert model.get_params().get("loss_function") == "MultiLogloss", "object-array multilabel target must be stacked to 2-D and configured MultiLogloss"
 
 
 def test_mtr_loss_set_from_object_array_target():
@@ -40,9 +39,7 @@ def test_mtr_loss_set_from_object_array_target():
     model = cb.CatBoostRegressor(iterations=2, verbose=0)  # no loss_function wired
     Y = np.random.default_rng(1).normal(size=(60, 3))  # 2-D continuous multi-target
     _ensure_cb_mtr_loss(model, _as_object_rows(Y))
-    assert model.get_params().get("loss_function") == "MultiRMSE", (
-        "object-array multi-target continuous must be stacked to 2-D and configured MultiRMSE"
-    )
+    assert model.get_params().get("loss_function") == "MultiRMSE", "object-array multi-target continuous must be stacked to 2-D and configured MultiRMSE"
 
 
 def test_object_array_stack_matches_np_stack_reference():

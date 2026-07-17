@@ -9,6 +9,7 @@ combiner weights + basis preprocess params in the recipe and APPLIES them at
 replay. These tests assert the engineered value of a row is invariant to the
 batch it is scored in.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -25,16 +26,25 @@ from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 def _fit_recipe(aggregator="mean_z", seed=0, n=2500):
     rng = np.random.default_rng(seed)
     z = rng.standard_normal(n)
-    Xtr = pd.DataFrame({
-        "a": z + 0.2 * rng.standard_normal(n),
-        "b": z + 0.2 * rng.standard_normal(n),
-        "c": z + 0.2 * rng.standard_normal(n),
-    })
-    y = (z ** 2 > 0.6).astype(int)  # nonlinear in z -> He_2 of the aggregate wins
+    Xtr = pd.DataFrame(
+        {
+            "a": z + 0.2 * rng.standard_normal(n),
+            "b": z + 0.2 * rng.standard_normal(n),
+            "c": z + 0.2 * rng.standard_normal(n),
+        }
+    )
+    y = (z**2 > 0.6).astype(int)  # nonlinear in z -> He_2 of the aggregate wins
     X_aug, scores, recipes = hybrid_orth_mi_cluster_basis_fe_with_recipes(
-        Xtr, y, cluster_members={"a": ["a", "b", "c"]}, cols=list(Xtr.columns),
-        basis="hermite", degrees=(2, 3), aggregator=aggregator, top_k=5,
-        min_uplift=1.0, min_abs_mi_frac=0.0,
+        Xtr,
+        y,
+        cluster_members={"a": ["a", "b", "c"]},
+        cols=list(Xtr.columns),
+        basis="hermite",
+        degrees=(2, 3),
+        aggregator=aggregator,
+        top_k=5,
+        min_uplift=1.0,
+        min_abs_mi_frac=0.0,
     )
     return recipes
 
@@ -51,7 +61,7 @@ def _batch_invariance(recipe, seed=1):
     with warnings.catch_warnings():
         warnings.simplefilter("error")  # a refit-fallback warning would mean no stats persisted
         v_a = np.asarray(apply_recipe(recipe, Xte), dtype=np.float64)
-        v_b = np.asarray(apply_recipe(recipe, Xte_drift), dtype=np.float64)[:len(Xte)]
+        v_b = np.asarray(apply_recipe(recipe, Xte_drift), dtype=np.float64)[: len(Xte)]
     return v_a, v_b
 
 
@@ -66,9 +76,7 @@ def test_recipe_persists_fit_time_stats():
 def test_mean_z_replay_invariant_to_batch_distribution():
     recipes = _fit_recipe("mean_z")
     v_a, v_b = _batch_invariance(recipes[0])
-    assert np.allclose(v_a, v_b, rtol=0, atol=1e-9), (
-        "replay value depends on the test batch distribution -> parity broken"
-    )
+    assert np.allclose(v_a, v_b, rtol=0, atol=1e-9), "replay value depends on the test batch distribution -> parity broken"
 
 
 def test_pc1_replay_invariant_to_batch_distribution():
@@ -86,9 +94,13 @@ def test_legacy_recipe_without_stats_warns_and_still_replays():
     from mlframe.feature_selection.filters.engineered_recipes import (
         build_orth_cluster_basis_recipe,
     )
+
     legacy = build_orth_cluster_basis_recipe(
-        name="clusterbasis_legacy", members=("a", "b", "c"),
-        basis="hermite", degree=2, aggregator="mean_z",
+        name="clusterbasis_legacy",
+        members=("a", "b", "c"),
+        basis="hermite",
+        degree=2,
+        aggregator="mean_z",
     )
     assert "agg_stats" not in legacy.extra and "basis_params" not in legacy.extra
     rng = np.random.default_rng(2)

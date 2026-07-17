@@ -19,6 +19,7 @@ Post-fix:
   indexable surface regardless of caller-side carrier type).
 - idx coerced to numpy at the indexing site for symmetry.
 """
+
 from __future__ import annotations
 
 import numpy as np

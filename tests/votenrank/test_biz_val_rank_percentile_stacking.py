@@ -10,6 +10,7 @@ base learners) -- confirmed here by first testing the underlying hypothesis dire
 contamination synthetic did NOT reproduce a raw-vs-percentile gap: LinearRegression already shrinks a
 corrupted feature's coefficient toward zero on its own) before committing to this scenario.
 """
+
 from __future__ import annotations
 
 import numpy as np

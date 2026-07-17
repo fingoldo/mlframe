@@ -9,6 +9,7 @@
   no-base error under TSS on trending y, inflating the first base's gain).
 - A19: forward_stepwise is group-aware (GroupKFold) when groups are supplied.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,26 +36,34 @@ class TestM6TimeOrdering:
         feat = rng.normal(0.0, 1.0, size=n)
         # Shuffle the rows so the frame is NOT already in time order.
         perm = rng.permutation(n)
-        df = pd.DataFrame({
-            "y": y[perm], "lag": lag[perm], "feat": feat[perm], "ts": ts[perm],
-        })
+        df = pd.DataFrame(
+            {
+                "y": y[perm],
+                "lag": lag[perm],
+                "feat": feat[perm],
+                "ts": ts[perm],
+            }
+        )
         return df
 
     def test_time_ordering_sets_screen_flag_and_sorts(self) -> None:
         df = self._temporal_frame()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=800, base_candidates=["lag"],
+            enabled=True,
+            mi_sample_n=800,
+            base_candidates=["lag"],
         )
         disc = CompositeTargetDiscovery(cfg)
         train_idx = np.arange(len(df))
-        disc.fit(df, "y", ["lag", "feat"], train_idx,
-                 time_ordering=df["ts"].to_numpy())
+        disc.fit(df, "y", ["lag", "feat"], train_idx, time_ordering=df["ts"].to_numpy())
         assert getattr(disc, "_screen_time_ordered_", False) is True
 
     def test_no_time_ordering_leaves_flag_false(self) -> None:
         df = self._temporal_frame()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=800, base_candidates=["lag"],
+            enabled=True,
+            mi_sample_n=800,
+            base_candidates=["lag"],
         )
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df, "y", ["lag", "feat"], np.arange(len(df)))
@@ -70,6 +79,7 @@ class TestG1MonotoneBaseWithGroupsNoFalseWarning:
         """With groups present and NO time-ordering, a merely level-monotone base must NOT be treated as temporal:
         the CV is GroupKFold regardless, so the 'temporal order is NOT preserved' warning is a false positive."""
         import logging
+
         rng = np.random.default_rng(3)
         n, n_groups = 800, 8
         g = np.repeat(np.arange(n_groups), n // n_groups)
@@ -101,15 +111,18 @@ class TestA29ZeroBaseSentinel:
         y = 5.0 * t + np.random.default_rng(0).normal(0.0, 0.5, size=n)
         b = t + np.random.default_rng(1).normal(0.0, 0.5, size=n)
         kept, diag = forward_stepwise_multi_base(
-            y, {"b": b}, seed_bases=None, time_aware=True, cv_folds=4,
+            y,
+            {"b": b},
+            seed_bases=None,
+            time_aware=True,
+            cv_folds=4,
             cv_persist_fold_scores=True,
         )
         # The very first diagnostic's rmse_before is the zero-base baseline.
         assert diag, "expected at least one stepwise diagnostic"
         baseline = diag[0]["rmse_before"]
         assert baseline >= float(np.std(y)) * 0.99, (
-            f"zero-base baseline {baseline:.3f} should reflect the forward-walk "
-            f"train-mean error, not collapse below std(y)={np.std(y):.3f}"
+            f"zero-base baseline {baseline:.3f} should reflect the forward-walk train-mean error, not collapse below std(y)={np.std(y):.3f}"
         )
 
 
@@ -122,7 +135,10 @@ class TestA19GroupAware:
         b2 = rng.normal(0.0, 1.0, size=n)
         y = b1 + b2 + rng.normal(0.0, 0.1, size=n)
         kept, diag = forward_stepwise_multi_base(
-            y, {"b1": b1, "b2": b2}, seed_bases=["b1"],
-            time_aware=False, groups=g,
+            y,
+            {"b1": b1, "b2": b2},
+            seed_bases=["b1"],
+            time_aware=False,
+            groups=g,
         )
         assert "b1" in kept and "b2" in kept

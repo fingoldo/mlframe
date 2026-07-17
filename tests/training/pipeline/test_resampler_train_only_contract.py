@@ -12,6 +12,7 @@ row-count change. This test pins the corrected contract:
 2. a genuine transform-only imblearn pre_pipeline leaves BOTH train and val row
    counts intact (val is never resampled -- no ES-detector / holdout leak).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -57,10 +58,12 @@ def test_row_changing_resampler_in_pre_pipeline_is_rejected():
     """A row-dropping sampler in the FS slot raises (was: silent X/y desync)."""
     _RESAMPLE_ROW_COUNTS.clear()
     train_df, val_df, y_train = _make_dfs()
-    pre_pipeline = ImbPipeline([
-        ("res", FunctionSampler(func=_drop_first_row, validate=False)),
-        ("passthrough", FunctionTransformer(validate=False)),
-    ])
+    pre_pipeline = ImbPipeline(
+        [
+            ("res", FunctionSampler(func=_drop_first_row, validate=False)),
+            ("passthrough", FunctionTransformer(validate=False)),
+        ]
+    )
     with pytest.raises(ValueError, match=r"changed the train row count"):
         _apply_pre_pipeline_transforms(
             model=LinearRegression(),
@@ -80,10 +83,12 @@ def test_transform_only_pre_pipeline_preserves_train_and_val_rows():
     """A row-preserving imblearn pre_pipeline keeps both train and val intact; val never resampled."""
     _RESAMPLE_ROW_COUNTS.clear()
     train_df, val_df, y_train = _make_dfs()
-    pre_pipeline = ImbPipeline([
-        ("res", FunctionSampler(func=_identity_sampler, validate=False)),
-        ("passthrough", FunctionTransformer(validate=False)),
-    ])
+    pre_pipeline = ImbPipeline(
+        [
+            ("res", FunctionSampler(func=_identity_sampler, validate=False)),
+            ("passthrough", FunctionTransformer(validate=False)),
+        ]
+    )
     out_train, out_val = _apply_pre_pipeline_transforms(
         model=LinearRegression(),
         pre_pipeline=pre_pipeline,
@@ -97,9 +102,7 @@ def test_transform_only_pre_pipeline_preserves_train_and_val_rows():
         verbose=0,
     )
     # Sampler fired exactly once -- on the train fit -- and saw the train row count.
-    assert _RESAMPLE_ROW_COUNTS == [100], (
-        f"sampler must run once on train (100 rows); saw {_RESAMPLE_ROW_COUNTS}"
-    )
+    assert _RESAMPLE_ROW_COUNTS == [100], f"sampler must run once on train (100 rows); saw {_RESAMPLE_ROW_COUNTS}"
     assert len(out_train) == 100, f"train rows must be preserved; got {len(out_train)}"
     # Val passed through transform untouched: row count preserved, NOT resampled.
     assert len(out_val) == 40, f"val must be transform-only (40 rows preserved); got {len(out_val)}"

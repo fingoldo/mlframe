@@ -14,6 +14,7 @@ scale is provably corrupted.
 Each assertion pins a measured quantitative win with a wide margin (set 5-15% below the measured value) so mild
 measurement noise does not trip it but a real regression (gate stuck off, clamp removed, robust scale broken) fails it.
 """
+
 from __future__ import annotations
 
 import os
@@ -111,16 +112,14 @@ def test_biz_val_robust_axis_fourier_shift_stable_under_new_outlier():
     legacy_drift = float(np.median(legacy_drifts))
     robust_drift = float(np.median(robust_drifts))
     assert legacy_drift >= 0.5, (
-        f"legacy axis is supposed to be shift-fragile (drift ~0.88); got {legacy_drift:.4f} -- the contrast test is no "
-        f"longer measuring the bug."
+        f"legacy axis is supposed to be shift-fragile (drift ~0.88); got {legacy_drift:.4f} -- the contrast test is no longer measuring the bug."
     )
     assert robust_drift <= 0.05, (
         f"robust axis must be shift-stable under a new outlier (measured ~0.0016); got {robust_drift:.4f} -- the robust "
         f"path is not engaging or the MAD anchor is leaking the new spike into the span."
     )
     assert (legacy_drift / max(robust_drift, 1e-12)) >= 10.0, (
-        f"robust axis must be >=10x more shift-stable than legacy; got "
-        f"{legacy_drift / max(robust_drift, 1e-12):.1f}x."
+        f"robust axis must be >=10x more shift-stable than legacy; got {legacy_drift / max(robust_drift, 1e-12):.1f}x."
     )
 
 
@@ -196,6 +195,4 @@ def test_biz_val_robust_axis_clean_fourier_byte_identical():
     os.environ["MLFRAME_ROBUST_AXIS"] = "0"
     lo_off, sp_off = _fit_fourier_for_col(x)
     os.environ.pop("MLFRAME_ROBUST_AXIS", None)
-    assert lo_on == lo_off and sp_on == sp_off, (
-        f"clean Fourier (lo, span) not byte-identical robust-on vs off: ({lo_on}, {sp_on}) != ({lo_off}, {sp_off})."
-    )
+    assert lo_on == lo_off and sp_on == sp_off, f"clean Fourier (lo, span) not byte-identical robust-on vs off: ({lo_on}, {sp_on}) != ({lo_off}, {sp_off})."

@@ -5,6 +5,7 @@ fit path reads many via bare ``self.<param>`` (e.g. ``self.dtype`` at _fit_impl_
 resurrected old pickle raised ``AttributeError`` on the next fit. The fix overlays every
 ctor default the roster did not cover.
 """
+
 from __future__ import annotations
 
 import numpy as np

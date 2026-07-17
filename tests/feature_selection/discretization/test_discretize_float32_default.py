@@ -10,6 +10,7 @@ float32, (b) ``MLFRAME_DISCRETIZE_FLOAT32=0`` still forces the legacy float64 pa
 selection is IDENTICAL between the float64-forced and float32-default paths on a synthetic dataset
 with real signal.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -65,14 +66,16 @@ def test_env_one_still_selects_float32():
 
 def _make_signal_dataset(n: int = 4000, seed: int = 123):
     rng = np.random.default_rng(seed)
-    X = pd.DataFrame({
-        "informative_1": rng.normal(size=n),
-        "informative_2": rng.normal(size=n),
-        "informative_3": rng.normal(size=n),
-        "noise_1": rng.normal(size=n),
-        "noise_2": rng.normal(size=n),
-        "noise_3": rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "informative_1": rng.normal(size=n),
+            "informative_2": rng.normal(size=n),
+            "informative_3": rng.normal(size=n),
+            "noise_1": rng.normal(size=n),
+            "noise_2": rng.normal(size=n),
+            "noise_3": rng.normal(size=n),
+        }
+    )
     y = 2.0 * X["informative_1"] - 1.5 * X["informative_2"] + 0.8 * X["informative_3"] + rng.normal(scale=0.05, size=n)
     return X, y
 
@@ -96,6 +99,5 @@ def test_float32_default_selection_matches_float64_forced():
     m32.fit(X, y)
 
     assert list(m64.support_) == list(m32.support_), (
-        f"selection diverged between float64-forced and float32-default: "
-        f"{np.asarray(X.columns)[m64.support_]} vs {np.asarray(X.columns)[m32.support_]}"
+        f"selection diverged between float64-forced and float32-default: {np.asarray(X.columns)[m64.support_]} vs {np.asarray(X.columns)[m32.support_]}"
     )

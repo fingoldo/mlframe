@@ -12,6 +12,7 @@ aware refit fits ONLY the live (post-change) segment and recovers the current
 coefficients measurably better than the blended whole-buffer fit. The biz_value
 test pins that win; it FAILS on the whole-buffer-only logic.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,13 +55,13 @@ class TestLevelShiftDrift:
         # Buffer's true intercept is 8.0; deployed intercept is 0.0.
         y = true_alpha * base + 8.0 + rng.normal(scale=0.5, size=n)
         new_alpha, new_beta, info = streaming_alpha_check_and_refit(
-            y, base, current_alpha=true_alpha, current_beta=0.0,
+            y,
+            base,
+            current_alpha=true_alpha,
+            current_beta=0.0,
             z_threshold=3.0,
         )
-        assert info["refit"] is True, (
-            "pure level-shift (beta 0 -> 8, alpha stable) must trigger a refit; "
-            f"alpha-only detector would miss it. info={info}"
-        )
+        assert info["refit"] is True, f"pure level-shift (beta 0 -> 8, alpha stable) must trigger a refit; alpha-only detector would miss it. info={info}"
         assert info["reason"] == "drift_detected_level"
         # The slope was stable -> its z-score stays small...
         assert info["z_alpha"] < 3.0
@@ -79,7 +80,11 @@ class TestLevelShiftDrift:
         base = rng.normal(loc=5.0, scale=1.5, size=n)
         y = 0.7 * base + 12.0 + rng.normal(scale=0.4, size=n)
         _, _, info = streaming_alpha_check_and_refit(
-            y, base, current_alpha=0.7, current_beta=0.0, z_threshold=3.0,
+            y,
+            base,
+            current_alpha=0.7,
+            current_beta=0.0,
+            z_threshold=3.0,
         )
         # Pre-fix behaviour (alpha-only): z_alpha < threshold -> would be
         # "no_drift". Post-fix: z_beta carries the drift.
@@ -95,7 +100,11 @@ class TestLevelShiftDrift:
         base = rng.normal(loc=10.0, scale=2.0, size=n)
         y = 2.0 * base + rng.normal(scale=0.5, size=n)
         _, _, info = streaming_alpha_check_and_refit(
-            y, base, current_alpha=0.5, current_beta=0.0, z_threshold=3.0,
+            y,
+            base,
+            current_alpha=0.5,
+            current_beta=0.0,
+            z_threshold=3.0,
         )
         assert info["refit"] is True
         assert info["reason"] == "drift_detected"
@@ -109,7 +118,11 @@ class TestLevelShiftDrift:
         base = rng.normal(loc=10.0, scale=2.0, size=n)
         y = 0.85 * base + 3.14 + rng.normal(scale=0.5, size=n)
         new_alpha, new_beta, info = streaming_alpha_check_and_refit(
-            y, base, current_alpha=0.85, current_beta=3.14, z_threshold=3.0,
+            y,
+            base,
+            current_alpha=0.85,
+            current_beta=3.14,
+            z_threshold=3.0,
         )
         assert info["refit"] is False
         assert info["reason"] == "no_drift"
@@ -123,10 +136,15 @@ class TestLevelShiftDrift:
 
 
 def _make_mixed_buffer(
-    seed: int, n_pre: int, n_post: int,
-    alpha_pre: float, beta_pre: float,
-    alpha_post: float, beta_post: float,
-    *, noise: float = 0.4,
+    seed: int,
+    n_pre: int,
+    n_post: int,
+    alpha_pre: float,
+    beta_pre: float,
+    alpha_post: float,
+    beta_post: float,
+    *,
+    noise: float = 0.4,
 ):
     """Build a FIFO buffer: dead regime first (head), live regime last (tail)."""
     rng = np.random.default_rng(seed)
@@ -142,8 +160,13 @@ def _make_mixed_buffer(
 class TestChangePointDetection:
     def test_detects_break_on_mixed_buffer(self) -> None:
         y, base = _make_mixed_buffer(
-            20, n_pre=300, n_post=200,
-            alpha_pre=0.5, beta_pre=0.0, alpha_post=2.5, beta_post=0.0,
+            20,
+            n_pre=300,
+            n_post=200,
+            alpha_pre=0.5,
+            beta_pre=0.0,
+            alpha_post=2.5,
+            beta_post=0.0,
         )
         cp = _detect_change_point(y, base)
         assert cp["found"] is True
@@ -170,7 +193,9 @@ class TestChangePointDetection:
             n = 400 + 40 * s
             base = rng.normal(10.0, 2.0, n)
             y = np.where(
-                np.arange(n) < n // 2, 0.5 * base + 1.0, 2.5 * base - 3.0,
+                np.arange(n) < n // 2,
+                0.5 * base + 1.0,
+                2.5 * base - 3.0,
             ) + rng.normal(0.0, 0.4, n)
             cp = _detect_change_point(y, base)
             bk, bs = _brute_best_split(y, base)
@@ -207,17 +232,29 @@ class TestChangePointAwareRefit:
         errs_full = []
         for s in range(n_seeds):
             y, base = _make_mixed_buffer(
-                100 + s, n_pre=320, n_post=200,
-                alpha_pre=0.5, beta_pre=0.0,
-                alpha_post=true_post_alpha, beta_post=0.0,
+                100 + s,
+                n_pre=320,
+                n_post=200,
+                alpha_pre=0.5,
+                beta_pre=0.0,
+                alpha_post=true_post_alpha,
+                beta_post=0.0,
             )
             a_cp, _, info_cp = streaming_alpha_check_and_refit(
-                y, base, current_alpha=0.5, current_beta=0.0,
-                z_threshold=3.0, detect_change_point=True,
+                y,
+                base,
+                current_alpha=0.5,
+                current_beta=0.0,
+                z_threshold=3.0,
+                detect_change_point=True,
             )
             a_full, _, info_full = streaming_alpha_check_and_refit(
-                y, base, current_alpha=0.5, current_beta=0.0,
-                z_threshold=3.0, detect_change_point=False,
+                y,
+                base,
+                current_alpha=0.5,
+                current_beta=0.0,
+                z_threshold=3.0,
+                detect_change_point=False,
             )
             assert info_cp["refit"] is True
             assert info_cp["change_point"] >= 0, "cp path must have used a break"
@@ -230,20 +267,25 @@ class TestChangePointAwareRefit:
         assert mean_cp < 0.10, f"cp refit should track live alpha; mean err {mean_cp:.4f}"
         # Measured win is large (blend lands near ~1.5, |err|~1.0 vs cp ~0.03);
         # floor at 5x with margin so a regression that disables the cp path trips.
-        assert mean_full > 5.0 * mean_cp, (
-            f"change-point refit must beat whole-buffer fit by >5x on the live-"
-            f"alpha error; cp={mean_cp:.4f} full={mean_full:.4f}"
-        )
+        assert mean_full > 5.0 * mean_cp, f"change-point refit must beat whole-buffer fit by >5x on the live-alpha error; cp={mean_cp:.4f} full={mean_full:.4f}"
 
     def test_change_point_disabled_is_legacy_full_buffer(self) -> None:
         """With detect_change_point=False the refit uses the whole buffer and
         reports change_point=-1 (legacy path preserved as an opt-out)."""
         y, base = _make_mixed_buffer(
-            200, n_pre=300, n_post=200,
-            alpha_pre=0.5, beta_pre=0.0, alpha_post=2.5, beta_post=0.0,
+            200,
+            n_pre=300,
+            n_post=200,
+            alpha_pre=0.5,
+            beta_pre=0.0,
+            alpha_post=2.5,
+            beta_post=0.0,
         )
         a_full, _, info = streaming_alpha_check_and_refit(
-            y, base, current_alpha=0.5, current_beta=0.0,
+            y,
+            base,
+            current_alpha=0.5,
+            current_beta=0.0,
             detect_change_point=False,
         )
         assert info["change_point"] == -1
@@ -258,10 +300,18 @@ class TestChangePointAwareRefit:
         base = rng.normal(loc=10.0, scale=2.0, size=n)
         y = 2.0 * base + rng.normal(scale=0.4, size=n)
         a_on, b_on, info_on = streaming_alpha_check_and_refit(
-            y, base, current_alpha=0.5, current_beta=0.0, detect_change_point=True,
+            y,
+            base,
+            current_alpha=0.5,
+            current_beta=0.0,
+            detect_change_point=True,
         )
         a_off, b_off, info_off = streaming_alpha_check_and_refit(
-            y, base, current_alpha=0.5, current_beta=0.0, detect_change_point=False,
+            y,
+            base,
+            current_alpha=0.5,
+            current_beta=0.0,
+            detect_change_point=False,
         )
         assert info_on["change_point"] == -1
         assert info_on["n_fit"] == n

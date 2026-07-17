@@ -18,6 +18,7 @@ Covered estimator shapes (each round-trips through the real ``save_mlframe_model
 Both lean and non-lean go through ``predict_from_models`` so the assertion is on the
 inference output the operator actually consumes.
 """
+
 from __future__ import annotations
 
 import os
@@ -39,11 +40,13 @@ _ZSTD = dict(level=4, write_checksum=True, write_content_size=True, threads=0)
 
 def _make_holdout(n: int = 400, seed: int = 7) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    return pd.DataFrame({
-        "f0": rng.normal(size=n).astype("float32"),
-        "f1": rng.normal(size=n).astype("float32"),
-        "f2": rng.normal(size=n).astype("float32"),
-    })
+    return pd.DataFrame(
+        {
+            "f0": rng.normal(size=n).astype("float32"),
+            "f1": rng.normal(size=n).astype("float32"),
+            "f2": rng.normal(size=n).astype("float32"),
+        }
+    )
 
 
 def _populate_strip_fields(entry: SimpleNamespace, n_train: int = 5_000) -> None:
@@ -96,11 +99,13 @@ def _lgb_entry():
 
     rng = np.random.default_rng(0)
     n = 600
-    Xtr = pd.DataFrame({
-        "f0": rng.normal(size=n).astype("float32"),
-        "f1": rng.normal(size=n).astype("float32"),
-        "f2": rng.normal(size=n).astype("float32"),
-    })
+    Xtr = pd.DataFrame(
+        {
+            "f0": rng.normal(size=n).astype("float32"),
+            "f1": rng.normal(size=n).astype("float32"),
+            "f2": rng.normal(size=n).astype("float32"),
+        }
+    )
     ytr = (1.7 * Xtr["f0"] - 0.9 * Xtr["f1"] + 0.4 * Xtr["f2"] + rng.normal(0, 0.2, n)).to_numpy()
 
     pre = Pipeline([("imp", SimpleImputer()), ("sc", StandardScaler())])
@@ -129,15 +134,12 @@ def test_lean_save_does_not_change_lgb_predictions(_lgb_entry):
     # The fat bundle still carries a stripped field; the lean one must not.
     assert getattr(loaded_fat, "train_preds", None) is not None
     for field in _LEAN_STRIP_FIELDS:
-        assert not hasattr(loaded_lean, field) or getattr(loaded_lean, field) is None, (
-            f"lean save leaked stripped field {field!r}"
-        )
+        assert not hasattr(loaded_lean, field) or getattr(loaded_lean, field) is None, f"lean save leaked stripped field {field!r}"
 
     np.testing.assert_array_equal(
         np.asarray(res_fat["ensemble_predictions"]),
         np.asarray(res_lean["ensemble_predictions"]),
-        err_msg="lean=True changed LGB predictions -- a stripped field was inference-critical "
-                "or a needed field was dropped",
+        err_msg="lean=True changed LGB predictions -- a stripped field was inference-critical or a needed field was dropped",
     )
 
 
@@ -152,17 +154,21 @@ def test_lean_save_does_not_change_composite_target_predictions():
 
     rng = np.random.default_rng(11)
     n = 800
-    Xtr = pd.DataFrame({
-        "f0": rng.normal(size=n).astype("float32"),
-        "f1": rng.normal(size=n).astype("float32"),
-        "f2": rng.normal(size=n).astype("float32"),
-    })
+    Xtr = pd.DataFrame(
+        {
+            "f0": rng.normal(size=n).astype("float32"),
+            "f1": rng.normal(size=n).astype("float32"),
+            "f2": rng.normal(size=n).astype("float32"),
+        }
+    )
     base = Xtr["f0"].to_numpy()
     ytr = (3.0 * base + 0.5 * Xtr["f1"].to_numpy() + rng.normal(0, 0.1, n)).astype("float64")
 
     inner = LGBMRegressor(n_estimators=40, num_leaves=15, verbose=-1, random_state=0)
     cte = CompositeTargetEstimator(
-        base_estimator=inner, transform_name="linear_residual", base_column="f0",
+        base_estimator=inner,
+        transform_name="linear_residual",
+        base_column="f0",
     )
     cte.fit(Xtr, ytr)
 
@@ -183,10 +189,7 @@ def test_lean_save_does_not_change_composite_target_predictions():
     np.testing.assert_array_equal(
         np.asarray(res_fat["ensemble_predictions"]),
         np.asarray(res_lean["ensemble_predictions"]),
-        err_msg="lean=True changed CompositeTargetEstimator predictions -- the target-inverse "
-                "params were lost across the lean strip",
+        err_msg="lean=True changed CompositeTargetEstimator predictions -- the target-inverse params were lost across the lean strip",
     )
     # Predictions are in target scale (mean near 0 would mean the residual-inverse was lost).
-    assert abs(float(np.mean(res_lean["ensemble_predictions"]))) > 0.1, (
-        "composite predictions collapsed toward residual scale; target-inverse not applied"
-    )
+    assert abs(float(np.mean(res_lean["ensemble_predictions"]))) > 0.1, "composite predictions collapsed toward residual scale; target-inverse not applied"

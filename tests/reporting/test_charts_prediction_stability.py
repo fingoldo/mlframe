@@ -15,14 +15,22 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.prediction_stability import (
-    DEFAULT_CALIB_BINS, PredictionStabilityResult, compose_prediction_stability_figure,
+    DEFAULT_CALIB_BINS,
+    PredictionStabilityResult,
+    compose_prediction_stability_figure,
     compute_prediction_stability,
 )
 from mlframe.reporting.charts.prediction_stability import (
-    MIN_CALIB_ROWS, _spearman, _uncertainty_calibration,
+    MIN_CALIB_ROWS,
+    _spearman,
+    _uncertainty_calibration,
 )
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, ScatterPanelSpec,
+    AnnotationPanelSpec,
+    FigureSpec,
+    HistogramPanelSpec,
+    LinePanelSpec,
+    ScatterPanelSpec,
 )
 
 
@@ -146,13 +154,16 @@ def test_tiny_n_calibration_annotates():
 
 def test_figure_renders_matplotlib():
     import os
+
     os.environ.setdefault("MPLBACKEND", "Agg")
     from mlframe.reporting.renderers.base import get_renderer
+
     preds, yt, _ = _easy_hard_ensemble()
     fig = compose_prediction_stability_figure(preds, y_true=yt)
     rend = get_renderer("matplotlib")
     rendered = rend.render(fig)
     import matplotlib.pyplot as plt
+
     plt.close(rendered)
 
 
@@ -164,6 +175,7 @@ def test_figure_renders_matplotlib():
 def test_spearman_matches_scipy_on_random():
     pytest.importorskip("scipy")
     from scipy.stats import spearmanr
+
     rng = np.random.default_rng(3)
     a = rng.normal(size=500)
     b = a * 0.6 + rng.normal(size=500)
@@ -173,6 +185,7 @@ def test_spearman_matches_scipy_on_random():
 def test_spearman_handles_ties():
     pytest.importorskip("scipy")
     from scipy.stats import spearmanr
+
     rng = np.random.default_rng(4)
     a = rng.integers(0, 5, size=300).astype(float)  # heavy ties
     b = rng.integers(0, 5, size=300).astype(float)

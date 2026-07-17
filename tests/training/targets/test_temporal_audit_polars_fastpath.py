@@ -19,6 +19,7 @@ argument, then calling ``run_temporal_audit_batch`` end-to-end with a
 representative input shape (numeric int64 ts seconds-since-epoch, 2
 binary targets).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -43,6 +44,7 @@ def _audit_call_recorder(monkeypatch):
         return {k: None for k in targets}
 
     from mlframe.training.core import _phase_temporal_audit as ph_mod
+
     monkeypatch.setattr(ph_mod, "_audit_targets_over_time", _fake_audit)
     return seen
 
@@ -73,7 +75,7 @@ def test_run_temporal_audit_batch_builds_polars_input(_audit_call_recorder):
     # Numeric int64 seconds-since-epoch -- what the synthetic profile and
     # real FTEs emit. The fastpath must accept this without raising.
     n = 1_000
-    timestamps = (1_700_000_000 + np.arange(n, dtype=np.int64))
+    timestamps = 1_700_000_000 + np.arange(n, dtype=np.int64)
     y_arr = np.random.RandomState(0).randint(0, 2, size=n).astype(np.int8)
     y2_arr = np.random.RandomState(1).randint(0, 2, size=n).astype(np.int8)
     target_by_type = {
@@ -88,22 +90,15 @@ def test_run_temporal_audit_batch_builds_polars_input(_audit_call_recorder):
         verbose=False,
     )
 
-    assert _audit_call_recorder["df_type"] is not None, (
-        "run_temporal_audit_batch did not invoke audit_targets_over_time at all"
-    )
+    assert _audit_call_recorder["df_type"] is not None, "run_temporal_audit_batch did not invoke audit_targets_over_time at all"
     assert "polars" in _audit_call_recorder["df_type"].lower(), (
-        f"expected a polars.DataFrame to reach audit_targets_over_time "
-        f"(unlocks the multi-target single-pass fastpath), got "
-        f"{_audit_call_recorder['df_type']!r}"
+        f"expected a polars.DataFrame to reach audit_targets_over_time (unlocks the multi-target single-pass fastpath), got {_audit_call_recorder['df_type']!r}"
     )
-    assert _audit_call_recorder["n_targets"] == 2, (
-        f"expected 2 targets (y + y2), got {_audit_call_recorder['n_targets']}"
-    )
+    assert _audit_call_recorder["n_targets"] == 2, f"expected 2 targets (y + y2), got {_audit_call_recorder['n_targets']}"
     # Timestamp column must arrive as polars Datetime so dt.truncate works.
     _ts_dtype = (_audit_call_recorder["df_dtypes"] or {}).get("ts", "")
     assert "Datetime" in _ts_dtype, (
-        f"timestamp column 'ts' must be polars Datetime (so "
-        f"_aggregate_by_time_polars_multi can call dt.truncate); got {_ts_dtype!r}"
+        f"timestamp column 'ts' must be polars Datetime (so _aggregate_by_time_polars_multi can call dt.truncate); got {_ts_dtype!r}"
     )
 
 
@@ -130,8 +125,7 @@ def test_pick_granularity_accepts_min_max_tuple_shortcut():
     granularity_from_minmax = _pick_granularity((full[0], full[-1]))
 
     assert granularity_from_minmax == granularity_from_full, (
-        f"(min, max) shortcut must match the full-sequence path: "
-        f"shortcut={granularity_from_minmax!r}, full={granularity_from_full!r}"
+        f"(min, max) shortcut must match the full-sequence path: shortcut={granularity_from_minmax!r}, full={granularity_from_full!r}"
     )
 
 
@@ -141,15 +135,14 @@ def test_pick_granularity_minmax_zero_span_returns_month():
     from mlframe.training.targets.target_temporal_audit import _pick_granularity
 
     import datetime as _dt
+
     ts = _dt.datetime(2024, 1, 1)
     assert _pick_granularity((ts, ts)) == "month"
     # None inputs (caller couldn't determine span) also degrade safely.
     assert _pick_granularity((None, None)) == "month"
 
 
-def test_run_temporal_audit_batch_pandas_fallback_when_polars_missing(
-    _audit_call_recorder, monkeypatch
-):
+def test_run_temporal_audit_batch_pandas_fallback_when_polars_missing(_audit_call_recorder, monkeypatch):
     """If polars is unavailable (or import fails), the wrapper must fall through to a pandas DataFrame
     rather than raising.
 
@@ -159,18 +152,26 @@ def test_run_temporal_audit_batch_pandas_fallback_when_polars_missing(
     isolation alone, avoiding the cross-test module-rebinding pollution the reload would risk.
     """
     import sys
+
     monkeypatch.setitem(sys.modules, "polars", None)
 
     from mlframe.training.core import _phase_temporal_audit as ph_mod
-    monkeypatch.setattr(ph_mod, "_audit_targets_over_time",
-                        lambda df, **kw: (_audit_call_recorder.update(
-                            df_type=type(df).__module__ + "." + type(df).__name__,
-                            n_targets=len(kw["targets"]),
-                        ) or {k: None for k in kw["targets"]}))
+
+    monkeypatch.setattr(
+        ph_mod,
+        "_audit_targets_over_time",
+        lambda df, **kw: (
+            _audit_call_recorder.update(
+                df_type=type(df).__module__ + "." + type(df).__name__,
+                n_targets=len(kw["targets"]),
+            )
+            or {k: None for k in kw["targets"]}
+        ),
+    )
 
     behavior_config, fte = _make_minimal_behavior_and_fte()
     n = 100
-    timestamps = (1_700_000_000 + np.arange(n, dtype=np.int64))
+    timestamps = 1_700_000_000 + np.arange(n, dtype=np.int64)
     y_arr = np.random.RandomState(0).randint(0, 2, size=n).astype(np.int8)
     target_by_type = {"binary_classification": {"y": y_arr}}
 

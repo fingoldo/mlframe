@@ -4,6 +4,7 @@ module-global byte counter could drift. A threading.Lock now guards every mutati
 cached wrapper from many threads (a) never raises, (b) stays bit-identical to the uncached kernel, and
 (c) leaves the byte counter EXACTLY equal to the sum of the retained entries' bytes (no drift).
 """
+
 import threading
 
 import numpy as np
@@ -15,7 +16,12 @@ from mlframe.feature_selection.filters.discretization import _discretization_dat
 
 def _cached(arr):
     return dd._discretize_2d_array_col_cached(
-        arr, n_bins=8, method="quantile", min_ncats=2, dtype=np.int32, discretize_2d_array=discretize_2d_array,
+        arr,
+        n_bins=8,
+        method="quantile",
+        min_ncats=2,
+        dtype=np.int32,
+        discretize_2d_array=discretize_2d_array,
     )
 
 

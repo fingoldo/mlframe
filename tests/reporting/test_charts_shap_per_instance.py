@@ -65,7 +65,7 @@ def test_worst_k_selected_by_error_severity():
     expected = np.argsort(severity)[::-1][:4]
     assert set(res.worst_idx.tolist()) == set(expected.tolist())
     assert np.all(np.diff(res.severities) <= 1e-12)  # worst first, non-increasing
-    for f in res.figure, :
+    for f in (res.figure,):
         plt.close(f)
 
 

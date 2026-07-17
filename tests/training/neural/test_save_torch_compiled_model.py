@@ -12,6 +12,7 @@ attribute (the marker torch.compile leaves on its wrapper) with the underlying
 un-compiled module, dumps, then restores so the caller keeps the optimized
 graph after save returns.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -60,10 +61,7 @@ def test_save_unwraps_torch_compile_wrapper_for_pickle(tmp_path, monkeypatch):
 
     # Original payload's compile wrapper restored after save (so subsequent
     # predict() keeps the optimized graph).
-    assert payload.model.network is compiled, (
-        "After save, the caller's payload must keep the compiled wrapper "
-        "(not be left swapped with _orig_mod)."
-    )
+    assert payload.model.network is compiled, "After save, the caller's payload must keep the compiled wrapper (not be left swapped with _orig_mod)."
 
 
 @pytest.mark.fast
@@ -80,4 +78,5 @@ def test_save_payload_without_torch_compile_unaffected(tmp_path):
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "--no-cov", "-x", "-s", "--tb=short"]))

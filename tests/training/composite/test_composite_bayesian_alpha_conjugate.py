@@ -9,6 +9,7 @@ Locks:
 - 95% CI computed from t-quantile, not normal.
 - Legacy bootstrap is still reachable via ``bayesian_alpha_fit_bootstrap``.
 """
+
 from __future__ import annotations
 
 import numpy as np

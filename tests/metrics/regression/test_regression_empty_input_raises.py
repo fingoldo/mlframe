@@ -3,6 +3,7 @@ the njit kernels did 0/0 -> a SILENT NaN on empty input (where sklearn raises Va
 the sibling fast_regression_metrics_block which guards n==0. They now raise ValueError on empty, matching
 sklearn; a real (non-empty) call is unaffected.
 """
+
 import numpy as np
 import pytest
 

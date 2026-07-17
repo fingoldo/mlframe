@@ -11,6 +11,7 @@ Covered:
   F-45 cuDNN benchmark skip on Transformer / non-CUDA / pre-Ampere
   F-51 shared-memory promotion on RecurrentDataset CPU tensors
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -80,9 +81,7 @@ def test_f44_fused_adamw_skipped_when_trainer_runs_16_mixed(monkeypatch):
     fused = opt.param_groups[0].get("fused", False)
     # PyTorch stores ``fused`` as None (not False) when not explicitly set;
     # check ``not True`` to catch both None and False as "fused is off".
-    assert fused is not True, (
-        f"F-44 gate failed: fused={fused!r} under 16-mixed -> AMP grad-clip conflict"
-    )
+    assert fused is not True, f"F-44 gate failed: fused={fused!r} under 16-mixed -> AMP grad-clip conflict"
 
 
 def test_f44_fused_adamw_skipped_under_bf16_mixed():
@@ -114,8 +113,7 @@ def test_f44_fused_adamw_skipped_under_bf16_mixed():
     opt = out["optimizer"] if isinstance(out, dict) else out
     fused = opt.param_groups[0].get("fused", False)
     assert fused is not True, (
-        f"F-44 gate failed: fused={fused!r} under bf16-mixed -> AMP plugin "
-        f"grad-clip rejection. The gate must skip fused for any 'mixed' precision."
+        f"F-44 gate failed: fused={fused!r} under bf16-mixed -> AMP plugin grad-clip rejection. The gate must skip fused for any 'mixed' precision."
     )
 
 
@@ -143,9 +141,7 @@ def test_f44_fused_adamw_active_under_fp32():
     model.trainer = _FakeTrainer()
     out = model.configure_optimizers()
     opt = out["optimizer"] if isinstance(out, dict) else out
-    assert opt.param_groups[0].get("fused", False) is True, (
-        "F-44 expected fused=True under 32-true; got fused=False or unset"
-    )
+    assert opt.param_groups[0].get("fused", False) is True, "F-44 expected fused=True under 32-true; got fused=False or unset"
 
 
 # --------------------------------------------------------------------- F-45
@@ -156,9 +152,7 @@ def test_f45_cudnn_autotune_skipped_for_transformer():
     try:
         torch.backends.cudnn.benchmark = False
         maybe_enable_cudnn_rnn_autotune(RNNType.TRANSFORMER)
-        assert torch.backends.cudnn.benchmark is False, (
-            "F-45 should be a no-op on TRANSFORMER rnn_type"
-        )
+        assert torch.backends.cudnn.benchmark is False, "F-45 should be a no-op on TRANSFORMER rnn_type"
     finally:
         torch.backends.cudnn.benchmark = prev
 
@@ -175,9 +169,7 @@ def test_f45_cudnn_autotune_skipped_pre_ampere():
     try:
         torch.backends.cudnn.benchmark = False
         maybe_enable_cudnn_rnn_autotune(RNNType.LSTM)
-        assert torch.backends.cudnn.benchmark is False, (
-            f"F-45 should be a no-op on cc < 8.0 (got {cc})"
-        )
+        assert torch.backends.cudnn.benchmark is False, f"F-45 should be a no-op on cc < 8.0 (got {cc})"
     finally:
         torch.backends.cudnn.benchmark = prev
 

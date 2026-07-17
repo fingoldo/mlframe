@@ -161,6 +161,5 @@ def test_biz_value_dot_faster_than_broadcast() -> None:
 
     speedup = t_broadcast / t_dot
     assert speedup >= 1.3, (
-        f"torch.dot fast path is not delivering: speedup={speedup:.2f}x "
-        f"(broadcast={t_broadcast*1e6/iters:.2f}us, dot={t_dot*1e6/iters:.2f}us)"
+        f"torch.dot fast path is not delivering: speedup={speedup:.2f}x (broadcast={t_broadcast * 1e6 / iters:.2f}us, dot={t_dot * 1e6 / iters:.2f}us)"
     )

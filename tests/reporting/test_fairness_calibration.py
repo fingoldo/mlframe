@@ -21,7 +21,7 @@ def _calibrated(rng, n):
 
 def _overconfident(score):
     """Push a calibrated score toward the extremes (concave warp) so it becomes overconfident -> miscalibrated."""
-    return np.clip(score ** 0.35, 1e-3, 1 - 1e-3)
+    return np.clip(score**0.35, 1e-3, 1 - 1e-3)
 
 
 def test_per_subgroup_curves_and_ece_present():
@@ -133,10 +133,16 @@ def test_wiring_renders_and_records_disparity(tmp_path):
     metrics: dict = {}
     base = str(tmp_path / "m")
     _render_fairness_calibration(
-        subgroups=subgroups, subset_index=idx, y_true=y, pos_score=score,
-        plot_file=base, plot_outputs="matplotlib[png]", metrics=metrics,
+        subgroups=subgroups,
+        subset_index=idx,
+        y_true=y,
+        pos_score=score,
+        plot_file=base,
+        plot_outputs="matplotlib[png]",
+        metrics=metrics,
     )
     import glob
+
     assert glob.glob(base + "_faircal_region*.png"), "expected a per-feature calibration-fairness PNG"
     disp = metrics["fairness_calibration_disparity"]
     assert "region" in disp and "**ORDER**" not in disp

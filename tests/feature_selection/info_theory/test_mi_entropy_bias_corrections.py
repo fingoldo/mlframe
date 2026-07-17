@@ -6,6 +6,7 @@ independent-given-Z) pair where the true quantity is ~0, or distorted a known-va
 correction removes the offset. Each test reproduces the pre-fix value inline (no destructive git) to prove the
 gap is real, then asserts the post-fix value is near truth.
 """
+
 from __future__ import annotations
 
 import math
@@ -43,8 +44,17 @@ def test_sa4_ii_occupied_bins_removes_false_synergy_on_independent_heavy_tailed_
     ii_design = pair_interaction_information(mi_a, mi_b, pair_mi, NB, NB, NB, n)
     # Post-fix path: occupied-bin correction.
     ii_occupied = pair_interaction_information(
-        mi_a, mi_b, pair_mi, NB, NB, NB, n,
-        k_a_occupied=k_a, k_b_occupied=k_b, k_joint_occupied=k_j, k_y_occupied=k_y,
+        mi_a,
+        mi_b,
+        pair_mi,
+        NB,
+        NB,
+        NB,
+        n,
+        k_a_occupied=k_a,
+        k_b_occupied=k_b,
+        k_joint_occupied=k_j,
+        k_y_occupied=k_y,
     )
     assert abs(ii_design) > 1.0, f"pre-fix design-cardinality II should carry a large offset, got {ii_design}"
     assert abs(ii_occupied) < 0.3, f"occupied-bin II of an independent pair should be ~0, got {ii_occupied}"
@@ -76,8 +86,7 @@ def test_sa10_chao_shen_mi_shared_coverage_kills_false_mi_on_independent_sparse_
     cs = j.sum(0).astype(np.int64)
 
     # Pre-fix: per-term coverage (default coverage=-1 estimates locally on EACH table).
-    pre = max(0.0, chao_shen_entropy_from_counts(rs) + chao_shen_entropy_from_counts(cs)
-              - chao_shen_entropy_from_counts(flat))
+    pre = max(0.0, chao_shen_entropy_from_counts(rs) + chao_shen_entropy_from_counts(cs) - chao_shen_entropy_from_counts(flat))
     # Post-fix path through the public MI (shared coverage).
     post = chao_shen_mi(x, y)
 
@@ -118,7 +127,11 @@ def test_sa11_cat_ii_mm_telescopes_no_false_synergy_keeps_real_synergy():
         nbins = np.array([K, K, K], dtype=np.int64)
         ti = np.array([2], dtype=np.int64)
         _, freqs_y, _ = merge_vars(
-            factors_data=fd, vars_indices=ti, var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            factors_data=fd,
+            vars_indices=ti,
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=dtype,
         )
         return fd, nbins, ti, freqs_y
 
@@ -126,16 +139,27 @@ def test_sa11_cat_ii_mm_telescopes_no_false_synergy_keeps_real_synergy():
         fd, nbins, ti, freqs_y = _setup(x1, x2, yv, n)
         h_y = _entropy(freqs=freqs_y)
         return _compute_pair_ii_mm(
-            factors_data=fd, idx_a=0, idx_b=1, nbins=nbins, target_indices=ti,
-            classes_y=yv.astype(np.int64), freqs_y=freqs_y, h_y=h_y, use_mm=True, dtype=np.int32,
+            factors_data=fd,
+            idx_a=0,
+            idx_b=1,
+            nbins=nbins,
+            target_indices=ti,
+            classes_y=yv.astype(np.int64),
+            freqs_y=freqs_y,
+            h_y=h_y,
+            use_mm=True,
+            dtype=np.int32,
         )
 
     def _ii_prefix_per_term(x1, x2, yv, n):
         fd, nbins, ti, _ = _setup(x1, x2, yv, n)
         H = lambda idx: _entropy_mm(  # noqa: E731
             merge_vars(
-                factors_data=fd, vars_indices=np.array(np.unique(idx), dtype=np.int64),
-                var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+                factors_data=fd,
+                vars_indices=np.array(np.unique(idx), dtype=np.int64),
+                var_is_nominal=None,
+                factors_nbins=nbins,
+                dtype=np.int32,
             )[1],
             n,
         )
@@ -177,9 +201,7 @@ def test_sa12_pid_no_false_synergy_on_independent_high_cardinality_small_n():
     y = rng.integers(0, K, n).astype(np.int64)  # all mutually independent
 
     res = pid_decomposition(x1, x2, y, K, K, K)
-    assert res["synergistic"] < 0.05, (
-        f"independent high-card pair should yield ~0 synergy post-fix, got {res['synergistic']}"
-    )
+    assert res["synergistic"] < 0.05, f"independent high-card pair should yield ~0 synergy post-fix, got {res['synergistic']}"
 
 
 def test_sa12_pid_preserves_xor_synergy():
@@ -239,13 +261,11 @@ def test_sa14_fastmi_consistent_basis_closer_to_truth_on_known_mi():
     assert fastmi(x, y_indep, bandwidth="silverman") < 0.05, "independent fastMI should be ~0"
 
     rho = 0.7
-    y_dep = rho * x + math.sqrt(1.0 - rho ** 2) * rng.standard_normal(n)
-    truth = -0.5 * math.log(1.0 - rho ** 2)  # 0.347
+    y_dep = rho * x + math.sqrt(1.0 - rho**2) * rng.standard_normal(n)
+    truth = -0.5 * math.log(1.0 - rho**2)  # 0.347
     mi_pre = _fastmi_prefix_analytic_marginals(x, y_dep)
     mi_post = fastmi(x, y_dep, bandwidth="silverman")
-    assert abs(mi_post - truth) < abs(mi_pre - truth), (
-        f"consistent-basis fastMI must be closer to truth {truth:.3f}: pre={mi_pre:.4f} post={mi_post:.4f}"
-    )
+    assert abs(mi_post - truth) < abs(mi_pre - truth), f"consistent-basis fastMI must be closer to truth {truth:.3f}: pre={mi_pre:.4f} post={mi_post:.4f}"
     assert mi_post > 0.15, f"rho=0.7 fastMI should be clearly positive, got {mi_post}"
 
 
@@ -273,8 +293,11 @@ def test_sa15_conditional_su_mm_normalizer_near_zero_on_independent_given_z():
     # Pre-fix value: plug-in entropies on the SAME merges.
     def _h(idx):
         _, f, _ = merge_vars(
-            factors_data=fd, vars_indices=np.unique(np.array(idx, dtype=np.int64)),
-            var_is_nominal=None, factors_nbins=nb, dtype=np.int32,
+            factors_data=fd,
+            vars_indices=np.unique(np.array(idx, dtype=np.int64)),
+            var_is_nominal=None,
+            factors_nbins=nb,
+            dtype=np.int32,
         )
         return _entropy(freqs=f)
 
@@ -282,7 +305,11 @@ def test_sa15_conditional_su_mm_normalizer_near_zero_on_independent_given_z():
     su_plugin = 2.0 * (h_xz + h_yz - h_z - h_xyz) / (h_xz + h_yz - 2.0 * h_z)
 
     su_mm = conditional_symmetric_uncertainty(
-        fd, np.array([0]), np.array([1]), np.array([2]), nb,
+        fd,
+        np.array([0]),
+        np.array([1]),
+        np.array([2]),
+        nb,
     )
     assert su_plugin > 0.1, f"pre-fix plug-in cond-SU should show false dependence, got {su_plugin}"
     assert su_mm < 0.1, f"MM-corrected cond-SU on independent-given-Z should be ~0, got {su_mm}"

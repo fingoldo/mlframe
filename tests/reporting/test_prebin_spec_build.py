@@ -34,8 +34,7 @@ def test_multilabel_jaccard_hamming_prebinned_at_1e6():
     y_true = rng.integers(0, 2, (_N, K)).astype(np.int8)
     y_proba = rng.random((_N, K))
     for tok in ("JACCARD_DIST", "HAMMING_DIST"):
-        spec = compose_multilabel_figure(y_true, y_proba, [f"l{k}" for k in range(K)],
-                                         panels_template=tok)
+        spec = compose_multilabel_figure(y_true, y_proba, [f"l{k}" for k in range(K)], panels_template=tok)
         _assert_prebinned(spec.panels[0][0], _N)
 
 

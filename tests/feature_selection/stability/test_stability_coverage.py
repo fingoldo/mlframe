@@ -10,6 +10,7 @@ Targets the ``StabilityMRMR`` bootstrap wrapper:
 The wrapper is estimator-agnostic, so we plug a minimal stub selector that exposes ``fit(X, y)`` and ``support_`` to keep tests fast and isolated from the
 real MRMR machinery (which would pull astropy / numba transitively and slow the suite by ~30s).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -79,7 +80,6 @@ def small_dataframe_dataset(small_ndarray_dataset):
 
 
 class TestStabilityMRMRAttributes:
-
     def test_init_stores_params(self):
         base = _FixedSupportSelector(support=(0, 2))
         sel = StabilityMRMR(estimator=base, n_bootstraps=5, sample_fraction=0.5, support_threshold=0.7, random_state=42, n_jobs=1)
@@ -117,7 +117,6 @@ class TestStabilityMRMRAttributes:
 
 
 class TestStabilityMRMRProbabilities:
-
     def test_fixed_selector_gives_unanimous_probabilities(self, small_ndarray_dataset):
         # When the inner selector is deterministic, every bootstrap returns the same support so probabilities are exactly 1.0 / 0.0.
         X, y = small_ndarray_dataset
@@ -151,7 +150,9 @@ class TestStabilityMRMRProbabilities:
     def test_seed_dependent_selector_gives_mixed_probabilities(self, small_ndarray_dataset):
         # Different subsamples -> different supports -> at least one feature has 0 < prob < 1, which exercises the float-division aggregation path.
         X, y = small_ndarray_dataset
-        sel = StabilityMRMR(estimator=_SeedDependentSelector(n_features=X.shape[1], k=2), n_bootstraps=12, sample_fraction=0.5, support_threshold=0.4, random_state=7)
+        sel = StabilityMRMR(
+            estimator=_SeedDependentSelector(n_features=X.shape[1], k=2), n_bootstraps=12, sample_fraction=0.5, support_threshold=0.4, random_state=7
+        )
         sel.fit(X, y)
         probs = sel.selection_probabilities_
         # Probabilities live in [0, 1].
@@ -166,7 +167,6 @@ class TestStabilityMRMRProbabilities:
 
 
 class TestStabilityMRMRDeterminism:
-
     def test_fixed_seed_reproducible(self, small_ndarray_dataset):
         X, y = small_ndarray_dataset
         a = StabilityMRMR(estimator=_SeedDependentSelector(n_features=X.shape[1], k=2), n_bootstraps=8, sample_fraction=0.5, random_state=11)
@@ -204,8 +204,9 @@ class TestStabilityMRMRDeterminism:
             # path was entered - that's what this test asserts existed.
             _msg = str(exc).lower()
             _name = type(exc).__name__.lower()
-            if any(s in _msg for s in ("brokenprocesspool", "terminatedworker", "pickle", "transport", "_remotetraceback")) \
-                    or any(s in _name for s in ("brokenprocesspool", "terminatedworker")):
+            if any(s in _msg for s in ("brokenprocesspool", "terminatedworker", "pickle", "transport", "_remotetraceback")) or any(
+                s in _name for s in ("brokenprocesspool", "terminatedworker")
+            ):
                 pytest.skip(f"loky worker transport failure under concurrent load: {type(exc).__name__}: {exc}")
             raise
         np.testing.assert_array_equal(seq.selection_probabilities_, par.selection_probabilities_)
@@ -217,7 +218,6 @@ class TestStabilityMRMRDeterminism:
 
 
 class TestStabilityMRMRTransform:
-
     def test_transform_ndarray_returns_selected_columns(self, small_ndarray_dataset):
         X, y = small_ndarray_dataset
         sel = StabilityMRMR(estimator=_FixedSupportSelector(support=(1, 3)), n_bootstraps=3, sample_fraction=0.5, support_threshold=0.5, random_state=33)
@@ -253,7 +253,6 @@ class TestStabilityMRMRTransform:
 
 
 class TestStabilityMRMRPandasYBranch:
-
     def test_fit_with_pandas_y_works(self, small_dataframe_dataset):
         X, y_series = small_dataframe_dataset
         # pandas Series for y exercises ``y.iloc[idx]`` branch separately from the ``X.iloc`` branch.

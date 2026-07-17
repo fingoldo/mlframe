@@ -6,6 +6,7 @@ per regime, and a biz_value floor pinning the measured OOS-RMSE win of
 region-adaptive over the single best global transform on a region-dependent
 y-base synthetic.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,6 +30,7 @@ def _region_data(n, seed):
 
 
 # --------------------------------------------------------------------- unit ---
+
 
 def test_assign_regions_matches_searchsorted_edges():
     edges = (-1.0, 0.0, 1.0)
@@ -97,6 +99,7 @@ def test_candidates_are_all_registered():
 
 
 # ----------------------------------------------------------------- biz_value ---
+
 
 def test_biz_val_region_adaptive_beats_global_oos_rmse():
     """Region-adaptive must materially beat the single best global transform.

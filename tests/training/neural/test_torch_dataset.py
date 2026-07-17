@@ -96,12 +96,7 @@ class TestTorchDatasetInitialization:
     def test_custom_dtypes(self, sample_numpy_data):
         """Test initialization with custom dtypes."""
         features, labels = sample_numpy_data
-        dataset = TorchDataset(
-            features,
-            labels,
-            features_dtype=torch.float64,
-            labels_dtype=torch.int64
-        )
+        dataset = TorchDataset(features, labels, features_dtype=torch.float64, labels_dtype=torch.int64)
 
         assert dataset.features_dtype == torch.float64
         assert dataset.labels_dtype == torch.int64
@@ -126,12 +121,12 @@ class TestTorchDatasetInitialization:
     def test_cuda_device_initialization(self, sample_numpy_data):
         """Test initialization with CUDA device."""
         features, labels = sample_numpy_data
-        dataset = TorchDataset(features, labels, device='cuda')
+        dataset = TorchDataset(features, labels, device="cuda")
 
-        assert dataset.device == 'cuda'
+        assert dataset.device == "cuda"
         # Features should be preloaded to GPU
-        assert dataset.features.device.type == 'cuda'
-        assert dataset.labels.device.type == 'cuda'
+        assert dataset.features.device.type == "cuda"
+        assert dataset.labels.device.type == "cuda"
 
     def test_cpu_device_initialization(self, sample_numpy_data):
         """Test initialization with CPU device.
@@ -371,10 +366,10 @@ class TestTorchDatasetExtract:
         """Test that extracted data is on correct device."""
         features = np.random.randn(20, 5)
         labels = np.random.randint(0, 2, 20)
-        dataset = TorchDataset(features, labels, device='cpu')
+        dataset = TorchDataset(features, labels, device="cpu")
 
         extracted = dataset._extract(dataset.features, slice(0, 5))
-        assert extracted.device.type == 'cpu'
+        assert extracted.device.type == "cpu"
 
     def test_extract_empty_slice(self):
         """Test extraction with empty slice."""
@@ -595,9 +590,7 @@ class TestTorchDatasetProperties:
     """Property-based tests for TorchDataset."""
 
     @given(
-        n_samples=st.integers(min_value=10, max_value=200),
-        n_features=st.integers(min_value=1, max_value=20),
-        batch_size=st.integers(min_value=1, max_value=50)
+        n_samples=st.integers(min_value=10, max_value=200), n_features=st.integers(min_value=1, max_value=20), batch_size=st.integers(min_value=1, max_value=50)
     )
     @settings(max_examples=50, deadline=None)
     def test_property_batch_coverage(self, n_samples, n_features, batch_size):
@@ -613,10 +606,7 @@ class TestTorchDatasetProperties:
 
         assert total_samples == n_samples
 
-    @given(
-        n_samples=st.integers(min_value=1, max_value=100),
-        n_features=st.integers(min_value=1, max_value=10)
-    )
+    @given(n_samples=st.integers(min_value=1, max_value=100), n_features=st.integers(min_value=1, max_value=10))
     @settings(max_examples=30, deadline=None)
     def test_property_sample_mode_shapes(self, n_samples, n_features):
         """Property: Sample mode should return correct shapes."""
@@ -629,10 +619,7 @@ class TestTorchDatasetProperties:
         x, y = dataset[0]
         assert x.shape == (n_features,)
 
-    @given(
-        n_samples=st.integers(min_value=10, max_value=100),
-        batch_size=st.integers(min_value=1, max_value=50)
-    )
+    @given(n_samples=st.integers(min_value=10, max_value=100), batch_size=st.integers(min_value=1, max_value=50))
     @settings(max_examples=30, deadline=None)
     def test_property_batch_count(self, n_samples, batch_size):
         """Property: Batch count should be ceil(n_samples / batch_size)."""
@@ -763,12 +750,7 @@ class TestTorchDatasetPhase3:
         features = np.random.randn(10, 5).astype(np.float64)
         labels = np.random.randint(0, 2, 10).astype(np.int32)
 
-        dataset = TorchDataset(
-            features, labels,
-            features_dtype=torch.float32,
-            labels_dtype=torch.int64,
-            batch_size=0
-        )
+        dataset = TorchDataset(features, labels, features_dtype=torch.float32, labels_dtype=torch.int64, batch_size=0)
 
         x, y = dataset[0]
         assert x.dtype == torch.float32

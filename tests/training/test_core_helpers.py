@@ -2,6 +2,7 @@
 
 These tests pin down the contracts of the deduplicated helpers so future call sites can rely on them.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ from mlframe.training.core._misc_helpers import _cfg_get, _compute_neural_max_ti
 # ---------------------------------------------------------------------------
 # _cfg_get -- "Pydantic-or-dict-or-None" config accessor
 # ---------------------------------------------------------------------------
+
 
 class TestCfgGet:
     def test_none_cfg_returns_default(self):
@@ -50,6 +52,7 @@ class TestCfgGet:
             def __init__(self):
                 self.test_size = 0.2
                 self.val_size = 0.15
+
         cfg = _MockPydantic()
         assert _cfg_get(cfg, "test_size", 0.15) == 0.2
         assert _cfg_get(cfg, "val_size", 0.15) == 0.15
@@ -59,6 +62,7 @@ class TestCfgGet:
 # ---------------------------------------------------------------------------
 # _compute_neural_max_time -- P95 + 300s floor + dhms decomposition
 # ---------------------------------------------------------------------------
+
 
 class TestComputeNeuralMaxTime:
     def test_empty_returns_none(self):

@@ -4,6 +4,7 @@ Default OFF -> byte-untouched legacy path. When MLFRAME_FE_MATRIX_P0 is ON, X is
 single-copy float32 matrix adapter (round-trip today); a real fit must still complete and recover the
 planted interactions (float32 may perturb the exact recipe spelling, so we assert the SIGNAL operands
 a,b,c,d are covered + noise e is not the only thing, not a byte-identical recipe string)."""
+
 from __future__ import annotations
 
 import re
@@ -22,8 +23,12 @@ def _fit_recover(monkeypatch, enabled: bool):
 
     rng = np.random.default_rng(0)
     n = 3000
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); c = rng.uniform(1, 5, n)
-    d = rng.uniform(0, 2 * np.pi, n); e = rng.normal(0, 1, n); f = rng.normal(0, 1, n)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    c = rng.uniform(1, 5, n)
+    d = rng.uniform(0, 2 * np.pi, n)
+    e = rng.normal(0, 1, n)
+    f = rng.normal(0, 1, n)
     y = a**2 / b + f / 5.0 + 3.0 * np.log(c) * np.sin(d)
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
     fs = MRMR(verbose=0, fe_fast_search=False)

@@ -7,6 +7,7 @@ assert the returned spec TYPE and shape; these assert the NUMERIC matrices
 against independent loop-based references, so a future "optimization" that
 silently changes the math is caught.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -129,8 +130,7 @@ def test_compose_warns_on_total_label_mismatch():
     proba = rng.random((n, K))
     proba /= proba.sum(axis=1, keepdims=True)
     with pytest.warns(UserWarning, match="none of the .* y_true values matched"):
-        compose_multiclass_figure(pos, proba, ["cat", "dog", "bird"],
-                                   panels_template="CONFUSION")
+        compose_multiclass_figure(pos, proba, ["cat", "dog", "bird"], panels_template="CONFUSION")
 
 
 def test_cardinality_matches_reference(ml_data):

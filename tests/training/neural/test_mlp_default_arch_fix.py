@@ -27,6 +27,7 @@ configurator passes to the estimator carries the corrected defaults.
 This sidesteps the heavyweight ``MLP_GENERAL_PARAMS`` plumbing while
 still locking behaviour (not source-string regex).
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -57,6 +58,7 @@ class _RecorderEstimator:
 
     def predict(self, X):
         import numpy as np
+
         return np.zeros(len(X))
 
 
@@ -74,8 +76,10 @@ def _drive_configurator(use_regression: bool, monkeypatch) -> dict:
     # for both regression + classification heads. Arch enum stays real
     # (Declining is referenced by name in the dict literal).
     from mlframe.training.neural.flat import MLPNeuronsByLayerArchitecture
+
     monkeypatch.setattr(
-        trainer, "_get_neural_components",
+        trainer,
+        "_get_neural_components",
         lambda: (MLPNeuronsByLayerArchitecture, _RecorderEstimator, _RecorderEstimator),
     )
 
@@ -98,15 +102,12 @@ def _drive_configurator(use_regression: bool, monkeypatch) -> dict:
 class TestMlpDefaultArchFix:
     def test_use_batchnorm_default_is_true(self, monkeypatch) -> None:
         params = _drive_configurator(use_regression=True, monkeypatch=monkeypatch)
-        assert params.get("use_batchnorm") is True, (
-            "use_batchnorm must default to True after the 2026-05-26 fix"
-        )
+        assert params.get("use_batchnorm") is True, "use_batchnorm must default to True after the 2026-05-26 fix"
 
     def test_output_activation_default_is_tanh_train_range(self, monkeypatch) -> None:
         params = _drive_configurator(use_regression=True, monkeypatch=monkeypatch)
         assert params.get("output_activation") == "tanh_train_range", (
-            "output_activation must default to 'tanh_train_range' so the "
-            "regression head is hard-capped without the extreme-AR gate"
+            "output_activation must default to 'tanh_train_range' so the regression head is hard-capped without the extreme-AR gate"
         )
 
     def test_use_layernorm_stays_false(self, monkeypatch) -> None:
@@ -119,10 +120,13 @@ class TestMlpDefaultArchFix:
         """Caller-supplied ``mlp_kwargs['network_params']`` must take
         precedence -- back-compat for users who already opted out."""
         from mlframe.training import trainer
+
         _RecorderEstimator.last_network_params = None
         from mlframe.training.neural.flat import MLPNeuronsByLayerArchitecture
+
         monkeypatch.setattr(
-            trainer, "_get_neural_components",
+            trainer,
+            "_get_neural_components",
             lambda: (MLPNeuronsByLayerArchitecture, _RecorderEstimator, _RecorderEstimator),
         )
         configs = SimpleNamespace(MLP_GENERAL_PARAMS={})

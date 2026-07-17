@@ -9,6 +9,7 @@ Covers:
      (per-call Generator, no njit-global RNG race).
   8. ``_build_resample_indices`` raises MemoryError above the RAM ceiling, not below.
 """
+
 from __future__ import annotations
 
 import os

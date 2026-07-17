@@ -5,6 +5,7 @@ The njit kernel ``_su_pairs_njit`` (fused joint-histogram + entropy, prange over
 the SAME matrix as the pure-Python reference ``_su_pairs_python`` to within FP reduction-order noise -- the SU
 values only feed a ``|value| > threshold`` cluster test, so a sub-ULP delta cannot flip a clustering decision.
 """
+
 import numpy as np
 import pandas as pd
 import pytest

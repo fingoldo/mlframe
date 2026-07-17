@@ -20,6 +20,7 @@ corrupted the next-call return value.
 #3 composite_discovery.py:1398 -- filter_drops() had the same shape
    as report(): shallow outer list over inner dicts.
 """
+
 from __future__ import annotations
 
 
@@ -33,8 +34,11 @@ def test_neural_get_params_deep_returns_deepcopy_for_trainer_params():
     from mlframe.training.neural.base import PytorchLightningEstimator
 
     est = PytorchLightningEstimator(
-        model_class=object, model_params={}, network_params={},
-        datamodule_class=object, datamodule_params={},
+        model_class=object,
+        model_params={},
+        network_params={},
+        datamodule_class=object,
+        datamodule_params={},
         trainer_params={"logger": "orig", "max_epochs": 5},
         tune_params={"n_trials": 10},
     )
@@ -76,8 +80,7 @@ def test_composite_discovery_report_isolates_inner_dicts():
         f"{fresh[0]['score']}, expected 0.5."
     )
     assert fresh[1]["reason"] == "dropped", (
-        f"Wave 26 P1 regression: report() leaked second inner dict; "
-        f"fresh[1]['reason']={fresh[1]['reason']!r}, expected 'dropped'."
+        f"Wave 26 P1 regression: report() leaked second inner dict; fresh[1]['reason']={fresh[1]['reason']!r}, expected 'dropped'."
     )
 
 
@@ -94,13 +97,8 @@ def test_composite_discovery_filter_drops_isolates_inner_dicts():
     snapshot[0]["reason"] = "MUTATED"
     snapshot[1]["value"] = 999.0
     fresh = disc.filter_drops()
-    assert fresh[0]["reason"] == "low_corr", (
-        f"Wave 26 P1 regression: filter_drops() leaked inner dict; "
-        f"fresh[0]['reason']={fresh[0]['reason']!r}."
-    )
-    assert fresh[1]["value"] == 0.0, (
-        f"Wave 26 P1 regression: filter_drops() leaked second inner dict."
-    )
+    assert fresh[0]["reason"] == "low_corr", f"Wave 26 P1 regression: filter_drops() leaked inner dict; fresh[0]['reason']={fresh[0]['reason']!r}."
+    assert fresh[1]["value"] == 0.0, f"Wave 26 P1 regression: filter_drops() leaked second inner dict."
 
 
 def test_composite_discovery_report_and_filter_drops_return_fresh_outer_list():

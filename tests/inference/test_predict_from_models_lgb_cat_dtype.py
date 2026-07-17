@@ -17,6 +17,7 @@ The fix coerces ``metadata['cat_features']`` columns to pandas
 XGB accept the cast too (CB happily takes Categorical via Pool; XGB
 requires non-object dtypes).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,13 +38,15 @@ from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 def _build_polars_frame_with_cats(n: int = 3_000, seed: int = 0):
     rng = np.random.default_rng(seed)
-    df = pl.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "cat_low": np.array(["A", "B", "C", "D", "E"], dtype=object)[rng.integers(0, 5, n)],
-        "cat_mid": np.array([f"M{j:02d}" for j in range(20)], dtype=object)[rng.integers(0, 20, n)],
-        "y": rng.integers(0, 3, n).astype("int32"),  # 3-class multiclass
-    })
+    df = pl.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "cat_low": np.array(["A", "B", "C", "D", "E"], dtype=object)[rng.integers(0, 5, n)],
+            "cat_mid": np.array([f"M{j:02d}" for j in range(20)], dtype=object)[rng.integers(0, 20, n)],
+            "y": rng.integers(0, 3, n).astype("int32"),  # 3-class multiclass
+        }
+    )
     return df
 
 
@@ -86,7 +89,4 @@ def test_predict_from_models_lgb_polars_cats():
         return_probabilities=True,
         verbose=0,
     )
-    assert results["models_used"], (
-        "predict_from_models returned no successful models -- LGB likely "
-        "tripped the categorical_feature mismatch (iter#55 bug)"
-    )
+    assert results["models_used"], "predict_from_models returned no successful models -- LGB likely tripped the categorical_feature mismatch (iter#55 bug)"

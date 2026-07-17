@@ -43,11 +43,11 @@ class TestLinearMultiClassKwargFix:
         from mlframe.training.configs import TargetTypes
 
         out = _classif_objective_kwargs(
-            "linear", TargetTypes.MULTICLASS_CLASSIFICATION, 4,
+            "linear",
+            TargetTypes.MULTICLASS_CLASSIFICATION,
+            4,
         )
-        assert "multi_class" not in out, (
-            f"helper still emits 'multi_class' (removed in sklearn 1.8): {out}"
-        )
+        assert "multi_class" not in out, f"helper still emits 'multi_class' (removed in sklearn 1.8): {out}"
 
     def test_helper_keeps_solver(self):
         """``solver='lbfgs'`` is still meaningful for LR."""
@@ -55,7 +55,9 @@ class TestLinearMultiClassKwargFix:
         from mlframe.training.configs import TargetTypes
 
         out = _classif_objective_kwargs(
-            "linear", TargetTypes.MULTICLASS_CLASSIFICATION, 4,
+            "linear",
+            TargetTypes.MULTICLASS_CLASSIFICATION,
+            4,
         )
         assert out.get("solver") == "lbfgs"
 
@@ -66,7 +68,9 @@ class TestLinearMultiClassKwargFix:
         from sklearn.linear_model import LogisticRegression
 
         out = _classif_objective_kwargs(
-            "linear", TargetTypes.MULTICLASS_CLASSIFICATION, 4,
+            "linear",
+            TargetTypes.MULTICLASS_CLASSIFICATION,
+            4,
         )
         # Would have crashed pre-fix with TypeError: got an unexpected
         # keyword argument 'multi_class'.
@@ -87,16 +91,20 @@ class TestLinearMultiClassKwargFix:
         df["target"] = y
 
         fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False,
+            target_column="target",
+            regression=False,
             target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             models, _ = train_mlframe_models_suite(
-                df=df, target_name="target", model_name="lin_mc",
+                df=df,
+                target_name="target",
+                model_name="lin_mc",
                 features_and_targets_extractor=fte,
                 mlframe_models=["linear"],
-                use_mlframe_ensembles=False, verbose=0,
+                use_mlframe_ensembles=False,
+                verbose=0,
             )
         assert TargetTypes.MULTICLASS_CLASSIFICATION in models
 
@@ -150,23 +158,25 @@ class TestNGBoostMulticlass:
         n = 400
         X = rng.standard_normal((n, 5)).astype(np.float32)
         score = X[:, 0] + 0.5 * X[:, 1]
-        y = np.digitize(
-            score, [np.quantile(score, 1 / 3), np.quantile(score, 2 / 3)]
-        ).astype(np.int64)
+        y = np.digitize(score, [np.quantile(score, 1 / 3), np.quantile(score, 2 / 3)]).astype(np.int64)
         df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
         df["target"] = y
 
         fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False,
+            target_column="target",
+            regression=False,
             target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             models, _ = train_mlframe_models_suite(
-                df=df, target_name="target", model_name="ngb_mc",
+                df=df,
+                target_name="target",
+                model_name="ngb_mc",
                 features_and_targets_extractor=fte,
                 mlframe_models=["ngb"],
-                use_mlframe_ensembles=False, verbose=0,
+                use_mlframe_ensembles=False,
+                verbose=0,
             )
 
         # Drill into the fitted model + check Dist is Categorical.
@@ -177,10 +187,7 @@ class TestNGBoostMulticlass:
                     inner = getattr(ns, "model", None)
                     if inner is not None and hasattr(inner, "Dist"):
                         dist_name = inner.Dist.__name__
-                        assert dist_name == "Categorical", (
-                            f"NGB Dist {dist_name!r} expected 'Categorical' "
-                            "(via k_categorical(K))"
-                        )
+                        assert dist_name == "Categorical", f"NGB Dist {dist_name!r} expected 'Categorical' (via k_categorical(K))"
 
 
 # ----------------------------------------------------------------------------
@@ -194,16 +201,19 @@ pytest.importorskip("lightning")
 class TestRecurrentStrategyFlags:
     def test_supports_native_multiclass(self):
         from mlframe.training.strategies import RecurrentModelStrategy
+
         assert RecurrentModelStrategy().supports_native_multiclass is True
 
     def test_supports_native_multilabel(self):
         from mlframe.training.strategies import RecurrentModelStrategy
+
         assert RecurrentModelStrategy().supports_native_multilabel is True
 
     def test_does_not_support_native_ranking(self):
         """LTR for recurrent is deferred (group-aware sequence
         batching is non-trivial)."""
         from mlframe.training.strategies import RecurrentModelStrategy
+
         assert RecurrentModelStrategy().supports_native_ranking is False
 
 
@@ -215,14 +225,17 @@ class TestRecurrentMultilabelDispatch:
     def test_multilabel_returns_task_type_kwarg(self):
         from mlframe.training.strategies import RecurrentModelStrategy
         from mlframe.training.configs import TargetTypes
+
         out = RecurrentModelStrategy().get_classif_objective_kwargs(
-            TargetTypes.MULTILABEL_CLASSIFICATION, n_classes=3,
+            TargetTypes.MULTILABEL_CLASSIFICATION,
+            n_classes=3,
         )
         assert out == {"task_type": "multilabel"}
 
     def test_binary_and_multiclass_return_empty(self):
         from mlframe.training.strategies import RecurrentModelStrategy
         from mlframe.training.configs import TargetTypes
+
         for tt in (TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION):
             out = RecurrentModelStrategy().get_classif_objective_kwargs(tt, n_classes=3)
             assert out == {}, f"{tt}: should return empty (defaults correct), got {out}"
@@ -236,8 +249,12 @@ class TestRecurrentMultilabelEndToEnd:
         """Pre-2026-05-07 the wrapper raised NotImplementedError on 2-D y.
         Now it should fit (smoke -- correctness covered by lower tests)."""
         from mlframe.training.neural.recurrent import (
-            RecurrentClassifierWrapper, RecurrentConfig, InputMode, RNNType,
+            RecurrentClassifierWrapper,
+            RecurrentConfig,
+            InputMode,
+            RNNType,
         )
+
         rng = np.random.default_rng(42)
         n = 400
         X = rng.standard_normal((n, 4)).astype(np.float32)
@@ -247,10 +264,12 @@ class TestRecurrentMultilabelEndToEnd:
         cfg = RecurrentConfig(
             input_mode=InputMode.FEATURES_ONLY,
             rnn_type=RNNType.LSTM,
-            hidden_size=8, num_layers=1,
+            hidden_size=8,
+            num_layers=1,
             mlp_hidden_sizes=(8,),
             num_classes=3,
-            max_epochs=3, batch_size=32,
+            max_epochs=3,
+            batch_size=32,
             early_stopping_patience=10,
         )
         wrapper = RecurrentClassifierWrapper(config=cfg)
@@ -259,7 +278,9 @@ class TestRecurrentMultilabelEndToEnd:
             # Provide eval_set so OneCycleLR's estimated_stepping_batches > 0.
             # Should NOT raise; pre-fix: NotImplementedError.
             wrapper.fit(
-                features=X[:300], sequences=None, labels=Y[:300],
+                features=X[:300],
+                sequences=None,
+                labels=Y[:300],
                 eval_set=(X[300:], Y[300:]),
             )
         # Wrapper must record multilabel state.
@@ -270,8 +291,12 @@ class TestRecurrentMultilabelEndToEnd:
         """For multilabel, predict_proba returns (N, K) sigmoid probs
         (each in [0, 1] independently; rows do NOT sum to 1)."""
         from mlframe.training.neural.recurrent import (
-            RecurrentClassifierWrapper, RecurrentConfig, InputMode, RNNType,
+            RecurrentClassifierWrapper,
+            RecurrentConfig,
+            InputMode,
+            RNNType,
         )
+
         rng = np.random.default_rng(42)
         n = 400
         X = rng.standard_normal((n, 4)).astype(np.float32)
@@ -281,17 +306,21 @@ class TestRecurrentMultilabelEndToEnd:
         cfg = RecurrentConfig(
             input_mode=InputMode.FEATURES_ONLY,
             rnn_type=RNNType.LSTM,
-            hidden_size=8, num_layers=1,
+            hidden_size=8,
+            num_layers=1,
             mlp_hidden_sizes=(8,),
             num_classes=3,
-            max_epochs=3, batch_size=32,
+            max_epochs=3,
+            batch_size=32,
             early_stopping_patience=10,
         )
         wrapper = RecurrentClassifierWrapper(config=cfg)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             wrapper.fit(
-                features=X[:300], sequences=None, labels=Y[:300],
+                features=X[:300],
+                sequences=None,
+                labels=Y[:300],
                 eval_set=(X[300:], Y[300:]),
             )
             probs = wrapper.predict_proba(features=X[:5], sequences=None)
@@ -300,7 +329,4 @@ class TestRecurrentMultilabelEndToEnd:
         # Multilabel: rows should NOT sum to 1 (independent labels).
         # Allow some leeway if model is ill-trained (accept any value not exactly 1).
         # Just verify they're not the softmax shape.
-        assert not np.allclose(probs.sum(axis=1), 1.0, atol=0.05), (
-            f"Multilabel rows sum to ~1 -- looks like softmax not sigmoid: "
-            f"{probs.sum(axis=1)}"
-        )
+        assert not np.allclose(probs.sum(axis=1), 1.0, atol=0.05), f"Multilabel rows sum to ~1 -- looks like softmax not sigmoid: {probs.sum(axis=1)}"

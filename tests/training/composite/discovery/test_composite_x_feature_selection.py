@@ -23,6 +23,7 @@ Goal: catch interface drift between the three subsystems before users
 hit it at suite time. None of these are full benchmark runs; each
 test runs in a few seconds.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -56,12 +57,18 @@ def _composite_friendly_regression(n: int = 1500, seed: int = 0):
     x3 = rng.normal(size=n)
     x4 = rng.normal(size=n)  # noise feature
     x5 = rng.normal(size=n)  # noise feature
-    y = (0.95 * base + 1.5 * x1 - 0.8 * np.sin(x2 * 2)
-         + 0.3 * x3 + rng.normal(scale=0.1, size=n))
-    df = pd.DataFrame({
-        "base": base, "x1": x1, "x2": x2, "x3": x3,
-        "x4": x4, "x5": x5, "y": y,
-    })
+    y = 0.95 * base + 1.5 * x1 - 0.8 * np.sin(x2 * 2) + 0.3 * x3 + rng.normal(scale=0.1, size=n)
+    df = pd.DataFrame(
+        {
+            "base": base,
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "x4": x4,
+            "x5": x5,
+            "y": y,
+        }
+    )
     return df, "y", ["base", "x1", "x2", "x3", "x4", "x5"]
 
 
@@ -81,10 +88,17 @@ def _composite_friendly_binary(n: int = 1500, seed: int = 0):
     logit = 0.7 * base + 1.0 * x1 - 0.5 * x2 + 0.3 * x3
     p = 1.0 / (1.0 + np.exp(-logit))
     y = (rng.random(n) < p).astype(np.int64)
-    df = pd.DataFrame({
-        "base": base, "x1": x1, "x2": x2, "x3": x3,
-        "x4": x4, "x5": x5, "y": y,
-    })
+    df = pd.DataFrame(
+        {
+            "base": base,
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "x4": x4,
+            "x5": x5,
+            "y": y,
+        }
+    )
     return df, "y", ["base", "x1", "x2", "x3", "x4", "x5"]
 
 
@@ -100,6 +114,7 @@ class TestCompositeXRFECV:
     def test_rfecv_then_composite_regression(self) -> None:
         from sklearn.ensemble import RandomForestRegressor
         from mlframe.feature_selection.wrappers import RFECV
+
         df, target_col, feature_cols = _composite_friendly_regression()
         train_idx = np.arange(int(0.8 * len(df)))
         # Step 1: RFECV picks subset.
@@ -107,27 +122,31 @@ class TestCompositeXRFECV:
         y = df[target_col].iloc[train_idx]
         est = RandomForestRegressor(n_estimators=20, random_state=42)
         rfecv = RFECV(
-            estimator=est, cv=3, max_refits=2,
-            verbose=0, optimizer_plotting="No", random_state=42,
+            estimator=est,
+            cv=3,
+            max_refits=2,
+            verbose=0,
+            optimizer_plotting="No",
+            random_state=42,
         )
         rfecv.fit(X, y)
         selected = X.columns[rfecv.support_].tolist()
-        assert "base" in selected, (
-            "RFECV should keep ``base`` as a top feature on this fixture")
+        assert "base" in selected, "RFECV should keep ``base`` as a top feature on this fixture"
         # Step 2: composite discovery on selected features.
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, screening="mi", mi_sample_n=800,
-            eps_mi_gain=-1.0, top_k_after_mi=4,
+            enabled=True,
+            screening="mi",
+            mi_sample_n=800,
+            eps_mi_gain=-1.0,
+            top_k_after_mi=4,
             require_beats_raw_baseline=False,
-            base_candidates=["base"], transforms=["diff", "linear_residual"],
+            base_candidates=["base"],
+            transforms=["diff", "linear_residual"],
             random_state=0,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col=target_col, feature_cols=selected,
-                 train_idx=train_idx)
-        assert len(disc.specs_) >= 1, (
-            f"composite discovery yielded no specs after RFECV "
-            f"reduced to {selected}")
+        disc.fit(df, target_col=target_col, feature_cols=selected, train_idx=train_idx)
+        assert len(disc.specs_) >= 1, f"composite discovery yielded no specs after RFECV reduced to {selected}"
         # Step 3: wrap the chosen spec and predict.
         spec = disc.specs_[0]
         # base must be among RFECV-kept features for the wrapper to
@@ -140,6 +159,7 @@ class TestCompositeXRFECV:
         """
         from sklearn.ensemble import RandomForestRegressor
         from mlframe.feature_selection.wrappers import RFECV
+
         df, target_col, feature_cols = _composite_friendly_regression()
         train_idx = np.arange(int(0.8 * len(df)))
         # Build T = y - base (diff transform).
@@ -153,14 +173,17 @@ class TestCompositeXRFECV:
         X = df[x_no_base].iloc[train_idx]
         est = RandomForestRegressor(n_estimators=20, random_state=42)
         rfecv = RFECV(
-            estimator=est, cv=3, max_refits=2,
-            verbose=0, optimizer_plotting="No", random_state=42,
+            estimator=est,
+            cv=3,
+            max_refits=2,
+            verbose=0,
+            optimizer_plotting="No",
+            random_state=42,
         )
         rfecv.fit(X, t_train)
         # Should keep at least one of the structural features (x1).
         selected = X.columns[rfecv.support_].tolist()
-        assert any(c in selected for c in ("x1", "x2", "x3")), (
-            f"expected at least one structural feature in {selected}")
+        assert any(c in selected for c in ("x1", "x2", "x3")), f"expected at least one structural feature in {selected}"
 
 
 class TestCompositeXRFECVBinary:
@@ -174,14 +197,19 @@ class TestCompositeXRFECVBinary:
     def test_rfecv_binary_classification(self) -> None:
         from sklearn.ensemble import RandomForestClassifier
         from mlframe.feature_selection.wrappers import RFECV
+
         df, target_col, feature_cols = _composite_friendly_binary()
         train_idx = np.arange(int(0.8 * len(df)))
         X = df[feature_cols].iloc[train_idx]
         y = df[target_col].iloc[train_idx]
         est = RandomForestClassifier(n_estimators=20, random_state=42)
         rfecv = RFECV(
-            estimator=est, cv=3, max_refits=2,
-            verbose=0, optimizer_plotting="No", random_state=42,
+            estimator=est,
+            cv=3,
+            max_refits=2,
+            verbose=0,
+            optimizer_plotting="No",
+            random_state=42,
         )
         rfecv.fit(X, y)
         assert rfecv.n_features_ >= 1
@@ -203,17 +231,20 @@ class TestCompositeXRFECVBinary:
         # Force `diff` only (logratio fails domain check on 0-class
         # rows).
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, screening="mi", mi_sample_n=800,
-            eps_mi_gain=-100.0, top_k_after_mi=4,
+            enabled=True,
+            screening="mi",
+            mi_sample_n=800,
+            eps_mi_gain=-100.0,
+            top_k_after_mi=4,
             require_beats_raw_baseline=False,
-            base_candidates=["base"], transforms=["diff"],
+            base_candidates=["base"],
+            transforms=["diff"],
             random_state=0,
         )
         disc = CompositeTargetDiscovery(cfg)
         # Should fit without crashing; binary target is treated as
         # continuous {0, 1} for the discovery's purposes.
-        disc.fit(df, target_col=target_col, feature_cols=feature_cols,
-                 train_idx=train_idx)
+        disc.fit(df, target_col=target_col, feature_cols=feature_cols, train_idx=train_idx)
         # specs_ may be empty (mi_gain near zero on a binary target
         # is normal); the contract is no-crash.
         assert isinstance(disc.specs_, list)
@@ -231,14 +262,19 @@ class TestCompositeXMRMRNoFE:
 
     def test_mrmr_no_fe_then_composite_regression(self) -> None:
         from mlframe.feature_selection.filters import MRMR
+
         df, target_col, feature_cols = _composite_friendly_regression()
         train_idx = np.arange(int(0.8 * len(df)))
         # MRMR without FE: zero out fe_* params explicitly.
         mrmr = MRMR(
-            full_npermutations=3, baseline_npermutations=2,
+            full_npermutations=3,
+            baseline_npermutations=2,
             min_relevance_gain=0.0001,
-            fe_max_steps=0, fe_npermutations=0, fe_ntop_features=0,
-            verbose=0, n_jobs=1,
+            fe_max_steps=0,
+            fe_npermutations=0,
+            fe_ntop_features=0,
+            verbose=0,
+            n_jobs=1,
         )
         X = df[feature_cols].iloc[train_idx]
         y = df[target_col].iloc[train_idx]
@@ -248,34 +284,36 @@ class TestCompositeXMRMRNoFE:
         assert len(selected) >= 1
         # Composite discovery on the MRMR-selected subset.
         if "base" not in selected:
-            pytest.skip(
-                "MRMR did not keep `base`; composite cannot use it. "
-                "Synthetic-data variance; not a regression."
-            )
+            pytest.skip("MRMR did not keep `base`; composite cannot use it. Synthetic-data variance; not a regression.")
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, screening="mi", mi_sample_n=800,
-            eps_mi_gain=-1.0, top_k_after_mi=4,
+            enabled=True,
+            screening="mi",
+            mi_sample_n=800,
+            eps_mi_gain=-1.0,
+            top_k_after_mi=4,
             require_beats_raw_baseline=False,
-            base_candidates=["base"], transforms=["diff", "linear_residual"],
+            base_candidates=["base"],
+            transforms=["diff", "linear_residual"],
             random_state=0,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col=target_col, feature_cols=selected,
-                 train_idx=train_idx)
-        assert len(disc.specs_) >= 1, (
-            "composite discovery yielded no specs after MRMR-no-FE "
-            "reduced to " + repr(selected)
-        )
+        disc.fit(df, target_col=target_col, feature_cols=selected, train_idx=train_idx)
+        assert len(disc.specs_) >= 1, "composite discovery yielded no specs after MRMR-no-FE reduced to " + repr(selected)
 
     def test_mrmr_no_fe_binary(self) -> None:
         from mlframe.feature_selection.filters import MRMR
+
         df, target_col, feature_cols = _composite_friendly_binary()
         train_idx = np.arange(int(0.8 * len(df)))
         mrmr = MRMR(
-            full_npermutations=3, baseline_npermutations=2,
+            full_npermutations=3,
+            baseline_npermutations=2,
             min_relevance_gain=0.0001,
-            fe_max_steps=0, fe_npermutations=0, fe_ntop_features=0,
-            verbose=0, n_jobs=1,
+            fe_max_steps=0,
+            fe_npermutations=0,
+            fe_ntop_features=0,
+            verbose=0,
+            n_jobs=1,
         )
         X = df[feature_cols].iloc[train_idx]
         y = df[target_col].iloc[train_idx]
@@ -298,19 +336,24 @@ class TestCompositeXMRMRWithFE:
 
     def test_mrmr_with_fe_regression(self) -> None:
         from mlframe.feature_selection.filters import MRMR
+
         df, target_col, feature_cols = _composite_friendly_regression()
         train_idx = np.arange(int(0.8 * len(df)))
         # MRMR with FE: enable feature engineering on top of the raw
         # features. This exercises the MRMR x FE path that is
         # nontrivial.
         mrmr = MRMR(
-            full_npermutations=3, baseline_npermutations=2,
+            full_npermutations=3,
+            baseline_npermutations=2,
             min_relevance_gain=0.0001,
             # FE settings
-            fe_max_steps=1, fe_npermutations=2, fe_ntop_features=3,
+            fe_max_steps=1,
+            fe_npermutations=2,
+            fe_ntop_features=3,
             fe_unary_preset="minimal",
             fe_binary_preset="minimal",
-            verbose=0, n_jobs=1,
+            verbose=0,
+            n_jobs=1,
         )
         X = df[feature_cols].iloc[train_idx]
         y = df[target_col].iloc[train_idx]
@@ -328,36 +371,40 @@ class TestCompositeXMRMRWithFE:
         if "base" not in selected_original:
             # MRMR-with-FE may select a different combination; not
             # a regression. Skip downstream composite check.
-            pytest.skip(
-                f"MRMR-with-FE did not keep `base`; selected="
-                f"{selected_original}"
-            )
+            pytest.skip(f"MRMR-with-FE did not keep `base`; selected={selected_original}")
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, screening="mi", mi_sample_n=800,
-            eps_mi_gain=-1.0, top_k_after_mi=4,
+            enabled=True,
+            screening="mi",
+            mi_sample_n=800,
+            eps_mi_gain=-1.0,
+            top_k_after_mi=4,
             require_beats_raw_baseline=False,
-            base_candidates=["base"], transforms=["diff", "linear_residual"],
+            base_candidates=["base"],
+            transforms=["diff", "linear_residual"],
             random_state=0,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col=target_col,
-                 feature_cols=selected_original,
-                 train_idx=train_idx)
+        disc.fit(df, target_col=target_col, feature_cols=selected_original, train_idx=train_idx)
         # Discovery may or may not survive depending on the MRMR
         # subset; the contract is it doesn't crash.
         assert isinstance(disc.specs_, list)
 
     def test_mrmr_with_fe_binary(self) -> None:
         from mlframe.feature_selection.filters import MRMR
+
         df, target_col, feature_cols = _composite_friendly_binary()
         train_idx = np.arange(int(0.8 * len(df)))
         mrmr = MRMR(
-            full_npermutations=3, baseline_npermutations=2,
+            full_npermutations=3,
+            baseline_npermutations=2,
             min_relevance_gain=0.0001,
-            fe_max_steps=1, fe_npermutations=2, fe_ntop_features=3,
+            fe_max_steps=1,
+            fe_npermutations=2,
+            fe_ntop_features=3,
             fe_unary_preset="minimal",
             fe_binary_preset="minimal",
-            verbose=0, n_jobs=1,
+            verbose=0,
+            n_jobs=1,
         )
         X = df[feature_cols].iloc[train_idx]
         y = df[target_col].iloc[train_idx]
@@ -382,15 +429,20 @@ class TestCompositeWrapperX_FeatureSubset:
     def test_wrapper_predict_with_base_in_X(self) -> None:
         """Happy path: base survives in X."""
         from lightgbm import LGBMRegressor
+
         df, target_col, feature_cols = _composite_friendly_regression()
         train_idx = np.arange(int(0.8 * len(df)))
         test_idx = np.arange(int(0.8 * len(df)), len(df))
         inner = LGBMRegressor(
-            n_estimators=80, num_leaves=15, learning_rate=0.1,
-            random_state=42, verbosity=-1,
+            n_estimators=80,
+            num_leaves=15,
+            learning_rate=0.1,
+            random_state=42,
+            verbosity=-1,
         )
         wrapper = CompositeTargetEstimator(
-            base_estimator=inner, transform_name="linear_residual",
+            base_estimator=inner,
+            transform_name="linear_residual",
             base_column="base",
         )
         # Selected subset includes base + structural features (mimics
@@ -408,15 +460,20 @@ class TestCompositeWrapperX_FeatureSubset:
         """Selector drops noise features; wrapper still works on
         a smaller X (mimics post-RFECV/MRMR pipeline)."""
         from lightgbm import LGBMRegressor
+
         df, target_col, feature_cols = _composite_friendly_regression()
         train_idx = np.arange(int(0.8 * len(df)))
         test_idx = np.arange(int(0.8 * len(df)), len(df))
         inner = LGBMRegressor(
-            n_estimators=80, num_leaves=15, learning_rate=0.1,
-            random_state=42, verbosity=-1,
+            n_estimators=80,
+            num_leaves=15,
+            learning_rate=0.1,
+            random_state=42,
+            verbosity=-1,
         )
         wrapper = CompositeTargetEstimator(
-            base_estimator=inner, transform_name="diff",
+            base_estimator=inner,
+            transform_name="diff",
             base_column="base",
         )
         # Selector kept base + x1 (most informative); dropped x4, x5.

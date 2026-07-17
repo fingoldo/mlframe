@@ -5,6 +5,7 @@ Locks the contract:
 - When ``multi_base_enabled=False``, no upgrade happens (spec stays single-base).
 - When the candidate pool is single-base (no orthogonal alternatives), no upgrade happens (do-no-harm).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -56,8 +57,7 @@ class TestMultiBaseAutoPromotion:
             multi_base_min_marginal_rmse_gain=0.02,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df=df, target_col="y", feature_cols=feature_cols,
-                 train_idx=np.arange(len(df)))
+        disc.fit(df=df, target_col="y", feature_cols=feature_cols, train_idx=np.arange(len(df)))
         assert disc.specs_, "expected at least one spec after discovery"
         # The upgrade may apply OR not depending on raw-y baseline gate; check both possibilities.
         multi_specs = [s for s in disc.specs_ if s.transform_name == "linear_residual_multi"]
@@ -84,8 +84,7 @@ class TestMultiBaseAutoPromotion:
             multi_base_enabled=False,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df=df, target_col="y", feature_cols=feature_cols,
-                 train_idx=np.arange(len(df)))
+        disc.fit(df=df, target_col="y", feature_cols=feature_cols, train_idx=np.arange(len(df)))
         # All kept specs must be single-base linear_residual; no linear_residual_multi.
         multi_specs = [s for s in disc.specs_ if s.transform_name == "linear_residual_multi"]
         assert not multi_specs, "multi_base_enabled=False should not produce multi-base upgrades"
@@ -108,8 +107,7 @@ class TestMultiBaseAutoPromotion:
             multi_base_min_marginal_rmse_gain=0.02,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df=df, target_col="y", feature_cols=feature_cols,
-                 train_idx=np.arange(len(df)))
+        disc.fit(df=df, target_col="y", feature_cols=feature_cols, train_idx=np.arange(len(df)))
         multi_specs = [s for s in disc.specs_ if s.transform_name == "linear_residual_multi"]
         for spec in multi_specs:
             full_bases = (spec.base_column,) + spec.extra_base_columns

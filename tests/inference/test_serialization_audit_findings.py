@@ -11,6 +11,7 @@ Pre-fix issues:
   the unrestricted stdlib unpickler -- no module/class allowlist, unlike ``training/io.py``'s
   ``_SafeUnpickler`` used for training-side bundles.
 """
+
 from __future__ import annotations
 
 import hashlib

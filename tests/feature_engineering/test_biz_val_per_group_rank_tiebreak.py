@@ -14,6 +14,7 @@ Metric: per-group Spearman correlation between the assigned rank and the (unobse
 scoring-time) true continuous merit, averaged across groups -- the realistic "does this
 ranking feature actually track quality" check, not a raw identity assertion.
 """
+
 from __future__ import annotations
 
 import numpy as np

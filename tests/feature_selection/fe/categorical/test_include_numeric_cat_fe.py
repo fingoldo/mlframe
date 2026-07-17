@@ -11,6 +11,7 @@ express (axis-aligned AND non-product / rotated). Validates:
 * business value: on a ROTATED (diagonal) interaction -- where ``mul(a,b)`` is useless -- the
   include_numeric cross lifts a held-out LogisticRegression vs the same MRMR without it.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,7 +41,7 @@ def _rotated_xor(n: int, seed: int):
 def _numeric_cross_recipes(mrmr):
     recs = getattr(mrmr, "_cat_fe_state_", None)
     out = []
-    for r in (recs.recipes if recs else []):
+    for r in recs.recipes if recs else []:
         if r.kind == "factorize" and (r.extra.get("src_bin_edges")):
             out.append(r)
     return out
@@ -50,7 +51,8 @@ def test_include_numeric_builds_cross_with_stored_edges():
     df, y = _rotated_xor(3000, seed=1)
     mrmr = MRMR(
         cat_fe_config=CatFEConfig(enable=True, include_numeric=True, numeric_nbins=8),
-        fe_max_steps=0, verbose=0,
+        fe_max_steps=0,
+        verbose=0,
     )
     mrmr.fit(df, y)
     crosses = _numeric_cross_recipes(mrmr)
@@ -72,7 +74,8 @@ def test_include_numeric_transform_is_leak_safe_no_skew():
     df, y = _rotated_xor(3000, seed=2)
     mrmr = MRMR(
         cat_fe_config=CatFEConfig(enable=True, include_numeric=True, numeric_nbins=6),
-        fe_max_steps=0, verbose=0,
+        fe_max_steps=0,
+        verbose=0,
     )
     mrmr.fit(df, y)
     crosses = _numeric_cross_recipes(mrmr)
@@ -103,7 +106,8 @@ def test_include_numeric_skips_nan_bearing_numeric_columns():
     df.loc[df.index[:50], "x0"] = np.nan  # inject NaN into a signal column
     mrmr = MRMR(
         cat_fe_config=CatFEConfig(enable=True, include_numeric=True, numeric_nbins=8),
-        fe_max_steps=0, verbose=0,
+        fe_max_steps=0,
+        verbose=0,
     )
     mrmr.fit(df, y)
     for r in _numeric_cross_recipes(mrmr):
@@ -118,7 +122,8 @@ def test_include_numeric_off_no_numeric_cross():
     df, y = _rotated_xor(3000, seed=4)
     mrmr = MRMR(
         cat_fe_config=CatFEConfig(enable=True, include_numeric=False),
-        fe_max_steps=0, verbose=0,
+        fe_max_steps=0,
+        verbose=0,
     )
     mrmr.fit(df, y)
     assert not _numeric_cross_recipes(mrmr)
@@ -151,19 +156,23 @@ def test_biz_value_include_numeric_standalone_lift_at_step_level():
         Xtr_t["__t0"] = ytr
         data, cols, nbins = categorize_dataset(df=Xtr_t, nbins_strategy=None, n_bins=10, dtype=dtype)
         tgt_idx = np.array([cols.index("__t0")], dtype=np.int64)
-        classes_y, freqs_y, _ = merge_vars(factors_data=data, vars_indices=tgt_idx,
-                                            var_is_nominal=None, factors_nbins=nbins, dtype=dtype)
-        num_raw = {cols.index("x0"): Xtr["x0"].to_numpy(float),
-                   cols.index("x1"): Xtr["x1"].to_numpy(float)}
-        cfg = CatFEConfig(enable=True, include_numeric=True, numeric_nbins=8,
-                          emit_target_encoding=False, full_npermutations=0)
+        classes_y, freqs_y, _ = merge_vars(factors_data=data, vars_indices=tgt_idx, var_is_nominal=None, factors_nbins=nbins, dtype=dtype)
+        num_raw = {cols.index("x0"): Xtr["x0"].to_numpy(float), cols.index("x1"): Xtr["x1"].to_numpy(float)}
+        cfg = CatFEConfig(enable=True, include_numeric=True, numeric_nbins=8, emit_target_encoding=False, full_npermutations=0)
         d2, c2, nb2, state = run_cat_interaction_step(
-            data=data, cols=cols, nbins=nbins, target_indices=tgt_idx,
-            classes_y=classes_y, classes_y_safe=classes_y.copy(), freqs_y=freqs_y,
-            categorical_vars=[], cfg=cfg, numeric_raw_values=num_raw, dtype=dtype,
+            data=data,
+            cols=cols,
+            nbins=nbins,
+            target_indices=tgt_idx,
+            classes_y=classes_y,
+            classes_y_safe=classes_y.copy(),
+            freqs_y=freqs_y,
+            categorical_vars=[],
+            cfg=cfg,
+            numeric_raw_values=num_raw,
+            dtype=dtype,
         )
-        crosses = [r for r in state.recipes if r.kind == "factorize" and r.extra.get("src_bin_edges")
-                   and set(r.src_names) == {"x0", "x1"}]
+        crosses = [r for r in state.recipes if r.kind == "factorize" and r.extra.get("src_bin_edges") and set(r.src_names) == {"x0", "x1"}]
         assert crosses, f"seed {seed}: include_numeric must build the x0__x1 cross"
         r = crosses[0]
 

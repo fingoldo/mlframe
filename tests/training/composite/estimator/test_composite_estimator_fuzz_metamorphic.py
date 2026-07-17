@@ -34,6 +34,7 @@ cheap (``max_iter=15`` HGBR / closed-form linear / constant). The suite found
 NO production bug -- the wrapper's domain-fallback + T-clip + y-envelope-clip
 machinery already absorbs every adversarial config exercised here.
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,6 +47,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 from mlframe.training.composite import CompositeTargetEstimator
 from mlframe.training.composite.transforms import get_transform, list_transforms
+
 
 @pytest.fixture(autouse=True)
 def _quiet_composite_logger():
@@ -142,11 +144,7 @@ def _make_config_frame(
     if transform in _GROUPED:
         cols["grp"] = rng.integers(0, 5, n).astype(str)
 
-    y = (
-        1.3 * bases[0]
-        + 0.5 * sum(cols[f"f{j}"] for j in range(n_feat))
-        + rng.normal(0.0, 0.3, n)
-    )
+    y = 1.3 * bases[0] + 0.5 * sum(cols[f"f{j}"] for j in range(n_feat)) + rng.normal(0.0, 0.3, n)
     if positive:
         y = np.abs(y) + 0.5
     if inject_outliers:
@@ -196,20 +194,23 @@ class TestFuzzFitPredictNeverCrashes:
             dtype = str(rng.choice(["float64", "float32"]))
 
             X, y, kwargs = _make_config_frame(
-                n, seed, transform, nan_frac, inject_outliers, n_feat, dtype,
+                n,
+                seed,
+                transform,
+                nan_frac,
+                inject_outliers,
+                n_feat,
+                dtype,
             )
             est = CompositeTargetEstimator(
                 base_estimator=HistGradientBoostingRegressor(
-                    max_iter=15, random_state=0,
+                    max_iter=15,
+                    random_state=0,
                 ),
                 transform_name=transform,
                 **kwargs,
             )
-            ctx = (
-                f"batch={batch} it={it} transform={transform} n={n} "
-                f"n_feat={n_feat} nan_frac={nan_frac} outliers={inject_outliers} "
-                f"dtype={dtype} seed={seed}"
-            )
+            ctx = f"batch={batch} it={it} transform={transform} n={n} n_feat={n_feat} nan_frac={nan_frac} outliers={inject_outliers} dtype={dtype} seed={seed}"
             try:
                 est.fit(X, y)
             except Exception as exc:  # noqa: BLE001 - fuzz surfaces ALL crashes
@@ -231,9 +232,7 @@ class TestFuzzFitPredictNeverCrashes:
             if np.isfinite(lo) and np.isfinite(hi):
                 tol = 1e-6 * (1.0 + abs(hi - lo))
                 assert np.all(y_hat >= lo - tol) and np.all(y_hat <= hi + tol), (
-                    f"prediction escaped train envelope "
-                    f"[{ctx}] lo={lo} hi={hi} "
-                    f"pmin={y_hat.min()} pmax={y_hat.max()}"
+                    f"prediction escaped train envelope [{ctx}] lo={lo} hi={hi} pmin={y_hat.min()} pmax={y_hat.max()}"
                 )
             n_checked += 1
         assert n_checked == 50
@@ -286,16 +285,17 @@ class TestMetamorphicInvariants:
         X, y = self._frame()
         c = 3.7
         e0 = CompositeTargetEstimator(
-            base_estimator=_BaseOnlyInner(), transform_name=transform, base_column="base",
+            base_estimator=_BaseOnlyInner(),
+            transform_name=transform,
+            base_column="base",
         ).fit(X, y)
         e1 = CompositeTargetEstimator(
-            base_estimator=_BaseOnlyInner(), transform_name=transform, base_column="base",
+            base_estimator=_BaseOnlyInner(),
+            transform_name=transform,
+            base_column="base",
         ).fit(X, y + c)
         delta = e1.predict(X) - e0.predict(X)
-        assert np.allclose(delta, c, atol=1e-6), (
-            f"{transform}: expected uniform +{c} shift, got "
-            f"[{delta.min()}, {delta.max()}]"
-        )
+        assert np.allclose(delta, c, atol=1e-6), f"{transform}: expected uniform +{c} shift, got [{delta.min()}, {delta.max()}]"
 
     def test_invariant_2_row_duplication_preserves_per_row_predictions(self) -> None:
         """Duplicating rows leaves per-row predictions unchanged (predict is
@@ -310,7 +310,7 @@ class TestMetamorphicInvariants:
         X_dup = pd.concat([X, X], ignore_index=True)
         p_dup = est.predict(X_dup)
         assert np.array_equal(p_dup[: len(X)], p_single)
-        assert np.array_equal(p_dup[len(X):], p_single)
+        assert np.array_equal(p_dup[len(X) :], p_single)
 
     def test_invariant_3_monotone_base_does_not_flip_linear_residual_sign(self) -> None:
         """A monotone-increasing base shift moves a linear_residual prediction
@@ -333,13 +333,11 @@ class TestMetamorphicInvariants:
         delta = est.predict(X_up) - est.predict(X)
         moved = delta[np.abs(delta) > 1e-9]
         assert moved.size > 0, "an upward base shift must move predictions"
-        assert np.all(np.sign(moved) == np.sign(alpha)), (
-            "monotone-increasing base flipped the sign of the prediction delta "
-            f"for alpha={alpha} > 0"
-        )
+        assert np.all(np.sign(moved) == np.sign(alpha)), f"monotone-increasing base flipped the sign of the prediction delta for alpha={alpha} > 0"
 
     @pytest.mark.parametrize(
-        "transform", ["diff", "linear_residual", "ratio", "logratio"],
+        "transform",
+        ["diff", "linear_residual", "ratio", "logratio"],
     )
     def test_invariant_4_clone_refit_is_bit_identical(self, transform: str) -> None:
         """clone + refit on identical data yields bit-identical predictions for
@@ -351,12 +349,12 @@ class TestMetamorphicInvariants:
             X["base"] = np.abs(X["base"]) + 0.5
             y = np.abs(y) + 0.5
         est = CompositeTargetEstimator(
-            base_estimator=_BaseOnlyInner(), transform_name=transform, base_column="base",
+            base_estimator=_BaseOnlyInner(),
+            transform_name=transform,
+            base_column="base",
         ).fit(X, y)
         est_clone = clone(est).fit(X, y)
-        assert np.array_equal(est.predict(X), est_clone.predict(X)), (
-            f"{transform}: clone+refit predictions diverged"
-        )
+        assert np.array_equal(est.predict(X), est_clone.predict(X)), f"{transform}: clone+refit predictions diverged"
 
     def test_invariant_5_feature_permutation_preserves_predictions(self) -> None:
         """Permuting the NON-base feature columns leaves predictions unchanged

@@ -16,6 +16,7 @@ Rules we enforce:
 - Polars small ints with nulls → Float32; only Int64/UInt64 with nulls → Float64.
 - Polars int columns WITHOUT nulls are not cast at all.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,21 +31,25 @@ from mlframe.preprocessing.transforms import prepare_df_for_catboost
 # pandas dtype preservation
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("col_dtype, expected_out", [
-    (np.float32,                   np.float32),
-    (np.float64,                   np.float64),
-    (pd.Float32Dtype(),            np.dtype("float32")),
-    (pd.Float64Dtype(),            np.dtype("float64")),
-    (pd.Int8Dtype(),               np.dtype("float32")),
-    (pd.Int16Dtype(),              np.dtype("float32")),
-    (pd.Int32Dtype(),              np.dtype("float32")),
-    (pd.UInt8Dtype(),              np.dtype("float32")),
-    (pd.UInt16Dtype(),             np.dtype("float32")),
-    (pd.UInt32Dtype(),             np.dtype("float32")),
-    (pd.Int64Dtype(),              np.dtype("float64")),
-    (pd.UInt64Dtype(),             np.dtype("float64")),
-    (pd.BooleanDtype(),            np.dtype("float32")),
-])
+
+@pytest.mark.parametrize(
+    "col_dtype, expected_out",
+    [
+        (np.float32, np.float32),
+        (np.float64, np.float64),
+        (pd.Float32Dtype(), np.dtype("float32")),
+        (pd.Float64Dtype(), np.dtype("float64")),
+        (pd.Int8Dtype(), np.dtype("float32")),
+        (pd.Int16Dtype(), np.dtype("float32")),
+        (pd.Int32Dtype(), np.dtype("float32")),
+        (pd.UInt8Dtype(), np.dtype("float32")),
+        (pd.UInt16Dtype(), np.dtype("float32")),
+        (pd.UInt32Dtype(), np.dtype("float32")),
+        (pd.Int64Dtype(), np.dtype("float64")),
+        (pd.UInt64Dtype(), np.dtype("float64")),
+        (pd.BooleanDtype(), np.dtype("float32")),
+    ],
+)
 def test_pandas_dtype_preserved_or_narrowed(col_dtype, expected_out):
     if isinstance(col_dtype, type) and issubclass(col_dtype, np.floating):
         # Non-nullable numpy floats — should pass through untouched.
@@ -82,23 +87,27 @@ def test_pandas_nullable_float32_fills_na_but_keeps_precision():
 # polars dtype preservation
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("src_dtype, values, expected_out", [
-    (pl.Float32,   [1.0, 2.0, None],       pl.Float32),
-    (pl.Float64,   [1.0, 2.0, None],       pl.Float64),
-    (pl.Int8,      [1, 2, None],           pl.Float32),
-    (pl.Int16,     [1, 2, None],           pl.Float32),
-    (pl.Int32,     [1, 2, None],           pl.Float32),
-    (pl.UInt8,     [1, 2, None],           pl.Float32),
-    (pl.UInt16,    [1, 2, None],           pl.Float32),
-    (pl.UInt32,    [1, 2, None],           pl.Float32),
-    (pl.Int64,     [1, 2, None],           pl.Float64),
-    (pl.UInt64,    [1, 2, None],           pl.Float64),
-    (pl.Boolean,   [True, False, None],    pl.Float32),
-    # No-null columns: left alone entirely (no unnecessary cast).
-    (pl.Int32,     [1, 2, 3],              pl.Int32),
-    (pl.Int64,     [1, 2, 3],              pl.Int64),
-    (pl.Float32,   [1.0, 2.0, 3.0],        pl.Float32),
-])
+
+@pytest.mark.parametrize(
+    "src_dtype, values, expected_out",
+    [
+        (pl.Float32, [1.0, 2.0, None], pl.Float32),
+        (pl.Float64, [1.0, 2.0, None], pl.Float64),
+        (pl.Int8, [1, 2, None], pl.Float32),
+        (pl.Int16, [1, 2, None], pl.Float32),
+        (pl.Int32, [1, 2, None], pl.Float32),
+        (pl.UInt8, [1, 2, None], pl.Float32),
+        (pl.UInt16, [1, 2, None], pl.Float32),
+        (pl.UInt32, [1, 2, None], pl.Float32),
+        (pl.Int64, [1, 2, None], pl.Float64),
+        (pl.UInt64, [1, 2, None], pl.Float64),
+        (pl.Boolean, [True, False, None], pl.Float32),
+        # No-null columns: left alone entirely (no unnecessary cast).
+        (pl.Int32, [1, 2, 3], pl.Int32),
+        (pl.Int64, [1, 2, 3], pl.Int64),
+        (pl.Float32, [1.0, 2.0, 3.0], pl.Float32),
+    ],
+)
 def test_polars_dtype_preserved_or_narrowed(src_dtype, values, expected_out):
     df = pl.DataFrame({"c": pl.Series("c", values, dtype=src_dtype)})
     out = prepare_df_for_catboost(df.clone(), cat_features=[])
@@ -110,11 +119,13 @@ def test_polars_no_nulls_skips_cast_entirely():
     function shouldn't waste a cast. This test also catches an accidental
     regression that would cast every int column to Float*.
     """
-    df = pl.DataFrame({
-        "i32": pl.Series("i32", [1, 2, 3], dtype=pl.Int32),
-        "i64": pl.Series("i64", [1, 2, 3], dtype=pl.Int64),
-        "u16": pl.Series("u16", [1, 2, 3], dtype=pl.UInt16),
-    })
+    df = pl.DataFrame(
+        {
+            "i32": pl.Series("i32", [1, 2, 3], dtype=pl.Int32),
+            "i64": pl.Series("i64", [1, 2, 3], dtype=pl.Int64),
+            "u16": pl.Series("u16", [1, 2, 3], dtype=pl.UInt16),
+        }
+    )
     out = prepare_df_for_catboost(df.clone(), cat_features=[])
     assert out.dtypes == [pl.Int32, pl.Int64, pl.UInt16]
 
@@ -135,10 +146,12 @@ def test_polars_numeric_loop_skips_null_scan_for_noncastable_dtype(monkeypatch):
         return orig_is_null(self)
 
     monkeypatch.setattr(pl.Series, "is_null", spy_is_null)
-    df = pl.DataFrame({
-        "f64": pl.Series("f64", [1.0, 2.0, 3.0], dtype=pl.Float64),
-        "i8": pl.Series("i8", [1, 2, 3], dtype=pl.Int8),
-    })
+    df = pl.DataFrame(
+        {
+            "f64": pl.Series("f64", [1.0, 2.0, 3.0], dtype=pl.Float64),
+            "i8": pl.Series("i8", [1, 2, 3], dtype=pl.Int8),
+        }
+    )
     prepare_df_for_catboost(df, cat_features=[])
     assert "f64" not in scanned, "non-castable Float64 column must not be null-scanned in the numeric loop"
     assert "i8" in scanned, "castable nullable-int column must be null-scanned to decide the cast"
@@ -161,15 +174,15 @@ def test_polars_numeric_loop_skips_null_scan_for_noncastable_dtype(monkeypatch):
 def test_pandas_text_feature_categorical_not_added_to_cat_features():
     """A column declared as text_feature, even if its dtype is pd.Categorical,
     must NOT be added to cat_features by prepare_df_for_catboost."""
-    df = pd.DataFrame({
-        "skills_text": pd.Categorical(["a", "b", "a", "c"]),
-        "true_cat":    pd.Categorical(["x", "y", "x", "y"]),
-    })
+    df = pd.DataFrame(
+        {
+            "skills_text": pd.Categorical(["a", "b", "a", "c"]),
+            "true_cat": pd.Categorical(["x", "y", "x", "y"]),
+        }
+    )
     cat_features: list = []
     prepare_df_for_catboost(df, cat_features=cat_features, text_features=["skills_text"])
-    assert "skills_text" not in cat_features, (
-        "text-declared column must not be auto-added to cat_features"
-    )
+    assert "skills_text" not in cat_features, "text-declared column must not be auto-added to cat_features"
     # The companion 'true_cat' column IS pd.Categorical and NOT declared as
     # text, so it legitimately should be promoted.
     assert "true_cat" in cat_features
@@ -193,10 +206,12 @@ def test_pandas_text_feature_skips_expensive_astype_rebuild():
     rng = np.random.default_rng(42)
     n = 50_000
     pool = np.array([f"s_{i:05d}" for i in range(5_000)])
-    df = pd.DataFrame({
-        "skills_text": pd.Categorical(pool[rng.integers(0, len(pool), size=n)]),
-        "num": rng.standard_normal(n).astype(np.float32),
-    })
+    df = pd.DataFrame(
+        {
+            "skills_text": pd.Categorical(pool[rng.integers(0, len(pool), size=n)]),
+            "num": rng.standard_normal(n).astype(np.float32),
+        }
+    )
     # NOTE: no NaN injected. The function's text-feature branch calls
     # ``df[col].fillna("")`` which on pd.Categorical panics when "" is not a
     # category (pandas limitation: fillna on Categorical requires the fill
@@ -213,10 +228,7 @@ def test_pandas_text_feature_skips_expensive_astype_rebuild():
     # Budget: comfortable for the skip path (<~0.3s on Python 3.11 + pandas
     # 2.x dev box), tight enough that the astype(str).astype("category")
     # rebuild over 5k categories would breach it easily.
-    assert elapsed < 2.0, (
-        f"prepare_df_for_catboost took {elapsed:.2f}s on a 50k text column — "
-        "the text-feature skip likely regressed"
-    )
+    assert elapsed < 2.0, f"prepare_df_for_catboost took {elapsed:.2f}s on a 50k text column — the text-feature skip likely regressed"
 
 
 def test_pandas_text_feature_dtype_is_not_mutated():
@@ -263,12 +275,14 @@ def test_cat_nan_fill_does_not_materialize_dictionary_as_strings():
     # values actually present in the rows (simulates untrimmed Polars dict).
     huge_dict = [f"cat_{i:06d}" for i in range(50_000)]
     cat_type = pd.CategoricalDtype(categories=huge_dict, ordered=False)
-    df = pd.DataFrame({
-        "x": pd.Categorical(
-            values=["cat_000001", "cat_000002", None, "cat_000001"],
-            dtype=cat_type,
-        ),
-    })
+    df = pd.DataFrame(
+        {
+            "x": pd.Categorical(
+                values=["cat_000001", "cat_000002", None, "cat_000001"],
+                dtype=cat_type,
+            ),
+        }
+    )
     # Invariant pre-call: dict is huge, rows are sparse.
     assert len(df["x"].cat.categories) == 50_000
     assert df["x"].isna().any()
@@ -290,13 +304,15 @@ def test_cat_nan_fill_preserves_existing_categories():
     """The fix must preserve the caller's existing category order — downstream
     CatBoost Pool indexing depends on stable codes across train/val/test."""
     cats = ["alpha", "beta", "gamma", "delta"]
-    df = pd.DataFrame({
-        "x": pd.Categorical(
-            values=["alpha", None, "beta", "gamma"],
-            categories=cats,
-            ordered=False,
-        ),
-    })
+    df = pd.DataFrame(
+        {
+            "x": pd.Categorical(
+                values=["alpha", None, "beta", "gamma"],
+                categories=cats,
+                ordered=False,
+            ),
+        }
+    )
     prepare_df_for_catboost(df, cat_features=["x"], text_features=[])
     # Original categories still present, in original order, plus na_filler.
     cats_after = list(df["x"].cat.categories)
@@ -310,13 +326,15 @@ def test_cat_nan_fill_preserves_existing_categories():
 def test_cat_nan_fill_idempotent_when_na_filler_already_a_category():
     """If na_filler (default "") is already in the category list, we must
     NOT try to re-add it (pandas raises ValueError on duplicate add)."""
-    df = pd.DataFrame({
-        "x": pd.Categorical(
-            values=["a", None, "b", ""],
-            categories=["a", "b", ""],  # "" already present
-            ordered=False,
-        ),
-    })
+    df = pd.DataFrame(
+        {
+            "x": pd.Categorical(
+                values=["a", None, "b", ""],
+                categories=["a", "b", ""],  # "" already present
+                ordered=False,
+            ),
+        }
+    )
     # Must not crash.
     prepare_df_for_catboost(df, cat_features=["x"], text_features=[])
     assert not df["x"].isna().any()
@@ -339,13 +357,15 @@ def test_cat_nan_fill_perf_budget_huge_untrimmed_dict():
     rng = np.random.default_rng(42)
     values = rng.choice(huge_dict[:5], size=n).tolist()
     values[::100] = [None] * len(values[::100])  # sprinkle NaN
-    df = pd.DataFrame({
-        "x": pd.Categorical(
-            values=values,
-            categories=huge_dict,
-            ordered=False,
-        ),
-    })
+    df = pd.DataFrame(
+        {
+            "x": pd.Categorical(
+                values=values,
+                categories=huge_dict,
+                ordered=False,
+            ),
+        }
+    )
 
     t0 = time.perf_counter()
     prepare_df_for_catboost(df, cat_features=[], text_features=[])

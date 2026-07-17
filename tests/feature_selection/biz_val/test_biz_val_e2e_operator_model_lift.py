@@ -23,6 +23,7 @@ gcd is the load-bearing proof: a gradient-boosted tree CANNOT form gcd(a,b) from
 so OFF the signal is unreachable and ON clears it by a real margin. NEVER xfail / weaken: a regressed delta means the operator lost
 downstream value -- fix prod, not the assertion.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,14 +39,22 @@ from tests.conftest import fast_n_estimators
 # Every default-ON FE generator OFF, INCLUDING the four structural operators -> MRMR selects RAW columns only.
 _ALL_FE_OFF = dict(
     fe_max_steps=0,
-    fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False,
-    fe_hinge_enable=False, fe_conditional_dispersion_enable=False,
-    fe_wavelet_enable=False, fe_hybrid_orth_pair_enable=False,
-    fe_auto_escalation_enable=False, fe_pair_prewarp_enable=False,
-    fe_rung_schedule_enable=False, fe_stability_vote_enable=False,
-    cluster_aggregate_enable=False, dcd_enable=False,
-    fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False,
-    fe_row_argmax_enable=False, fe_conditional_gate_enable=False,
+    fe_univariate_basis_enable=False,
+    fe_univariate_fourier_enable=False,
+    fe_hinge_enable=False,
+    fe_conditional_dispersion_enable=False,
+    fe_wavelet_enable=False,
+    fe_hybrid_orth_pair_enable=False,
+    fe_auto_escalation_enable=False,
+    fe_pair_prewarp_enable=False,
+    fe_rung_schedule_enable=False,
+    fe_stability_vote_enable=False,
+    cluster_aggregate_enable=False,
+    dcd_enable=False,
+    fe_pairwise_modular_enable=False,
+    fe_integer_lattice_enable=False,
+    fe_row_argmax_enable=False,
+    fe_conditional_gate_enable=False,
 )
 # Only the four structural operators ON (smooth FE stays off so the delta is attributable to the structural ops, not basis features).
 _OPS_ON = dict(_ALL_FE_OFF)
@@ -60,8 +69,7 @@ def _split(df, y, frac: float = 0.7):
     np.random.default_rng(0).shuffle(idx)
     k = int(n * frac)
     tr, te = idx[:k], idx[k:]
-    return (df.iloc[tr].reset_index(drop=True), y.iloc[tr].reset_index(drop=True),
-            df.iloc[te].reset_index(drop=True), y.iloc[te].reset_index(drop=True))
+    return (df.iloc[tr].reset_index(drop=True), y.iloc[tr].reset_index(drop=True), df.iloc[te].reset_index(drop=True), y.iloc[te].reset_index(drop=True))
 
 
 def _select_train_predict(kwargs, df, y):
@@ -79,6 +87,7 @@ def _select_train_predict(kwargs, df, y):
 
 
 # --- synthetic targets whose signal lives in operator-detectable structure -------------------------------------------------
+
 
 def _gcd_target(seed: int = 42, n: int = 2000):
     """``y = (gcd(a,b) >= 4)`` on even integers + smooth noise columns. A tree cannot form gcd(a,b) from raw a,b, so OFF the signal
@@ -113,6 +122,7 @@ def _argmax_target(seed: int = 42, n: int = 2000):
 
 # --- KEPT: operators with a genuine, measured downstream model-accuracy lift ----------------------------------------------
 
+
 @pytest.mark.timeout(300)
 def test_biz_val_gcd_operator_lifts_downstream_lgbm_auc():
     """gcd integer-lattice: held-out LGBM AUC with the operator ON clears ALL-FE-OFF by a real margin (measured +0.087, multi-seed
@@ -145,6 +155,7 @@ def test_biz_val_conditional_gate_operator_lifts_downstream_lgbm_auc():
 
 
 # --- HONEST NEGATIVE: operator value is MI-only here; the tree recovers the signal from raws so ON ~ OFF -------------------
+
 
 @pytest.mark.timeout(300)
 def test_biz_val_argmax_operator_selected_but_no_tree_downstream_lift():

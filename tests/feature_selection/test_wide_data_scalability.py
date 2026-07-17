@@ -8,6 +8,7 @@ and that the relevant guard actually ENGAGED.
 n is kept modest (1500-2500) so each test stays well under the pytest --timeout. Datasets are pure-noise-heavy with a
 small informative core: that is exactly the wide-noisy regime the guards are designed for and keeps every fit cheap.
 """
+
 from __future__ import annotations
 
 import os
@@ -81,7 +82,7 @@ def test_rfecv_wide_data_fi_fallback_engages(p):
         wide_data_fi_fallback=True,
         wide_data_fi_threshold=200,
         cv=2,
-        max_runtime_mins=0.5,   # real budget; bounds the elimination loop now that each iteration is cheap
+        max_runtime_mins=0.5,  # real budget; bounds the elimination loop now that each iteration is cheap
     )
     t0 = time.time()
     r.fit(X, y)
@@ -123,8 +124,11 @@ def test_hybrid_selector_completes_and_narrows_wide(p):
     # + the guarded corr_clusters). Guard engagement (_cluster_cols_ << p, slab cols <= cap) is what is asserted.
     hs.corr_clusters = _guarded
     sel = hs.HybridSelector(
-        use_fe=False, use_tree_member=False, use_mrmr=False,
-        hybrid_corr_max_features=cap, random_state=0,
+        use_fe=False,
+        use_tree_member=False,
+        use_mrmr=False,
+        hybrid_corr_max_features=cap,
+        random_state=0,
     )
     sel._run_shap = lambda X_, y_, rel, art: list(rel)[:5]
     sel._run_boruta_premerge = lambda X_, y_, rel: list(rel)[:5]
@@ -134,6 +138,7 @@ def test_hybrid_selector_completes_and_narrows_wide(p):
     # is agnostic to HOW the FI was produced -- it only uses FI>0 to pick the relevance-survivor set to cluster.
     def _cheap_fi(X_, y_):
         import lightgbm as lgb
+
         mm = lgb.LGBMClassifier(n_estimators=60, num_leaves=31, n_jobs=1, verbose=-1)
         mm.fit(X_, y_)
         imp = mm.feature_importances_.astype(float)

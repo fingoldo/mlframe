@@ -21,6 +21,7 @@ screening-side ``min_nonzero_confidence`` / ``full_npermutations`` pair).
 If it fails on master, finding #5 is REAL and the same flip-down rationale
 applies one level upstream.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -108,12 +109,7 @@ class TestMultiplePairInteractionsEvaluated:
         x_f = rng.normal(size=n)
         noise1 = rng.normal(size=n)
         noise2 = rng.normal(size=n)
-        y_cont = (
-            1.0 * (x_a * x_b)
-            + 0.5 * (x_c * x_d)
-            + 0.3 * (x_e * x_f)
-            + 0.2 * rng.normal(size=n)
-        )
+        y_cont = 1.0 * (x_a * x_b) + 0.5 * (x_c * x_d) + 0.3 * (x_e * x_f) + 0.2 * rng.normal(size=n)
         y = (y_cont > np.median(y_cont)).astype(np.int64)
         df, ys = _to_df(
             np.column_stack([x_a, x_b, x_c, x_d, x_e, x_f, noise1, noise2]),
@@ -131,9 +127,7 @@ class TestMultiplePairInteractionsEvaluated:
         sel.fit(df, ys)
 
         recipes = getattr(sel, "_engineered_recipes_", []) or []
-        hermite_pair_count = sum(
-            1 for r in recipes if getattr(r, "kind", None) == "hermite_pair"
-        )
+        hermite_pair_count = sum(1 for r in recipes if getattr(r, "kind", None) == "hermite_pair")
         # Fallback: pre-flip _hermite_features_ accounting (only present
         # when at least one pair survived selection).
         hermite_feats = getattr(sel, "_hermite_features_", []) or []
@@ -193,9 +187,7 @@ class TestPolynomFeDiscoversLowDegreeInteractions:
         # tracks the actual shipped value.
         import inspect
 
-        default_min_degree = (
-            inspect.signature(MRMR.__init__).parameters["fe_min_polynom_degree"].default
-        )
+        default_min_degree = inspect.signature(MRMR.__init__).parameters["fe_min_polynom_degree"].default
 
         result = optimise_hermite_pair(
             x_a,
@@ -315,9 +307,7 @@ class TestPolynomFeFindsXorViaDefaultMrmrPath:
 
         hermite_feats = getattr(sel, "_hermite_features_", []) or []
         recipes = getattr(sel, "_engineered_recipes_", []) or []
-        hermite_pair_recipes = [
-            r for r in recipes if getattr(r, "kind", None) == "hermite_pair"
-        ]
+        hermite_pair_recipes = [r for r in recipes if getattr(r, "kind", None) == "hermite_pair"]
         assert hermite_feats or hermite_pair_recipes, (
             f"polynom-FE block must fire and store >=1 discovered pair "
             f"under default config + fe_smart_polynom_iters=2; an empty "

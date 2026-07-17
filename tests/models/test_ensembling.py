@@ -32,13 +32,13 @@ def _seed_global_numpy_rng():
 prob_arrays = arrays(
     dtype=np.float32,
     shape=st.tuples(st.integers(1, 50), st.integers(2, 10)),
-    elements=st.floats(float(np.float32(0.01)), float(np.float32(0.99)), allow_nan=False, allow_infinity=False, width=32)
+    elements=st.floats(float(np.float32(0.01)), float(np.float32(0.99)), allow_nan=False, allow_infinity=False, width=32),
 )
 
 small_prob_arrays = arrays(
     dtype=np.float32,
     shape=st.tuples(st.integers(1, 20), st.integers(2, 5)),
-    elements=st.floats(float(np.float32(0.01)), float(np.float32(0.99)), allow_nan=False, allow_infinity=False, width=32)
+    elements=st.floats(float(np.float32(0.01)), float(np.float32(0.99)), allow_nan=False, allow_infinity=False, width=32),
 )
 
 
@@ -46,14 +46,13 @@ small_prob_arrays = arrays(
 # Tests for ensemble_probabilistic_predictions
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
+
 @given(preds=small_prob_arrays)
 @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow], deadline=None)
 def test_ensemble_methods_return_valid_shape(preds):
     """All ensemble methods should return same shape as input."""
     for method in SIMPLE_ENSEMBLING_METHODS:
-        result, _, _ = ensemble_probabilistic_predictions(
-            preds, ensemble_method=method, verbose=False
-        )
+        result, _, _ = ensemble_probabilistic_predictions(preds, ensemble_method=method, verbose=False)
         assert result.shape == preds.shape, f"Method {method} changed shape"
 
 
@@ -64,9 +63,7 @@ def test_ensemble_multiple_predictions_same_shape(method):
     shape = (20, 5)
     preds = [np.random.rand(*shape).astype(np.float32) * 0.98 + 0.01 for _ in range(3)]
 
-    result, _, _ = ensemble_probabilistic_predictions(
-        *preds, ensemble_method=method, verbose=False
-    )
+    result, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method=method, verbose=False)
     assert result.shape == shape
     assert np.all(np.isfinite(result))
 
@@ -75,9 +72,7 @@ def test_ensemble_multiple_predictions_same_shape(method):
 @settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow], deadline=None)
 def test_ensure_prob_limits_clips_results(preds):
     """Results should be clipped to [0, 1] when ensure_prob_limits=True."""
-    result, _, _ = ensemble_probabilistic_predictions(
-        preds, ensemble_method="arithm", ensure_prob_limits=True, verbose=False
-    )
+    result, _, _ = ensemble_probabilistic_predictions(preds, ensemble_method="arithm", ensure_prob_limits=True, verbose=False)
     assert np.all((result >= 0) & (result <= 1))
 
 
@@ -91,9 +86,7 @@ def test_empty_predictions_raises():
 def test_none_predictions_filtered():
     """None predictions in list should be filtered out."""
     pred = np.random.rand(10, 3).astype(np.float32)
-    result, _, _ = ensemble_probabilistic_predictions(
-        pred, None, pred, ensemble_method="arithm", verbose=False
-    )
+    result, _, _ = ensemble_probabilistic_predictions(pred, None, pred, ensemble_method="arithm", verbose=False)
     assert result is not None
     assert result.shape == pred.shape
 
@@ -102,9 +95,7 @@ def test_nan_handling_replaces_with_mean():
     """NaN values should be replaced with arithmetic mean."""
     # Harmonic mean will produce NaN when there's a zero
     preds = np.array([[0.0, 0.5], [0.5, 0.5]], dtype=np.float32)
-    result, _, _ = ensemble_probabilistic_predictions(
-        preds, ensemble_method="harm", verbose=False
-    )
+    result, _, _ = ensemble_probabilistic_predictions(preds, ensemble_method="harm", verbose=False)
     assert not np.any(np.isnan(result))
 
 
@@ -114,18 +105,14 @@ def test_single_prediction_returns_same_values(n_cols):
     """Single prediction should return approximately itself."""
     pred = np.random.rand(10, n_cols).astype(np.float32)
     for method in ["arithm", "median"]:
-        result, _, _ = ensemble_probabilistic_predictions(
-            pred, ensemble_method=method, verbose=False
-        )
+        result, _, _ = ensemble_probabilistic_predictions(pred, ensemble_method=method, verbose=False)
         np.testing.assert_array_almost_equal(result, pred, decimal=5)
 
 
 def test_confidence_indices_with_uncertainty_quantile():
     """uncertainty_quantile should produce valid confident_indices."""
     preds = [np.random.rand(100, 5).astype(np.float32) for _ in range(3)]
-    _, uncertainty, confident = ensemble_probabilistic_predictions(
-        *preds, uncertainty_quantile=0.2, verbose=False
-    )
+    _, uncertainty, confident = ensemble_probabilistic_predictions(*preds, uncertainty_quantile=0.2, verbose=False)
     assert uncertainty is not None
     assert confident is not None
     assert len(confident) <= 20  # 20% of 100
@@ -134,9 +121,7 @@ def test_confidence_indices_with_uncertainty_quantile():
 def test_confidence_indices_disabled():
     """uncertainty_quantile=0 should disable confidence calculation."""
     preds = [np.random.rand(10, 3).astype(np.float32) for _ in range(2)]
-    _, uncertainty, confident = ensemble_probabilistic_predictions(
-        *preds, uncertainty_quantile=0, verbose=False
-    )
+    _, uncertainty, confident = ensemble_probabilistic_predictions(*preds, uncertainty_quantile=0, verbose=False)
     assert uncertainty is None
     assert confident is None
 
@@ -161,20 +146,23 @@ def test_multi_target_ensemble_preserves_row_count(K):
     # The fix's reshape preserves the row axis -> N rows out, per-row confident_indices.
     ens_good, _, conf_good = ensemble_probabilistic_predictions(
         *[p.reshape(p.shape[0], -1) for p in members],
-        ensemble_method="arithm", uncertainty_quantile=0.5, verbose=False,
+        ensemble_method="arithm",
+        uncertainty_quantile=0.5,
+        verbose=False,
     )
     assert ens_good.shape[0] == N, f"row-preserving reshape must keep N={N} rows, got {ens_good.shape}"
     if conf_good is not None and len(conf_good):
         assert int(np.max(conf_good)) < N, (
-            f"confident_indices must stay per-row (< {N}); got max {int(np.max(conf_good))} -- "
-            "these index the size-N test_idx / *_target arrays downstream"
+            f"confident_indices must stay per-row (< {N}); got max {int(np.max(conf_good))} -- these index the size-N test_idx / *_target arrays downstream"
         )
 
     # Root-cause sanity: the old reshape(-1, 1) flattens (N, K) -> (N*K, 1), so the ensembled
     # output (and confident_indices range) blows up to N*K rows -- the overflow the fix removes.
     ens_bad, _, _ = ensemble_probabilistic_predictions(
         *[p.reshape(-1, 1) for p in members],
-        ensemble_method="arithm", uncertainty_quantile=0.5, verbose=False,
+        ensemble_method="arithm",
+        uncertainty_quantile=0.5,
+        verbose=False,
     )
     assert ens_bad.shape[0] == N * K, "sanity: reshape(-1,1) flattens (N,K)->(N*K,1) -- the bug"
 
@@ -183,9 +171,7 @@ def test_multi_target_ensemble_preserves_row_count(K):
 def test_all_ensemble_methods_produce_finite_results(method):
     """All ensemble methods should produce finite results for valid input."""
     preds = [np.random.rand(20, 4).astype(np.float32) * 0.8 + 0.1 for _ in range(4)]
-    result, _, _ = ensemble_probabilistic_predictions(
-        *preds, ensemble_method=method, verbose=False
-    )
+    result, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method=method, verbose=False)
     assert np.all(np.isfinite(result))
 
 
@@ -197,11 +183,9 @@ def test_outlier_prediction_excluded():
         base.copy(),
         base.copy() + 0.01,
         base.copy() - 0.01,
-        np.ones_like(base)  # Outlier
+        np.ones_like(base),  # Outlier
     ]
-    result, _, _ = ensemble_probabilistic_predictions(
-        *preds, ensemble_method="arithm", max_mae=0.1, verbose=False
-    )
+    result, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method="arithm", max_mae=0.1, verbose=False)
     # Result should be closer to base than to outlier
     assert np.mean(np.abs(result - base)) < np.mean(np.abs(result - np.ones_like(base)))
 
@@ -209,6 +193,7 @@ def test_outlier_prediction_excluded():
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Tests for build_predictive_kwargs
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
 
 @given(is_regression=st.booleans())
 def test_build_predictive_kwargs_with_none(is_regression):
@@ -219,15 +204,11 @@ def test_build_predictive_kwargs_with_none(is_regression):
     assert isinstance(result, dict)
     if is_regression:
         expected_keys = {"train_preds", "test_preds", "val_preds"}
-        assert expected_keys.issubset(set(result.keys())), (
-            f"regression result missing expected keys: have {set(result.keys())}, want {expected_keys}"
-        )
+        assert expected_keys.issubset(set(result.keys())), f"regression result missing expected keys: have {set(result.keys())}, want {expected_keys}"
         assert all(result[k] is None for k in expected_keys), result
     else:
         expected_keys = {"train_probs", "test_probs", "val_probs"}
-        assert expected_keys.issubset(set(result.keys())), (
-            f"classification result missing expected keys: have {set(result.keys())}, want {expected_keys}"
-        )
+        assert expected_keys.issubset(set(result.keys())), f"classification result missing expected keys: have {set(result.keys())}, want {expected_keys}"
         assert all(result[k] is None for k in expected_keys), result
 
 
@@ -270,13 +251,12 @@ def test_build_predictive_kwargs_with_none_indices():
 # Tests for enrich_ensemble_preds_with_numaggs
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
+
 @given(preds=small_prob_arrays)
 @settings(max_examples=20, deadline=None)
 def test_enrich_ensemble_basic_returns_dataframe(preds):
     """enrich_ensemble_preds_with_numaggs should return DataFrame with correct rows."""
-    result = enrich_ensemble_preds_with_numaggs(
-        preds, means_only=True, keep_probs=False, n_jobs=1
-    )
+    result = enrich_ensemble_preds_with_numaggs(preds, means_only=True, keep_probs=False, n_jobs=1)
     assert isinstance(result, pd.DataFrame)
     assert len(result) == preds.shape[0]
 
@@ -284,9 +264,7 @@ def test_enrich_ensemble_basic_returns_dataframe(preds):
 def test_enrich_ensemble_keeps_probs():
     """keep_probs=True should include original probabilities."""
     preds = np.random.rand(10, 3).astype(np.float32)
-    result = enrich_ensemble_preds_with_numaggs(
-        preds, means_only=True, keep_probs=True, n_jobs=1
-    )
+    result = enrich_ensemble_preds_with_numaggs(preds, means_only=True, keep_probs=True, n_jobs=1)
     assert len(result.columns) > 5  # At least probs + aggregates
     # First columns should be probabilities
     for i in range(3):
@@ -298,9 +276,7 @@ def test_enrich_ensemble_custom_model_names():
     """Custom model names should be used as column names."""
     preds = np.random.rand(10, 3).astype(np.float32)
     names = ["model_a", "model_b", "model_c"]
-    result = enrich_ensemble_preds_with_numaggs(
-        preds, models_names=names, means_only=True, keep_probs=True, n_jobs=1
-    )
+    result = enrich_ensemble_preds_with_numaggs(preds, models_names=names, means_only=True, keep_probs=True, n_jobs=1)
     for name in names:
         assert name in result.columns
 
@@ -308,9 +284,7 @@ def test_enrich_ensemble_custom_model_names():
 def test_enrich_ensemble_means_only_columns():
     """means_only=True should return specific aggregation columns."""
     preds = np.random.rand(10, 5).astype(np.float32)
-    result = enrich_ensemble_preds_with_numaggs(
-        preds, means_only=True, keep_probs=False, n_jobs=1
-    )
+    result = enrich_ensemble_preds_with_numaggs(preds, means_only=True, keep_probs=False, n_jobs=1)
     expected_cols = ["arimean", "quadmean", "qubmean", "geomean", "harmmean"]
     for col in expected_cols:
         assert col in result.columns
@@ -322,14 +296,10 @@ def test_enrich_ensemble_mutable_default_not_shared():
     preds2 = np.random.rand(5, 3).astype(np.float32)
 
     # First call
-    result1 = enrich_ensemble_preds_with_numaggs(
-        preds1, means_only=True, keep_probs=False, n_jobs=1
-    )
+    result1 = enrich_ensemble_preds_with_numaggs(preds1, means_only=True, keep_probs=False, n_jobs=1)
 
     # Second call should not be affected by first
-    result2 = enrich_ensemble_preds_with_numaggs(
-        preds2, means_only=True, keep_probs=False, n_jobs=1
-    )
+    result2 = enrich_ensemble_preds_with_numaggs(preds2, means_only=True, keep_probs=False, n_jobs=1)
 
     assert len(result1) == 5
     assert len(result2) == 5
@@ -338,6 +308,7 @@ def test_enrich_ensemble_mutable_default_not_shared():
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Tests for compare_ensembles
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
 
 def test_compare_ensembles_empty_dict():
     """compare_ensembles should handle empty dict."""
@@ -350,12 +321,11 @@ def test_compare_ensembles_empty_dict():
 # Edge case tests
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
+
 def test_ensemble_with_two_predictions():
     """Ensembling exactly 2 predictions should skip outlier detection."""
     preds = [np.random.rand(10, 3).astype(np.float32) for _ in range(2)]
-    result, _, _ = ensemble_probabilistic_predictions(
-        *preds, ensemble_method="arithm", verbose=False
-    )
+    result, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method="arithm", verbose=False)
     assert result is not None
 
 
@@ -364,18 +334,14 @@ def test_ensemble_all_same_predictions():
     pred = np.random.rand(10, 3).astype(np.float32)
     preds = [pred.copy() for _ in range(4)]
 
-    result, _, _ = ensemble_probabilistic_predictions(
-        *preds, ensemble_method="arithm", verbose=False
-    )
+    result, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method="arithm", verbose=False)
     np.testing.assert_array_almost_equal(result, pred)
 
 
 def test_geometric_mean_positive_values():
     """Geometric mean should work correctly for positive values."""
     preds = [np.random.rand(10, 3).astype(np.float32) * 0.8 + 0.1 for _ in range(3)]
-    result, _, _ = ensemble_probabilistic_predictions(
-        *preds, ensemble_method="geo", verbose=False
-    )
+    result, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method="geo", verbose=False)
     assert np.all(result > 0)
     assert np.all(np.isfinite(result))
 
@@ -384,9 +350,7 @@ def test_geometric_mean_positive_values():
 def test_ensemble_various_prediction_counts(n_preds):
     """Ensembling should work with various numbers of predictions."""
     preds = [np.random.rand(20, 4).astype(np.float32) * 0.8 + 0.1 for _ in range(n_preds)]
-    result, _, _ = ensemble_probabilistic_predictions(
-        *preds, ensemble_method="arithm", verbose=False
-    )
+    result, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method="arithm", verbose=False)
     assert result.shape == (20, 4)
 
 
@@ -394,12 +358,8 @@ def test_quadratic_mean_larger_than_arithmetic():
     """Quadratic mean should generally be >= arithmetic mean (RMS inequality)."""
     preds = [np.random.rand(100, 5).astype(np.float32) * 0.8 + 0.1 for _ in range(5)]
 
-    quad_result, _, _ = ensemble_probabilistic_predictions(
-        *preds, ensemble_method="quad", verbose=False
-    )
-    arith_result, _, _ = ensemble_probabilistic_predictions(
-        *preds, ensemble_method="arithm", verbose=False
-    )
+    quad_result, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method="quad", verbose=False)
+    arith_result, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method="arithm", verbose=False)
 
     # On average, quadratic mean should be >= arithmetic mean
     assert np.mean(quad_result) >= np.mean(arith_result) - 0.01
@@ -409,12 +369,8 @@ def test_harmonic_mean_smaller_than_arithmetic():
     """Harmonic mean should generally be <= arithmetic mean."""
     preds = [np.random.rand(100, 5).astype(np.float32) * 0.8 + 0.1 for _ in range(5)]
 
-    harm_result, _, _ = ensemble_probabilistic_predictions(
-        *preds, ensemble_method="harm", verbose=False
-    )
-    arith_result, _, _ = ensemble_probabilistic_predictions(
-        *preds, ensemble_method="arithm", verbose=False
-    )
+    harm_result, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method="harm", verbose=False)
+    arith_result, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method="arithm", verbose=False)
 
     # On average, harmonic mean should be <= arithmetic mean
     assert np.mean(harm_result) <= np.mean(arith_result) + 0.01
@@ -423,6 +379,7 @@ def test_harmonic_mean_smaller_than_arithmetic():
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Tests for score_ensemble with ensembling_level
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
 
 def _create_mock_model_result(n_samples=50, n_classes=3):
     """Create a mock model result object for testing score_ensemble.
@@ -483,7 +440,7 @@ def test_score_ensemble_ensembling_levels(max_level):
     mock_result.test_preds = None
     mock_result.val_preds = None
 
-    with patch('mlframe.training.train_and_evaluate_model', return_value=mock_result):
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
         result = score_ensemble(
             models_and_predictions=models,
             ensemble_name="test_ensemble",
@@ -527,7 +484,7 @@ def test_score_ensemble_regression_ensembling_levels(max_level):
     mock_result.test_preds = np.random.rand(50).astype(np.float32)
     mock_result.val_preds = np.random.rand(50).astype(np.float32)
 
-    with patch('mlframe.training.train_and_evaluate_model', return_value=mock_result):
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
         result = score_ensemble(
             models_and_predictions=models,
             ensemble_name="test_regression",
@@ -562,7 +519,7 @@ def test_score_ensemble_level_labeling():
     mock_result.test_preds = None
     mock_result.val_preds = None
 
-    with patch('mlframe.training.train_and_evaluate_model', return_value=mock_result):
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
         result = score_ensemble(
             models_and_predictions=models,
             ensemble_name="test",
@@ -599,7 +556,7 @@ def test_score_ensemble_uncertainty_quantile_values(uncertainty_quantile):
     mock_result.test_preds = None
     mock_result.val_preds = None
 
-    with patch('mlframe.training.train_and_evaluate_model', return_value=mock_result):
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
         result = score_ensemble(
             models_and_predictions=models,
             ensemble_name="test",
@@ -639,7 +596,7 @@ def test_score_ensemble_mae_std_thresholds(max_mae, max_std):
     mock_result.test_preds = None
     mock_result.val_preds = None
 
-    with patch('mlframe.training.train_and_evaluate_model', return_value=mock_result):
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
         result = score_ensemble(
             models_and_predictions=models,
             ensemble_name="test",
@@ -676,7 +633,7 @@ def test_score_ensemble_ensure_prob_limits():
     mock_result.val_preds = None
 
     for ensure_limits in [True, False]:
-        with patch('mlframe.training.train_and_evaluate_model', return_value=mock_result):
+        with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
             result = score_ensemble(
                 models_and_predictions=models,
                 ensemble_name="test",
@@ -711,7 +668,7 @@ def test_score_ensemble_normalize_stds_by_mean_preds():
     mock_result.test_preds = None
     mock_result.val_preds = None
 
-    with patch('mlframe.training.train_and_evaluate_model', return_value=mock_result):
+    with patch("mlframe.training.train_and_evaluate_model", return_value=mock_result):
         result = score_ensemble(
             models_and_predictions=models,
             ensemble_name="test",

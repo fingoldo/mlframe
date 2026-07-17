@@ -62,8 +62,7 @@ def test_split_partition_invariant(n, test_size, val_size, seed):
 # Hypothesis: remove_constant_columns keeps varying columns
 # ----------------------------------------------------------------------
 @given(
-    values=st.lists(st.floats(allow_nan=True, allow_infinity=False, width=32),
-                    min_size=3, max_size=40),
+    values=st.lists(st.floats(allow_nan=True, allow_infinity=False, width=32), min_size=3, max_size=40),
 )
 @settings(max_examples=25, deadline=None)
 def test_remove_constant_keeps_varying(values):
@@ -92,10 +91,12 @@ def test_remove_constant_numeric_with_nans_pandas():
     """[1.0, NaN, 1.0] should be flagged constant (Polars min==max semantics)."""
     from mlframe.training.utils import remove_constant_columns
 
-    df = pd.DataFrame({
-        "mixed": pd.Series([1.0, np.nan, 1.0], dtype="float64"),
-        "ok": [1.0, 2.0, 3.0],
-    })
+    df = pd.DataFrame(
+        {
+            "mixed": pd.Series([1.0, np.nan, 1.0], dtype="float64"),
+            "ok": [1.0, 2.0, 3.0],
+        }
+    )
     out = remove_constant_columns(df, verbose=0)
     assert "mixed" not in out.columns
     assert "ok" in out.columns

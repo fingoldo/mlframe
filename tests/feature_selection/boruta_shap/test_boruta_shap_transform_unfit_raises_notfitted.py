@@ -17,6 +17,7 @@ raises ``NotFittedError`` so the caller's check_is_fitted-aware fallback
 (the iter-59 recovery branch in predict.py and ``_pipeline_helpers._is_fitted``)
 can react consistently.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,10 +41,12 @@ def test_transform_after_fit_works_normally():
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     rng = np.random.default_rng(7)
-    df = pd.DataFrame({
-        "num0": rng.standard_normal(100),
-        "num1": rng.standard_normal(100),
-    })
+    df = pd.DataFrame(
+        {
+            "num0": rng.standard_normal(100),
+            "num1": rng.standard_normal(100),
+        }
+    )
     y = pd.Series(df["num0"] * 1.1 + rng.standard_normal(100) * 0.1)
     selector = BorutaShap(
         model=LGBMRegressor(n_estimators=10, num_leaves=15, verbose=-1),
@@ -74,7 +77,4 @@ def test_transform_attribute_error_is_replaced_by_notfittederror():
     except NotFittedError:
         pass
     except AttributeError as exc:
-        pytest.fail(
-            "Pre-fix AttributeError leaked back: "
-            f"{exc!r}. transform must raise NotFittedError instead."
-        )
+        pytest.fail(f"Pre-fix AttributeError leaked back: {exc!r}. transform must raise NotFittedError instead.")

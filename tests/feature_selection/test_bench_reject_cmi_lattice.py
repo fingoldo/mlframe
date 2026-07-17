@@ -26,6 +26,7 @@ re-attempted as the backlog specifies (see the bench-rejected note in ``_mrmr_fe
      zero-marginal operand on its co-splitter WITHOUT a detectable (k-1)-tuple, so it is
      immune to the anti-monotone wall). #10's purpose is already delivered by #6.
 """
+
 from __future__ import annotations
 
 from itertools import combinations
@@ -33,7 +34,10 @@ from itertools import combinations
 import numpy as np
 
 from mlframe.feature_selection.filters.info_theory import (
-    merge_vars, compute_mi_from_classes, batch_pair_mi_prange, batch_triple_mi_prange,
+    merge_vars,
+    compute_mi_from_classes,
+    batch_pair_mi_prange,
+    batch_triple_mi_prange,
 )
 from mlframe.feature_selection.filters._permutation_null import (
     pooled_triple_permutation_null_joint_mi_floor,
@@ -69,7 +73,8 @@ def _pair_mi(D, nbins, a, b, yc, fy):
 
 def _all_pair_mis(D, nbins, p, yc, fy):
     pa, pb = zip(*combinations(range(p), 2))
-    pa = np.asarray(pa, np.int64); pb = np.asarray(pb, np.int64)
+    pa = np.asarray(pa, np.int64)
+    pb = np.asarray(pb, np.int64)
     return pa, pb, batch_pair_mi_prange(D, pa, pb, nbins, yc, fy)
 
 
@@ -77,7 +82,8 @@ def _grow_from_pair(D, nbins, a, b, p, yc, fy):
     """Return (true-3rd-operand CMI-uplift rank, best-c). Reproduces #10's growth step."""
     pm = _pair_mi(D, nbins, a, b, yc, fy)
     tc = np.array([c for c in range(p) if c != a and c != b], np.int64)
-    ta = np.full(len(tc), a, np.int64); tb = np.full(len(tc), b, np.int64)
+    ta = np.full(len(tc), a, np.int64)
+    tb = np.full(len(tc), b, np.int64)
     uplift = batch_triple_mi_prange(D, ta, tb, tc, nbins, yc, fy) - pm
     rank = np.argsort(uplift)[::-1]
     return tc, uplift, rank
@@ -108,7 +114,9 @@ def test_pure_3way_xor_subpairs_below_frontier():
                 return r
         raise AssertionError("pair not found")
 
-    r01 = _rank_of({0, 1}); r02 = _rank_of({0, 2}); r12 = _rank_of({1, 2})
+    r01 = _rank_of({0, 1})
+    r02 = _rank_of({0, 2})
+    r12 = _rank_of({1, 2})
     # The load-bearing claim (binning-robust): NONE of the three needle sub-pairs is
     # in the realistic top-N order-2 frontier the lattice would grow from -- their
     # joint MI sits in the noise cloud (finite-sample binning gives them a small,
@@ -133,7 +141,7 @@ def test_cmi_uplift_ranks_true_third_operand_first_given_base():
     y = (np.sign(X[:, 0] * X[:, 1]) * X[:, 2] > 0).astype(np.int64)
     D, nbins = _discretize(X, nb=4)
     yc, fy = _ctx(D, y, nbins)
-    for (a, b) in [(0, 1), (0, 2), (1, 2)]:
+    for a, b in [(0, 1), (0, 2), (1, 2)]:
         third = ({0, 1, 2} - {a, b}).pop()
         tc, uplift, rank = _grow_from_pair(D, nbins, a, b, p, yc, fy)
         assert int(tc[rank[0]]) == third, (a, b, third, int(tc[rank[0]]))
@@ -160,7 +168,8 @@ def test_lattice_misses_pure_3way_needle_end_to_end():
     for i in order:
         a, b, pm = int(pa[i]), int(pb[i]), float(pmi[i])
         tc = np.array([c for c in range(p) if c != a and c != b], np.int64)
-        ta = np.full(len(tc), a, np.int64); tb = np.full(len(tc), b, np.int64)
+        ta = np.full(len(tc), a, np.int64)
+        tb = np.full(len(tc), b, np.int64)
         up = batch_triple_mi_prange(D, ta, tb, tc, nbins, yc, fy) - pm
         for ci in np.argsort(up)[::-1][:3]:
             grown[tuple(sorted((a, b, int(tc[ci]))))] = 1
@@ -174,6 +183,7 @@ def test_lattice_misses_pure_3way_needle_end_to_end():
 # =============================================================================
 def test_gbm_seeder_already_recovers_what_lattice_targets():
     import pytest
+
     pytest.importorskip("lightgbm")
     from mlframe.feature_selection.filters._surrogate_interaction_seeder import (
         surrogate_gbm_interaction_seeds,
@@ -186,9 +196,17 @@ def test_gbm_seeder_already_recovers_what_lattice_targets():
     D, nbins = _discretize(X, nb=5)
     yc, _ = _ctx(D, y, nbins)
     _, triples, _ = surrogate_gbm_interaction_seeds(
-        D, yc, list(range(p)), is_classification=True,
-        top_k_pairs=12, top_k_triples=8, n_estimators=300, max_depth=4,
-        self_gate_reps=3, self_gate_min_z=2.0, random_seed=0,
+        D,
+        yc,
+        list(range(p)),
+        is_classification=True,
+        top_k_pairs=12,
+        top_k_triples=8,
+        n_estimators=300,
+        max_depth=4,
+        self_gate_reps=3,
+        self_gate_min_z=2.0,
+        random_seed=0,
     )
     # #6 seeds the pure-3-way-XOR needle (immune to the anti-monotone wall that blocks #10)
     assert any(set(t) == {0, 1, 2} for t in triples), triples

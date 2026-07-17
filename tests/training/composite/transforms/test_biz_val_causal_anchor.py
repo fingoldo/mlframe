@@ -14,6 +14,7 @@ biz_value assertions pin measured wins with margin (per CLAUDE.md):
 * strong-AR anchor (true ``alpha~1``) -> ties ``diff`` (floor 1.05) -- safe to
   include in a transform set.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -225,10 +226,7 @@ def test_biz_val_causal_anchor_beats_diff_on_mean_reverting_anchor():
     ca_rmse = float(np.median(ca_rmses))
     diff_rmse = float(np.median(diff_rmses))
     assert 0.45 <= np.median(alphas) <= 0.75, f"alpha {np.median(alphas):.3f} off ~0.6"
-    assert ca_rmse <= diff_rmse * 0.55, (
-        f"causal RMSE {ca_rmse:.4f} should be <=0.55x diff RMSE {diff_rmse:.4f} "
-        f"(ratio {ca_rmse / diff_rmse:.3f})"
-    )
+    assert ca_rmse <= diff_rmse * 0.55, f"causal RMSE {ca_rmse:.4f} should be <=0.55x diff RMSE {diff_rmse:.4f} (ratio {ca_rmse / diff_rmse:.3f})"
 
 
 # ---------------------------------------------------------------------------
@@ -282,13 +280,8 @@ def test_biz_val_causal_anchor_bounded_on_ood_group_vs_linear_residual():
     lin_rmse = float(np.median(lin_rmses))
     # The clamp holds and linear went fragile-large.
     assert np.median(ca_alphas) <= 1.0
-    assert np.median(lin_alphas) > 1.5, (
-        f"linear alpha {np.median(lin_alphas):.3f} expected fragile-large (>1.5)"
-    )
-    assert ca_rmse <= lin_rmse * 0.6, (
-        f"causal OOD RMSE {ca_rmse:.3f} should be <=0.6x linear {lin_rmse:.3f} "
-        f"(ratio {ca_rmse / lin_rmse:.3f})"
-    )
+    assert np.median(lin_alphas) > 1.5, f"linear alpha {np.median(lin_alphas):.3f} expected fragile-large (>1.5)"
+    assert ca_rmse <= lin_rmse * 0.6, f"causal OOD RMSE {ca_rmse:.3f} should be <=0.6x linear {lin_rmse:.3f} (ratio {ca_rmse / lin_rmse:.3f})"
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +315,4 @@ def test_biz_val_causal_anchor_ties_diff_on_strong_ar():
     ca_rmse = float(np.median(ca_rmses))
     diff_rmse = float(np.median(diff_rmses))
     assert np.median(alphas) >= 0.9, f"alpha {np.median(alphas):.3f} should reach ~1 on strong AR"
-    assert ca_rmse <= diff_rmse * 1.05, (
-        f"causal RMSE {ca_rmse:.4f} must not hurt vs diff {diff_rmse:.4f} "
-        f"(ratio {ca_rmse / diff_rmse:.3f})"
-    )
+    assert ca_rmse <= diff_rmse * 1.05, f"causal RMSE {ca_rmse:.4f} must not hurt vs diff {diff_rmse:.4f} (ratio {ca_rmse / diff_rmse:.3f})"

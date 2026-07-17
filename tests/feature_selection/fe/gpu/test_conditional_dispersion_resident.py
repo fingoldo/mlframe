@@ -12,6 +12,7 @@ The dispersion transform is PURE-X / Y-INDEPENDENT (no OOF / fold / target), so 
 the parity is structurally simpler than the binagg OOF reconstruction.
 
 Skips when cupy is unavailable (CI without a GPU)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,8 +45,13 @@ def _make_frame(seed: int = 7, n: int = 8000):
 def _col_specs_from_recipes(enc_df, recipes):
     return [
         {
-            "name": c, "x_i": recipes[c]["x_i"], "x_j": recipes[c]["x_j"], "edges": recipes[c]["edges"],
-            "bin_mean": recipes[c]["bin_mean"], "bin_std": recipes[c]["bin_std"], "kind": recipes[c]["kind"],
+            "name": c,
+            "x_i": recipes[c]["x_i"],
+            "x_j": recipes[c]["x_j"],
+            "edges": recipes[c]["edges"],
+            "bin_mean": recipes[c]["bin_mean"],
+            "bin_std": recipes[c]["bin_std"],
+            "kind": recipes[c]["kind"],
         }
         for c in enc_df.columns
     ]
@@ -86,7 +92,8 @@ def test_structural_codes_fold_fallback_bit_exact():
         host_zero = host[:, j] == 0.0
         dev_zero = mat[:, j] == 0.0
         np.testing.assert_array_equal(
-            host_zero, dev_zero,
+            host_zero,
+            dev_zero,
             err_msg=f"column {spec['name']}: device zero-fold mask differs from host (structural)",
         )
         # Sign structure of the signed-equivalent magnitude (|z| and z**2 are non-negative -> sign always >=0);
@@ -119,6 +126,7 @@ def test_codes_bit_identical_to_host_digitize():
 def test_resident_gate_selection_identical_to_host():
     """The device-born resident gate must return the SAME survivor set as the host local_mi_gate."""
     import os
+
     os.environ["MLFRAME_FE_GPU_STRICT"] = "1"
     os.environ["MLFRAME_FE_GPU_STRICT_RESIDENT"] = "1"
     os.environ["MLFRAME_CMI_GPU"] = "1"

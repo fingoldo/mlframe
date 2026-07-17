@@ -30,6 +30,7 @@ Per the audit, NONE of these cause runtime AttributeError today because each
 parent's __init__ is currently empty/lazy; the fixes are pure forward-compat /
 convention hardening.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -102,10 +103,7 @@ def test_group_batch_sampler_calls_super_init() -> None:
     # ``super().__init__()`` is the current correct shape and works on
     # both torch 1.x and 2.x. Accept either form so the sensor stays
     # valid across the torch upgrade.
-    assert (
-        "super().__init__(data_source=None)" in snippet
-        or "super().__init__()" in snippet
-    ), (
+    assert "super().__init__(data_source=None)" in snippet or "super().__init__()" in snippet, (
         "GroupBatchSampler.__init__ must call super().__init__() to forward "
         "to torch's Sampler base (either bare for torch 2.x or with "
         "data_source=None for torch 1.x back-compat)"

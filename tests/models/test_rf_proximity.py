@@ -76,7 +76,7 @@ def test_biz_val_proximity_separates_classes():
     y = np.array([0] * (n // 2) + [1] * (n // 2))
     rf = RandomForestClassifier(n_estimators=100, random_state=0).fit(X, y)
     P = rf_proximity_matrix(rf, X)
-    same = (y[:, None] == y[None, :])
+    same = y[:, None] == y[None, :]
     np.fill_diagonal(same, False)
     within = P[same].mean()
     between = P[~same & ~np.eye(n, dtype=bool)].mean()

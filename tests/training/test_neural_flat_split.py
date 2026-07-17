@@ -10,12 +10,14 @@ import pytest
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.training.neural import flat
+
     return flat
 
 
 @pytest.fixture(scope="module")
 def sibling():
     from mlframe.training.neural import _flat_torch_module
+
     return _flat_torch_module
 
 
@@ -36,6 +38,7 @@ def test_facade_loc_budget(parent_module):
 
 def test_smoke_generate_mlp_returns_module(parent_module):
     import torch.nn as nn
+
     model = parent_module.generate_mlp(num_features=4, num_classes=1, nlayers=2)
     assert isinstance(model, nn.Module)
 

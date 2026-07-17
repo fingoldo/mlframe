@@ -37,6 +37,7 @@ CONTRACTS PINNED
 * Multiple MNAR signals coexisting: all real signals selected, noise
   rejected.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -58,11 +59,16 @@ def _build_pure_mnar(n: int = 2500, miss_rate: float = 0.30, seed: int = 7001):
     x_mnar = x_mnar_raw.copy()
     x_mnar[is_missing] = np.nan
     noise = rng.standard_normal((n, 5))
-    X = pd.DataFrame({
-        "x_mnar": x_mnar,
-        "noise0": noise[:, 0], "noise1": noise[:, 1], "noise2": noise[:, 2],
-        "noise3": noise[:, 3], "noise4": noise[:, 4],
-    })
+    X = pd.DataFrame(
+        {
+            "x_mnar": x_mnar,
+            "noise0": noise[:, 0],
+            "noise1": noise[:, 1],
+            "noise2": noise[:, 2],
+            "noise3": noise[:, 3],
+            "noise4": noise[:, 4],
+        }
+    )
     # y is exactly the missingness indicator. Information is in NaN-ness.
     y = pd.Series(is_missing.astype(np.int64), name="y")
     return X, y
@@ -88,12 +94,16 @@ def _build_hybrid_mnar(n: int = 2500, seed: int = 7011):
     y = pd.Series((y_continuous > 0).astype(np.int64), name="y")
     x_decoy = rng.standard_normal(n)
     noise = rng.standard_normal((n, 4))
-    X = pd.DataFrame({
-        "x_signal": x_signal,
-        "x_decoy": x_decoy,
-        "noise0": noise[:, 0], "noise1": noise[:, 1],
-        "noise2": noise[:, 2], "noise3": noise[:, 3],
-    })
+    X = pd.DataFrame(
+        {
+            "x_signal": x_signal,
+            "x_decoy": x_decoy,
+            "noise0": noise[:, 0],
+            "noise1": noise[:, 1],
+            "noise2": noise[:, 2],
+            "noise3": noise[:, 3],
+        }
+    )
     return X, y
 
 
@@ -114,11 +124,16 @@ def _build_multi_mnar(n: int = 2500, seed: int = 7021):
     # multi-way coverage we already test in earlier layers.
     y = pd.Series((bit_a | bit_b).astype(np.int64), name="y")
     noise = rng.standard_normal((n, 4))
-    X = pd.DataFrame({
-        "x_a": x_a, "x_b": x_b,
-        "noise0": noise[:, 0], "noise1": noise[:, 1],
-        "noise2": noise[:, 2], "noise3": noise[:, 3],
-    })
+    X = pd.DataFrame(
+        {
+            "x_a": x_a,
+            "x_b": x_b,
+            "noise0": noise[:, 0],
+            "noise1": noise[:, 1],
+            "noise2": noise[:, 2],
+            "noise3": noise[:, 3],
+        }
+    )
     return X, y
 
 
@@ -132,12 +147,13 @@ class TestPureMNAR:
         MI estimator can't see the NaN bin.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_pure_mnar()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "x_mnar" in names, f"Pure MNAR signal lost - separate_bin NaN handling failed; " f"support={names}"
+        assert "x_mnar" in names, f"Pure MNAR signal lost - separate_bin NaN handling failed; support={names}"
 
     def test_pure_mnar_ranks_above_noise(self):
         """``x_mnar`` should be the FIRST pick - it is the only
@@ -145,13 +161,14 @@ class TestPureMNAR:
         is mis-attributing signal.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_pure_mnar()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
         assert len(names) >= 1, f"Empty selection on pure-MNAR data; {names}"
-        assert names[0] == "x_mnar", f"x_mnar must rank first (it is the ONLY signal); got first={names[0]}, " f"full={names}"
+        assert names[0] == "x_mnar", f"x_mnar must rank first (it is the ONLY signal); got first={names[0]}, full={names}"
 
     @pytest.mark.parametrize("miss_rate", [0.15, 0.30, 0.50])
     def test_pure_mnar_across_miss_rates(self, miss_rate):
@@ -159,6 +176,7 @@ class TestPureMNAR:
         rates: 15% (sparse), 30% (typical), 50% (balanced).
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_pure_mnar(miss_rate=miss_rate)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -174,13 +192,14 @@ class TestPureMNAR:
         across 6 seeds: max=2, mean~1.3.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_pure_mnar()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
         n_noise = sum(1 for nm in names if nm.startswith("noise"))
-        assert n_noise <= 2, f"Noise FP guard broken under MNAR: {n_noise} noise cols " f"selected; support={names}"
+        assert n_noise <= 2, f"Noise FP guard broken under MNAR: {n_noise} noise cols selected; support={names}"
 
 
 class TestHybridMNAR:
@@ -191,6 +210,7 @@ class TestHybridMNAR:
     def test_hybrid_mnar_signal_selected(self):
         """Check test hybrid mnar signal selected."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_hybrid_mnar()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -204,12 +224,13 @@ class TestHybridMNAR:
         be selected.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_hybrid_mnar()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "x_decoy" not in names, f"Value-matched decoy without MNAR pattern incorrectly selected; " f"support={names}"
+        assert "x_decoy" not in names, f"Value-matched decoy without MNAR pattern incorrectly selected; support={names}"
 
 
 class TestNaNStrategyContrast:
@@ -222,21 +243,26 @@ class TestNaNStrategyContrast:
     def test_separate_bin_beats_fillna_zero_on_pure_mnar(self):
         """Check test separate bin beats fillna zero on pure mnar."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_pure_mnar()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel_sep = MRMR(
-                verbose=0, nan_strategy="separate_bin",
-                interactions_max_order=1, fe_max_steps=0,
+                verbose=0,
+                nan_strategy="separate_bin",
+                interactions_max_order=1,
+                fe_max_steps=0,
             ).fit(X, y)
             sel_fz = MRMR(
-                verbose=0, nan_strategy="fillna_zero",
-                interactions_max_order=1, fe_max_steps=0,
+                verbose=0,
+                nan_strategy="fillna_zero",
+                interactions_max_order=1,
+                fe_max_steps=0,
             ).fit(X, y)
         names_sep = list(sel_sep.get_feature_names_out())
         names_fz = list(sel_fz.get_feature_names_out())
         # separate_bin MUST surface x_mnar.
-        assert "x_mnar" in names_sep, f"separate_bin failed to detect pure-MNAR signal; " f"support={names_sep}"
+        assert "x_mnar" in names_sep, f"separate_bin failed to detect pure-MNAR signal; support={names_sep}"
         # fillna_zero destroys the NaN-as-signal (it maps NaN to 0,
         # which now collides with the surrounding Gaussian values and
         # the signal is lost). We assert it has STRICTLY LESS signal:
@@ -256,16 +282,18 @@ class TestMultiMNAR:
     def test_both_multi_mnar_features_selected(self):
         """Check test both multi mnar features selected."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_multi_mnar()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "x_a" in names and "x_b" in names, f"Multi-MNAR: both MNAR-carrying features must be selected; " f"support={names}"
+        assert "x_a" in names and "x_b" in names, f"Multi-MNAR: both MNAR-carrying features must be selected; support={names}"
 
     def test_multi_mnar_noise_rejected(self):
         """Check test multi mnar noise rejected."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_multi_mnar()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -273,7 +301,7 @@ class TestMultiMNAR:
         names = list(sel.get_feature_names_out())
         n_noise = sum(1 for nm in names if nm.startswith("noise"))
         # Layer 5/6 documented FP bound: <=2 under default permutation power.
-        assert n_noise <= 2, f"Multi-MNAR: noise FP guard broken; {n_noise} noise selected; " f"support={names}"
+        assert n_noise <= 2, f"Multi-MNAR: noise FP guard broken; {n_noise} noise selected; support={names}"
 
 
 class TestMNARSeedRobustness:
@@ -283,6 +311,7 @@ class TestMNARSeedRobustness:
     def test_pure_mnar_across_seeds(self, seed):
         """Check test pure mnar across seeds."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_pure_mnar(seed=seed)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

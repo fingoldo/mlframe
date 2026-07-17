@@ -8,6 +8,7 @@ Phase C tests. Cover:
 - Auto-reshape from (N,) to (N, 1)
 - Dtype coercion (bool, int8, int32, float → uint8)
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -84,14 +85,18 @@ def test_pack_for_bitmap_dispatches_to_parallel_njit_above_threshold(monkeypatch
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("seed,N,K", [
-    (0, 10, 3),
-    (1, 100, 5),
-    (2, 500, 8),
-    (3, 50, 20),
-])
+@pytest.mark.parametrize(
+    "seed,N,K",
+    [
+        (0, 10, 3),
+        (1, 100, 5),
+        (2, 500, 8),
+        (3, 50, 20),
+    ],
+)
 def test_hamming_loss_matches_sklearn(seed, N, K):
     from sklearn.metrics import hamming_loss as sk_hamming
+
     rng = np.random.default_rng(seed)
     y_true = rng.integers(0, 2, size=(N, K)).astype(np.uint8)
     y_pred = rng.integers(0, 2, size=(N, K)).astype(np.uint8)
@@ -100,13 +105,17 @@ def test_hamming_loss_matches_sklearn(seed, N, K):
     assert abs(fast - sk) < 1e-12
 
 
-@pytest.mark.parametrize("seed,N,K", [
-    (0, 10, 3),
-    (1, 100, 5),
-    (2, 500, 8),
-])
+@pytest.mark.parametrize(
+    "seed,N,K",
+    [
+        (0, 10, 3),
+        (1, 100, 5),
+        (2, 500, 8),
+    ],
+)
 def test_subset_accuracy_matches_sklearn(seed, N, K):
     from sklearn.metrics import accuracy_score
+
     rng = np.random.default_rng(seed)
     y_true = rng.integers(0, 2, size=(N, K)).astype(np.uint8)
     y_pred = rng.integers(0, 2, size=(N, K)).astype(np.uint8)
@@ -115,14 +124,18 @@ def test_subset_accuracy_matches_sklearn(seed, N, K):
     assert abs(fast - sk) < 1e-12
 
 
-@pytest.mark.parametrize("seed,N,K", [
-    (0, 10, 3),
-    (1, 100, 5),
-    (2, 500, 8),
-])
+@pytest.mark.parametrize(
+    "seed,N,K",
+    [
+        (0, 10, 3),
+        (1, 100, 5),
+        (2, 500, 8),
+    ],
+)
 def test_jaccard_matches_sklearn_samples(seed, N, K):
     from sklearn.metrics import jaccard_score as sk_jaccard
     import warnings
+
     rng = np.random.default_rng(seed)
     y_true = rng.integers(0, 2, size=(N, K)).astype(np.uint8)
     y_pred = rng.integers(0, 2, size=(N, K)).astype(np.uint8)

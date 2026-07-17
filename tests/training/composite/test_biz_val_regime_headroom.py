@@ -1,4 +1,5 @@
 """Unit + biz_value tests for the regime-headroom map (mlframe.training.composite._regime_headroom)."""
+
 from __future__ import annotations
 
 import json
@@ -27,6 +28,7 @@ def _rmse(pred, y, w=None):
 # --------------------------------------------------------------------------------------------------
 # Unit tests
 # --------------------------------------------------------------------------------------------------
+
 
 def test_facade_reexports_same_object():
     assert facade_map is regime_headroom_map
@@ -192,6 +194,7 @@ def test_sample_weight_affects_rmse():
 # --------------------------------------------------------------------------------------------------
 # biz_value: composite HELPS in one axis region, HURTS in another; map must localize the crossover.
 # --------------------------------------------------------------------------------------------------
+
 
 @pytest.mark.skipif(not _rh._HAVE_NUMBA, reason="numba unavailable")
 def test_njit_and_bincount_reductions_agree():

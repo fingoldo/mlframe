@@ -10,6 +10,7 @@ Two independent GPU-reliability gaps closed together:
    context-poisoning fault (see ``info_theory._cmi_cuda``'s own breaker for the mechanism) meant
    every SUBSEQUENT call re-attempted the GPU and failed identically -- a retry storm.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -117,14 +118,21 @@ def test_mi_direct_gpu_fault_trips_breaker(monkeypatch):
     monkeypatch.setattr("pyutilz.core.pythonlib.is_cuda_available", _fake_is_cuda_available)
     # Patch the gpu module's mi_direct_gpu (imported lazily inside mi_direct).
     import mlframe.feature_selection.filters.gpu as gpu_mod
+
     monkeypatch.setattr(gpu_mod, "mi_direct_gpu", _boom)
 
     assert permutation_mod._MI_DIRECT_GPU_FAILED is False
     # npermutations>=32 + parallelism="outer" + return_null_mean=False are required to even reach the
     # GPU fastpath gate (see mi_direct's docstring).
     result = permutation_mod.mi_direct(
-        factors_data, x=(0,), y=(1,), factors_nbins=factors_nbins,
-        npermutations=32, parallelism="outer", prefer_gpu=True, return_null_mean=False,
+        factors_data,
+        x=(0,),
+        y=(1,),
+        factors_nbins=factors_nbins,
+        npermutations=32,
+        parallelism="outer",
+        prefer_gpu=True,
+        return_null_mean=False,
     )
     assert isinstance(result, tuple)
     assert permutation_mod._MI_DIRECT_GPU_FAILED is True, "circuit breaker must trip on the first GPU fault"
@@ -144,8 +152,14 @@ def test_mi_direct_breaker_skips_gpu_probe_on_subsequent_calls(monkeypatch):
     monkeypatch.setattr("pyutilz.core.pythonlib.is_cuda_available", _tracking_probe)
 
     permutation_mod.mi_direct(
-        factors_data, x=(0,), y=(1,), factors_nbins=factors_nbins,
-        npermutations=32, parallelism="outer", prefer_gpu=True, return_null_mean=False,
+        factors_data,
+        x=(0,),
+        y=(1,),
+        factors_nbins=factors_nbins,
+        npermutations=32,
+        parallelism="outer",
+        prefer_gpu=True,
+        return_null_mean=False,
     )
     assert probe_calls == [], "tripped breaker must short-circuit before even probing CUDA availability"
 

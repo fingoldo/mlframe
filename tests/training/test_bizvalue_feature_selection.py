@@ -214,6 +214,7 @@ def _run_suite(df, tmp_path, *, use_mrmr=False, rfecv=False, iters=30):
 # Test 1 — drops uninformative features
 # ---------------------------------------------------------------------------
 
+
 def test_mrmr_drops_uninformative_features(tmp_path):
     """MRMR should pick the 5 informative over 50 pure-noise columns."""
     df, _ = _make_noisy_classification(n=1200, k_noise=50, seed=42)
@@ -238,15 +239,9 @@ def test_mrmr_drops_uninformative_features(tmp_path):
     n_noise_kept = sum(1 for c in selected if c.startswith("noise_"))
     n_total_sel = len(selected)
 
-    print(
-        f"\n[Test1] selected={n_total_sel}  info_kept={n_info_kept}/5  "
-        f"noise_kept={n_noise_kept}"
-    )
+    print(f"\n[Test1] selected={n_total_sel}  info_kept={n_info_kept}/5  noise_kept={n_noise_kept}")
 
-    assert n_info_kept >= 3, (
-        f"Expected >=3 of 5 informative features retained (raw or as an engineered operand), got {n_info_kept}. "
-        f"Selected: {selected}"
-    )
+    assert n_info_kept >= 3, f"Expected >=3 of 5 informative features retained (raw or as an engineered operand), got {n_info_kept}. Selected: {selected}"
     # Noise REJECTION-rate contract: MRMR should drop the vast majority
     # of the 50-noise pool. A 25% rejection ceiling lets the test pass
     # when n_noise_kept <= 12 (out of 50) regardless of how many noise
@@ -266,6 +261,7 @@ def test_mrmr_drops_uninformative_features(tmp_path):
 # ---------------------------------------------------------------------------
 # Test 2 — doesn't hurt AUROC and is faster on wide data
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_mrmr_preserves_auroc_and_speeds_up_wide_training(tmp_path, seed):
@@ -295,9 +291,7 @@ def test_mrmr_preserves_auroc_and_speeds_up_wide_training(tmp_path, seed):
     )
 
     # Not catastrophically worse — allow ~3 AUROC points downward drift.
-    assert auroc_b >= auroc_a - 0.03, (
-        f"FS regressed AUROC by more than 3 points: A={auroc_a:.4f} B={auroc_b:.4f}"
-    )
+    assert auroc_b >= auroc_a - 0.03, f"FS regressed AUROC by more than 3 points: A={auroc_a:.4f} B={auroc_b:.4f}"
 
     # Wall-time: MRMR itself has overhead on tiny data, so we don't guarantee
     # strict speedup on the whole suite — but training stage on 5 selected
@@ -322,14 +316,14 @@ def test_mrmr_preserves_auroc_and_speeds_up_wide_training(tmp_path, seed):
         # starved relative to the baseline boosting fit (the accuracy contract above is the load-robust gate).
         bound = 25.0 if running_under_xdist() else 10.0
         assert t_fs <= t_baseline * bound, (
-            f"FS run took disproportionately longer: baseline={t_baseline:.2f}s "
-            f"fs={t_fs:.2f}s. MRMR overhead should not exceed {bound:.0f}x on wide data."
+            f"FS run took disproportionately longer: baseline={t_baseline:.2f}s fs={t_fs:.2f}s. MRMR overhead should not exceed {bound:.0f}x on wide data."
         )
 
 
 # ---------------------------------------------------------------------------
 # Test 3 — selected features are inspectable
 # ---------------------------------------------------------------------------
+
 
 def test_selected_features_surface_for_inspection(tmp_path):
     """Users must be able to enumerate which features the selector kept."""
@@ -367,10 +361,7 @@ def test_selected_features_surface_for_inspection(tmp_path):
     # match, so ``info_1`` does NOT spuriously match ``info_10`` nor ``noise_2``
     # match ``noise_29`` (digit-extension false positive).
     def _parents_in_df(name: str) -> set:
-        return {
-            col for col in df_cols
-            if re.search(r"(?<![A-Za-z0-9])" + re.escape(col) + r"(?![A-Za-z0-9])", name)
-        }
+        return {col for col in df_cols if re.search(r"(?<![A-Za-z0-9])" + re.escape(col) + r"(?![A-Za-z0-9])", name)}
 
     for name in engineered_selected:
         assert _parents_in_df(name), (
@@ -380,18 +371,14 @@ def test_selected_features_surface_for_inspection(tmp_path):
         )
 
     signal = set(INFORMATIVE_NAMES)
-    signal_represented = bool(set(raw_selected) & signal) or any(
-        _parents_in_df(name) & signal for name in engineered_selected
-    )
-    assert signal_represented, (
-        f"No informative signal captured (directly or via an engineered feature's "
-        f"parent). selected={selected}"
-    )
+    signal_represented = bool(set(raw_selected) & signal) or any(_parents_in_df(name) & signal for name in engineered_selected)
+    assert signal_represented, f"No informative signal captured (directly or via an engineered feature's parent). selected={selected}"
 
 
 # ---------------------------------------------------------------------------
 # Test 4 — MRMR on Polars input through the full suite (Fix 10 polars support)
 # ---------------------------------------------------------------------------
+
 
 def test_mrmr_drops_uninformative_features_on_polars_input(tmp_path):
     """Same as test_mrmr_drops_uninformative_features but with pl.DataFrame
@@ -402,6 +389,7 @@ def test_mrmr_drops_uninformative_features_on_polars_input(tmp_path):
     MRMR has run on Polars.
     """
     import polars as pl
+
     pd_df, _ = _make_noisy_classification(n=1000, k_noise=30, seed=11)
     # Convert to polars — preserves dtypes via the standard from_pandas path.
     pl_df = pl.from_pandas(pd_df)
@@ -419,6 +407,7 @@ def test_mrmr_drops_uninformative_features_on_polars_input(tmp_path):
     # which is a stronger recovery; credit either. _make_noisy_classification puts the signal in
     # 'info_0'..'info_4'. Boundary regex so 'info_1' does not spuriously match 'info_12'.
     import re as _re_info
+
     signal_cols = {f"info_{i}" for i in range(5)}
 
     def _feat_uses(feat, comp):
@@ -426,14 +415,12 @@ def test_mrmr_drops_uninformative_features_on_polars_input(tmp_path):
 
     recovered_signals = {c for c in signal_cols if any(_feat_uses(f, c) for f in selected)}
     assert recovered_signals, (
-        f"MRMR on Polars failed to recover any signal feature (raw or engineered). "
-        f"Selected: {selected}. Expected at least one of: {signal_cols}"
+        f"MRMR on Polars failed to recover any signal feature (raw or engineered). Selected: {selected}. Expected at least one of: {signal_cols}"
     )
     # And at least one NOISE column should have been dropped (selector
     # should not keep every single noise col). _make_noisy_classification
     # uses 'x_*' or similar naming — we assert the selected count is less
     # than the total column count as a coarse sanity bound.
     assert len(selected) < len(pl_df.columns) - 1, (
-        f"MRMR on Polars kept almost every column ({len(selected)} of "
-        f"{len(pl_df.columns) - 1}) — selector not functioning on polars input."
+        f"MRMR on Polars kept almost every column ({len(selected)} of {len(pl_df.columns) - 1}) — selector not functioning on polars input."
     )

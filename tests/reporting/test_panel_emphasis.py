@@ -89,9 +89,15 @@ class TestSelectBinaryEmphasisPanels:
         # Default lo=0.2 -> 0.25 counts as balanced -> ROC-led.
         assert select_binary_emphasis_panels(y, _DEFAULT, emphasis="data_aware").split()[0] == "ROC"
         # Tighter lo=0.3 -> 0.25 counts as imbalanced -> PR-led.
-        assert select_binary_emphasis_panels(
-            y, _DEFAULT, emphasis="data_aware", imbalance_lo=0.3,
-        ).split()[0] == "PR"
+        assert (
+            select_binary_emphasis_panels(
+                y,
+                _DEFAULT,
+                emphasis="data_aware",
+                imbalance_lo=0.3,
+            ).split()[0]
+            == "PR"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +119,9 @@ class TestDispatcherEmphasis:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tag = render_multi_target_panels(
-                targets=y, probs=proba, classes=[0, 1],
+                targets=y,
+                probs=proba,
+                classes=[0, 1],
                 plot_outputs="matplotlib[png]",
                 binary_panels=_DEFAULT,
                 base_path=str(tmp_path / "bin"),
@@ -134,6 +142,7 @@ class TestDispatcherEmphasis:
             raise RuntimeError("stop before render")
 
         import mlframe.reporting.charts.binary as bin_mod
+
         monkeypatch.setattr(bin_mod, "compose_binary_figure", _spy)
 
         y = _imbalanced_y()
@@ -141,20 +150,28 @@ class TestDispatcherEmphasis:
 
         # default template + data_aware + is_default -> reordered (PR-led).
         render_multi_target_panels(
-            targets=y, probs=proba, plot_outputs="matplotlib[png]",
-            binary_panels=_DEFAULT, base_path="x",
+            targets=y,
+            probs=proba,
+            plot_outputs="matplotlib[png]",
+            binary_panels=_DEFAULT,
+            base_path="x",
             target_type="binary_classification",
-            panel_emphasis="data_aware", binary_panels_is_default=True,
+            panel_emphasis="data_aware",
+            binary_panels_is_default=True,
         )
         assert captured["template"].split()[0] == "PR"
 
         # custom template + data_aware but is_default=False -> untouched.
         custom = "ROC GAIN"
         render_multi_target_panels(
-            targets=y, probs=proba, plot_outputs="matplotlib[png]",
-            binary_panels=custom, base_path="x",
+            targets=y,
+            probs=proba,
+            plot_outputs="matplotlib[png]",
+            binary_panels=custom,
+            base_path="x",
             target_type="binary_classification",
-            panel_emphasis="data_aware", binary_panels_is_default=False,
+            panel_emphasis="data_aware",
+            binary_panels_is_default=False,
         )
         assert captured["template"] == custom
 
@@ -189,12 +206,21 @@ class TestReportModelPerfThreading:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             rep.report_model_perf(
-                targets=y, columns=["f0"], model_name="m", model=None,
-                preds=(proba[:, 1] >= 0.5).astype(int), probs=proba,
-                classes=[0, 1], print_report=False, show_perf_chart=False,
-                show_fi=False, plot_file=str(tmp_path / "bin"),
-                plot_outputs="matplotlib[png]", target_type="binary_classification",
-                binary_panels=binary_panels, reporting_config=reporting_config,
+                targets=y,
+                columns=["f0"],
+                model_name="m",
+                model=None,
+                preds=(proba[:, 1] >= 0.5).astype(int),
+                probs=proba,
+                classes=[0, 1],
+                print_report=False,
+                show_perf_chart=False,
+                show_fi=False,
+                plot_file=str(tmp_path / "bin"),
+                plot_outputs="matplotlib[png]",
+                target_type="binary_classification",
+                binary_panels=binary_panels,
+                reporting_config=reporting_config,
             )
         return captured.get("template")
 
@@ -241,11 +267,20 @@ class TestReportModelPerfThreading:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             rep.report_model_perf(
-                targets=y, columns=["f0"], model_name="m", model=None,
-                preds=np.ones(len(y), dtype=int), probs=proba, classes=[0, 1],
-                print_report=False, show_perf_chart=False, show_fi=False,
-                plot_file=str(tmp_path / "bin"), plot_outputs="matplotlib[png]",
-                target_type="binary_classification", binary_panels=cfg.binary_panels,
+                targets=y,
+                columns=["f0"],
+                model_name="m",
+                model=None,
+                preds=np.ones(len(y), dtype=int),
+                probs=proba,
+                classes=[0, 1],
+                print_report=False,
+                show_perf_chart=False,
+                show_fi=False,
+                plot_file=str(tmp_path / "bin"),
+                plot_outputs="matplotlib[png]",
+                target_type="binary_classification",
+                binary_panels=cfg.binary_panels,
                 reporting_config=cfg,
             )
         assert captured["template"] == _DEFAULT

@@ -21,6 +21,7 @@ Verdict: NO actionable speedup. The OOD-adaptive additions cost 2 extra small
 ``conformal_quantile`` calls per alpha (over G group radii) plus a boolean flag gather,
 < 1% of the wall the G per-group quantiles + factorize+argsort already dominate.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -145,7 +146,11 @@ class TestOODRouting:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             lo, hi, flag = conf.predict_interval_mondrian(
-                st, np.arange(3), np.full(3, tiny_lab, dtype=object), 0.1, return_ood=True,
+                st,
+                np.arange(3),
+                np.full(3, tiny_lab, dtype=object),
+                0.1,
+                return_ood=True,
             )
         applied = (hi - lo) / 2.0
         assert np.allclose(applied, st._mondrian_ood_[key]), "too-small group must predict inflated"
@@ -325,7 +330,9 @@ class TestRealEstimatorIntegration:
         X = pd.DataFrame({"b": b, "feat": f})
         groups = np.array(["a", "b"], dtype=object)[rng.integers(0, 2, n)]
         est = CompositeTargetEstimator(
-            base_estimator=LinearRegression(), transform_name="linear_residual", base_column="b",
+            base_estimator=LinearRegression(),
+            transform_name="linear_residual",
+            base_column="b",
         ).fit(X, y)
         est.calibrate_conformal_mondrian(X, y, groups, 0.1)
         Xt = X.iloc[:6]

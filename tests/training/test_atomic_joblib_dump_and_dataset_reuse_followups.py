@@ -25,6 +25,7 @@
    hit the pipeline and raised opaquely. Now: WARN with the diff before
    transform, so the operator knows exactly what's different.
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,9 +45,9 @@ import pytest
 
 
 class TestAtomicWriteBytes:
-
     def test_writes_target_atomically(self, tmp_path):
         from mlframe.training.io import atomic_write_bytes
+
         target = str(tmp_path / "out.bin")
         atomic_write_bytes(target, lambda f: f.write(b"hello world"))
         assert os.path.exists(target)
@@ -57,6 +58,7 @@ class TestAtomicWriteBytes:
         ALL-of-B, never a mix. The overwrite path must succeed on
         both POSIX and Windows — os.replace(), not os.rename()."""
         from mlframe.training.io import atomic_write_bytes
+
         target = str(tmp_path / "existing.bin")
         open(target, "wb").write(b"OLD CONTENT" * 100)
         atomic_write_bytes(target, lambda f: f.write(b"NEW"))
@@ -68,6 +70,7 @@ class TestAtomicWriteBytes:
         partial file under its original name, which is worse. Now:
         tmp file deleted, target path untouched if it existed."""
         from mlframe.training.io import atomic_write_bytes
+
         target = str(tmp_path / "wont_exist.bin")
 
         def _bad_writer(f):
@@ -87,6 +90,7 @@ class TestAtomicWriteBytes:
         """End-to-end: actual joblib.dump path used in core.py.
         Metadata saved and loaded must round-trip exactly."""
         from mlframe.training.io import atomic_write_bytes
+
         target = str(tmp_path / "metadata.joblib")
         metadata = {
             "columns": ["a", "b", "c"],
@@ -105,6 +109,7 @@ class TestAtomicWriteBytes:
         target file must remain intact (NOT be truncated like
         ``open(path, 'wb')`` would)."""
         from mlframe.training.io import atomic_write_bytes
+
         target = str(tmp_path / "preserved.bin")
         open(target, "wb").write(b"IMPORTANT EXISTING DATA")
 
@@ -124,7 +129,6 @@ class TestAtomicWriteBytes:
 
 
 class TestPolarsBridgeNestedTypesWarn:
-
     def test_list_float_column_triggers_warning(self, caplog):
         """pl.List[pl.Float32] embedding column must produce a WARN
         naming it — downstream CatBoost fastpath rejects object dtype
@@ -133,11 +137,14 @@ class TestPolarsBridgeNestedTypesWarn:
         fires (otherwise another test earlier in the session might
         have primed the cache)."""
         from mlframe.training.utils import get_pandas_view_of_polars_df, _NESTED_DTYPE_WARN_SEEN
+
         _NESTED_DTYPE_WARN_SEEN.clear()
-        df = pl.DataFrame({
-            "num": np.arange(5, dtype=np.float32),
-            "emb": [[1.0, 2.0, 3.0]] * 5,
-        }).with_columns(pl.col("emb").cast(pl.List(pl.Float32)))
+        df = pl.DataFrame(
+            {
+                "num": np.arange(5, dtype=np.float32),
+                "emb": [[1.0, 2.0, 3.0]] * 5,
+            }
+        ).with_columns(pl.col("emb").cast(pl.List(pl.Float32)))
         with caplog.at_level(logging.WARNING, logger="mlframe.training.utils"):
             get_pandas_view_of_polars_df(df)
         warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
@@ -148,49 +155,47 @@ class TestPolarsBridgeNestedTypesWarn:
         training run — a WARN per call would spam. Fire at most once
         per unique (col, dtype) schema tuple."""
         from mlframe.training.utils import get_pandas_view_of_polars_df, _NESTED_DTYPE_WARN_SEEN
+
         _NESTED_DTYPE_WARN_SEEN.clear()
-        df = pl.DataFrame({
-            "emb": [[1.0, 2.0]] * 3,
-        }).with_columns(pl.col("emb").cast(pl.List(pl.Float32)))
+        df = pl.DataFrame(
+            {
+                "emb": [[1.0, 2.0]] * 3,
+            }
+        ).with_columns(pl.col("emb").cast(pl.List(pl.Float32)))
         with caplog.at_level(logging.WARNING, logger="mlframe.training.utils"):
             get_pandas_view_of_polars_df(df)  # first call WARNs
             get_pandas_view_of_polars_df(df)  # repeat — must stay silent
             get_pandas_view_of_polars_df(df)  # repeat — must stay silent
         warns = [r for r in caplog.records if r.levelname == "WARNING"]
-        assert len(warns) == 1, (
-            f"expected exactly one WARN across 3 identical-schema calls; got {len(warns)}:\n"
-            f"{[r.message for r in warns]}"
-        )
+        assert len(warns) == 1, f"expected exactly one WARN across 3 identical-schema calls; got {len(warns)}:\n{[r.message for r in warns]}"
 
     def test_different_schema_fires_again(self, caplog):
         """Dedup must key on the schema, not be global: a different
         nested-column set triggers its own WARN even if we've seen
         a different one before."""
         from mlframe.training.utils import get_pandas_view_of_polars_df, _NESTED_DTYPE_WARN_SEEN
+
         _NESTED_DTYPE_WARN_SEEN.clear()
-        df1 = pl.DataFrame({"emb1": [[1.0, 2.0]] * 3}).with_columns(
-            pl.col("emb1").cast(pl.List(pl.Float32))
-        )
-        df2 = pl.DataFrame({"emb2": [[3.0, 4.0, 5.0]] * 3}).with_columns(
-            pl.col("emb2").cast(pl.List(pl.Float32))
-        )
+        df1 = pl.DataFrame({"emb1": [[1.0, 2.0]] * 3}).with_columns(pl.col("emb1").cast(pl.List(pl.Float32)))
+        df2 = pl.DataFrame({"emb2": [[3.0, 4.0, 5.0]] * 3}).with_columns(pl.col("emb2").cast(pl.List(pl.Float32)))
         with caplog.at_level(logging.WARNING, logger="mlframe.training.utils"):
             get_pandas_view_of_polars_df(df1)
             get_pandas_view_of_polars_df(df2)
         warns = [r for r in caplog.records if r.levelname == "WARNING"]
-        assert len(warns) == 2, (
-            f"expected one WARN per unique schema; got {len(warns)}"
-        )
+        assert len(warns) == 2, f"expected one WARN per unique schema; got {len(warns)}"
 
     def test_no_warning_on_flat_schema(self, caplog):
         """Clean numeric+string+categorical must be silent — the warn
         runs on every bridge call, false positives would drown logs."""
         from mlframe.training.utils import get_pandas_view_of_polars_df
-        df = pl.DataFrame({
-            "x": np.arange(10, dtype=np.float32),
-            "y": ["a", "b"] * 5,
-            "c": pl.Series("c", ["p", "q"] * 5).cast(pl.Categorical),
-        })
+
+        df = pl.DataFrame(
+            {
+                "x": np.arange(10, dtype=np.float32),
+                "y": ["a", "b"] * 5,
+                "c": pl.Series("c", ["p", "q"] * 5).cast(pl.Categorical),
+            }
+        )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.utils"):
             get_pandas_view_of_polars_df(df)
         warns = [r for r in caplog.records if r.levelname == "WARNING"]
@@ -203,7 +208,6 @@ class TestPolarsBridgeNestedTypesWarn:
 
 
 class TestGetFeatureImportancesNaNWarn:
-
     def test_nan_importance_emits_warning(self, caplog):
         from mlframe.feature_selection.wrappers import get_feature_importances
 
@@ -211,6 +215,7 @@ class TestGetFeatureImportancesNaNWarn:
             """Stand-in for a model that fitted on a degenerate CV fold
             and produced NaN importances (CatBoost / LightGBM both do
             this on single-class targets)."""
+
             feature_importances_ = np.array([0.3, float("nan"), 0.1, float("nan")])
 
         with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers"):
@@ -244,7 +249,6 @@ class TestGetFeatureImportancesNaNWarn:
 
 
 class TestPipelineSchemaDriftWarn:
-
     def _train_schema(self):
         return {
             "a": pl.Int32,
@@ -254,6 +258,7 @@ class TestPipelineSchemaDriftWarn:
 
     def test_missing_column_warns(self, caplog):
         from mlframe.training.pipeline import _warn_on_schema_drift
+
         other = pl.DataFrame({"a": [1], "b": [1.0]})  # 'c' missing
         with caplog.at_level(logging.WARNING, logger="mlframe.training.pipeline"):
             _warn_on_schema_drift(self._train_schema(), other, "val")
@@ -262,10 +267,15 @@ class TestPipelineSchemaDriftWarn:
 
     def test_extra_column_warns(self, caplog):
         from mlframe.training.pipeline import _warn_on_schema_drift
-        other = pl.DataFrame({
-            "a": [1], "b": [1.0], "c": ["x"],
-            "surprise": [0.1],  # extra
-        })
+
+        other = pl.DataFrame(
+            {
+                "a": [1],
+                "b": [1.0],
+                "c": ["x"],
+                "surprise": [0.1],  # extra
+            }
+        )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.pipeline"):
             _warn_on_schema_drift(self._train_schema(), other, "test")
         msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
@@ -273,12 +283,15 @@ class TestPipelineSchemaDriftWarn:
 
     def test_dtype_mismatch_warns(self, caplog):
         from mlframe.training.pipeline import _warn_on_schema_drift
+
         # 'a' was Int32 at fit, now Int64
-        other = pl.DataFrame({
-            "a": pl.Series("a", [1], dtype=pl.Int64),
-            "b": [1.0],
-            "c": ["x"],
-        })
+        other = pl.DataFrame(
+            {
+                "a": pl.Series("a", [1], dtype=pl.Int64),
+                "b": [1.0],
+                "c": ["x"],
+            }
+        )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.pipeline"):
             _warn_on_schema_drift(self._train_schema(), other, "val")
         msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
@@ -289,11 +302,14 @@ class TestPipelineSchemaDriftWarn:
         validation runs on every fit+transform cycle; false positives
         would spam logs."""
         from mlframe.training.pipeline import _warn_on_schema_drift
-        other = pl.DataFrame({
-            "a": pl.Series("a", [1], dtype=pl.Int32),
-            "b": pl.Series("b", [1.0], dtype=pl.Float64),
-            "c": pl.Series("c", ["x"], dtype=pl.Utf8),
-        })
+
+        other = pl.DataFrame(
+            {
+                "a": pl.Series("a", [1], dtype=pl.Int32),
+                "b": pl.Series("b", [1.0], dtype=pl.Float64),
+                "c": pl.Series("c", ["x"], dtype=pl.Utf8),
+            }
+        )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.pipeline"):
             _warn_on_schema_drift(self._train_schema(), other, "val")
         warns = [r for r in caplog.records if r.levelname == "WARNING"]

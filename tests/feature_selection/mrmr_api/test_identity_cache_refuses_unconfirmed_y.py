@@ -5,6 +5,7 @@ with no prior y-sample to check against, the pre-fix code left _ycorr_ok = True 
 the shortcut anyway -- returning a selection that never saw the new y. The fix refuses and
 runs a full fit in that case, while preserving the legacy threshold==0.0 opt-out.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,8 +25,7 @@ def _xy(n=300, seed=0):
 
 
 def _fit_with_cache(cache, thr, X, y):
-    m = MRMR(mrmr_skip_when_prior_was_identity=True, mrmr_identity_cache_include_y=False,
-             mrmr_identity_cache_ycorr_threshold=thr, max_runtime_mins=1.0)
+    m = MRMR(mrmr_skip_when_prior_was_identity=True, mrmr_identity_cache_include_y=False, mrmr_identity_cache_ycorr_threshold=thr, max_runtime_mins=1.0)
     m._mlframe_identity_cache_override_ = cache
     m.fit(X, y)
     return m
@@ -36,9 +36,7 @@ def test_refuses_shortcut_when_threshold_set_but_no_prior_y_sample():
     X, y = _xy()
     x_fp = _mrmr_compute_x_fingerprint(X)
     m = _fit_with_cache({x_fp: True}, thr=0.5, X=X, y=y)
-    assert not str(m.signature).startswith(_SHORTCUT), (
-        "identity shortcut fired for an unconfirmable target (thr>0, no prior y-sample) -- should refuse"
-    )
+    assert not str(m.signature).startswith(_SHORTCUT), "identity shortcut fired for an unconfirmable target (thr>0, no prior y-sample) -- should refuse"
 
 
 def test_fires_shortcut_when_prior_y_sample_correlates():
@@ -47,9 +45,7 @@ def test_fires_shortcut_when_prior_y_sample_correlates():
     x_fp = _mrmr_compute_x_fingerprint(X)
     prior_sample = _mc._mrmr_y_corr_sample(y)  # identical target -> corr 1.0 >= 0.5
     m = _fit_with_cache({x_fp: (True, prior_sample)}, thr=0.5, X=X, y=y)
-    assert str(m.signature).startswith(_SHORTCUT), (
-        "identity shortcut should fire when the prior y-sample confirms the new target correlates"
-    )
+    assert str(m.signature).startswith(_SHORTCUT), "identity shortcut should fire when the prior y-sample confirms the new target correlates"
 
 
 def test_legacy_threshold_zero_opt_out_still_fires():

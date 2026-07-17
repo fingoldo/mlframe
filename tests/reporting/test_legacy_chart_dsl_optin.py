@@ -45,12 +45,15 @@ def calib_inputs():
 class TestShowCalibrationPlot:
     def test_legacy_path_unchanged(self, calib_inputs, tmp_path):
         from mlframe.metrics.core import show_calibration_plot
+
         fp, ft, h = calib_inputs
         # No opt-in kwargs -> legacy matplotlib path. Asserts no crash.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             fig = show_calibration_plot(
-                fp, ft, h,
+                fp,
+                ft,
+                h,
                 show_plots=False,
                 plot_file=str(tmp_path / "legacy.png"),
             )
@@ -59,11 +62,14 @@ class TestShowCalibrationPlot:
 
     def test_dsl_optin_matplotlib(self, calib_inputs, tmp_path):
         from mlframe.metrics.core import show_calibration_plot
+
         fp, ft, h = calib_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             result = show_calibration_plot(
-                fp, ft, h,
+                fp,
+                ft,
+                h,
                 show_plots=False,
                 plot_outputs="matplotlib[png]",
                 base_path=str(tmp_path / "dsl"),
@@ -75,11 +81,14 @@ class TestShowCalibrationPlot:
 
     def test_dsl_optin_plotly(self, calib_inputs, tmp_path):
         from mlframe.metrics.core import show_calibration_plot
+
         fp, ft, h = calib_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             show_calibration_plot(
-                fp, ft, h,
+                fp,
+                ft,
+                h,
                 show_plots=False,
                 plot_outputs="plotly[html]",
                 base_path=str(tmp_path / "dsl"),
@@ -88,11 +97,14 @@ class TestShowCalibrationPlot:
 
     def test_dsl_dual_backend(self, calib_inputs, tmp_path):
         from mlframe.metrics.core import show_calibration_plot
+
         fp, ft, h = calib_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             show_calibration_plot(
-                fp, ft, h,
+                fp,
+                ft,
+                h,
                 show_plots=False,
                 plot_outputs="matplotlib[png] + plotly[html]",
                 base_path=str(tmp_path / "dsl"),
@@ -119,27 +131,33 @@ class TestPlotResidualDiagnostics:
     def test_legacy_path_unchanged(self, reg_inputs):
         """Axes-based legacy path still works -- caller supplies axes."""
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
+
         y, yp = reg_inputs
         fig, (ax1, ax2) = plt.subplots(1, 2)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             audit = plot_residual_diagnostics(
-                y, yp,
-                ax_hist=ax1, ax_resid_vs_pred=ax2,
+                y,
+                yp,
+                ax_hist=ax1,
+                ax_resid_vs_pred=ax2,
             )
         assert audit is not None
         plt.close(fig)
 
     def test_dsl_optin_matplotlib(self, reg_inputs, tmp_path):
         from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
+
         y, yp = reg_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             audit = plot_residual_diagnostics(
-                y, yp,
+                y,
+                yp,
                 plot_outputs="matplotlib[png]",
                 base_path=str(tmp_path / "resid"),
                 header_str="bizvalue model",
@@ -152,11 +170,13 @@ class TestPlotResidualDiagnostics:
 
     def test_dsl_optin_plotly(self, reg_inputs, tmp_path):
         from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
+
         y, yp = reg_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             plot_residual_diagnostics(
-                y, yp,
+                y,
+                yp,
                 plot_outputs="plotly[html]",
                 base_path=str(tmp_path / "resid"),
             )
@@ -164,11 +184,13 @@ class TestPlotResidualDiagnostics:
 
     def test_degenerate_input_returns_audit_no_crash(self, tmp_path):
         from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
+
         # < 5 finite points -> legacy path returns audit (None); opt-in too.
         y = np.array([1.0, 2.0])
         yp = np.array([1.1, 2.1])
         result = plot_residual_diagnostics(
-            y, yp,
+            y,
+            yp,
             plot_outputs="matplotlib[png]",
             base_path=str(tmp_path / "x"),
         )
@@ -187,20 +209,25 @@ def temporal_audit_result():
     """Build a tiny TemporalAuditResult by calling the real audit."""
     import pandas as pd
     from mlframe.training.targets.target_temporal_audit import audit_target_over_time
+
     rng = np.random.default_rng(0)
     n = 600
     timestamps = pd.date_range("2024-01-01", periods=n, freq="D")
     target = (rng.random(n) > 0.5).astype(np.int8)
     df = pd.DataFrame({"ts": timestamps, "y": target})
     return audit_target_over_time(
-        df, timestamp_col="ts", target_col="y",
-        target_name="y", granularity="month",
+        df,
+        timestamp_col="ts",
+        target_col="y",
+        target_name="y",
+        granularity="month",
     )
 
 
 class TestPlotTargetOverTime:
     def test_legacy_path_unchanged(self, temporal_audit_result, tmp_path):
         from mlframe.training.targets.target_temporal_audit import plot_target_over_time
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             plot_target_over_time(
@@ -212,6 +239,7 @@ class TestPlotTargetOverTime:
 
     def test_dsl_optin_matplotlib(self, temporal_audit_result, tmp_path):
         from mlframe.training.targets.target_temporal_audit import plot_target_over_time
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             result = plot_target_over_time(
@@ -224,6 +252,7 @@ class TestPlotTargetOverTime:
 
     def test_dsl_optin_plotly(self, temporal_audit_result, tmp_path):
         from mlframe.training.targets.target_temporal_audit import plot_target_over_time
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             plot_target_over_time(

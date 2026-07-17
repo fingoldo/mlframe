@@ -1,5 +1,6 @@
 """Tests for Gaussian knockoffs (Barber & Candes 2015) and the
 multi-estimator min-score-aggregation fix."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,10 +37,7 @@ class TestK1_KnockoffsSanity:
         diag_corrs = [abs(np.corrcoef(X[:, j], X_tilde[:, j])[0, 1]) for j in range(X.shape[1])]
         # For iid normal X with equicorrelated knockoffs, expected self-corr
         # is 1 - s ~ 0. We allow some slack for finite-sample noise.
-        assert max(diag_corrs) < 0.30, (
-            f"Knockoff self-correlations too high: {diag_corrs}. "
-            f"Knockoff should be ~independent of original."
-        )
+        assert max(diag_corrs) < 0.30, f"Knockoff self-correlations too high: {diag_corrs}. Knockoff should be ~independent of original."
 
     def test_cross_correlation_structure_preserved(self):
         """Cross correlations between X_j and X_tilde_k (j != k) should be
@@ -57,10 +55,7 @@ class TestK1_KnockoffsSanity:
         c_real = np.corrcoef(X[:, 0], X[:, 2])[0, 1]
         c_fake = np.corrcoef(X[:, 0], X_tilde[:, 2])[0, 1]
         # Allow 0.2 tolerance (finite-sample + numerical PSD ridge)
-        assert abs(c_real - c_fake) < 0.25, (
-            f"Cross-correlation structure not preserved: "
-            f"corr(X_0, X_2)={c_real:.3f} vs corr(X_0, X_tilde_2)={c_fake:.3f}"
-        )
+        assert abs(c_real - c_fake) < 0.25, f"Cross-correlation structure not preserved: corr(X_0, X_2)={c_real:.3f} vs corr(X_0, X_tilde_2)={c_fake:.3f}"
 
     def test_deterministic_with_random_state(self):
         rng = np.random.default_rng(0)
@@ -97,12 +92,20 @@ class TestK2_KnockoffImportance:
             - near 0 for noise features
         """
         Xdf, y, _ = make_sklearn_classification_df(
-            n_samples=500, n_features=12, n_informative=4,
-            n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=2.5, seed=0,
+            n_samples=500,
+            n_features=12,
+            n_informative=4,
+            n_redundant=0,
+            n_clusters_per_class=2,
+            shuffle=False,
+            class_sep=2.5,
+            seed=0,
         )
         W = knockoff_importance(
             model_factory=lambda: LogisticRegression(max_iter=400, random_state=0),
-            X=Xdf, y=y, random_state=0,
+            X=Xdf,
+            y=y,
+            random_state=0,
         )
         # Informative (f0..f3) should rank above the median of noise (f4..f11)
         informative_W = [W[f"f{i}"] for i in range(4)]
@@ -110,8 +113,7 @@ class TestK2_KnockoffImportance:
         median_noise = np.median(noise_W)
         for f_idx, w_inf in enumerate(informative_W):
             assert w_inf > median_noise, (
-                f"Informative feature f{f_idx} has W={w_inf:+.4f} which is "
-                f"not above median noise W={median_noise:+.4f}. Knockoffs failed."
+                f"Informative feature f{f_idx} has W={w_inf:+.4f} which is not above median noise W={median_noise:+.4f}. Knockoffs failed."
             )
 
     def test_W_is_signed_dict(self):
@@ -120,7 +122,9 @@ class TestK2_KnockoffImportance:
         y = (X["a"] > 0).astype(int).values
         W = knockoff_importance(
             model_factory=lambda: LogisticRegression(max_iter=200, random_state=0),
-            X=X, y=y, random_state=0,
+            X=X,
+            y=y,
+            random_state=0,
         )
         assert set(W.keys()) == {"a", "b", "c"}
         assert all(isinstance(v, float) for v in W.values())
@@ -142,15 +146,24 @@ class TestK3_MultiEstimatorMinAggregation:
         # Use a problem where 2 features clearly aren't enough:
         # noisy class_sep + redundant features force MBH to need more.
         Xdf, y, _ = make_sklearn_classification_df(
-            n_samples=400, n_features=12, n_informative=6,
-            n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=1.0, seed=0,  # noisy
+            n_samples=400,
+            n_features=12,
+            n_informative=6,
+            n_redundant=0,
+            n_clusters_per_class=2,
+            shuffle=False,
+            class_sep=1.0,
+            seed=0,  # noisy
         )
         rfecv = RFECV(
             estimators=[
                 LogisticRegression(max_iter=400, random_state=0),
                 RandomForestClassifier(n_estimators=20, random_state=0, n_jobs=1),
             ],
-            cv=3, max_refits=10, verbose=0, random_state=0,
+            cv=3,
+            max_refits=10,
+            verbose=0,
+            random_state=0,
         )
         rfecv.fit(Xdf, y)
         # Loose lower bound: as long as we don't collapse to a degenerate
@@ -177,15 +190,24 @@ class TestK4_PlateauRule:
         test now verifies one_se_max explicitly when requested.
         """
         Xdf, y, _ = make_sklearn_classification_df(
-            n_samples=600, n_features=40, n_informative=8,
-            n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
+            n_samples=600,
+            n_features=40,
+            n_informative=8,
+            n_redundant=0,
+            n_clusters_per_class=2,
+            shuffle=False,
+            class_sep=2.0,
+            seed=0,
         )
         rfecv = RFECV(
             estimators=[
                 LogisticRegression(max_iter=400, random_state=0),
                 RandomForestClassifier(n_estimators=20, random_state=0, n_jobs=1),
             ],
-            cv=3, max_refits=8, verbose=0, random_state=0,
+            cv=3,
+            max_refits=8,
+            verbose=0,
+            random_state=0,
             n_features_selection_rule="one_se_max",  # explicit, no auto magic
         )
         rfecv.fit(Xdf, y)
@@ -201,21 +223,26 @@ class TestK4_PlateauRule:
         # better than the pre-fix 0.25"; pin to >0.25.
         names = set(rfecv.get_feature_names_out())
         recall = sum(1 for f in [f"f{i}" for i in range(8)] if f in names) / 8
-        assert recall > 0.25, (
-            f"Multi-estimator recall regressed below the pre-fix 0.25 floor "
-            f"(got {recall})"
-        )
+        assert recall > 0.25, f"Multi-estimator recall regressed below the pre-fix 0.25 floor (got {recall})"
 
     def test_explicit_argmax_preserves_legacy_behaviour(self):
         """When user explicitly opts into 'argmax', they get the legacy
         plateau-vulnerable behaviour."""
         Xdf, y, _ = make_sklearn_classification_df(
-            n_samples=300, n_features=10, n_informative=4,
-            n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
+            n_samples=300,
+            n_features=10,
+            n_informative=4,
+            n_clusters_per_class=2,
+            shuffle=False,
+            class_sep=2.0,
+            seed=0,
         )
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=4, verbose=0, random_state=0,
+            cv=3,
+            max_refits=4,
+            verbose=0,
+            random_state=0,
             n_features_selection_rule="argmax",
         )
         rfecv.fit(Xdf, y)
@@ -225,27 +252,35 @@ class TestK4_PlateauRule:
         """one_se_min should pick the SMALLEST N in the SE band (parsimonious,
         sklearn-canonical 1-SE rule)."""
         Xdf, y, _ = make_sklearn_classification_df(
-            n_samples=400, n_features=15, n_informative=5,
-            n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
+            n_samples=400,
+            n_features=15,
+            n_informative=5,
+            n_clusters_per_class=2,
+            shuffle=False,
+            class_sep=2.0,
+            seed=0,
         )
         # Compare one_se_min vs one_se_max on the same fitted state -
         # one_se_min should be <= one_se_max.
         rfecv_min = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=6, verbose=0, random_state=0,
+            cv=3,
+            max_refits=6,
+            verbose=0,
+            random_state=0,
             n_features_selection_rule="one_se_min",
         )
         rfecv_min.fit(Xdf, y)
         rfecv_max = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=6, verbose=0, random_state=0,
+            cv=3,
+            max_refits=6,
+            verbose=0,
+            random_state=0,
             n_features_selection_rule="one_se_max",
         )
         rfecv_max.fit(Xdf, y)
-        assert rfecv_min.n_features_ <= rfecv_max.n_features_, (
-            f"one_se_min ({rfecv_min.n_features_}) should pick <= than "
-            f"one_se_max ({rfecv_max.n_features_})."
-        )
+        assert rfecv_min.n_features_ <= rfecv_max.n_features_, f"one_se_min ({rfecv_min.n_features_}) should pick <= than one_se_max ({rfecv_max.n_features_})."
 
     def test_unknown_rule_raises(self):
         # PR-6: validation moved to __init__ (eager) instead of select_optimal_nfeatures_
@@ -253,6 +288,8 @@ class TestK4_PlateauRule:
         with pytest.raises(ValueError, match="n_features_selection_rule"):
             RFECV(
                 estimator=LogisticRegression(max_iter=200, random_state=0),
-                cv=2, max_refits=2, verbose=0,
+                cv=2,
+                max_refits=2,
+                verbose=0,
                 n_features_selection_rule="bogus_rule",
             )

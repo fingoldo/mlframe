@@ -1,6 +1,7 @@
 """Unit test for the single-pass finite-min/max/std helper used by the
 ``output_activation='tanh_train_range'`` auto-derive path.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -59,6 +59,7 @@ wall-time bound. Degenerate column screening is the contract; the
 interaction / FE synthesis paths don't change what counts as
 "degenerate" -- a constant column stays constant under any synthesis.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -167,6 +168,7 @@ def _make_mrmr(**overrides):
     interaction synthesis.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -225,9 +227,7 @@ class TestMrmrSurvivesDegenerateFrame:
         _X, _y, sel = _build_and_fit_layer18(seed)
         assert sel.support_ is not None
         assert sel.n_features_ >= 1, (
-            f"MRMR returned empty support_ on degenerate frame; "
-            f"seed={seed}. A frame with 2 real signals plus degenerate "
-            f"junk must yield at least one feature."
+            f"MRMR returned empty support_ on degenerate frame; seed={seed}. A frame with 2 real signals plus degenerate junk must yield at least one feature."
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -290,9 +290,7 @@ class TestExactDuplicateAtMostOneOfPair:
         names = list(sel.get_feature_names_out())
         pair_count = sum(1 for n in names if n in ("x_signal_1", "dup_signal_1"))
         assert pair_count <= 1, (
-            f"BOTH x_signal_1 AND dup_signal_1 selected (byte-identical "
-            f"duplicates); DCD failed on the trivial duplicate case. "
-            f"seed={seed}, support={names}"
+            f"BOTH x_signal_1 AND dup_signal_1 selected (byte-identical duplicates); DCD failed on the trivial duplicate case. seed={seed}, support={names}"
         )
 
 
@@ -315,11 +313,13 @@ class TestUnusualDtypesDoNotCrash:
         x1 = rng.standard_normal(N_TOTAL)
         x2 = rng.standard_normal(N_TOTAL)
         y_arr = 2.0 * x1 + 1.0 * x2 + 0.3 * rng.standard_normal(N_TOTAL)
-        X = pd.DataFrame({
-            "x_signal_1": x1,
-            "x_signal_2": x2,
-            "bool_col": (x1 > 0.0).astype(bool),
-        })
+        X = pd.DataFrame(
+            {
+                "x_signal_1": x1,
+                "x_signal_2": x2,
+                "bool_col": (x1 > 0.0).astype(bool),
+            }
+        )
         y = pd.Series(y_arr, name="y_reg")
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X.copy(), y)
@@ -335,11 +335,13 @@ class TestUnusualDtypesDoNotCrash:
         mostly_zero = np.zeros(N_TOTAL)
         nonzero_idx = rng.choice(N_TOTAL, size=20, replace=False)
         mostly_zero[nonzero_idx] = rng.standard_normal(20)
-        X = pd.DataFrame({
-            "x_signal_1": x1,
-            "x_signal_2": x2,
-            "mostly_zero": mostly_zero,
-        })
+        X = pd.DataFrame(
+            {
+                "x_signal_1": x1,
+                "x_signal_2": x2,
+                "mostly_zero": mostly_zero,
+            }
+        )
         y = pd.Series(y_arr, name="y_reg")
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X.copy(), y)
@@ -355,11 +357,13 @@ class TestUnusualDtypesDoNotCrash:
         near_const = np.full(N_TOTAL, 3.14)
         jitter_idx = rng.choice(N_TOTAL, size=20, replace=False)
         near_const[jitter_idx] += 0.001 * rng.standard_normal(20)
-        X = pd.DataFrame({
-            "x_signal_1": x1,
-            "x_signal_2": x2,
-            "near_const": near_const,
-        })
+        X = pd.DataFrame(
+            {
+                "x_signal_1": x1,
+                "x_signal_2": x2,
+                "near_const": near_const,
+            }
+        )
         y = pd.Series(y_arr, name="y_reg")
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X.copy(), y)
@@ -390,9 +394,7 @@ class TestNearConstantNotPreferredOverSignal:
         # ranking is broken.
         has_signal = any(n in ("x_signal_1", "x_signal_2", "dup_signal_1") for n in names)
         assert has_signal, (
-            f"near_const in support but NO real signal -- a column "
-            f"with 1% jitter outranked features carrying >88% of "
-            f"var(y). seed={seed}, support={names}"
+            f"near_const in support but NO real signal -- a column with 1% jitter outranked features carrying >88% of var(y). seed={seed}, support={names}"
         )
 
 
@@ -419,8 +421,8 @@ class TestInfOnlyColumnRaisesActionable:
             with pytest.raises(ValueError) as exc_info:
                 sel.fit(X.copy(), y)
         msg = str(exc_info.value).lower()
-        assert "inf" in msg, f"seed={seed}: ValueError raised but message doesn't " f"reference inf. Got: {exc_info.value!r}"
-        assert "replace" in msg or "drop" in msg, f"seed={seed}: ValueError missing actionable remediation " f"verb (replace / drop). Got: {exc_info.value!r}"
+        assert "inf" in msg, f"seed={seed}: ValueError raised but message doesn't reference inf. Got: {exc_info.value!r}"
+        assert "replace" in msg or "drop" in msg, f"seed={seed}: ValueError missing actionable remediation verb (replace / drop). Got: {exc_info.value!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -439,13 +441,13 @@ class TestSupportGainsAlignmentDegenerate:
         """mrmr_gains_ stays length-aligned to support_, finite and non-negative under degenerate input."""
         _X, _y, sel = _build_and_fit_layer18(seed)
         gains = np.asarray(sel.mrmr_gains_, dtype=np.float64)
-        assert gains.shape == (sel.n_features_,), f"mrmr_gains_ length {gains.shape} != n_features_ " f"{sel.n_features_} on degenerate frame; seed={seed}"
+        assert gains.shape == (sel.n_features_,), f"mrmr_gains_ length {gains.shape} != n_features_ {sel.n_features_} on degenerate frame; seed={seed}"
         assert np.all(np.isfinite(gains)), (
             f"mrmr_gains_ has non-finite entries {gains} on degenerate "
             f"frame -- a degenerate column propagated NaN/Inf MI into "
             f"the diagnostic array. seed={seed}"
         )
-        assert np.all(gains >= 0.0), f"mrmr_gains_ has negative entries {gains} on degenerate " f"frame; gains are MI deltas and must be >= 0. seed={seed}"
+        assert np.all(gains >= 0.0), f"mrmr_gains_ has negative entries {gains} on degenerate frame; gains are MI deltas and must be >= 0. seed={seed}"
 
 
 # ---------------------------------------------------------------------------
@@ -466,11 +468,13 @@ class TestPureDegenerateFrameDegradesSafely:
         """Frame with ONLY constant + all-NaN + single-value-int columns."""
         rng = np.random.default_rng(seed)
         y_arr = rng.standard_normal(N_TOTAL)
-        X = pd.DataFrame({
-            "const_5": np.full(N_TOTAL, 5.0),
-            "all_nan": np.full(N_TOTAL, np.nan),
-            "single_value_int": np.ones(N_TOTAL, dtype=np.int64),
-        })
+        X = pd.DataFrame(
+            {
+                "const_5": np.full(N_TOTAL, 5.0),
+                "all_nan": np.full(N_TOTAL, np.nan),
+                "single_value_int": np.ones(N_TOTAL, dtype=np.int64),
+            }
+        )
         y = pd.Series(y_arr, name="y_reg")
         sel = _make_mrmr(random_seed=seed)
         # Either it completes (possibly with empty / fallback support)

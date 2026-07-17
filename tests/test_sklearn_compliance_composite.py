@@ -29,6 +29,7 @@ xfails would be high-noise without surfacing real bugs; this test surface
 catches the bugs that historically did slip through (clone-induced fitted-state
 loss, get_params drift after sklearn minor bumps, missing classes_/n_features_in_).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -45,14 +46,17 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 # Common helpers
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def small_regression_data():
     rng = np.random.default_rng(0)
-    X = pd.DataFrame({
-        "base": rng.uniform(1.0, 5.0, size=40),
-        "f1": rng.normal(size=40),
-        "f2": rng.normal(size=40),
-    })
+    X = pd.DataFrame(
+        {
+            "base": rng.uniform(1.0, 5.0, size=40),
+            "f1": rng.normal(size=40),
+            "f2": rng.normal(size=40),
+        }
+    )
     y = (2.0 * X["base"] + 0.5 * X["f1"] + rng.normal(scale=0.1, size=40)).to_numpy()
     return X, y
 
@@ -80,15 +84,14 @@ def _assert_clone_returns_unfitted_shell(estimator: BaseEstimator) -> BaseEstima
         if isinstance(sv, BaseEstimator):
             assert type(nv) is type(sv), f"param {k!r}: clone changed estimator type"
         else:
-            assert sv == nv or (isinstance(sv, float) and isinstance(nv, float) and sv != sv and nv != nv), (
-                f"param {k!r}: src={sv!r} new={nv!r}"
-            )
+            assert sv == nv or (isinstance(sv, float) and isinstance(nv, float) and sv != sv and nv != nv), f"param {k!r}: src={sv!r} new={nv!r}"
     return cloned
 
 
 # ---------------------------------------------------------------------------
 # CompositeTargetEstimator
 # ---------------------------------------------------------------------------
+
 
 class TestCompositeTargetEstimatorCompliance:
     """sklearn-compliance happy path for CompositeTargetEstimator.
@@ -103,6 +106,7 @@ class TestCompositeTargetEstimatorCompliance:
 
     def _make(self):
         from mlframe.training.composite import CompositeTargetEstimator
+
         return CompositeTargetEstimator(
             base_estimator=LinearRegression(),
             transform_name="diff",
@@ -140,6 +144,7 @@ class TestCompositeTargetEstimatorCompliance:
 # _LagPredictDeployableModel
 # ---------------------------------------------------------------------------
 
+
 class TestLagPredictDeployableModelCompliance:
     """Hand-rolled duck-typed estimator (no BaseEstimator inheritance).
     Explicitly implements get_params/set_params/fit/predict so sklearn.clone
@@ -148,6 +153,7 @@ class TestLagPredictDeployableModelCompliance:
 
     def _make(self):
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+
         return _LagPredictDeployableModel(lag_column="base")
 
     def test_get_set_params_roundtrip(self):
@@ -175,10 +181,12 @@ class TestLagPredictDeployableModelCompliance:
 # ESTransformedTargetRegressor
 # ---------------------------------------------------------------------------
 
+
 class TestESTransformedTargetRegressorCompliance:
     def _make(self):
         from mlframe.estimators.custom import ESTransformedTargetRegressor
         from sklearn.preprocessing import FunctionTransformer
+
         # log1p / expm1 round-trip; both are vector-safe, finite-preserving.
         return ESTransformedTargetRegressor(
             regressor=LinearRegression(),
@@ -212,6 +220,7 @@ class TestESTransformedTargetRegressorCompliance:
 # EstimatorWithEarlyStopping / RegressorWithEarlyStopping
 # ---------------------------------------------------------------------------
 
+
 class TestEstimatorWithEarlyStoppingCompliance:
     """The base class branches on CatBoost vs non-CatBoost inner. For the
     non-CatBoost path it just delegates to base_estimator.fit -- which makes
@@ -220,6 +229,7 @@ class TestEstimatorWithEarlyStoppingCompliance:
 
     def _make(self):
         from mlframe.estimators.base import EstimatorWithEarlyStopping
+
         return EstimatorWithEarlyStopping(base_estimator=LogisticRegression(max_iter=200))
 
     def test_get_set_params_roundtrip(self):
@@ -243,6 +253,7 @@ class TestEstimatorWithEarlyStoppingCompliance:
 class TestRegressorWithEarlyStoppingCompliance:
     def _make(self):
         from mlframe.estimators.base import RegressorWithEarlyStopping
+
         return RegressorWithEarlyStopping(base_estimator=LinearRegression())
 
     def test_get_set_params_roundtrip(self):
@@ -272,9 +283,11 @@ class TestRegressorWithEarlyStoppingCompliance:
 # PdOrdinalEncoder
 # ---------------------------------------------------------------------------
 
+
 class TestPdOrdinalEncoderCompliance:
     def _make(self):
         from mlframe.estimators.custom import PdOrdinalEncoder
+
         return PdOrdinalEncoder()
 
     def test_get_set_params_roundtrip(self):
@@ -301,9 +314,11 @@ class TestPdOrdinalEncoderCompliance:
 # PdKBinsDiscretizer
 # ---------------------------------------------------------------------------
 
+
 class TestPdKBinsDiscretizerCompliance:
     def _make(self):
         from mlframe.estimators.custom import PdKBinsDiscretizer
+
         # encode='ordinal' to avoid the sparse densify path; the wrapper handles both but ordinal is the happy path for narrow asserts. subsample=None overrides the stale 'warn' default that sklearn>=1.5 rejects via _param_validation.
         return PdKBinsDiscretizer(n_bins=3, encode="ordinal", strategy="uniform", subsample=None)
 
@@ -332,6 +347,7 @@ class TestPdKBinsDiscretizerCompliance:
 # RFECV (mlframe wrapper)
 # ---------------------------------------------------------------------------
 
+
 class TestRFECVCompliance:
     """RFECV has a deep init signature (~40 params). Full check_estimator
     would XFAIL on multiple checks (its X contract is narrower than sklearn's
@@ -342,6 +358,7 @@ class TestRFECVCompliance:
 
     def _make(self):
         from mlframe.feature_selection.wrappers.rfecv import RFECV
+
         # Quiet defaults to avoid swamping the test log; small budgets so the
         # CV-fold work stays under the per-test budget.
         return RFECV(

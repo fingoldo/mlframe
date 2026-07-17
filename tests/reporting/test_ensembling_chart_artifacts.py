@@ -108,9 +108,7 @@ def test_each_ensemble_method_writes_its_own_perfplot(ensembling_dataset, tmp_pa
 
     # 1) At least one base-model perfplot exists.
     base_pngs = [p for p in pngs if "Ens" not in p]
-    assert base_pngs, (
-        f"no base-model perfplot png written; full list: {sorted(pngs)}"
-    )
+    assert base_pngs, f"no base-model perfplot png written; full list: {sorted(pngs)}"
 
     # 2) Multiple distinct ``Ens{METHOD}_*_perfplot[.<backend>].png`` artifacts.
     ens_methods_seen: set[str] = set()
@@ -172,6 +170,5 @@ def test_each_ensemble_method_writes_distinct_filename(ensembling_dataset, tmp_p
                 ens_pngs.append(f)
 
     assert len(ens_pngs) == len(set(ens_pngs)), (
-        f"Duplicate ensemble perfplot filenames -- different methods are "
-        f"overwriting each other's charts. Files: {sorted(ens_pngs)}"
+        f"Duplicate ensemble perfplot filenames -- different methods are overwriting each other's charts. Files: {sorted(ens_pngs)}"
     )

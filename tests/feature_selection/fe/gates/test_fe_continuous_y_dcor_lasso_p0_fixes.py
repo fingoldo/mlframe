@@ -7,6 +7,7 @@
 3. Lasso |coef| scoring binarises multiclass y one-vs-rest instead of
    regressing on the raw ordinal class integers.
 """
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -39,14 +40,18 @@ def test_temporal_fe_continuous_y_survives_gate_not_int_truncated():
     assert np.unique(y.astype(np.int64)).size == 1
 
     _, appended, _, scores = hybrid_temporal_agg_fe(
-        X, y, entity_cols=["entity"], value_cols=["v"], time_col="time",
-        stats=("mean",), lags=(), top_k=5, min_mi=1e-4,
+        X,
+        y,
+        entity_cols=["entity"],
+        value_cols=["v"],
+        time_col="time",
+        stats=("mean",),
+        lags=(),
+        top_k=5,
+        min_mi=1e-4,
     )
     assert not scores.empty
-    assert float(scores["mi"].max()) > 1e-4, (
-        "continuous-y true signal must survive the MI gate; int truncation "
-        "would zero it"
-    )
+    assert float(scores["mi"].max()) > 1e-4, "continuous-y true signal must survive the MI gate; int truncation would zero it"
     assert appended, "at least one engineered column must be appended"
 
 
@@ -66,13 +71,15 @@ def test_grouped_fe_continuous_y_not_int_truncated():
     eng_X = pd.DataFrame({"g__mean_enc": grp_level[grp]})
 
     res = score_grouped_agg_by_cmi_uplift(
-        raw_X, eng_X, y, base_cols=["num"], n_bins=10,
+        raw_X,
+        eng_X,
+        y,
+        base_cols=["num"],
+        n_bins=10,
         eng_to_source={"g__mean_enc": "num"},
     )
     assert not res.empty
-    assert float(res["cmi"].max()) > 1e-3, (
-        "continuous-y group signal must survive the CMI gate"
-    )
+    assert float(res["cmi"].max()) > 1e-3, "continuous-y group signal must survive the CMI gate"
 
 
 def test_dcor_all_nan_column_scores_zero_not_nan():
@@ -118,23 +125,24 @@ def test_lasso_multiclass_not_driven_by_spurious_ordinal():
     signal = (cls == 1).astype(np.float64) + 0.05 * rng.standard_normal(n)
     ordinal_noise = cls.astype(np.float64) + 0.05 * rng.standard_normal(n)
     raw_X = pd.DataFrame({"u0": rng.standard_normal(n), "u1": rng.standard_normal(n)})
-    eng_X = pd.DataFrame({
-        "u0__sig": signal,
-        "u1__ord": ordinal_noise,
-    })
+    eng_X = pd.DataFrame(
+        {
+            "u0__sig": signal,
+            "u1__ord": ordinal_noise,
+        }
+    )
 
     res = score_features_by_lasso_coef(raw_X, eng_X, cls, alpha=0.001)
     top = res.iloc[0]["engineered_col"]
     assert top == "u0__sig", (
-        f"multiclass selection must be driven by the true class-1 signal, "
-        f"not the spurious ordinal column; got top={top}\n{res}"  # noqa: E501
-
+        f"multiclass selection must be driven by the true class-1 signal, not the spurious ordinal column; got top={top}\n{res}"  # noqa: E501
     )
 
 
 def test_ksg_gpu_cpu_parity_on_discrete_ties():
     pytest.importorskip("cupy")
     import cupy as cp
+
     try:
         cp.cuda.runtime.getDeviceCount()
     except Exception:

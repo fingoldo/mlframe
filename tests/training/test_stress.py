@@ -1,4 +1,5 @@
 from mlframe.training import OutputConfig
+
 """
 Stress and performance tests for mlframe training module.
 
@@ -23,8 +24,7 @@ from mlframe.training.configs import PreprocessingBackendConfig, TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor
 
 # Deterministic RNG (single seed per module).
-_W53_RNG = __import__('numpy').random.default_rng(0)
-
+_W53_RNG = __import__("numpy").random.default_rng(0)
 
 
 # ================================================================================================
@@ -44,8 +44,8 @@ class TestMemoryStress:
         X = np.random.randn(n_samples, n_features)
         y = 2 * X[:, 0] + np.random.randn(n_samples) * 0.5
 
-        df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(n_features)])
-        df['target'] = y
+        df = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(n_features)])
+        df["target"] = y
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
@@ -87,8 +87,8 @@ class TestMemoryStress:
         X = np.random.randn(n_samples, n_features)
         y = 2 * X[:, 0] + np.random.randn(n_samples) * 0.5
 
-        data = {f'feature_{i}': X[:, i] for i in range(n_features)}
-        data['target'] = y
+        data = {f"feature_{i}": X[:, i] for i in range(n_features)}
+        data["target"] = y
         df = pl.DataFrame(data)
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
@@ -118,8 +118,8 @@ class TestMemoryStress:
         X = np.random.randn(n_samples, n_features)
         y = X[:, 0] + np.random.randn(n_samples) * 0.1
 
-        df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(n_features)])
-        df['target'] = y
+        df = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(n_features)])
+        df["target"] = y
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
@@ -142,11 +142,13 @@ class TestMemoryStress:
     def test_repeated_training_memory_leak(self, temp_data_dir, common_init_params):
         """Test for memory leaks with repeated training."""
         np.random.seed(42)
-        df = pd.DataFrame({
-            'feature_0': np.random.randn(200),
-            'feature_1': np.random.randn(200),
-            'target': np.random.randn(200),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(200),
+                "feature_1": np.random.randn(200),
+                "target": np.random.randn(200),
+            }
+        )
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         process = psutil.Process()
@@ -277,10 +279,7 @@ class TestPerformance:
         # PYTEST_XDIST_WORKER_COUNT env var.
         _xdist_n = max(1, int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1") or "1"))
         _threshold = 30.0 * _xdist_n
-        assert elapsed < _threshold, (
-            f"Multiple models took {elapsed:.1f}s (threshold "
-            f"{_threshold:.1f}s = 30s x xdist workers={_xdist_n})"
-        )
+        assert elapsed < _threshold, f"Multiple models took {elapsed:.1f}s (threshold {_threshold:.1f}s = 30s x xdist workers={_xdist_n})"
         assert TargetTypes.REGRESSION in models
 
 
@@ -357,6 +356,7 @@ class TestConcurrency:
 
         # Loop completed without errors — verify GC actually ran and cleared refs
         import sys
+
         gc.collect()
         assert gc.isenabled()
         # No lingering huge cycles (heuristic — just ensure the process didn't explode)
@@ -384,11 +384,13 @@ class TestEdgeCaseStress:
         stratification, which is what "minimum viable" means in practice.
         """
         np.random.seed(42)
-        df = pd.DataFrame({
-            'feature_0': np.random.randn(50),
-            'feature_1': np.random.randn(50),
-            'target': np.random.randn(50),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(50),
+                "feature_1": np.random.randn(50),
+                "target": np.random.randn(50),
+            }
+        )
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
@@ -422,8 +424,8 @@ class TestEdgeCaseStress:
 
         y = np.random.randn(n_samples)
 
-        df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(n_features)])
-        df['target'] = y
+        df = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(n_features)])
+        df["target"] = y
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
@@ -446,15 +448,17 @@ class TestEdgeCaseStress:
     def test_many_nan_values(self, temp_data_dir, common_init_params):
         """Test with many NaN values (50%)."""
         np.random.seed(42)
-        df = pd.DataFrame({
-            'feature_0': np.random.randn(200),
-            'feature_1': np.random.randn(200),
-            'target': np.random.randn(200),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(200),
+                "feature_1": np.random.randn(200),
+                "target": np.random.randn(200),
+            }
+        )
 
         # Add 50% NaN values
         nan_mask = np.random.random(200) < 0.5
-        df.loc[nan_mask, 'feature_0'] = np.nan
+        df.loc[nan_mask, "feature_0"] = np.nan
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
@@ -481,11 +485,13 @@ class TestEdgeCaseStress:
     def test_extreme_values(self, temp_data_dir, common_init_params):
         """Test with extreme values in data."""
         np.random.seed(42)
-        df = pd.DataFrame({
-            'feature_0': np.concatenate([np.random.randn(190), [1e10, -1e10, 1e-10, -1e-10] + [np.inf, -np.inf] + [0, 0, 0, 0]]),
-            'feature_1': np.random.randn(200),
-            'target': np.random.randn(200),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.concatenate([np.random.randn(190), [1e10, -1e10, 1e-10, -1e-10] + [np.inf, -np.inf] + [0, 0, 0, 0]]),
+                "feature_1": np.random.randn(200),
+                "target": np.random.randn(200),
+            }
+        )
 
         # Replace inf with large values
         df = df.replace([np.inf, -np.inf], [1e10, -1e10])
@@ -511,11 +517,13 @@ class TestEdgeCaseStress:
     def test_duplicate_rows(self, temp_data_dir, common_init_params):
         """Test with duplicate rows in data."""
         np.random.seed(42)
-        base_df = pd.DataFrame({
-            'feature_0': np.random.randn(50),
-            'feature_1': np.random.randn(50),
-            'target': np.random.randn(50),
-        })
+        base_df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(50),
+                "feature_1": np.random.randn(50),
+                "target": np.random.randn(50),
+            }
+        )
 
         # Create duplicates
         df = pd.concat([base_df] * 4, ignore_index=True)
@@ -554,13 +562,7 @@ class TestFileIOStress:
         large_data = {
             "arrays": [np.random.randn(1000, 100) for _ in range(5)],
             "dicts": [{f"key_{i}": np.random.randn(100) for i in range(50)}],
-            "nested": {
-                "level1": {
-                    "level2": {
-                        "data": np.random.randn(500, 50)
-                    }
-                }
-            }
+            "nested": {"level1": {"level2": {"data": np.random.randn(500, 50)}}},
         }
 
         file_path = os.path.join(tmpdir, "large_model.zst")
@@ -596,9 +598,7 @@ class TestFileIOStress:
         meta_files = [f for f in files if f.endswith(".zst.meta.json")]
         assert len(zst_files) == 10
         # Sidecar count tolerated as 0 (legacy) or 10 (post-wave-48).
-        assert len(meta_files) in (0, 10), (
-            f"unexpected sidecar count: {len(meta_files)} (expected 0 or 10)"
-        )
+        assert len(meta_files) in (0, 10), f"unexpected sidecar count: {len(meta_files)} (expected 0 or 10)"
 
     def test_save_load_different_compressions(self, tmp_path):
         """Test save/load with different compression levels."""
@@ -607,7 +607,7 @@ class TestFileIOStress:
 
         for compression in [1, 5, 10]:
             file_path = os.path.join(tmpdir, f"model_comp{compression}.zst")
-            result = save_mlframe_model(data, file_path, zstd_kwargs={'level': compression}, verbose=0)
+            result = save_mlframe_model(data, file_path, zstd_kwargs={"level": compression}, verbose=0)
             assert result is True
 
             loaded = load_mlframe_model(file_path)

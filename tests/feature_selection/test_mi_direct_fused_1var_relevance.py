@@ -6,6 +6,7 @@ with a single fused O(n) pass. These tests pin BIT-IDENTITY of the fused MI + oc
 against the legacy ``merge_vars`` + ``compute_mi_from_classes`` path, and that ``mi_direct``'s
 analytic branch returns exactly that value. FAILS on pre-fix code (the fused kernel does not exist).
 """
+
 import numpy as np
 import pytest
 
@@ -15,8 +16,11 @@ from mlframe.feature_selection.filters.permutation import _relevance_mi_1var_fus
 
 def _legacy_mi_bx(fd, ix, factors_nbins, classes_y, freqs_y, dtype=np.int32):
     ax_classes, ax_freqs, _ = merge_vars(
-        factors_data=fd, vars_indices=np.array([ix], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
+        factors_data=fd,
+        vars_indices=np.array([ix], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        dtype=dtype,
     )
     mi = compute_mi_from_classes(ax_classes, ax_freqs, classes_y, freqs_y, dtype=dtype)
     return mi, int(ax_freqs.shape[0])
@@ -29,18 +33,24 @@ def _make(n, nb_x, nb_y, seed):
     fd = np.column_stack([x, y]).astype(np.int32)
     factors_nbins = np.array([nb_x, nb_y], dtype=np.int64)
     cy, fy, _ = merge_vars(
-        factors_data=fd, vars_indices=np.array([1], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=factors_nbins, dtype=np.int32,
+        factors_data=fd,
+        vars_indices=np.array([1], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        dtype=np.int32,
     )
     return fd, factors_nbins, cy, fy
 
 
-@pytest.mark.parametrize("n,nb_x,nb_y,seed", [
-    (30_000, 16, 10, 1),
-    (30_000, 20, 12, 7),
-    (50_000, 8, 6, 3),   # some empty x-bins likely (dense y)
-    (40_000, 32, 4, 5),  # unequal cardinalities
-])
+@pytest.mark.parametrize(
+    "n,nb_x,nb_y,seed",
+    [
+        (30_000, 16, 10, 1),
+        (30_000, 20, 12, 7),
+        (50_000, 8, 6, 3),  # some empty x-bins likely (dense y)
+        (40_000, 32, 4, 5),  # unequal cardinalities
+    ],
+)
 def test_fused_1var_bit_identical_to_merge_vars(n, nb_x, nb_y, seed):
     fd, fnb, cy, fy = _make(n, nb_x, nb_y, seed)
     mi_old, bx_old = _legacy_mi_bx(fd, 0, fnb, cy, fy)
@@ -59,8 +69,7 @@ def test_fused_handles_empty_x_bins():
     y = rng.integers(0, 8, size=n).astype(np.int32)
     fd = np.column_stack([x, y]).astype(np.int32)
     fnb = np.array([10, 8], dtype=np.int64)
-    cy, fy, _ = merge_vars(factors_data=fd, vars_indices=np.array([1], dtype=np.int64),
-                           var_is_nominal=None, factors_nbins=fnb, dtype=np.int32)
+    cy, fy, _ = merge_vars(factors_data=fd, vars_indices=np.array([1], dtype=np.int64), var_is_nominal=None, factors_nbins=fnb, dtype=np.int32)
     mi_old, bx_old = _legacy_mi_bx(fd, 0, fnb, cy, fy)
     mi_new, bx_new = _relevance_mi_1var_fused(fd, 0, 10, cy, fy)
     assert mi_new == mi_old
@@ -74,7 +83,13 @@ def test_mi_direct_analytic_matches_legacy_value():
     fd, fnb, cy, fy = _make(n, nb_x, nb_y, 99)
     mi_ref, _ = _legacy_mi_bx(fd, 0, fnb, cy, fy)
     mi_out, conf = mi_direct(
-        fd, x=(0,), y=(1,), factors_nbins=fnb,
-        classes_y=cy, freqs_y=fy, npermutations=10, prefer_gpu=False,
+        fd,
+        x=(0,),
+        y=(1,),
+        factors_nbins=fnb,
+        classes_y=cy,
+        freqs_y=fy,
+        npermutations=10,
+        prefer_gpu=False,
     )
     assert mi_out == mi_ref, f"mi_direct analytic value diverged: {mi_out!r} vs {mi_ref!r}"

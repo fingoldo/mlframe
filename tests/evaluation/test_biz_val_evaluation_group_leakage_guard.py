@@ -6,6 +6,7 @@ the fold boundary, giving an artificially inflated CV score that doesn't reflect
 test both confirms the guard fires on the leaky split and quantifies the CV inflation it protects against
 (leaky-split AUC vs honest GroupKFold AUC on the identical data).
 """
+
 from __future__ import annotations
 
 import numpy as np

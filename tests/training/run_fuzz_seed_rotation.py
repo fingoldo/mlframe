@@ -37,6 +37,7 @@ jobs:
           FUZZ_SEED: ${{ github.run_number }}
 ```
 """
+
 from __future__ import annotations
 
 import argparse
@@ -61,9 +62,13 @@ def _run_one_seed(seed: int, extra_pytest_args: list[str]) -> tuple[int, int, in
     # Use pytest's JUnit XML for structured results; pure stdout is fragile.
     junit_path = _HERE / f"_junit_seed_{seed}.xml"
     cmd = [
-        sys.executable, "-m", "pytest",
+        sys.executable,
+        "-m",
+        "pytest",
         str(_HERE / "test_fuzz_suite.py"),
-        "--no-cov", "-p", "no:randomly",
+        "--no-cov",
+        "-p",
+        "no:randomly",
         f"--junitxml={junit_path}",
         "--tb=line",
     ] + extra_pytest_args
@@ -74,6 +79,7 @@ def _run_one_seed(seed: int, extra_pytest_args: list[str]) -> tuple[int, int, in
     if junit_path.exists():
         # Minimal parse — count testcase elements with/without failure child.
         import xml.etree.ElementTree as ET
+
         try:
             tree = ET.parse(junit_path)
             for tc in tree.iter("testcase"):

@@ -6,6 +6,7 @@ feature happens to have the largest scale, even if that feature carries no signa
 its own within-column rank scale first (this module) should recover the anomaly signal that the naive
 scale-sensitive row summary misses entirely.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,7 +39,9 @@ def test_biz_val_extremality_index_beats_naive_row_mean_under_mixed_scales():
     auc_naive = roc_auc_score(is_anomaly, naive_row_mean_abs)
 
     assert auc_extremality >= 0.95, f"expected the extremality index to cleanly separate anomalous rows, got auc={auc_extremality:.4f}"
-    assert auc_extremality > auc_naive + 0.3, f"expected the extremality index to beat the naive scale-sensitive row mean by a wide margin, got extremality={auc_extremality:.4f} naive={auc_naive:.4f}"
+    assert auc_extremality > auc_naive + 0.3, (
+        f"expected the extremality index to beat the naive scale-sensitive row mean by a wide margin, got extremality={auc_extremality:.4f} naive={auc_naive:.4f}"
+    )
 
 
 def test_row_wise_extremality_index_symmetric_around_median():

@@ -5,6 +5,7 @@ The win: for large panel/time-series data, computing per-entity rolling-window a
 producing the same window aggregates (verified against a hand-computable small example, since polars and
 pandas use slightly different window-boundary conventions and won't produce identical row counts).
 """
+
 from __future__ import annotations
 
 import time
@@ -53,8 +54,7 @@ def test_biz_val_polars_dynamic_window_aggregate_beats_pandas_resample_speed():
     t_pandas = time.perf_counter() - t0
 
     assert t_polars < t_pandas * 0.5, (
-        f"polars group_by_dynamic should be substantially faster than pandas groupby().resample() at panel scale: "
-        f"polars={t_polars:.4f}s pandas={t_pandas:.4f}s"
+        f"polars group_by_dynamic should be substantially faster than pandas groupby().resample() at panel scale: polars={t_polars:.4f}s pandas={t_pandas:.4f}s"
     )
 
 
@@ -138,6 +138,5 @@ def test_biz_val_polars_dynamic_window_aggregate_multi_window_beats_per_window_l
     t_loop = time.perf_counter() - t0
 
     assert t_multi < t_loop * 0.85, (
-        f"periods= multi-window mode should beat a naive per-window loop by reusing the shared lazy prep: "
-        f"multi={t_multi:.4f}s loop={t_loop:.4f}s"
+        f"periods= multi-window mode should beat a naive per-window loop by reusing the shared lazy prep: multi={t_multi:.4f}s loop={t_loop:.4f}s"
     )

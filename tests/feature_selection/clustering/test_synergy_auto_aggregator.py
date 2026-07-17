@@ -11,6 +11,7 @@ Pinned contracts:
     over-selection regression) -- this is the no-regression guarantee that justified shipping 'auto'.
   * 'auto' is an accepted constructor value; a typo still raises.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,10 +26,12 @@ def _synergistic(n=6000, seed=0):
     cols, rel, logit = [], [], np.zeros(n)
     for k in range(3):
         if k % 2 == 0:
-            a = rng.integers(0, 2, n).astype(float); b = rng.integers(0, 2, n).astype(float)
+            a = rng.integers(0, 2, n).astype(float)
+            b = rng.integers(0, 2, n).astype(float)
             contrib = (a.astype(int) ^ b.astype(int)) * 2.0 - 1.0
         else:
-            a = rng.standard_normal(n); b = rng.standard_normal(n)
+            a = rng.standard_normal(n)
+            b = rng.standard_normal(n)
             contrib = np.sign(a) * np.sign(b)
         rel += [len(cols), len(cols) + 1]
         cols += [a + 0.05 * rng.standard_normal(n), b + 0.05 * rng.standard_normal(n)]
@@ -46,7 +49,10 @@ def _additive(n=6000, seed=0):
     rng = np.random.default_rng(seed)
     cols, rel, logit = [], [], np.zeros(n)
     for _ in range(3):
-        f = rng.standard_normal(n); cols.append(f); rel.append(len(cols) - 1); logit += 1.5 * f
+        f = rng.standard_normal(n)
+        cols.append(f)
+        rel.append(len(cols) - 1)
+        logit += 1.5 * f
     for j in range(8):
         cols.append(cols[0] + (0.3 + 0.05 * j) * rng.standard_normal(n))
     for _ in range(8):
@@ -77,9 +83,18 @@ class TestDetector:
 
 
 def _fit(X, y, agg, seed=0):
-    sel = MRMR(redundancy_aggregator=agg, fe_max_steps=0, interactions_max_order=1,
-               full_npermutations=3, baseline_npermutations=2, random_seed=seed,
-               use_gpu=False, n_jobs=1, verbose=0, cv=2)
+    sel = MRMR(
+        redundancy_aggregator=agg,
+        fe_max_steps=0,
+        interactions_max_order=1,
+        full_npermutations=3,
+        baseline_npermutations=2,
+        random_seed=seed,
+        use_gpu=False,
+        n_jobs=1,
+        verbose=0,
+        cv=2,
+    )
     sel.fit(X, y)
     return sel
 

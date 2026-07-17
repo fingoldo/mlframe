@@ -5,6 +5,7 @@ in their own latent cluster), the SVD embedding of the (entity x item) interacti
 cluster structure well enough for a downstream classifier to predict an entity's true cluster far better than
 a majority-class baseline -- the whole point of using latent factors as tabular features.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -62,9 +63,7 @@ def test_latent_interaction_features_time_decay_downweights_stale_events():
             "t": [0.0, 100.0, 100.0],
         }
     )
-    row_emb_no_decay, _ = latent_interaction_features(
-        events_df, "entity", "item", n_components=1, use_tfidf=False, time_col=None
-    )
+    row_emb_no_decay, _ = latent_interaction_features(events_df, "entity", "item", n_components=1, use_tfidf=False, time_col=None)
     row_emb_decay, _ = latent_interaction_features(
         events_df, "entity", "item", n_components=1, use_tfidf=False, time_col="t", time_decay_half_life=10.0, reference_time=100.0
     )
@@ -84,9 +83,7 @@ def test_latent_interaction_features_return_fitted_default_unchanged():
     """``return_fitted=False`` (the default) must be bit-identical to the pre-extension return value."""
     events_df, _, _ = _make_clustered_interactions(seed=2)
     row_emb, col_emb = latent_interaction_features(events_df, "entity", "item", n_components=6, use_tfidf=True)
-    row_emb2, col_emb2 = latent_interaction_features(
-        events_df, "entity", "item", n_components=6, use_tfidf=True, return_fitted=False
-    )
+    row_emb2, col_emb2 = latent_interaction_features(events_df, "entity", "item", n_components=6, use_tfidf=True, return_fitted=False)
     pd.testing.assert_frame_equal(row_emb, row_emb2)
     pd.testing.assert_frame_equal(col_emb, col_emb2)
 
@@ -108,9 +105,7 @@ def test_biz_val_latent_interaction_features_transfers_to_disjoint_held_out_enti
     train_events = events_df[events_df["entity"].isin(train_entities)]
     test_events = events_df[events_df["entity"].isin(test_entities)]
 
-    row_emb, _, fitted = latent_interaction_features(
-        train_events, "entity", "item", n_components=8, use_tfidf=True, return_fitted=True
-    )
+    row_emb, _, fitted = latent_interaction_features(train_events, "entity", "item", n_components=8, use_tfidf=True, return_fitted=True)
     row_emb_aligned = row_emb.reindex(train_entities)
     assert not row_emb_aligned.isna().any().any()
 

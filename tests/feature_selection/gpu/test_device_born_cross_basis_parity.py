@@ -20,6 +20,7 @@ These tests pin the SELECTION-EQUIVALENCE hard gate per family:
   forward on both so bit-consistent); AND
 * the resident-scored selection (top winner + the ranking the family consumes) == the host selection.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,6 +33,7 @@ cp = pytest.importorskip("cupy")
 def _need_cuda() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         return False
@@ -55,6 +57,7 @@ def _host_pair_matrix(X, pairs, max_degree, basis):
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_pair_cross_fe import (
         generate_pair_cross_basis_features,
     )
+
     return generate_pair_cross_basis_features(X, pairs, max_degree=max_degree, basis=basis)
 
 
@@ -71,11 +74,13 @@ def test_pair_device_matrix_matches_host(basis, max_degree, monkeypatch):
 
     rng = np.random.default_rng(20260630)
     n = 4000
-    X = pd.DataFrame({
-        "a": rng.standard_normal(n),
-        "b": rng.uniform(-3, 3, n),
-        "c": rng.gamma(2.0, 1.0, n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": rng.standard_normal(n),
+            "b": rng.uniform(-3, 3, n),
+            "c": rng.gamma(2.0, 1.0, n),
+        }
+    )
     pairs = [("a", "b"), ("a", "c"), ("b", "c")]
     host = _host_pair_matrix(X, pairs, max_degree, basis)
     assert host.shape[1] > 0
@@ -105,12 +110,19 @@ def test_triplet_device_matrix_matches_host(basis, monkeypatch):
 
     rng = np.random.default_rng(7)
     n = 4000
-    X = pd.DataFrame({
-        "x1": rng.standard_normal(n), "x2": rng.standard_normal(n),
-        "x3": rng.standard_normal(n), "x4": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": rng.standard_normal(n),
+            "x2": rng.standard_normal(n),
+            "x3": rng.standard_normal(n),
+            "x4": rng.standard_normal(n),
+        }
+    )
     host = generate_triplet_cross_basis_features(
-        X, [("x1", "x2", "x3"), ("x1", "x2", "x4")], max_degree=2, basis=basis,
+        X,
+        [("x1", "x2", "x3"), ("x1", "x2", "x4")],
+        max_degree=2,
+        basis=basis,
     )
     specs = _triplet_device_col_specs(host.columns, list(X.columns))
     assert specs is not None
@@ -134,13 +146,20 @@ def test_quadruplet_device_matrix_matches_host(basis, monkeypatch):
 
     rng = np.random.default_rng(13)
     n = 4000
-    X = pd.DataFrame({
-        "x1": rng.standard_normal(n), "x2": rng.standard_normal(n),
-        "x3": rng.standard_normal(n), "x4": rng.standard_normal(n),
-        "x5": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": rng.standard_normal(n),
+            "x2": rng.standard_normal(n),
+            "x3": rng.standard_normal(n),
+            "x4": rng.standard_normal(n),
+            "x5": rng.standard_normal(n),
+        }
+    )
     host = generate_quadruplet_cross_basis_features(
-        X, [("x1", "x2", "x3", "x4"), ("x1", "x2", "x3", "x5")], max_degree=1, basis=basis,
+        X,
+        [("x1", "x2", "x3", "x4"), ("x1", "x2", "x3", "x5")],
+        max_degree=1,
+        basis=basis,
     )
     specs = _quadruplet_device_col_specs(host.columns, list(X.columns))
     assert specs is not None
@@ -170,6 +189,7 @@ def test_pair_scorer_selection_equivalent(monkeypatch):
         generate_pair_cross_basis_features,
         score_pair_cross_basis_by_mi_uplift,
     )
+
     X, y = _build_xor(42)
     eng = generate_pair_cross_basis_features(X, [("x1", "x2")], max_degree=2, basis="hermite")
 
@@ -182,9 +202,7 @@ def test_pair_scorer_selection_equivalent(monkeypatch):
     monkeypatch.setenv("MLFRAME_FE_GPU_DEVICE_BORN_CROSSBASIS", "1")
     dev_sc = score_pair_cross_basis_by_mi_uplift(X[["x1", "x2"]], eng, y, basis="hermite")
 
-    assert list(dev_sc["engineered_col"]) == list(host_sc["engineered_col"]), (
-        "device-born pair ranking diverged from host"
-    )
+    assert list(dev_sc["engineered_col"]) == list(host_sc["engineered_col"]), "device-born pair ranking diverged from host"
     assert dev_sc.iloc[0]["engineered_col"] == "x1*x2__He1_He1"
     # engineered_mi agrees to selection precision (both via the resident plug-in vs host njit -> ~1e-3 drift ok)
     hm = dict(zip(host_sc["engineered_col"], host_sc["engineered_mi"]))

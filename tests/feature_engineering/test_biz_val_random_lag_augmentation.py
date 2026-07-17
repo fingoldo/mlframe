@@ -9,6 +9,7 @@ actually see served. Training with a per-row RANDOMIZED lag (spanning the true s
 teaches a coefficient that generalizes to the fixed staleness level actually encountered at serve time --
 mirroring the Power Laws Forecasting 1st place's random-lag training / sequential-lag validation split.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -63,7 +64,9 @@ def test_biz_val_randomize_as_of_lag_beats_freshest_only_training_under_serve_st
     mse_randomized = mean_squared_error(y_test, randomized_model.predict(X_test.to_numpy()))
 
     improvement = 1.0 - mse_randomized / mse_baseline
-    assert improvement > 0.3, f"expected >30% MSE reduction vs. freshest-only training under a fixed serving staleness, got {improvement:.4f} (baseline={mse_baseline:.2f}, randomized={mse_randomized:.2f})"
+    assert improvement > 0.3, (
+        f"expected >30% MSE reduction vs. freshest-only training under a fixed serving staleness, got {improvement:.4f} (baseline={mse_baseline:.2f}, randomized={mse_randomized:.2f})"
+    )
 
 
 def test_biz_val_randomize_as_of_lag_histogram_beats_uniform_under_skewed_serving_lag():
@@ -110,7 +113,9 @@ def test_biz_val_randomize_as_of_lag_histogram_beats_uniform_under_skewed_servin
     mse_hist = mean_squared_error(y_test, hist_model.predict(X_test.to_numpy()))
 
     improvement = 1.0 - mse_hist / mse_uniform
-    assert improvement > 0.15, f"expected >15% MSE reduction vs. uniform-lag training under skewed serving staleness, got {improvement:.4f} (uniform={mse_uniform:.2f}, histogram={mse_hist:.2f})"
+    assert improvement > 0.15, (
+        f"expected >15% MSE reduction vs. uniform-lag training under skewed serving staleness, got {improvement:.4f} (uniform={mse_uniform:.2f}, histogram={mse_hist:.2f})"
+    )
 
 
 def test_randomize_as_of_lag_histogram_requires_both_edges_and_counts():
@@ -129,7 +134,9 @@ def test_randomize_as_of_lag_histogram_requires_both_edges_and_counts():
 
 def test_randomize_as_of_lag_histogram_shifts_within_bin_bounds():
     as_of = pd.DataFrame({"entity": range(2000), "as_of": 100.0})
-    shifted = randomize_as_of_lag(as_of, "as_of", max_lag=15.0, lag_histogram_edges=[0.0, 1.0, 2.0, 5.0, 15.0], lag_histogram_counts=[70.0, 15.0, 10.0, 5.0], random_state=0)
+    shifted = randomize_as_of_lag(
+        as_of, "as_of", max_lag=15.0, lag_histogram_edges=[0.0, 1.0, 2.0, 5.0, 15.0], lag_histogram_counts=[70.0, 15.0, 10.0, 5.0], random_state=0
+    )
     offsets = 100.0 - shifted["as_of"].to_numpy()
     assert (offsets >= 0.0).all() and (offsets <= 15.0).all()
     # Skewed toward the short-lag bin -- most offsets should land under 1.0 given a 70% weight there.

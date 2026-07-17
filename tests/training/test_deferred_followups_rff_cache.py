@@ -46,6 +46,7 @@ design decision, or a runnable bench script).
       explicit-design-decision (deferred until a real workload exceeds budget,
       not a forgotten TODO).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -87,7 +88,15 @@ def _read(rel: str) -> str:
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     elif rel == "feature_selection/filters/mrmr.py":
         _dir = MLFRAME_ROOT / "feature_selection" / "filters"
-        for nm in ("_mrmr_fingerprints.py", "_mrmr_fit_impl/_fit_impl_core.py", "_mrmr_fit_impl/_helpers.py", "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_step_score.py", "_mrmr_fe_step/_helpers.py", "_mrmr_validate_transform.py"):
+        for nm in (
+            "_mrmr_fingerprints.py",
+            "_mrmr_fit_impl/_fit_impl_core.py",
+            "_mrmr_fit_impl/_helpers.py",
+            "_mrmr_fe_step/_step_core.py",
+            "_mrmr_fe_step/_step_score.py",
+            "_mrmr_fe_step/_helpers.py",
+            "_mrmr_validate_transform.py",
+        ):
             sibling = _dir / nm
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
@@ -157,10 +166,7 @@ def test_cat_interactions_multiclass_docstring_documents_design() -> None:
     # ``_compute_target_encoding`` (and its multi-class design docstring)
     # was moved to the ``_cat_target_encoding_and_weighted.py`` sibling when
     # ``cat_interactions.py`` was split below 1k LOC.
-    src = (
-        _read("feature_selection/filters/cat_interactions.py")
-        + _read("feature_selection/filters/_cat_target_encoding_and_weighted.py")
-    )
+    src = _read("feature_selection/filters/cat_interactions.py") + _read("feature_selection/filters/_cat_target_encoding_and_weighted.py")
     # The TODO marker is gone.
     assert "TODO multi-class" not in src
     # Replaced with explicit design rationale.
@@ -200,6 +206,7 @@ def test_hermite_fe_separate_eval_documented_as_implemented() -> None:
     # ``_hermite_fe_optimise_pair.py`` during the hermite-fe monolith split.
     import pathlib
     import mlframe as _mlframe
+
     _root = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "filters"
     src = ""
     for nm in ("hermite_fe.py", "_hermite_fe_optimise_pair.py"):

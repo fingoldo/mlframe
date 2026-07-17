@@ -12,6 +12,7 @@ Tests:
 - test_xgb_native_config_carries_through_objective_kwargs
 - test_per_class_calibrator_empty_class_set_safe
 """
+
 from __future__ import annotations
 
 import sys
@@ -48,7 +49,9 @@ def test_cb_multilogloss_accepts_int_targets_returns_NK():
     y_int = rng.integers(0, 2, size=(100, 3)).astype(np.int8)
 
     clf = CatBoostClassifier(
-        loss_function="MultiLogloss", iterations=3, verbose=False,
+        loss_function="MultiLogloss",
+        iterations=3,
+        verbose=False,
         allow_writing_files=False,
     )
     clf.fit(X, y_int)
@@ -69,7 +72,8 @@ def test_xgb_num_class_inference_survives_y_val_none():
     from mlframe.training.helpers import get_training_configs
 
     cfg = get_training_configs(
-        iterations=10, early_stopping_rounds=2,
+        iterations=10,
+        early_stopping_rounds=2,
         target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
         n_classes=4,
     )
@@ -88,7 +92,9 @@ def test_multilabel_K1_degenerate_metrics_ok():
     """K=1 multilabel is degenerate (just a single binary label stored as
     2-D). Numba metrics and canonicalizer should not crash."""
     from mlframe.metrics.core import (
-        hamming_loss, subset_accuracy, jaccard_score_multilabel,
+        hamming_loss,
+        subset_accuracy,
+        jaccard_score_multilabel,
     )
     from mlframe.training.helpers import _canonical_predict_proba_shape
 
@@ -125,16 +131,24 @@ def test_splitting_stratify_2d_via_iterstrat_roundtrip():
     rng = np.random.default_rng(42)
     N, K = 500, 3
     # Per-label rates 0.3, 0.5, 0.7 — we want these preserved in splits
-    y = np.stack([
-        (rng.uniform(size=N) < 0.3).astype(np.int8),
-        (rng.uniform(size=N) < 0.5).astype(np.int8),
-        (rng.uniform(size=N) < 0.7).astype(np.int8),
-    ], axis=1)
+    y = np.stack(
+        [
+            (rng.uniform(size=N) < 0.3).astype(np.int8),
+            (rng.uniform(size=N) < 0.5).astype(np.int8),
+            (rng.uniform(size=N) < 0.7).astype(np.int8),
+        ],
+        axis=1,
+    )
     df = pd.DataFrame({"feature_a": rng.standard_normal(N)})
 
     train_idx, val_idx, test_idx, *_ = make_train_test_split(
-        df, test_size=0.2, val_size=0.1, shuffle_test=True, shuffle_val=True,
-        random_seed=0, stratify_y=y,
+        df,
+        test_size=0.2,
+        val_size=0.1,
+        shuffle_test=True,
+        shuffle_val=True,
+        random_seed=0,
+        stratify_y=y,
     )
     # Each split should have ~similar per-label rates to the full data
     full_rates = y.mean(axis=0)
@@ -143,33 +157,34 @@ def test_splitting_stratify_2d_via_iterstrat_roundtrip():
             continue
         split_rates = y[idx].mean(axis=0)
         diff = np.abs(split_rates - full_rates)
-        assert (diff < 0.10).all(), (
-            f"{name} split drifted: full={full_rates}, split={split_rates}, "
-            f"diff={diff}"
-        )
+        assert (diff < 0.10).all(), f"{name} split drifted: full={full_rates}, split={split_rates}, diff={diff}"
 
 
 def test_splitting_stratify_1d_equivalent_to_sklearn():
     """1-D stratify_y routes through sklearn StratifiedShuffleSplit —
     preserves class ratios precisely."""
     from mlframe.training.splitting import make_train_test_split
+
     rng = np.random.default_rng(0)
     N = 500
     y = (rng.uniform(size=N) < 0.3).astype(np.int8)  # ~30% positives
     df = pd.DataFrame({"feature_a": rng.standard_normal(N)})
 
     train_idx, val_idx, test_idx, *_ = make_train_test_split(
-        df, test_size=0.2, val_size=0.1, shuffle_test=True, shuffle_val=True,
-        random_seed=0, stratify_y=y,
+        df,
+        test_size=0.2,
+        val_size=0.1,
+        shuffle_test=True,
+        shuffle_val=True,
+        random_seed=0,
+        stratify_y=y,
     )
     for idx, name in [(train_idx, "train"), (val_idx, "val"), (test_idx, "test")]:
         if len(idx) == 0:
             continue
         split_rate = float(y[idx].mean())
         # StratifiedShuffleSplit should give very tight ratios (<5pp)
-        assert abs(split_rate - 0.3) < 0.05, (
-            f"{name} class rate {split_rate:.3f} drifted from 0.3"
-        )
+        assert abs(split_rate - 0.3) < 0.05, f"{name} class rate {split_rate:.3f} drifted from 0.3"
 
 
 # ---------------------------------------------------------------------------
@@ -186,17 +201,22 @@ def test_iterstrat_import_error_has_install_hint():
     with patch.dict(sys.modules, {"iterstrat": None, "iterstrat.ml_stratifiers": None}):
         # Also patch the actual import path
         real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+
         def fake_import(name, *args, **kwargs):
             if name.startswith("iterstrat"):
                 raise ImportError(f"No module named {name!r}")
             return real_import(name, *args, **kwargs)
+
         with patch("builtins.__import__", side_effect=fake_import):
             rng = np.random.default_rng(0)
             df = pd.DataFrame({"a": rng.standard_normal(100)})
             y_2d = rng.integers(0, 2, size=(100, 3)).astype(np.int8)
             with pytest.raises(ImportError, match="iterative-stratification"):
                 make_train_test_split(
-                    df, test_size=0.2, stratify_y=y_2d, random_seed=0,
+                    df,
+                    test_size=0.2,
+                    stratify_y=y_2d,
+                    random_seed=0,
                 )
 
 
@@ -210,10 +230,12 @@ def test_xgb_native_multilabel_kwargs_have_tree_method():
     kwargs include ``tree_method='hist'`` (required by XGB 3.x for
     multi_output_tree)."""
     from mlframe.training.strategies import XGBoostStrategy
+
     s = XGBoostStrategy()
     cfg = MultilabelDispatchConfig(force_native_xgb_multilabel=True)
     kw = s.get_classif_objective_kwargs(
-        TargetTypes.MULTILABEL_CLASSIFICATION, n_classes=3,
+        TargetTypes.MULTILABEL_CLASSIFICATION,
+        n_classes=3,
         multilabel_config=cfg,
     )
     assert kw["tree_method"] == "hist"
@@ -231,6 +253,7 @@ def test_per_class_calibrator_tiny_calib_set():
     """Calibration set smaller than n_classes. Each per-class calibrator
     either fits or is skipped (None = identity); no crash."""
     from mlframe.training.trainer import _PerClassIsotonicCalibrator
+
     # Only 10 samples, 5 classes — some classes will have 0-2 samples
     rng = np.random.default_rng(0)
     probs = rng.dirichlet(np.ones(5), size=10)

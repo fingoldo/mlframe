@@ -36,6 +36,7 @@ confusing real data with sentinel.
        fill_null/fill_nan(0) on numeric -> per-column median; PySR's candidate
        scoring no longer biased toward features where NaN ~ 0 by coincidence.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -192,6 +193,7 @@ def test_pd_ordinal_encoder_default_encodes_missing_as_minus_one() -> None:
 def test_dummy_baselines_handles_nan_in_group_field() -> None:
     """LTR fast-path group sanity gate must not crash on NaN group_id."""
     import pandas as pd
+
     # Direct unit on the factorize + bincount chain.
     g_train = pd.Series(["a", "b", "a", None, "c", None, "a"])
     _factor_codes = pd.factorize(g_train)[0]

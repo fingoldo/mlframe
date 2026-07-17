@@ -35,6 +35,7 @@ computed (stays False), identical in effect to the bug (computed but never consu
 evidence that the fix adds genuine, currently-inaccessible-by-the-canonical-suite value, not just "no
 regression": SIGNAL_LOSS is asserted for a pair whose warp materialises the outlier-tail interaction the
 strict rank-MI gates structurally cannot see."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -90,8 +91,12 @@ def test_fixture_shape_pair01_dominant_balanced_pair23_nondominant_tail_concentr
 
 def _run(y, X, cols, *, usability_enable: bool):
     cached_MIs = {
-        (0,): 0.4, (1,): 0.4, (0, 1): 1.2,
-        (2,): 0.01, (3,): 0.01, (2, 3): 0.02,
+        (0,): 0.4,
+        (1,): 0.4,
+        (0, 1): 1.2,
+        (2,): 0.01,
+        (3,): 0.01,
+        (2, 3): 0.02,
     }
 
     class _Self:

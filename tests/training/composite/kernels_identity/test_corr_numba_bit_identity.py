@@ -13,6 +13,7 @@ numpy reference (``screening._safe_abs_corr_all_numpy``):
 A biz_value sensor pins the measured speedup so a regression that silently drops the
 kernel (or makes it slower than numpy) trips.
 """
+
 from __future__ import annotations
 
 import time
@@ -135,6 +136,5 @@ class TestCorrNumbaBizValue:
         t_nb = _best(_dispatch)
         speedup = t_np / t_nb if t_nb > 0 else float("inf")
         assert speedup >= 1.5, (
-            f"numba corr kernel should be >=1.5x numpy at n={n} F={f}; "
-            f"got {speedup:.2f}x (numpy {t_np * 1e3:.1f}ms, numba {t_nb * 1e3:.1f}ms)"
+            f"numba corr kernel should be >=1.5x numpy at n={n} F={f}; got {speedup:.2f}x (numpy {t_np * 1e3:.1f}ms, numba {t_nb * 1e3:.1f}ms)"
         )

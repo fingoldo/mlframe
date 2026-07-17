@@ -4,6 +4,7 @@ plotly ships only in the ``viz`` extra, so importing the module (and calling its
 functions) must not require plotly; only a code path that actually asks for a plotly chart should fail,
 and then with an actionable ``mlframe[viz]`` install hint.
 """
+
 from __future__ import annotations
 
 import builtins

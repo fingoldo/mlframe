@@ -11,6 +11,7 @@ Identity guarantees pinned here:
   2. With decay ON, the spied ``fi_run_order`` arg is the FULL insertion-order key list of
      ``feature_importances`` (newest last) -- the pre-fix behaviour, preserved.
 """
+
 from __future__ import annotations
 
 import numpy as np

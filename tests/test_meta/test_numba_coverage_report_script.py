@@ -3,6 +3,7 @@ assert the resulting JSON has the expected fields, per-module decorator counts, 
 
 Closes the W10 task that asks for a structured JSON bench-report alongside the AP5 nightly workflow so the
 NUMBA_DISABLE_JIT=1 coverage XML is consumable by reviewers without manual XML parsing."""
+
 from __future__ import annotations
 
 import orjson
@@ -68,11 +69,7 @@ def tmp_src_root(tmp_path: Path) -> Path:
     src.mkdir(parents=True)
     target = src / "permutation.py"
     target.write_text(
-        "import numba\n"
-        "\n"
-        "@numba.njit\n"
-        "def kernel():\n"
-        "    return 1\n",
+        "import numba\n\n@numba.njit\ndef kernel():\n    return 1\n",
         encoding="utf-8",
     )
     return tmp_path / "src" / "mlframe"

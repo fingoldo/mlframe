@@ -1,5 +1,6 @@
 """Estimator-side FUTURE batch: E13 (update envelope refresh), E23 (robust
 allowlist), E6/DX3 (grouped predict_quantile)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,9 +21,12 @@ class TestE13EnvelopeRefresh:
         y = 2.0 * b + rng.normal(0.0, 0.1, n)
         X = pd.DataFrame({"b": b})
         est = CompositeTargetEstimator(
-            base_estimator=LinearRegression(), transform_name="linear_residual",
-            base_column="b", online_refit_enabled=True,
-            online_refit_min_buffer_n=100, online_refit_z_threshold=1.0,
+            base_estimator=LinearRegression(),
+            transform_name="linear_residual",
+            base_column="b",
+            online_refit_enabled=True,
+            online_refit_min_buffer_n=100,
+            online_refit_z_threshold=1.0,
         ).fit(X, y)
         hi0 = est.fitted_params_["y_clip_high"]
         bd = rng.normal(5.0, 1.0, 300)
@@ -43,7 +47,8 @@ class TestE23RobustAllowlist:
         X = pd.DataFrame({"b": b})
         est = CompositeTargetEstimator(
             base_estimator=LinearRegression(),
-            transform_name="linear_residual_robust", base_column="b",
+            transform_name="linear_residual_robust",
+            base_column="b",
             online_refit_enabled=True,
         ).fit(X, y)
         # Must NOT raise NotImplementedError (robust shares the alpha/beta shape).
@@ -55,8 +60,10 @@ class TestE23RobustAllowlist:
         y = b * 1.5 + 0.1
         X = pd.DataFrame({"b": b})
         est = CompositeTargetEstimator(
-            base_estimator=LinearRegression(), transform_name="ratio",
-            base_column="b", online_refit_enabled=True,
+            base_estimator=LinearRegression(),
+            transform_name="ratio",
+            base_column="b",
+            online_refit_enabled=True,
         ).fit(X, y)
         with pytest.raises(NotImplementedError):
             est.update(y[:50], b[:50])
@@ -98,7 +105,8 @@ class TestE6GroupedPredictQuantile:
         est = CompositeTargetEstimator(
             base_estimator=_GroupedQuantileInner(),
             transform_name="linear_residual_grouped",
-            base_column="b", group_column="grp",
+            base_column="b",
+            group_column="grp",
         )
         est.fit(X, y)
         out = est.predict_quantile(X, alpha)  # pre-fix: groups kwarg missing -> raise

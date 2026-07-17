@@ -5,6 +5,7 @@ show a POSITIVE aggregate mean CV delta -- aggregate-only acceptance would wrong
 majority criterion correctly rejects it (since it only improves a minority of folds), while still accepting
 a genuine improvement that helps most folds.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -9,6 +9,7 @@ Bootstrap posterior for the (alpha, beta) of ``linear_residual``. Lock:
 - Subsample mode bounds compute on large datasets.
 - Degenerate input (n < 4) returns a point estimate without crashing.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,11 +36,13 @@ class TestPosteriorMean:
     def test_credible_interval_tightens_with_n(self) -> None:
         rng = np.random.default_rng(1)
         true_alpha = 0.85
+
         def _ci_width(n: int) -> float:
             base = rng.normal(loc=10.0, scale=2.0, size=n)
             y = true_alpha * base + rng.normal(scale=0.5, size=n)
             post = bayesian_alpha_fit(y, base, n_bootstrap=200, random_state=42)
             return post["alpha_ci_high"] - post["alpha_ci_low"]
+
         wide = _ci_width(100)
         tight = _ci_width(10000)
         assert tight < wide * 0.5, f"CI should tighten with n; wide(n=100)={wide:.4f}, tight(n=10000)={tight:.4f}"
@@ -122,10 +125,12 @@ class TestBizValue:
         rng = np.random.default_rng(0)
         n = 500
         base = rng.normal(loc=10.0, scale=2.0, size=n)
+
         def _ci_width(noise_scale: float) -> float:
             y = 0.85 * base + rng.normal(scale=noise_scale, size=n)
             post = bayesian_alpha_fit(y, base, n_bootstrap=150, random_state=42)
             return post["alpha_ci_high"] - post["alpha_ci_low"]
+
         low = _ci_width(0.05)
         high = _ci_width(2.0)
         assert high > low * 5, f"high-noise CI should be much wider; low={low:.4f}, high={high:.4f}"

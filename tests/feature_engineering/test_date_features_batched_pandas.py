@@ -8,6 +8,7 @@ them in ONE pd.concat instead of column-at-a-time assignment. Asserts:
 * the batched output is column-for-column, dtype-for-dtype, value-for-value identical
   to the reference column-at-a-time implementation (captured expected).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -81,8 +82,12 @@ def test_create_date_features_batched_identical_and_no_fragmentation():
     with warnings.catch_warnings():
         warnings.simplefilter("error", category=pd.errors.PerformanceWarning)
         got = create_date_features(
-            df, cols=cols, methods=methods, add_cyclical=True,
-            cyclical_periods=periods, delete_original_cols=False,
+            df,
+            cols=cols,
+            methods=methods,
+            add_cyclical=True,
+            cyclical_periods=periods,
+            delete_original_cols=False,
         )
 
     # column order, dtypes and values must all match the reference exactly
@@ -107,7 +112,10 @@ def test_batched_preserves_exact_column_order():
     df = _make_wide_df()
     cols = [c for c in df.columns if c.startswith("dt")]
     got = create_date_features(
-        df, cols=cols, add_cyclical=True, delete_original_cols=False,
+        df,
+        cols=cols,
+        add_cyclical=True,
+        delete_original_cols=False,
     )
     # originals first (in input order), then each col's methods, then cyclical pairs
     assert list(got.columns[: df.shape[1]]) == list(df.columns)

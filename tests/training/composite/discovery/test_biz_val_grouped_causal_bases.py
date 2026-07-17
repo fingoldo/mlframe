@@ -7,6 +7,7 @@ REAL previous value and does not collapse on unseen groups. These tests pin: cau
 isolation, order-key handling, polars/pandas parity, the discovery-pool wiring (present when a group key is configured,
 absent when engineering is off), and a quantitative group-disjoint reconstruction floor.
 """
+
 from __future__ import annotations
 
 import time
@@ -45,6 +46,7 @@ def _mixed_frame() -> pd.DataFrame:
 
 
 # --------------------------------------------------------------------------- causal correctness
+
 
 def test_grouped_lag1_equals_previous_within_group_ordered_by_key():
     df = _mixed_frame()
@@ -102,6 +104,7 @@ def test_trailing_window_matches_manual_rolling_mean_of_strict_past():
 
 # --------------------------------------------------------------------------- group boundaries / ordering
 
+
 def test_group_boundaries_never_leak_across_entities():
     # Interleaved groups: if the lag ignored group boundaries it would pull the other group's value.
     df = pd.DataFrame(
@@ -145,6 +148,7 @@ def test_single_row_group_fills_own_value():
 
 # --------------------------------------------------------------------------- carrier parity
 
+
 def test_polars_and_pandas_parity():
     pdf = _mixed_frame()
     pldf = pl.from_pandas(pdf)
@@ -166,6 +170,7 @@ def test_string_and_numeric_group_keys_equivalent():
 
 
 # --------------------------------------------------------------------------- validation
+
 
 @pytest.mark.parametrize(
     "kwargs",
@@ -198,6 +203,7 @@ def test_mismatched_group_length_raises():
 
 # --------------------------------------------------------------------------- attach / memory safety
 
+
 def test_attach_does_not_mutate_caller_and_skips_existing():
     df = _mixed_frame()
     cols_before = list(df.columns)
@@ -217,6 +223,7 @@ def test_attach_polars_zero_copy_semantics():
 
 
 # --------------------------------------------------------------------------- wiring into discovery
+
 
 class _FakeConfig:
     def __init__(self, **kw):
@@ -246,6 +253,7 @@ def test_maybe_add_noop_when_disabled_or_no_group():
 
 
 # --------------------------------------------------------------------------- biz_value
+
 
 def _group_sequential_frame(seed: int, n_groups: int = 40, per: int = 40):
     """Per-group random-walk target: strong within-group AR(1), widely varying per-group level. The per-group causal
@@ -295,7 +303,11 @@ def test_biz_val_grouped_causal_lag_enters_pool_and_reconstructs_on_disjoint_hol
     time_ordering = df["md"].to_numpy()
 
     disc_on = CompositeTargetDiscovery(_disc_config(True)).fit(
-        df=df, target_col="y", feature_cols=["f0", "f1"], train_idx=train_idx, time_ordering=time_ordering,
+        df=df,
+        target_col="y",
+        feature_cols=["f0", "f1"],
+        train_idx=train_idx,
+        time_ordering=time_ordering,
     )
     pool_on = getattr(disc_on, "_auto_base_pool", {})
     assert "y__gcausal_lag1" in pool_on, "engineered causal lag base must enter the candidate pool when ON"
@@ -304,7 +316,11 @@ def test_biz_val_grouped_causal_lag_enters_pool_and_reconstructs_on_disjoint_hol
     assert any(s.base_column == "y__gcausal_lag1" for s in disc_on.specs_), "a causal-lag composite spec must be KEPT"
 
     disc_off = CompositeTargetDiscovery(_disc_config(False)).fit(
-        df=df, target_col="y", feature_cols=["f0", "f1"], train_idx=train_idx, time_ordering=time_ordering,
+        df=df,
+        target_col="y",
+        feature_cols=["f0", "f1"],
+        train_idx=train_idx,
+        time_ordering=time_ordering,
     )
     pool_off = getattr(disc_off, "_auto_base_pool", {})
     assert "y__gcausal_lag1" not in pool_off, "no causal lag base may exist with engineering OFF"
@@ -335,6 +351,7 @@ def test_biz_val_reconstruction_is_stable_across_seeds():
 
 
 # --------------------------------------------------------------------------- profile smoke (cProfile verdict in module docstring)
+
 
 def test_profile_smoke_representative_shape_is_fast():
     rng = np.random.default_rng(0)

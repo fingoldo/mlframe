@@ -26,6 +26,7 @@ to integer class IDs before the int64 cast. MDLP only needs class
 identity at split-purity computation, so factorize is sufficient and
 order-preserving for already-integer inputs.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -38,8 +39,7 @@ import pytest
 def _frame():
     rng = np.random.default_rng(7)
     n = 200
-    X = pd.DataFrame(rng.standard_normal((n, 4)),
-                      columns=[f"f{i}" for i in range(4)])
+    X = pd.DataFrame(rng.standard_normal((n, 4)), columns=[f"f{i}" for i in range(4)])
     return X
 
 
@@ -48,13 +48,17 @@ def test_mrmr_fit_with_string_y_does_not_crash():
     must fit cleanly on default config.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     X = _frame()
     y = pd.Series(np.where(X["f0"] > 0, "yes", "no"))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         sel = MRMR(
-            quantization_nbins=8, full_npermutations=2,
-            baseline_npermutations=2, fe_max_steps=0, verbose=0,
+            quantization_nbins=8,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            fe_max_steps=0,
+            verbose=0,
         ).fit(X, y)
     assert sel.support_ is not None
 
@@ -64,14 +68,18 @@ def test_mrmr_fit_with_categorical_y_does_not_crash():
     output) must also work.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     X = _frame()
     y_str = pd.Series(np.where(X["f0"] > 0, "yes", "no"))
     y_cat = pd.Series(pd.Categorical(y_str))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         sel = MRMR(
-            quantization_nbins=8, full_npermutations=2,
-            baseline_npermutations=2, fe_max_steps=0, verbose=0,
+            quantization_nbins=8,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            fe_max_steps=0,
+            verbose=0,
         ).fit(X, y_cat)
     assert sel.support_ is not None
 
@@ -81,6 +89,7 @@ def test_mdlp_bin_edges_string_y_directly():
     internally rather than crashing on ``.astype(int64)``.
     """
     from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
+
     rng = np.random.default_rng(0)
     n = 200
     x = rng.standard_normal(n)
@@ -95,6 +104,7 @@ def test_mdlp_bin_edges_integer_y_unchanged():
     """Negative control: integer y still works identically (factorize
     is a no-op for already-integer inputs)."""
     from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
+
     rng = np.random.default_rng(1)
     n = 200
     x = rng.standard_normal(n)
@@ -106,6 +116,7 @@ def test_mdlp_bin_edges_integer_y_unchanged():
 def test_mdlp_bin_edges_pandas_categorical_y():
     """pandas Categorical (with .codes) accepted via factorize."""
     from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
+
     rng = np.random.default_rng(2)
     n = 200
     x = rng.standard_normal(n)

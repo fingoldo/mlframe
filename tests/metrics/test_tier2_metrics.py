@@ -4,6 +4,7 @@
 - Accuracy Ratio (binary, banking convention for Gini)
 - CRPS from quantiles (regression probabilistic forecasting)
 """
+
 from __future__ import annotations
 
 import warnings
@@ -12,8 +13,12 @@ import numpy as np
 import pytest
 
 from mlframe.metrics.core import (
-    fast_poisson_deviance, fast_gamma_deviance, fast_tweedie_deviance,
-    hosmer_lemeshow_test, accuracy_ratio, fast_roc_auc,
+    fast_poisson_deviance,
+    fast_gamma_deviance,
+    fast_tweedie_deviance,
+    hosmer_lemeshow_test,
+    accuracy_ratio,
+    fast_roc_auc,
 )
 from mlframe.metrics.quantile import crps_from_quantiles, pinball_loss
 
@@ -23,26 +28,31 @@ from mlframe.metrics.quantile import crps_from_quantiles, pinball_loss
 
 def test_poisson_deviance_matches_sklearn():
     from sklearn.metrics import mean_poisson_deviance
+
     rng = np.random.default_rng(0)
     y = rng.poisson(3.0, 500).astype(np.float64)
     p = np.maximum(0.1, y + rng.normal(0, 0.5, 500))
     assert fast_poisson_deviance(y, p) == pytest.approx(
-        mean_poisson_deviance(y, p), abs=1e-12,
+        mean_poisson_deviance(y, p),
+        abs=1e-12,
     )
 
 
 def test_gamma_deviance_matches_sklearn():
     from sklearn.metrics import mean_gamma_deviance
+
     rng = np.random.default_rng(1)
     y = rng.gamma(2.0, 1.0, 500)
     p = np.maximum(1e-3, y + rng.normal(0, 0.1, 500))
     assert fast_gamma_deviance(y, p) == pytest.approx(
-        mean_gamma_deviance(y, p), abs=1e-12,
+        mean_gamma_deviance(y, p),
+        abs=1e-12,
     )
 
 
 def test_tweedie_general_matches_sklearn():
     from sklearn.metrics import mean_tweedie_deviance
+
     rng = np.random.default_rng(2)
     y = rng.gamma(2.0, 1.0, 500)
     p = np.maximum(1e-3, y + rng.normal(0, 0.1, 500))

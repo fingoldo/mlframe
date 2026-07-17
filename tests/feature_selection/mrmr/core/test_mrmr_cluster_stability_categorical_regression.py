@@ -6,6 +6,7 @@ silently fell back to classic fit, DISABLING cluster stability on any data carry
 only the numeric columns (a categorical cannot enter a Pearson graph, so it becomes its own singleton cluster) and hands the bootstrap selector
 dtype-preserved rows, so the method RUNS on mixed numeric+categorical data -- and the categorical stays selectable as a singleton.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -18,12 +19,14 @@ warnings.filterwarnings("ignore")
 
 def _frame_with_categorical(n=300, seed=0):
     rng = np.random.default_rng(seed)
-    df = pd.DataFrame({
-        "num_0": rng.normal(size=n),
-        "num_1": rng.normal(size=n),
-        "num_2": rng.normal(size=n),
-        "cat": pd.Categorical(rng.choice(["a", "b", "", "c"], size=n)),  # raw categorical incl the '' level (the c0015 value)
-    })
+    df = pd.DataFrame(
+        {
+            "num_0": rng.normal(size=n),
+            "num_1": rng.normal(size=n),
+            "num_2": rng.normal(size=n),
+            "cat": pd.Categorical(rng.choice(["a", "b", "", "c"], size=n)),  # raw categorical incl the '' level (the c0015 value)
+        }
+    )
     y = (df["num_0"] + df["num_1"] > 0).astype(int).to_numpy()
     return df, y
 

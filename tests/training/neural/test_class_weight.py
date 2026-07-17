@@ -18,6 +18,7 @@ Tests:
   * ``class_weight=None`` (default) leaves behaviour identical to the
     pre-fix path.
 """
+
 from __future__ import annotations
 
 import sys
@@ -45,12 +46,20 @@ def imbalanced_binary_data():
     F-05 1-output BCE binary head still leaves room for class_weight to
     make a measurable difference)."""
     X, y = make_classification(
-        n_samples=2000, n_features=8, n_informative=6, n_redundant=0,
-        n_classes=2, weights=[0.95, 0.05], random_state=0,
+        n_samples=2000,
+        n_features=8,
+        n_informative=6,
+        n_redundant=0,
+        n_classes=2,
+        weights=[0.95, 0.05],
+        random_state=0,
     )
     X_tr, X_te, y_tr, y_te = train_test_split(
-        X.astype(np.float32), y.astype(np.int64),
-        test_size=0.3, random_state=0, stratify=y,
+        X.astype(np.float32),
+        y.astype(np.int64),
+        test_size=0.3,
+        random_state=0,
+        stratify=y,
     )
     return {"X_train": X_tr, "y_train": y_tr, "X_test": X_te, "y_test": y_te}
 
@@ -63,9 +72,12 @@ def _classifier_params(class_weight=None, random_state=0):
             "learning_rate": 1e-2,
         },
         "network_params": {
-            "nlayers": 2, "first_layer_num_neurons": 32,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 2,
+            "first_layer_num_neurons": 32,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": torch.nn.ReLU,
         },
         "datamodule_class": TorchDataModule,
@@ -75,9 +87,13 @@ def _classifier_params(class_weight=None, random_state=0):
             "dataloader_params": {"batch_size": 64, "num_workers": 0},
         },
         "trainer_params": {
-            "max_epochs": 30, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 30,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         "class_weight": class_weight,
         "random_state": random_state,
@@ -92,14 +108,18 @@ def test_class_weight_balanced_improves_minority_recall(imbalanced_binary_data):
     clf_none.fit(imbalanced_binary_data["X_train"], imbalanced_binary_data["y_train"])
     preds_none = clf_none.predict(imbalanced_binary_data["X_test"])
     recall_none = recall_score(
-        imbalanced_binary_data["y_test"], preds_none, pos_label=1,
+        imbalanced_binary_data["y_test"],
+        preds_none,
+        pos_label=1,
     )
 
     clf_bal = PytorchLightningClassifier(**_classifier_params(class_weight="balanced"))
     clf_bal.fit(imbalanced_binary_data["X_train"], imbalanced_binary_data["y_train"])
     preds_bal = clf_bal.predict(imbalanced_binary_data["X_test"])
     recall_bal = recall_score(
-        imbalanced_binary_data["y_test"], preds_bal, pos_label=1,
+        imbalanced_binary_data["y_test"],
+        preds_bal,
+        pos_label=1,
     )
 
     print(
@@ -114,13 +134,8 @@ def test_class_weight_balanced_improves_minority_recall(imbalanced_binary_data):
     #      training-side effect, not a no-op).
     #   2) Minority recall does not REGRESS under "balanced" -- if it
     #      regresses, the class_weight knob is hurting rather than helping.
-    assert not np.array_equal(preds_none, preds_bal), (
-        "class_weight='balanced' should produce different predictions than None"
-    )
-    assert recall_bal >= recall_none - 0.02, (
-        f"class_weight='balanced' regressed minority recall: "
-        f"balanced={recall_bal:+.4f} < None={recall_none:+.4f} - 0.02"
-    )
+    assert not np.array_equal(preds_none, preds_bal), "class_weight='balanced' should produce different predictions than None"
+    assert recall_bal >= recall_none - 0.02, f"class_weight='balanced' regressed minority recall: balanced={recall_bal:+.4f} < None={recall_none:+.4f} - 0.02"
 
 
 def test_class_weight_dict_applies_explicit_weights(imbalanced_binary_data):
@@ -139,9 +154,7 @@ def test_class_weight_dict_applies_explicit_weights(imbalanced_binary_data):
 
     # A 10x weighting on the minority class should produce DIFFERENT
     # predictions than the no-reweight baseline.
-    assert not np.array_equal(preds_none, preds_dict), (
-        "class_weight={0: 1.0, 1: 10.0} should change predictions vs None"
-    )
+    assert not np.array_equal(preds_none, preds_dict), "class_weight={0: 1.0, 1: 10.0} should change predictions vs None"
 
     # And specifically: more samples should be predicted as class 1.
     n_pos_none = int((preds_none == 1).sum())
@@ -183,7 +196,8 @@ def test_class_weight_none_preserves_uniform_behaviour(imbalanced_binary_data):
 
     clf_explicit_none = PytorchLightningClassifier(**_classifier_params(class_weight=None))
     clf_explicit_none.fit(
-        imbalanced_binary_data["X_train"], imbalanced_binary_data["y_train"],
+        imbalanced_binary_data["X_train"],
+        imbalanced_binary_data["y_train"],
     )
     preds_explicit_none = clf_explicit_none.predict(imbalanced_binary_data["X_test"])
 

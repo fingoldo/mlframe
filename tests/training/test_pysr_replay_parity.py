@@ -7,6 +7,7 @@ PySR-produced columns reproduce byte-identical values vs train-time output.
 
 Skipped when PySR / Julia is not importable (CI without juliacall installed).
 """
+
 from __future__ import annotations
 
 import io
@@ -45,11 +46,13 @@ def test_pysr_replay_parity(tmp_path):
 
     rng = np.random.default_rng(0)
     n = 64
-    df = pd.DataFrame({
-        "x0": rng.normal(size=n).astype(np.float32),
-        "x1": rng.normal(size=n).astype(np.float32),
-        "x2": rng.normal(size=n).astype(np.float32),
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype(np.float32),
+            "x1": rng.normal(size=n).astype(np.float32),
+            "x2": rng.normal(size=n).astype(np.float32),
+        }
+    )
     y = (df["x0"] * df["x1"] + 0.1 * rng.normal(size=n)).to_numpy().astype(np.float32)
 
     cfg = PreprocessingExtensionsConfig(
@@ -63,12 +66,15 @@ def test_pysr_replay_parity(tmp_path):
     )
 
     train, val, test, ext = apply_preprocessing_extensions(
-        df.copy(), None, df.copy(),
-        config=cfg, verbose=0, y_train=y,
+        df.copy(),
+        None,
+        df.copy(),
+        config=cfg,
+        verbose=0,
+        y_train=y,
     )
 
-    assert isinstance(ext, PreprocessingExtensionsBundle), \
-        "PySR-enabled extensions must persist as a PreprocessingExtensionsBundle"
+    assert isinstance(ext, PreprocessingExtensionsBundle), "PySR-enabled extensions must persist as a PreprocessingExtensionsBundle"
     assert ext.pysr is not None and isinstance(ext.pysr, PySRTransformer)
 
     pysr_cols = [c for c in train.columns if c.startswith("pysr__")]

@@ -9,6 +9,7 @@ Both flags default to ``True`` in ``PreprocessingExtensionsConfig`` AND
 default-ON rather than merely reachable via opt-in. See
 ``training/core/DEFAULTS_CHANGELOG.md``.
 """
+
 from __future__ import annotations
 
 import numpy as np

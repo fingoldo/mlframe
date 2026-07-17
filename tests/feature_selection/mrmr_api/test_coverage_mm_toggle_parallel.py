@@ -4,6 +4,7 @@ six Wave-8 toggles -- but mi_miller_madow was omitted, leaving MM a silent no-op
 greedy loop (mi_or_su / the class-MI kernels consult use_mi_miller_madow()). The fix forwards it
 alongside the others.
 """
+
 from __future__ import annotations
 
 import numpy as np

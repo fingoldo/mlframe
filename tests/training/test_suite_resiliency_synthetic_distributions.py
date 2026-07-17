@@ -42,6 +42,7 @@ Implementation notes
   wrong for the scenario.
 - Random seeds pinned for reproducibility.
 """
+
 from __future__ import annotations
 
 import logging
@@ -63,10 +64,12 @@ from .shared import SimpleFeaturesAndTargetsExtractor
 def _has_lightning() -> bool:
     try:
         import lightning.pytorch  # noqa: F401
+
         return True
     except ImportError:
         try:
             import pytorch_lightning  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -175,8 +178,11 @@ def _run_resiliency_suite(
         # while still completing in under ~60s on CPU.
         hp["mlp_kwargs"] = {
             "trainer_params": {
-                "max_epochs": 30, "accelerator": "cpu", "devices": 1,
-                "enable_progress_bar": False, "enable_model_summary": False,
+                "max_epochs": 30,
+                "accelerator": "cpu",
+                "devices": 1,
+                "enable_progress_bar": False,
+                "enable_model_summary": False,
                 "logger": False,
             },
         }
@@ -210,11 +216,7 @@ def _flatten_entries(models: dict) -> list:
 
 
 def _collapse_sensor_fired(log_records) -> bool:
-    return any(
-        "regression-collapse-sensor" in str(r.getMessage())
-        for r in log_records
-        if r.levelno >= logging.WARNING
-    )
+    return any("regression-collapse-sensor" in str(r.getMessage()) for r in log_records if r.levelno >= logging.WARNING)
 
 
 def _r2_constant_mean(y_te: np.ndarray) -> float:
@@ -248,18 +250,18 @@ def test_scenario01_near_perfect_autoregressive(tmp_path, caplog):
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     models, _meta, recs = _run_resiliency_suite(
-        df, tmp_path, regression=True,
+        df,
+        tmp_path,
+        regression=True,
         mlframe_models=("lgb", "linear") + (("mlp",) if _has_lightning() else ()),
         caplog=caplog,
     )
 
     entries = _flatten_entries(models)
     assert entries, "scenario01: suite returned no model entries"
-    r2_by_model = {getattr(e, "model_name", None) or getattr(e, "name", "?"):
-                   _r2_from_entry(e) for e in entries}
+    r2_by_model = {getattr(e, "model_name", None) or getattr(e, "name", "?"): _r2_from_entry(e) for e in entries}
     assert any((r2 is not None and r2 > 0.0) for r2 in r2_by_model.values()), (
-        f"scenario01: every model failed to beat the constant-mean dummy. "
-        f"R2 per model: {r2_by_model}"
+        f"scenario01: every model failed to beat the constant-mean dummy. R2 per model: {r2_by_model}"
     )
     assert not _collapse_sensor_fired(recs), (
         f"scenario01: regression-collapse-sensor fired on a near-perfect AR "
@@ -284,34 +286,31 @@ def test_scenario02_group_aware_strong_ar(tmp_path, caplog):
     group_means = rng.uniform(0.0, 10.0, n_groups).astype(np.float32)
     x_prev = (group_means[group_ids] + rng.normal(0, 0.3, n)).astype(np.float32)
     y = (x_prev + rng.normal(0, 0.05, n)).astype(np.float32)
-    df = pd.DataFrame({
-        "x_prev": x_prev,
-        "noise_a": rng.normal(0, 1, n).astype(np.float32),
-        "noise_b": rng.normal(0, 1, n).astype(np.float32),
-        "group_id": group_ids.astype(np.int32),
-        "target": y,
-    })
+    df = pd.DataFrame(
+        {
+            "x_prev": x_prev,
+            "noise_a": rng.normal(0, 1, n).astype(np.float32),
+            "noise_b": rng.normal(0, 1, n).astype(np.float32),
+            "group_id": group_ids.astype(np.int32),
+            "target": y,
+        }
+    )
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     models, _meta, recs = _run_resiliency_suite(
-        df, tmp_path, regression=True,
+        df,
+        tmp_path,
+        regression=True,
         mlframe_models=("lgb", "linear") + (("mlp",) if _has_lightning() else ()),
         caplog=caplog,
     )
 
     entries = _flatten_entries(models)
     assert entries, "scenario02: suite returned no model entries"
-    r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"),
-            _r2_from_entry(e)) for e in entries]
+    r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"), _r2_from_entry(e)) for e in entries]
     # At least one model must beat the dummy.
-    assert any((r2 is not None and r2 > 0.0) for _n, r2 in r2s), (
-        f"scenario02: NO model beat dummy on group-aware AR signal. "
-        f"per-model R2: {r2s}"
-    )
-    assert not _collapse_sensor_fired(recs), (
-        f"scenario02: collapse sensor fired on group-aware AR. "
-        f"Records: {[r.getMessage() for r in recs]}"
-    )
+    assert any((r2 is not None and r2 > 0.0) for _n, r2 in r2s), f"scenario02: NO model beat dummy on group-aware AR signal. per-model R2: {r2s}"
+    assert not _collapse_sensor_fired(recs), f"scenario02: collapse sensor fired on group-aware AR. Records: {[r.getMessage() for r in recs]}"
 
 
 # ---------------------------------------------------------------------------
@@ -345,35 +344,29 @@ def test_scenario03_clustered_features_multimodal_target(tmp_path, caplog):
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     models, _meta, recs = _run_resiliency_suite(
-        df, tmp_path, regression=True,
+        df,
+        tmp_path,
+        regression=True,
         mlframe_models=("lgb", "linear") + (("mlp",) if _has_lightning() else ()),
         caplog=caplog,
     )
 
     entries = _flatten_entries(models)
     assert entries, "scenario03: suite returned no model entries"
-    r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"),
-            _r2_from_entry(e)) for e in entries]
+    r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"), _r2_from_entry(e)) for e in entries]
     # At least one model must clear dummy on clustered targets.
-    assert any((r2 is not None and r2 > 0.0) for _n, r2 in r2s), (
-        f"scenario03: NO model beat dummy on clustered features. "
-        f"per-model R2: {r2s}"
-    )
+    assert any((r2 is not None and r2 > 0.0) for _n, r2 in r2s), f"scenario03: NO model beat dummy on clustered features. per-model R2: {r2s}"
     # MLP on a multi-modal target with means 0 / 100 / 1000 under the
     # tiny test-time epoch budget (6 epochs) is documented as undertrained -
     # the collapse sensor correctly fires for the MLP entry. Skip-MLP records
     # from the sensor check; the contract is "at least one tree booster
     # didn't silently collapse", which lgb satisfies above.
     non_mlp_collapse_records = [
-        r for r in recs
-        if "regression-collapse-sensor" in str(r.getMessage())
-        and "PytorchLightning" not in str(r.getMessage())
-        and r.levelno >= logging.WARNING
+        r
+        for r in recs
+        if "regression-collapse-sensor" in str(r.getMessage()) and "PytorchLightning" not in str(r.getMessage()) and r.levelno >= logging.WARNING
     ]
-    assert not non_mlp_collapse_records, (
-        f"scenario03: collapse sensor fired on a non-MLP model. "
-        f"Records: {[r.getMessage() for r in non_mlp_collapse_records]}"
-    )
+    assert not non_mlp_collapse_records, f"scenario03: collapse sensor fired on a non-MLP model. Records: {[r.getMessage() for r in non_mlp_collapse_records]}"
 
 
 # ---------------------------------------------------------------------------
@@ -397,24 +390,22 @@ def test_scenario04_heavy_tail_lognormal_target(tmp_path, caplog):
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     # Skip MLP on heavy-tail unless lightning available -- noisy fits.
     models, _meta, recs = _run_resiliency_suite(
-        df, tmp_path, regression=True,
+        df,
+        tmp_path,
+        regression=True,
         mlframe_models=("lgb", "linear"),
         caplog=caplog,
     )
 
     entries = _flatten_entries(models)
     assert entries, "scenario04: suite returned no model entries"
-    r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"),
-            _r2_from_entry(e)) for e in entries]
+    r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"), _r2_from_entry(e)) for e in entries]
     # On a heavy-tail target with weak signal in log-space, just require
     # the suite doesn't catastrophically fail (>=1 finite R^2 reported).
     # Tree should get R^2 >= 0.4 on this scenario; relax to 0.0 (dummy
     # floor) since lognormal is intentionally noisy and the bar is "did
     # the suite handle the distribution without blowing up".
-    assert any((r2 is not None and r2 > 0.0) for _n, r2 in r2s), (
-        f"scenario04: NO model beat dummy on lognormal target. "
-        f"per-model R2: {r2s}"
-    )
+    assert any((r2 is not None and r2 > 0.0) for _n, r2 in r2s), f"scenario04: NO model beat dummy on lognormal target. per-model R2: {r2s}"
     # Bonus: ensure at least the tree model got R^2 >= 0.4 (signal IS
     # there in feature 0, 1).
     tree_r2 = max(
@@ -425,10 +416,7 @@ def test_scenario04_heavy_tail_lognormal_target(tmp_path, caplog):
         # Soft check: log if it didn't reach 0.4 but don't fail -- the
         # signal-to-noise on lognormal is unforgiving.
         if tree_r2 < 0.4:
-            warnings.warn(
-                f"scenario04 lgb R^2={tree_r2:.3f} below soft floor 0.4 "
-                f"on heavy-tail target. Defaults may be sub-optimal."
-            )
+            warnings.warn(f"scenario04 lgb R^2={tree_r2:.3f} below soft floor 0.4 on heavy-tail target. Defaults may be sub-optimal.")
 
 
 # ---------------------------------------------------------------------------
@@ -458,31 +446,32 @@ def test_scenario05_mixed_scale_features(tmp_path, caplog):
     col_c = rng.normal(0, 1.0, n).astype(np.float32)
     # Y depends on BOTH small-scale and large-scale features so the model
     # has to use both.
-    y = (1000.0 * col_a + 1e-6 * col_b + 0.5 * col_c
-         + rng.normal(0, 0.05, n)).astype(np.float32)
-    df = pd.DataFrame({
-        "col_a_tiny": col_a,
-        "col_b_huge": col_b,
-        "col_c_norm": col_c,
-        "target": y,
-    })
+    y = (1000.0 * col_a + 1e-6 * col_b + 0.5 * col_c + rng.normal(0, 0.05, n)).astype(np.float32)
+    df = pd.DataFrame(
+        {
+            "col_a_tiny": col_a,
+            "col_b_huge": col_b,
+            "col_c_norm": col_c,
+            "target": y,
+        }
+    )
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     models, _meta, recs = _run_resiliency_suite(
-        df, tmp_path, regression=True,
+        df,
+        tmp_path,
+        regression=True,
         mlframe_models=("lgb", "linear"),
         caplog=caplog,
     )
 
     entries = _flatten_entries(models)
     assert entries, "scenario05: suite returned no model entries"
-    r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"),
-            _r2_from_entry(e)) for e in entries]
+    r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"), _r2_from_entry(e)) for e in entries]
     # With proper scaling, a tree or linear model should achieve R^2>=0.5.
     best_r2 = max((r for _n, r in r2s if r is not None), default=None)
     assert best_r2 is not None and best_r2 > 0.0, (
-        f"scenario05: NO model beat dummy on mixed-scale features. "
-        f"per-model R2: {r2s}. Pre-pipeline scaler may not be wired."
+        f"scenario05: NO model beat dummy on mixed-scale features. per-model R2: {r2s}. Pre-pipeline scaler may not be wired."
     )
     # No collapse from the non-MLP models is a tighter contract than
     # before; lgb / linear must not trip the sensor on z-scored input.
@@ -507,22 +496,24 @@ def test_scenario05_mlp_collapse_on_mixed_scale_features(tmp_path, caplog):
     col_a = rng.normal(0, 1e-3, n).astype(np.float32)
     col_b = rng.normal(0, 1e6, n).astype(np.float32)
     col_c = rng.normal(0, 1.0, n).astype(np.float32)
-    y = (1000.0 * col_a + 1e-6 * col_b + 0.5 * col_c
-         + rng.normal(0, 0.05, n)).astype(np.float32)
-    df = pd.DataFrame({
-        "col_a_tiny": col_a, "col_b_huge": col_b,
-        "col_c_norm": col_c, "target": y,
-    })
+    y = (1000.0 * col_a + 1e-6 * col_b + 0.5 * col_c + rng.normal(0, 0.05, n)).astype(np.float32)
+    df = pd.DataFrame(
+        {
+            "col_a_tiny": col_a,
+            "col_b_huge": col_b,
+            "col_c_norm": col_c,
+            "target": y,
+        }
+    )
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     _models, _meta, recs = _run_resiliency_suite(
-        df, tmp_path, regression=True,
+        df,
+        tmp_path,
+        regression=True,
         mlframe_models=("mlp",),
         caplog=caplog,
     )
-    assert not _collapse_sensor_fired(recs), (
-        f"MLP collapsed on mixed-scale features: "
-        f"{[r.getMessage() for r in recs]}"
-    )
+    assert not _collapse_sensor_fired(recs), f"MLP collapsed on mixed-scale features: {[r.getMessage() for r in recs]}"
 
 
 # ---------------------------------------------------------------------------
@@ -540,30 +531,31 @@ def test_scenario06_constant_feature(tmp_path, caplog):
     f1 = rng.normal(0, 1, n).astype(np.float32)
     f_const = np.full(n, 42.0, dtype=np.float32)
     y = (2.0 * f0 - 1.5 * f1 + 0.1 * rng.normal(0, 1, n)).astype(np.float32)
-    df = pd.DataFrame({
-        "f0": f0,
-        "f1": f1,
-        "f_const": f_const,
-        "target": y,
-    })
+    df = pd.DataFrame(
+        {
+            "f0": f0,
+            "f1": f1,
+            "f_const": f_const,
+            "target": y,
+        }
+    )
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     models, _meta, recs = _run_resiliency_suite(
-        df, tmp_path, regression=True,
+        df,
+        tmp_path,
+        regression=True,
         mlframe_models=("lgb", "linear"),
         caplog=caplog,
     )
 
     entries = _flatten_entries(models)
     assert entries, "scenario06: suite returned no model entries with constant feature"
-    r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"),
-            _r2_from_entry(e)) for e in entries]
+    r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"), _r2_from_entry(e)) for e in entries]
     # Strong linear signal in f0/f1 -> models should still hit R^2 > 0.5.
     best_r2 = max((r for _n, r in r2s if r is not None), default=None)
     assert best_r2 is not None and best_r2 > 0.5, (
-        f"scenario06: best R^2={best_r2} below 0.5 despite strong signal "
-        f"in f0/f1. Constant feature handling may be broken. "
-        f"per-model R2: {r2s}"
+        f"scenario06: best R^2={best_r2} below 0.5 despite strong signal in f0/f1. Constant feature handling may be broken. per-model R2: {r2s}"
     )
 
 
@@ -578,8 +570,7 @@ def test_scenario07_nan_injected_features(tmp_path, caplog):
     rng = np.random.default_rng(707)
     n = 5000
     X = rng.normal(0, 1, (n, 6)).astype(np.float32)
-    y = (1.5 * X[:, 0] - 0.8 * X[:, 1] + 0.5 * X[:, 2]
-         + 0.1 * rng.normal(0, 1, n)).astype(np.float32)
+    y = (1.5 * X[:, 0] - 0.8 * X[:, 1] + 0.5 * X[:, 2] + 0.1 * rng.normal(0, 1, n)).astype(np.float32)
     # Inject 5% NaN across all feature columns.
     nan_mask = rng.uniform(0, 1, X.shape) < 0.05
     X_with_nan = X.astype(np.float32, copy=True)
@@ -589,21 +580,19 @@ def test_scenario07_nan_injected_features(tmp_path, caplog):
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     models, _meta, recs = _run_resiliency_suite(
-        df, tmp_path, regression=True,
+        df,
+        tmp_path,
+        regression=True,
         mlframe_models=("lgb", "linear"),
         caplog=caplog,
     )
 
     entries = _flatten_entries(models)
     assert entries, "scenario07: suite returned no model entries on NaN-injected data"
-    r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"),
-            _r2_from_entry(e)) for e in entries]
+    r2s = [(getattr(e, "model_name", None) or getattr(e, "name", "?"), _r2_from_entry(e)) for e in entries]
     # Imputed signal should still give R^2 >= 0.5 for at least one model.
     best_r2 = max((r for _n, r in r2s if r is not None), default=None)
-    assert best_r2 is not None and best_r2 > 0.5, (
-        f"scenario07: best R^2={best_r2} below 0.5 with 5% NaN. "
-        f"Imputer may not be wired. per-model R2: {r2s}"
-    )
+    assert best_r2 is not None and best_r2 > 0.5, f"scenario07: best R^2={best_r2} below 0.5 with 5% NaN. Imputer may not be wired. per-model R2: {r2s}"
 
 
 # ---------------------------------------------------------------------------
@@ -639,26 +628,21 @@ def test_scenario08_multilabel_three_binary(tmp_path, caplog):
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     try:
         models, _meta, recs = _run_resiliency_suite(
-            df, tmp_path,
+            df,
+            tmp_path,
             regression=False,
             target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
             mlframe_models=("lgb",),
             caplog=caplog,
         )
     except Exception as exc:
-        pytest.fail(
-            f"scenario08: suite crashed on multilabel(K=3) with default "
-            f"params: {type(exc).__name__}: {exc}"
-        )
+        pytest.fail(f"scenario08: suite crashed on multilabel(K=3) with default params: {type(exc).__name__}: {exc}")
 
     entries = _flatten_entries(models)
     assert entries, "scenario08: suite returned no model entries on multilabel"
-    aucs = [(getattr(e, "model_name", None) or getattr(e, "name", "?"),
-             _auc_from_entry(e)) for e in entries]
+    aucs = [(getattr(e, "model_name", None) or getattr(e, "name", "?"), _auc_from_entry(e)) for e in entries]
     best_auc = max((a for _n, a in aucs if a is not None), default=None)
     # 0.55 is a soft floor (the strong feature signal should yield ~0.85+).
     assert best_auc is not None and best_auc > 0.55, (
-        f"scenario08: best AUC={best_auc} below 0.55 on multilabel with "
-        f"strong per-label signal. Defaults may be wrong. "
-        f"per-model AUC: {aucs}"
+        f"scenario08: best AUC={best_auc} below 0.55 on multilabel with strong per-label signal. Defaults may be wrong. per-model AUC: {aucs}"
     )

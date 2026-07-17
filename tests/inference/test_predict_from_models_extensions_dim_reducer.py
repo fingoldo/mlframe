@@ -26,12 +26,14 @@ import pytest
 
 def _make_small_frame(n_rows: int = 600, seed: int = 123) -> pl.DataFrame:
     rng = np.random.default_rng(seed)
-    return pl.DataFrame({
-        "x0": rng.normal(size=n_rows).astype(np.float32),
-        "x1": rng.normal(size=n_rows).astype(np.float32),
-        "cat_low": rng.choice(["A", "B", "C"], size=n_rows),
-        "y": rng.integers(0, 2, size=n_rows).astype(np.int64),
-    })
+    return pl.DataFrame(
+        {
+            "x0": rng.normal(size=n_rows).astype(np.float32),
+            "x1": rng.normal(size=n_rows).astype(np.float32),
+            "cat_low": rng.choice(["A", "B", "C"], size=n_rows),
+            "y": rng.integers(0, 2, size=n_rows).astype(np.int64),
+        }
+    )
 
 
 def test_predict_from_models_with_dim_reducer_extension_does_not_drop_raw_input_cols():
@@ -43,10 +45,15 @@ def test_predict_from_models_with_dim_reducer_extension_does_not_drop_raw_input_
     from mlframe.training.core.predict import predict_from_models
     from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
     from mlframe.training.configs import (
-        BaselineDiagnosticsConfig, CompositeTargetDiscoveryConfig,
-        DummyBaselinesConfig, FeatureSelectionConfig, OutlierDetectionConfig,
-        OutputConfig, PreprocessingBackendConfig,
-        PreprocessingExtensionsConfig, ReportingConfig,
+        BaselineDiagnosticsConfig,
+        CompositeTargetDiscoveryConfig,
+        DummyBaselinesConfig,
+        FeatureSelectionConfig,
+        OutlierDetectionConfig,
+        OutputConfig,
+        PreprocessingBackendConfig,
+        PreprocessingExtensionsConfig,
+        ReportingConfig,
     )
 
     df = _make_small_frame()
@@ -66,10 +73,12 @@ def test_predict_from_models_with_dim_reducer_extension_does_not_drop_raw_input_
         feature_selection_config=FeatureSelectionConfig(),
         outlier_detection_config=OutlierDetectionConfig(),
         pipeline_config=PreprocessingBackendConfig(
-            categorical_encoding="onehot", scaler_name="standard",
+            categorical_encoding="onehot",
+            scaler_name="standard",
         ),
         preprocessing_extensions=PreprocessingExtensionsConfig(
-            dim_reducer="TruncatedSVD", dim_n_components=3,
+            dim_reducer="TruncatedSVD",
+            dim_n_components=3,
         ),
         verbose=0,
         output_config=OutputConfig(data_dir="", models_dir=""),
@@ -82,17 +91,13 @@ def test_predict_from_models_with_dim_reducer_extension_does_not_drop_raw_input_
     # Sanity-check the metadata captures the RAW input schema (the contract
     # downstream consumers like _validate_input_columns_against_metadata rely on).
     assert "input_columns" in metadata, (
-        "metadata must carry input_columns (raw pre-pipeline schema) so predict-time "
-        "validation can compare against the user-supplied frame"
+        "metadata must carry input_columns (raw pre-pipeline schema) so predict-time validation can compare against the user-supplied frame"
     )
     raw_cols = set(metadata["input_columns"])
     # cat_low / x0..x1 are the user-supplied columns; y is the target which the
     # FTE strips before pipeline runs. The exact set after FTE may exclude y.
     expected_raw_cols = {"x0", "x1", "cat_low"}
-    assert expected_raw_cols.issubset(raw_cols), (
-        f"input_columns missing raw user columns: {expected_raw_cols - raw_cols} "
-        f"(have: {raw_cols})"
-    )
+    assert expected_raw_cols.issubset(raw_cols), f"input_columns missing raw user columns: {expected_raw_cols - raw_cols} (have: {raw_cols})"
 
     # The actual regression: predict must not crash with "Found array with 0 sample(s)".
     fte_predict = SimpleFeaturesAndTargetsExtractor(**fte_kwargs)
@@ -109,7 +114,4 @@ def test_predict_from_models_with_dim_reducer_extension_does_not_drop_raw_input_
     assert results["predictions"], "predict_from_models returned empty predictions dict"
     for model_name, preds in results["predictions"].items():
         assert preds is not None, f"model {model_name} returned None predictions"
-        assert len(preds) == len(df), (
-            f"model {model_name} returned {len(preds)} predictions for "
-            f"{len(df)} input rows"
-        )
+        assert len(preds) == len(df), f"model {model_name} returned {len(preds)} predictions for {len(df)} input rows"

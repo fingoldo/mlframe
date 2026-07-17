@@ -4,6 +4,7 @@ The embedding-passthrough feature routes object-cells-are-list/ndarray (embeddin
 downstream learnable-embedding network consumes them, instead of crashing the discretiser on the non-scalar cells. These tests pin: pass-through is byte-untouched,
 scalar features are still selected, no crash, the detector classifies correctly, the sklearn n_features_in_ contract holds, and the opt-out restores legacy behaviour.
 """
+
 from __future__ import annotations
 
 import warnings

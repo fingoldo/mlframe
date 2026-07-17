@@ -195,7 +195,7 @@ class TestBasisAutoRouting:
         # |kurt|<1). At n=2000 the empirical moments may not cleanly clear
         # those thresholds; the moment router falls back to Chebyshev which
         # is "never bad". Accept either.
-        assert codes_per_source.get("x_gauss") in {"He", "T"}, f"x_gauss got basis {codes_per_source.get('x_gauss')}, " f"expected He or T (chebyshev fallback)"
+        assert codes_per_source.get("x_gauss") in {"He", "T"}, f"x_gauss got basis {codes_per_source.get('x_gauss')}, expected He or T (chebyshev fallback)"
         # x_exp: positive-skewed exponential should route to Laguerre.
         assert codes_per_source.get("x_exp") == "LL", f"x_exp expected LL (laguerre), got {codes_per_source.get('x_exp')}"
 
@@ -251,7 +251,7 @@ class TestHybridDiscoversQuadraticSignal:
             top_k=2,
             min_uplift=1.05,
         )
-        assert "x1__He2" in X_aug.columns, f"x1__He2 should have entered the augmented frame on seed={seed}; " f"scores=\n{scores}"
+        assert "x1__He2" in X_aug.columns, f"x1__He2 should have entered the augmented frame on seed={seed}; scores=\n{scores}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_he2_has_higher_mi_than_raw_x1(self, seed):
@@ -269,7 +269,7 @@ class TestHybridDiscoversQuadraticSignal:
         )
         x1_he2 = scores[scores["engineered_col"] == "x1__He2"].iloc[0]
         assert x1_he2["engineered_mi"] > x1_he2["baseline_mi"], (
-            f"He_2(x1) MI {x1_he2['engineered_mi']:.4f} should exceed raw " f"x1 MI {x1_he2['baseline_mi']:.4f} on a y=sign(x1^2-1) signal; " f"seed={seed}"
+            f"He_2(x1) MI {x1_he2['engineered_mi']:.4f} should exceed raw x1 MI {x1_he2['baseline_mi']:.4f} on a y=sign(x1^2-1) signal; seed={seed}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -292,7 +292,7 @@ class TestHybridDiscoversQuadraticSignal:
         # noise floor); the absolute floor at 0.1*max_raw_baseline filters
         # them out.
         noise_eng_cols = [c for c in X_aug.columns if c.startswith("noise_") and "__" in c]
-        assert len(noise_eng_cols) == 0, f"noise-source basis transforms should be excluded by the " f"absolute MI floor; seed={seed}, got {noise_eng_cols}"
+        assert len(noise_eng_cols) == 0, f"noise-source basis transforms should be excluded by the absolute MI floor; seed={seed}, got {noise_eng_cols}"
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +323,7 @@ class TestHybridDiscoversCubicUniform:
         # any non-trivial basis_code suffix for the cubic.
         aug_cols = [c for c in X_aug.columns if c.startswith("x_uni__")]
         assert len(aug_cols) >= 1 or all(scores[scores["source_col"] == "x_uni"]["uplift"] < 1.02), (
-            f"expected at least one x_uni basis transform under cubic " f"target; seed={seed}, X_aug={list(X_aug.columns)}, " f"scores=\n{scores}"
+            f"expected at least one x_uni basis transform under cubic target; seed={seed}, X_aug={list(X_aug.columns)}, scores=\n{scores}"
         )
 
 
@@ -379,6 +379,6 @@ class TestHybridDownstreamLogRegLift:
         # On y = sign(x^2 - 1) linear LogReg has near-50% AUC on raw x1.
         # With He_2(x1) (= x1^2 - 1) it should jump to >= 0.85.
         assert auc_aug > auc_raw + 0.10, (
-            f"seed={seed}: hybrid FE should lift LogReg holdout AUC by " f">= 0.10 on a quadratic-signal target. raw={auc_raw:.3f}, " f"aug={auc_aug:.3f}"
+            f"seed={seed}: hybrid FE should lift LogReg holdout AUC by >= 0.10 on a quadratic-signal target. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
         )
-        assert auc_aug >= 0.80, f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should " f"clear 0.80 on a clean quadratic signal"
+        assert auc_aug >= 0.80, f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should clear 0.80 on a clean quadratic signal"

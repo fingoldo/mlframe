@@ -11,6 +11,7 @@ LightningModule whose ``_trainer`` attribute carries a heavy DataLoader-ish
 graph; the dump should be small AND the post-save in-memory object should
 still have ``_trainer`` restored so predict() / continued training works.
 """
+
 from __future__ import annotations
 
 import logging
@@ -50,14 +51,10 @@ def test_save_size_sensor_warns_above_threshold(caplog):
         size_mb = os.path.getsize(fpath) / (1024 * 1024)
         assert size_mb > 50.0, f"Test sentinel data didn't exceed 50 MB on disk (got {size_mb:.1f}); adjust n_floats."
         msgs = [rec.getMessage() for rec in caplog.records]
-        assert any("[save-size-sensor]" in m for m in msgs), (
-            "Expected [save-size-sensor] WARN; got: " + " | ".join(msgs)
-        )
+        assert any("[save-size-sensor]" in m for m in msgs), "Expected [save-size-sensor] WARN; got: " + " | ".join(msgs)
         # The hint must mention at least one actionable strip target.
         sensor_msg = next(m for m in msgs if "[save-size-sensor]" in m)
-        assert "_trainer" in sensor_msg or "prediction_datamodule" in sensor_msg, (
-            f"Save-size sensor message must hint at strip targets; got: {sensor_msg!r}"
-        )
+        assert "_trainer" in sensor_msg or "prediction_datamodule" in sensor_msg, f"Save-size sensor message must hint at strip targets; got: {sensor_msg!r}"
     finally:
         if os.path.exists(fpath):
             os.remove(fpath)
@@ -74,9 +71,7 @@ def test_save_size_sensor_silent_below_threshold(caplog):
             ok = save_mlframe_model(tiny, fpath, verbose=0)
         assert ok is True
         msgs = [rec.getMessage() for rec in caplog.records]
-        assert not any("[save-size-sensor]" in m for m in msgs), (
-            "Save-size sensor must stay silent for tiny dumps; got: " + " | ".join(msgs)
-        )
+        assert not any("[save-size-sensor]" in m for m in msgs), "Save-size sensor must stay silent for tiny dumps; got: " + " | ".join(msgs)
     finally:
         if os.path.exists(fpath):
             os.remove(fpath)
@@ -126,12 +121,13 @@ def test_save_size_sensor_auto_lean_retry_shrinks_oversized_dump(caplog):
         train_preds=rng.standard_normal(n_train).astype(np.float32),  # ~40 MB
         train_probs=None,
         train_target=rng.standard_normal(n_train).astype(np.float32),  # ~40 MB
-        oof_preds=rng.standard_normal(n_train).astype(np.float32),    # ~40 MB
+        oof_preds=rng.standard_normal(n_train).astype(np.float32),  # ~40 MB
         oof_probs=None,
         metrics={"test": {"R2": 0.95}},
         columns=["f0", "f1", "f2"],
         pre_pipeline=None,
-        train_od_idx=None, val_od_idx=None,
+        train_od_idx=None,
+        val_od_idx=None,
         trainset_features_stats={f"f{i}": {"mean": 0.0, "std": 1.0} for i in range(50)},
     )
 
@@ -145,18 +141,14 @@ def test_save_size_sensor_auto_lean_retry_shrinks_oversized_dump(caplog):
         size_mb_after = os.path.getsize(fpath) / (1024 * 1024)
         # Post auto-retry: lean strip removes preds/target/oof/stats; dump should be < 5 MB.
         assert size_mb_after < 5.0, (
-            f"E2.1 auto_lean_retry failed: final dump is {size_mb_after:.1f} MB; "
-            f"expected the auto-retry with lean=True to strip the per-split arrays."
+            f"E2.1 auto_lean_retry failed: final dump is {size_mb_after:.1f} MB; expected the auto-retry with lean=True to strip the per-split arrays."
         )
         msgs = [r.getMessage() for r in caplog.records]
         # The E2.2 pre-pickle pre-check landed 2026-05-22 and supersedes the
         # post-save auto-retry on payloads it can detect upfront. Either path
         # is acceptable -- the contract is "oversized non-lean save ends up
         # small on disk", which the strict size assertion above already checks.
-        assert any(
-            "auto-retrying with lean=True" in m or "[save-size-precheck]" in m
-            for m in msgs
-        ), (
+        assert any("auto-retrying with lean=True" in m or "[save-size-precheck]" in m for m in msgs), (
             f"E2.1: expected either the auto-retry log OR the pre-check log; got: {msgs}"
         )
         # Caller's in-memory payload must STILL have all fields (lean operates on a copy).
@@ -185,11 +177,19 @@ def test_pre_pickle_size_precheck_flips_lean_upfront(caplog):
         train_preds=rng.standard_normal(n_train).astype(np.float32),
         train_target=rng.standard_normal(n_train).astype(np.float32),
         oof_preds=rng.standard_normal(n_train).astype(np.float32),
-        metrics={}, columns=[], pre_pipeline=None,
-        test_preds=None, test_probs=None, test_target=None,
-        val_preds=None, val_probs=None, val_target=None,
-        train_probs=None, oof_probs=None,
-        train_od_idx=None, val_od_idx=None,
+        metrics={},
+        columns=[],
+        pre_pipeline=None,
+        test_preds=None,
+        test_probs=None,
+        test_target=None,
+        val_preds=None,
+        val_probs=None,
+        val_target=None,
+        train_probs=None,
+        oof_probs=None,
+        train_od_idx=None,
+        val_od_idx=None,
         trainset_features_stats=None,
     )
 
@@ -200,18 +200,13 @@ def test_pre_pickle_size_precheck_flips_lean_upfront(caplog):
             ok = save_mlframe_model(model_entry, fpath, verbose=1)
         assert ok is True
         msgs = [r.getMessage() for r in caplog.records]
-        assert any("[save-size-precheck]" in m for m in msgs), (
-            f"E2.2 pre-pickle pre-check did not fire on 10M-row payload; got msgs: {msgs}"
-        )
+        assert any("[save-size-precheck]" in m for m in msgs), f"E2.2 pre-pickle pre-check did not fire on 10M-row payload; got msgs: {msgs}"
         # The pre-check WARN should NAME the threshold so operators see why it fired.
         precheck_msg = next(m for m in msgs if "[save-size-precheck]" in m)
         assert "flipping lean=True BEFORE the fat pickle" in precheck_msg
         # And the saved file should be SMALL (lean strip ran).
         size_mb = os.path.getsize(fpath) / (1024 * 1024)
-        assert size_mb < 5.0, (
-            f"E2.2 pre-check fired but the saved dump is still {size_mb:.1f} MB; "
-            "lean=True didn't actually strip the per-split arrays."
-        )
+        assert size_mb < 5.0, f"E2.2 pre-check fired but the saved dump is still {size_mb:.1f} MB; lean=True didn't actually strip the per-split arrays."
         # Caller's in-memory payload is UNCHANGED.
         assert model_entry.train_preds is not None
     finally:
@@ -230,11 +225,20 @@ def test_pre_pickle_precheck_disabled_when_threshold_zero(caplog):
         model=SimpleNamespace(),
         train_preds=rng.standard_normal(n_train).astype(np.float32),
         train_target=rng.standard_normal(n_train).astype(np.float32),
-        metrics={}, columns=[], pre_pipeline=None,
-        test_preds=None, test_probs=None, test_target=None,
-        val_preds=None, val_probs=None, val_target=None,
-        train_probs=None, oof_preds=None, oof_probs=None,
-        train_od_idx=None, val_od_idx=None,
+        metrics={},
+        columns=[],
+        pre_pipeline=None,
+        test_preds=None,
+        test_probs=None,
+        test_target=None,
+        val_preds=None,
+        val_probs=None,
+        val_target=None,
+        train_probs=None,
+        oof_preds=None,
+        oof_probs=None,
+        train_od_idx=None,
+        val_od_idx=None,
         trainset_features_stats=None,
     )
     with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tf:
@@ -244,9 +248,7 @@ def test_pre_pickle_precheck_disabled_when_threshold_zero(caplog):
             save_mlframe_model(model_entry, fpath, verbose=1, auto_lean_pre_check_mb=0.0)
         msgs = [r.getMessage() for r in caplog.records]
         # Pre-check WARN must NOT appear when disabled.
-        assert not any("[save-size-precheck]" in m for m in msgs), (
-            f"E2.2 negative case: pre-check fired despite threshold=0. msgs: {msgs}"
-        )
+        assert not any("[save-size-precheck]" in m for m in msgs), f"E2.2 negative case: pre-check fired despite threshold=0. msgs: {msgs}"
     finally:
         if os.path.exists(fpath):
             os.remove(fpath)
@@ -262,12 +264,20 @@ def test_save_size_sensor_no_auto_lean_when_disabled(caplog):
         model=SimpleNamespace(),
         train_preds=rng.standard_normal(n_train).astype(np.float32),
         train_target=rng.standard_normal(n_train).astype(np.float32),
-        metrics={}, columns=[], pre_pipeline=None,
-        test_preds=None, test_probs=None, test_target=None,
-        val_preds=None, val_probs=None, val_target=None,
+        metrics={},
+        columns=[],
+        pre_pipeline=None,
+        test_preds=None,
+        test_probs=None,
+        test_target=None,
+        val_preds=None,
+        val_probs=None,
+        val_target=None,
         train_probs=None,
-        oof_preds=None, oof_probs=None,
-        train_od_idx=None, val_od_idx=None,
+        oof_preds=None,
+        oof_probs=None,
+        train_od_idx=None,
+        val_od_idx=None,
         trainset_features_stats=None,
     )
 
@@ -293,13 +303,11 @@ def test_lean_strip_covers_oof_preds_and_probs():
     don't leak ~16-32 MB of OOF data per model on 4M-row training as soon as
     the caller flips oof_n_splits >= 2."""
     from mlframe.training.io import _LEAN_STRIP_FIELDS
+
     assert "oof_preds" in _LEAN_STRIP_FIELDS, (
-        "oof_preds missing from _LEAN_STRIP_FIELDS -- lean saves will leak it "
-        "whenever the caller stamps OOF on the model entry."
+        "oof_preds missing from _LEAN_STRIP_FIELDS -- lean saves will leak it whenever the caller stamps OOF on the model entry."
     )
-    assert "oof_probs" in _LEAN_STRIP_FIELDS, (
-        "oof_probs missing from _LEAN_STRIP_FIELDS -- same risk on classifier paths."
-    )
+    assert "oof_probs" in _LEAN_STRIP_FIELDS, "oof_probs missing from _LEAN_STRIP_FIELDS -- same risk on classifier paths."
 
 
 def test_lean_save_strips_large_per_split_arrays_under_threshold():
@@ -325,11 +333,13 @@ def test_lean_save_strips_large_per_split_arrays_under_threshold():
         train_preds=rng.standard_normal(n_train).astype(np.float32),  # ~16 MB
         train_probs=None,
         train_target=rng.standard_normal(n_train).astype(np.float32),  # ~16 MB
-        oof_preds=None, oof_probs=None,
+        oof_preds=None,
+        oof_probs=None,
         metrics={"test": {"R2": 0.95}, "val": {"R2": 0.94}, "train": {"R2": 0.97}},
         columns=["f0", "f1", "f2"],
         pre_pipeline=None,
-        train_od_idx=None, val_od_idx=None,
+        train_od_idx=None,
+        val_od_idx=None,
         trainset_features_stats={f"f{i}": {"mean": 0.0, "std": 1.0} for i in range(50)},
     )
 
@@ -377,17 +387,12 @@ def test_lightning_bloat_strip_shrinks_dump_and_restores_payload():
         # prediction_datamodule (40 MB), leaving only the tiny state-dict (~4 KB).
         # zstd on random bytes is near-no-op, so without the strip we'd see ~120 MB on disk.
         assert size_mb < 5.0, (
-            f"Dump too big ({size_mb:.1f} MB): Lightning bloat strip didn't fire. "
-            f"Expected <5 MB after stripping ``_trainer`` + ``prediction_datamodule``."
+            f"Dump too big ({size_mb:.1f} MB): Lightning bloat strip didn't fire. Expected <5 MB after stripping ``_trainer`` + ``prediction_datamodule``."
         )
 
         # Post-save: in-memory caller must still have BOTH attrs (the strip is transient).
-        assert payload.model.network._trainer is not None, (
-            "Bloat strip failed to restore _trainer on the caller's payload."
-        )
-        assert payload.model.prediction_datamodule is not None, (
-            "Bloat strip failed to restore prediction_datamodule on the caller's payload."
-        )
+        assert payload.model.network._trainer is not None, "Bloat strip failed to restore _trainer on the caller's payload."
+        assert payload.model.prediction_datamodule is not None, "Bloat strip failed to restore prediction_datamodule on the caller's payload."
     finally:
         if os.path.exists(fpath):
             os.remove(fpath)

@@ -5,6 +5,7 @@ and asserts ``metadata["honest_diagnostics"]`` carries the four top-level
 keys (``bootstrap_ci``, ``drift_psi``, ``calibration``, ``provenance``) plus
 a non-empty per-target bootstrap CI block.
 """
+
 from __future__ import annotations
 
 import os
@@ -37,11 +38,13 @@ def _make_binary_entry(n: int = 400, seed: int = 5):
 
 def _make_df(n: int, seed: int = 11) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    return pd.DataFrame({
-        "num_a": rng.normal(0, 1, n),
-        "cat_b": rng.choice(["x", "y", "z"], size=n),
-        "cat_c": rng.choice(["P", "Q"], size=n),
-    })
+    return pd.DataFrame(
+        {
+            "num_a": rng.normal(0, 1, n),
+            "cat_b": rng.choice(["x", "y", "z"], size=n),
+            "cat_c": rng.choice(["P", "Q"], size=n),
+        }
+    )
 
 
 def test_run_honest_diagnostics_populates_all_four_blocks():
@@ -114,6 +117,7 @@ def test_run_honest_diagnostics_calibration_block_emits_plot_when_reports_dir_pr
 
 def test_reporting_config_default_honest_diagnostics_on():
     from mlframe.training._reporting_configs import ReportingConfig
+
     rc = ReportingConfig()
     assert rc.honest_estimator_diagnostics is True, "honest_estimator_diagnostics should default True"
 

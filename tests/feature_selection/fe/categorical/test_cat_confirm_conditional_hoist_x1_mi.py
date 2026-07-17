@@ -16,6 +16,7 @@ invariance assumption fails here.
 
 Bench: src/mlframe/feature_selection/filters/_benchmarks/bench_cat_confirm_conditional_hoist_x1_mi.py
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -45,49 +46,51 @@ def _make_data(n=4000, n_cols=4, n_y=3, seed=7):
 
 
 def _reference_conditional_confidence(
-    factors_data, pairs_a, pairs_b, selected_idx, ii_arr, nbins,
-    classes_y, freqs_y, cfg, dtype,
+    factors_data,
+    pairs_a,
+    pairs_b,
+    selected_idx,
+    ii_arr,
+    nbins,
+    classes_y,
+    freqs_y,
+    cfg,
+    dtype,
 ):
     """Pre-fix replica: conditional null with I(X1;Y) RECOMPUTED every perm."""
     n_perms = cfg.full_npermutations
     n_y_classes = int(classes_y.max()) + 1
     confidence_dict = {}
     for j, k in enumerate(selected_idx):
-        i = int(pairs_a[k]); jj = int(pairs_b[k])
+        i = int(pairs_a[k])
+        jj = int(pairs_b[k])
         ii_obs = float(ii_arr[k])
         cls_x1, fq_x1, _ = merge_vars(
-            factors_data=factors_data, vars_indices=np.array([i], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype)
+            factors_data=factors_data, vars_indices=np.array([i], dtype=np.int64), var_is_nominal=None, factors_nbins=nbins, dtype=dtype
+        )
         cls_x2, fq_x2, _ = merge_vars(
-            factors_data=factors_data, vars_indices=np.array([jj], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype)
+            factors_data=factors_data, vars_indices=np.array([jj], dtype=np.int64), var_is_nominal=None, factors_nbins=nbins, dtype=dtype
+        )
         classes_x2_safe = cls_x2.astype(np.int64, copy=True)
         classes_x1_arr = cls_x1.astype(np.int64, copy=False)
         n = factors_data.shape[0]
         n_failed = 0
         for _perm in range(n_perms):
             _cond_seed = _CAT_CONFIRM_BASE_SEED + int(j) * 1000003 + _perm
-            _conditional_shuffle_within_strata(
-                classes_x2_safe, classes_y, n_y_classes, _cond_seed)
+            _conditional_shuffle_within_strata(classes_x2_safe, classes_y, n_y_classes, _cond_seed)
             local_data = np.empty((n, 2), dtype=dtype)
             local_data[:, 0] = classes_x1_arr.astype(dtype, copy=False)
             local_data[:, 1] = classes_x2_safe.astype(dtype, copy=False)
-            local_nbins = np.array(
-                [int(cls_x1.max()) + 1, int(classes_x2_safe.max()) + 1], dtype=np.int64)
+            local_nbins = np.array([int(cls_x1.max()) + 1, int(classes_x2_safe.max()) + 1], dtype=np.int64)
             cj, fj, _ = merge_vars(
-                factors_data=local_data, vars_indices=np.array([0, 1], dtype=np.int64),
-                var_is_nominal=None, factors_nbins=local_nbins, dtype=dtype)
-            i_pair_p = compute_mi_from_classes(
-                classes_x=cj, freqs_x=fj, classes_y=classes_y, freqs_y=freqs_y, dtype=dtype)
-            i_x1_p = compute_mi_from_classes(
-                classes_x=cls_x1, freqs_x=fq_x1, classes_y=classes_y, freqs_y=freqs_y, dtype=dtype)
-            fq_x2_perm = np.bincount(
-                classes_x2_safe.astype(np.int64),
-                minlength=int(classes_x2_safe.max()) + 1).astype(np.float64) / n
+                factors_data=local_data, vars_indices=np.array([0, 1], dtype=np.int64), var_is_nominal=None, factors_nbins=local_nbins, dtype=dtype
+            )
+            i_pair_p = compute_mi_from_classes(classes_x=cj, freqs_x=fj, classes_y=classes_y, freqs_y=freqs_y, dtype=dtype)
+            i_x1_p = compute_mi_from_classes(classes_x=cls_x1, freqs_x=fq_x1, classes_y=classes_y, freqs_y=freqs_y, dtype=dtype)
+            fq_x2_perm = np.bincount(classes_x2_safe.astype(np.int64), minlength=int(classes_x2_safe.max()) + 1).astype(np.float64) / n
             i_x2_p = compute_mi_from_classes(
-                classes_x=classes_x2_safe.astype(dtype, copy=False),
-                freqs_x=fq_x2_perm.astype(np.float64),
-                classes_y=classes_y, freqs_y=freqs_y, dtype=dtype)
+                classes_x=classes_x2_safe.astype(dtype, copy=False), freqs_x=fq_x2_perm.astype(np.float64), classes_y=classes_y, freqs_y=freqs_y, dtype=dtype
+            )
             if (i_pair_p - i_x1_p - i_x2_p) >= ii_obs:
                 n_failed += 1
         p = (n_failed + 1) / (n_perms + 1)
@@ -101,8 +104,8 @@ def test_conditional_null_hoist_x1_mi_bit_identical(n_perms):
     factors_data, nbins = _make_data()
     n = factors_data.shape[0]
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=factors_data, vars_indices=np.array([0], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=dtype)
+        factors_data=factors_data, vars_indices=np.array([0], dtype=np.int64), var_is_nominal=None, factors_nbins=nbins, dtype=dtype
+    )
 
     # candidate pairs over the non-target columns
     pairs = [(1, 2), (1, 3), (2, 3)]
@@ -119,22 +122,35 @@ def test_conditional_null_hoist_x1_mi_bit_identical(n_perms):
     )
 
     kept, conf = _confirm_pairs_via_permutation(
-        factors_data=factors_data, pairs_a=pairs_a, pairs_b=pairs_b,
-        selected_idx=selected_idx, ii_arr=ii_arr, nbins=nbins,
-        classes_y=classes_y, freqs_y=freqs_y, cfg=cfg,
-        n_search_pairs=len(pairs), dtype=dtype, verbose=0,
+        factors_data=factors_data,
+        pairs_a=pairs_a,
+        pairs_b=pairs_b,
+        selected_idx=selected_idx,
+        ii_arr=ii_arr,
+        nbins=nbins,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        cfg=cfg,
+        n_search_pairs=len(pairs),
+        dtype=dtype,
+        verbose=0,
     )
 
     ref = _reference_conditional_confidence(
-        factors_data, pairs_a, pairs_b, selected_idx, ii_arr, nbins,
-        classes_y, freqs_y, cfg, dtype,
+        factors_data,
+        pairs_a,
+        pairs_b,
+        selected_idx,
+        ii_arr,
+        nbins,
+        classes_y,
+        freqs_y,
+        cfg,
+        dtype,
     )
 
     # fwer_correction="none" -> shipped confidence is the raw per-pair confidence,
     # which must match the per-perm-recompute reference EXACTLY.
     assert set(conf) == set(ref)
     for key in ref:
-        assert conf[key] == ref[key], (
-            f"hoisted I(X1;Y) changed confidence for {key}: "
-            f"{conf[key]!r} != reference {ref[key]!r}"
-        )
+        assert conf[key] == ref[key], f"hoisted I(X1;Y) changed confidence for {key}: {conf[key]!r} != reference {ref[key]!r}"

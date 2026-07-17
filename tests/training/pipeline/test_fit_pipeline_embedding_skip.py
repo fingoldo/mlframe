@@ -10,6 +10,7 @@ embedding column, which pandas hashes - and ndarrays raise
 The fix routes embedding-shape columns OUT of cat_features even when
 their dtype is plain object. See `_looks_embedding` predicate.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,14 +30,16 @@ def test_embedding_object_column_excluded_from_cat_features():
     """
     rng = np.random.default_rng(0)
     n = 300
-    df = pd.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        # Real categorical (string-object) column - should be encoded
-        "cat_low": np.array(["A", "B", "C"], dtype=object)[rng.integers(0, 3, n)],
-        # Embedding (object-of-ndarray) - must be skipped
-        "emb": [rng.normal(size=4).astype("float32") for _ in range(n)],
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            # Real categorical (string-object) column - should be encoded
+            "cat_low": np.array(["A", "B", "C"], dtype=object)[rng.integers(0, 3, n)],
+            # Embedding (object-of-ndarray) - must be skipped
+            "emb": [rng.normal(size=4).astype("float32") for _ in range(n)],
+        }
+    )
 
     config = PreprocessingBackendConfig(
         categorical_encoding="ordinal",
@@ -60,9 +63,7 @@ def test_embedding_object_column_excluded_from_cat_features():
     assert "emb" in train_out.columns, "embedding column survived the pipeline"
     assert train_out["emb"].dtype == object, "embedding column preserved as object"
     # cat_low got ordinal-encoded -> integer dtype now
-    assert np.issubdtype(train_out["cat_low"].dtype, np.integer), (
-        f"cat_low should be ordinal-encoded to int, got {train_out['cat_low'].dtype}"
-    )
+    assert np.issubdtype(train_out["cat_low"].dtype, np.integer), f"cat_low should be ordinal-encoded to int, got {train_out['cat_low'].dtype}"
 
 
 def test_normal_cat_only_input_works():
@@ -70,10 +71,12 @@ def test_normal_cat_only_input_works():
     proceeds as before."""
     rng = np.random.default_rng(0)
     n = 300
-    df = pd.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "cat_low": np.array(["A", "B", "C"], dtype=object)[rng.integers(0, 3, n)],
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "cat_low": np.array(["A", "B", "C"], dtype=object)[rng.integers(0, 3, n)],
+        }
+    )
 
     config = PreprocessingBackendConfig(
         categorical_encoding="ordinal",

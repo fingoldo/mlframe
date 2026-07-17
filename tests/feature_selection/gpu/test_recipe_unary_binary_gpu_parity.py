@@ -8,6 +8,7 @@ the parity assertion (negative control).
 
 Auto-skips on CUDA-unavailable hosts via ``pytest.importorskip("cupy")``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,6 +32,7 @@ from mlframe.feature_selection.filters.engineered_recipes._recipe_unary_binary_g
 def _need_cuda():
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         try:
@@ -43,15 +45,46 @@ pytestmark = pytest.mark.skipif(not _need_cuda(), reason="CUDA not available")
 
 
 _UNARY = [
-    "identity", "neg", "abs", "sign", "rint",
-    "sqr", "qubed", "reciproc", "invsquared", "invqubed",
-    "cbrt", "sqrt", "invcbrt", "invsqrt",
-    "exp", "sin", "cos", "tan", "sinh", "cosh", "tanh", "log",
+    "identity",
+    "neg",
+    "abs",
+    "sign",
+    "rint",
+    "sqr",
+    "qubed",
+    "reciproc",
+    "invsquared",
+    "invqubed",
+    "cbrt",
+    "sqrt",
+    "invcbrt",
+    "invsqrt",
+    "exp",
+    "sin",
+    "cos",
+    "tan",
+    "sinh",
+    "cosh",
+    "tanh",
+    "log",
 ]
 _BINARY = [
-    "mul", "add", "sub", "div", "max", "min",
-    "abs_diff", "hypot", "signed", "ratio_abs",
-    "pow", "logaddexp", "heaviside", "greater", "less", "equal",
+    "mul",
+    "add",
+    "sub",
+    "div",
+    "max",
+    "min",
+    "abs_diff",
+    "hypot",
+    "signed",
+    "ratio_abs",
+    "pow",
+    "logaddexp",
+    "heaviside",
+    "greater",
+    "less",
+    "equal",
 ]
 
 
@@ -61,19 +94,23 @@ def _frame(seed=7, n=4000):
     # guards are exercised exactly as the numpy registry handles them.
     a = rng.uniform(-3.0, 3.0, n)
     b = rng.uniform(-3.0, 3.0, n)
-    b[::97] = 0.0           # exact-zero denominators for the _safe_div path
-    a[::53] = 0.0           # zeros for reciproc / log non-positive shift
+    b[::97] = 0.0  # exact-zero denominators for the _safe_div path
+    a[::53] = 0.0  # zeros for reciproc / log non-positive shift
     return pd.DataFrame({"a": a.astype(np.float64), "b": b.astype(np.float64)})
 
 
 def _recipe(u_a, u_b, binary, preset="maximal"):
     return build_unary_binary_recipe(
         name=f"{binary}({u_a}(a),{u_b}(b))",
-        src_a_name="a", src_b_name="b",
-        unary_a_name=u_a, unary_b_name=u_b,
+        src_a_name="a",
+        src_b_name="b",
+        unary_a_name=u_a,
+        unary_b_name=u_b,
         binary_name=binary,
-        unary_preset=preset, binary_preset=preset,
-        quantization_nbins=None, quantization_method=None,
+        unary_preset=preset,
+        binary_preset=preset,
+        quantization_nbins=None,
+        quantization_method=None,
         quantization_dtype=np.float32,
     )
 
@@ -87,8 +124,7 @@ def test_each_unary_gpu_matches_numpy(u, monkeypatch):
     gpu = apply_unary_binary_gpu(rec, X)
     assert gpu is not None, f"unary {u!r} should be GPU-eligible"
     gpu = np.asarray(gpu, dtype=np.float64)
-    np.testing.assert_allclose(gpu, cpu, rtol=1e-6, atol=1e-6,
-                               err_msg=f"unary {u!r} GPU != numpy")
+    np.testing.assert_allclose(gpu, cpu, rtol=1e-6, atol=1e-6, err_msg=f"unary {u!r} GPU != numpy")
 
 
 @pytest.mark.parametrize("binary", _BINARY)
@@ -100,8 +136,7 @@ def test_each_binary_gpu_matches_numpy(binary, monkeypatch):
     gpu = apply_unary_binary_gpu(rec, X)
     assert gpu is not None, f"binary {binary!r} should be GPU-eligible"
     gpu = np.asarray(gpu, dtype=np.float64)
-    np.testing.assert_allclose(gpu, cpu, rtol=1e-6, atol=1e-6,
-                               err_msg=f"binary {binary!r} GPU != numpy")
+    np.testing.assert_allclose(gpu, cpu, rtol=1e-6, atol=1e-6, err_msg=f"binary {binary!r} GPU != numpy")
 
 
 def test_compound_div_sqr_matches_numpy(monkeypatch):
@@ -162,6 +197,7 @@ def test_wrong_operator_mapping_would_fail():
 def test_pseudo_unary_returns_none_for_cpu_fallback():
     """prewarp / gate_med pseudo-unaries are NOT GPU-eligible -> None (CPU path)."""
     import dataclasses
+
     X = _frame()
     rec = _recipe("identity", "identity", "add")
     # gate_med pseudo-unary on side a -> GPU-ineligible (closed-form CPU path).

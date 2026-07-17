@@ -3,6 +3,7 @@
 Guards the wiring in ``_phase_finalize._render_model_comparison_leaderboards``: the composer is built+tested
 elsewhere; this pins that the suite actually CALLS it (a 1-model target must not render, a 2-model target must).
 """
+
 from __future__ import annotations
 
 import glob
@@ -21,9 +22,15 @@ def _entry(name, y, score):
 
 def _ctx(tmp_path, models):
     return SimpleNamespace(
-        data_dir=str(tmp_path), save_charts=True, verbose=0, target_name="t", model_name="m",
+        data_dir=str(tmp_path),
+        save_charts=True,
+        verbose=0,
+        target_name="t",
+        model_name="m",
         reporting_config=SimpleNamespace(plot_outputs="matplotlib[png]", model_comparison_charts=True),
-        models=models, metadata={}, configs=None,
+        models=models,
+        metadata={},
+        configs=None,
     )
 
 

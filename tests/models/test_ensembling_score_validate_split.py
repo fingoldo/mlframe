@@ -15,12 +15,14 @@ import pytest
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.models.ensembling import score as _ensembling_score
+
     return _ensembling_score
 
 
 @pytest.fixture(scope="module")
 def sibling_validate():
     from mlframe.models.ensembling import score_validate as _ensembling_score_validate
+
     return _ensembling_score_validate
 
 

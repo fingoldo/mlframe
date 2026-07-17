@@ -19,6 +19,7 @@ adds the missing coverage:
   (e.g. simulated cc 10) must degrade gracefully to the size-only
   defaults (shared for small, global for large), not raise.
 """
+
 from __future__ import annotations
 
 from unittest import mock
@@ -31,19 +32,23 @@ def _reset_cc_major_memo():
     """Reset the process-lifetime cc_major memo so each parametrized cc mock is consulted rather than a
     real cc cached by an earlier test (which now happens once the GPU actually works)."""
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
+
     saved = dispatch._CC_MAJOR_CACHE
     dispatch._CC_MAJOR_CACHE = None
     yield
     dispatch._CC_MAJOR_CACHE = saved
 
 
-@pytest.mark.parametrize("cc_major,expected_variant", [
-    (5, "shared"),   # Maxwell
-    (6, "shared"),   # Pascal (host's actual HW)
-    (7, "shared"),   # Volta / Turing
-    (8, "shared"),   # Ampere
-    (9, "global"),   # Hopper
-])
+@pytest.mark.parametrize(
+    "cc_major,expected_variant",
+    [
+        (5, "shared"),  # Maxwell
+        (6, "shared"),  # Pascal (host's actual HW)
+        (7, "shared"),  # Volta / Turing
+        (8, "shared"),  # Ampere
+        (9, "global"),  # Hopper
+    ],
+)
 def test_fallback_variant_per_cc_matches_table(cc_major, expected_variant):
     """For each cc in _FALLBACK_BY_CC, the fallback must return the
     documented kernel_variant. Complements the block_size parametric
@@ -54,15 +59,15 @@ def test_fallback_variant_per_cc_matches_table(cc_major, expected_variant):
         with mock.patch(
             "pyutilz.system.gpu_dispatch.gpu_capability_summary",
             return_value={
-                "cc_major": cc_major, "cc_minor": 0, "name": "SimulatedCC{0}".format(cc_major),
+                "cc_major": cc_major,
+                "cc_minor": 0,
+                "name": "SimulatedCC{0}".format(cc_major),
             },
         ):
             # joint_size=25 stays below the 4096 override threshold, so the
             # cc-default takes effect.
             r = dispatch.lookup_joint_hist(n_samples=100_000, joint_size=25)
-    assert r["kernel_variant"] == expected_variant, (
-        f"cc {cc_major} expected kernel_variant={expected_variant!r}; got {r!r}"
-    )
+    assert r["kernel_variant"] == expected_variant, f"cc {cc_major} expected kernel_variant={expected_variant!r}; got {r!r}"
 
 
 @pytest.mark.parametrize("cc_major", [5, 6, 7, 8])
@@ -77,13 +82,13 @@ def test_large_joint_size_forces_global_regardless_of_cc(cc_major):
         with mock.patch(
             "pyutilz.system.gpu_dispatch.gpu_capability_summary",
             return_value={
-                "cc_major": cc_major, "cc_minor": 0, "name": "SimCC{0}".format(cc_major),
+                "cc_major": cc_major,
+                "cc_minor": 0,
+                "name": "SimCC{0}".format(cc_major),
             },
         ):
             r = dispatch.lookup_joint_hist(n_samples=100_000, joint_size=8192)
-    assert r["kernel_variant"] == "global", (
-        f"cc {cc_major} with joint_size=8192 must route to global; got {r!r}"
-    )
+    assert r["kernel_variant"] == "global", f"cc {cc_major} with joint_size=8192 must route to global; got {r!r}"
 
 
 def test_unknown_cc_falls_back_to_size_default():
@@ -99,12 +104,8 @@ def test_unknown_cc_falls_back_to_size_default():
             r_small = dispatch.lookup_joint_hist(n_samples=100_000, joint_size=25)
             r_large = dispatch.lookup_joint_hist(n_samples=100_000, joint_size=8192)
 
-    assert r_small["kernel_variant"] in ("shared", "global"), (
-        f"unknown-cc small-joint path returned {r_small!r}"
-    )
-    assert r_large["kernel_variant"] == "global", (
-        f"unknown-cc large-joint must force global; got {r_large!r}"
-    )
+    assert r_small["kernel_variant"] in ("shared", "global"), f"unknown-cc small-joint path returned {r_small!r}"
+    assert r_large["kernel_variant"] == "global", f"unknown-cc large-joint must force global; got {r_large!r}"
 
 
 def test_missing_gpu_capability_falls_through_to_size_default():
@@ -122,6 +123,4 @@ def test_missing_gpu_capability_falls_through_to_size_default():
 
     # The cc-aware branch is gone but the size-based defaults remain.
     assert "kernel_variant" in r_small and "block_size" in r_small
-    assert r_large["kernel_variant"] == "global", (
-        f"no-CUDA large-joint must still force global; got {r_large!r}"
-    )
+    assert r_large["kernel_variant"] == "global", f"no-CUDA large-joint must still force global; got {r_large!r}"

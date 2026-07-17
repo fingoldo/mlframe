@@ -26,6 +26,7 @@ Contracts pinned (real AUC numbers, Bayes-feasible fixtures, never xfail):
 
 Consolidated verbatim from test_biz_value_mrmr_layer87.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -60,12 +61,14 @@ def _build_group_mean_signal(seed: int, n: int = 6000):
     # small but the group-conditioned mean is the real driver.
     x = group_mean[region] + rng.normal(0.0, 3.0, n)
     y = (group_mean[region] + 0.1 * rng.normal(0.0, 1.0, n) > 0.0).astype(int)
-    X = pd.DataFrame({
-        "region": region,
-        "x": x,
-        "noise_0": rng.normal(0.0, 1.0, n),
-        "noise_1": rng.normal(0.0, 1.0, n),
-    })
+    X = pd.DataFrame(
+        {
+            "region": region,
+            "x": x,
+            "noise_0": rng.normal(0.0, 1.0, n),
+            "noise_1": rng.normal(0.0, 1.0, n),
+        }
+    )
     return X, y
 
 
@@ -83,11 +86,13 @@ def _build_z_within_signal(seed: int, n: int = 6000):
     x = group_mean[region] + group_std[region] * z_true
     # y depends ONLY on the within-group z-score, not on raw x location.
     y = (z_true + 0.1 * rng.normal(0.0, 1.0, n) > 0.0).astype(int)
-    X = pd.DataFrame({
-        "region": region,
-        "x": x,
-        "noise_0": rng.normal(0.0, 1.0, n),
-    })
+    X = pd.DataFrame(
+        {
+            "region": region,
+            "x": x,
+            "noise_0": rng.normal(0.0, 1.0, n),
+        }
+    )
     return X, y
 
 
@@ -102,11 +107,13 @@ def _build_redundant_group_mean(seed: int, n: int = 6000):
     group_mean = np.array([1.0, 5.0, 9.0, 2.0, 7.0, 3.0, 6.0, 4.0])
     x = group_mean[region] + rng.normal(0.0, 0.3, n)
     y = (group_mean[region] > 5.0).astype(int)
-    X = pd.DataFrame({
-        "region": region,
-        "x": x,
-        "noise_0": rng.normal(0.0, 1.0, n),
-    })
+    X = pd.DataFrame(
+        {
+            "region": region,
+            "x": x,
+            "noise_0": rng.normal(0.0, 1.0, n),
+        }
+    )
     return X, y
 
 
@@ -122,11 +129,13 @@ def _build_rare_1pct(seed: int, n: int = 6000):
     score = group_mean[region] + 0.2 * rng.normal(0.0, 1.0, n)
     thr = float(np.quantile(score, 0.99))  # top 1% positive
     y = (score > thr).astype(int)
-    X = pd.DataFrame({
-        "region": region,
-        "x": x,
-        "noise_0": rng.normal(0.0, 1.0, n),
-    })
+    X = pd.DataFrame(
+        {
+            "region": region,
+            "x": x,
+            "noise_0": rng.normal(0.0, 1.0, n),
+        }
+    )
     return X, y
 
 
@@ -145,13 +154,18 @@ class TestGroupMeanSignalRecovered:
             score_grouped_agg_by_cmi_uplift,
             engineered_name_grouped_agg,
         )
+
         wins = 0
         for s in SEEDS:
             X, y = _build_group_mean_signal(s)
             enc, raw = generate_grouped_agg_features(X, ["region"], ["x"])
             e2s = {k: raw[k]["num_col"] for k in enc.columns}
             sc = score_grouped_agg_by_cmi_uplift(
-                X, enc, y, ["x"], eng_to_source=e2s,
+                X,
+                enc,
+                y,
+                ["x"],
+                eng_to_source=e2s,
             )
             mean_name = engineered_name_grouped_agg("x", "region", "mean")
             row = sc[sc["engineered_col"] == mean_name].iloc[0]
@@ -159,7 +173,7 @@ class TestGroupMeanSignalRecovered:
             # exceed raw x's own marginal MI.
             if row["cmi"] > 0.1 and row["uplift"] > 0.05:
                 wins += 1
-        assert wins >= 4, f"group-mean aggregate recovered the signal on only {wins}/" f"{len(SEEDS)} seeds; expected >= 4."
+        assert wins >= 4, f"group-mean aggregate recovered the signal on only {wins}/{len(SEEDS)} seeds; expected >= 4."
 
 
 # ---------------------------------------------------------------------------
@@ -175,23 +189,26 @@ class TestCmiGateDropsRedundant:
         from mlframe.feature_selection.filters._grouped_agg_fe import (
             hybrid_grouped_agg_fe,
         )
+
         gated = 0
         for s in SEEDS:
             X, y = _build_redundant_group_mean(s)
             # Default gate requires uplift over the source-x marginal MI; when
             # x already carries the group signal the broadcast is redundant.
             _X_aug, appended, _recipes, _scores = hybrid_grouped_agg_fe(
-                X, y, group_cols=["region"], num_cols=["x"],
-                top_k=10, min_uplift=0.0,
+                X,
+                y,
+                group_cols=["region"],
+                num_cols=["x"],
+                top_k=10,
+                min_uplift=0.0,
             )
             # No broadcast should clear the uplift gate (it can only be
             # redundant or negative-uplift here).
             mean_broadcasts = [c for c in appended if c.startswith("grpagg_mean(")]
             if not mean_broadcasts:
                 gated += 1
-        assert gated >= 4, (
-            f"CMI/uplift gate failed to drop the redundant group-mean on " f"{len(SEEDS) - gated}/{len(SEEDS)} seeds; expected gating on " f">= 4."
-        )
+        assert gated >= 4, f"CMI/uplift gate failed to drop the redundant group-mean on {len(SEEDS) - gated}/{len(SEEDS)} seeds; expected gating on >= 4."
 
 
 # ---------------------------------------------------------------------------
@@ -209,13 +226,18 @@ class TestZWithinGroupResidual:
             score_grouped_agg_by_cmi_uplift,
             engineered_name_grouped_z,
         )
+
         wins = 0
         for s in SEEDS:
             X, y = _build_z_within_signal(s)
             enc, raw = generate_grouped_agg_features(X, ["region"], ["x"])
             e2s = {k: raw[k]["num_col"] for k in enc.columns}
             sc = score_grouped_agg_by_cmi_uplift(
-                X, enc, y, ["x"], eng_to_source=e2s,
+                X,
+                enc,
+                y,
+                ["x"],
+                eng_to_source=e2s,
             )
             z_name = engineered_name_grouped_z("x", "region")
             row = sc[sc["engineered_col"] == z_name].iloc[0]
@@ -225,7 +247,7 @@ class TestZWithinGroupResidual:
             # per-group mean broadcast (which is non-predictive here).
             if row["cmi"] > 0.15 and row["cmi"] > mean_cmi + 0.05:
                 wins += 1
-        assert wins >= 4, f"z-within-group residual captured the anomaly signal on only " f"{wins}/{len(SEEDS)} seeds; expected >= 4."
+        assert wins >= 4, f"z-within-group residual captured the anomaly signal on only {wins}/{len(SEEDS)} seeds; expected >= 4."
 
 
 # ---------------------------------------------------------------------------
@@ -241,11 +263,16 @@ class TestAucLift:
         from mlframe.feature_selection.filters._grouped_agg_fe import (
             hybrid_grouped_agg_fe,
         )
+
         lifts = []
         for s in SEEDS:
             X, y = _build_group_mean_signal(s, n=8000)
             Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             raw_cols = ["x", "noise_0", "noise_1"]
             base = LogisticRegression(max_iter=2000)
@@ -253,13 +280,18 @@ class TestAucLift:
             auc_raw = roc_auc_score(yte, base.predict_proba(Xte[raw_cols])[:, 1])
 
             X_aug_tr, appended, recipes, _ = hybrid_grouped_agg_fe(
-                Xtr, ytr, group_cols=["region"], num_cols=["x"], top_k=10,
+                Xtr,
+                ytr,
+                group_cols=["region"],
+                num_cols=["x"],
+                top_k=10,
             )
             assert appended, f"seed={s}: no grouped-agg survivors for AUC test."
             # Replay on test via recipes (leakage-free, reads only X).
             from mlframe.feature_selection.filters.engineered_recipes import (
                 apply_recipe,
             )
+
             aug_cols = raw_cols + appended
             Xte_aug = Xte.copy()
             for r in recipes:
@@ -292,9 +324,14 @@ class TestNoLeakage:
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         X, y = _build_group_mean_signal(7)
         _, _appended, recipes, _ = hybrid_grouped_agg_fe(
-            X, y, group_cols=["region"], num_cols=["x"], top_k=10,
+            X,
+            y,
+            group_cols=["region"],
+            num_cols=["x"],
+            top_k=10,
         )
         assert recipes, "no recipes produced for leakage test."
         rng = np.random.default_rng(0)
@@ -324,15 +361,20 @@ class TestAutoDetect:
         from mlframe.feature_selection.filters._grouped_agg_fe import (
             hybrid_grouped_agg_fe,
         )
+
         X, y = _build_group_mean_signal(13)
         # Don't pass group_cols / num_cols -> auto-detect must find 'region'
         # (int-as-cat, cardinality 10) and 'x' (continuous).
         _X_aug, appended, recipes, _scores = hybrid_grouped_agg_fe(
-            X, y, group_cols=None, num_cols=None, top_k=10,
+            X,
+            y,
+            group_cols=None,
+            num_cols=None,
+            top_k=10,
         )
         assert appended, "auto-detect produced no grouped-agg columns."
         # Every survivor must reference the auto-detected region group.
-        assert all("region" in r.extra["group_col"] for r in recipes), f"auto-detected group_col mismatch: " f"{[r.extra['group_col'] for r in recipes]}"
+        assert all("region" in r.extra["group_col"] for r in recipes), f"auto-detected group_col mismatch: {[r.extra['group_col'] for r in recipes]}"
 
 
 # ---------------------------------------------------------------------------
@@ -348,11 +390,16 @@ class TestRare1pctGuard:
         from mlframe.feature_selection.filters._grouped_agg_fe import (
             hybrid_grouped_agg_fe,
         )
+
         for s in SEEDS:
             X, y = _build_rare_1pct(s, n=6000)
             assert y.sum() >= 1 and y.sum() < len(y), f"seed={s}: degenerate rare fixture (sum={y.sum()})."
             _X_aug, _appended, recipes, _scores = hybrid_grouped_agg_fe(
-                X, y, group_cols=["region"], num_cols=["x"], top_k=10,
+                X,
+                y,
+                group_cols=["region"],
+                num_cols=["x"],
+                top_k=10,
             )
             # The engineered columns must not collapse to a constant (which
             # would destroy the rare-class separability).
@@ -360,6 +407,7 @@ class TestRare1pctGuard:
                 from mlframe.feature_selection.filters.engineered_recipes import (
                     apply_recipe,
                 )
+
                 col = apply_recipe(r, X)
                 assert np.isfinite(col).all(), f"seed={s}: recipe {r.name!r} produced non-finite values."
                 assert float(np.nanstd(col)) > 0.0, f"seed={s}: recipe {r.name!r} collapsed to a constant."
@@ -376,6 +424,7 @@ class TestDefaultDisabledByteIdentical:
     def test_mrmr_default_off_does_not_add_grouped_agg(self):
         """With the family disabled by default, MRMR.fit adds no grouped_agg_features_."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_group_mean_signal(42, n=2000)
         m = MRMR(max_runtime_mins=0.5)
         assert bool(getattr(m, "fe_grouped_agg_enable", False)) is False, "fe_grouped_agg_enable must default to False."
@@ -399,6 +448,7 @@ class TestDefaultDisabledByteIdentical:
         # _produced_recipes_ audit ledger (every recipe produced this fit,
         # before the greedy screen drops the weaker candidates).
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_group_mean_signal(42, n=3000)
         m = MRMR(
             max_runtime_mins=1.0,
@@ -437,9 +487,14 @@ class TestPickleClone:
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         X, y = _build_group_mean_signal(1)
         _, _appended, recipes, _ = hybrid_grouped_agg_fe(
-            X, y, group_cols=["region"], num_cols=["x"], top_k=10,
+            X,
+            y,
+            group_cols=["region"],
+            num_cols=["x"],
+            top_k=10,
         )
         assert recipes, "no recipes for pickle test."
         for r in recipes:
@@ -454,6 +509,7 @@ class TestPickleClone:
         """sklearn clone() copies every fe_grouped_agg_* ctor param without fitted state."""
         from sklearn.base import clone
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(
             fe_grouped_agg_enable=True,
             fe_grouped_agg_group_cols=("region",),
@@ -477,9 +533,12 @@ class TestAutoDetectNumColRelevance:
         from mlframe.feature_selection.filters._grouped_agg_fe import (
             _filter_num_cols_by_relevance,
         )
+
         X, y = _build_group_mean_signal(1)
         kept = _filter_num_cols_by_relevance(
-            X[["x", "noise_0", "noise_1"]], y, ["x", "noise_0", "noise_1"],
+            X[["x", "noise_0", "noise_1"]],
+            y,
+            ["x", "noise_0", "noise_1"],
         )
         assert kept == ["x"], f"relevance filter should keep only the signal source 'x'; got {kept}"
 
@@ -490,15 +549,20 @@ class TestAutoDetectNumColRelevance:
         from mlframe.feature_selection.filters._grouped_agg_fe import (
             hybrid_grouped_agg_fe,
         )
+
         for s in (1, 7, 13):
             X, y = _build_group_mean_signal(s)
             _, appended, _, _ = hybrid_grouped_agg_fe(
-                X, y, group_cols=["region"], num_cols=None, top_k=10,
+                X,
+                y,
+                group_cols=["region"],
+                num_cols=None,
+                top_k=10,
             )
             assert appended, f"seed={s}: auto-detect produced no aggregates"
             sources = {a.split("|")[0].split("(")[-1] for a in appended}
             assert sources == {"x"}, (
-                f"seed={s}: auto-detected aggregates of non-signal sources {sources}; " f"the y-relevance filter should restrict to 'x'. appended={appended}"
+                f"seed={s}: auto-detected aggregates of non-signal sources {sources}; the y-relevance filter should restrict to 'x'. appended={appended}"
             )
 
     def test_auto_detect_skips_already_engineered_grp_columns(self):
@@ -508,6 +572,7 @@ class TestAutoDetectNumColRelevance:
         from mlframe.feature_selection.filters._grouped_agg_fe import (
             _auto_detect_num_cols,
         )
+
         X, _ = _build_group_mean_signal(1)
         X = X.copy()
         X["grpagg_mean(x|region)"] = X["x"]  # simulate an upstream grouped-agg column

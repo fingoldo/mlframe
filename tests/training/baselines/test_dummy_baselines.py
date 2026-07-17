@@ -88,7 +88,9 @@ def binary_data():
     return {
         "target_type": "binary_classification",
         "target_name": "b",
-        "train_y": y_tr, "val_y": y_va, "test_y": y_te,
+        "train_y": y_tr,
+        "val_y": y_va,
+        "test_y": y_te,
         "train_X": pd.DataFrame({"x": rng.normal(size=n_tr)}),
         "val_X": pd.DataFrame({"x": rng.normal(size=n_va)}),
         "test_X": pd.DataFrame({"x": rng.normal(size=n_te)}),
@@ -107,7 +109,9 @@ def multiclass_data():
     return {
         "target_type": "multiclass_classification",
         "target_name": "m",
-        "train_y": y_tr, "val_y": y_va, "test_y": y_te,
+        "train_y": y_tr,
+        "val_y": y_va,
+        "test_y": y_te,
         "train_X": pd.DataFrame({"x": rng.normal(size=n_tr)}),
         "val_X": pd.DataFrame({"x": rng.normal(size=n_va)}),
         "test_X": pd.DataFrame({"x": rng.normal(size=n_te)}),
@@ -225,9 +229,7 @@ class TestHeadlineLogLoss:
                 if name in rep.table.index:
                     auc = rep.table.loc[name, "val_AUC"]
                     if pd.notna(auc):
-                        assert abs(auc - 0.5) < 0.05, (
-                            f"{name} AUC should ≈ 0.5 by construction, got {auc}"
-                        )
+                        assert abs(auc - 0.5) < 0.05, f"{name} AUC should ≈ 0.5 by construction, got {auc}"
 
     def test_multilabel_macro_and_micro_explicitly_named(self, multilabel_data, cfg):
         rep = compute_dummy_baselines(config=cfg, **multilabel_data)
@@ -253,17 +255,19 @@ class TestPerGroupLeakage:
         val_X = pd.DataFrame({"cat": np.arange(50)})
         test_X = pd.DataFrame({"cat": np.arange(50)})
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="y",
+            target_type="regression",
+            target_name="y",
             train_y=rng.normal(size=n_tr),
             val_y=rng.normal(size=50),
             test_y=rng.normal(size=50),
-            train_X=train_X, val_X=val_X, test_X=test_X,
-            cat_features=["cat"], config=cfg,
+            train_X=train_X,
+            val_X=val_X,
+            test_X=test_X,
+            cat_features=["cat"],
+            config=cfg,
         )
         # per_group_mean rows should NOT be in the table.
-        assert not any("per_group" in str(idx) for idx in rep.table.index), (
-            f"per_group_mean leaked through cardinality cap: {list(rep.table.index)}"
-        )
+        assert not any("per_group" in str(idx) for idx in rep.table.index), f"per_group_mean leaked through cardinality cap: {list(rep.table.index)}"
 
     def test_per_group_present_when_eligible(self, reg_data, cfg):
         """Low-cardinality categorical → per_group_mean baseline is emitted."""
@@ -284,9 +288,11 @@ class TestPerGroupLeakage:
 class TestTimeSeriesDetection:
     def test_no_timestamps_no_ts_baselines(self, reg_data, cfg):
         rep = compute_dummy_baselines(config=cfg, **reg_data)
-        ts_rows = [idx for idx in rep.table.index if "naive" in str(idx).lower()
-                   or "seasonal" in str(idx).lower() or "rolling" in str(idx).lower()
-                   or "linear_extrap" in str(idx).lower()]
+        ts_rows = [
+            idx
+            for idx in rep.table.index
+            if "naive" in str(idx).lower() or "seasonal" in str(idx).lower() or "rolling" in str(idx).lower() or "linear_extrap" in str(idx).lower()
+        ]
         assert ts_rows == []
 
     def test_monotonic_daily_series_emits_ts_baselines(self, cfg):
@@ -304,16 +310,20 @@ class TestTimeSeriesDetection:
         y_te = np.sin(2 * np.pi * t_te / 7) + rng.normal(0, 0.1, n_te)
 
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="ts",
-            train_y=y_tr, val_y=y_va, test_y=y_te,
+            target_type="regression",
+            target_name="ts",
+            train_y=y_tr,
+            val_y=y_va,
+            test_y=y_te,
             train_X=pd.DataFrame({"x": rng.normal(size=n_tr)}),
             val_X=pd.DataFrame({"x": rng.normal(size=n_va)}),
             test_X=pd.DataFrame({"x": rng.normal(size=n_te)}),
-            timestamps_train=ts_tr, timestamps_val=ts_va, timestamps_test=ts_te,
+            timestamps_train=ts_tr,
+            timestamps_val=ts_va,
+            timestamps_test=ts_te,
             config=cfg,
         )
-        ts_rows = [str(idx) for idx in rep.table.index
-                   if "naive" in str(idx) or "seasonal" in str(idx) or "rolling" in str(idx)]
+        ts_rows = [str(idx) for idx in rep.table.index if "naive" in str(idx) or "seasonal" in str(idx) or "rolling" in str(idx)]
         assert ts_rows, f"Expected TS baselines on monotonic daily series; got {list(rep.table.index)}"
 
     def test_interleaved_split_skips_ts_baselines(self, cfg):
@@ -328,16 +338,20 @@ class TestTimeSeriesDetection:
         ts_te = pd.Series(ts_all[idx[160:]])
         y_all = rng.normal(size=n)
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="ts",
-            train_y=y_all[idx[:120]], val_y=y_all[idx[120:160]], test_y=y_all[idx[160:]],
+            target_type="regression",
+            target_name="ts",
+            train_y=y_all[idx[:120]],
+            val_y=y_all[idx[120:160]],
+            test_y=y_all[idx[160:]],
             train_X=pd.DataFrame({"x": rng.normal(size=120)}),
             val_X=pd.DataFrame({"x": rng.normal(size=40)}),
             test_X=pd.DataFrame({"x": rng.normal(size=40)}),
-            timestamps_train=ts_tr, timestamps_val=ts_va, timestamps_test=ts_te,
+            timestamps_train=ts_tr,
+            timestamps_val=ts_va,
+            timestamps_test=ts_te,
             config=cfg,
         )
-        ts_rows = [str(idx) for idx in rep.table.index
-                   if "naive" in str(idx) or "seasonal" in str(idx) or "linear_extrap" in str(idx)]
+        ts_rows = [str(idx) for idx in rep.table.index if "naive" in str(idx) or "seasonal" in str(idx) or "linear_extrap" in str(idx)]
         assert ts_rows == [], f"Interleaved split must skip TS baselines: {list(rep.table.index)}"
 
     def test_temporally_monotonic_helper(self):
@@ -362,12 +376,16 @@ class TestStrongestPickRobustness:
         y_te = rng.integers(0, 2, 100)
         le = LabelEncoder().fit(np.concatenate([y_tr, y_va, y_te]))
         rep = compute_dummy_baselines(
-            target_type="binary_classification", target_name="b",
-            train_y=y_tr, val_y=y_va, test_y=y_te,
+            target_type="binary_classification",
+            target_name="b",
+            train_y=y_tr,
+            val_y=y_va,
+            test_y=y_te,
             train_X=pd.DataFrame({"x": rng.normal(size=500)}),
             val_X=pd.DataFrame({"x": rng.normal(size=50)}),
             test_X=pd.DataFrame({"x": rng.normal(size=100)}),
-            target_label_encoder=le, config=cfg,
+            target_label_encoder=le,
+            config=cfg,
         )
         # Should pick a strongest from test split when val is degenerate.
         assert rep.strongest is not None or rep.primary_metric is not None
@@ -380,12 +398,16 @@ class TestStrongestPickRobustness:
         y_te = np.zeros(50, dtype=int)
         le = LabelEncoder().fit(np.concatenate([y_tr, y_va, y_te]))
         rep = compute_dummy_baselines(
-            target_type="binary_classification", target_name="b",
-            train_y=y_tr, val_y=y_va, test_y=y_te,
+            target_type="binary_classification",
+            target_name="b",
+            train_y=y_tr,
+            val_y=y_va,
+            test_y=y_te,
             train_X=pd.DataFrame({"x": rng.normal(size=500)}),
             val_X=pd.DataFrame({"x": rng.normal(size=50)}),
             test_X=pd.DataFrame({"x": rng.normal(size=50)}),
-            target_label_encoder=le, config=cfg,
+            target_label_encoder=le,
+            config=cfg,
         )
         # Strongest may be None; plot must be None.
         assert rep.plot_path is None
@@ -402,7 +424,8 @@ class TestLTRGroupSanity:
         n_tr = 500
         with pytest.raises((AssertionError, ValueError)):
             compute_dummy_baselines(
-                target_type="learning_to_rank", target_name="ltr",
+                target_type="learning_to_rank",
+                target_name="ltr",
                 train_y=rng.integers(0, 5, n_tr),
                 val_y=rng.integers(0, 5, 100),
                 test_y=rng.integers(0, 5, 100),
@@ -458,12 +481,20 @@ class TestSerialization:
     def test_nan_scrubbed_to_none(self):
         # Manually construct a report with NaN to exercise scrubbing
         rep = BaselineReport(
-            target_type="regression", target_name="y",
+            target_type="regression",
+            target_name="y",
             table=pd.DataFrame({"val_RMSE": [1.0, float("nan")]}, index=["a", "b"]),
-            strongest="a", primary_metric="val_RMSE",
-            ts_period_used=None, plot_path=None, elapsed_s=0.1,
-            n_train=10, n_val=2, n_test=2,
-            n_train_finite=10, n_val_finite=2, n_test_finite=2,
+            strongest="a",
+            primary_metric="val_RMSE",
+            ts_period_used=None,
+            plot_path=None,
+            elapsed_s=0.1,
+            n_train=10,
+            n_val=2,
+            n_test=2,
+            n_train_finite=10,
+            n_val_finite=2,
+            n_test_finite=2,
             extras={},
         )
         d = rep.to_dict()
@@ -483,7 +514,8 @@ class TestDtypeVariants:
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 200, 50, 50
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="y",
+            target_type="regression",
+            target_name="y",
             train_y=rng.normal(size=n_tr),
             val_y=rng.normal(size=n_va),
             test_y=rng.normal(size=n_te),
@@ -502,7 +534,8 @@ class TestDtypeVariants:
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 200, 50, 50
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="y",
+            target_type="regression",
+            target_name="y",
             train_y=pl.Series(rng.normal(size=n_tr)),
             val_y=pl.Series(rng.normal(size=n_va)),
             test_y=pl.Series(rng.normal(size=n_te)),
@@ -525,7 +558,9 @@ class TestDtypeVariants:
 class TestHelpers:
     def test_baseline_inputs_hash_deterministic(self):
         rng = np.random.default_rng(0)
-        y_tr = rng.normal(size=100); y_va = rng.normal(size=20); y_te = rng.normal(size=20)
+        y_tr = rng.normal(size=100)
+        y_va = rng.normal(size=20)
+        y_te = rng.normal(size=20)
         h1 = _baseline_inputs_hash("regression", y_tr, y_va, y_te)
         h2 = _baseline_inputs_hash("regression", y_tr, y_va, y_te)
         assert h1 == h2
@@ -535,7 +570,9 @@ class TestHelpers:
 
     def test_baseline_inputs_hash_changes_on_input_change(self):
         rng = np.random.default_rng(0)
-        y_tr = rng.normal(size=100); y_va = rng.normal(size=20); y_te = rng.normal(size=20)
+        y_tr = rng.normal(size=100)
+        y_va = rng.normal(size=20)
+        y_te = rng.normal(size=20)
         h1 = _baseline_inputs_hash("regression", y_tr, y_va, y_te)
         y_tr_perturbed = y_tr.copy()
         y_tr_perturbed[0] += 1.0
@@ -649,10 +686,12 @@ class TestSuiteEndSummary:
     def test_best_model_below_dummy_warn_fires(self, md):
         # EGFDU model lift = dummy/model = 12.50/12.40 ≈ 1.008 < 1.5 → WARN
         text = format_suite_end_summary(
-            md, best_model_metrics_by_target={
+            md,
+            best_model_metrics_by_target={
                 ("regression", "TVT"): {"val_RMSE": 14.20, "model_name": "cb"},
                 ("regression", "EGFDU"): {"val_RMSE": 12.40, "model_name": "xgb"},
-            }, min_lift=1.5,
+            },
+            min_lift=1.5,
         )
         assert "WARN BEST_MODEL_BELOW_DUMMY" in text
         assert "EGFDU" in text
@@ -660,15 +699,18 @@ class TestSuiteEndSummary:
     def test_ts_beats_trees_warn_fires(self, md):
         # TVT model RMSE > seasonal_naive RMSE → TS_BEATS_TREES
         text = format_suite_end_summary(
-            md, best_model_metrics_by_target={
+            md,
+            best_model_metrics_by_target={
                 ("regression", "TVT"): {"val_RMSE": 800.0, "model_name": "cb"},
-            }, min_lift=1.5,
+            },
+            min_lift=1.5,
         )
         assert "WARN TS_BEATS_TREES" in text
 
     def test_partial_failure_warn_fires(self, md):
         text = format_suite_end_summary(
-            md, failures_metadata={
+            md,
+            failures_metadata={
                 "regression": {"BROKEN": "synthetic crash"},
             },
         )
@@ -705,8 +747,11 @@ class TestObjectDtypeGate:
         y_va = np.array(["b"] * 20, dtype=object)
         y_te = np.array(["c"] * 20, dtype=object)
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="y",
-            train_y=y_tr, val_y=y_va, test_y=y_te,
+            target_type="regression",
+            target_name="y",
+            train_y=y_tr,
+            val_y=y_va,
+            test_y=y_te,
             train_X=pd.DataFrame({"x": rng.normal(size=100)}),
             val_X=pd.DataFrame({"x": rng.normal(size=20)}),
             test_X=pd.DataFrame({"x": rng.normal(size=20)}),
@@ -734,9 +779,14 @@ class TestMultiOutputRegression:
         y_te = np.column_stack([rng.normal(0, s, n_te) for s in scales])
         X = pd.DataFrame({"x": rng.normal(size=n_tr + n_va + n_te)})
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="Y",
-            train_y=y_tr, val_y=y_va, test_y=y_te,
-            train_X=X.iloc[:n_tr], val_X=X.iloc[n_tr:n_tr+n_va], test_X=X.iloc[n_tr+n_va:],
+            target_type="regression",
+            target_name="Y",
+            train_y=y_tr,
+            val_y=y_va,
+            test_y=y_te,
+            train_X=X.iloc[:n_tr],
+            val_X=X.iloc[n_tr : n_tr + n_va],
+            test_X=X.iloc[n_tr + n_va :],
             config=cfg,
         )
         assert "per_output_strongest" in rep.extras
@@ -755,9 +805,14 @@ class TestMultiOutputRegression:
         y_te = rng.normal(0, 1.0, (n_te, K))
         X = pd.DataFrame({"x": rng.normal(size=n_tr + n_va + n_te)})
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="Y",
-            train_y=y_tr, val_y=y_va, test_y=y_te,
-            train_X=X.iloc[:n_tr], val_X=X.iloc[n_tr:n_tr+n_va], test_X=X.iloc[n_tr+n_va:],
+            target_type="regression",
+            target_name="Y",
+            train_y=y_tr,
+            val_y=y_va,
+            test_y=y_te,
+            train_X=X.iloc[:n_tr],
+            val_X=X.iloc[n_tr : n_tr + n_va],
+            test_X=X.iloc[n_tr + n_va :],
             config=cfg,
         )
         assert "cross_output_strongest" in rep.extras
@@ -789,8 +844,11 @@ class TestBootstrapCI:
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 5000, 3000, 3000
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="y",
-            train_y=rng.normal(size=n_tr), val_y=rng.normal(size=n_va), test_y=rng.normal(size=n_te),
+            target_type="regression",
+            target_name="y",
+            train_y=rng.normal(size=n_tr),
+            val_y=rng.normal(size=n_va),
+            test_y=rng.normal(size=n_te),
             train_X=pd.DataFrame({"x": rng.normal(size=n_tr)}),
             val_X=pd.DataFrame({"x": rng.normal(size=n_va)}),
             test_X=pd.DataFrame({"x": rng.normal(size=n_te)}),
@@ -810,8 +868,10 @@ class TestStatsmodelsFallback:
         without raising; the rest of TS detection (step-size defaults)
         continues normally (D17)."""
         from mlframe.training.baselines import dummy as db
+
         # Monkey-patch the import to raise ImportError.
         import builtins
+
         real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
@@ -837,7 +897,8 @@ class TestAllNaNValTarget:
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 500, 50, 100
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="y",
+            target_type="regression",
+            target_name="y",
             train_y=rng.normal(size=n_tr),
             val_y=np.full(n_va, np.nan),  # all-NaN val
             test_y=rng.normal(size=n_te),
@@ -855,7 +916,8 @@ class TestAllNaNValTarget:
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = 500, 50, 50
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="y",
+            target_type="regression",
+            target_name="y",
             train_y=rng.normal(size=n_tr),
             val_y=np.full(n_va, np.nan),
             test_y=np.full(n_te, np.nan),
@@ -883,28 +945,33 @@ class TestTSPredictionRules:
         ts_va = pd.date_range(ts_tr[-1] + pd.Timedelta(days=1), periods=n_va, freq="D")
         ts_te = pd.date_range(ts_va[-1] + pd.Timedelta(days=1), periods=n_te, freq="D")
         # Strong weekly seasonality
-        t_tr = np.arange(n_tr); t_va = np.arange(n_va) + n_tr; t_te = np.arange(n_te) + n_tr + n_va
+        t_tr = np.arange(n_tr)
+        t_va = np.arange(n_va) + n_tr
+        t_te = np.arange(n_te) + n_tr + n_va
         y_tr = np.sin(2 * np.pi * t_tr / 7) + rng.normal(0, 0.1, n_tr)
         y_va = np.sin(2 * np.pi * t_va / 7) + rng.normal(0, 0.1, n_va)
         y_te = np.sin(2 * np.pi * t_te / 7) + rng.normal(0, 0.1, n_te)
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="ts",
-            train_y=y_tr, val_y=y_va, test_y=y_te,
+            target_type="regression",
+            target_name="ts",
+            train_y=y_tr,
+            val_y=y_va,
+            test_y=y_te,
             train_X=pd.DataFrame({"x": rng.normal(size=n_tr)}),
             val_X=pd.DataFrame({"x": rng.normal(size=n_va)}),
             test_X=pd.DataFrame({"x": rng.normal(size=n_te)}),
-            timestamps_train=ts_tr, timestamps_val=ts_va, timestamps_test=ts_te,
+            timestamps_train=ts_tr,
+            timestamps_val=ts_va,
+            timestamps_test=ts_te,
             config=cfg,
         )
         # When TS baselines fire, naive_lag7 should be among them (or seasonal_naive_p7).
-        ts_baselines = [str(idx) for idx in rep.table.index
-                        if "naive" in str(idx) or "seasonal" in str(idx)]
+        ts_baselines = [str(idx) for idx in rep.table.index if "naive" in str(idx) or "seasonal" in str(idx)]
         assert ts_baselines, f"Expected TS baselines: {list(rep.table.index)}"
         # And on a strong-seasonal series, a TS baseline should beat `mean`.
         if "mean" in rep.table.index:
             mean_rmse = rep.table.loc["mean"].get("val_RMSE", float("inf"))
-            best_ts = min(rep.table.loc[idx].get("val_RMSE", float("inf"))
-                          for idx in ts_baselines)
+            best_ts = min(rep.table.loc[idx].get("val_RMSE", float("inf")) for idx in ts_baselines)
             # Sanity: TS captures seasonality better than mean.
             assert best_ts < mean_rmse
 
@@ -944,8 +1011,11 @@ class TestPolarsMultilabel:
         val_y = pl.Series("y", val_lists, dtype=pl.List(pl.Float32))
         test_y = pl.Series("y", test_lists, dtype=pl.List(pl.Float32))
         rep = compute_dummy_baselines(
-            target_type="multilabel_classification", target_name="ml",
-            train_y=train_y, val_y=val_y, test_y=test_y,
+            target_type="multilabel_classification",
+            target_name="ml",
+            train_y=train_y,
+            val_y=val_y,
+            test_y=test_y,
             train_X=pd.DataFrame({"x": rng.normal(size=n_tr)}),
             val_X=pd.DataFrame({"x": rng.normal(size=n_va)}),
             test_X=pd.DataFrame({"x": rng.normal(size=n_te)}),
@@ -967,8 +1037,11 @@ class TestPolarsMultilabel:
         val_y = pl.Series("y", val_lists, dtype=pl.List(pl.Int8))
         test_y = pl.Series("y", test_lists, dtype=pl.List(pl.Int8))
         rep = compute_dummy_baselines(
-            target_type="multilabel_classification", target_name="ml",
-            train_y=train_y, val_y=val_y, test_y=test_y,
+            target_type="multilabel_classification",
+            target_name="ml",
+            train_y=train_y,
+            val_y=val_y,
+            test_y=test_y,
             train_X=pd.DataFrame({"x": rng.normal(size=n_tr)}),
             val_X=pd.DataFrame({"x": rng.normal(size=n_va)}),
             test_X=pd.DataFrame({"x": rng.normal(size=n_te)}),
@@ -996,11 +1069,17 @@ class TestPairedBootstrap:
         ts_all = pd.date_range("2020-01-01", periods=n, freq="D")
         X = pd.DataFrame({"x": rng.normal(size=n)})
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="ts",
-            train_y=y[:n_tr], val_y=y[n_tr:n_tr + n_va], test_y=y[n_tr + n_va:],
-            train_X=X.iloc[:n_tr], val_X=X.iloc[n_tr:n_tr + n_va], test_X=X.iloc[n_tr + n_va:],
-            timestamps_train=ts_all[:n_tr], timestamps_val=ts_all[n_tr:n_tr + n_va],
-            timestamps_test=ts_all[n_tr + n_va:],
+            target_type="regression",
+            target_name="ts",
+            train_y=y[:n_tr],
+            val_y=y[n_tr : n_tr + n_va],
+            test_y=y[n_tr + n_va :],
+            train_X=X.iloc[:n_tr],
+            val_X=X.iloc[n_tr : n_tr + n_va],
+            test_X=X.iloc[n_tr + n_va :],
+            timestamps_train=ts_all[:n_tr],
+            timestamps_val=ts_all[n_tr : n_tr + n_va],
+            timestamps_test=ts_all[n_tr + n_va :],
             config=cfg,
         )
         paired = rep.extras.get("paired_bootstrap")
@@ -1019,11 +1098,16 @@ class TestPairedBootstrap:
         rng = np.random.default_rng(0)
         # Pure noise → mean and median should be ~equivalent → tie likely.
         n_tr, n_va, n_te = 500, 100, 100
-        y_tr = rng.normal(size=n_tr); y_va = rng.normal(size=n_va); y_te = rng.normal(size=n_te)
+        y_tr = rng.normal(size=n_tr)
+        y_va = rng.normal(size=n_va)
+        y_te = rng.normal(size=n_te)
         plot_dir = str(tmp_path)
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="noise",
-            train_y=y_tr, val_y=y_va, test_y=y_te,
+            target_type="regression",
+            target_name="noise",
+            train_y=y_tr,
+            val_y=y_va,
+            test_y=y_te,
             train_X=pd.DataFrame({"x": rng.normal(size=n_tr)}),
             val_X=pd.DataFrame({"x": rng.normal(size=n_va)}),
             test_X=pd.DataFrame({"x": rng.normal(size=n_te)}),
@@ -1046,8 +1130,11 @@ class TestQuantilePerAlpha:
         n = 500
         y = rng.normal(0, 1, n)
         rep = compute_dummy_baselines(
-            target_type="quantile_regression", target_name="q",
-            train_y=y, val_y=y[:100], test_y=y[100:200],
+            target_type="quantile_regression",
+            target_name="q",
+            train_y=y,
+            val_y=y[:100],
+            test_y=y[100:200],
             train_X=pd.DataFrame({"x": rng.normal(size=n)}),
             val_X=pd.DataFrame({"x": rng.normal(size=100)}),
             test_X=pd.DataFrame({"x": rng.normal(size=100)}),
@@ -1069,8 +1156,11 @@ class TestQuantilePerAlpha:
         n = 500
         y = rng.normal(0, 1, n)
         rep = compute_dummy_baselines(
-            target_type="quantile_regression", target_name="q",
-            train_y=y, val_y=y[:100], test_y=y[100:200],
+            target_type="quantile_regression",
+            target_name="q",
+            train_y=y,
+            val_y=y[:100],
+            test_y=y[100:200],
             train_X=pd.DataFrame({"x": rng.normal(size=n)}),
             val_X=pd.DataFrame({"x": rng.normal(size=100)}),
             test_X=pd.DataFrame({"x": rng.normal(size=100)}),
@@ -1097,6 +1187,7 @@ class TestPlotPathSlugify:
         if rep.plot_path is not None:
             # Must not contain raw '/', ':', or non-ASCII path-breaking chars
             import os as _os
+
             tail = _os.path.basename(rep.plot_path)
             assert ":" not in tail
             assert " " not in tail
@@ -1113,6 +1204,7 @@ class TestSklearnVersionAssertion:
         This test simply confirms the module imported cleanly."""
         from mlframe.training.baselines import dummy as db
         import sklearn
+
         assert sklearn.__version__ >= "1.0"
         # The assertion is at module load → just verify import works.
         assert db.compute_dummy_baselines is not None
@@ -1130,7 +1222,8 @@ class TestSmallNGate:
         n_va = 5  # below 10 → degenerate
         n_te = 100
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="y",
+            target_type="regression",
+            target_name="y",
             train_y=rng.normal(size=n_tr),
             val_y=rng.normal(size=n_va),
             test_y=rng.normal(size=n_te),
@@ -1170,17 +1263,21 @@ class TestNumbaBootstrapKernelsEquivalence:
 
     def test_paired_bootstrap_rmse_distribution_matches_sklearn(self):
         from mlframe.training.baselines.dummy import (
-            _NUMBA_AVAILABLE, _numba_paired_bootstrap_rmse,
+            _NUMBA_AVAILABLE,
+            _numba_paired_bootstrap_rmse,
         )
+
         assert _NUMBA_AVAILABLE, "numba is a hard dependency per pyproject.toml; if this fails, the install is broken"
         from sklearn.metrics import mean_squared_error
+
         rng = np.random.default_rng(0)
         n = 500
         y = rng.normal(size=n).astype(np.float64)
         # Two predictors of different quality.
         p1 = y + rng.normal(0, 0.3, n)  # better
         p2 = y + rng.normal(0, 0.6, n)  # worse
-        p1 = p1.astype(np.float64); p2 = p2.astype(np.float64)
+        p1 = p1.astype(np.float64)
+        p2 = p2.astype(np.float64)
 
         # Numba path
         deltas_numba = _numba_paired_bootstrap_rmse(y, p1, p2, 2000, 42)
@@ -1197,9 +1294,7 @@ class TestNumbaBootstrapKernelsEquivalence:
         # Both should agree on directional sign + median is approximately equal
         # to the population delta. Numba uses LCG; sklearn uses pcg64 — exact
         # match impossible but distribution moments align tightly.
-        pop_delta = float(np.sqrt(mean_squared_error(y, p1))) - float(
-            np.sqrt(mean_squared_error(y, p2))
-        )
+        pop_delta = float(np.sqrt(mean_squared_error(y, p1))) - float(np.sqrt(mean_squared_error(y, p2)))
         # Both medians within 5% of population delta (sample size = 2000)
         med_n = float(np.median(deltas_numba))
         med_s = float(np.median(deltas_sk))
@@ -1216,10 +1311,13 @@ class TestNumbaBootstrapKernelsEquivalence:
 
     def test_bootstrap_rmse_samples_match_sklearn_distribution(self):
         from mlframe.training.baselines.dummy import (
-            _NUMBA_AVAILABLE, _numba_bootstrap_rmse_samples,
+            _NUMBA_AVAILABLE,
+            _numba_bootstrap_rmse_samples,
         )
+
         assert _NUMBA_AVAILABLE, "numba is a hard dependency per pyproject.toml; if this fails, the install is broken"
         from sklearn.metrics import mean_squared_error
+
         rng = np.random.default_rng(0)
         n = 500
         y = rng.normal(size=n).astype(np.float64)
@@ -1247,8 +1345,10 @@ class TestNumbaBootstrapKernelsEquivalence:
         """MAE-paired-bootstrap kernel produces finite deltas with
         correct directional sign on a clear-winner case."""
         from mlframe.training.baselines.dummy import (
-            _NUMBA_AVAILABLE, _numba_paired_bootstrap_mae,
+            _NUMBA_AVAILABLE,
+            _numba_paired_bootstrap_mae,
         )
+
         assert _NUMBA_AVAILABLE, "numba is a hard dependency per pyproject.toml; if this fails, the install is broken"
         rng = np.random.default_rng(0)
         n = 500
@@ -1264,8 +1364,10 @@ class TestNumbaBootstrapKernelsEquivalence:
         """Binary log-loss paired-bootstrap kernel produces finite
         deltas with correct directional sign on a clear-winner case."""
         from mlframe.training.baselines.dummy import (
-            _NUMBA_AVAILABLE, _numba_paired_bootstrap_logloss_binary,
+            _NUMBA_AVAILABLE,
+            _numba_paired_bootstrap_logloss_binary,
         )
+
         assert _NUMBA_AVAILABLE, "numba is a hard dependency per pyproject.toml; if this fails, the install is broken"
         rng = np.random.default_rng(0)
         n = 500
@@ -1282,8 +1384,10 @@ class TestNumbaBootstrapKernelsEquivalence:
     def test_bootstrap_logloss_binary_samples_match_population(self):
         """Bootstrap-CI binary log-loss kernel mean ≈ population log-loss."""
         from mlframe.training.baselines.dummy import (
-            _NUMBA_AVAILABLE, _numba_bootstrap_logloss_binary_samples,
+            _NUMBA_AVAILABLE,
+            _numba_bootstrap_logloss_binary_samples,
         )
+
         assert _NUMBA_AVAILABLE, "numba is a hard dependency per pyproject.toml; if this fails, the install is broken"
         rng = np.random.default_rng(0)
         n = 500
@@ -1303,8 +1407,10 @@ class TestNumbaJITWarmup:
 
     def test_warmup_is_idempotent_and_returns_silently(self):
         from mlframe.training.baselines.dummy import _warmup_numba_kernels
+
         # First call may JIT-compile (~2-5s); second call is cached and fast.
         import time
+
         t0_first = time.perf_counter()
         _warmup_numba_kernels()
         elapsed_first = time.perf_counter() - t0_first
@@ -1319,18 +1425,14 @@ class TestNumbaJITWarmup:
         # Tolerate first<0.5s (already-warmed by sibling test) by also passing
         # if second is in the same fast band.
         if elapsed_first < 0.5:
-            assert elapsed_second < 2.0, (
-                f"both calls fast but second still took {elapsed_second:.2f}s"
-            )
+            assert elapsed_second < 2.0, f"both calls fast but second still took {elapsed_second:.2f}s"
         else:
-            assert elapsed_second < max(0.5, elapsed_first * 0.5), (
-                f"warmup not cached: first={elapsed_first:.2f}s "
-                f"second={elapsed_second:.2f}s"
-            )
+            assert elapsed_second < max(0.5, elapsed_first * 0.5), f"warmup not cached: first={elapsed_first:.2f}s second={elapsed_second:.2f}s"
 
     def test_warmup_no_op_when_numba_unavailable(self, monkeypatch):
         """When numba is missing, warmup returns silently (no crash)."""
         from mlframe.training.baselines import dummy as db
+
         # Simulate numba missing
         monkeypatch.setattr(db, "_NUMBA_AVAILABLE", False)
         # Must not raise; must not log anything noisy.
@@ -1345,7 +1447,9 @@ class TestLTRPopularityBaseline:
     def test_popularity_emitted_when_doc_ids_provided(self, ltr_data, cfg):
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = (
-            len(ltr_data["train_y"]), len(ltr_data["val_y"]), len(ltr_data["test_y"]),
+            len(ltr_data["train_y"]),
+            len(ltr_data["val_y"]),
+            len(ltr_data["test_y"]),
         )
         # Synthesize doc_ids: small alphabet so train sees most docs (low cold-start)
         n_unique_docs = 50
@@ -1360,9 +1464,7 @@ class TestLTRPopularityBaseline:
         )
         rep = compute_dummy_baselines(config=cfg, **d)
         # popularity should be in the table.
-        assert "popularity" in rep.table.index, (
-            f"popularity baseline missing; got {list(rep.table.index)}"
-        )
+        assert "popularity" in rep.table.index, f"popularity baseline missing; got {list(rep.table.index)}"
         # Diagnostics surfaced on extras.
         assert "popularity_diagnostics" in rep.extras
         diag = rep.extras["popularity_diagnostics"]
@@ -1382,7 +1484,9 @@ class TestLTRPopularityBaseline:
         Diagnostic surfaces cold_start_pct."""
         rng = np.random.default_rng(0)
         n_tr, n_va, n_te = (
-            len(ltr_data["train_y"]), len(ltr_data["val_y"]), len(ltr_data["test_y"]),
+            len(ltr_data["train_y"]),
+            len(ltr_data["val_y"]),
+            len(ltr_data["test_y"]),
         )
         # Train docs disjoint from val/test → 100% cold start
         doc_tr = np.array([f"train_{i}" for i in range(n_tr)], dtype=object)
@@ -1390,7 +1494,9 @@ class TestLTRPopularityBaseline:
         doc_te = np.array([f"test_{i}" for i in range(n_te)], dtype=object)
         d = dict(
             ltr_data,
-            doc_ids_train=doc_tr, doc_ids_val=doc_va, doc_ids_test=doc_te,
+            doc_ids_train=doc_tr,
+            doc_ids_val=doc_va,
+            doc_ids_test=doc_te,
         )
         rep = compute_dummy_baselines(config=cfg, **d)
         if "popularity" in rep.table.index:
@@ -1412,8 +1518,11 @@ class TestQuantileAlphasAutoPickup:
         n = 500
         y = rng.normal(0, 1, n)
         rep = compute_dummy_baselines(
-            target_type="quantile_regression", target_name="q",
-            train_y=y, val_y=y[:100], test_y=y[100:200],
+            target_type="quantile_regression",
+            target_name="q",
+            train_y=y,
+            val_y=y[:100],
+            test_y=y[100:200],
             train_X=pd.DataFrame({"x": rng.normal(size=n)}),
             val_X=pd.DataFrame({"x": rng.normal(size=100)}),
             test_X=pd.DataFrame({"x": rng.normal(size=100)}),
@@ -1431,8 +1540,11 @@ class TestQuantileAlphasAutoPickup:
         n = 500
         y = rng.normal(0, 1, n)
         rep = compute_dummy_baselines(
-            target_type="quantile_regression", target_name="q",
-            train_y=y, val_y=y[:100], test_y=y[100:200],
+            target_type="quantile_regression",
+            target_name="q",
+            train_y=y,
+            val_y=y[:100],
+            test_y=y[100:200],
             train_X=pd.DataFrame({"x": rng.normal(size=n)}),
             val_X=pd.DataFrame({"x": rng.normal(size=100)}),
             test_X=pd.DataFrame({"x": rng.normal(size=100)}),
@@ -1457,6 +1569,7 @@ class TestAugmentWithDroppedHighCardCols:
 
     def _import_helper(self):
         from mlframe.training.core import _augment_with_dropped_high_card_cols
+
         return _augment_with_dropped_high_card_cols
 
     def test_no_dropped_data_returns_frames_unchanged(self):
@@ -1507,7 +1620,11 @@ class TestAugmentWithDroppedHighCardCols:
             }
         }
         t, _, _, added = aug(
-            dropped, post_od_train, None, None, train_od_idx=train_od_mask,
+            dropped,
+            post_od_train,
+            None,
+            None,
+            train_od_idx=train_od_mask,
         )
         assert added == ["well_id"]
         assert list(t["well_id"]) == ["w0", "w2", "w4"]
@@ -1563,50 +1680,59 @@ class TestPerGroupOnDroppedHighCardCol:
         y_te = group_offsets[group_id_te] + rng.normal(0, 1, n_te)
 
         # X frames carry the group_id column directly (post-re-attachment).
-        train_X = pd.DataFrame({
-            "x1": rng.normal(size=n_tr),
-            "well_id": [f"grp_{g:04d}" for g in group_id_tr],
-        })
-        val_X = pd.DataFrame({
-            "x1": rng.normal(size=n_va),
-            "well_id": [f"grp_{g:04d}" for g in group_id_va],
-        })
-        test_X = pd.DataFrame({
-            "x1": rng.normal(size=n_te),
-            "well_id": [f"grp_{g:04d}" for g in group_id_te],
-        })
+        train_X = pd.DataFrame(
+            {
+                "x1": rng.normal(size=n_tr),
+                "well_id": [f"grp_{g:04d}" for g in group_id_tr],
+            }
+        )
+        val_X = pd.DataFrame(
+            {
+                "x1": rng.normal(size=n_va),
+                "well_id": [f"grp_{g:04d}" for g in group_id_va],
+            }
+        )
+        test_X = pd.DataFrame(
+            {
+                "x1": rng.normal(size=n_te),
+                "well_id": [f"grp_{g:04d}" for g in group_id_te],
+            }
+        )
 
         rep = compute_dummy_baselines(
-            target_type="regression", target_name="y",
-            train_y=y_tr, val_y=y_va, test_y=y_te,
-            train_X=train_X, val_X=val_X, test_X=test_X,
+            target_type="regression",
+            target_name="y",
+            train_y=y_tr,
+            val_y=y_va,
+            test_y=y_te,
+            train_X=train_X,
+            val_X=val_X,
+            test_X=test_X,
             cat_features=["well_id"],
             config=cfg,
         )
         # per_group_mean should be in the table (cardinality cap = 0.5*n_train
         # = 2000; well_id has 600 unique << 2000, so it passes the gate).
         per_group_rows = [str(idx) for idx in rep.table.index if "per_group" in str(idx)]
-        assert per_group_rows, (
-            f"per_group_mean missing on high-card group key; got {list(rep.table.index)}"
-        )
+        assert per_group_rows, f"per_group_mean missing on high-card group key; got {list(rep.table.index)}"
         # And it should be the strongest (group structure dominates over mean/median).
         assert rep.strongest is not None and "per_group" in str(rep.strongest)
         # Lift over mean should be substantial (group offset std=5 vs noise=1).
         mean_rmse = rep.table.loc["mean", "val_RMSE"]
         per_group_rmse = rep.table.loc[rep.strongest, "val_RMSE"]
-        assert per_group_rmse < mean_rmse * 0.5, (
-            f"per_group RMSE {per_group_rmse} not significantly less than mean RMSE {mean_rmse}"
-        )
+        assert per_group_rmse < mean_rmse * 0.5, f"per_group RMSE {per_group_rmse} not significantly less than mean RMSE {mean_rmse}"
 
     def test_helper_present_in_core(self):
         """Capture-block + call-site augmentation should reference the helper."""
         from mlframe.training import core as _core
-        assert hasattr(_core, "_augment_with_dropped_high_card_cols"), (
-            "_augment_with_dropped_high_card_cols helper missing from core.py"
-        )
+
+        assert hasattr(_core, "_augment_with_dropped_high_card_cols"), "_augment_with_dropped_high_card_cols helper missing from core.py"
         # Also verify the helper is callable.
         result = _core._augment_with_dropped_high_card_cols(
-            {}, None, None, None,
+            {},
+            None,
+            None,
+            None,
         )
         # Empty input returns 4-tuple with empty `added`.
         assert len(result) == 4

@@ -14,6 +14,7 @@ Correctness is SELECTION-EQUIVALENCE, proven in two layers:
      with the CPU ``warm_start_als_seed`` to ~1e-12, so the prewarp transform and
      the downstream FE selection are unchanged.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,6 +34,7 @@ def _als_parity_tol():
     proven separately by F2 across all distributions + the hermite biz/e2e suites. With the relaxation OFF
     (``MLFRAME_CRIT_DTYPE_RELAXED=0``) the device standardises in f64 and the strict ~1e-7 parity holds."""
     import os
+
     _relaxed = os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() not in ("0", "false", "off", "no")
     # f32 builds the design + matvecs in float32 (the relaxation) but keeps the tiny ill-conditioned
     # normal-equation SOLVE in float64, so the coefficients agree with the CPU f64 reference to the f32-INPUT
@@ -74,7 +76,10 @@ def test_device_basis_matrix_matches_host_all_bases():
                 # 1e2+, so a relative 1e-11 (atol 1e-12 for the ~0 entries) is the correct
                 # selection-equivalent bar -- far below any decision boundary downstream.
                 np.testing.assert_allclose(
-                    dev, host, rtol=1e-11, atol=1e-12,
+                    dev,
+                    host,
+                    rtol=1e-11,
+                    atol=1e-12,
                     err_msg=f"basis={basis} deg={deg} n={n}",
                 )
 
@@ -86,6 +91,7 @@ def test_device_basis_matrix_rejects_unknown_basis():
     from mlframe.feature_selection.filters.hermite_fe._hermite_prewarp_gpu_resident import (
         _build_basis_matrix_gpu,
     )
+
     with pytest.raises(KeyError):
         _build_basis_matrix_gpu(cp, "fourier_adaptive", cp.asarray(np.zeros(4)), 3)
 
@@ -112,13 +118,12 @@ def test_als_coeffs_device_born_match_cpu():
                 za = _std_col(xa)
                 zb = _std_col(xb)
                 # product target f(a)*g(b) so ALS recovers both rank-1 factors.
-                y = (za ** 2 - 0.5) * (zb - 0.3 * zb ** 3) + 0.01 * rng.standard_normal(n)
+                y = (za**2 - 0.5) * (zb - 0.3 * zb**3) + 0.01 * rng.standard_normal(n)
 
                 Ba = build_basis_matrix(basis, za, deg)
                 Bb = build_basis_matrix(basis, zb, deg)
                 ca_cpu, cb_cpu = warm_start_als_seed(Ba, Bb, y, iters=3)
-                ca_gpu, cb_gpu = warm_start_als_seed_gpu_from_z(
-                    za, zb, y, basis=basis, max_degree=deg, iters=3)
+                ca_gpu, cb_gpu = warm_start_als_seed_gpu_from_z(za, zb, y, basis=basis, max_degree=deg, iters=3)
 
                 assert ca_cpu is not None and ca_gpu is not None, (basis, deg, n)
                 # Coeff agreement is CONDITION-NUMBER bounded, not 1e-12: the rank-1
@@ -131,12 +136,8 @@ def test_als_coeffs_device_born_match_cpu():
                 # (the module documents it is not tie-sensitive), so a 1e-9 relative
                 # perturbation cannot flip the downstream FE selection.
                 _rt, _at = _als_parity_tol()
-                np.testing.assert_allclose(
-                    ca_gpu, ca_cpu, rtol=_rt, atol=_at,
-                    err_msg=f"coef_a basis={basis} deg={deg} n={n}")
-                np.testing.assert_allclose(
-                    cb_gpu, cb_cpu, rtol=_rt, atol=_at,
-                    err_msg=f"coef_b basis={basis} deg={deg} n={n}")
+                np.testing.assert_allclose(ca_gpu, ca_cpu, rtol=_rt, atol=_at, err_msg=f"coef_a basis={basis} deg={deg} n={n}")
+                np.testing.assert_allclose(cb_gpu, cb_cpu, rtol=_rt, atol=_at, err_msg=f"coef_b basis={basis} deg={deg} n={n}")
 
 
 def test_dispatch_routes_device_born_under_resident_flag(monkeypatch):
@@ -149,6 +150,7 @@ def test_dispatch_routes_device_born_under_resident_flag(monkeypatch):
     from mlframe.feature_selection.filters._gpu_strict_fe._entry import (
         fe_gpu_strict_resident_enabled,
     )
+
     if not fe_gpu_strict_resident_enabled():
         pytest.skip("resident flag not active (no usable CUDA device)")
 
@@ -159,9 +161,11 @@ def test_dispatch_routes_device_born_under_resident_flag(monkeypatch):
 
     rng = np.random.default_rng(2)
     n, deg, basis = 20000, 3, "chebyshev"
-    xa = rng.uniform(1.0, 5.0, n); xb = rng.uniform(1.0, 5.0, n)
-    za = _std_col(xa); zb = _std_col(xb)
-    y = (za ** 2 - 0.5) * (zb - 0.3 * zb ** 3) + 0.01 * rng.standard_normal(n)
+    xa = rng.uniform(1.0, 5.0, n)
+    xb = rng.uniform(1.0, 5.0, n)
+    za = _std_col(xa)
+    zb = _std_col(xb)
+    y = (za**2 - 0.5) * (zb - 0.3 * zb**3) + 0.01 * rng.standard_normal(n)
     Ba = build_basis_matrix(basis, za, deg)
     Bb = build_basis_matrix(basis, zb, deg)
 

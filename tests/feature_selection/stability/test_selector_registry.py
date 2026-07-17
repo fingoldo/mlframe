@@ -4,6 +4,7 @@ Verifies MRMR / RFECV / BorutaShap are registered, instantiation routes via the 
 and unknown names raise KeyError. The registry is the single edit point for adding new
 selectors so adding sklearn RFE / boruta-py later is one class registration.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -39,11 +40,12 @@ def test_rfecv_and_shap_proxied_specs_instantiate_real_types():
     (only MRMR had an instantiate-type sensor before)."""
     from mlframe.feature_selection.wrappers import RFECV
     from sklearn.linear_model import LogisticRegression
-    rfecv = fs_registry.get("RFECV").instantiate(
-        estimator=LogisticRegression(max_iter=50), cluster_reduce=False)
+
+    rfecv = fs_registry.get("RFECV").instantiate(estimator=LogisticRegression(max_iter=50), cluster_reduce=False)
     assert isinstance(rfecv, RFECV)
 
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
     sp = fs_registry.get("ShapProxiedFS").instantiate()
     assert isinstance(sp, ShapProxiedFS)
 
@@ -78,11 +80,13 @@ def test_mrmr_spec_instantiate_returns_mrmr():
     spec = fs_registry.get("MRMR")
     inst = spec.instantiate()
     from mlframe.feature_selection.filters import MRMR
+
     assert isinstance(inst, MRMR)
 
 
 def test_register_without_name_raises():
     from mlframe.feature_selection.registry import _SimpleSpec
+
     spec = _SimpleSpec(name="", instantiate=lambda: None)
     with pytest.raises(ValueError):
         fs_registry.register(spec)
@@ -107,6 +111,7 @@ def test_register_rejects_non_protocol_object():
     """A bare object missing the required attribute set must not slip through ``register``. ``register`` already
     validates name; this pins that ``getattr`` access on a non-conforming type fails the contract rather than silently
     storing a broken spec."""
+
     class _NoInstantiate:
         name = "broken_spec"
 

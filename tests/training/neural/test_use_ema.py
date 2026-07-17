@@ -1,4 +1,5 @@
 """F-28: opt-in EMA-of-weights via Lightning's WeightAveraging callback."""
+
 from __future__ import annotations
 
 import sys
@@ -13,7 +14,9 @@ from sklearn.model_selection import train_test_split
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from mlframe.training.neural import (
-    MLPTorchModel, PytorchLightningRegressor, TorchDataModule,
+    MLPTorchModel,
+    PytorchLightningRegressor,
+    TorchDataModule,
 )
 
 
@@ -22,20 +25,28 @@ def _params(use_ema=False, ema_params=None, use_swa=False):
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-2},
         "network_params": {
-            "nlayers": 1, "first_layer_num_neurons": 8,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 1,
+            "first_layer_num_neurons": 8,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": torch.nn.ReLU,
         },
         "datamodule_class": TorchDataModule,
         "datamodule_params": {
-            "features_dtype": torch.float32, "labels_dtype": torch.float32,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
             "dataloader_params": {"batch_size": 32, "num_workers": 0},
         },
         "trainer_params": {
-            "max_epochs": 3, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 3,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         "random_state": 0,
         "use_ema": use_ema,
@@ -48,7 +59,10 @@ def _params(use_ema=False, ema_params=None, use_swa=False):
 def reg_data():
     X, y = make_regression(n_samples=160, n_features=5, random_state=0)
     X_tr, X_te, y_tr, _ = train_test_split(
-        X.astype(np.float32), y.astype(np.float32), test_size=0.3, random_state=0,
+        X.astype(np.float32),
+        y.astype(np.float32),
+        test_size=0.3,
+        random_state=0,
     )
     return X_tr, X_te, y_tr
 

@@ -7,6 +7,7 @@ guards against a future contributor wiring Bernstein/Jacobi/Gegenbauer into prod
 Measured (n=2000, seed=0, degree=8, bench_extra_basis_fe): all three families lift 0.98-1.00 on bounded-saturation,
 smooth-poly, and endpoint-monotone targets -- the existing panel spans them all.
 """
+
 import numpy as np
 import pytest
 from numpy.polynomial.chebyshev import chebvander
@@ -54,8 +55,7 @@ def test_biz_val_extra_basis_is_redundant_with_existing(targets, target, family)
     if family == "bernstein":
         mi = fit_basis_mi(bernstein_design(x, _DEG), y, nbins=_NBINS)
     elif family == "jacobi":
-        mi = max(fit_basis_mi(jacobi_design(x, _DEG, a, b), y, nbins=_NBINS)
-                 for a in (-0.5, 0.0, 1.0) for b in (-0.5, 0.0, 1.0))
+        mi = max(fit_basis_mi(jacobi_design(x, _DEG, a, b), y, nbins=_NBINS) for a in (-0.5, 0.0, 1.0) for b in (-0.5, 0.0, 1.0))
     else:
         mi = max(fit_basis_mi(gegenbauer_design(x, _DEG, lam), y, nbins=_NBINS) for lam in (0.25, 0.5, 1.0, 2.0))
     lift = mi / max(_best_existing_mi(x, y), 1e-6)

@@ -5,6 +5,7 @@
 - S-F5: an unrecognised redundancy_aggregator string silently degraded to plain Fleuret; it now raises.
 - ST-3: the empty-screen fallback support_ is int64 (was int32 on Windows).
 """
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -28,8 +29,7 @@ def test_redundancy_aggregator_typo_raises():
     X = pd.DataFrame(rng.integers(0, 4, size=(120, 5)).astype(float), columns=[f"f{i}" for i in range(5)])
     y = pd.Series((rng.random(120) < 0.5).astype(int))
     with pytest.raises(ValueError, match="redundancy_aggregator"):
-        MRMR(redundancy_aggregator="JMIM", full_npermutations=1, cv=2,
-             run_additional_rfecv_minutes=False).fit(X, y)
+        MRMR(redundancy_aggregator="JMIM", full_npermutations=1, cv=2, run_additional_rfecv_minutes=False).fit(X, y)
 
 
 def test_valid_redundancy_aggregators_accepted():
@@ -39,7 +39,6 @@ def test_valid_redundancy_aggregators_accepted():
     X = pd.DataFrame(rng.integers(0, 4, size=(120, 5)).astype(float), columns=[f"f{i}" for i in range(5)])
     y = pd.Series((rng.random(120) < 0.5).astype(int))
     for agg in (None, "jmim", "auto"):
-        m = MRMR(redundancy_aggregator=agg, full_npermutations=1, cv=2,
-                 run_additional_rfecv_minutes=False)
+        m = MRMR(redundancy_aggregator=agg, full_npermutations=1, cv=2, run_additional_rfecv_minutes=False)
         m.fit(X, y)  # must not raise
         assert hasattr(m, "support_")

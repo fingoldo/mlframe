@@ -11,6 +11,7 @@ Targets four patch families in ``_mrmr_fit_impl/_fit_impl_core.py`` and
 Tests ASSERT the correct behavior: they pass if the patch is sound, fail on a hole.
 All deterministic (fixed seeds), n<=2000, fe_max_steps small.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -21,14 +22,12 @@ import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 
-_DISCRETE_PREFIXES = ("il_", "pmod_", "argmax_", "gate_", "gate_select__",
-                      "gate_mask__", "argmax__", "binagg")
+_DISCRETE_PREFIXES = ("il_", "pmod_", "argmax_", "gate_", "gate_select__", "gate_mask__", "argmax__", "binagg")
 
 
 def _discrete_cols(estimator, X):
     out = estimator.transform(X)
-    return [c for c in out.columns
-            if any(str(c).startswith(p) for p in _DISCRETE_PREFIXES)]
+    return [c for c in out.columns if any(str(c).startswith(p) for p in _DISCRETE_PREFIXES)]
 
 
 def _names_out(estimator):
@@ -45,14 +44,13 @@ def _mk(**kw):
 # 1. fe_max_steps=0 discrete-FE gating
 # --------------------------------------------------------------------------- #
 
+
 def _gcd_frame(seed=1, n=2000):
     rng = np.random.default_rng(seed)
     a = rng.integers(1, 40, n)
     b = rng.integers(1, 40, n)
     y = (np.gcd(a, b) >= 4).astype(int)
-    X = pd.DataFrame({"a": a, "b": b,
-                      "noise0": rng.integers(0, 50, n),
-                      "noise1": rng.normal(size=n)})
+    X = pd.DataFrame({"a": a, "b": b, "noise0": rng.integers(0, 50, n), "noise1": rng.normal(size=n)})
     return X, y
 
 
@@ -63,14 +61,20 @@ def test_fe_max_steps_zero_with_explicit_enable_runs_operator_only_path():
     _mrmr_fit_impl/_fit_impl_core.py (``the operator-lift biz_value tests rely on exactly that``). So with every
     discrete flag explicitly True on a gcd target, the family is NOT hard-blocked: the operators are reachable."""
     X, y = _gcd_frame()
-    sel = _mk(fe_max_steps=0, quantization_nbins=8,
-              fe_conditional_gate_enable=True, fe_pairwise_modular_enable=True,
-              fe_row_argmax_enable=True, fe_integer_lattice_enable=True)
+    sel = _mk(
+        fe_max_steps=0,
+        quantization_nbins=8,
+        fe_conditional_gate_enable=True,
+        fe_pairwise_modular_enable=True,
+        fe_row_argmax_enable=True,
+        fe_integer_lattice_enable=True,
+    )
     sel.fit(X, y)
     assert _names_out(sel), "operator-only path emptied support at fe_max_steps=0"
     assert _discrete_cols(sel, X), (
         "explicitly-enabled discrete operators did not fire on the gcd target at fe_max_steps=0 "
-        "(operator-only path); the family must be reachable when explicitly requested")
+        "(operator-only path); the family must be reachable when explicitly requested"
+    )
 
 
 def test_fe_max_steps_zero_keeps_genuine_raw_signal():
@@ -83,17 +87,21 @@ def test_fe_max_steps_zero_keeps_genuine_raw_signal():
     names = set(_names_out(sel))
     assert names, "support emptied at fe_max_steps=0"
     captures_ab = bool({"a", "b"} & names) or any(n.startswith("il_") or "il_gcd" in n for n in names)
-    assert captures_ab, (
-        f"genuine a/b signal neither kept raw nor captured by an integer-lattice composite: {sorted(names)}")
+    assert captures_ab, f"genuine a/b signal neither kept raw nor captured by an integer-lattice composite: {sorted(names)}"
 
 
 def test_fe_max_steps_one_lets_discrete_fire():
     """Positive control: at fe_max_steps>=1 the discrete family is no longer
     gated off, so on a structure that needs it a discrete op CAN appear."""
     X, y = _gcd_frame()
-    sel = _mk(fe_max_steps=1, quantization_nbins=8,
-              fe_conditional_gate_enable=True, fe_row_argmax_enable=True,
-              fe_integer_lattice_enable=True, fe_pairwise_modular_enable=True)
+    sel = _mk(
+        fe_max_steps=1,
+        quantization_nbins=8,
+        fe_conditional_gate_enable=True,
+        fe_row_argmax_enable=True,
+        fe_integer_lattice_enable=True,
+        fe_pairwise_modular_enable=True,
+    )
     sel.fit(X, y)
     # Not asserting a discrete col MUST appear (data-dependent), only that the
     # gate did not hard-block it: fit completes and support is non-empty.
@@ -104,6 +112,7 @@ def test_fe_max_steps_one_lets_discrete_fire():
 # 2. Pure-raw cluster representative (keep strongest cached-MI, strip rest)
 # --------------------------------------------------------------------------- #
 
+
 def test_three_mutually_redundant_raw_keep_exactly_one():
     """Three near-identical copies of the signal column plus pure noise.
     The dedup must keep exactly ONE of the trio (the strongest) and not
@@ -112,19 +121,20 @@ def test_three_mutually_redundant_raw_keep_exactly_one():
     n = 1500
     a = rng.normal(size=n)
     y = (a > 0).astype(int)
-    X = pd.DataFrame({
-        "c0": a + 1e-6 * rng.normal(size=n),
-        "c1": a + 1e-6 * rng.normal(size=n),
-        "c2": a + 1e-6 * rng.normal(size=n),
-        "noise": rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "c0": a + 1e-6 * rng.normal(size=n),
+            "c1": a + 1e-6 * rng.normal(size=n),
+            "c2": a + 1e-6 * rng.normal(size=n),
+            "noise": rng.normal(size=n),
+        }
+    )
     sel = _mk(fe_max_steps=0)
     sel.fit(X, y)
     names = set(_names_out(sel))
     kept_trio = {c for c in ("c0", "c1", "c2") if c in names}
     assert len(kept_trio) >= 1, f"all redundant copies dropped: {sorted(names)}"
-    assert len(kept_trio) == 1, (
-        f"redundant trio not de-duplicated to a single rep: kept {kept_trio}")
+    assert len(kept_trio) == 1, f"redundant trio not de-duplicated to a single rep: kept {kept_trio}"
     assert "noise" not in names, "pure noise wrongly selected"
 
 
@@ -136,16 +146,17 @@ def test_genuine_signal_not_dropped_when_clustered_with_near_dup():
     a = rng.normal(size=n)
     b = rng.normal(size=n)  # independent genuine signal
     y = ((a + b) > 0).astype(int)
-    X = pd.DataFrame({
-        "a": a,
-        "a_dup": a + 1e-6 * rng.normal(size=n),
-        "b": b,
-    })
+    X = pd.DataFrame(
+        {
+            "a": a,
+            "a_dup": a + 1e-6 * rng.normal(size=n),
+            "b": b,
+        }
+    )
     sel = _mk(fe_max_steps=0)
     sel.fit(X, y)
     names = set(_names_out(sel))
-    assert "b" in names, (
-        f"genuine independent signal b wrongly dropped: {sorted(names)}")
+    assert "b" in names, f"genuine independent signal b wrongly dropped: {sorted(names)}"
     # a or a_dup (one rep), but not both.
     a_kept = {c for c in ("a", "a_dup") if c in names}
     assert len(a_kept) >= 1, f"both copies of a dropped: {sorted(names)}"
@@ -160,8 +171,7 @@ def test_mi_tie_breaks_to_lower_input_index_stable():
     a = rng.normal(size=n)
     y = (a > 0).astype(int)
     shared = a + 1e-9 * rng.normal(size=n)
-    X = pd.DataFrame({"first": shared.copy(), "second": shared.copy(),
-                      "noise": rng.normal(size=n)})
+    X = pd.DataFrame({"first": shared.copy(), "second": shared.copy(), "noise": rng.normal(size=n)})
     keeps = []
     for _ in range(2):
         sel = _mk(fe_max_steps=0)
@@ -171,13 +181,13 @@ def test_mi_tie_breaks_to_lower_input_index_stable():
     assert keeps[0] == keeps[1], f"tie-break not stable: {keeps}"
     assert len(keeps[0]) == 1, f"exact-duplicate pair not de-duped: {keeps[0]}"
     # lowest-index preference -> 'first' survives.
-    assert keeps[0] == {"first"}, (
-        f"tie did not break to lowest input index; kept {keeps[0]}")
+    assert keeps[0] == {"first"}, f"tie did not break to lowest input index; kept {keeps[0]}"
 
 
 # --------------------------------------------------------------------------- #
 # 3. Never-empty rescue when exclusion empties the pool
 # --------------------------------------------------------------------------- #
+
 
 def test_never_empty_rescue_keeps_one_of_collinear_pair():
     """Two ~0.997-collinear columns each recorded as the other's redundant
@@ -187,10 +197,12 @@ def test_never_empty_rescue_keeps_one_of_collinear_pair():
     n = 1500
     base = rng.normal(size=n)
     y = (base > 0).astype(int)
-    X = pd.DataFrame({
-        "p": base + 0.05 * rng.normal(size=n),
-        "q": base + 0.05 * rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "p": base + 0.05 * rng.normal(size=n),
+            "q": base + 0.05 * rng.normal(size=n),
+        }
+    )
     sel = _mk(fe_max_steps=0, min_features_fallback=1)
     sel.fit(X, y)
     names = set(_names_out(sel))
@@ -206,10 +218,12 @@ def test_rescue_does_not_invent_signal_from_pure_noise():
     n = 1500
     base = rng.normal(size=n)  # unrelated to y
     y = rng.integers(0, 2, n)
-    X = pd.DataFrame({
-        "n0": base + 0.01 * rng.normal(size=n),
-        "n1": base + 0.01 * rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "n0": base + 0.01 * rng.normal(size=n),
+            "n1": base + 0.01 * rng.normal(size=n),
+        }
+    )
     sel = _mk(fe_max_steps=0, min_features_fallback=1)
     sel.fit(X, y)
     names = _names_out(sel)
@@ -226,8 +240,7 @@ def test_constant_columns_do_not_crash_rescue():
     n = 1200
     a = rng.normal(size=n)
     y = (a > 0).astype(int)
-    X = pd.DataFrame({"const": np.ones(n), "a": a,
-                      "a_dup": a + 1e-6 * rng.normal(size=n)})
+    X = pd.DataFrame({"const": np.ones(n), "a": a, "a_dup": a + 1e-6 * rng.normal(size=n)})
     sel = _mk(fe_max_steps=0)
     sel.fit(X, y)
     names = set(_names_out(sel))
@@ -240,14 +253,14 @@ def test_constant_columns_do_not_crash_rescue():
 # 4. polars LazyFrame auto-collect + Struct rejection
 # --------------------------------------------------------------------------- #
 
+
 def test_polars_struct_column_rejected():
     pl = pytest.importorskip("polars")
     rng = np.random.default_rng(29)
     n = 600
     a = rng.normal(size=n)
     y = (a > 0).astype(int)
-    df = pl.DataFrame({"a": a, "b": rng.normal(size=n)}).with_columns(
-        pl.struct(["a", "b"]).alias("packed"))
+    df = pl.DataFrame({"a": a, "b": rng.normal(size=n)}).with_columns(pl.struct(["a", "b"]).alias("packed"))
     sel = _mk(fe_max_steps=0)
     with pytest.raises(ValueError, match="Struct"):
         sel.fit(df, y)
@@ -259,15 +272,13 @@ def test_polars_lazyframe_autocollected_with_warning():
     n = 600
     a = rng.normal(size=n)
     y = (a > 0).astype(int)
-    lf = pl.DataFrame({"a": a, "a_dup": a + 1e-6 * rng.normal(size=n),
-                       "noise": rng.normal(size=n)}).lazy()
+    lf = pl.DataFrame({"a": a, "a_dup": a + 1e-6 * rng.normal(size=n), "noise": rng.normal(size=n)}).lazy()
     sel = _mk(fe_max_steps=0)
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         sel.fit(lf, y)
     msgs = " ".join(str(x.message) for x in w)
-    assert "LazyFrame" in msgs and "collect" in msgs.lower(), (
-        f"LazyFrame auto-collect warning missing; warnings={msgs!r}")
+    assert "LazyFrame" in msgs and "collect" in msgs.lower(), f"LazyFrame auto-collect warning missing; warnings={msgs!r}"
     assert _names_out(sel), "LazyFrame fit produced empty support"
 
 
@@ -275,8 +286,7 @@ def test_polars_empty_frame_does_not_silently_pass():
     """An empty polars frame (0 rows) must not silently produce a confident
     selection -- it should error or fall back, never crash uncaught."""
     pl = pytest.importorskip("polars")
-    df = pl.DataFrame({"a": pl.Series("a", [], dtype=pl.Float64),
-                       "b": pl.Series("b", [], dtype=pl.Float64)})
+    df = pl.DataFrame({"a": pl.Series("a", [], dtype=pl.Float64), "b": pl.Series("b", [], dtype=pl.Float64)})
     y = np.array([], dtype=int)
     sel = _mk(fe_max_steps=0)
     with pytest.raises(Exception):  # noqa: B017 -- contract is "errors OR falls back", any exception type is acceptable; asserting a specific type would over-constrain

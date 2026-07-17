@@ -8,6 +8,7 @@ emitted by ``report_probabilistic_model_perf``.
 Autouse snapshot+restore keeps the built-in registrations visible to other tests (per CLAUDE.md
 test-pollution rules + memory feedback_no_module_reload_without_snapshot).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -104,12 +105,22 @@ def test_exploss_rewards_confident_correct_scores():
     y = rng.integers(0, 2, size=n)
     p_good = np.where(y == 1, 0.9, 0.1)
     p_bad = np.full(n, 0.5)
-    good = dict(mr.iter_extra_metrics(
-        TargetTypes.BINARY_CLASSIFICATION, y, np.column_stack([1 - p_good, p_good]), (p_good >= 0.5).astype(int),
-    ))
-    bad = dict(mr.iter_extra_metrics(
-        TargetTypes.BINARY_CLASSIFICATION, y, np.column_stack([1 - p_bad, p_bad]), (p_bad >= 0.5).astype(int),
-    ))
+    good = dict(
+        mr.iter_extra_metrics(
+            TargetTypes.BINARY_CLASSIFICATION,
+            y,
+            np.column_stack([1 - p_good, p_good]),
+            (p_good >= 0.5).astype(int),
+        )
+    )
+    bad = dict(
+        mr.iter_extra_metrics(
+            TargetTypes.BINARY_CLASSIFICATION,
+            y,
+            np.column_stack([1 - p_bad, p_bad]),
+            (p_bad >= 0.5).astype(int),
+        )
+    )
     assert good["exploss"] < bad["exploss"], "confident-correct scores must beat coin-flip on exploss (lower better)"
 
 
@@ -141,9 +152,16 @@ def test_reporting_path_binary_lands_scalars():
     X, y, model = _fit_reference_model(400, 2, seed=10)
     metrics: dict = {}
     report_probabilistic_model_perf(
-        targets=y, columns=[f"f{i}" for i in range(5)], model_name="lr", model=model,
-        probs=model.predict_proba(X), preds=model.predict(X),
-        plot_file="", show_perf_chart=False, print_report=False, metrics=metrics,
+        targets=y,
+        columns=[f"f{i}" for i in range(5)],
+        model_name="lr",
+        model=model,
+        probs=model.predict_proba(X),
+        preds=model.predict(X),
+        plot_file="",
+        show_perf_chart=False,
+        print_report=False,
+        metrics=metrics,
     )
     for name in ("quadratic_weighted_kappa", "weighted_kappa", "exploss"):
         assert name in metrics, f"{name} must land in the binary report metrics dict; keys={sorted(map(str, metrics))}"
@@ -156,9 +174,16 @@ def test_reporting_path_multiclass_lands_kappa_scalars():
     X, y, model = _fit_reference_model(500, 4, seed=11)
     metrics: dict = {}
     report_probabilistic_model_perf(
-        targets=y, columns=[f"f{i}" for i in range(5)], model_name="lr", model=model,
-        probs=model.predict_proba(X), preds=model.predict(X),
-        plot_file="", show_perf_chart=False, print_report=False, metrics=metrics,
+        targets=y,
+        columns=[f"f{i}" for i in range(5)],
+        model_name="lr",
+        model=model,
+        probs=model.predict_proba(X),
+        preds=model.predict(X),
+        plot_file="",
+        show_perf_chart=False,
+        print_report=False,
+        metrics=metrics,
     )
     for name in ("quadratic_weighted_kappa", "weighted_kappa"):
         assert name in metrics, f"{name} must land in the multiclass report metrics dict"

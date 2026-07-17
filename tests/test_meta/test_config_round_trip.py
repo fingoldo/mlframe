@@ -40,8 +40,7 @@ from mlframe.training import configs as configs_module
 # default-construction succeed. The round-trip then exercises everything
 # else.
 _REQUIRES_USER_ARGS: dict[str, dict] = {
-    "TrainingConfig": {"target_name": "_round_trip_sentinel_target",
-                       "model_name": "_round_trip_sentinel_model"},
+    "TrainingConfig": {"target_name": "_round_trip_sentinel_target", "model_name": "_round_trip_sentinel_model"},
 }
 
 # Fields we know can't be round-tripped because their value is a Python
@@ -61,12 +60,25 @@ _OPAQUE_FIELDS: set[str] = {
     # during a run, but the empty default round-trips fine — included
     # here only because their dynamic values can be ndarrays which
     # ``==`` doesn't compare elementwise.
-    "df", "train_df", "val_df", "test_df",
-    "target", "train_target", "val_target", "test_target",
-    "train_idx", "val_idx", "test_idx",
-    "group_ids", "sample_weight",
-    "train_preds", "train_probs", "val_preds", "val_probs",
-    "test_preds", "test_probs",
+    "df",
+    "train_df",
+    "val_df",
+    "test_df",
+    "target",
+    "train_target",
+    "val_target",
+    "test_target",
+    "train_idx",
+    "val_idx",
+    "test_idx",
+    "group_ids",
+    "sample_weight",
+    "train_preds",
+    "train_probs",
+    "val_preds",
+    "val_probs",
+    "test_preds",
+    "test_probs",
 }
 
 
@@ -145,10 +157,7 @@ def test_every_config_round_trips_via_model_dump():
         try:
             rebuilt = cls(**dumped)
         except Exception as e:
-            failures.append(
-                f"{cls.__name__}(**dumped) raised — round-trip broken: "
-                f"{type(e).__name__}: {e}"
-            )
+            failures.append(f"{cls.__name__}(**dumped) raised — round-trip broken: {type(e).__name__}: {e}")
             continue
 
         # Compare via dump-then-strip-opaque to dodge ndarray ==
@@ -159,17 +168,13 @@ def test_every_config_round_trips_via_model_dump():
             # Find the first differing key for an actionable message.
             keys = set(a) | set(b)
             diffs = [k for k in sorted(keys) if a.get(k) != b.get(k)]
-            failures.append(
-                f"{cls.__name__} round-trip mutated state: "
-                f"diffs in {diffs[:5]} (showing up to 5)"
-            )
+            failures.append(f"{cls.__name__} round-trip mutated state: diffs in {diffs[:5]} (showing up to 5)")
 
     if failures:
         pytest.fail(
             f"{len(failures)} config class(es) failed model_dump() round-trip:\n  "
             + "\n  ".join(failures)
-            + (f"\n  (skipped {len(skipped)} class(es) needing sentinels: "
-               f"{', '.join(skipped)})" if skipped else "")
+            + (f"\n  (skipped {len(skipped)} class(es) needing sentinels: {', '.join(skipped)})" if skipped else "")
         )
 
 
@@ -201,7 +206,5 @@ def test_no_shared_mutable_default_across_instances():
 
     if failures:
         pytest.fail(
-            f"{len(failures)} mutable-default field(s) shared across "
-            f"instances — Pydantic must deep-copy these on construction:\n  "
-            + "\n  ".join(failures)
+            f"{len(failures)} mutable-default field(s) shared across instances — Pydantic must deep-copy these on construction:\n  " + "\n  ".join(failures)
         )

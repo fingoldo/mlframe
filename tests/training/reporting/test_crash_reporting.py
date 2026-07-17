@@ -5,6 +5,7 @@ helpers in the module). Exercises idempotency, the Windows-only SetErrorMode pat
 the cross-platform faulthandler wiring, and the failure-tolerance contract (the toggle
 must never raise; it only ever returns True/False).
 """
+
 from __future__ import annotations
 
 import importlib
@@ -22,6 +23,7 @@ def crash_reporting_module():
     test-pollution rules, snapshot and restore rather than del-from-sys.modules.
     """
     import mlframe.training.crash_reporting as cr
+
     saved_enabled = cr._ENABLED
     # Force the module into the disabled state so each test starts from a known baseline.
     cr._ENABLED = False
@@ -46,6 +48,7 @@ def test_enable_idempotent_second_call_short_circuits(crash_reporting_module, mo
     cr = crash_reporting_module
 
     import faulthandler
+
     calls = {"count": 0}
 
     def _counting_enable(file=None, all_threads=False):
@@ -67,6 +70,7 @@ def test_enable_sets_module_flag(crash_reporting_module, monkeypatch):
     cr = crash_reporting_module
 
     import faulthandler
+
     monkeypatch.setattr(faulthandler, "enable", lambda *a, **kw: None)
 
     assert cr._ENABLED is False
@@ -84,6 +88,7 @@ def test_enable_uses_provided_file_handle(crash_reporting_module, monkeypatch):
         captured["all_threads"] = all_threads
 
     import faulthandler
+
     monkeypatch.setattr(faulthandler, "enable", _capture)
 
     real_stream = sys.stderr  # real stderr has a fileno() on every supported platform
@@ -108,6 +113,7 @@ def test_enable_falls_back_to_fd_2_when_stream_has_no_fileno(crash_reporting_mod
             raise io.UnsupportedOperation("no fileno")
 
     import faulthandler
+
     monkeypatch.setattr(faulthandler, "enable", _record)
 
     class _BrokenStream:
@@ -130,6 +136,7 @@ def test_enable_never_raises_on_faulthandler_exception(crash_reporting_module, m
         raise RuntimeError("simulated faulthandler init failure")
 
     import faulthandler
+
     monkeypatch.setattr(faulthandler, "enable", _boom)
 
     # On Windows the SetErrorMode block may still succeed, so the return value is the AND
@@ -137,8 +144,7 @@ def test_enable_never_raises_on_faulthandler_exception(crash_reporting_module, m
     with caplog.at_level(logging.WARNING, logger="mlframe.training.crash_reporting"):
         rv = cr.enable_crash_reporting()
     assert isinstance(rv, bool)
-    assert any("faulthandler" in rec.getMessage() for rec in caplog.records), \
-        "expected warning log mentioning faulthandler when init fails"
+    assert any("faulthandler" in rec.getMessage() for rec in caplog.records), "expected warning log mentioning faulthandler when init fails"
 
 
 @pytest.mark.windows_only
@@ -151,6 +157,7 @@ def test_enable_calls_seterrormode_on_windows(crash_reporting_module, monkeypatc
     cr = crash_reporting_module
 
     import ctypes
+
     call_log = []
 
     real_set = ctypes.windll.kernel32.SetErrorMode
@@ -163,6 +170,7 @@ def test_enable_calls_seterrormode_on_windows(crash_reporting_module, monkeypatc
     monkeypatch.setattr(ctypes.windll.kernel32, "SetErrorMode", _spy_set_error_mode)
 
     import faulthandler
+
     monkeypatch.setattr(faulthandler, "enable", lambda *a, **kw: None)
 
     rv = cr.enable_crash_reporting()
@@ -184,6 +192,7 @@ def test_enable_skips_seterrormode_off_windows(crash_reporting_module, monkeypat
     monkeypatch.setattr(sys, "platform", "linux")
 
     import faulthandler
+
     monkeypatch.setattr(faulthandler, "enable", lambda *a, **kw: None)
 
     rv = cr.enable_crash_reporting()
@@ -198,6 +207,7 @@ def test_enable_seterrormode_failure_returns_false(crash_reporting_module, monke
     cr = crash_reporting_module
 
     import faulthandler
+
     monkeypatch.setattr(faulthandler, "enable", lambda *a, **kw: None)
 
     import ctypes
@@ -211,5 +221,4 @@ def test_enable_seterrormode_failure_returns_false(crash_reporting_module, monke
         rv = cr.enable_crash_reporting()
     # `ok` is set to False by the SetErrorMode branch; module returns False.
     assert rv is False, "SetErrorMode failure must surface as a False return"
-    assert any("SetErrorMode" in rec.getMessage() for rec in caplog.records), \
-        "expected warning log mentioning SetErrorMode failure"
+    assert any("SetErrorMode" in rec.getMessage() for rec in caplog.records), "expected warning log mentioning SetErrorMode failure"

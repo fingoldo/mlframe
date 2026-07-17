@@ -2,6 +2,7 @@
 
 Pre-fix the class was defined INSIDE _configure_neural_params in trainer.py. As a local class it carried a hidden closure reference to the enclosing function's namespace; dill could not serialise the ABC-metaclass ``_abc._abc_data`` slot through that closure -- production saves failed with ``cannot pickle '_abc._abc_data' object``. Moving to module level fixes that.
 """
+
 from __future__ import annotations
 
 import io
@@ -14,6 +15,7 @@ class TestTTRWithEvalSetScalingPickle:
     def test_module_level_class_importable(self) -> None:
         """The class lives at module level, not inside a function."""
         from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+
         # Module-level class: __qualname__ is just the class name, NOT
         # "_configure_neural_params.<locals>._TTRWithEvalSetScaling" (the
         # pre-fix qualname that broke pickle).

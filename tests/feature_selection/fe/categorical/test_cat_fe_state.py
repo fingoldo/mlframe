@@ -29,10 +29,7 @@ class TestCatFEConfigDefaults:
         'Accuracy / performance over legacy'. To get legacy behaviour
         explicitly pass ``CatFEConfig(enable=False)``."""
         cfg = CatFEConfig()
-        assert cfg.enable is True, (
-            "Default flipped to enable=True since 2026-05-11; "
-            "see CHANGELOG. Legacy: CatFEConfig(enable=False)."
-        )
+        assert cfg.enable is True, "Default flipped to enable=True since 2026-05-11; see CHANGELOG. Legacy: CatFEConfig(enable=False)."
 
     def test_full_npermutations_nonzero_by_default(self):
         """SB4: zero is an anti-statistical trap. The default keeps
@@ -134,10 +131,8 @@ class TestPersistence:
         # Plan v3 SB8 lists 14 core knobs + extensions. Keep the
         # pin loose (just floor + ceiling) so reasonable refactors
         # don't churn the test, but a careless +5 or -3 trips it.
-        assert 18 <= cfg_field_count <= 45, \
-            f"CatFEConfig has {cfg_field_count} fields; if intentional update the pin"
-        assert 4 <= state_field_count <= 12, \
-            f"CatFEState has {state_field_count} fields; if intentional update the pin"
+        assert 18 <= cfg_field_count <= 45, f"CatFEConfig has {cfg_field_count} fields; if intentional update the pin"
+        assert 4 <= state_field_count <= 12, f"CatFEState has {state_field_count} fields; if intentional update the pin"
 
 
 class TestPostInitValidation:
@@ -199,9 +194,12 @@ class TestPostInitValidation:
     def test_valid_config_accepted(self):
         # Sanity: well-formed config passes
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=16,
-            max_kway_order=3, min_n_samples=100,
-            full_npermutations=200, shortlist_npermutations=10,
+            enable=True,
+            top_k_pairs=16,
+            max_kway_order=3,
+            min_n_samples=100,
+            full_npermutations=200,
+            shortlist_npermutations=10,
         )
         assert cfg.top_k_pairs == 16
 

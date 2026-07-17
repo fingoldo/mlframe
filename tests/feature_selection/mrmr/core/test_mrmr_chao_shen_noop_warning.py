@@ -7,6 +7,7 @@ and null. Before the fix this was only ``logger.warning``-ed, which a caller wit
 logging (the common case for a plain script) never sees -- so a user who explicitly requested
 the bias correction got ordinary plug-in MI with zero visible indication.
 """
+
 from __future__ import annotations
 
 import warnings

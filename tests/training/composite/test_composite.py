@@ -23,6 +23,7 @@ Coverage map
 - Delegation: ``feature_importances_``, ``n_features_in_`` reach the
   inner model.
 """
+
 from __future__ import annotations
 
 import math
@@ -92,12 +93,17 @@ class TestRegistry:
         names = list_transforms()
         assert names == sorted(names), "list_transforms() must return alphabetical order"
         core = {
-            "diff", "ratio", "logratio",
-            "linear_residual", "linear_residual_multi",
+            "diff",
+            "ratio",
+            "logratio",
+            "linear_residual",
+            "linear_residual_multi",
             "linear_residual_grouped",
             "quantile_residual",
             "monotonic_residual",
-            "ewma_residual", "rolling_quantile_ratio", "frac_diff",
+            "ewma_residual",
+            "rolling_quantile_ratio",
+            "frac_diff",
         }
         missing = core - set(names)
         assert not missing, f"core transforms missing from list_transforms(): {missing}"
@@ -198,12 +204,8 @@ class TestHypothesisRoundTrip:
         from hypothesis import strategies as st
 
         @given(
-            y=arrays(dtype=np.float64, shape=(50,),
-                     elements=st.floats(min_value=-1e6, max_value=1e6,
-                                        allow_nan=False, allow_infinity=False)),
-            base=arrays(dtype=np.float64, shape=(50,),
-                        elements=st.floats(min_value=-1e6, max_value=1e6,
-                                           allow_nan=False, allow_infinity=False)),
+            y=arrays(dtype=np.float64, shape=(50,), elements=st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False)),
+            base=arrays(dtype=np.float64, shape=(50,), elements=st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False)),
         )
         @settings(max_examples=30, deadline=2000)
         def _check(y: np.ndarray, base: np.ndarray) -> None:
@@ -221,12 +223,8 @@ class TestHypothesisRoundTrip:
         from hypothesis import strategies as st
 
         @given(
-            y=arrays(dtype=np.float64, shape=(50,),
-                     elements=st.floats(min_value=-1e3, max_value=1e3,
-                                        allow_nan=False, allow_infinity=False)),
-            base=arrays(dtype=np.float64, shape=(50,),
-                        elements=st.floats(min_value=0.1, max_value=1e3,
-                                           allow_nan=False, allow_infinity=False)),
+            y=arrays(dtype=np.float64, shape=(50,), elements=st.floats(min_value=-1e3, max_value=1e3, allow_nan=False, allow_infinity=False)),
+            base=arrays(dtype=np.float64, shape=(50,), elements=st.floats(min_value=0.1, max_value=1e3, allow_nan=False, allow_infinity=False)),
         )
         @settings(max_examples=30, deadline=2000)
         def _check(y: np.ndarray, base: np.ndarray) -> None:
@@ -244,12 +242,8 @@ class TestHypothesisRoundTrip:
         from hypothesis import strategies as st
 
         @given(
-            y=arrays(dtype=np.float64, shape=(50,),
-                     elements=st.floats(min_value=-1e4, max_value=1e4,
-                                        allow_nan=False, allow_infinity=False)),
-            base=arrays(dtype=np.float64, shape=(50,),
-                        elements=st.floats(min_value=-1e4, max_value=1e4,
-                                           allow_nan=False, allow_infinity=False)),
+            y=arrays(dtype=np.float64, shape=(50,), elements=st.floats(min_value=-1e4, max_value=1e4, allow_nan=False, allow_infinity=False)),
+            base=arrays(dtype=np.float64, shape=(50,), elements=st.floats(min_value=-1e4, max_value=1e4, allow_nan=False, allow_infinity=False)),
         )
         @settings(max_examples=30, deadline=2000)
         def _check(y: np.ndarray, base: np.ndarray) -> None:
@@ -320,9 +314,7 @@ class TestEstimatorE2E:
         # Naive baseline: y_hat = base (the dominant feature).
         rmse_naive = float(np.sqrt(np.mean((y_te - X_te["base"].to_numpy()) ** 2)))
         rmse_wrapper = float(np.sqrt(np.mean((y_te - y_hat) ** 2)))
-        assert rmse_wrapper < rmse_naive, (
-            f"wrapper RMSE {rmse_wrapper:.3f} should beat naive {rmse_naive:.3f}"
-        )
+        assert rmse_wrapper < rmse_naive, f"wrapper RMSE {rmse_wrapper:.3f} should beat naive {rmse_naive:.3f}"
 
     def test_fit_predict_linear_residual_beats_diff(self, tvt_data) -> None:
         df, y = tvt_data
@@ -378,12 +370,14 @@ class TestAdversarialPredict:
         # Construct adversarial test row.
         n = 5
         rng = np.random.default_rng(0)
-        df_test = pd.DataFrame({
-            "base": [10.0, np.inf, 5.0, -np.inf, 12.0],
-            "x1": rng.normal(size=n),
-            "x2": rng.normal(size=n),
-            "x3": rng.normal(size=n),
-        })
+        df_test = pd.DataFrame(
+            {
+                "base": [10.0, np.inf, 5.0, -np.inf, 12.0],
+                "x1": rng.normal(size=n),
+                "x2": rng.normal(size=n),
+                "x3": rng.normal(size=n),
+            }
+        )
         y_hat = fitted_wrapper.predict(df_test)
         # Inf-base rows should NOT propagate +/-inf into y_hat.
         assert np.all(np.isfinite(y_hat))
@@ -440,15 +434,13 @@ class TestNumericalSafety:
         class _StubInner:
             def predict(self, X):
                 return np.full(len(X), 50.0)
+
         wrapper.estimator_ = _StubInner()
         y_hat = wrapper.predict(df.iloc[:10])
 
         assert np.all(np.isfinite(y_hat)), "guards must keep predictions finite"
         upper = wrapper.fitted_params_["y_clip_high"]
-        assert np.all(y_hat <= upper), (
-            f"all predictions must stay <= y_clip_high={upper}, "
-            f"got max={y_hat.max():.6g}"
-        )
+        assert np.all(y_hat <= upper), f"all predictions must stay <= y_clip_high={upper}, got max={y_hat.max():.6g}"
 
     def test_logratio_y_clip_engages_when_softcap_disabled(self) -> None:
         """Force MAD to zero so the soft-cap never engages, then verify
@@ -476,6 +468,7 @@ class TestNumericalSafety:
         class _StubInner:
             def predict(self, X):
                 return np.full(len(X), 50.0)
+
         wrapper.estimator_ = _StubInner()
         y_hat = wrapper.predict(df.iloc[:10])
 
@@ -673,6 +666,7 @@ class TestPolarsInput:
         # Verify the wrapper's polars-aware helpers don't crash on
         # base-column extraction or row subsetting.
         from mlframe.training.composite import _extract_base
+
         base = _extract_base(pl_df, "base")
         assert len(base) == 400 and np.all(np.isfinite(base))
 

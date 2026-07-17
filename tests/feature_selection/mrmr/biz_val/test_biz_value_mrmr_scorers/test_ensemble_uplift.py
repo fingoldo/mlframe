@@ -40,6 +40,7 @@ NEVER xfail.
 
 Consolidated verbatim from test_biz_value_mrmr_layer69.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -79,6 +80,7 @@ def _import_ensemble_fe():
         hybrid_orth_mi_ensemble_fe,
         hybrid_orth_mi_ensemble_fe_with_recipes,
     )
+
     return (
         ENSEMBLE_AGGREGATORS,
         SCORER_NAMES,
@@ -93,6 +95,7 @@ def _import_auto_fe():
     from mlframe.feature_selection.filters._orthogonal_scorer_auto_fe import (
         hybrid_orth_mi_auto_scorer_fe_with_recipes,
     )
+
     return hybrid_orth_mi_auto_scorer_fe_with_recipes
 
 
@@ -101,6 +104,7 @@ def _import_plug_in_fe():
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
     )
+
     return generate_univariate_basis_features
 
 
@@ -145,13 +149,15 @@ def _build_linear(seed: int, n: int = 1200):
     rng = np.random.default_rng(int(seed))
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x1 + 0.7 * x2) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -201,6 +207,7 @@ class TestEnsembleStableAcrossSeeds:
         from mlframe.feature_selection.filters._orthogonal_dcor_fe import (
             score_features_by_dcor_uplift,
         )
+
         gen = _import_plug_in_fe()
 
         # Fixed source frame; perturb via 75 % row subsampling per seed.
@@ -219,25 +226,37 @@ class TestEnsembleStableAcrossSeeds:
             engineered = gen(X_sub, degrees=(2, 3), basis="hermite")
 
             ens_scores = score_features_by_ensemble_uplift(
-                X_sub, engineered, y_sub,
-                aggregator="mean_rank", random_state=s,
+                X_sub,
+                engineered,
+                y_sub,
+                aggregator="mean_rank",
+                random_state=s,
             )
             supports["ensemble"].append(set(ens_scores.head(TOP_K)["engineered_col"]))
 
             ksg_scores = score_features_by_ksg_mi_uplift(
-                X_sub, engineered, y_sub,
-                n_neighbors=3, random_state=s,
+                X_sub,
+                engineered,
+                y_sub,
+                n_neighbors=3,
+                random_state=s,
             )
             supports["ksg"].append(set(ksg_scores.head(TOP_K)["engineered_col"]))
 
             cop_scores = score_features_by_copula_mi_uplift(
-                X_sub, engineered, y_sub, n_bins=20,
+                X_sub,
+                engineered,
+                y_sub,
+                n_bins=20,
             )
             supports["copula"].append(set(cop_scores.head(TOP_K)["engineered_col"]))
 
             dcor_scores = score_features_by_dcor_uplift(
-                X_sub, engineered, y_sub,
-                n_sample=400, random_state=s,
+                X_sub,
+                engineered,
+                y_sub,
+                n_sample=400,
+                random_state=s,
             )
             supports["dcor"].append(set(dcor_scores.head(TOP_K)["engineered_col"]))
 
@@ -303,16 +322,25 @@ class TestEnsembleVsAutoComparison:
         for s in seeds:
             X, y = _build_heterogeneous_fixture(s, n=1500)
             X_tr, X_te, y_tr, y_te = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             y_tr_arr = y_tr.to_numpy()
             eng_te = gen(X_te, degrees=(2, 3), basis="hermite")
 
             X_aug_ens, _, _ = hybrid_ens(
-                X_tr, y_tr_arr,
-                degrees=(2, 3), basis="hermite",
-                top_k=4, min_uplift=0.0, min_abs_mi_frac=0.0,
-                aggregator="mean_rank", random_state=s,
+                X_tr,
+                y_tr_arr,
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=4,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
+                aggregator="mean_rank",
+                random_state=s,
             )
             added_ens = [c for c in X_aug_ens.columns if c not in X_tr.columns]
             X_aug_te_ens = pd.concat([X_te, eng_te[added_ens]], axis=1) if added_ens else X_te
@@ -328,10 +356,15 @@ class TestEnsembleVsAutoComparison:
             )
 
             X_aug_auto, _, _ = hybrid_auto(
-                X_tr, y_tr_arr,
-                degrees=(2, 3), basis="hermite",
-                top_k=4, min_uplift=0.0, min_abs_mi_frac=0.0,
-                n_boot=5, random_state=s,
+                X_tr,
+                y_tr_arr,
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=4,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
+                n_boot=5,
+                random_state=s,
             )
             added_auto = [c for c in X_aug_auto.columns if c not in X_tr.columns]
             X_aug_te_auto = pd.concat([X_te, eng_te[added_auto]], axis=1) if added_auto else X_te
@@ -354,7 +387,7 @@ class TestEnsembleVsAutoComparison:
         # delivers; if it does, the rank aggregation is destroying
         # signal that the LCB winner-take-all kept.
         assert ens_mean >= auto_mean - 0.01, (
-            f"ensemble AUC mean ({ens_mean:.4f}) regressed vs L68 auto " f"mean ({auto_mean:.4f}); per-seed ens={aucs_ens}, " f"auto={aucs_auto}"
+            f"ensemble AUC mean ({ens_mean:.4f}) regressed vs L68 auto mean ({auto_mean:.4f}); per-seed ens={aucs_ens}, auto={aucs_auto}"
         )
 
 
@@ -384,12 +417,18 @@ class TestBordaVsMeanRankAgreement:
             y_arr = y.to_numpy()
             engineered = gen(X, degrees=(2, 3), basis="hermite")
             scores_mr = score_ensemble(
-                X, engineered, y_arr,
-                aggregator="mean_rank", random_state=s,
+                X,
+                engineered,
+                y_arr,
+                aggregator="mean_rank",
+                random_state=s,
             )
             scores_bc = score_ensemble(
-                X, engineered, y_arr,
-                aggregator="borda_count", random_state=s,
+                X,
+                engineered,
+                y_arr,
+                aggregator="borda_count",
+                random_state=s,
             )
             top_k = 4
             top_mr = set(scores_mr.head(top_k)["engineered_col"])
@@ -404,9 +443,7 @@ class TestBordaVsMeanRankAgreement:
         # accommodates tie-break re-ordering on borderline columns; a
         # systematic divergence here would mean the aggregator
         # implementations disagree on the underlying rank semantics.
-        assert n_agree >= 3, (
-            f"borda_count and mean_rank top-K agreed on only " f"{n_agree}/{len(seeds)} seeds; expected >= 3 (affine " f"equivalence contract)."
-        )
+        assert n_agree >= 3, f"borda_count and mean_rank top-K agreed on only {n_agree}/{len(seeds)} seeds; expected >= 3 (affine equivalence contract)."
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +468,7 @@ class TestAucLiftOnMixedSignal:
         from mlframe.feature_selection.filters._orthogonal_dcor_fe import (
             hybrid_orth_mi_dcor_fe_with_recipes,
         )
+
         _, _, _, _, hybrid_ens = _import_ensemble_fe()
         gen = _import_plug_in_fe()
 
@@ -439,7 +477,11 @@ class TestAucLiftOnMixedSignal:
         for s in seeds:
             X, y = _build_heterogeneous_fixture(s, n=1500)
             X_tr, X_te, y_tr, y_te = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             y_tr_arr = y_tr.to_numpy()
             eng_te = gen(X_te, degrees=(2, 3), basis="hermite")
@@ -451,9 +493,13 @@ class TestAucLiftOnMixedSignal:
                 (hybrid_orth_mi_dcor_fe_with_recipes, dict(n_sample=400, random_state=s), aucs_dcor),
             ):
                 X_aug, _, _ = hybrid_call(
-                    X_tr, y_tr_arr,
-                    degrees=(2, 3), basis="hermite",
-                    top_k=4, min_uplift=0.0, min_abs_mi_frac=0.0,
+                    X_tr,
+                    y_tr_arr,
+                    degrees=(2, 3),
+                    basis="hermite",
+                    top_k=4,
+                    min_uplift=0.0,
+                    min_abs_mi_frac=0.0,
                     **kwargs,
                 )
                 added = [c for c in X_aug.columns if c not in X_tr.columns]
@@ -504,7 +550,7 @@ class TestDefaultDisabledByteIdentical:
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], f"seed={seed}: default fe_hybrid_orth_ensemble_enable=False " f"should NOT append any engineered columns; got {added}"
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_ensemble_enable=False should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
         """Default aggregator is mean_rank and the default scorer pool includes plug_in/ksg/copula/dcor/hsic."""
@@ -513,7 +559,11 @@ class TestDefaultDisabledByteIdentical:
         assert m.fe_hybrid_orth_ensemble_aggregator == "mean_rank"
         # 2026-06-01 Layer 71: HSIC joined the default ensemble pool.
         assert tuple(m.fe_hybrid_orth_ensemble_scorers) == (
-            "plug_in", "ksg", "copula", "dcor", "hsic",
+            "plug_in",
+            "ksg",
+            "copula",
+            "dcor",
+            "hsic",
         )
 
 
@@ -537,9 +587,11 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_ensemble_enable", True),
             ("fe_hybrid_orth_ensemble_aggregator", "borda_count"),
         ]:
-            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
         assert tuple(m2.fe_hybrid_orth_ensemble_scorers) == (
-            "plug_in", "ksg", "copula",
+            "plug_in",
+            "ksg",
+            "copula",
         )
 
     def test_pickle_roundtrip_preserves_ensemble_recipes(self):
@@ -557,7 +609,7 @@ class TestPickleAndClone:
         assert list(m2.feature_names_in_) == list(m.feature_names_in_)
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, f"pickle changed hybrid_orth_features_: " f"before={added_before}, after={added_after}"
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, after={added_after}"
 
         def _extract_orth_recipes(model):
             """Return {name: recipe} for the orth_univariate recipes, regardless of container list/dict shape."""
@@ -584,14 +636,21 @@ class TestPickleAndClone:
 def _split_classification(X, y, *, test_size=0.25, random_state=0):
     """Stratified train/test split for a classification dataset."""
     return train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y,
+        X,
+        y,
+        test_size=test_size,
+        random_state=random_state,
+        stratify=y,
     )
 
 
 def _split_regression(X, y, *, test_size=0.25, random_state=0):
     """Plain train/test split for a regression dataset."""
     return train_test_split(
-        X, y, test_size=test_size, random_state=random_state,
+        X,
+        y,
+        test_size=test_size,
+        random_state=random_state,
     )
 
 
@@ -657,10 +716,16 @@ class TestSklearnDatasetBenchmark:
         X, y = bc.data, bc.target
         X_tr, X_te, y_tr, y_te = _split_classification(X, y, random_state=0)
         Xtr_b, Xte_b, size_b = _fit_transform_pair(
-            X_tr, y_tr, X_te, ensemble=False,
+            X_tr,
+            y_tr,
+            X_te,
+            ensemble=False,
         )
         Xtr_e, Xte_e, size_e = _fit_transform_pair(
-            X_tr, y_tr, X_te, ensemble=True,
+            X_tr,
+            y_tr,
+            X_te,
+            ensemble=True,
         )
         s_b = _score_classification(Xtr_b, y_tr, Xte_b, y_te)
         s_e = _score_classification(Xtr_e, y_tr, Xte_e, y_te)
@@ -678,10 +743,16 @@ class TestSklearnDatasetBenchmark:
         X, y = d.data, d.target
         X_tr, X_te, y_tr, y_te = _split_regression(X, y, random_state=0)
         Xtr_b, Xte_b, size_b = _fit_transform_pair(
-            X_tr, y_tr, X_te, ensemble=False,
+            X_tr,
+            y_tr,
+            X_te,
+            ensemble=False,
         )
         Xtr_e, Xte_e, size_e = _fit_transform_pair(
-            X_tr, y_tr, X_te, ensemble=True,
+            X_tr,
+            y_tr,
+            X_te,
+            ensemble=True,
         )
         s_b = _score_regression(Xtr_b, y_tr, Xte_b, y_te)
         s_e = _score_regression(Xtr_e, y_tr, Xte_e, y_te)
@@ -699,10 +770,16 @@ class TestSklearnDatasetBenchmark:
         X, y = w.data, w.target
         X_tr, X_te, y_tr, y_te = _split_classification(X, y, random_state=0)
         Xtr_b, Xte_b, size_b = _fit_transform_pair(
-            X_tr, y_tr, X_te, ensemble=False,
+            X_tr,
+            y_tr,
+            X_te,
+            ensemble=False,
         )
         Xtr_e, Xte_e, size_e = _fit_transform_pair(
-            X_tr, y_tr, X_te, ensemble=True,
+            X_tr,
+            y_tr,
+            X_te,
+            ensemble=True,
         )
         s_b = _score_classification(Xtr_b, y_tr, Xte_b, y_te)
         s_e = _score_classification(Xtr_e, y_tr, Xte_e, y_te)

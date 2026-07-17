@@ -90,10 +90,8 @@ class TestPickleBC:
             del mrmr.__dict__["_engineered_recipes_"]
 
         restored = pickle.loads(pickle.dumps(mrmr))
-        assert hasattr(restored, "_engineered_recipes_"), \
-            "__setstate__ must inject the missing default"
-        assert restored._engineered_recipes_ == [], \
-            "Legacy pickle should resurface with an empty recipe list"
+        assert hasattr(restored, "_engineered_recipes_"), "__setstate__ must inject the missing default"
+        assert restored._engineered_recipes_ == [], "Legacy pickle should resurface with an empty recipe list"
 
         # Transform should still work and produce base-features-only output.
         out = restored.transform(X)
@@ -113,9 +111,7 @@ class TestRecipeBuilding:
     ``self._engineered_recipes_``."""
 
     @pytest.mark.slow
-    def test_fe_max_steps_2_records_recipe_for_selected_engineered(
-        self, multiplicative_synergy_train_test
-    ):
+    def test_fe_max_steps_2_records_recipe_for_selected_engineered(self, multiplicative_synergy_train_test):
         df_tr, y_tr, df_te, _y_te = multiplicative_synergy_train_test
         mrmr = MRMR(
             full_npermutations=5,
@@ -143,19 +139,17 @@ class TestRecipeBuilding:
         # legitimate. Pin the structural contract -- a recognised kind, >=1 source,
         # every source a real input column -- not one specific kind.
         from typing import get_args, get_type_hints
+
         _valid_kinds = set(get_args(get_type_hints(EngineeredRecipe)["kind"]))
         for r in recipes:
             assert isinstance(r, EngineeredRecipe)
             assert r.kind in _valid_kinds, f"Unknown recipe kind {r.kind!r}"
             assert len(r.src_names) >= 1
             for src in r.src_names:
-                assert src in df_tr.columns, \
-                    f"Recipe src '{src}' must reference a real input column"
+                assert src in df_tr.columns, f"Recipe src '{src}' must reference a real input column"
 
     @pytest.mark.slow
-    def test_fe_step_appends_nbins_via_concat_not_elementwise_add(
-        self, multiplicative_synergy_train_test
-    ):
+    def test_fe_step_appends_nbins_via_concat_not_elementwise_add(self, multiplicative_synergy_train_test):
         """Regression sensor for 2026-05-11 nbins concatenation bug.
 
         At ``mrmr.py:1286`` the FE step previously did
@@ -205,10 +199,12 @@ class TestRecipeBuilding:
         added back to ``data`` (they're computed but never re-screened),
         so no recipes survive into ``self._engineered_recipes_``."""
         rng = np.random.default_rng(0)
-        df = pd.DataFrame({
-            "a": rng.uniform(-3, 3, 100),
-            "b": rng.uniform(-3, 3, 100),
-        })
+        df = pd.DataFrame(
+            {
+                "a": rng.uniform(-3, 3, 100),
+                "b": rng.uniform(-3, 3, 100),
+            }
+        )
         y = pd.Series((rng.normal(size=100) > 0).astype(int), name="target")
         mrmr = MRMR(
             full_npermutations=2,
@@ -238,15 +234,20 @@ class TestTransformOnTestData:
         transform output is base-features-only -- identical to the
         pre-PR-1 path."""
         rng = np.random.default_rng(1)
-        df = pd.DataFrame({
-            "a": rng.uniform(0, 1, 80),
-            "b": rng.uniform(0, 1, 80),
-            "c": rng.uniform(0, 1, 80),
-        })
+        df = pd.DataFrame(
+            {
+                "a": rng.uniform(0, 1, 80),
+                "b": rng.uniform(0, 1, 80),
+                "c": rng.uniform(0, 1, 80),
+            }
+        )
         y = pd.Series((rng.normal(size=80) > 0).astype(int), name="target")
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
-            fe_max_steps=0, verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            fe_max_steps=0,
+            verbose=0,
+            n_jobs=1,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -267,8 +268,11 @@ class TestTransformOnTestData:
         df = pd.DataFrame({"a": rng.uniform(0, 1, 50), "b": rng.uniform(0, 1, 50)})
         y = pd.Series((rng.normal(size=50) > 0).astype(int))
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
-            fe_max_steps=0, verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            fe_max_steps=0,
+            verbose=0,
+            n_jobs=1,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -278,12 +282,16 @@ class TestTransformOnTestData:
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_unary_binary_recipe,
         )
+
         synthetic = build_unary_binary_recipe(
             name="mul(identity(a),identity(b))",
-            src_a_name="a", src_b_name="b",
-            unary_a_name="identity", unary_b_name="identity",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="identity",
+            unary_b_name="identity",
             binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,
@@ -292,20 +300,20 @@ class TestTransformOnTestData:
 
         names = mrmr.get_feature_names_out()
         assert "mul(identity(a),identity(b))" in names
-        assert names[-1] == "mul(identity(a),identity(b))", \
-            "Engineered names must appear AFTER base names (transform-output order)"
+        assert names[-1] == "mul(identity(a),identity(b))", "Engineered names must appear AFTER base names (transform-output order)"
 
-    def test_transform_replays_engineered_recipe_on_disjoint_test_set(
-        self, multiplicative_synergy_train_test
-    ):
+    def test_transform_replays_engineered_recipe_on_disjoint_test_set(self, multiplicative_synergy_train_test):
         """fit(train), then transform(test). Engineered col values on
         test data must equal the formula evaluated on test data --
         there's no leakage of fit-time values."""
         df_tr, y_tr, df_te, _y_te = multiplicative_synergy_train_test
 
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
-            fe_max_steps=0, verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            fe_max_steps=0,
+            verbose=0,
+            n_jobs=1,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -317,12 +325,16 @@ class TestTransformOnTestData:
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_unary_binary_recipe,
         )
+
         recipe = build_unary_binary_recipe(
             name="mul(identity(a),identity(b))",
-            src_a_name="a", src_b_name="b",
-            unary_a_name="identity", unary_b_name="identity",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="identity",
+            unary_b_name="identity",
             binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,
@@ -347,8 +359,11 @@ class TestTransformOnTestData:
         df = pd.DataFrame({"a": rng.uniform(0, 1, 50), "b": rng.uniform(0, 1, 50)})
         y = pd.Series((rng.normal(size=50) > 0).astype(int))
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
-            fe_max_steps=0, verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            fe_max_steps=0,
+            verbose=0,
+            n_jobs=1,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -361,14 +376,19 @@ class TestTransformOnTestData:
         from mlframe.feature_selection.filters.engineered_recipes import (
             build_unary_binary_recipe,
         )
+
         mrmr._engineered_recipes_ = [
             build_unary_binary_recipe(
                 name="add(identity(a),identity(b))",
-                src_a_name="a", src_b_name="b",
-                unary_a_name="identity", unary_b_name="identity",
+                src_a_name="a",
+                src_b_name="b",
+                unary_a_name="identity",
+                unary_b_name="identity",
                 binary_name="add",
-                unary_preset="minimal", binary_preset="minimal",
-                quantization_nbins=None, quantization_method=None,
+                unary_preset="minimal",
+                binary_preset="minimal",
+                quantization_nbins=None,
+                quantization_method=None,
                 quantization_dtype=np.float32,
             )
         ]
@@ -389,8 +409,11 @@ class TestTransformOnTestData:
         df = pd.DataFrame({"a": rng.uniform(0, 1, 30), "b": rng.uniform(0, 1, 30)})
         y = pd.Series((rng.normal(size=30) > 0).astype(int))
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
-            fe_max_steps=0, verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            fe_max_steps=0,
+            verbose=0,
+            n_jobs=1,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

@@ -3,6 +3,7 @@
 Pre-fix ``ProbaScoreProxy`` did ``y_probs[:, class_idx]`` with no shape check -> a 1-D y_probs or a
 class_idx >= n_classes raised an opaque IndexError deep inside numpy instead of a clear message.
 """
+
 from __future__ import annotations
 
 import numpy as np

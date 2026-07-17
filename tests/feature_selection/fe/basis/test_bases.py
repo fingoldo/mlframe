@@ -1,4 +1,5 @@
 """Unit + biz_value tests for mlframe.feature_selection.filters.bases (Fourier / RBF / Sigmoid / Pade non-polynomial basis families)."""
+
 from __future__ import annotations
 
 import math
@@ -14,6 +15,7 @@ from mlframe.feature_selection.filters.info_theory import compute_mi_from_classe
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mi_of_feature(feature: np.ndarray, y: np.ndarray, nbins: int = 10) -> float:
     """Discretize ``feature`` into ``nbins`` quantile bins and return plug-in MI(feature, y) in nats."""
@@ -38,6 +40,7 @@ def _eval(basis: dict, z: np.ndarray, c: np.ndarray, params: dict) -> np.ndarray
 # ---------------------------------------------------------------------------
 # Fourier
 # ---------------------------------------------------------------------------
+
 
 class TestFourier:
     def test_roundtrip(self):
@@ -116,6 +119,7 @@ class TestFourier:
 # RBF
 # ---------------------------------------------------------------------------
 
+
 class TestRBF:
     def test_roundtrip(self):
         b = EXTRA_BASES["rbf"]
@@ -184,6 +188,7 @@ class TestRBF:
 # Sigmoid
 # ---------------------------------------------------------------------------
 
+
 class TestSigmoid:
     def test_roundtrip(self):
         b = EXTRA_BASES["sigmoid"]
@@ -233,6 +238,7 @@ class TestSigmoid:
 # ---------------------------------------------------------------------------
 # Pade
 # ---------------------------------------------------------------------------
+
 
 class TestPade:
     def test_roundtrip(self):
@@ -288,6 +294,7 @@ class TestPade:
 # ---------------------------------------------------------------------------
 # Registry-wide invariants
 # ---------------------------------------------------------------------------
+
 
 class TestRegistryMetadata:
     def test_all_four_families_registered(self):

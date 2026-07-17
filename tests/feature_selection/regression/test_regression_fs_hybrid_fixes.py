@@ -6,6 +6,7 @@ A. RFECV.fit accepts a bare ndarray X (previously crashed with a KeyError when y
 D. MRMR exposes the additional-RFECV rescue knobs (additional_rfecv_selection_rule defaulting
    to the parsimonious 'one_se_min', and additional_rfecv_kwargs) as real constructor params.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,7 +47,9 @@ def test_rfecv_accepts_ndarray_x_with_pandas_y():
     # ytr now carries a shuffled (non-Range) index; pass X as a bare ndarray -> the pre-fix crash path.
     r = RFECV(
         estimator=RandomForestClassifier(n_estimators=40, max_depth=5, random_state=0),
-        cv=2, scoring=None, verbose=0,
+        cv=2,
+        scoring=None,
+        verbose=0,
         fi_config=FIConfig(importance_getter="auto", n_features_selection_rule="one_se_min"),
         search_config=SearchConfig(max_refits=6, max_runtime_mins=1),
         random_state=0,
@@ -74,8 +77,7 @@ def test_mrmr_exposes_additional_rfecv_rescue_knobs():
     assert m.additional_rfecv_selection_rule == "one_se_min"
     assert m.additional_rfecv_kwargs is None
 
-    m2 = MRMR(fe_max_steps=0, additional_rfecv_selection_rule="argmax",
-              additional_rfecv_kwargs={"max_refits": 25})
+    m2 = MRMR(fe_max_steps=0, additional_rfecv_selection_rule="argmax", additional_rfecv_kwargs={"max_refits": 25})
     assert m2.additional_rfecv_selection_rule == "argmax"
     assert m2.additional_rfecv_kwargs == {"max_refits": 25}
 
@@ -116,9 +118,9 @@ def test_mrmr_rescue_excludes_cluster_members_and_uses_parsimony(monkeypatch):
         cols[f"noise_{k}"] = rng.standard_normal(n)
     X = pd.DataFrame(cols)
 
-    m = MRMR(verbose=0, fe_max_steps=0, n_jobs=1, random_seed=0,
-             cluster_aggregate_enable=True, cluster_aggregate_mode="replace",
-             run_additional_rfecv_minutes=0.2)
+    m = MRMR(
+        verbose=0, fe_max_steps=0, n_jobs=1, random_seed=0, cluster_aggregate_enable=True, cluster_aggregate_mode="replace", run_additional_rfecv_minutes=0.2
+    )
     m.fit(X, pd.Series(y))
 
     assert "pool" in rec, "rescue RFECV did not run"

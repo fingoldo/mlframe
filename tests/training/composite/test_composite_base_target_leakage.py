@@ -4,6 +4,7 @@ Covers detect_base_target_leakage + screen_base_pool: flags base==y and
 base==y+tiny-noise and monotone(y) as leaky, does NOT flag a genuine lag-1 base
 nor a merely-correlated feature, and the batch helper partitions a pool correctly.
 """
+
 from __future__ import annotations
 
 import numpy as np

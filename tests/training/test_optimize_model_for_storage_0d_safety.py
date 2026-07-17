@@ -12,6 +12,7 @@ The fix preserves the list / pd.Index / 1-d-ndarray paths unchanged and
 adds an explicit ``np.ndarray AND ndim == 0`` branch that unwraps via
 ``.item()`` before the equality check.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace

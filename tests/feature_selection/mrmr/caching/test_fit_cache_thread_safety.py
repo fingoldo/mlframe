@@ -53,9 +53,7 @@ def test_fit_cache_lock_is_rlock_and_published_on_class():
     X, y = _tiny_frame(0)
     _fast_selector(0).fit(X, y)
 
-    assert getattr(MRMR, "_FIT_CACHE_LOCK", None) is _MRMR_FIT_CACHE_LOCK, (
-        "MRMR._FIT_CACHE_LOCK must be the canonical module-level fit-cache lock after a fit"
-    )
+    assert getattr(MRMR, "_FIT_CACHE_LOCK", None) is _MRMR_FIT_CACHE_LOCK, "MRMR._FIT_CACHE_LOCK must be the canonical module-level fit-cache lock after a fit"
 
 
 def test_fit_holds_lock_around_every_cache_mutation():
@@ -102,10 +100,7 @@ def test_fit_holds_lock_around_every_cache_mutation():
         MRMR._FIT_CACHE = saved_cache
 
     assert lock_states, "fit did not mutate _FIT_CACHE -- the store path was not exercised (no cache entry stored?)"
-    assert all(lock_states), (
-        f"every _FIT_CACHE mutation during fit must hold _MRMR_FIT_CACHE_LOCK; "
-        f"held={sum(lock_states)}/{len(lock_states)} mutations"
-    )
+    assert all(lock_states), f"every _FIT_CACHE mutation during fit must hold _MRMR_FIT_CACHE_LOCK; held={sum(lock_states)}/{len(lock_states)} mutations"
 
 
 def test_lock_serializes_concurrent_iterate_and_mutate():
@@ -179,9 +174,7 @@ def test_concurrent_real_fits_no_exception_and_bounded_cache():
     assert not errors, f"concurrent fits raised: {errors[:5]}"
     # The LRU cap must hold after the storm regardless of interleaving.
     assert isinstance(MRMR._FIT_CACHE, OrderedDict)
-    assert len(MRMR._FIT_CACHE) <= cap, (
-        f"_FIT_CACHE exceeded cap {cap}: len={len(MRMR._FIT_CACHE)}"
-    )
+    assert len(MRMR._FIT_CACHE) <= cap, f"_FIT_CACHE exceeded cap {cap}: len={len(MRMR._FIT_CACHE)}"
     # Keys stay unique and the dict is internally consistent (no torn entries).
     assert len(set(MRMR._FIT_CACHE.keys())) == len(MRMR._FIT_CACHE)
 

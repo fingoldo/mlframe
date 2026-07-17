@@ -31,9 +31,7 @@ class _SizedBlob:
 def test_pipeline_cache_uses_ordered_dict_for_lru() -> None:
     """LRU eviction requires insertion-order tracking. Plain ``dict`` semantics happen to preserve order in CPython 3.7+, but the cache must EXPLICITLY use OrderedDict so ``move_to_end`` works and the LRU contract survives any future restructuring."""
     cache = PipelineCache(verbose=False)
-    assert isinstance(cache._cache, OrderedDict), (
-        f"PipelineCache._cache must be an OrderedDict for LRU semantics; got {type(cache._cache).__name__}"
-    )
+    assert isinstance(cache._cache, OrderedDict), f"PipelineCache._cache must be an OrderedDict for LRU semantics; got {type(cache._cache).__name__}"
 
 
 def test_pipeline_cache_evicts_lru_when_byte_limit_exceeded(monkeypatch) -> None:

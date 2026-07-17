@@ -7,6 +7,7 @@ entities habitually linger longer in a particular configuration each time they r
 one cycle back for the SAME state should predict the current visit's eventual duration, a signal invisible
 to a model that only sees the current state.
 """
+
 from __future__ import annotations
 
 import numpy as np

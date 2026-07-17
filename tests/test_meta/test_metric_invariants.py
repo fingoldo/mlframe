@@ -42,8 +42,7 @@ def _binary_targets_and_probs(draw, min_n=20, max_n=200):
         st_np.arrays(
             dtype=np.float64,
             shape=n,
-            elements=st.floats(min_value=0.0, max_value=1.0,
-                               allow_nan=False, allow_infinity=False),
+            elements=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
         )
     )
     # Reject degenerate single-class targets — most metrics have either no
@@ -58,8 +57,7 @@ def _binary_targets_and_probs(draw, min_n=20, max_n=200):
 # ---------------------------------------------------------------------------
 
 
-@settings(deadline=None, max_examples=50,
-          suppress_health_check=[HealthCheck.too_slow])
+@settings(deadline=None, max_examples=50, suppress_health_check=[HealthCheck.too_slow])
 @given(pair=_binary_targets_and_probs(), nbins=st.integers(min_value=2, max_value=20))
 def test_brier_decomposition_identity(pair, nbins):
     """BinnedBrier == REL - RES + UNC, exact to fp precision (Murphy 1973).
@@ -67,9 +65,12 @@ def test_brier_decomposition_identity(pair, nbins):
     centre) so the identity holds within fp round-off, not approximately.
     """
     from mlframe.metrics.core import compute_ece_and_brier_decomposition
+
     y_true, y_pred = pair
     ece, rel, res, unc, brier_binned = compute_ece_and_brier_decomposition(
-        y_true.astype(np.float64), y_pred, nbins,
+        y_true.astype(np.float64),
+        y_pred,
+        nbins,
     )
     assert math.isclose(brier_binned, rel - res + unc, rel_tol=0, abs_tol=_FP_TOL), (
         f"Brier decomposition broken: brier_binned={brier_binned}, "
@@ -78,8 +79,7 @@ def test_brier_decomposition_identity(pair, nbins):
     )
 
 
-@settings(deadline=None, max_examples=50,
-          suppress_health_check=[HealthCheck.too_slow])
+@settings(deadline=None, max_examples=50, suppress_health_check=[HealthCheck.too_slow])
 @given(pair=_binary_targets_and_probs(), nbins=st.integers(min_value=2, max_value=20))
 def test_brier_decomposition_components_in_unit_interval(pair, nbins):
     """REL, RES, UNC, ECE all live in [0, 1] for binary targets in {0, 1}
@@ -89,16 +89,17 @@ def test_brier_decomposition_components_in_unit_interval(pair, nbins):
     silently break this — only sign / range issues fail the bound).
     """
     from mlframe.metrics.core import compute_ece_and_brier_decomposition
+
     y_true, y_pred = pair
     ece, rel, res, unc, brier_binned = compute_ece_and_brier_decomposition(
-        y_true.astype(np.float64), y_pred, nbins,
+        y_true.astype(np.float64),
+        y_pred,
+        nbins,
     )
     assert 0.0 <= ece <= 1.0, f"ECE out of [0,1]: {ece}"
     assert 0.0 <= rel <= 1.0, f"REL out of [0,1]: {rel}"
     assert 0.0 <= res <= 1.0, f"RES out of [0,1]: {res}"
-    assert 0.0 <= unc <= 0.25 + _FP_LOOSE, (
-        f"UNC out of [0, 1/4]: {unc} (UNC = p(1-p), max at p=0.5 is 0.25)"
-    )
+    assert 0.0 <= unc <= 0.25 + _FP_LOOSE, f"UNC out of [0, 1/4]: {unc} (UNC = p(1-p), max at p=0.5 is 0.25)"
     assert 0.0 <= brier_binned <= 1.0, f"BinnedBrier out of [0,1]: {brier_binned}"
 
 
@@ -111,6 +112,7 @@ def test_brier_decomposition_components_in_unit_interval(pair, nbins):
 @given(pair=_binary_targets_and_probs())
 def test_brier_score_in_unit_interval(pair):
     from mlframe.metrics.core import fast_brier_score_loss
+
     y_true, y_pred = pair
     score = fast_brier_score_loss(y_true.astype(np.float64), y_pred)
     assert 0.0 <= score <= 1.0, f"Brier score out of [0,1]: {score}"
@@ -123,12 +125,11 @@ def test_brier_perfect_predictions_zero(pair):
     perfect score. (Not Hypothesis-novel; this is the null-test that
     catches "I forgot the squared-error".)"""
     from mlframe.metrics.core import fast_brier_score_loss
+
     y_true, _ = pair
     perfect = y_true.astype(np.float64).copy()
     score = fast_brier_score_loss(y_true.astype(np.float64), perfect)
-    assert math.isclose(score, 0.0, abs_tol=_FP_LOOSE), (
-        f"Perfect predictions should yield Brier=0, got {score}"
-    )
+    assert math.isclose(score, 0.0, abs_tol=_FP_LOOSE), f"Perfect predictions should yield Brier=0, got {score}"
 
 
 # ---------------------------------------------------------------------------
@@ -140,13 +141,13 @@ def test_brier_perfect_predictions_zero(pair):
 @given(pair=_binary_targets_and_probs())
 def test_roc_auc_in_unit_interval(pair):
     from mlframe.metrics.core import fast_roc_auc
+
     y_true, y_pred = pair
     auc = fast_roc_auc(y_true.astype(np.float64), y_pred)
     assert 0.0 <= auc <= 1.0 + _FP_LOOSE, f"AUC out of [0,1]: {auc}"
 
 
-@settings(deadline=None, max_examples=30,
-          suppress_health_check=[HealthCheck.too_slow])
+@settings(deadline=None, max_examples=30, suppress_health_check=[HealthCheck.too_slow])
 @given(pair=_binary_targets_and_probs())
 def test_roc_auc_invariant_under_monotonic_transform(pair):
     """AUC depends only on the *ranks* of scores, not their absolute
@@ -161,6 +162,7 @@ def test_roc_auc_invariant_under_monotonic_transform(pair):
     merging.
     """
     from mlframe.metrics.core import fast_roc_auc
+
     y_true, y_pred = pair
     # Reject inputs near zero — see docstring.
     if not np.all(y_pred >= 1e-6):
@@ -169,9 +171,7 @@ def test_roc_auc_invariant_under_monotonic_transform(pair):
     auc1 = fast_roc_auc(yt, y_pred)
     # Monotonic affine transform with positive slope.
     auc2 = fast_roc_auc(yt, 3.5 * y_pred + 7.0)
-    assert math.isclose(auc1, auc2, abs_tol=_FP_LOOSE), (
-        f"AUC changed under positive affine transform: {auc1} → {auc2}"
-    )
+    assert math.isclose(auc1, auc2, abs_tol=_FP_LOOSE), f"AUC changed under positive affine transform: {auc1} → {auc2}"
 
 
 # ---------------------------------------------------------------------------
@@ -179,8 +179,7 @@ def test_roc_auc_invariant_under_monotonic_transform(pair):
 # ---------------------------------------------------------------------------
 
 
-@settings(deadline=None, max_examples=30,
-          suppress_health_check=[HealthCheck.too_slow])
+@settings(deadline=None, max_examples=30, suppress_health_check=[HealthCheck.too_slow])
 @given(
     n=st.integers(min_value=10, max_value=80),
     k=st.integers(min_value=2, max_value=8),
@@ -188,6 +187,7 @@ def test_roc_auc_invariant_under_monotonic_transform(pair):
 )
 def test_hamming_loss_in_unit_interval(n, k, seed):
     from mlframe.metrics.core import hamming_loss
+
     rng = np.random.default_rng(seed)
     y_true = rng.integers(0, 2, size=(n, k)).astype(np.int8)
     y_pred = rng.integers(0, 2, size=(n, k)).astype(np.int8)
@@ -195,8 +195,7 @@ def test_hamming_loss_in_unit_interval(n, k, seed):
     assert 0.0 <= loss <= 1.0, f"Hamming loss out of [0,1]: {loss}"
 
 
-@settings(deadline=None, max_examples=30,
-          suppress_health_check=[HealthCheck.too_slow])
+@settings(deadline=None, max_examples=30, suppress_health_check=[HealthCheck.too_slow])
 @given(
     n=st.integers(min_value=10, max_value=80),
     k=st.integers(min_value=2, max_value=8),
@@ -205,16 +204,14 @@ def test_hamming_loss_in_unit_interval(n, k, seed):
 def test_subset_accuracy_perfect_match_is_one(n, k, seed):
     """When y_pred == y_true exactly, subset_accuracy = 1.0."""
     from mlframe.metrics.core import subset_accuracy
+
     rng = np.random.default_rng(seed)
     y_true = rng.integers(0, 2, size=(n, k)).astype(np.int8)
     acc = subset_accuracy(y_true, y_true.copy())
-    assert math.isclose(acc, 1.0, abs_tol=_FP_LOOSE), (
-        f"subset_accuracy on identical inputs should be 1.0, got {acc}"
-    )
+    assert math.isclose(acc, 1.0, abs_tol=_FP_LOOSE), f"subset_accuracy on identical inputs should be 1.0, got {acc}"
 
 
-@settings(deadline=None, max_examples=30,
-          suppress_health_check=[HealthCheck.too_slow])
+@settings(deadline=None, max_examples=30, suppress_health_check=[HealthCheck.too_slow])
 @given(
     n=st.integers(min_value=10, max_value=80),
     k=st.integers(min_value=2, max_value=8),
@@ -222,6 +219,7 @@ def test_subset_accuracy_perfect_match_is_one(n, k, seed):
 )
 def test_jaccard_score_in_unit_interval(n, k, seed):
     from mlframe.metrics.core import jaccard_score_multilabel
+
     rng = np.random.default_rng(seed)
     y_true = rng.integers(0, 2, size=(n, k)).astype(np.int8)
     y_pred = rng.integers(0, 2, size=(n, k)).astype(np.int8)
@@ -238,6 +236,7 @@ def test_jaccard_score_in_unit_interval(n, k, seed):
 @given(pair=_binary_targets_and_probs())
 def test_log_loss_non_negative(pair):
     from mlframe.metrics.core import fast_log_loss_binary
+
     y_true, y_pred = pair
     loss = fast_log_loss_binary(y_true.astype(np.float64), y_pred)
     assert loss >= 0.0, f"Log-loss must be ≥ 0, got {loss}"
@@ -248,8 +247,7 @@ def test_log_loss_non_negative(pair):
 # ---------------------------------------------------------------------------
 
 
-@settings(deadline=None, max_examples=30,
-          suppress_health_check=[HealthCheck.too_slow])
+@settings(deadline=None, max_examples=30, suppress_health_check=[HealthCheck.too_slow])
 @given(
     n=st.integers(min_value=10, max_value=80),
     k=st.integers(min_value=2, max_value=8),
@@ -261,21 +259,19 @@ def test_predict_from_probs_per_label_threshold_zero_yields_all_ones(n, k, seed)
     rule is ``probs >= threshold``)."""
     from mlframe.training.helpers import _predict_from_probs
     from mlframe.training.configs import TargetTypes
+
     rng = np.random.default_rng(seed)
     probs = rng.random((n, k))
     out = _predict_from_probs(
-        probs, TargetTypes.MULTILABEL_CLASSIFICATION,
+        probs,
+        TargetTypes.MULTILABEL_CLASSIFICATION,
         threshold=np.zeros(k),
     )
     assert out.shape == (n, k)
-    assert (out == 1).all(), (
-        "Per-label threshold = 0 should mark every cell positive — "
-        "regression in the multilabel decision rule."
-    )
+    assert (out == 1).all(), "Per-label threshold = 0 should mark every cell positive — regression in the multilabel decision rule."
 
 
-@settings(deadline=None, max_examples=30,
-          suppress_health_check=[HealthCheck.too_slow])
+@settings(deadline=None, max_examples=30, suppress_health_check=[HealthCheck.too_slow])
 @given(
     n=st.integers(min_value=10, max_value=80),
     k=st.integers(min_value=2, max_value=8),
@@ -285,12 +281,12 @@ def test_predict_from_probs_per_label_threshold_above_one_yields_all_zeros(n, k,
     """Symmetric: thresholds set above the [0,1] domain → all zeros."""
     from mlframe.training.helpers import _predict_from_probs
     from mlframe.training.configs import TargetTypes
+
     rng = np.random.default_rng(seed)
     probs = rng.random((n, k))
     out = _predict_from_probs(
-        probs, TargetTypes.MULTILABEL_CLASSIFICATION,
+        probs,
+        TargetTypes.MULTILABEL_CLASSIFICATION,
         threshold=np.full(k, 1.5),
     )
-    assert (out == 0).all(), (
-        "Per-label threshold > 1.0 should mark every cell negative."
-    )
+    assert (out == 0).all(), "Per-label threshold > 1.0 should mark every cell negative."

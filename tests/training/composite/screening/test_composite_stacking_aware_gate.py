@@ -7,6 +7,7 @@ The measure-first protocol:
 
 Tests cover both halves separately and the integration.
 """
+
 from __future__ import annotations
 
 import numpy as np

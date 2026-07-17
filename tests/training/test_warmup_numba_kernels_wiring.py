@@ -15,6 +15,7 @@ This sensor pins the wiring by replacing prewarm_numba_cache with a
 counter and asserting _warmup_numba_kernels() bumped it. A regression
 that drops the import + call would fail by leaving the counter at 0.
 """
+
 from __future__ import annotations
 
 from unittest import mock
@@ -43,6 +44,7 @@ def test_warmup_numba_kernels_calls_prewarm_metric_cache(monkeypatch):
     )
 
     from mlframe.training.baselines.dummy import _warmup_numba_kernels
+
     _warmup_numba_kernels(verbose=False)
 
     assert seen["count"] >= 1, (
@@ -69,5 +71,6 @@ def test_warmup_numba_kernels_survives_metric_prewarm_failure(monkeypatch):
     )
 
     from mlframe.training.baselines.dummy import _warmup_numba_kernels
+
     # Must not raise.
     _warmup_numba_kernels(verbose=False)

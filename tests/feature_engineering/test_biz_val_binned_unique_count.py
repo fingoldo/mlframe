@@ -8,6 +8,7 @@ recovers it near-perfectly, then separately confirms it adds real incremental va
 necessarily instead of), matching the realistic production use case (used as an additional feature alongside
 existing aggregates, not a replacement for them).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -52,7 +53,9 @@ def test_biz_val_binned_unique_count_recovers_multi_regime_signal():
     auc_mean_std_only = cross_val_score(LogisticRegression(max_iter=500), mean_std, y, cv=5, scoring="roc_auc").mean()
     combined = np.concatenate([mean_std, bin_counts.to_numpy()], axis=1)
     auc_combined = cross_val_score(LogisticRegression(max_iter=500), combined, y, cv=5, scoring="roc_auc").mean()
-    assert auc_combined >= auc_mean_std_only, f"expected adding bin-cardinality to mean/std to not hurt (and here, to help), got combined={auc_combined:.4f} mean_std_only={auc_mean_std_only:.4f}"
+    assert auc_combined >= auc_mean_std_only, (
+        f"expected adding bin-cardinality to mean/std to not hurt (and here, to help), got combined={auc_combined:.4f} mean_std_only={auc_mean_std_only:.4f}"
+    )
 
 
 def _make_skewed_scale_multiregime_dataset(n_entities: int, seed: int, high_scale_frac: float = 0.1):
@@ -97,9 +100,7 @@ def test_biz_val_binned_unique_count_per_entity_bins_beats_global_on_skewed_scal
     y_high_scale = labels[is_high_scale]
 
     global_counts = binned_unique_count(df, entity_col="entity", value_col="value", n_bins=10).set_index("entity").reindex(entities)
-    per_entity_counts = (
-        binned_unique_count(df, entity_col="entity", value_col="value", n_bins=10, per_entity_bins=True).set_index("entity").reindex(entities)
-    )
+    per_entity_counts = binned_unique_count(df, entity_col="entity", value_col="value", n_bins=10, per_entity_bins=True).set_index("entity").reindex(entities)
 
     global_high = global_counts.to_numpy()[is_high_scale]
     per_entity_high = per_entity_counts.to_numpy()[is_high_scale]
@@ -107,7 +108,9 @@ def test_biz_val_binned_unique_count_per_entity_bins_beats_global_on_skewed_scal
     auc_global_high = cross_val_score(LogisticRegression(max_iter=500), global_high, y_high_scale, cv=5, scoring="roc_auc").mean()
     auc_per_entity_high = cross_val_score(LogisticRegression(max_iter=500), per_entity_high, y_high_scale, cv=5, scoring="roc_auc").mean()
 
-    assert auc_per_entity_high > 0.9, f"expected per-entity bins to sharply recover the regime-hopping target on the sparsely-populated high-scale minority, got AUC={auc_per_entity_high:.4f}"
+    assert auc_per_entity_high > 0.9, (
+        f"expected per-entity bins to sharply recover the regime-hopping target on the sparsely-populated high-scale minority, got AUC={auc_per_entity_high:.4f}"
+    )
     assert auc_per_entity_high - auc_global_high > 0.3, (
         f"expected per-entity bins to clearly beat global quantile bins on the high-scale minority (global bins are starved by the "
         f"low-scale majority's population density -- measured global AUC~0.5, chance), got per_entity={auc_per_entity_high:.4f} global={auc_global_high:.4f}"
@@ -139,5 +142,7 @@ def test_binned_unique_count_exact_values():
     out = binned_unique_count(df, entity_col="entity", value_col="value", bin_edges=bin_edges)
     entity1_count = out.loc[out["entity"] == 1, "binned_unique_value"].item()
     entity2_count = out.loc[out["entity"] == 2, "binned_unique_value"].item()
-    assert entity1_count > entity2_count, f"expected entity 1 (values spread across the full range) to visit more bins than entity 2 (values clustered together), got e1={entity1_count} e2={entity2_count}"
+    assert entity1_count > entity2_count, (
+        f"expected entity 1 (values spread across the full range) to visit more bins than entity 2 (values clustered together), got e1={entity1_count} e2={entity2_count}"
+    )
     assert entity2_count == 1

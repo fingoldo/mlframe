@@ -122,9 +122,7 @@ def test_e2e_oof_n_splits_unlocks_diversity_recommendations(tmp_path):
         use_mlframe_ensembles=True,
         pipeline_config=PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding=None, scaler_name=None, imputer_strategy=None),
         split_config=TrainingSplitConfig(test_size=0.25, val_size=0.1),
-        behavior_config=TrainingBehaviorConfig(
-            prefer_gpu_configs=False, oof_n_splits=3, recommend_diversity_additions_in_leaderboard=True
-        ),
+        behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False, oof_n_splits=3, recommend_diversity_additions_in_leaderboard=True),
         hyperparams_config={"iterations": 40},
         baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
         dummy_baselines_config=DummyBaselinesConfig(enabled=False),

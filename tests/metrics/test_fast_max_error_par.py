@@ -8,6 +8,7 @@ sibling regression metric (MAE/MSE/R2). At 10M this left a ~2-3x single-call win
 These sensors FAIL on pre-fix code: ``_fast_max_error_par`` does not exist (AttributeError), and the dispatcher never
 calls a parallel twin.
 """
+
 import numpy as np
 import pytest
 

@@ -1,4 +1,5 @@
 """Frame synthesis: turn a FuzzCombo into (df, target_col, cat_feature_names)."""
+
 from __future__ import annotations
 
 from typing import Any  # noqa: F401  (annotation strings under PEP 563)
@@ -39,9 +40,7 @@ def build_frame_for_combo(combo: FuzzCombo):
     rng = np.random.default_rng(combo.seed)
     n = combo.n_rows
 
-    num_cols = {
-        f"num_{i}": rng.standard_normal(n).astype("float32") for i in range(4)
-    }
+    num_cols = {f"num_{i}": rng.standard_normal(n).astype("float32") for i in range(4)}
     cat_pools = [
         ["A", "B", "C"],
         ["X", "Y", "Z", "W"],
@@ -54,6 +53,7 @@ def build_frame_for_combo(combo: FuzzCombo):
     ]
     cat_cols = {}
     cat_names: list[str] = []
+
     # R3-5 weird_cat_content: substitute specific pool entries with
     # pathological values that historically broke auto-detection, TF-IDF,
     # or encoder dispatch.
@@ -68,7 +68,7 @@ def build_frame_for_combo(combo: FuzzCombo):
         elif kind == "unicode":
             # mix in a unicode-heavy value (emoji + CJK + combining marks)
             pool.append("кат́")  # cyrillic + combining acute
-            pool.append("\U0001f600\U0001f4ca")        # emoji pair
+            pool.append("\U0001f600\U0001f4ca")  # emoji pair
         elif kind == "null_like":
             # strings that LOOK like nulls but are real string values.
             # Pipeline bugs sometimes treat these as actual nulls.
@@ -170,7 +170,7 @@ def build_frame_for_combo(combo: FuzzCombo):
         y2 = (logit2 > 0.6).astype("int8")  # rarer
         Y = np.column_stack([y0, y1, y2])
         # Guarantee no all-zero rows (iterstrat, MultiOutputClassifier).
-        zeros = (Y.sum(axis=1) == 0)
+        zeros = Y.sum(axis=1) == 0
         if zeros.any():
             # flip a random label to 1 in zero rows (deterministic via rng)
             for i in np.where(zeros)[0]:
@@ -228,10 +228,30 @@ def build_frame_for_combo(combo: FuzzCombo):
     # (2 cb+non-cb combos with auto-detect off).
     want_text = _eff_text_col_count > 0 and "cb" in combo.models and combo.auto_detect_cats
     text_vocab = [
-        "python", "rust", "golang", "java", "swift", "kotlin",
-        "backend", "frontend", "devops", "mlops", "dataeng", "platform",
-        "cloud", "edge", "realtime", "batch", "stream", "vector",
-        "search", "nlp", "vision", "audio", "robotics", "quantum",
+        "python",
+        "rust",
+        "golang",
+        "java",
+        "swift",
+        "kotlin",
+        "backend",
+        "frontend",
+        "devops",
+        "mlops",
+        "dataeng",
+        "platform",
+        "cloud",
+        "edge",
+        "realtime",
+        "batch",
+        "stream",
+        "vector",
+        "search",
+        "nlp",
+        "vision",
+        "audio",
+        "robotics",
+        "quantum",
     ]
     text_cols: dict[str, list] = {}
     if want_text:
@@ -254,11 +274,7 @@ def build_frame_for_combo(combo: FuzzCombo):
     # ``pl.List(pl.Float32)``; pandas has no robust native analog the
     # auto-detector recognises — skip for pandas to avoid spurious
     # xfails unrelated to the axis under test.
-    want_embedding = (
-        combo.embedding_col_count > 0
-        and "cb" in combo.models
-        and combo.input_type != "pandas"
-    )
+    want_embedding = combo.embedding_col_count > 0 and "cb" in combo.models and combo.input_type != "pandas"
 
     # Data-axis injections (2026-04-24 combo extension).
     # inject_inf_nan: drop np.inf/-np.inf/np.nan into num_0's first 3 rows
@@ -342,11 +358,7 @@ def build_frame_for_combo(combo: FuzzCombo):
     # adds a ``ts`` column when active so the recency builder has
     # something to consume (existing ``with_datetime_col`` axis is
     # orthogonal and may also emit ``ts`` -- the active branch wins).
-    _inject_zero_wb = (
-        combo.mlp_inject_zero_sample_weight_batch_cfg
-        and "mlp" in combo.models
-        and combo.weight_schemas != ("uniform",)
-    )
+    _inject_zero_wb = combo.mlp_inject_zero_sample_weight_batch_cfg and "mlp" in combo.models and combo.weight_schemas != ("uniform",)
     # inject_label_leak: a feature exactly equal to target + tiny noise.
     # A correctly-functioning suite trains on this happily; the val
     # metric must land near-perfect. Deliberately NOT asserted here —
@@ -428,6 +440,7 @@ def build_frame_for_combo(combo: FuzzCombo):
 
     if _build_input_type == "pandas":
         import pandas as pd
+
         data = {**num_cols, **extra_num_cols}
         for name, values in cat_cols.items():
             data[name] = pd.Categorical(values)
@@ -469,6 +482,7 @@ def build_frame_for_combo(combo: FuzzCombo):
         return pd.DataFrame(data), target_col, cat_names
 
     import polars as pl
+
     data_pl: dict[str, Any] = {**num_cols, **extra_num_cols}
     for name, values in cat_cols.items():
         if _build_input_type == "polars_enum":
@@ -499,6 +513,7 @@ def build_frame_for_combo(combo: FuzzCombo):
     # contiguous block to ~0 weights.
     if combo.with_datetime_col or _inject_zero_wb:
         import datetime as _dt
+
         start = _dt.datetime(2026, 1, 1)
         far_past = _dt.datetime(1900, 1, 1)
         ts_values = [start + _dt.timedelta(hours=i) for i in range(n)]

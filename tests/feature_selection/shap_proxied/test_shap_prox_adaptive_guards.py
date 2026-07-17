@@ -220,9 +220,19 @@ def _make_wide(seed, width=2000, n_inf=4, n_red=4, snr=2.5, rho=0.85):
 
 def _fit_fidelity(X, y, n_anchors, seed):
     s = ShapProxiedFS(
-        classification=True, metric="brier", optimizer="auto", top_n=12, n_splits=3,
-        n_revalidation_models=2, n_anchors=n_anchors, prescreen_ladder_mode="off",
-        prefilter_top=2000, random_state=seed, verbose=False, n_jobs=1)
+        classification=True,
+        metric="brier",
+        optimizer="auto",
+        top_n=12,
+        n_splits=3,
+        n_revalidation_models=2,
+        n_anchors=n_anchors,
+        prescreen_ladder_mode="off",
+        prefilter_top=2000,
+        random_state=seed,
+        verbose=False,
+        n_jobs=1,
+    )
     s.fit(X, y)
     rep = s.shap_proxy_report_
     return rep["trust"]["proxy_fidelity_score"], rep["trust_n_anchors"]["resolved"]
@@ -257,9 +267,19 @@ def test_biz_val_knee_ge_off_on_sparse_holdout():
 
     def sel_feats(ladder):
         s = ShapProxiedFS(
-            classification=True, metric="brier", optimizer="auto", top_n=12, n_splits=3,
-            n_revalidation_models=2, n_anchors="auto", prescreen_ladder_mode=ladder,
-            prefilter_top=2000, random_state=0, verbose=False, n_jobs=1)
+            classification=True,
+            metric="brier",
+            optimizer="auto",
+            top_n=12,
+            n_splits=3,
+            n_revalidation_models=2,
+            n_anchors="auto",
+            prescreen_ladder_mode=ladder,
+            prefilter_top=2000,
+            random_state=0,
+            verbose=False,
+            n_jobs=1,
+        )
         s.fit(X, y)
         return list(s.selected_features_)
 

@@ -59,9 +59,7 @@ def test_isotonic_overfit_risk_check_flags_noisy_fit():
     p = np.sort(rng.uniform(0, 1, size=n))
     y = rng.integers(0, 2, size=n).astype(np.float64)  # uncorrelated with p -> isotonic tracks noise
     cp = np.column_stack([1.0 - p, p])
-    ctx, _ = _binary_ctx(
-        cp, y, behavior_config=SimpleNamespace(check_isotonic_overfit_risk=True, isotonic_risk_kwargs={"segment_ratio_threshold": 1e-9})
-    )
+    ctx, _ = _binary_ctx(cp, y, behavior_config=SimpleNamespace(check_isotonic_overfit_risk=True, isotonic_risk_kwargs={"segment_ratio_threshold": 1e-9}))
 
     _isotonic_overfit_risk_check(ctx)
 

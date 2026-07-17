@@ -13,6 +13,7 @@ trips this test by losing the CRPS gap.
 Uses a real pinball-capable inner if LightGBM is installed; otherwise an
 ``importorskip`` keeps CI green without hard-requiring the dep.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -48,19 +49,18 @@ def _homoscedastic_gaussian_crps(mu: np.ndarray, sd: float, y: np.ndarray) -> fl
     std for every row.
     """
     z = (y - mu) / sd
-    crps = sd * (
-        z * (2.0 * norm.cdf(z) - 1.0)
-        + 2.0 * norm.pdf(z)
-        - 1.0 / np.sqrt(np.pi)
-    )
+    crps = sd * (z * (2.0 * norm.cdf(z) - 1.0) + 2.0 * norm.pdf(z) - 1.0 / np.sqrt(np.pi))
     return float(np.mean(crps))
 
 
 def _make_inner(alpha: float = 0.5):
     lgbm = pytest.importorskip("lightgbm")
     return lgbm.LGBMRegressor(
-        n_estimators=120, num_leaves=31, learning_rate=0.1,
-        min_child_samples=20, verbose=-1,
+        n_estimators=120,
+        num_leaves=31,
+        learning_rate=0.1,
+        min_child_samples=20,
+        verbose=-1,
     )
 
 
@@ -87,8 +87,7 @@ def test_biz_val_distribution_beats_homoscedastic_gaussian_crps():
     crps_gauss = _homoscedastic_gaussian_crps(mu, sd, y)
 
     assert crps_dist < crps_gauss * 0.95, (
-        f"composite CRPS {crps_dist:.4f} should beat homoscedastic-Gaussian "
-        f"{crps_gauss:.4f} by >=5% on a heteroscedastic target"
+        f"composite CRPS {crps_dist:.4f} should beat homoscedastic-Gaussian {crps_gauss:.4f} by >=5% on a heteroscedastic target"
     )
 
 
@@ -111,7 +110,4 @@ def test_biz_val_distribution_per_quantile_coverage_near_nominal():
     y_arr = np.asarray(y, dtype=np.float64)
     coverage = (y_arr[:, None] <= qmat).mean(axis=0)  # empirical P(y <= Q(q))
     max_dev = float(np.max(np.abs(coverage - levels)))
-    assert max_dev <= 0.10, (
-        f"per-quantile coverage off nominal by {max_dev:.3f} "
-        f"(coverage={coverage.round(3).tolist()}, levels={levels.round(2).tolist()})"
-    )
+    assert max_dev <= 0.10, f"per-quantile coverage off nominal by {max_dev:.3f} (coverage={coverage.round(3).tolist()}, levels={levels.round(2).tolist()})"

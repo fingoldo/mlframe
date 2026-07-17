@@ -14,6 +14,7 @@ Resolution order verified here:
   4. FTE.ts_field set + column present in df                 → auto-detect (audit fires)
   5. neither                                                  → audit silent
 """
+
 from __future__ import annotations
 
 import logging
@@ -42,6 +43,7 @@ class _FTEWithTsField:
 
     def transform(self, df):
         from mlframe.training.configs import TargetTypes
+
         target = df[self.target_col].to_numpy() if hasattr(df[self.target_col], "to_numpy") else df[self.target_col].values
         ts_values = None
         if self.ts_field is not None and self.ts_field in df.columns:
@@ -50,10 +52,10 @@ class _FTEWithTsField:
         return (
             df,
             {TargetTypes.BINARY_CLASSIFICATION: {self.target_col: target}},
-            None,        # group_ids_raw
-            None,        # group_ids
-            ts_values,   # timestamps
-            None,        # artifacts
+            None,  # group_ids_raw
+            None,  # group_ids
+            ts_values,  # timestamps
+            None,  # artifacts
             [self.target_col],
             {},
         )
@@ -68,11 +70,15 @@ class _FTEWithoutTsField:
 
     def transform(self, df):
         from mlframe.training.configs import TargetTypes
+
         target = df[self.target_col].to_numpy() if hasattr(df[self.target_col], "to_numpy") else df[self.target_col].values
         return (
             df,
             {TargetTypes.BINARY_CLASSIFICATION: {self.target_col: target}},
-            None, None, None, None,
+            None,
+            None,
+            None,
+            None,
             [self.target_col],
             {},
         )
@@ -90,11 +96,13 @@ def _make_fixture(n=400, with_drift=True, seed=0):
         y = (rng.uniform(size=n) < rates).astype(np.int8)
     else:
         y = (rng.uniform(size=n) < 0.5).astype(np.int8)
-    return pd.DataFrame({
-        "ts": days,
-        "x_num": rng.standard_normal(n),
-        "y": y,
-    })
+    return pd.DataFrame(
+        {
+            "ts": days,
+            "x_num": rng.standard_normal(n),
+            "y": y,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +117,9 @@ def test_audit_fires_with_explicit_ts_col():
 
     df = _make_fixture(n=400, with_drift=True)
     result = audit_target_over_time(
-        df, timestamp_col="ts", target_col="y",
+        df,
+        timestamp_col="ts",
+        target_col="y",
         target_type="binary_classification",
     )
     # 400 days at month granularity = 13 bins; with sparse-bin filter
@@ -149,6 +159,7 @@ def _resolve_audit_ts_col(behavior_config, fte, df):
 
 class _BC:
     """Tiny stand-in for TrainingBehaviorConfig holding only the audit knob."""
+
     def __init__(self, target_temporal_audit_column=None):
         self.target_temporal_audit_column = target_temporal_audit_column
 
@@ -224,8 +235,11 @@ def test_suite_auto_detects_ts_field_from_fte_and_logs(caplog, tmp_path):
     metadata['target_temporal_audit']."""
     from mlframe.training import train_mlframe_models_suite, TrainingBehaviorConfig
     from mlframe.training.configs import (
-        ModelHyperparamsConfig, PreprocessingBackendConfig, FeatureTypesConfig,
+        ModelHyperparamsConfig,
+        PreprocessingBackendConfig,
+        FeatureTypesConfig,
     )
+
     df = _make_fixture(n=400, with_drift=True)
     fte = _FTEWithTsField(target_col="y", ts_field="ts")
 
@@ -250,17 +264,12 @@ def test_suite_auto_detects_ts_field_from_fte_and_logs(caplog, tmp_path):
         )
 
     # Auto-detect log line must have fired.
-    assert any(
-        "auto-detected timestamp column 'ts'" in rec.message
-        for rec in caplog.records
-    ), "expected the FTE.ts_field auto-detect INFO log line"
+    assert any("auto-detected timestamp column 'ts'" in rec.message for rec in caplog.records), "expected the FTE.ts_field auto-detect INFO log line"
 
     # And the audit must have written its result on metadata.
     assert "target_temporal_audit" in metadata
     by_target = metadata["target_temporal_audit"]
-    assert any(
-        "y" in inner for inner in by_target.values()
-    ), f"expected 'y' as a target_name key inside {list(by_target.keys())}"
+    assert any("y" in inner for inner in by_target.values()), f"expected 'y' as a target_name key inside {list(by_target.keys())}"
 
 
 def test_suite_explicit_override_disables_via_empty_string(caplog, tmp_path):
@@ -292,6 +301,4 @@ def test_suite_explicit_override_disables_via_empty_string(caplog, tmp_path):
         )
 
     # Auto-detect must NOT have fired.
-    assert not any(
-        "auto-detected timestamp column" in rec.message for rec in caplog.records
-    ), "auto-detect should be suppressed by empty-string override"
+    assert not any("auto-detected timestamp column" in rec.message for rec in caplog.records), "auto-detect should be suppressed by empty-string override"

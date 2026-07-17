@@ -57,30 +57,38 @@ def test_serial_vs_parallel_cluster_labels_identical_small():
     must produce identical cluster assignments."""
     bins, names = _build_synthetic_bins(n_samples=800, n_features=80, n_bins=8, seed=0)
     serial = cluster_correlated_features_su(
-        bins, threshold=0.3, feature_names=names, use_parallel=False,
+        bins,
+        threshold=0.3,
+        feature_names=names,
+        use_parallel=False,
     )
     parallel = cluster_correlated_features_su(
-        bins, threshold=0.3, feature_names=names, use_parallel=True,
+        bins,
+        threshold=0.3,
+        feature_names=names,
+        use_parallel=True,
         parallel_min_features=10,  # force the kernel
     )
     assert serial.shape == parallel.shape
-    assert np.array_equal(serial, parallel), (
-        f"cluster labels diverge:\nserial   = {serial.tolist()}\nparallel = {parallel.tolist()}"
-    )
+    assert np.array_equal(serial, parallel), f"cluster labels diverge:\nserial   = {serial.tolist()}\nparallel = {parallel.tolist()}"
 
 
 def test_serial_vs_parallel_cluster_labels_identical_width200():
     """Larger width replays iter67's biz-val regime."""
     bins, names = _build_synthetic_bins(n_samples=1200, n_features=200, n_bins=10, seed=11)
     serial = cluster_correlated_features_su(
-        bins, threshold=0.35, feature_names=names, use_parallel=False,
+        bins,
+        threshold=0.35,
+        feature_names=names,
+        use_parallel=False,
     )
     parallel = cluster_correlated_features_su(
-        bins, threshold=0.35, feature_names=names, use_parallel=True,
+        bins,
+        threshold=0.35,
+        feature_names=names,
+        use_parallel=True,
     )
-    assert np.array_equal(serial, parallel), (
-        f"labels diverge at width=200: max diff index = {np.where(serial != parallel)[0][:10]}"
-    )
+    assert np.array_equal(serial, parallel), f"labels diverge at width=200: max diff index = {np.where(serial != parallel)[0][:10]}"
 
 
 def test_serial_vs_parallel_below_threshold_uses_serial_path():
@@ -89,7 +97,10 @@ def test_serial_vs_parallel_below_threshold_uses_serial_path():
     bins, names = _build_synthetic_bins(n_samples=400, n_features=8, n_bins=6, seed=2)
     out_default = cluster_correlated_features_su(bins, threshold=0.3, feature_names=names)
     out_serial = cluster_correlated_features_su(
-        bins, threshold=0.3, feature_names=names, use_parallel=False,
+        bins,
+        threshold=0.3,
+        feature_names=names,
+        use_parallel=False,
     )
     assert np.array_equal(out_default, out_serial)
 
@@ -110,7 +121,10 @@ def test_parallel_kernel_speedup_at_f500():
     bins, names = _build_synthetic_bins(n_samples=1500, n_features=500, n_bins=10, seed=3)
     # Warm-up so the JIT compile of _pairwise_su_edges is not counted.
     cluster_correlated_features_su(
-        bins, threshold=0.4, feature_names=names, use_parallel=True,
+        bins,
+        threshold=0.4,
+        feature_names=names,
+        use_parallel=True,
     )
 
     # Best-of-N min-wall for both paths. A single timed run gates flakily under CPU contention
@@ -128,7 +142,10 @@ def test_parallel_kernel_speedup_at_f500():
         for _ in range(n_trials):
             t0 = time.perf_counter()
             labels = cluster_correlated_features_su(
-                bins, threshold=0.4, feature_names=names, use_parallel=use_parallel,
+                bins,
+                threshold=0.4,
+                feature_names=names,
+                use_parallel=use_parallel,
             )
             best = min(best, time.perf_counter() - t0)
         return best, labels
@@ -139,6 +156,5 @@ def test_parallel_kernel_speedup_at_f500():
     assert np.array_equal(serial_labels, parallel_labels), "labels diverge at f=500"
     ratio = t_serial / max(t_parallel, 1e-9)
     assert ratio >= 2.0, (
-        f"parallel kernel not fast enough: serial={t_serial:.3f}s, "
-        f"parallel={t_parallel:.3f}s, ratio={ratio:.2f}x (need >= 2x), threads={n_threads}"
+        f"parallel kernel not fast enough: serial={t_serial:.3f}s, parallel={t_parallel:.3f}s, ratio={ratio:.2f}x (need >= 2x), threads={n_threads}"
     )

@@ -14,6 +14,7 @@ on isinstance(X, Pool) so it didn't re-validate -- wrong model with no warning.
 Post-fix: trainer.py aliases the real cache from _cb_pool, AND _phase_config_setup
 imports directly from _cb_pool. Both routes scrub the live cache.
 """
+
 from __future__ import annotations
 
 
@@ -21,9 +22,9 @@ def test_trainer_alias_points_to_live_cache():
     """trainer._CB_POOL_CACHE must be the SAME object as _cb_pool._CB_POOL_CACHE."""
     from mlframe.training import trainer
     from mlframe.training.cb import _cb_pool
+
     assert trainer._CB_POOL_CACHE is _cb_pool._CB_POOL_CACHE, (
-        "trainer._CB_POOL_CACHE must alias the live cache in _cb_pool, "
-        "otherwise clear() at suite startup silently scrubs an empty dict."
+        "trainer._CB_POOL_CACHE must alias the live cache in _cb_pool, otherwise clear() at suite startup silently scrubs an empty dict."
     )
 
 
@@ -43,8 +44,7 @@ def test_trainer_side_clear_actually_scrubs_live_cache():
     # Live cache must now be empty -- pre-fix it would still hold "live_value" because
     # trainer.py:217 was a dead stub independent of _cb_pool._CB_POOL_CACHE.
     assert len(_cb_pool._CB_POOL_CACHE) == 0, (
-        f"trainer-side clear didn't scrub live cache; pre-fix bug regression. "
-        f"Live cache still has: {dict(_cb_pool._CB_POOL_CACHE)}"
+        f"trainer-side clear didn't scrub live cache; pre-fix bug regression. Live cache still has: {dict(_cb_pool._CB_POOL_CACHE)}"
     )
 
 
@@ -53,14 +53,12 @@ def test_phase_config_setup_imports_from_cb_pool():
     file does NOT contain the stale ``from mlframe.training.trainer import _CB_POOL_CACHE``
     pattern -- if a future refactor reintroduces it, this test fails."""
     import pathlib
+
     # Derive path from installed package; previous hardcoded D:/ path
     # raised FileNotFoundError on any other machine.
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "_phase_config_setup.py"
-    ).read_text(encoding="utf-8")
+
+    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core" / "_phase_config_setup.py").read_text(encoding="utf-8")
     assert "from mlframe.training.cb import _CB_POOL_CACHE" in src, (
-        "_phase_config_setup.py must import _CB_POOL_CACHE from the cb package (the live cache), "
-        "not from trainer (which was the dead-stub source pre-fix)."
+        "_phase_config_setup.py must import _CB_POOL_CACHE from the cb package (the live cache), not from trainer (which was the dead-stub source pre-fix)."
     )

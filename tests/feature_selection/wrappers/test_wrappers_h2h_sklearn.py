@@ -15,6 +15,7 @@ Design constraints:
       REGRESSIONS, not to prove our selector is strictly better than
       sklearn's on every problem.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,32 +37,50 @@ def _clf_redundant():
     """Classification with redundant features. RFECV should drop redundancy.
     shuffle=False keeps informative cols at indices [0..n_informative)."""
     from tests.training.synthetic import make_sklearn_classification_df
+
     X_df, y, _ = make_sklearn_classification_df(
-        n_samples=400, n_features=20, n_informative=5,
-        n_redundant=10, n_classes=2,
-        n_clusters_per_class=1, class_sep=1.5,
-        shuffle=False, seed=0,
+        n_samples=400,
+        n_features=20,
+        n_informative=5,
+        n_redundant=10,
+        n_classes=2,
+        n_clusters_per_class=1,
+        class_sep=1.5,
+        shuffle=False,
+        seed=0,
     )
     return X_df, y, 5  # informative count
+
 
 def _clf_noisy():
     """Classification with many noise features."""
     from tests.training.synthetic import make_sklearn_classification_df
+
     X_df, y, _ = make_sklearn_classification_df(
-        n_samples=300, n_features=25, n_informative=4,
-        n_redundant=0, n_classes=2,
-        n_clusters_per_class=1, class_sep=1.5,
-        shuffle=False, seed=1,
+        n_samples=300,
+        n_features=25,
+        n_informative=4,
+        n_redundant=0,
+        n_classes=2,
+        n_clusters_per_class=1,
+        class_sep=1.5,
+        shuffle=False,
+        seed=1,
     )
     return X_df, y, 4
+
 
 def _reg_correlated():
     """Regression where target depends on a few features + correlated noise.
     sklearn.make_regression already places informative cols first regardless
     of shuffle (no shuffle param), but n_informative is the prefix count."""
     X, y = make_regression(
-        n_samples=300, n_features=15, n_informative=4,
-        noise=2.0, random_state=2, shuffle=False,
+        n_samples=300,
+        n_features=15,
+        n_informative=4,
+        noise=2.0,
+        random_state=2,
+        shuffle=False,
     )
     cols = [f"f{i}" for i in range(X.shape[1])]
     return pd.DataFrame(X, columns=cols), y, 4
@@ -146,10 +165,7 @@ def test_h2h_score_parity(data_factory, estimator_factory, cv_factory, eps, labe
     our_mask = _our_support_as_bool(ours, X)
     our_score = _eval_subset_cv(estimator, X, y, our_mask, cv_for_compare)
 
-    print(
-        f"\n[h2h:{label}] sklearn n_features_={sk.n_features_} score={sk_score:.4f}, "
-        f"ours n_features_={ours.n_features_} score={our_score:.4f}, eps={eps}"
-    )
+    print(f"\n[h2h:{label}] sklearn n_features_={sk.n_features_} score={sk_score:.4f}, ours n_features_={ours.n_features_} score={our_score:.4f}, eps={eps}")
     assert not np.isnan(our_score), f"[{label}] our RFECV produced empty support_"
     assert our_score >= sk_score - eps, (
         f"[{label}] regression: our RFECV CV-score {our_score:.4f} fell more than "
@@ -190,8 +206,7 @@ def test_h2h_subset_size_on_redundant_clf():
     # than 1 feature.
     upper_bound = max(int(round(X.shape[1] * 0.8)), sk.n_features_ + 6)
     assert ours.n_features_ <= upper_bound, (
-        f"Our RFECV picked {ours.n_features_} features (cap {upper_bound}) "
-        f"vs sklearn's {sk.n_features_}; selector is much too inclusive."
+        f"Our RFECV picked {ours.n_features_} features (cap {upper_bound}) vs sklearn's {sk.n_features_}; selector is much too inclusive."
     )
     assert ours.n_features_ >= 1, "Our RFECV picked zero features"
 
@@ -224,6 +239,5 @@ def test_h2h_informative_recall():
 
     print(f"\n[h2h:informative-recall] our recall={recall:.2f} ({overlap}/{n_informative})")
     assert recall >= 0.5, (
-        f"Our RFECV recovered only {overlap}/{n_informative} informative features "
-        f"(recall={recall:.2f}). This is below the regression threshold of 0.5."
+        f"Our RFECV recovered only {overlap}/{n_informative} informative features (recall={recall:.2f}). This is below the regression threshold of 0.5."
     )

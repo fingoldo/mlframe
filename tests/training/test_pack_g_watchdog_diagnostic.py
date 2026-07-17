@@ -6,6 +6,7 @@ When the watchdog detects ``|y-MAE - T-MAE| / T-MAE > 1%`` on an additive-invert
 
 This is the diagnostic groundwork for a follow-up session that finds the actual root cause of the production MLP T-MAE=9.17 vs y-MAE=3.22 discrepancy. The fix for #8 (module-level _TTRWithEvalSetScaling) may close this as a side effect (the local-class issue caused dill / sklearn.clone instability that could have corrupted TTR.transformer_).
 """
+
 from __future__ import annotations
 
 import io
@@ -19,9 +20,7 @@ import pytest
 class TestWatchdogDiagnosticFormat:
     """When watchdog detects divergence, the log line MUST contain the diagnostic dump for downstream forensics."""
 
-    def test_watchdog_log_includes_sample_rows_on_divergence(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_watchdog_log_includes_sample_rows_on_divergence(self, caplog: pytest.LogCaptureFixture) -> None:
         """Construct a scenario where the watchdog fires: a wrapper whose inner.predict returns SCALED predictions instead of T-scale (simulating the production TTR transformer_ corruption hypothesis). Then assert the log line carries the diagnostic dump."""
         from sklearn.base import BaseEstimator, RegressorMixin
 
@@ -30,6 +29,7 @@ class TestWatchdogDiagnosticFormat:
 
         class _BrokenInner(BaseEstimator, RegressorMixin):
             """Predicts T_hat = T_true / 10 -- i.e., something close to but not exactly T."""
+
             def __init__(self, scale_factor: float = 0.1) -> None:
                 self.scale_factor = scale_factor
 
@@ -72,14 +72,17 @@ class TestWatchdogDiagnosticFormat:
         target_by_type = {"regression": {"y": y}}
         composite_specs_by_target_type = {
             "regression": {
-                "y": [{
-                    "name": "y-linres-base",
-                    "transform_name": "linear_residual",
-                    "base_column": "base",
-                    "fitted_params": params,
-                }],
+                "y": [
+                    {
+                        "name": "y-linres-base",
+                        "transform_name": "linear_residual",
+                        "base_column": "base",
+                        "fitted_params": params,
+                    }
+                ],
             },
         }
+
         # Wire a fake fitted-inner under the composite name in the models dict
         # using the same structure the suite produces (list of entries; each
         # entry has .model attribute pointing at the inner).
@@ -118,6 +121,4 @@ class TestWatchdogDiagnosticFormat:
         # Defensive: the watchdog OR another log line should mention the divergence.
         # We don't gate on exact text; just verify the diagnostic carriers appear when fire happens.
         if "watchdog" in log_text:
-            assert "y=" in log_text or "T=" in log_text, (
-                f"watchdog log line does not include diagnostic sample tokens; got: {log_text[:500]}"
-            )
+            assert "y=" in log_text or "T=" in log_text, f"watchdog log line does not include diagnostic sample tokens; got: {log_text[:500]}"

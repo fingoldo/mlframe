@@ -10,6 +10,7 @@ suite) for fast, clean measurement of the FE step's impact.
 
 Requires Julia on PATH (D:/Julia/bin).
 """
+
 from __future__ import annotations
 
 import os
@@ -49,9 +50,8 @@ def _make_synth(n=500, seed=42):
     x2 = rng.normal(size=n)
     x3 = rng.normal(size=n)
     x4 = rng.normal(size=n)
-    y = x0 ** 2 + x1 - 0.5 + 0.3 * rng.normal(size=n)
-    df = pd.DataFrame({"x0": x0, "x1": x1, "x2": x2,
-                        "x3": x3, "x4": x4, "target": y})
+    y = x0**2 + x1 - 0.5 + 0.3 * rng.normal(size=n)
+    df = pd.DataFrame({"x0": x0, "x1": x1, "x2": x2, "x3": x3, "x4": x4, "target": y})
     return df
 
 
@@ -88,15 +88,16 @@ def test_biz_val_pysr_pipeline_adds_equation_columns():
         },
     )
     train_out, val_out, test_out, pipe = apply_preprocessing_extensions(
-        train_df=train, val_df=val, test_df=test,
-        config=config, y_train=y_train, verbose=0,
+        train_df=train,
+        val_df=val,
+        test_df=test,
+        config=config,
+        y_train=y_train,
+        verbose=0,
     )
     # Must have added at least one PySR column. Naming is ``pysr__{hash8}__{seed}`` (content-hashed for cross-run determinism).
     pysr_cols = [c for c in train_out.columns if c.startswith("pysr__")]
-    assert len(pysr_cols) >= 1, (
-        f"PySR must add >=1 pysr__ column; got {pysr_cols}, "
-        f"columns={list(train_out.columns)}"
-    )
+    assert len(pysr_cols) >= 1, f"PySR must add >=1 pysr__ column; got {pysr_cols}, columns={list(train_out.columns)}"
     # Same columns must appear in val and test.
     for c in pysr_cols:
         assert c in val_out.columns, f"pysr col {c} missing from val"
@@ -146,8 +147,12 @@ def test_biz_val_pysr_pipeline_improves_downstream_model():
         },
     )
     train_out, _, _, _ = apply_preprocessing_extensions(
-        train_df=train.copy(), val_df=None, test_df=None,
-        config=config, y_train=y_train, verbose=0,
+        train_df=train.copy(),
+        val_df=None,
+        test_df=None,
+        config=config,
+        y_train=y_train,
+        verbose=0,
     )
     # Apply same columns to test.
     pysr_cols = [c for c in train_out.columns if c.startswith("pysr__")]
@@ -175,6 +180,5 @@ def test_biz_val_pysr_pipeline_improves_downstream_model():
     rmse_pysr_train = float(np.sqrt(mean_squared_error(y_train, preds_pysr)))
     # On TRAIN data with engineered features, fit should be no worse.
     assert rmse_pysr_train <= rmse_raw * 1.2, (
-        f"PySR features must not catastrophically hurt train fit; "
-        f"raw_train_rmse={rmse_raw:.4f}, pysr_train_rmse={rmse_pysr_train:.4f}"
+        f"PySR features must not catastrophically hurt train fit; raw_train_rmse={rmse_raw:.4f}, pysr_train_rmse={rmse_pysr_train:.4f}"
     )

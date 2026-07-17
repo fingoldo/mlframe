@@ -4,6 +4,7 @@ F-69: HYBRID / FEATURES_ONLY mixup via mixup_batch on aux features.
 F-70: SEQUENCE_ONLY mixup via mixup_sequence_batch on padded sequences
       with lengths = max(l_a, l_b).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,7 +17,9 @@ import torch
 import torch.nn as nn
 
 from mlframe.training.neural._recurrent_config import (
-    RNNType, InputMode, RecurrentConfig,
+    RNNType,
+    InputMode,
+    RecurrentConfig,
 )
 from mlframe.training.neural._recurrent_torch_model import RecurrentTorchModel
 

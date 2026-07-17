@@ -12,6 +12,7 @@ candidates get CONFIRMED can vary call to call even with identical inputs. These
 assert on ``selected_vars`` identity across calls; they assert on the (fully deterministic) upload count and
 on the exact VALUES handed to ``resident_operand`` at this call site, which is what the fix actually changed.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -91,8 +92,11 @@ def test_screen_predictors_gpu_uploads_target_once_across_rounds(monkeypatch):
     unchanged) must upload classes_y via cp.asarray only ONCE across both, not once per round."""
     fd, fn = _make_data(seed=3)
     classes_y, _freqs_y, _ = merge_vars(
-        factors_data=fd, vars_indices=np.array([fd.shape[1] - 1]),
-        var_is_nominal=None, factors_nbins=fn, dtype=np.int32,
+        factors_data=fd,
+        vars_indices=np.array([fd.shape[1] - 1]),
+        var_is_nominal=None,
+        factors_nbins=fn,
+        dtype=np.int32,
     )
     y_calls = _count_asarray_calls_matching(monkeypatch, classes_y.astype(np.int32))
 
@@ -116,8 +120,11 @@ def test_screen_predictors_gpu_resident_uploads_exact_target_values(monkeypatch)
 
     fd, fn = _make_data(seed=8)
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=fd, vars_indices=np.array([fd.shape[1] - 1]),
-        var_is_nominal=None, factors_nbins=fn, dtype=np.int32,
+        factors_data=fd,
+        vars_indices=np.array([fd.shape[1] - 1]),
+        var_is_nominal=None,
+        factors_nbins=fn,
+        dtype=np.int32,
     )
 
     captured: dict = {}
@@ -144,8 +151,11 @@ def test_screen_predictors_gpu_resident_matches_disabled_cache_values(monkeypatc
     pre-fix raw-upload-every-call behaviour) -- the uploaded content must be identical either way."""
     fd, fn = _make_data(seed=15)
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=fd, vars_indices=np.array([fd.shape[1] - 1]),
-        var_is_nominal=None, factors_nbins=fn, dtype=np.int32,
+        factors_data=fd,
+        vars_indices=np.array([fd.shape[1] - 1]),
+        var_is_nominal=None,
+        factors_nbins=fn,
+        dtype=np.int32,
     )
 
     monkeypatch.setenv("MLFRAME_FE_RESIDENT_OPERANDS", "0")

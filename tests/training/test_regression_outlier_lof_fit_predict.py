@@ -4,6 +4,7 @@ A plain ``LocalOutlierFactor`` has no usable ``predict`` (that needs ``novelty=T
 it raises ``AttributeError`` and the outlier-detection step got silently skipped even on clean
 numeric data, with the logged hint wrongly blaming NaN inputs.
 """
+
 from __future__ import annotations
 
 import numpy as np

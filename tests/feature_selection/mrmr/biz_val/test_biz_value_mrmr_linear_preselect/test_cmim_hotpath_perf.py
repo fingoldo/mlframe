@@ -50,6 +50,7 @@ NEVER xfail. Real numbers.
 
 2026-06-01 Layer 84.
 """
+
 from __future__ import annotations
 
 import time
@@ -69,18 +70,36 @@ SEEDS = (1, 7, 13, 42, 101)
 # n_bins=10, raw_X redundancy default). Captured 2026-06-01 before the
 # Layer 84 factorize-pack + cached-yz optimization. See
 # ``profiling/bench_cmim_l84.py`` for the capture script.
-PRE_OPT_REFERENCE_SCORES = np.array([
-    0.19235580927945716,
-    0.12844775173295846,
-    0.08803226108675456,
-    0.013869129976898854,
-    0.0034614357872515137,
-    0.0, 0.0, 0.0, 0.0, 0.0,
-    0.0, 0.0, 0.0, 0.0, 0.0,
-    0.0, 0.0, 0.0, 0.0, 0.0,
-])
+PRE_OPT_REFERENCE_SCORES = np.array(
+    [
+        0.19235580927945716,
+        0.12844775173295846,
+        0.08803226108675456,
+        0.013869129976898854,
+        0.0034614357872515137,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    ]
+)
 PRE_OPT_REFERENCE_NAMES = [
-    "x0__He2", "x1__He2", "x2__He2", "x0__He3", "x1__He3",
+    "x0__He2",
+    "x1__He2",
+    "x2__He2",
+    "x0__He3",
+    "x1__He3",
 ]
 # Pre-optimization mean wall time on the L84 reference fixture, captured
 # on the development laptop. The 1.5x gate uses 133 ms as the baseline
@@ -100,11 +119,14 @@ def _build_l84_fixture(n: int = 2500, seed: int = 0):
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
     )
+
     rng = np.random.default_rng(seed)
     raw_cols = {f"x{k}": rng.standard_normal(n) for k in range(10)}
     X_raw = pd.DataFrame(raw_cols)
     engineered = generate_univariate_basis_features(
-        X_raw, degrees=(2, 3), basis="hermite",
+        X_raw,
+        degrees=(2, 3),
+        basis="hermite",
     )
     if engineered.shape[1] > 20:
         engineered = engineered.iloc[:, :20]
@@ -130,6 +152,7 @@ class TestCmimPerfBudget:
         from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
             score_features_by_cmim,
         )
+
         raw_X, eng, y = _build_l84_fixture(n=2500, seed=0)
         # warm-up (excluded from the budget -- first call pays an
         # import / numpy-init cost the steady-state path doesn't).
@@ -138,7 +161,7 @@ class TestCmimPerfBudget:
         _ = score_features_by_cmim(raw_X, eng, y, n_bins=10)
         elapsed = time.perf_counter() - t0
         assert elapsed < 5.0, (
-            f"score_features_by_cmim took {elapsed*1000:.1f} ms on the "
+            f"score_features_by_cmim took {elapsed * 1000:.1f} ms on the "
             f"L84 reference fixture; perf budget of 5000 ms exceeded. "
             f"Likely the cached-yz / factorize-pack fast path regressed."
         )
@@ -159,6 +182,7 @@ class TestCmimSpeedupVsBaseline:
         from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
             score_features_by_cmim,
         )
+
         raw_X, eng, y = _build_l84_fixture(n=2500, seed=0)
         # warm-up
         _ = score_features_by_cmim(raw_X, eng, y, n_bins=10)
@@ -216,13 +240,17 @@ class TestCmimBitEquivalentToReference:
         from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
             score_features_by_cmim,
         )
+
         raw_X, eng, y = _build_l84_fixture(n=2500, seed=0)
         out = score_features_by_cmim(raw_X, eng, y, n_bins=10)
         new_vals = out["engineered_mi"].to_numpy()
         ref = PRE_OPT_REFERENCE_SCORES
-        assert new_vals.shape == ref.shape, f"L84 fixture shape changed: got {new_vals.shape}, " f"expected {ref.shape}; the reference vector is stale."
+        assert new_vals.shape == ref.shape, f"L84 fixture shape changed: got {new_vals.shape}, expected {ref.shape}; the reference vector is stale."
         np.testing.assert_allclose(
-            new_vals, ref, rtol=1e-9, atol=1e-12,
+            new_vals,
+            ref,
+            rtol=1e-9,
+            atol=1e-12,
             err_msg=(
                 "Post-opt CMIM scores do not match the pinned PRE-OPT "
                 "reference vector. The factorize-pack / cached-yz path "
@@ -236,10 +264,11 @@ class TestCmimBitEquivalentToReference:
         from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
             score_features_by_cmim,
         )
+
         raw_X, eng, y = _build_l84_fixture(n=2500, seed=0)
         out = score_features_by_cmim(raw_X, eng, y, n_bins=10)
         top5 = list(out["engineered_col"].head(5))
-        assert top5 == PRE_OPT_REFERENCE_NAMES, f"Top-5 engineered cols changed: got {top5}, " f"expected {PRE_OPT_REFERENCE_NAMES}; the ranking moved."
+        assert top5 == PRE_OPT_REFERENCE_NAMES, f"Top-5 engineered cols changed: got {top5}, expected {PRE_OPT_REFERENCE_NAMES}; the ranking moved."
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +290,7 @@ class TestL74RedundancyContractStillHolds:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_univariate_basis_features,
         )
+
         rng = np.random.default_rng(int(seed))
         n = 2000
         x1 = rng.standard_normal(n)
@@ -268,23 +298,29 @@ class TestL74RedundancyContractStillHolds:
         x_dup_b = x1 + 0.05 * rng.standard_normal(n)
         x_dup_c = x1 + 0.05 * rng.standard_normal(n)
         x2 = rng.standard_normal(n)
-        X = pd.DataFrame({
-            "x1": x1,
-            "x_dup_a": x_dup_a,
-            "x_dup_b": x_dup_b,
-            "x_dup_c": x_dup_c,
-            "x2": x2,
-            "noise_0": rng.standard_normal(n),
-            "noise_1": rng.standard_normal(n),
-        })
-        signal = x1 ** 2 + 0.6 * (x2 ** 2)
+        X = pd.DataFrame(
+            {
+                "x1": x1,
+                "x_dup_a": x_dup_a,
+                "x_dup_b": x_dup_b,
+                "x_dup_c": x_dup_c,
+                "x2": x2,
+                "noise_0": rng.standard_normal(n),
+                "noise_1": rng.standard_normal(n),
+            }
+        )
+        signal = x1**2 + 0.6 * (x2**2)
         thr = float(np.median(signal))
         y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
         engineered = generate_univariate_basis_features(
-            X, degrees=(2,), basis="hermite",
+            X,
+            degrees=(2,),
+            basis="hermite",
         )
         scores = score_features_by_cmim(
-            X, engineered, np.asarray(y),
+            X,
+            engineered,
+            np.asarray(y),
             current_support=X[["x1"]],
             n_bins=10,
         )
@@ -324,21 +360,27 @@ class TestEmptySupportFallback:
             generate_univariate_basis_features,
         )
         from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
-            _cmi_from_binned, _quantile_bin,
+            _cmi_from_binned,
+            _quantile_bin,
         )
+
         rng = np.random.default_rng(42)
         n = 1500
         x1 = rng.standard_normal(n)
         X_raw = pd.DataFrame({"x1": x1})  # single-column raw_X
         engineered = generate_univariate_basis_features(
-            X_raw, degrees=(2,), basis="hermite",
+            X_raw,
+            degrees=(2,),
+            basis="hermite",
         )
         # x1 carries a quadratic signal so He_2(x1) has real MI(.; y).
         y = ((x1**2 + 0.05 * rng.standard_normal(n)) > 1.0).astype(int)
         # current_support is x1 -- after filtering out the candidate's
         # own source (x1) the filtered cache is EMPTY -> fallback path.
         scores = score_features_by_cmim(
-            X_raw, engineered, y,
+            X_raw,
+            engineered,
+            y,
             current_support=X_raw[["x1"]],
             n_bins=10,
         )
@@ -352,5 +394,5 @@ class TestEmptySupportFallback:
         y_bin = y_bin.astype(np.int64)
         expected = float(_cmi_from_binned(x_bin, y_bin, None))
         assert s_map["x1__He2"] == pytest.approx(expected, rel=1e-12), (
-            f"empty-support fallback path drifted: got " f"{s_map['x1__He2']:.10f}, expected marginal MI " f"{expected:.10f}."
+            f"empty-support fallback path drifted: got {s_map['x1__He2']:.10f}, expected marginal MI {expected:.10f}."
         )

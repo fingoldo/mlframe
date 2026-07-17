@@ -8,6 +8,7 @@ a calibrator whose FRESH-HOLDOUT ECE is materially lower, and the reported ECE i
 Measured at n=300 over 8 seeds: same_oof holdout 0.00343 -> inner_cv holdout 0.00227 (~34% lower);
 same_oof reported 0.0 -> inner_cv reported ~0.01. Floors set well below the measured margins.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -7,6 +7,7 @@ per-class loop instead of recomputing each 1-D column. These tests pin that the
 indexed per-class values EQUAL the per-class recompute exactly (maxdiff 0.0),
 and that the report's stored per-class ``class_integral_error`` is unchanged.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,9 +31,7 @@ def test_per_class_ice_indexed_equals_recompute(k):
     y_true = rng.integers(0, k, n)
     probs = _softmax_probs(rng, n, k)
 
-    agg, per_class = compute_probabilistic_multiclass_error(
-        y_true=y_true, y_score=probs, nbins=10, return_per_class=True
-    )
+    agg, per_class = compute_probabilistic_multiclass_error(y_true=y_true, y_score=probs, nbins=10, return_per_class=True)
     assert isinstance(per_class, dict) and per_class, "fastpath should populate per-class dict"
 
     # Binary skips class 0; multiclass evaluates all K.
@@ -41,9 +40,7 @@ def test_per_class_ice_indexed_equals_recompute(k):
 
     maxdiff = 0.0
     for c in eval_ids:
-        recompute = compute_probabilistic_multiclass_error(
-            y_true=(y_true == c).astype(np.int8), y_score=probs[:, c], nbins=10
-        )
+        recompute = compute_probabilistic_multiclass_error(y_true=(y_true == c).astype(np.int8), y_score=probs[:, c], nbins=10)
         maxdiff = max(maxdiff, abs(float(recompute) - float(per_class[c])))
     assert maxdiff == 0.0, f"per-class ICE must be bit-identical, got maxdiff={maxdiff}"
 
@@ -56,9 +53,7 @@ def test_return_per_class_scalar_still_matches():
     probs = _softmax_probs(rng, n, k)
 
     scalar = compute_probabilistic_multiclass_error(y_true=y_true, y_score=probs, nbins=10)
-    agg, _ = compute_probabilistic_multiclass_error(
-        y_true=y_true, y_score=probs, nbins=10, return_per_class=True
-    )
+    agg, _ = compute_probabilistic_multiclass_error(y_true=y_true, y_score=probs, nbins=10, return_per_class=True)
     assert agg == scalar
 
 
@@ -69,9 +64,7 @@ def test_return_per_class_empty_dict_on_legacy_path():
     y_true = rng.integers(0, k, n)
     probs = _softmax_probs(rng, n, k)
 
-    agg, per_class = compute_probabilistic_multiclass_error(
-        y_true=y_true, y_score=probs, method="brier_score", return_per_class=True
-    )
+    agg, per_class = compute_probabilistic_multiclass_error(y_true=y_true, y_score=probs, method="brier_score", return_per_class=True)
     assert per_class == {}
 
 
@@ -146,17 +139,10 @@ def test_perf_sentinel_index_faster_than_recompute():
 
     def old():
         compute_probabilistic_multiclass_error(y_true=y_true, y_score=probs, nbins=10)
-        return [
-            compute_probabilistic_multiclass_error(
-                y_true=(y_true == c).astype(np.int8), y_score=probs[:, c], nbins=10
-            )
-            for c in range(k)
-        ]
+        return [compute_probabilistic_multiclass_error(y_true=(y_true == c).astype(np.int8), y_score=probs[:, c], nbins=10) for c in range(k)]
 
     def new():
-        _, per = compute_probabilistic_multiclass_error(
-            y_true=y_true, y_score=probs, nbins=10, return_per_class=True
-        )
+        _, per = compute_probabilistic_multiclass_error(y_true=y_true, y_score=probs, nbins=10, return_per_class=True)
         return [per[c] for c in range(k)]
 
     old()
@@ -183,15 +169,22 @@ def test_report_non_arange_labels_fall_back_safely():
 
     metrics: dict = {}
     report_probabilistic_model_perf(
-        targets=y_true, columns=["a"], model_name="m", model=None, probs=probs,
-        classes=[1, 2, 3], print_report=False, show_perf_chart=False,
-        show_prob_histogram=False, fairness_calibration_charts=False,
-        calibration_by_feature_charts=False, calibration_heatmap_2d_charts=False,
-        custom_ice_metric=fast_metric, metrics=metrics,
+        targets=y_true,
+        columns=["a"],
+        model_name="m",
+        model=None,
+        probs=probs,
+        classes=[1, 2, 3],
+        print_report=False,
+        show_perf_chart=False,
+        show_prob_histogram=False,
+        fairness_calibration_charts=False,
+        calibration_by_feature_charts=False,
+        calibration_heatmap_2d_charts=False,
+        custom_ice_metric=fast_metric,
+        metrics=metrics,
     )
     # Recompute the honest per-class value (targets == label) and compare.
     for i, label in enumerate([1, 2, 3]):
-        honest = compute_probabilistic_multiclass_error(
-            y_true=(y_true == label).astype(np.int8), y_score=probs[:, i], nbins=10
-        )
+        honest = compute_probabilistic_multiclass_error(y_true=(y_true == label).astype(np.int8), y_score=probs[:, i], nbins=10)
         assert metrics[i]["class_integral_error"] == honest

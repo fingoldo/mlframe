@@ -5,6 +5,7 @@ order). It missed the SAME rows reshuffled (different order), a subset/superset 
 reshuffled/relabelled. Fixed by adding a sorted-multiset (reorder) check, a row-index overlap check,
 and a probability-value overlap check (via the new ``_values_overlap_fraction`` helper).
 """
+
 from __future__ import annotations
 
 import numpy as np

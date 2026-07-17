@@ -4,6 +4,7 @@ The win: under extreme class imbalance, EasyEnsemble bagging over independently-
 subsets should beat a single model trained once on the full imbalanced data, since the single model's split
 criterion is dominated by the majority class while every bag in the ensemble sees a balanced problem.
 """
+
 from __future__ import annotations
 
 import numpy as np

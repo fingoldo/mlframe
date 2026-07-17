@@ -6,6 +6,7 @@ _PerClassIsotonicCalibrator, _PostHocMultiCalibratedModel,
 _maybe_apply_posthoc_calibration) moved to the sibling file; the
 original re-exports them so existing imports keep working.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,6 +20,7 @@ def test_calibration_symbols_still_importable_from_facade() -> None:
         _PostHocMultiCalibratedModel,
         _maybe_apply_posthoc_calibration,
     )
+
     for sym in (
         _SigmoidAdapter,
         _PostHocCalibratedModel,
@@ -37,6 +39,7 @@ def test_training_loop_ops_still_importable() -> None:
         _ensure_xgb_classification_objective,
         _maybe_wrap_for_2d_target,
     )
+
     for fn in (
         _ensure_cb_multilabel_loss,
         _handle_oom_error,
@@ -57,6 +60,7 @@ def test_facade_below_1k_line_threshold() -> None:
 def test_calibration_module_owns_the_moved_symbols() -> None:
     """Identity: facade and sibling module expose the SAME object."""
     from mlframe.training import _training_loop, _calibration_models
+
     for name in (
         "_SigmoidAdapter",
         "_PostHocCalibratedModel",

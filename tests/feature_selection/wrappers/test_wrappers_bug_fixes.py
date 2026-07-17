@@ -55,9 +55,7 @@ class TestF1_UnwiredSearchMethods:
             votes_aggregation_method=VotesAggregation.Borda,
             Optimizer=None,
         )
-        assert isinstance(result, list), (
-            f"expected list, got {type(result).__name__} for {method.value}"
-        )
+        assert isinstance(result, list), f"expected list, got {type(result).__name__} for {method.value}"
 
 
 # ----------------------------------------------------------------------------
@@ -67,12 +65,12 @@ class TestF5_DummyScoreSignSafety:
     @pytest.mark.parametrize(
         "score, sign",
         [
-            (0.85, 1),    # typical positive accuracy: dummy must be lower
-            (-0.5, 1),    # NEGATIVE R^2 (greater_is_better=True, model worse than mean):
-                          # pre-fix: score/10 = -0.05, ABOVE -0.5 -> dummy "better"
-            (-1e6, -1),   # neg-MSE: dummy must be even more negative
-            (0.05, 1),    # near-zero: dummy must still be lower
-            (1e-6, 1),    # very small positive: must drop further
+            (0.85, 1),  # typical positive accuracy: dummy must be lower
+            (-0.5, 1),  # NEGATIVE R^2 (greater_is_better=True, model worse than mean):
+            # pre-fix: score/10 = -0.05, ABOVE -0.5 -> dummy "better"
+            (-1e6, -1),  # neg-MSE: dummy must be even more negative
+            (0.05, 1),  # near-zero: dummy must still be lower
+            (1e-6, 1),  # very small positive: must drop further
         ],
     )
     def test_dummy_strictly_worse_than_model(self, score, sign):
@@ -81,10 +79,7 @@ class TestF5_DummyScoreSignSafety:
         # Reproduce the in-fit logic via a local helper that mirrors the new code path.
         fudge = max(abs(score), 1e-3) * 9.0
         dummy = score - fudge
-        assert dummy < score, (
-            f"Dummy ({dummy}) should be strictly less than model ({score}) "
-            f"for sign={sign}; pre-fix this would have inverted on negative R^2."
-        )
+        assert dummy < score, f"Dummy ({dummy}) should be strictly less than model ({score}) for sign={sign}; pre-fix this would have inverted on negative R^2."
 
 
 # ----------------------------------------------------------------------------
@@ -122,9 +117,9 @@ class TestF14_ZeroVarianceCoversAllDtypes:
             {
                 "real_a": rng.standard_normal(n),
                 "real_b": rng.standard_normal(n),
-                "const_str": ["A"] * n,                                 # would have leaked pre-fix
-                "const_bool": [True] * n,                               # would have leaked pre-fix
-                "const_cat": pd.Categorical(["X"] * n),                 # would have leaked pre-fix
+                "const_str": ["A"] * n,  # would have leaked pre-fix
+                "const_bool": [True] * n,  # would have leaked pre-fix
+                "const_cat": pd.Categorical(["X"] * n),  # would have leaked pre-fix
                 "all_null": [np.nan] * n,
             }
         )
@@ -210,7 +205,7 @@ class TestF25_FreshestPrecedingIncludesAllFeatures:
         downstream voting saw an empty FI dict).
         """
         feature_importances = {
-            "10_0": {f"f{i}": 0.2 for i in range(10)},   # full run, nothing else
+            "10_0": {f"f{i}": 0.2 for i in range(10)},  # full run, nothing else
         }
         result = select_appropriate_feature_importances(
             feature_importances=feature_importances,
@@ -243,9 +238,7 @@ class TestF25_FreshestPrecedingIncludesAllFeatures:
             use_one_freshest_fi_run=True,
             use_fi_ranking=False,
         )
-        assert "5_0" in result and "10_0" not in result, (
-            "Freshest semantics: smaller preceding run wins when available."
-        )
+        assert "5_0" in result and "10_0" not in result, "Freshest semantics: smaller preceding run wins when available."
 
 
 # ----------------------------------------------------------------------------
@@ -262,24 +255,33 @@ class TestF35_BestPerNfeaturesNotLast:
 
         # First exploration at pos=5: score 0.7
         m1, s1, f1, stored1 = store_averaged_cv_scores(
-            pos=5, scores=[0.7], evaluated_scores_mean=evaluated_mean,
-            evaluated_scores_std=evaluated_std, self=_SelfShim(),
+            pos=5,
+            scores=[0.7],
+            evaluated_scores_mean=evaluated_mean,
+            evaluated_scores_std=evaluated_std,
+            self=_SelfShim(),
         )
         assert bool(stored1)
         assert evaluated_mean[5] == 0.7
 
         # Second exploration at pos=5 with WORSE score 0.6: must NOT overwrite
         m2, s2, f2, stored2 = store_averaged_cv_scores(
-            pos=5, scores=[0.6], evaluated_scores_mean=evaluated_mean,
-            evaluated_scores_std=evaluated_std, self=_SelfShim(),
+            pos=5,
+            scores=[0.6],
+            evaluated_scores_mean=evaluated_mean,
+            evaluated_scores_std=evaluated_std,
+            self=_SelfShim(),
         )
         assert not bool(stored2)
         assert evaluated_mean[5] == 0.7  # unchanged
 
         # Third exploration at pos=5 with BETTER score 0.8: must overwrite
         m3, s3, f3, stored3 = store_averaged_cv_scores(
-            pos=5, scores=[0.8], evaluated_scores_mean=evaluated_mean,
-            evaluated_scores_std=evaluated_std, self=_SelfShim(),
+            pos=5,
+            scores=[0.8],
+            evaluated_scores_mean=evaluated_mean,
+            evaluated_scores_std=evaluated_std,
+            self=_SelfShim(),
         )
         assert bool(stored3)
         assert evaluated_mean[5] == 0.8
@@ -332,10 +334,7 @@ class TestF41_AllFeaturesIsCandidate:
         n_original = 10
         all_seen = {0, 5}  # dummy + one explored
         remaining = list(set(np.arange(1, n_original + 1)) - all_seen)
-        assert n_original in remaining, (
-            "Pre-fix arange(1, N) excluded N; the all-features candidate "
-            "could never be re-evaluated by the optimizer."
-        )
+        assert n_original in remaining, "Pre-fix arange(1, N) excluded N; the all-features candidate could never be re-evaluated by the optimizer."
 
 
 # ----------------------------------------------------------------------------

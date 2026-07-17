@@ -6,6 +6,7 @@ raw features, but becomes near-trivially separable once each row's GMM cluster-m
 exposed as a feature. This test also confirms the BIC selection recovers something close to the TRUE
 underlying component count, rather than an arbitrary fixed choice.
 """
+
 from __future__ import annotations
 
 import numpy as np

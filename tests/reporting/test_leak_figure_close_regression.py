@@ -7,6 +7,7 @@ runs on every exit path. Pre-fix, the non-png path grows ``plt.get_fignums()`` b
 LEAK3 (``shap_per_instance._render``): the small-multiples figure was saved/returned but never closed (no
 ``figs_before``/``_close_figs`` guard like its sibling ``shap_panels``). Pre-fix, every call leaks one figure.
 """
+
 from __future__ import annotations
 
 import matplotlib

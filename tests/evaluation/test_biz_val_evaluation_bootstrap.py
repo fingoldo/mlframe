@@ -10,6 +10,7 @@ Measured (bench `mlframe/evaluation/_benchmarks/bench_bootstrap_ci_coverage.py`,
 n=150): percentile mean coverage 0.919 (gap 0.031), BCa mean coverage 0.948 (gap 0.002) -- BCa wins 10/10 cells.
 The thresholds below are set with wide margin against the much smaller MC sample used here for test-speed.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -65,9 +66,6 @@ def test_biz_val_bootstrap_bca_covers_closer_to_nominal_than_percentile_on_skewe
     cov_bca = hits["bca"] / n_trials
     gap_pct = abs(cov_pct - 0.95)
     gap_bca = abs(cov_bca - 0.95)
-    assert gap_bca + 0.01 <= gap_pct, (
-        f"BCa should cover closer to nominal: cov pct={cov_pct:.3f} (gap {gap_pct:.3f}) "
-        f"vs bca={cov_bca:.3f} (gap {gap_bca:.3f})"
-    )
+    assert gap_bca + 0.01 <= gap_pct, f"BCa should cover closer to nominal: cov pct={cov_pct:.3f} (gap {gap_pct:.3f}) vs bca={cov_bca:.3f} (gap {gap_bca:.3f})"
     assert cov_bca >= 0.92, f"BCa coverage {cov_bca:.3f} should be near nominal 0.95"
     assert cov_pct < cov_bca, f"percentile {cov_pct:.3f} should under-cover relative to BCa {cov_bca:.3f}"

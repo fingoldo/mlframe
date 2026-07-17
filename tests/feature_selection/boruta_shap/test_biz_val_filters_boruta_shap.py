@@ -47,14 +47,11 @@ def test_biz_val_boruta_shap_filters_noise_keeps_informative():
 
     # Recovery: BOTH informative features must survive. Measured 2/2; floor 2/2 (no headroom -- losing one is a real regression we want to detect).
     assert informative_kept == {"inf1", "inf2"}, (
-        f"BorutaShap must retain both informative features; got informative_kept={informative_kept}, "
-        f"full selected={sorted(selected)}"
+        f"BorutaShap must retain both informative features; got informative_kept={informative_kept}, full selected={sorted(selected)}"
     )
 
     # Discrimination: at most 5 of 8 noise columns admitted. Measured 0/8; floor 5 keeps room for seed-to-seed correlation luck while still catching the "all 10 admitted" failure mode.
-    assert len(noise_kept) <= 5, (
-        f"BorutaShap admitted too many noise columns ({len(noise_kept)} of 8); noise_kept={noise_kept}"
-    )
+    assert len(noise_kept) <= 5, f"BorutaShap admitted too many noise columns ({len(noise_kept)} of 8); noise_kept={noise_kept}"
 
     # Sanity: support_ shape and dtype match the sklearn-style contract every other selector in the suite exposes.
     assert sel.support_.shape == (10,)
@@ -83,8 +80,7 @@ def test_biz_val_boruta_early_stop_tentative_is_no_harm_to_accepted_set():
     rng = np.random.default_rng(0)
     n = 3000
     z = rng.standard_normal((n, 8))
-    logit = (1.4 * z[:, 0] + 1.1 * z[:, 1] - 1.0 * z[:, 2] + 0.9 * z[:, 3]
-             + 1.6 * z[:, 4] * z[:, 5] + 1.3 * (z[:, 6] ** 2 - 1.0) + 0.8 * z[:, 7]) / 1.6
+    logit = (1.4 * z[:, 0] + 1.1 * z[:, 1] - 1.0 * z[:, 2] + 0.9 * z[:, 3] + 1.6 * z[:, 4] * z[:, 5] + 1.3 * (z[:, 6] ** 2 - 1.0) + 0.8 * z[:, 7]) / 1.6
     y = pd.Series((rng.random(n) < 1.0 / (1.0 + np.exp(-logit))).astype(int))
     cols = {f"inf_{i}": z[:, i] for i in range(8)}
     for parent in (0, 4, 6):
@@ -97,20 +93,25 @@ def test_biz_val_boruta_early_stop_tentative_is_no_harm_to_accepted_set():
     def _mk(es):
         return BorutaShap(
             model=RandomForestClassifier(n_estimators=50, n_jobs=4, random_state=0),
-            importance_measure="gini", classification=True, n_trials=70, percentile=95,
-            pvalue=0.05, verbose=False, random_state=0,
-            early_stop_tentative=es, early_stop_patience=20, early_stop_margin=0.15,
+            importance_measure="gini",
+            classification=True,
+            n_trials=70,
+            percentile=95,
+            pvalue=0.05,
+            verbose=False,
+            random_state=0,
+            early_stop_tentative=es,
+            early_stop_patience=20,
+            early_stop_margin=0.15,
         )
 
-    off = _mk(False); off.fit(X, y)
-    on = _mk(True); on.fit(X, y)
+    off = _mk(False)
+    off.fit(X, y)
+    on = _mk(True)
+    on.fit(X, y)
 
-    assert on.n_trials_run_ <= off.n_trials_run_, (
-        f"early-stop must never run more trials than the cap path: on={on.n_trials_run_} off={off.n_trials_run_}"
-    )
-    assert set(on.accepted) == set(off.accepted), (
-        f"early-stop accepted set diverged: on={sorted(on.accepted)} off={sorted(off.accepted)}"
-    )
+    assert on.n_trials_run_ <= off.n_trials_run_, f"early-stop must never run more trials than the cap path: on={on.n_trials_run_} off={off.n_trials_run_}"
+    assert set(on.accepted) == set(off.accepted), f"early-stop accepted set diverged: on={sorted(on.accepted)} off={sorted(off.accepted)}"
 
 
 def test_biz_val_boruta_shadow_min_pad_reduces_noise_false_accept_on_narrow_frame():
@@ -134,8 +135,7 @@ def test_biz_val_boruta_shadow_min_pad_reduces_noise_false_accept_on_narrow_fram
         y = (x_inf + 0.25 * rng.standard_normal(n) > 0).astype(int)
         X = pd.DataFrame({"inf": x_inf, "noise": x_noise})
         for pad, is_pad in ((0, False), (5, True)):
-            sel = BorutaShap(importance_measure="gini", classification=True, n_trials=25,
-                             random_state=seed, verbose=False, shadow_min_pad=pad)
+            sel = BorutaShap(importance_measure="gini", classification=True, n_trials=25, random_state=seed, verbose=False, shadow_min_pad=pad)
             sel.fit(X, pd.Series(y))
             acc = set(sel.accepted)
             if is_pad:

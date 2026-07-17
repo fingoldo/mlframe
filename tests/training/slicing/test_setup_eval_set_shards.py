@@ -3,6 +3,7 @@
 The function builds the booster-specific kwarg dict; we verify the structure of that dict
 across model categories without actually running a fit (that lives in the manual E2E suite).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,12 +21,15 @@ def val_data() -> tuple[pd.DataFrame, np.ndarray, list[SliceEvalSet]]:
     X = pd.DataFrame({"a": rng.normal(0, 1, 100), "b": rng.normal(0, 1, 100)})
     y = rng.normal(0, 1, 100)
     shards = [
-        SliceEvalSet(name=f"valid_shard_r{i}", X=X.iloc[i * 20:(i + 1) * 20].reset_index(drop=True),
-                     y=y[i * 20:(i + 1) * 20],
-                     sample_weight=np.full(20, 0.5 + 0.1 * i),
-                     base_margin=np.full(20, float(i)),
-                     group_ids=None,
-                     row_indices=np.arange(i * 20, (i + 1) * 20))
+        SliceEvalSet(
+            name=f"valid_shard_r{i}",
+            X=X.iloc[i * 20 : (i + 1) * 20].reset_index(drop=True),
+            y=y[i * 20 : (i + 1) * 20],
+            sample_weight=np.full(20, 0.5 + 0.1 * i),
+            base_margin=np.full(20, float(i)),
+            group_ids=None,
+            row_indices=np.arange(i * 20, (i + 1) * 20),
+        )
         for i in range(4)
     ]
     return X, y, shards
@@ -45,7 +49,10 @@ def test_xgb_with_shards_appends_parallel_arrays(val_data) -> None:
     X, y, shards = val_data
     fit_params: dict = {}
     _setup_eval_set(
-        "XGBClassifier", fit_params, X, y,
+        "XGBClassifier",
+        fit_params,
+        X,
+        y,
         model_category="xgb",
         extra_eval_sets=shards,
         sample_weight_val=np.full(100, 1.0),
@@ -68,8 +75,7 @@ def test_xgb_with_shards_appends_parallel_arrays(val_data) -> None:
 def test_lgb_with_shards_uses_list_format(val_data) -> None:
     X, y, shards = val_data
     fit_params: dict = {}
-    _setup_eval_set("LGBMClassifier", fit_params, X, y, model_category="lgb",
-                    extra_eval_sets=shards)
+    _setup_eval_set("LGBMClassifier", fit_params, X, y, model_category="lgb", extra_eval_sets=shards)
     # LGB legacy path was tuple-only; shards force a list-of-tuples (LGB accepts both).
     assert isinstance(fit_params["eval_set"], list)
     assert len(fit_params["eval_set"]) == 5
@@ -78,9 +84,7 @@ def test_lgb_with_shards_uses_list_format(val_data) -> None:
 def test_cb_with_shards_propagates_sample_weight(val_data) -> None:
     X, y, shards = val_data
     fit_params: dict = {}
-    _setup_eval_set("CatBoostClassifier", fit_params, X, y, model_category="cb",
-                    extra_eval_sets=shards,
-                    sample_weight_val=np.full(100, 0.9))
+    _setup_eval_set("CatBoostClassifier", fit_params, X, y, model_category="cb", extra_eval_sets=shards, sample_weight_val=np.full(100, 0.9))
     assert len(fit_params["eval_set"]) == 5
     sw = fit_params["sample_weight_eval_set"]
     assert len(sw) == 5
@@ -94,16 +98,15 @@ def test_xgb_qid_propagation(val_data) -> None:
     shards = [
         SliceEvalSet(
             name=f"valid_shard_r{i}",
-            X=X.iloc[i * 50:(i + 1) * 50].reset_index(drop=True),
-            y=y[i * 50:(i + 1) * 50],
-            group_ids=qid[i * 50:(i + 1) * 50],
+            X=X.iloc[i * 50 : (i + 1) * 50].reset_index(drop=True),
+            y=y[i * 50 : (i + 1) * 50],
+            group_ids=qid[i * 50 : (i + 1) * 50],
             row_indices=np.arange(i * 50, (i + 1) * 50),
         )
         for i in range(2)
     ]
     fit_params: dict = {}
-    _setup_eval_set("XGBRanker", fit_params, X, y, model_category="xgb",
-                    extra_eval_sets=shards, group_ids_val=qid)
+    _setup_eval_set("XGBRanker", fit_params, X, y, model_category="xgb", extra_eval_sets=shards, group_ids_val=qid)
     assert "eval_qid" in fit_params
     assert len(fit_params["eval_qid"]) == 3
     assert np.array_equal(fit_params["eval_qid"][0], qid)
@@ -115,16 +118,15 @@ def test_lgb_eval_group_converts_qid_to_sizes(val_data) -> None:
     shards = [
         SliceEvalSet(
             name=f"valid_shard_r{i}",
-            X=X.iloc[i * 50:(i + 1) * 50].reset_index(drop=True),
-            y=y[i * 50:(i + 1) * 50],
-            group_ids=qid[i * 50:(i + 1) * 50],
+            X=X.iloc[i * 50 : (i + 1) * 50].reset_index(drop=True),
+            y=y[i * 50 : (i + 1) * 50],
+            group_ids=qid[i * 50 : (i + 1) * 50],
             row_indices=np.arange(i * 50, (i + 1) * 50),
         )
         for i in range(2)
     ]
     fit_params: dict = {}
-    _setup_eval_set("LGBMRanker", fit_params, X, y, model_category="lgb",
-                    extra_eval_sets=shards, group_ids_val=qid)
+    _setup_eval_set("LGBMRanker", fit_params, X, y, model_category="lgb", extra_eval_sets=shards, group_ids_val=qid)
     # eval_group is per-query SIZE list, not ids
     eg = fit_params["eval_group"]
     assert len(eg) == 3
@@ -145,7 +147,6 @@ def test_groupids_to_sizes_none() -> None:
 def test_multioutput_skip_preserved(val_data) -> None:
     X, y, shards = val_data
     fit_params: dict = {}
-    _setup_eval_set("MultiOutputClassifier", fit_params, X, y, model_category="cb",
-                    extra_eval_sets=shards)
+    _setup_eval_set("MultiOutputClassifier", fit_params, X, y, model_category="cb", extra_eval_sets=shards)
     # MultiOutput path returns early without setting eval_set
     assert "eval_set" not in fit_params

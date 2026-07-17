@@ -8,6 +8,7 @@ runs the sklearn pandas backend instead of silently passing the frame through ra
 These tests pin the LIVE behaviour: the field is read at the dispatch site, and
 the True/False values diverge on a polars input when polars-ds is unavailable.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -50,7 +51,12 @@ def test_fallback_engages_when_true_and_backend_unavailable(monkeypatch):
     _force_no_polarsds(monkeypatch)
     cfg = PreprocessingBackendConfig(prefer_polarsds=True, fallback_to_sklearn=True, scaler_name=None, imputer_strategy=None, categorical_encoding=None)
     train, _, _, _, _ = _pipeline_fit_transform.fit_and_transform_pipeline(
-        _toy_polars_frame(), None, None, cfg, ensure_float32=False, verbose=0,
+        _toy_polars_frame(),
+        None,
+        None,
+        cfg,
+        ensure_float32=False,
+        verbose=0,
     )
     # Fallback converted the polars input to a pandas frame via the sklearn backend.
     assert isinstance(train, pd.DataFrame), "fallback_to_sklearn=True should route the polars input through the pandas backend"
@@ -60,7 +66,12 @@ def test_no_fallback_when_false_keeps_polars(monkeypatch):
     _force_no_polarsds(monkeypatch)
     cfg = PreprocessingBackendConfig(prefer_polarsds=True, fallback_to_sklearn=False, scaler_name=None, imputer_strategy=None, categorical_encoding=None)
     train, _, _, _, _ = _pipeline_fit_transform.fit_and_transform_pipeline(
-        _toy_polars_frame(), None, None, cfg, ensure_float32=False, verbose=0,
+        _toy_polars_frame(),
+        None,
+        None,
+        cfg,
+        ensure_float32=False,
+        verbose=0,
     )
     # No fallback: the frame stays polars (current pre-wiring behaviour preserved).
     assert isinstance(train, pl.DataFrame), "fallback_to_sklearn=False must preserve the raw polars pass-through (no sklearn fallback)"

@@ -9,6 +9,7 @@ All of these assert VALUE-IDENTITY of the optimised path vs the naive path
 - P5: np.delete-derived per-base matrix == build-without-that-column
 - P4: _build_tiny_model honours inner_n_jobs
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -88,15 +89,22 @@ class TestBuildTinyModelInnerNJobs:
     def test_lgbm_honours_inner_n_jobs(self) -> None:
         pytest.importorskip("lightgbm")
         m = _build_tiny_model(
-            "lgb", n_estimators=10, num_leaves=7,
-            learning_rate=0.1, random_state=0, inner_n_jobs=2,
+            "lgb",
+            n_estimators=10,
+            num_leaves=7,
+            learning_rate=0.1,
+            random_state=0,
+            inner_n_jobs=2,
         )
         assert m.get_params()["n_jobs"] == 2
 
     def test_default_is_all_cores(self) -> None:
         pytest.importorskip("lightgbm")
         m = _build_tiny_model(
-            "lgb", n_estimators=10, num_leaves=7,
-            learning_rate=0.1, random_state=0,
+            "lgb",
+            n_estimators=10,
+            num_leaves=7,
+            learning_rate=0.1,
+            random_state=0,
         )
         assert m.get_params()["n_jobs"] == -1

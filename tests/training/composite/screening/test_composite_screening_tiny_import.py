@@ -10,6 +10,7 @@ folds with no signal that real folds were lost.
 
 Fix: hoist the import to module top so it happens once at module load.
 """
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -23,11 +24,10 @@ def test_module_level_clip_bounds_import():
     """The lazy import was replaced with a module-level one; verify the name
     is in the module namespace immediately after import (no fold setup needed)."""
     mod = importlib.import_module("mlframe.training.composite.discovery._screening_tiny")
-    assert hasattr(mod, "_y_train_clip_bounds"), (
-        "module-level import of _y_train_clip_bounds missing -- the race-safe hoist regressed."
-    )
+    assert hasattr(mod, "_y_train_clip_bounds"), "module-level import of _y_train_clip_bounds missing -- the race-safe hoist regressed."
     # And the imported callable IS the canonical helper from composite_estimator.
     from mlframe.training.composite import _y_train_clip_bounds as canonical
+
     assert mod._y_train_clip_bounds is canonical
 
 
@@ -86,7 +86,8 @@ def test_nan_fold_count_warn_fires_when_any_fold_fails(caplog):
     try:
         with caplog.at_level(logging.WARNING, logger="mlframe.training.composite.discovery._screening_tiny"):
             _result = _tiny_cv_rmse_raw_y(
-                y_train=y, x_train_matrix=x,
+                y_train=y,
+                x_train_matrix=x,
                 cv_folds=5,
                 family="lgb",
                 n_estimators=5,
@@ -98,10 +99,7 @@ def test_nan_fold_count_warn_fires_when_any_fold_fails(caplog):
                 n_jobs=1,
             )
         msgs = " | ".join(rec.getMessage() for rec in caplog.records)
-        assert "folds returned NaN" in msgs, (
-            "E1.2 aggregate NaN-fold WARN missing on a run with 3-of-5 failed folds. "
-            f"Got msgs: {msgs[:400]}"
-        )
+        assert "folds returned NaN" in msgs, f"E1.2 aggregate NaN-fold WARN missing on a run with 3-of-5 failed folds. Got msgs: {msgs[:400]}"
     finally:
         setattr(mod, monkey_attr, real_build)
 
@@ -124,6 +122,7 @@ def test_concurrent_import_does_not_raise():
         except KeyError:
             pass
         from mlframe.training.composite.discovery._screening_tiny import _y_train_clip_bounds
+
         lo, hi = _y_train_clip_bounds(np.array([1.0, 2.0, 3.0, 4.0, 5.0]))
         return float(lo), float(hi)
 

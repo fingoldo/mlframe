@@ -42,13 +42,19 @@ def _spaces():
 # Unit tests
 # ---------------------------------------------------------------------------
 
+
 def test_returns_fitted_estimator_random():
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
-        inner_factory=_inner_factory, inner_spaces=_spaces(),
-        n_trials=8, cv=3, prefer_optuna=False,
+        inner_factory=_inner_factory,
+        inner_spaces=_spaces(),
+        n_trials=8,
+        cv=3,
+        prefer_optuna=False,
     )
     assert isinstance(res, CompositeHPOResult)
     assert isinstance(res.estimator, CompositeTargetEstimator)
@@ -61,10 +67,15 @@ def test_returns_fitted_estimator_random():
 def test_random_fallback_works_without_optuna():
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
-        inner_factory=_inner_factory, inner_spaces=_spaces(),
-        n_trials=6, cv=3, prefer_optuna=False,
+        inner_factory=_inner_factory,
+        inner_spaces=_spaces(),
+        n_trials=6,
+        cv=3,
+        prefer_optuna=False,
     )
     assert res.backend == "random"
     assert res.transform in ("diff", "linear_residual")
@@ -74,10 +85,15 @@ def test_n_trials_respected():
     X, y = _make_diff_data(n=500)
     for nt in (4, 9):
         res = optimize_composite(
-            X, y, base_column="base",
+            X,
+            y,
+            base_column="base",
             transform_candidates=("diff", "linear_residual"),
-            inner_factory=_inner_factory, inner_spaces=_spaces(),
-            n_trials=nt, cv=3, prefer_optuna=False,
+            inner_factory=_inner_factory,
+            inner_spaces=_spaces(),
+            n_trials=nt,
+            cv=3,
+            prefer_optuna=False,
         )
         assert len(res.trials) == nt
         assert res.n_trials == nt
@@ -89,18 +105,29 @@ def test_best_score_le_fixed_baseline():
     own search space)."""
     X, y = _make_diff_data(n=800)
     res = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
-        inner_factory=_inner_factory, inner_spaces=_spaces(),
-        n_trials=12, cv=4, prefer_optuna=False,
+        inner_factory=_inner_factory,
+        inner_spaces=_spaces(),
+        n_trials=12,
+        cv=4,
+        prefer_optuna=False,
     )
     # Fixed baseline: linear_residual, default depth, scored on identical folds.
     from mlframe.training.composite.hpo import _resolve_splits, _cv_score_candidate, _rmse
+
     splits = _resolve_splits(X, len(y), 4, None)
     base_score = _cv_score_candidate(
-        X, np.asarray(y, dtype=float), base_column="base",
-        transform_name="linear_residual", inner_params={"max_depth": 3},
-        inner_factory=_inner_factory, splits=splits, scorer=_rmse,
+        X,
+        np.asarray(y, dtype=float),
+        base_column="base",
+        transform_name="linear_residual",
+        inner_params={"max_depth": 3},
+        inner_factory=_inner_factory,
+        splits=splits,
+        scorer=_rmse,
     )
     assert res.cv_score <= base_score + 1e-9
 
@@ -109,8 +136,13 @@ def test_invalid_n_trials_raises():
     X, y = _make_diff_data(n=200)
     with pytest.raises(ValueError):
         optimize_composite(
-            X, y, base_column="base", transform_candidates=("diff",),
-            inner_factory=_inner_factory, n_trials=0, prefer_optuna=False,
+            X,
+            y,
+            base_column="base",
+            transform_candidates=("diff",),
+            inner_factory=_inner_factory,
+            n_trials=0,
+            prefer_optuna=False,
         )
 
 
@@ -118,10 +150,16 @@ def test_time_ordering_uses_purged_cv():
     X, y = _make_diff_data(n=900)
     order = np.arange(len(y))
     res = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
-        inner_factory=_inner_factory, inner_spaces=_spaces(),
-        n_trials=6, cv=3, time_ordering=order, prefer_optuna=False,
+        inner_factory=_inner_factory,
+        inner_spaces=_spaces(),
+        n_trials=6,
+        cv=3,
+        time_ordering=order,
+        prefer_optuna=False,
     )
     assert np.isfinite(res.cv_score)
     assert isinstance(res.estimator, CompositeTargetEstimator)
@@ -130,6 +168,7 @@ def test_time_ordering_uses_purged_cv():
 # ---------------------------------------------------------------------------
 # biz_value: recovers the winning transform + beats a fixed default on holdout
 # ---------------------------------------------------------------------------
+
 
 def test_biz_val_optimize_composite_recovers_base_aware_transform_and_beats_default():
     """On data where y = base + g(feat), the optimizer must recover a BASE-AWARE
@@ -149,10 +188,15 @@ def test_biz_val_optimize_composite_recovers_base_aware_transform_and_beats_defa
     y_tr, y_te = y[:n_tr], y[n_tr:]
 
     res = optimize_composite(
-        X_tr, y_tr, base_column="base",
+        X_tr,
+        y_tr,
+        base_column="base",
         transform_candidates=("diff", "log_y", "ratio"),
-        inner_factory=_inner_factory, inner_spaces=_spaces(),
-        n_trials=20, cv=4, prefer_optuna=False,
+        inner_factory=_inner_factory,
+        inner_spaces=_spaces(),
+        n_trials=20,
+        cv=4,
+        prefer_optuna=False,
     )
     # (a) recovers a base-aware transform over the base-blind log_y.
     assert res.transform in ("diff", "ratio"), f"expected a base-aware transform, got {res.transform!r}"
@@ -160,7 +204,8 @@ def test_biz_val_optimize_composite_recovers_base_aware_transform_and_beats_defa
     # (b) beats the fixed-default (base-blind log_y) composite on held-out RMSE.
     default = CompositeTargetEstimator(
         base_estimator=DecisionTreeRegressor(max_depth=3, random_state=0),
-        transform_name="log_y", base_column="base",
+        transform_name="log_y",
+        base_column="base",
     )
     default.fit(X_tr, y_tr)
     rmse_default = float(np.sqrt(np.mean((y_te - default.predict(X_te)) ** 2)))

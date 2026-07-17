@@ -6,6 +6,7 @@ Both were spurious - the fit-time datamodule wasn't stashed (#1) and eval()
 wasn't called unconditionally (#2). Fixed by storing dm on self and calling
 .eval() always (cheap idempotent op).
 """
+
 from __future__ import annotations
 
 import logging
@@ -31,8 +32,11 @@ def _make_regressor():
     """
     import torch
     from mlframe.training.neural import (
-        MLPTorchModel, PytorchLightningRegressor, TorchDataModule,
+        MLPTorchModel,
+        PytorchLightningRegressor,
+        TorchDataModule,
     )
+
     return PytorchLightningRegressor(
         model_class=MLPTorchModel,
         model_params={"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-3},
@@ -67,18 +71,13 @@ def test_prediction_datamodule_stashed_after_fit():
     # Shell stays (lightweight config + class refs, ~few KB).
     assert hasattr(est, "prediction_datamodule"), "fit() must stash the datamodule shell"
     assert est.prediction_datamodule is not None, (
-        "fit-end memory-safety must keep the lightweight datamodule shell "
-        "so predict can reuse it; only the heavy tensors are nulled"
+        "fit-end memory-safety must keep the lightweight datamodule shell so predict can reuse it; only the heavy tensors are nulled"
     )
     # Heavy tensors inside the shell are nulled.
     _dm = est.prediction_datamodule
-    for _attr in ("train_features", "train_labels", "train_sample_weight",
-                  "val_features", "val_labels"):
+    for _attr in ("train_features", "train_labels", "train_sample_weight", "val_features", "val_labels"):
         if hasattr(_dm, _attr):
-            assert getattr(_dm, _attr) is None, (
-                f"fit-end memory-safety must NULL {_attr} on the datamodule "
-                f"so save() doesn't pickle the train/val tensors"
-            )
+            assert getattr(_dm, _attr) is None, f"fit-end memory-safety must NULL {_attr} on the datamodule so save() doesn't pickle the train/val tensors"
     # The marker tells predict() that the null state is intentional.
     assert getattr(est, "_datamodule_tensors_dropped", False) is True
 
@@ -102,17 +101,14 @@ def test_predict_does_not_warn_about_missing_datamodule(caplog):
         _ = est.predict(X)
 
     spurious_msgs = [
-        r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
-        and (
-            "No datamodule found" in r.getMessage()
-            or "training mode during prediction" in r.getMessage()
-        )
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno >= logging.WARNING and ("No datamodule found" in r.getMessage() or "training mode during prediction" in r.getMessage())
     ]
-    assert not spurious_msgs, (
-        f"Predict-after-fit should not emit these warnings. Got: {spurious_msgs}"
-    )
+    assert not spurious_msgs, f"Predict-after-fit should not emit these warnings. Got: {spurious_msgs}"
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "--no-cov", "-x", "-s", "--tb=short"]))

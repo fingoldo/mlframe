@@ -11,6 +11,7 @@ severity tier: a feature that is pure noise w.r.t. the real target (e.g. a leake
 column) but severely drifts in level is safer DROPPED than rank-transformed, while a feature that carries
 real signal buried under a merely-moderate level drift is still worth rank-transforming rather than losing.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -150,9 +151,7 @@ def test_biz_val_remediation_reduces_adversarial_separability():
     assert auc_before > 0.90, f"sanity: raw drift_feature should make train/test near-perfectly separable, got AUC={auc_before:.3f}"
     # After remediation the level drift is gone (within-time_id rank only); separability should collapse
     # substantially toward the AUC~0.5 "same distribution" baseline.
-    assert auc_after < auc_before - 0.15, (
-        f"remediation should measurably reduce adversarial separability: before={auc_before:.3f} after={auc_after:.3f}"
-    )
+    assert auc_after < auc_before - 0.15, f"remediation should measurably reduce adversarial separability: before={auc_before:.3f} after={auc_after:.3f}"
 
 
 def test_remediate_drifting_features_drop_n_std_requires_higher_than_n_std():
@@ -169,7 +168,9 @@ def test_remediate_drifting_features_tiered_policy_drops_severe_keeps_moderate_r
     train_df, test_df = _make_tiered_drift_data(n_time_ids=40, n_entities=12, seed=7)
 
     # default (drop_n_std omitted): identical to the pre-existing uniform-remedy behaviour, nothing dropped.
-    uniform_train, uniform_test, uniform_report = remediate_drifting_features(train_df, test_df, group_col="time_id", n_std=0.3, n_splits=3, seed=0, lgbm_params={"n_jobs": 1})
+    uniform_train, uniform_test, uniform_report = remediate_drifting_features(
+        train_df, test_df, group_col="time_id", n_std=0.3, n_splits=3, seed=0, lgbm_params={"n_jobs": 1}
+    )
     assert set(uniform_train.columns) == set(train_df.columns)
     assert (uniform_report["action"] != "drop").all()
     assert uniform_report.loc[uniform_report["feature"] == "severe_feature", "action"].iloc[0] == "rank_transform"
@@ -239,8 +240,7 @@ def test_biz_val_remediate_drifting_features_tiered_drop_beats_uniform_on_downst
     # Real numeric threshold, set well below the measured margin (~0.125) to tolerate seed noise while still
     # catching a broken/no-op tiered policy.
     assert auc_tiered > auc_uniform + 0.08, (
-        f"severity-tiered drop should measurably beat uniform rank-transform-only on downstream AUC: "
-        f"uniform={auc_uniform:.3f} tiered={auc_tiered:.3f}"
+        f"severity-tiered drop should measurably beat uniform rank-transform-only on downstream AUC: uniform={auc_uniform:.3f} tiered={auc_tiered:.3f}"
     )
 
 

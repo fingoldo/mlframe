@@ -3,6 +3,7 @@ bias correction as the MM relevance. Plug-in CMI over-estimates redundancy for h
 the relevance-minus-redundancy objective against them. conditional_mi(use_mm=True) subtracts the analytic MM CMI
 bias (k_xyz + k_z - k_xz - k_yz)/(2n); no-op (bit-identical) when use_mm=False (the default plug-in path).
 """
+
 import numpy as np
 
 from mlframe.feature_selection.filters.info_theory._entropy_kernels import conditional_mi, _cmi_miller_madow_bias
@@ -10,7 +11,9 @@ from mlframe.feature_selection.filters.info_theory._entropy_kernels import condi
 
 def _fixture(kx, n=4000, seed=0):
     rng = np.random.default_rng(seed)
-    x = rng.integers(0, kx, n); y = rng.integers(0, 2, n); z = rng.integers(0, 6, n)
+    x = rng.integers(0, kx, n)
+    y = rng.integers(0, 2, n)
+    z = rng.integers(0, 6, n)
     fd = np.column_stack([x, y, z]).astype(np.int32)
     nb = np.array([kx, 2, 6], dtype=np.int64)
     return fd, nb, np.array([0], np.int64), np.array([1], np.int64), np.array([2], np.int64)
@@ -27,7 +30,7 @@ def test_conditional_mi_mm_subtracts_analytic_bias():
 
 def test_default_use_mm_false_is_plugin():
     fd, nb, xi, yi, zi = _fixture(kx=8)
-    a = conditional_mi(fd, xi, yi, zi, None, nb, dtype=np.int32)          # default (no use_mm)
+    a = conditional_mi(fd, xi, yi, zi, None, nb, dtype=np.int32)  # default (no use_mm)
     b = conditional_mi(fd, xi, yi, zi, None, nb, dtype=np.int32, use_mm=False)
     assert a == b, "default conditional_mi must equal explicit use_mm=False (plug-in, bit-identical)"
 

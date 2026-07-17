@@ -8,6 +8,7 @@ step's insertion point would see a raw datetime column), schema alignment, no-op
 predict-time replay (no fit-time state -- the SAME persisted event-date list is reapplied) -- plus
 one biz_value test proving the wired module recovers an event-driven spike a raw date feature can't.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,7 +34,15 @@ def test_apply_event_proximity_decay_composite_fe_noop_when_unset():
     df, ts = _date_frame_and_timestamps()
     cfg = PreprocessingExtensionsConfig()
     train, val, test = apply_event_proximity_decay_composite_fe(
-        df.iloc[:150], df.iloc[150:], None, cfg, ts, np.arange(150), np.arange(150, 200), None, verbose=0,
+        df.iloc[:150],
+        df.iloc[150:],
+        None,
+        cfg,
+        ts,
+        np.arange(150),
+        np.arange(150, 200),
+        None,
+        verbose=0,
     )
     assert list(train.columns) == list(df.columns)
 
@@ -51,8 +60,16 @@ def test_apply_event_proximity_decay_composite_fe_schema_aligned_across_splits()
     cfg = PreprocessingExtensionsConfig(event_proximity_decay_event_dates=["2024-01-15", "2024-03-01"], event_proximity_decay_cap=10)
     metadata: dict = {}
     train, val, test = apply_event_proximity_decay_composite_fe(
-        df.iloc[train_idx].reset_index(drop=True), df.iloc[val_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True),
-        cfg, ts, train_idx, val_idx, test_idx, metadata=metadata, verbose=0,
+        df.iloc[train_idx].reset_index(drop=True),
+        df.iloc[val_idx].reset_index(drop=True),
+        df.iloc[test_idx].reset_index(drop=True),
+        cfg,
+        ts,
+        train_idx,
+        val_idx,
+        test_idx,
+        metadata=metadata,
+        verbose=0,
     )
     assert set(train.columns) == set(val.columns) == set(test.columns)
     assert "event_proximity_total_force" in train.columns

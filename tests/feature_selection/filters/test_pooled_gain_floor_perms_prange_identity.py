@@ -7,6 +7,7 @@ reduction-order changes within a shuffle. This pins max|diff|=0.0 and an exactly
 0.95-quantile floor against a serial reference re-implementation, so a future "drop the
 parallel flag" or a scratch-sharing regression is caught.
 """
+
 from __future__ import annotations
 
 import numba
@@ -92,9 +93,7 @@ def test_prange_kernel_bit_identical_to_serial():
         args = _make_inputs(n, n_cand, nperm)
         out_parallel = _pooled_gain_floor_perms_njit(*args)
         out_serial = _serial_reference(*args)
-        assert np.max(np.abs(out_parallel - out_serial)) == 0.0, (
-            f"prange kernel diverged from serial at n={n} p={n_cand} K={nperm}"
-        )
+        assert np.max(np.abs(out_parallel - out_serial)) == 0.0, f"prange kernel diverged from serial at n={n} p={n_cand} K={nperm}"
         assert float(np.quantile(out_parallel, 0.95)) == float(np.quantile(out_serial, 0.95))
 
 
@@ -107,10 +106,20 @@ def test_public_floor_deterministic_and_nonnegative():
     factors_nbins = np.array([nbins] * (p + 1), dtype=np.int64)
     cand = list(range(p))
     floor_a = pooled_permutation_null_gain_floor(
-        factors_data, factors_nbins, cand, p, n_permutations=64, random_seed=123,
+        factors_data,
+        factors_nbins,
+        cand,
+        p,
+        n_permutations=64,
+        random_seed=123,
     )
     floor_b = pooled_permutation_null_gain_floor(
-        factors_data, factors_nbins, cand, p, n_permutations=64, random_seed=123,
+        factors_data,
+        factors_nbins,
+        cand,
+        p,
+        n_permutations=64,
+        random_seed=123,
     )
     assert floor_a == floor_b  # same seed -> identical floor regardless of thread interleave
     assert floor_a >= 0.0

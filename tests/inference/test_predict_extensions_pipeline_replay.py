@@ -5,6 +5,7 @@ Pre-fix ``predict_mlframe_models_suite`` / ``predict_from_models`` read only ``m
 ``preprocessing_extensions`` saw RAW columns at predict, producing predictions inconsistent with the trained model's
 expected scale.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -28,11 +29,13 @@ from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 def _build_frame(n: int = 2_000, seed: int = 0) -> pl.DataFrame:
     rng = np.random.default_rng(seed)
-    return pl.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "y": (0.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
-    })
+    return pl.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "y": (0.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
+        }
+    )
 
 
 def _run_with_ext(df, ext_cfg):
@@ -61,9 +64,7 @@ def test_predict_invokes_extensions_pipeline_when_present():
     df = _build_frame()
     ext_cfg = PreprocessingExtensionsConfig(scaler="StandardScaler", verbose_logging=False)
     models, metadata = _run_with_ext(df, ext_cfg)
-    assert metadata.get("extensions_pipeline") is not None, (
-        "training did not persist extensions_pipeline; the rest of the test depends on its presence."
-    )
+    assert metadata.get("extensions_pipeline") is not None, "training did not persist extensions_pipeline; the rest of the test depends on its presence."
 
     fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
     import mlframe.training.core.predict as predict_mod
@@ -109,11 +110,10 @@ def test_predict_no_extensions_no_replay():
         dummy_baselines_config=DummyBaselinesConfig(enabled=False),
         reporting_config=ReportingConfig(plot_outputs="matplotlib[png]", plot_inline_display=False),
     )
-    assert not metadata.get("extensions_pipeline"), (
-        "metadata unexpectedly carries an extensions_pipeline even though preprocessing_extensions was None."
-    )
+    assert not metadata.get("extensions_pipeline"), "metadata unexpectedly carries an extensions_pipeline even though preprocessing_extensions was None."
 
     import mlframe.training.core.predict as predict_mod
+
     invocations = {"n": 0}
     orig_helper = predict_mod._apply_extensions_pipeline
 

@@ -6,6 +6,7 @@ for the full account -- additive-regression, small-scale binary classification, 
 classification with deeper wide-model trees all showed the long-format approach performing WORSE, not
 better). These tests instead pin correctness and leakage-safety, which are real, verified properties.
 """
+
 from __future__ import annotations
 
 import numpy as np

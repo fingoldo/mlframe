@@ -31,6 +31,7 @@ from tests.conftest import fast_subset
 # Helpers
 # --------------------------------------------------------------------------------------
 
+
 def _make_overconfident_classification(n_train=40000, n_test=10000, seed=42):
     """Generate a classification dataset where tree models are systematically
     overconfident.
@@ -171,6 +172,7 @@ def _train_and_predict(
 # Test 1 — Calibration reduces Brier score on overconfident data
 # --------------------------------------------------------------------------------------
 
+
 # Heavy biz-value fit: trains a base model + CalibratedClassifierCV(cv=5) on
 # 40k x 120 features (5 calibration folds = 5 full fits). On a 2-vCPU CI runner
 # the slowest cell (lgb, seed 7) overruns the workflow's `--timeout=300`, while
@@ -208,12 +210,9 @@ def test_calibration_reduces_brier_score(tmp_path, common_init_params, seed, mlf
     # cuts peak RSS by ~45%.
     cb_iters = 150
     model_cls_map = {
-        "lgb": lambda: __import__("lightgbm").LGBMClassifier(
-            n_estimators=300, random_state=seed, verbose=-1),
-        "cb": lambda: __import__("catboost").CatBoostClassifier(
-            iterations=cb_iters, random_seed=seed, verbose=0),
-        "xgb": lambda: __import__("xgboost").XGBClassifier(
-            n_estimators=300, random_state=seed, verbosity=0),
+        "lgb": lambda: __import__("lightgbm").LGBMClassifier(n_estimators=300, random_state=seed, verbose=-1),
+        "cb": lambda: __import__("catboost").CatBoostClassifier(iterations=cb_iters, random_seed=seed, verbose=0),
+        "xgb": lambda: __import__("xgboost").XGBClassifier(n_estimators=300, random_state=seed, verbosity=0),
     }
 
     # Run A — uncalibrated.
@@ -235,10 +234,7 @@ def test_calibration_reduces_brier_score(tmp_path, common_init_params, seed, mlf
     # probabilities, so calibration improvement is smaller (~0.5-1%).
     # LightGBM and XGBoost benefit more from post-hoc calibration.
     min_improvement_pct = 0.50 if mlframe_model == "cb" else 1.00
-    msg = (
-        f"brier_uncal={brier_a:.5f} brier_cal={brier_b:.5f} "
-        f"improvement={rel_improvement_pct:+.2f}% (target >={min_improvement_pct:.2f}%)"
-    )
+    msg = f"brier_uncal={brier_a:.5f} brier_cal={brier_b:.5f} improvement={rel_improvement_pct:+.2f}% (target >={min_improvement_pct:.2f}%)"
 
     threshold = brier_a * (1.0 - min_improvement_pct / 100.0)
     assert brier_b < threshold, msg
@@ -247,6 +243,7 @@ def test_calibration_reduces_brier_score(tmp_path, common_init_params, seed, mlf
 # --------------------------------------------------------------------------------------
 # Test 2 — Ensemble AUROC >= best single (within tolerance)
 # --------------------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_ensemble_auroc_at_least_best_single(tmp_path, common_init_params, seed):
@@ -258,7 +255,9 @@ def test_ensemble_auroc_at_least_best_single(tmp_path, common_init_params, seed)
     y_test = test_df["target"].values
 
     results, metadata = _train_and_predict(
-        train_df, test_df, tmp_path,
+        train_df,
+        test_df,
+        tmp_path,
         model_name=f"lgb_cb_ensemble_s{seed}",
         mlframe_models=["lgb", "cb"],
         common_init_params=common_init_params,
@@ -270,10 +269,7 @@ def test_ensemble_auroc_at_least_best_single(tmp_path, common_init_params, seed)
     assert probs_dict, "Ensemble run returned no probabilities"
     # Bug A fix 2026-04-15: _SafeUnpickler allowlist now includes mlframe.metrics.core.ICE
     # so CatBoost models load and the ensemble has multiple streams to combine.
-    assert len(probs_dict) >= 2, (
-        f"Predict suite returned <2 streams; cannot compare ensemble vs singles. "
-        f"keys={list(probs_dict.keys())}"
-    )
+    assert len(probs_dict) >= 2, f"Predict suite returned <2 streams; cannot compare ensemble vs singles. keys={list(probs_dict.keys())}"
 
     # Compute per-key AUROC.
     aurocs = {}
@@ -291,9 +287,7 @@ def test_ensemble_auroc_at_least_best_single(tmp_path, common_init_params, seed)
         f"keys={list(probs_dict.keys())} aurocs={aurocs}"
     )
 
-    assert single_keys, (
-        f"No single-model keys found. keys={list(probs_dict.keys())} aurocs={aurocs}"
-    )
+    assert single_keys, f"No single-model keys found. keys={list(probs_dict.keys())} aurocs={aurocs}"
 
     best_single = max(aurocs[k] for k in single_keys)
     best_ensemble = max(aurocs[k] for k in ensemble_keys)

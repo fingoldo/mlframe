@@ -6,6 +6,7 @@ Pins the optimization in ``filters/_fe_synergy_screen._pair_mm_mi_njit`` +
 ``filters/_synergy_detector._pair_mm_mi``. Bench:
 ``filters/_benchmarks/bench_synergy_detector_pair_mi_njit.py``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -66,7 +67,7 @@ def test_detect_synergy_verdict_on_xor_and_noise():
 
     # XOR-bearing dataset: target = sign(x0) XOR sign(x1)
     Xx = rng.standard_normal((n, p))
-    yx = ((Xx[:, 0] > 0).astype(int) ^ (Xx[:, 1] > 0).astype(int))
+    yx = (Xx[:, 0] > 0).astype(int) ^ (Xx[:, 1] > 0).astype(int)
     is_syn_xor, info = detect_synergy(Xx, yx, random_seed=0)
     assert is_syn_xor is True, f"detector missed XOR synergy: {info}"
 
@@ -89,7 +90,7 @@ def test_combo_mm_mi_cols_njit_matches_matrix_kernel():
         order = int(rng.integers(2, 4))
         cols = [np.ascontiguousarray(rng.integers(0, nb, n).astype(np.int64)) for _ in range(order)]
         cards = np.array([nb] * order, dtype=np.int64)
-        n_cells = nb ** order
+        n_cells = nb**order
         yt = rng.integers(0, kt, n).astype(np.int64)
         mat = np.empty((n, order), dtype=np.int64)
         for k in range(order):

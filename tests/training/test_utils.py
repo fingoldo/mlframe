@@ -34,6 +34,7 @@ from mlframe.training.io import (
 # Save/Load Model Tests
 # ================================================================================================
 
+
 class TestSaveLoadModel:
     """Tests for save_mlframe_model and load_mlframe_model."""
 
@@ -73,9 +74,7 @@ class TestSaveLoadModel:
         loaded = load_mlframe_model(file_path)
 
         # Check predictions match
-        np.testing.assert_array_almost_equal(
-            model.predict(X), loaded.predict(X)
-        )
+        np.testing.assert_array_almost_equal(model.predict(X), loaded.predict(X))
 
     def test_save_with_custom_compression(self, tmp_path):
         """Test saving with custom zstd compression settings."""
@@ -115,6 +114,7 @@ class TestSaveLoadModel:
     def test_save_logs_file_size(self, tmp_path, caplog):
         """Test that save logs file size when verbose."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         model = {"data": list(range(100))}
@@ -147,15 +147,18 @@ class TestSaveLoadModel:
 # Pandas View Tests
 # ================================================================================================
 
+
 class TestGetPandasViewOfPolarsDF:
     """Tests for get_pandas_view_of_polars_df."""
 
     def test_basic_numeric_conversion(self):
         """Test conversion of numeric columns."""
-        pl_df = pl.DataFrame({
-            "int_col": [1, 2, 3],
-            "float_col": [1.0, 2.0, 3.0],
-        })
+        pl_df = pl.DataFrame(
+            {
+                "int_col": [1, 2, 3],
+                "float_col": [1.0, 2.0, 3.0],
+            }
+        )
 
         pd_df = get_pandas_view_of_polars_df(pl_df)
 
@@ -165,9 +168,11 @@ class TestGetPandasViewOfPolarsDF:
 
     def test_string_columns(self):
         """Test conversion of string columns."""
-        pl_df = pl.DataFrame({
-            "name": ["Alice", "Bob", "Charlie"],
-        })
+        pl_df = pl.DataFrame(
+            {
+                "name": ["Alice", "Bob", "Charlie"],
+            }
+        )
 
         pd_df = get_pandas_view_of_polars_df(pl_df)
 
@@ -184,9 +189,11 @@ class TestGetPandasViewOfPolarsDF:
         downstream CatBoost / LightGBM consumers don't care about the
         dictionary order, only that the dtype is preserved.
         """
-        pl_df = pl.DataFrame({
-            "category": pl.Series(["A", "B", "A", "C"]).cast(pl.Categorical),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "category": pl.Series(["A", "B", "A", "C"]).cast(pl.Categorical),
+            }
+        )
 
         pd_df = get_pandas_view_of_polars_df(pl_df)
 
@@ -196,9 +203,11 @@ class TestGetPandasViewOfPolarsDF:
 
     def test_boolean_columns(self):
         """Test conversion of boolean columns."""
-        pl_df = pl.DataFrame({
-            "bool_col": [True, False, True],
-        })
+        pl_df = pl.DataFrame(
+            {
+                "bool_col": [True, False, True],
+            }
+        )
 
         pd_df = get_pandas_view_of_polars_df(pl_df)
 
@@ -206,12 +215,14 @@ class TestGetPandasViewOfPolarsDF:
 
     def test_mixed_column_types(self):
         """Test conversion with mixed column types."""
-        pl_df = pl.DataFrame({
-            "int": [1, 2, 3],
-            "float": [1.1, 2.2, 3.3],
-            "str": ["a", "b", "c"],
-            "bool": [True, False, True],
-        })
+        pl_df = pl.DataFrame(
+            {
+                "int": [1, 2, 3],
+                "float": [1.1, 2.2, 3.3],
+                "str": ["a", "b", "c"],
+                "bool": [True, False, True],
+            }
+        )
 
         pd_df = get_pandas_view_of_polars_df(pl_df)
 
@@ -244,11 +255,13 @@ class TestGetPandasViewOfPolarsDF:
 
     def test_preserves_column_order(self):
         """Test that column order is preserved."""
-        pl_df = pl.DataFrame({
-            "z": [1],
-            "a": [2],
-            "m": [3],
-        })
+        pl_df = pl.DataFrame(
+            {
+                "z": [1],
+                "a": [2],
+                "m": [3],
+            }
+        )
 
         pd_df = get_pandas_view_of_polars_df(pl_df)
 
@@ -265,9 +278,11 @@ class TestGetPandasViewOfPolarsDF:
         then downcasts the codes to int8/int16 based on cardinality. The
         contract is only that conversion SUCCEEDS and yields a valid
         pd.Categorical with integer codes, not a specific codes dtype."""
-        pl_df = pl.DataFrame({
-            "c": pl.Series(["a", "b", "c"]).cast(pl.Categorical),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "c": pl.Series(["a", "b", "c"]).cast(pl.Categorical),
+            }
+        )
         pd_df = get_pandas_view_of_polars_df(pl_df)
         assert pd.api.types.is_integer_dtype(pd_df["c"].cat.codes.dtype)
         assert pd_df["c"].cat.codes.tolist() == [0, 1, 2]
@@ -275,9 +290,11 @@ class TestGetPandasViewOfPolarsDF:
     def test_categorical_with_nulls_becomes_nan(self):
         """A polars Categorical containing nulls round-trips into a pandas
         Categorical where nulls are represented by code == -1 (NaN)."""
-        pl_df = pl.DataFrame({
-            "c": pl.Series(["a", None, "b", None, "a"], dtype=pl.Categorical),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "c": pl.Series(["a", None, "b", None, "a"], dtype=pl.Categorical),
+            }
+        )
         pd_df = get_pandas_view_of_polars_df(pl_df)
         assert isinstance(pd_df["c"].dtype, pd.CategoricalDtype)
         codes = pd_df["c"].cat.codes.tolist()
@@ -299,9 +316,11 @@ class TestGetPandasViewOfPolarsDF:
 
     def test_categorical_single_category(self):
         """Degenerate: one distinct value repeated. Codes should all be 0."""
-        pl_df = pl.DataFrame({
-            "c": pl.Series(["only"] * 10, dtype=pl.Categorical),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "c": pl.Series(["only"] * 10, dtype=pl.Categorical),
+            }
+        )
         pd_df = get_pandas_view_of_polars_df(pl_df)
         assert isinstance(pd_df["c"].dtype, pd.CategoricalDtype)
         assert pd_df["c"].cat.codes.tolist() == [0] * 10
@@ -309,9 +328,11 @@ class TestGetPandasViewOfPolarsDF:
 
     def test_categorical_all_null(self):
         """All values are null. Pandas Categorical with 0 categories, all -1 codes."""
-        pl_df = pl.DataFrame({
-            "c": pl.Series([None, None, None], dtype=pl.Categorical),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "c": pl.Series([None, None, None], dtype=pl.Categorical),
+            }
+        )
         pd_df = get_pandas_view_of_polars_df(pl_df)
         assert isinstance(pd_df["c"].dtype, pd.CategoricalDtype)
         assert pd_df["c"].cat.codes.tolist() == [-1, -1, -1]
@@ -321,9 +342,11 @@ class TestGetPandasViewOfPolarsDF:
         """Polars Enum is also emitted as a pyarrow dictionary and must
         round-trip into pd.Categorical (same path as pl.Categorical)."""
         enum_dtype = pl.Enum(["low", "mid", "high"])
-        pl_df = pl.DataFrame({
-            "level": pl.Series(["low", "high", "mid", "low"], dtype=enum_dtype),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "level": pl.Series(["low", "high", "mid", "low"], dtype=enum_dtype),
+            }
+        )
         pd_df = get_pandas_view_of_polars_df(pl_df)
         assert isinstance(pd_df["level"].dtype, pd.CategoricalDtype)
         assert pd_df["level"].tolist() == ["low", "high", "mid", "low"]
@@ -334,9 +357,11 @@ class TestGetPandasViewOfPolarsDF:
         """Downstream filters frequently do df['c'] == 'A' — verify this still
         works on the rebuilt Categorical, since that is the API we expose to
         sklearn/CatBoost/LGB consumers."""
-        pl_df = pl.DataFrame({
-            "c": pl.Series(["A", "B", "A", "C"], dtype=pl.Categorical),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "c": pl.Series(["A", "B", "A", "C"], dtype=pl.Categorical),
+            }
+        )
         pd_df = get_pandas_view_of_polars_df(pl_df)
         mask = pd_df["c"] == "A"
         assert mask.tolist() == [True, False, True, False]
@@ -344,11 +369,13 @@ class TestGetPandasViewOfPolarsDF:
     def test_categorical_mixed_with_numeric(self):
         """Mixed frame: the numeric columns are untouched and the categorical
         is rebuilt. Column count, dtypes, and values all match expectations."""
-        pl_df = pl.DataFrame({
-            "num": [1.0, 2.0, 3.0],
-            "cat": pl.Series(["x", "y", "x"], dtype=pl.Categorical),
-            "int": [10, 20, 30],
-        })
+        pl_df = pl.DataFrame(
+            {
+                "num": [1.0, 2.0, 3.0],
+                "cat": pl.Series(["x", "y", "x"], dtype=pl.Categorical),
+                "int": [10, 20, 30],
+            }
+        )
         pd_df = get_pandas_view_of_polars_df(pl_df)
         assert list(pd_df.columns) == ["num", "cat", "int"]
         assert pd.api.types.is_float_dtype(pd_df["num"])
@@ -369,18 +396,22 @@ class TestGetPandasViewOfPolarsDF:
     def test_categorical_astype_str_roundtrip(self):
         """Some consumers expect to coerce the column to plain strings.
         Categorical.astype(str) must give back the original values."""
-        pl_df = pl.DataFrame({
-            "c": pl.Series(["foo", "bar", "baz"], dtype=pl.Categorical),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "c": pl.Series(["foo", "bar", "baz"], dtype=pl.Categorical),
+            }
+        )
         pd_df = get_pandas_view_of_polars_df(pl_df)
         assert pd_df["c"].astype(str).tolist() == ["foo", "bar", "baz"]
 
     def test_categorical_empty_frame(self):
         """Empty Polars frame with a Categorical column → empty pd.Categorical,
         zero categories, zero rows. No IndexError, no crash on from_arrays."""
-        pl_df = pl.DataFrame({
-            "c": pl.Series([], dtype=pl.Categorical),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "c": pl.Series([], dtype=pl.Categorical),
+            }
+        )
         pd_df = get_pandas_view_of_polars_df(pl_df)
         assert len(pd_df) == 0
         assert isinstance(pd_df["c"].dtype, pd.CategoricalDtype)
@@ -393,12 +424,14 @@ class TestGetPandasViewOfPolarsDF:
         batched ``select(...).implode()``) would surface as wrong categories or
         wrong values here. Guards the iter470 batching against the per-column
         loop's semantics."""
-        pl_df = pl.DataFrame({
-            "ca": pl.Series(["a1", "a2", "a1", "a3"], dtype=pl.Categorical),
-            "cb": pl.Series(["b9", "b8", "b8", "b7"], dtype=pl.Categorical),
-            "cc": pl.Series(["c0", "c0", "c1", "c2"], dtype=pl.Categorical),
-            "num": [1.0, 2.0, 3.0, 4.0],
-        })
+        pl_df = pl.DataFrame(
+            {
+                "ca": pl.Series(["a1", "a2", "a1", "a3"], dtype=pl.Categorical),
+                "cb": pl.Series(["b9", "b8", "b8", "b7"], dtype=pl.Categorical),
+                "cc": pl.Series(["c0", "c0", "c1", "c2"], dtype=pl.Categorical),
+                "num": [1.0, 2.0, 3.0, 4.0],
+            }
+        )
         pd_df = get_pandas_view_of_polars_df(pl_df)
         # Values round-trip exactly, per column.
         assert pd_df["ca"].astype(str).tolist() == ["a1", "a2", "a1", "a3"]
@@ -416,14 +449,22 @@ class TestGetPandasViewOfPolarsDF:
         (batched) and a 1-col frame (per-column) sharing column ``c`` and assert
         the rebuilt Categorical is bit-identical (codes + categories)."""
         vals = ["p", "q", "p", "r", "q", "p", "s"]
-        batched = get_pandas_view_of_polars_df(pl.DataFrame({
-            "c": pl.Series(vals, dtype=pl.Categorical),
-            "d": pl.Series(["x"] * 7, dtype=pl.Categorical),
-            "e": pl.Series(["y"] * 7, dtype=pl.Categorical),
-        }))
-        per_col = get_pandas_view_of_polars_df(pl.DataFrame({
-            "c": pl.Series(vals, dtype=pl.Categorical),
-        }))
+        batched = get_pandas_view_of_polars_df(
+            pl.DataFrame(
+                {
+                    "c": pl.Series(vals, dtype=pl.Categorical),
+                    "d": pl.Series(["x"] * 7, dtype=pl.Categorical),
+                    "e": pl.Series(["y"] * 7, dtype=pl.Categorical),
+                }
+            )
+        )
+        per_col = get_pandas_view_of_polars_df(
+            pl.DataFrame(
+                {
+                    "c": pl.Series(vals, dtype=pl.Categorical),
+                }
+            )
+        )
         assert batched["c"].tolist() == per_col["c"].tolist()
         assert list(batched["c"].cat.categories) == list(per_col["c"].cat.categories)
 
@@ -432,13 +473,16 @@ class TestGetPandasViewOfPolarsDF:
         by isinstance, not str(dt)), while wide Categorical/Enum columns do NOT
         trip it -- the isinstance refactor must keep the same detection set."""
         import logging
+
         _NESTED_DTYPE_WARN_SEEN.clear()
         # Wide Enum (large repr) must NOT be flagged as nested.
         wide = pl.Enum([f"cat_{i}" for i in range(200)])
-        df_clean = pl.DataFrame({
-            "level": pl.Series(["cat_1", "cat_2"], dtype=wide),
-            "num": [1.0, 2.0],
-        })
+        df_clean = pl.DataFrame(
+            {
+                "level": pl.Series(["cat_1", "cat_2"], dtype=wide),
+                "num": [1.0, 2.0],
+            }
+        )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.utils"):
             get_pandas_view_of_polars_df(df_clean)
         assert "nested" not in caplog.text.lower()
@@ -446,10 +490,12 @@ class TestGetPandasViewOfPolarsDF:
         caplog.clear()
         _NESTED_DTYPE_WARN_SEEN.clear()
         # A List column IS nested and must trigger exactly one WARN.
-        df_nested = pl.DataFrame({
-            "emb": pl.Series([[1.0, 2.0], [3.0, 4.0]], dtype=pl.List(pl.Float64)),
-            "num": [1.0, 2.0],
-        })
+        df_nested = pl.DataFrame(
+            {
+                "emb": pl.Series([[1.0, 2.0], [3.0, 4.0]], dtype=pl.List(pl.Float64)),
+                "num": [1.0, 2.0],
+            }
+        )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.utils"):
             get_pandas_view_of_polars_df(df_nested)
         assert "nested" in caplog.text.lower()
@@ -459,6 +505,7 @@ class TestGetPandasViewOfPolarsDF:
 # ================================================================================================
 # Polars slice categorical-dictionary behaviour (2026-04-19 regression sensor)
 # ================================================================================================
+
 
 class TestPolarsSliceDictionaryDiffers:
     """Documents Polars slice-over-Categorical semantics across versions and
@@ -486,6 +533,7 @@ class TestPolarsSliceDictionaryDiffers:
         naive ``astype(str)`` regression would blow through it by 10×.
         """
         import time
+
         pool = np.array([f"s_{i:06d}" for i in range(500_000)])
         df = pl.DataFrame({"x": pl.Series("x", pool, dtype=pl.Categorical)})
 
@@ -494,10 +542,7 @@ class TestPolarsSliceDictionaryDiffers:
         elapsed = time.perf_counter() - t0
 
         assert out.shape == (500_000, 1)
-        assert elapsed < 5.0, (
-            f"polars→pandas on 500k × 1 Categorical with 500k uniques took "
-            f"{elapsed:.1f}s — dict-rebuild path likely regressed"
-        )
+        assert elapsed < 5.0, f"polars→pandas on 500k × 1 Categorical with 500k uniques took {elapsed:.1f}s — dict-rebuild path likely regressed"
 
     def test_empty_polars_dataframe(self):
         """Edge case: empty DF with typed column must round-trip without error."""
@@ -575,6 +620,7 @@ class TestPolarsSliceDictionaryDiffers:
         assert pd_tail["x"].astype(str).tolist() == tail["x"].cast(pl.String).to_list()
         # The converter exposes no shared-dict knob — the optimisation stays gated off.
         import inspect
+
         assert "shared_dict_cache" not in inspect.signature(get_pandas_view_of_polars_df).parameters
 
 
@@ -582,34 +628,35 @@ class TestPolarsSliceDictionaryDiffers:
 # Drop Columns Tests
 # ================================================================================================
 
+
 class TestDropColumnsFromDataframe:
     """Tests for drop_columns_from_dataframe."""
 
     def test_drop_columns_pandas(self):
         """Test dropping columns from pandas DataFrame."""
-        df = pd.DataFrame({
-            "a": [1, 2, 3],
-            "b": [4, 5, 6],
-            "c": [7, 8, 9],
-        })
-
-        result = drop_columns_from_dataframe(
-            df, additional_columns_to_drop=["a", "b"], verbose=0
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3],
+                "b": [4, 5, 6],
+                "c": [7, 8, 9],
+            }
         )
+
+        result = drop_columns_from_dataframe(df, additional_columns_to_drop=["a", "b"], verbose=0)
 
         assert list(result.columns) == ["c"]
 
     def test_drop_columns_polars(self):
         """Test dropping columns from Polars DataFrame."""
-        df = pl.DataFrame({
-            "a": [1, 2, 3],
-            "b": [4, 5, 6],
-            "c": [7, 8, 9],
-        })
-
-        result = drop_columns_from_dataframe(
-            df, additional_columns_to_drop=["a", "b"], verbose=0
+        df = pl.DataFrame(
+            {
+                "a": [1, 2, 3],
+                "b": [4, 5, 6],
+                "c": [7, 8, 9],
+            }
         )
+
+        result = drop_columns_from_dataframe(df, additional_columns_to_drop=["a", "b"], verbose=0)
 
         assert result.columns == ["c"]
 
@@ -617,9 +664,7 @@ class TestDropColumnsFromDataframe:
         """Test dropping columns specified in config."""
         df = pd.DataFrame({"a": [1], "b": [2], "c": [3]})
 
-        result = drop_columns_from_dataframe(
-            df, config_drop_columns=["a"], verbose=0
-        )
+        result = drop_columns_from_dataframe(df, config_drop_columns=["a"], verbose=0)
 
         assert "a" not in result.columns
 
@@ -648,9 +693,7 @@ class TestDropColumnsFromDataframe:
         """Test dropping non-existent column (pandas ignores it)."""
         df = pd.DataFrame({"a": [1], "b": [2]})
 
-        result = drop_columns_from_dataframe(
-            df, additional_columns_to_drop=["nonexistent"], verbose=0
-        )
+        result = drop_columns_from_dataframe(df, additional_columns_to_drop=["nonexistent"], verbose=0)
 
         assert list(result.columns) == ["a", "b"]
 
@@ -658,9 +701,7 @@ class TestDropColumnsFromDataframe:
         """Test dropping non-existent column (polars with strict=False)."""
         df = pl.DataFrame({"a": [1], "b": [2]})
 
-        result = drop_columns_from_dataframe(
-            df, additional_columns_to_drop=["nonexistent"], verbose=0
-        )
+        result = drop_columns_from_dataframe(df, additional_columns_to_drop=["nonexistent"], verbose=0)
 
         assert result.columns == ["a", "b"]
 
@@ -681,6 +722,7 @@ class TestDropColumnsFromDataframe:
 # ================================================================================================
 # Save Series/DataFrame Tests
 # ================================================================================================
+
 
 class TestSaveSeriesOrDF:
     """Tests for save_series_or_df."""
@@ -750,15 +792,18 @@ class TestSaveSeriesOrDF:
 # Process Special Values Tests
 # ================================================================================================
 
+
 class TestProcessNans:
     """Tests for process_nans."""
 
     def test_fill_nans_polars(self):
         """Test filling NaN values in Polars DataFrame."""
-        df = pl.DataFrame({
-            "a": [1.0, float("nan"), 3.0],
-            "b": [4.0, 5.0, float("nan")],
-        })
+        df = pl.DataFrame(
+            {
+                "a": [1.0, float("nan"), 3.0],
+                "b": [4.0, 5.0, float("nan")],
+            }
+        )
 
         result = process_nans(df, fill_value=0.0, verbose=0)
 
@@ -768,10 +813,12 @@ class TestProcessNans:
 
     def test_fill_nans_pandas(self):
         """Test filling NaN values in pandas DataFrame."""
-        df = pd.DataFrame({
-            "a": [1.0, np.nan, 3.0],
-            "b": [4.0, 5.0, np.nan],
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1.0, np.nan, 3.0],
+                "b": [4.0, 5.0, np.nan],
+            }
+        )
 
         result = process_nans(df, fill_value=-1.0, verbose=0)
 
@@ -793,10 +840,12 @@ class TestProcessNulls:
 
     def test_fill_nulls_polars(self):
         """Test filling null values in Polars DataFrame."""
-        df = pl.DataFrame({
-            "a": [1.0, None, 3.0],
-            "b": [None, 5.0, 6.0],
-        })
+        df = pl.DataFrame(
+            {
+                "a": [1.0, None, 3.0],
+                "b": [None, 5.0, 6.0],
+            }
+        )
 
         result = process_nulls(df, fill_value=0.0, verbose=0)
 
@@ -805,10 +854,12 @@ class TestProcessNulls:
 
     def test_fill_nulls_pandas(self):
         """Test filling null values in pandas DataFrame."""
-        df = pd.DataFrame({
-            "a": [1.0, None, 3.0],
-            "b": [None, 5.0, 6.0],
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1.0, None, 3.0],
+                "b": [None, 5.0, 6.0],
+            }
+        )
 
         result = process_nulls(df, fill_value=0.0, verbose=0)
 
@@ -821,10 +872,12 @@ class TestProcessInfinities:
 
     def test_fill_infinities_polars(self):
         """Test filling infinite values in Polars DataFrame."""
-        df = pl.DataFrame({
-            "a": [1.0, float("inf"), 3.0],
-            "b": [float("-inf"), 5.0, 6.0],
-        })
+        df = pl.DataFrame(
+            {
+                "a": [1.0, float("inf"), 3.0],
+                "b": [float("-inf"), 5.0, 6.0],
+            }
+        )
 
         result = process_infinities(df, fill_value=0.0, verbose=0)
 
@@ -833,10 +886,12 @@ class TestProcessInfinities:
 
     def test_fill_infinities_pandas(self):
         """Test filling infinite values in pandas DataFrame."""
-        df = pd.DataFrame({
-            "a": [1.0, float("inf"), 3.0],
-            "b": [float("-inf"), 5.0, 6.0],
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1.0, float("inf"), 3.0],
+                "b": [float("-inf"), 5.0, 6.0],
+            }
+        )
 
         result = process_infinities(df, fill_value=0.0, verbose=0)
 
@@ -849,10 +904,12 @@ class TestRemoveConstantColumns:
 
     def test_remove_constant_numeric_polars(self):
         """Test removing constant numeric columns in Polars."""
-        df = pl.DataFrame({
-            "varying": [1.0, 2.0, 3.0],
-            "constant": [5.0, 5.0, 5.0],
-        })
+        df = pl.DataFrame(
+            {
+                "varying": [1.0, 2.0, 3.0],
+                "constant": [5.0, 5.0, 5.0],
+            }
+        )
 
         result = remove_constant_columns(df, verbose=0)
 
@@ -861,10 +918,12 @@ class TestRemoveConstantColumns:
 
     def test_remove_constant_numeric_pandas(self):
         """Test removing constant numeric columns in pandas."""
-        df = pd.DataFrame({
-            "varying": [1.0, 2.0, 3.0],
-            "constant": [5.0, 5.0, 5.0],
-        })
+        df = pd.DataFrame(
+            {
+                "varying": [1.0, 2.0, 3.0],
+                "constant": [5.0, 5.0, 5.0],
+            }
+        )
 
         result = remove_constant_columns(df, verbose=0)
 
@@ -873,10 +932,12 @@ class TestRemoveConstantColumns:
 
     def test_remove_constant_string_polars(self):
         """Test removing constant string columns in Polars."""
-        df = pl.DataFrame({
-            "varying": ["a", "b", "c"],
-            "constant": ["x", "x", "x"],
-        })
+        df = pl.DataFrame(
+            {
+                "varying": ["a", "b", "c"],
+                "constant": ["x", "x", "x"],
+            }
+        )
 
         result = remove_constant_columns(df, verbose=0)
 
@@ -885,10 +946,12 @@ class TestRemoveConstantColumns:
 
     def test_remove_constant_string_pandas(self):
         """Test removing constant string columns in pandas."""
-        df = pd.DataFrame({
-            "varying": ["a", "b", "c"],
-            "constant": ["x", "x", "x"],
-        })
+        df = pd.DataFrame(
+            {
+                "varying": ["a", "b", "c"],
+                "constant": ["x", "x", "x"],
+            }
+        )
 
         result = remove_constant_columns(df, verbose=0)
 
@@ -897,10 +960,12 @@ class TestRemoveConstantColumns:
 
     def test_keep_varying_columns(self):
         """Test that varying columns are kept."""
-        df = pd.DataFrame({
-            "a": [1, 2, 3],
-            "b": [4, 5, 6],
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3],
+                "b": [4, 5, 6],
+            }
+        )
 
         result = remove_constant_columns(df, verbose=0)
 
@@ -908,10 +973,12 @@ class TestRemoveConstantColumns:
 
     def test_remove_all_nan_columns_pandas(self):
         """Test removing columns that are all NaN."""
-        df = pd.DataFrame({
-            "varying": [1.0, 2.0, 3.0],
-            "all_nan": [np.nan, np.nan, np.nan],
-        })
+        df = pd.DataFrame(
+            {
+                "varying": [1.0, 2.0, 3.0],
+                "all_nan": [np.nan, np.nan, np.nan],
+            }
+        )
 
         result = remove_constant_columns(df, verbose=0)
 
@@ -920,12 +987,14 @@ class TestRemoveConstantColumns:
 
     def test_mixed_constant_types(self):
         """Test with both numeric and categorical constant columns."""
-        df = pd.DataFrame({
-            "varying_num": [1, 2, 3],
-            "varying_str": ["a", "b", "c"],
-            "const_num": [5, 5, 5],
-            "const_str": ["x", "x", "x"],
-        })
+        df = pd.DataFrame(
+            {
+                "varying_num": [1, 2, 3],
+                "varying_str": ["a", "b", "c"],
+                "const_num": [5, 5, 5],
+                "const_str": ["x", "x", "x"],
+            }
+        )
 
         result = remove_constant_columns(df, verbose=0)
 
@@ -939,20 +1008,23 @@ class TestRemoveConstantColumns:
 # Hypothesis Property-Based Tests
 # ================================================================================================
 
+
 class TestHypothesisSaveLoad:
     """Hypothesis-based property tests for save/load functions."""
 
-    @given(st.dictionaries(
-        keys=st.text(min_size=1, max_size=10, alphabet=st.characters(whitelist_categories=('L', 'N'))),
-        values=st.one_of(
-            st.integers(min_value=-1000000, max_value=1000000),
-            st.floats(allow_nan=False, allow_infinity=False, min_value=-1e6, max_value=1e6),
-            st.text(max_size=50, alphabet=st.characters(whitelist_categories=('L', 'N', 'P', 'S'))),
-            st.lists(st.integers(min_value=-1000, max_value=1000), max_size=10),
-        ),
-        min_size=1,
-        max_size=5,
-    ))
+    @given(
+        st.dictionaries(
+            keys=st.text(min_size=1, max_size=10, alphabet=st.characters(whitelist_categories=("L", "N"))),
+            values=st.one_of(
+                st.integers(min_value=-1000000, max_value=1000000),
+                st.floats(allow_nan=False, allow_infinity=False, min_value=-1e6, max_value=1e6),
+                st.text(max_size=50, alphabet=st.characters(whitelist_categories=("L", "N", "P", "S"))),
+                st.lists(st.integers(min_value=-1000, max_value=1000), max_size=10),
+            ),
+            min_size=1,
+            max_size=5,
+        )
+    )
     @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
     def test_roundtrip_preserves_dict(self, model_data):
         """Property: save then load should return identical dict."""
@@ -965,11 +1037,13 @@ class TestHypothesisSaveLoad:
             loaded = load_mlframe_model(file_path)
             assert loaded == model_data
 
-    @given(st.lists(
-        st.floats(allow_nan=False, allow_infinity=False, min_value=-1e6, max_value=1e6),
-        min_size=1,
-        max_size=100,
-    ))
+    @given(
+        st.lists(
+            st.floats(allow_nan=False, allow_infinity=False, min_value=-1e6, max_value=1e6),
+            min_size=1,
+            max_size=100,
+        )
+    )
     @settings(max_examples=20)
     def test_roundtrip_preserves_numpy_array(self, float_list):
         """Property: numpy arrays should be preserved after save/load."""
@@ -1001,11 +1075,13 @@ class TestHypothesisDataFrameConversion:
         assert pd_df.shape == (n_rows, n_cols)
         assert list(pd_df.columns) == list(pl_df.columns)
 
-    @given(st.lists(
-        st.floats(allow_nan=False, allow_infinity=False, min_value=-1e6, max_value=1e6),
-        min_size=1,
-        max_size=50,
-    ))
+    @given(
+        st.lists(
+            st.floats(allow_nan=False, allow_infinity=False, min_value=-1e6, max_value=1e6),
+            min_size=1,
+            max_size=50,
+        )
+    )
     @settings(max_examples=15)
     def test_polars_to_pandas_preserves_values(self, values):
         """Property: Values should be approximately preserved after conversion."""
@@ -1034,9 +1110,7 @@ class TestHypothesisDropColumns:
         n_to_drop = np.random.randint(1, n_cols)
         cols_to_drop = col_names[:n_to_drop]
 
-        result = drop_columns_from_dataframe(
-            df, additional_columns_to_drop=cols_to_drop, verbose=0
-        )
+        result = drop_columns_from_dataframe(df, additional_columns_to_drop=cols_to_drop, verbose=0)
 
         # Verify dropped columns are gone
         for col in cols_to_drop:
@@ -1085,10 +1159,12 @@ class TestHypothesisRemoveConstant:
     def test_constant_columns_removed(self, n_rows):
         """Property: Constant columns should be removed, varying preserved."""
         # Create mixed DataFrame
-        df = pd.DataFrame({
-            "varying": np.random.randn(n_rows),
-            "constant": [5.0] * n_rows,
-        })
+        df = pd.DataFrame(
+            {
+                "varying": np.random.randn(n_rows),
+                "constant": [5.0] * n_rows,
+            }
+        )
 
         result = remove_constant_columns(df, verbose=0)
 
@@ -1099,11 +1175,13 @@ class TestHypothesisRemoveConstant:
     @settings(max_examples=10)
     def test_all_varying_columns_preserved(self, n_rows):
         """Property: All varying columns should be preserved."""
-        df = pd.DataFrame({
-            "a": np.random.randn(n_rows),
-            "b": np.random.randn(n_rows),
-            "c": np.random.randn(n_rows),
-        })
+        df = pd.DataFrame(
+            {
+                "a": np.random.randn(n_rows),
+                "b": np.random.randn(n_rows),
+                "c": np.random.randn(n_rows),
+            }
+        )
 
         result = remove_constant_columns(df, verbose=0)
 

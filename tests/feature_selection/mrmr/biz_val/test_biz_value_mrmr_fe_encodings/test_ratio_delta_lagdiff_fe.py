@@ -55,6 +55,7 @@ SEEDS = (3801, 3802, 3803)
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 from tests.feature_selection._biz_val_synth import _train_holdout_split
 
+
 def _logreg_auc(X_tr: pd.DataFrame, y_tr: pd.Series, X_ho: pd.DataFrame, y_ho: pd.Series) -> float:
     """Fit LogReg on the numeric-only columns of X_tr and return holdout ROC-AUC."""
     num_cols = [c for c in X_tr.columns if pd.api.types.is_numeric_dtype(X_tr[c])]
@@ -94,14 +95,16 @@ def _build_ratio_signal(seed: int, n: int = 3000):
     p = 1.0 / (1.0 + np.exp(-logit))
     y = (rng.random(n) < p).astype(int)
     noise = rng.standard_normal((n, 4))
-    X = pd.DataFrame({
-        "revenue": revenue,
-        "cost": cost,
-        "noise_a": noise[:, 0],
-        "noise_b": noise[:, 1],
-        "noise_c": noise[:, 2],
-        "noise_d": noise[:, 3],
-    })
+    X = pd.DataFrame(
+        {
+            "revenue": revenue,
+            "cost": cost,
+            "noise_a": noise[:, 0],
+            "noise_b": noise[:, 1],
+            "noise_c": noise[:, 2],
+            "noise_d": noise[:, 3],
+        }
+    )
     return X, pd.Series(y, name="y")
 
 
@@ -127,13 +130,15 @@ def _build_grouped_delta_signal(seed: int, n: int = 3000):
     p = 1.0 / (1.0 + np.exp(-logit))
     y = (rng.random(n) < p).astype(int)
     noise = rng.standard_normal((n, 3))
-    X = pd.DataFrame({
-        "region": region,
-        "age": age,
-        "noise_a": noise[:, 0],
-        "noise_b": noise[:, 1],
-        "noise_c": noise[:, 2],
-    })
+    X = pd.DataFrame(
+        {
+            "region": region,
+            "age": age,
+            "noise_a": noise[:, 0],
+            "noise_b": noise[:, 1],
+            "noise_c": noise[:, 2],
+        }
+    )
     return X, pd.Series(y, name="y")
 
 
@@ -165,13 +170,15 @@ def _build_lagged_diff_signal(seed: int, n: int = 3000):
     p = 1.0 / (1.0 + np.exp(-logit))
     y = (rng.random(n) < p).astype(int)
     noise = rng.standard_normal((n, 3))
-    X = pd.DataFrame({
-        "t": t,
-        "temperature": temperature,
-        "noise_a": noise[:, 0],
-        "noise_b": noise[:, 1],
-        "noise_c": noise[:, 2],
-    })
+    X = pd.DataFrame(
+        {
+            "t": t,
+            "temperature": temperature,
+            "noise_a": noise[:, 0],
+            "noise_b": noise[:, 1],
+            "noise_c": noise[:, 2],
+        }
+    )
     return X, pd.Series(y, name="y")
 
 
@@ -188,6 +195,7 @@ class TestPairwiseRatioKernel:
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             pairwise_ratio_features,
         )
+
         X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [2.0, 4.0, 6.0]})
         enc, _accepted = pairwise_ratio_features(X, ["a", "b"])
         # a/b = 0.5, 0.5, 0.5 -- constant -> rejected by the redundancy gate.
@@ -201,11 +209,14 @@ class TestPairwiseRatioKernel:
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             pairwise_ratio_features,
         )
+
         rng = np.random.default_rng(0)
-        X = pd.DataFrame({
-            "a": rng.normal(5.0, 1.0, size=300),
-            "b": rng.normal(5.0, 1.0, size=300),
-        })
+        X = pd.DataFrame(
+            {
+                "a": rng.normal(5.0, 1.0, size=300),
+                "b": rng.normal(5.0, 1.0, size=300),
+            }
+        )
         enc, accepted = pairwise_ratio_features(X, ["a", "b"])
         assert "ratio__a__b" in enc.columns
         assert "ratio__b__a" in enc.columns
@@ -215,6 +226,7 @@ class TestPairwiseRatioKernel:
     def test_handles_zero_denominator(self):
         """Safe division never produces NaN/inf, even with a zero denominator."""
         from mlframe.feature_selection.filters._ratio_delta_fe import apply_ratio
+
         X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [0.0, 4.0, -0.0]})
         out = apply_ratio(X, "a", "b", eps=1e-9)
         # Sign-preserving safe division: never NaN / inf.
@@ -225,6 +237,7 @@ class TestPairwiseRatioKernel:
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             pairwise_ratio_features,
         )
+
         with pytest.raises(ValueError, match="empty"):
             pairwise_ratio_features(pd.DataFrame({"a": [], "b": []}), ["a", "b"])
 
@@ -237,6 +250,7 @@ class TestPairwiseLogRatioKernel:
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             apply_log_ratio,
         )
+
         X = pd.DataFrame({"a": [-1.0, 2.0, -3.0], "b": [4.0, -5.0, 6.0]})
         out = apply_log_ratio(X, "a", "b", eps=1e-9)
         # log1p(|.|+eps) - log1p(|.|+eps) is always finite for any real input.
@@ -251,10 +265,13 @@ class TestGroupedDeltaKernel:
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             grouped_delta_features,
         )
-        X = pd.DataFrame({
-            "region": ["A", "A", "A", "B", "B", "B"],
-            "age": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
-        })
+
+        X = pd.DataFrame(
+            {
+                "region": ["A", "A", "A", "B", "B", "B"],
+                "age": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+            }
+        )
         enc, _recipes = grouped_delta_features(X, "region", ["age"])
         assert "grouped_delta_age__region" in enc.columns
         assert "grouped_zscore_age__region" in enc.columns
@@ -264,12 +281,16 @@ class TestGroupedDeltaKernel:
     def test_apply_uses_train_stats_for_unseen_group(self):
         """An unseen group at transform time falls back to the global train mean."""
         from mlframe.feature_selection.filters._ratio_delta_fe import (
-            grouped_delta_features, apply_grouped_delta,
+            grouped_delta_features,
+            apply_grouped_delta,
         )
-        X_tr = pd.DataFrame({
-            "region": ["A", "A", "B", "B"],
-            "age": [10.0, 20.0, 30.0, 40.0],
-        })
+
+        X_tr = pd.DataFrame(
+            {
+                "region": ["A", "A", "B", "B"],
+                "age": [10.0, 20.0, 30.0, 40.0],
+            }
+        )
         _enc, recipes = grouped_delta_features(X_tr, "region", ["age"])
         recipe = recipes["grouped_delta_age__region"]
         # Test frame contains an unseen region "C".
@@ -288,6 +309,7 @@ class TestLaggedDiffKernel:
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             lagged_diff_features,
         )
+
         X = pd.DataFrame({"t": [0, 1, 2, 3], "x": [1.0, 3.0, 6.0, 10.0]})
         enc, _recipes = lagged_diff_features(X, "t", ["x"], periods=(1,))
         diff = enc["lagged_diff_x__period1"].to_numpy()
@@ -298,6 +320,7 @@ class TestLaggedDiffKernel:
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             lagged_diff_features,
         )
+
         # Rows in scrambled time order: the apply path must sort by t first.
         X = pd.DataFrame({"t": [2, 0, 3, 1], "x": [6.0, 1.0, 10.0, 3.0]})
         enc, _ = lagged_diff_features(X, "t", ["x"], periods=(1,))
@@ -321,6 +344,7 @@ class TestRatioAUCLift:
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             pairwise_ratio_with_recipes,
         )
+
         X, y = _build_ratio_signal(seed)
         X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
         auc_base = _logreg_auc(X_tr, y_tr, X_ho, y_ho)
@@ -382,6 +406,7 @@ class TestNoLeakage:
         """The replay path is a closed-form function of X; shuffling y must
         not change a single value of the engineered column."""
         from mlframe.feature_selection.filters._ratio_delta_fe import apply_ratio
+
         X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
         out1 = apply_ratio(X, "a", "b", eps=1e-9)
         out2 = apply_ratio(X, "a", "b", eps=1e-9)
@@ -403,7 +428,8 @@ class TestNoLeakage:
         for col in out1.columns:
             if pd.api.types.is_numeric_dtype(out1[col]):
                 np.testing.assert_array_equal(
-                    out1[col].to_numpy(), out2[col].to_numpy(),
+                    out1[col].to_numpy(),
+                    out2[col].to_numpy(),
                 )
 
     def test_lagged_diff_replay_no_y(self):
@@ -411,6 +437,7 @@ class TestNoLeakage:
         from mlframe.feature_selection.filters._ratio_delta_fe import (
             apply_lagged_diff,
         )
+
         X = pd.DataFrame({"t": [0, 1, 2, 3], "x": [1.0, 3.0, 6.0, 10.0]})
         recipe = {"time_col": "t", "value_col": "x", "period": 1}
         out1 = apply_lagged_diff(X, recipe)
@@ -479,7 +506,8 @@ class TestPickleClone:
                 np.testing.assert_allclose(
                     np.asarray(pre[col], dtype=np.float64),
                     np.asarray(post[col], dtype=np.float64),
-                    rtol=1e-9, atol=1e-9,
+                    rtol=1e-9,
+                    atol=1e-9,
                     err_msg=f"pickle changed values of column {col!r}",
                 )
 
@@ -505,7 +533,7 @@ class TestDefaultDisabledByteIdentical:
         ).fit(X, y)
         v_names = list(vanilla.get_feature_names_out())
         d_names = list(defaulted.get_feature_names_out())
-        assert v_names == d_names, f"Default-disabled Layer 38 changed selection: " f"vanilla={v_names} defaulted={d_names}"
+        assert v_names == d_names, f"Default-disabled Layer 38 changed selection: vanilla={v_names} defaulted={d_names}"
         for nm in v_names:
             assert not nm.startswith("ratio__"), f"vanilla selection contains an unexpected ratio col: {nm}"
             assert not nm.startswith("log_ratio__"), f"vanilla selection contains an unexpected log_ratio col: {nm}"

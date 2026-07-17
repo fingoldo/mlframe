@@ -54,9 +54,7 @@ def test_data_signature_inner_row_reorder_changes_signature() -> None:
 
     sig_orig = data_signature(df, "target", ["a"])
     sig_inner = data_signature(df_inner, "target", ["a"])
-    assert sig_orig != sig_inner, (
-        "Inner reorder must produce a different signature; otherwise stale cache hits occur."
-    )
+    assert sig_orig != sig_inner, "Inner reorder must produce a different signature; otherwise stale cache hits occur."
 
 
 @pytest.mark.fast
@@ -89,10 +87,7 @@ def test_uncachable_sentinel_cross_target_isolation() -> None:
     assert fp1[0] == "uncached"
     assert fp2[0] == "uncached"
     # ...but the sentinels are distinct instances so the tuples are NOT equal.
-    assert fp1 != fp2, (
-        "Two uncachable fingerprints must compare unequal so cross-target cache hits "
-        "cannot occur on embedding-bearing frames (P0-3)."
-    )
+    assert fp1 != fp2, "Two uncachable fingerprints must compare unequal so cross-target cache hits cannot occur on embedding-bearing frames (P0-3)."
 
 
 @pytest.mark.fast
@@ -108,6 +103,5 @@ def test_uncachable_sentinel_is_fresh_per_call() -> None:
 def test_pre_pipeline_cache_default_max_is_at_least_eight() -> None:
     """P2-1: typical suite has 5 distinct models; default must fit without eviction."""
     assert _PRE_PIPELINE_CACHE_MAX >= 8, (
-        f"_PRE_PIPELINE_CACHE_MAX={_PRE_PIPELINE_CACHE_MAX}; "
-        "audit D P2-1 bumped default to 8 to avoid thrashing on cb+lgb+xgb+mlp+linear."
+        f"_PRE_PIPELINE_CACHE_MAX={_PRE_PIPELINE_CACHE_MAX}; audit D P2-1 bumped default to 8 to avoid thrashing on cb+lgb+xgb+mlp+linear."
     )

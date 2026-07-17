@@ -8,6 +8,7 @@ test the equivalent contract: a row's OOF feature must not change when we pertur
 complement. Pre-fix the single global scaler folded those rows' X into the shared median/IQR; post-fix each fold's scaler sees only its own train complement, so
 perturbing rows that never enter that complement leaves the feature unchanged.
 """
+
 from __future__ import annotations
 
 import numpy as np

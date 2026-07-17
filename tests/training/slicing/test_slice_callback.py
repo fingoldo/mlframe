@@ -12,6 +12,7 @@ Covers:
   - default ``slice_k=0`` is bit-identical to the legacy single-val path
   - ``disable_native_es_for_slice_stable`` strips ES knobs from per-booster param dicts
 """
+
 from __future__ import annotations
 
 import time
@@ -26,10 +27,17 @@ from mlframe.training._helpers_training_configs import disable_native_es_for_sli
 def _build_cb(*, patience=3, mode="min", slice_k=3, agg_mode="mean", **extra):
     """Construct a callback ready to receive metric history without booster boilerplate."""
     cb = UniversalCallback(
-        patience=patience, min_delta=0.0, monitor_dataset="valid_0",
-        monitor_metric="loss", mode=mode,
-        slice_k=slice_k, slice_aggregate_mode=agg_mode, slice_aggregate_confidence=0.9,
-        slice_persist_history=True, verbose=0, **extra,
+        patience=patience,
+        min_delta=0.0,
+        monitor_dataset="valid_0",
+        monitor_metric="loss",
+        mode=mode,
+        slice_k=slice_k,
+        slice_aggregate_mode=agg_mode,
+        slice_aggregate_confidence=0.9,
+        slice_persist_history=True,
+        verbose=0,
+        **extra,
     )
     cb.start_time = time.time()
     cb.last_reporting_ts = time.time()
@@ -46,10 +54,17 @@ def _push_iter(cb: UniversalCallback, values: dict[str, float]) -> None:
 def test_default_no_slice_path_bit_identical() -> None:
     """slice_k=0 (default) must produce the same best_iter / stop decisions as legacy."""
     cb = UniversalCallback(
-        patience=2, min_delta=0.0, monitor_dataset="valid_0",
-        monitor_metric="loss", mode="min", slice_k=0, verbose=0,
+        patience=2,
+        min_delta=0.0,
+        monitor_dataset="valid_0",
+        monitor_metric="loss",
+        mode="min",
+        slice_k=0,
+        verbose=0,
     )
-    cb.start_time = time.time(); cb.last_reporting_ts = time.time(); cb.iter = 0
+    cb.start_time = time.time()
+    cb.last_reporting_ts = time.time()
+    cb.iter = 0
     # Legacy history: monotone improvement
     for v in [1.0, 0.9, 0.85, 0.86, 0.87, 0.88]:
         _push_iter(cb, {"valid_0": v})
@@ -101,9 +116,7 @@ def test_slice_aggregate_t_lcb_pushes_penalty_up_for_min() -> None:
     cb.should_stop()
     raw_mean = (0.5 + 1.0 + 1.5) / 3
     # best_metric was set to the t-LCB aggregate on iter 1
-    assert cb.best_metric > raw_mean, (
-        f"t-LCB for direction='min' must add penalty; got best={cb.best_metric} vs mean={raw_mean}"
-    )
+    assert cb.best_metric > raw_mean, f"t-LCB for direction='min' must add penalty; got best={cb.best_metric} vs mean={raw_mean}"
 
 
 def test_slice_skip_when_shard_missing_value() -> None:
@@ -125,8 +138,7 @@ def test_slice_skip_when_shard_missing_value() -> None:
 
 def test_slice_quantile_aggregator() -> None:
     """Quantile aggregator on min-direction reads the upper tail of shard scores."""
-    cb = _build_cb(patience=3, mode="min", slice_k=4, agg_mode="quantile",
-                    slice_aggregate_quantile_level=0.75)
+    cb = _build_cb(patience=3, mode="min", slice_k=4, agg_mode="quantile", slice_aggregate_quantile_level=0.75)
     _push_iter(cb, {"valid_0": 1.0, "valid_1": 0.5, "valid_2": 0.7, "valid_3": 0.9})
     cb.should_stop()
     # Upper-quartile of [0.5, 0.7, 0.9] = 0.8 (linear interp)
@@ -136,8 +148,7 @@ def test_slice_quantile_aggregator() -> None:
 def test_slice_history_persisted_when_flag_set() -> None:
     cb = _build_cb(patience=3, slice_k=3)
     for offset in (0.0, -0.1, +0.1):
-        _push_iter(cb, {"valid_0": 1.0 + offset, "valid_1": 1.0 + offset,
-                         "valid_2": 1.0 + offset, "valid_3": 1.0 + offset})
+        _push_iter(cb, {"valid_0": 1.0 + offset, "valid_1": 1.0 + offset, "valid_2": 1.0 + offset, "valid_3": 1.0 + offset})
         cb.should_stop()
     # 3 iterations -> 3 shard-score snapshots
     assert len(cb.slice_shard_score_history) == 3
@@ -148,12 +159,19 @@ def test_slice_history_persisted_when_flag_set() -> None:
 def test_slice_dataset_names_override() -> None:
     """Caller may pass explicit dataset names instead of relying on insertion order."""
     cb = UniversalCallback(
-        patience=2, min_delta=0.0, monitor_dataset="valid_0",
-        monitor_metric="loss", mode="min",
-        slice_k=2, slice_aggregate_mode="mean",
-        slice_dataset_names=["shard_alpha", "shard_beta"], verbose=0,
+        patience=2,
+        min_delta=0.0,
+        monitor_dataset="valid_0",
+        monitor_metric="loss",
+        mode="min",
+        slice_k=2,
+        slice_aggregate_mode="mean",
+        slice_dataset_names=["shard_alpha", "shard_beta"],
+        verbose=0,
     )
-    cb.start_time = time.time(); cb.last_reporting_ts = time.time(); cb.iter = 0
+    cb.start_time = time.time()
+    cb.last_reporting_ts = time.time()
+    cb.iter = 0
     cb.metric_history = {
         "valid_0": {"loss": [1.0]},
         "shard_alpha": {"loss": [0.8]},
@@ -171,16 +189,23 @@ def test_slice_diagnostic_only_skips_patience_bump_and_aggregator_drive() -> Non
     consulted for stop logic.
     """
     cb = UniversalCallback(
-        patience=10, min_delta=0.0, monitor_dataset="valid_0",
-        monitor_metric="loss", mode="min",
-        slice_k=5, slice_aggregate_mode="mean",
-        slice_persist_history=True, slice_diagnostic_only=True, verbose=0,
+        patience=10,
+        min_delta=0.0,
+        monitor_dataset="valid_0",
+        monitor_metric="loss",
+        mode="min",
+        slice_k=5,
+        slice_aggregate_mode="mean",
+        slice_persist_history=True,
+        slice_diagnostic_only=True,
+        verbose=0,
     )
     assert cb.patience == 10, "patience must NOT be auto-bumped when diagnostic_only=True"
-    cb.start_time = time.time(); cb.last_reporting_ts = time.time(); cb.iter = 0
+    cb.start_time = time.time()
+    cb.last_reporting_ts = time.time()
+    cb.iter = 0
     # iter 1: full val 1.0, shards arbitrary (worse). Decision must read full val (1.0), not aggregate.
-    _push_iter(cb, {"valid_0": 1.0, "valid_1": 0.5, "valid_2": 1.5, "valid_3": 1.5,
-                     "valid_4": 1.5, "valid_5": 1.5})
+    _push_iter(cb, {"valid_0": 1.0, "valid_1": 0.5, "valid_2": 1.5, "valid_3": 1.5, "valid_4": 1.5, "valid_5": 1.5})
     assert cb.should_stop() is False
     assert cb.best_metric == pytest.approx(1.0), "diagnostic mode drives ES off the full val"
     # Per-shard history populated (so the Pareto artefact has data downstream).

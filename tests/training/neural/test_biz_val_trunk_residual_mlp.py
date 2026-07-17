@@ -7,6 +7,7 @@ mlframe's existing `_ResidualLinearBlock` provides. At real depth (20 blocks her
 trunk re-injection at every block keeps the original low-level representation available at full strength no
 matter how deep the tower gets, recovering a target a no-skip deep MLP of the same depth cannot learn.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -62,7 +63,9 @@ def test_biz_val_trunk_residual_mlp_beats_no_skip_deep_mlp_at_depth():
     r2_plain = float(r2_score(yte, pred_plain))
 
     assert r2_trunk >= 0.5, f"expected the trunk-residual MLP to learn a strong held-out R2 at 15 blocks deep, got {r2_trunk:.4f}"
-    assert r2_trunk > r2_plain + 0.3, f"expected the trunk-residual MLP to massively beat a same-depth no-skip MLP (which should collapse), got trunk={r2_trunk:.4f} plain={r2_plain:.4f}"
+    assert r2_trunk > r2_plain + 0.3, (
+        f"expected the trunk-residual MLP to massively beat a same-depth no-skip MLP (which should collapse), got trunk={r2_trunk:.4f} plain={r2_plain:.4f}"
+    )
 
 
 def test_trunk_residual_mlp_predict_shape():
@@ -119,7 +122,6 @@ def test_biz_val_trunk_residual_mlp_seed_ensemble_variance_curve_diminishing_ret
     # floating-point slack rather than pin an exact equality.
     assert std_k1 > 3.9 * std_k16, f"expected K=1 std to dwarf K=16 std, got std_k1={std_k1:.4f} std_k16={std_k16:.4f}"
     assert std_k8 - std_k16 < (std_k1 - std_k8) / 2, (
-        f"expected diminishing returns (K=8->K=16 drop much smaller than K=1->K=8 drop), "
-        f"got std_k1={std_k1:.4f} std_k8={std_k8:.4f} std_k16={std_k16:.4f}"
+        f"expected diminishing returns (K=8->K=16 drop much smaller than K=1->K=8 drop), got std_k1={std_k1:.4f} std_k8={std_k8:.4f} std_k16={std_k16:.4f}"
     )
     assert all(a >= b - 1e-9 for a, b in zip(mean_std, mean_std[1:])), f"expected mean_std to be non-increasing in K, got {mean_std}"

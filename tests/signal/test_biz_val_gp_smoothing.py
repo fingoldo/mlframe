@@ -8,6 +8,7 @@ was measured to actively hurt, overfitting through the noise on sparse curves) s
 smooth curve shape far better, giving a downstream classifier a materially better signal. Also verifies the
 GP posterior std behaves as the intended "confidence from local data density" companion feature.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,12 +55,19 @@ def test_biz_val_gp_smoothed_features_beats_nearest_raw_value_auc():
     X_baseline = _nearest_raw_features(df, entities, query_times)
     auc_baseline = cross_val_score(LogisticRegression(max_iter=500), X_baseline, y_labels, cv=5, scoring="roc_auc").mean()
 
-    gp_feats = compute_gp_smoothed_features(df, "obj", "t", "y", query_times, length_scale=3.0, nu=1.5, alpha=0.05, optimize_hyperparameters=False).to_pandas().set_index("obj").reindex(entities)
+    gp_feats = (
+        compute_gp_smoothed_features(df, "obj", "t", "y", query_times, length_scale=3.0, nu=1.5, alpha=0.05, optimize_hyperparameters=False)
+        .to_pandas()
+        .set_index("obj")
+        .reindex(entities)
+    )
     X_gp = gp_feats[[c for c in gp_feats.columns if "mean" in c]].to_numpy()
     auc_gp = cross_val_score(LogisticRegression(max_iter=500), X_gp, y_labels, cv=5, scoring="roc_auc").mean()
 
     error_reduction = 1.0 - (1.0 - auc_gp) / (1.0 - auc_baseline)
-    assert error_reduction > 0.3, f"expected >30% error-rate reduction vs. nearest-raw-value features, got {error_reduction:.4f} (baseline_auc={auc_baseline:.4f}, gp_auc={auc_gp:.4f})"
+    assert error_reduction > 0.3, (
+        f"expected >30% error-rate reduction vs. nearest-raw-value features, got {error_reduction:.4f} (baseline_auc={auc_baseline:.4f}, gp_auc={auc_gp:.4f})"
+    )
 
 
 def test_gp_smooth_std_is_low_near_observations_high_in_sparse_gaps():

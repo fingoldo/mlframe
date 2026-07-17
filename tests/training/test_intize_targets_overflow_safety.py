@@ -7,6 +7,7 @@ raised InvalidOperationError -- asymmetric trap.
 Post-fix: intize_targets promotes int8 -> int16 -> int32 -> int64 based on the actual value
 range. All paths share one promotion table via _safe_int_cast_numpy.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,22 +24,27 @@ from mlframe.training.extractors import (
 
 # ----- _smallest_safe_int_dtype --------------------------------------------------
 
-@pytest.mark.parametrize("min_v,max_v,expected", [
-    (0, 1, np.int8),                # binary
-    (0, 127, np.int8),              # int8 upper bound
-    (-128, 127, np.int8),           # full int8 range
-    (0, 128, np.int16),             # int8 overflow by 1
-    (-129, 0, np.int16),            # int8 underflow by 1
-    (0, 32_767, np.int16),          # int16 upper bound
-    (0, 32_768, np.int32),          # int16 overflow by 1
-    (0, 2_147_483_647, np.int32),   # int32 upper bound
-    (0, 2_147_483_648, np.int64),   # int32 overflow by 1
-])
+
+@pytest.mark.parametrize(
+    "min_v,max_v,expected",
+    [
+        (0, 1, np.int8),  # binary
+        (0, 127, np.int8),  # int8 upper bound
+        (-128, 127, np.int8),  # full int8 range
+        (0, 128, np.int16),  # int8 overflow by 1
+        (-129, 0, np.int16),  # int8 underflow by 1
+        (0, 32_767, np.int16),  # int16 upper bound
+        (0, 32_768, np.int32),  # int16 overflow by 1
+        (0, 2_147_483_647, np.int32),  # int32 upper bound
+        (0, 2_147_483_648, np.int64),  # int32 overflow by 1
+    ],
+)
 def test_smallest_safe_int_dtype_promotion_table(min_v, max_v, expected):
     assert _smallest_safe_int_dtype(min_v, max_v) == np.dtype(expected)
 
 
 # ----- _safe_int_cast_numpy -----------------------------------------------------
+
 
 def test_safe_cast_binary_labels_stays_int8():
     arr = np.array([0, 1, 0, 1, 1], dtype=np.int64)
@@ -97,6 +103,7 @@ def test_safe_cast_bool_array_to_int8():
 
 
 # ----- intize_targets (the public API) ------------------------------------------
+
 
 def test_intize_pandas_binary_no_overflow():
     targets = {"y": pd.Series([0, 1, 1, 0], dtype=np.int64)}

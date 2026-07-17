@@ -5,6 +5,7 @@ Source: extension of "MA-crossover difference and sign-comparison features" -- t
 flipping direction simultaneously), whereas the raw ``vote_sum`` level itself changes slowly/smoothly
 during an already-established trend and doesn't single out the onset row.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -110,6 +111,5 @@ def test_biz_val_ma_crossover_long_window_weight_power_reduces_false_flips_vs_eq
 
     assert weighted_rate <= 0.30, f"expected weighted consensus false-flip rate <=0.30, got {weighted_rate:.4f}"
     assert weighted_rate < equal_rate - 0.15, (
-        f"expected weighted voting to cut false flips well below equal-weight, "
-        f"got weighted={weighted_rate:.4f} equal={equal_rate:.4f}"
+        f"expected weighted voting to cut false flips well below equal-weight, got weighted={weighted_rate:.4f} equal={equal_rate:.4f}"
     )

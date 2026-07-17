@@ -7,6 +7,7 @@ labels' predicted ranks. On a synthetic where two labels represent the SAME unde
 per-label score estimates carry independent noise, averaging the detected pair's scores should pull their
 ranks together and improve MAP@7 versus scoring them fully independently.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -165,9 +166,7 @@ def test_biz_val_label_correlation_rerank_cv_weight_beats_fixed_average_on_lrap(
     lrap_fixed_average = label_ranking_average_precision_score(y_true, label_correlation_rerank(pred, [], correlated_groups=groups))
 
     cv_weights = optimize_group_blend_weight(y_true, pred, groups, random_state=3)
-    lrap_cv_optimized = label_ranking_average_precision_score(
-        y_true, label_correlation_rerank(pred, [], correlated_groups=groups, group_weights=cv_weights)
-    )
+    lrap_cv_optimized = label_ranking_average_precision_score(y_true, label_correlation_rerank(pred, [], correlated_groups=groups, group_weights=cv_weights))
 
     assert cv_weights[(0, 1, 2)] < 1.0, f"expected the CV search to prefer a partial blend over the fixed full average, got {cv_weights}"
     assert lrap_cv_optimized > lrap_fixed_average * 1.005, (

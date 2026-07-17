@@ -8,6 +8,7 @@ that block's own valid rows and its own small feature subset), then stacking the
 meta-model, should recover a materially lower test MSE -- this mirrors the Santander Value Prediction 2nd
 place's 113-groups-of-40 stacking technique.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -90,7 +91,9 @@ def test_biz_val_grouped_block_stacker_beats_global_model_mse():
     stacker_mse = mean_squared_error(y_test, stacker.predict(X_test))
 
     improvement = 1.0 - stacker_mse / baseline_mse
-    assert improvement > 0.12, f"expected >12% MSE reduction vs. a single global model, got {improvement:.4f} (baseline={baseline_mse:.4f}, stacker={stacker_mse:.4f})"
+    assert improvement > 0.12, (
+        f"expected >12% MSE reduction vs. a single global model, got {improvement:.4f} (baseline={baseline_mse:.4f}, stacker={stacker_mse:.4f})"
+    )
 
 
 def test_grouped_block_stacker_valid_rates_match_synthetic_group_assignment():

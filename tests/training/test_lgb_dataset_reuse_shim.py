@@ -46,6 +46,7 @@ try:
         LGBMRegressorWithDatasetReuse,
         lgb_dataset_reuse_capable,
     )
+
     SHIM_AVAILABLE = True
 except ImportError:
     SHIM_AVAILABLE = False
@@ -60,18 +61,21 @@ pytestmark = pytest.mark.skipif(
 # Fixtures
 # =====================================================================
 
+
 @pytest.fixture
 def small_classification_data():
     """Tiny but real classification dataset -- converges in a few trees."""
     rng = np.random.default_rng(0)
     n = 500
-    X = pd.DataFrame({
-        "f0": rng.standard_normal(n).astype(np.float32),
-        "f1": rng.standard_normal(n).astype(np.float32),
-        "f2": rng.standard_normal(n).astype(np.float32),
-        "f3": rng.standard_normal(n).astype(np.float32),
-        "f4": rng.standard_normal(n).astype(np.float32),
-    })
+    X = pd.DataFrame(
+        {
+            "f0": rng.standard_normal(n).astype(np.float32),
+            "f1": rng.standard_normal(n).astype(np.float32),
+            "f2": rng.standard_normal(n).astype(np.float32),
+            "f3": rng.standard_normal(n).astype(np.float32),
+            "f4": rng.standard_normal(n).astype(np.float32),
+        }
+    )
     y = ((X["f0"] + X["f1"] - X["f2"]) > 0).astype(np.int32).to_numpy()
     return X, y
 
@@ -80,9 +84,7 @@ def small_classification_data():
 def small_regression_data():
     rng = np.random.default_rng(0)
     n = 500
-    X = pd.DataFrame({
-        f"f{i}": rng.standard_normal(n).astype(np.float32) for i in range(5)
-    })
+    X = pd.DataFrame({f"f{i}": rng.standard_normal(n).astype(np.float32) for i in range(5)})
     y = (X["f0"] * 2 - X["f2"] + rng.standard_normal(n) * 0.1).to_numpy(np.float32)
     return X, y
 
@@ -95,6 +97,7 @@ _QUIET_LGB = dict(verbosity=-1, min_child_samples=2, min_data_in_bin=1)
 # 1. API parity with LGBMClassifier (drop-in replacement)
 # =====================================================================
 
+
 class TestLGBClassifierShimAPIParity:
     """Shim must look like LGBMClassifier to all callers -- sklearn clone,
     feature importance, predict, predict_proba, etc."""
@@ -102,13 +105,15 @@ class TestLGBClassifierShimAPIParity:
     def test_subclass_of_LGBMClassifier(self):
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         assert isinstance(m, LGBMClassifier), (
-            "shim must subclass LGBMClassifier so isinstance checks "
-            "downstream (sklearn pipelines, mlframe strategy) keep passing"
+            "shim must subclass LGBMClassifier so isinstance checks downstream (sklearn pipelines, mlframe strategy) keep passing"
         )
 
     def test_get_params_includes_lgb_params(self):
         m = LGBMClassifierWithDatasetReuse(
-            n_estimators=7, max_depth=4, learning_rate=0.1, **_QUIET_LGB,
+            n_estimators=7,
+            max_depth=4,
+            learning_rate=0.1,
+            **_QUIET_LGB,
         )
         params = m.get_params()
         assert params["n_estimators"] == 7
@@ -123,6 +128,7 @@ class TestLGBClassifierShimAPIParity:
 
     def test_sklearn_clone_round_trip(self):
         from sklearn.base import clone
+
         m = LGBMClassifierWithDatasetReuse(n_estimators=7, max_depth=4, **_QUIET_LGB)
         c = clone(m)
         assert isinstance(c, LGBMClassifierWithDatasetReuse)
@@ -134,7 +140,10 @@ class TestLGBClassifierShimAPIParity:
     def test_fit_predict_predict_proba_run(self, small_classification_data):
         X, y = small_classification_data
         m = LGBMClassifierWithDatasetReuse(
-            n_estimators=5, max_depth=3, learning_rate=0.3, **_QUIET_LGB,
+            n_estimators=5,
+            max_depth=3,
+            learning_rate=0.3,
+            **_QUIET_LGB,
         )
         m.fit(X, y)
         preds = m.predict(X)
@@ -166,6 +175,7 @@ class TestLGBClassifierShimAPIParity:
 # 2. Predict parity vs vanilla LGBMClassifier
 # =====================================================================
 
+
 class TestLGBClassifierShimPredictParity:
     """The shim must produce IDENTICAL predictions to a vanilla
     LGBMClassifier under the same hyperparameters and seed -- within
@@ -176,8 +186,11 @@ class TestLGBClassifierShimPredictParity:
     def test_proba_matches_vanilla_lgbmclassifier(self, small_classification_data, seed):
         X, y = small_classification_data
         params = dict(
-            n_estimators=10, max_depth=3, learning_rate=0.3,
-            random_state=seed, **_QUIET_LGB,
+            n_estimators=10,
+            max_depth=3,
+            learning_rate=0.3,
+            random_state=seed,
+            **_QUIET_LGB,
         )
         ref = LGBMClassifier(**params)
         ref.fit(X, y)
@@ -188,17 +201,17 @@ class TestLGBClassifierShimPredictParity:
         shim_proba = shim.predict_proba(X)
 
         np.testing.assert_allclose(
-            shim_proba, ref_proba, atol=1e-5,
-            err_msg=(
-                "shim predictions diverged from vanilla LGBMClassifier -- "
-                "the Dataset-reuse fit path is not numerically equivalent"
-            ),
+            shim_proba,
+            ref_proba,
+            atol=1e-5,
+            err_msg=("shim predictions diverged from vanilla LGBMClassifier -- the Dataset-reuse fit path is not numerically equivalent"),
         )
 
 
 # =====================================================================
 # 3. Dataset cache -- reuse / miss / reset semantics
 # =====================================================================
+
 
 class TestLGBDatasetReuse:
     """The cache must hit on identical X and miss on different X.
@@ -223,9 +236,7 @@ class TestLGBDatasetReuse:
         # identity preserved.
         m.fit(X, y)
         second_id = id(m._cached_train_dataset)
-        assert first_id == second_id, (
-            "Dataset was rebuilt on second fit with same X -- cache miss"
-        )
+        assert first_id == second_id, "Dataset was rebuilt on second fit with same X -- cache miss"
 
     def test_second_fit_different_data_misses_cache(self, small_classification_data):
         X, y = small_classification_data
@@ -238,22 +249,18 @@ class TestLGBDatasetReuse:
         y2 = y[:100]
         m.fit(X2, y2)
         second_id = id(m._cached_train_dataset)
-        assert first_id != second_id, (
-            "Dataset was reused for a different-shape X -- cache key bug"
-        )
+        assert first_id != second_id, "Dataset was reused for a different-shape X -- cache key bug"
 
     def test_clone_resets_cache(self, small_classification_data):
         from sklearn.base import clone
+
         X, y = small_classification_data
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         m.fit(X, y)
         assert m._cached_train_dataset is not None
 
         c = clone(m)
-        assert c._cached_train_dataset is None, (
-            "cloned shim still carries the original's Dataset cache -- "
-            "sklearn.clone() must produce a fresh instance"
-        )
+        assert c._cached_train_dataset is None, "cloned shim still carries the original's Dataset cache -- sklearn.clone() must produce a fresh instance"
 
     def test_eval_set_dataset_also_cached(self, small_classification_data):
         X, y = small_classification_data
@@ -277,15 +284,13 @@ class TestLGBDatasetReuse:
         # Second fit: declare f0 as categorical -- different Dataset.
         m.fit(X, y, categorical_feature=["f0"])
         second_id = id(m._cached_train_dataset)
-        assert first_id != second_id, (
-            "Dataset reused despite categorical_feature change -- "
-            "cache key bug; would silently produce wrong splits"
-        )
+        assert first_id != second_id, "Dataset reused despite categorical_feature change -- cache key bug; would silently produce wrong splits"
 
 
 # =====================================================================
 # 4. In-place set_label / set_weight on cached Dataset
 # =====================================================================
+
 
 class TestLGBShimSetLabelSetWeight:
     """Public extras: ``.set_label(y)`` / ``.set_weight(w)`` mutate the
@@ -302,11 +307,10 @@ class TestLGBShimSetLabelSetWeight:
         m.set_weight(new_weight)
         id_after = id(m._cached_train_dataset)
 
-        assert id_before == id_after, (
-            "set_weight rebuilt the Dataset -- must be in-place"
-        )
+        assert id_before == id_after, "set_weight rebuilt the Dataset -- must be in-place"
         np.testing.assert_array_equal(
-            m._cached_train_dataset.get_weight(), new_weight,
+            m._cached_train_dataset.get_weight(),
+            new_weight,
         )
 
     def test_set_label_mutates_in_place(self, small_classification_data):
@@ -321,7 +325,8 @@ class TestLGBShimSetLabelSetWeight:
 
         assert id_before == id_after
         np.testing.assert_array_equal(
-            m._cached_train_dataset.get_label(), new_label,
+            m._cached_train_dataset.get_label(),
+            new_label,
         )
 
     def test_set_weight_before_fit_raises(self):
@@ -330,7 +335,8 @@ class TestLGBShimSetLabelSetWeight:
             m.set_weight(np.ones(10))
 
     def test_second_fit_with_different_weight_does_not_rebuild(
-        self, small_classification_data,
+        self,
+        small_classification_data,
     ):
         """Most valuable use case: second fit with same X but new
         sample_weight reuses the cached Dataset and just swaps weight
@@ -347,15 +353,14 @@ class TestLGBShimSetLabelSetWeight:
         second_id = id(m._cached_train_dataset)
 
         assert first_id == second_id, (
-            "Second fit with new sample_weight rebuilt the Dataset -- "
-            "the in-place set_weight path is not firing. This is the "
-            "weight-schema-loop saving target."
+            "Second fit with new sample_weight rebuilt the Dataset -- the in-place set_weight path is not firing. This is the weight-schema-loop saving target."
         )
 
 
 # =====================================================================
 # 5. lgb_dataset_reuse_capable() -- capability gate
 # =====================================================================
+
 
 class TestLGBReuseCapability:
     def test_capability_check_returns_bool(self):
@@ -373,6 +378,7 @@ class TestLGBReuseCapability:
 # 6. LGBMRegressor variant -- same contract
 # =====================================================================
 
+
 class TestLGBRegressorShim:
     def test_subclass_of_LGBMRegressor(self):
         m = LGBMRegressorWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
@@ -381,8 +387,11 @@ class TestLGBRegressorShim:
     def test_predict_parity_with_vanilla(self, small_regression_data):
         X, y = small_regression_data
         params = dict(
-            n_estimators=10, max_depth=3, learning_rate=0.3,
-            random_state=0, **_QUIET_LGB,
+            n_estimators=10,
+            max_depth=3,
+            learning_rate=0.3,
+            random_state=0,
+            **_QUIET_LGB,
         )
         ref = LGBMRegressor(**params)
         ref.fit(X, y)
@@ -393,7 +402,9 @@ class TestLGBRegressorShim:
         shim_pred = shim.predict(X)
 
         np.testing.assert_allclose(
-            shim_pred, ref_pred, atol=1e-5,
+            shim_pred,
+            ref_pred,
+            atol=1e-5,
             err_msg="regressor shim diverged from vanilla LGBMRegressor",
         )
 
@@ -410,6 +421,7 @@ class TestLGBRegressorShim:
 # 7. Edge cases
 # =====================================================================
 
+
 class TestLGBShimEdgeCases:
     def test_eval_set_changing_X_misses_val_cache(self, small_classification_data):
         X, y = small_classification_data
@@ -423,9 +435,7 @@ class TestLGBShimEdgeCases:
         first_val_id = id(m._cached_val_dataset)
         m.fit(X, y, eval_set=[(X_val_b, y_val_b)])
         second_val_id = id(m._cached_val_dataset)
-        assert first_val_id != second_val_id, (
-            "val Dataset was reused for a different X_val -- cache key bug"
-        )
+        assert first_val_id != second_val_id, "val Dataset was reused for a different X_val -- cache key bug"
 
     def test_sample_weight_round_trip_on_first_fit(self, small_classification_data):
         X, y = small_classification_data
@@ -434,7 +444,8 @@ class TestLGBShimEdgeCases:
         m.fit(X, y, sample_weight=sw)
         # Cached Dataset carries the weight set on construction.
         np.testing.assert_array_equal(
-            m._cached_train_dataset.get_weight(), sw,
+            m._cached_train_dataset.get_weight(),
+            sw,
         )
 
     def test_eval_set_bare_tuple_normalised(self, small_classification_data):
@@ -466,17 +477,14 @@ class TestLGBShimEdgeCases:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             m.fit(X, y, sample_weight=np.ones(len(y)))
-        ours = [w for w in caught if issubclass(w.category, (UserWarning, RuntimeWarning))
-                and "shim" in str(w.message).lower()]
-        assert not ours, (
-            f"shim emitted spurious warnings on repeat fit: "
-            f"{[str(w.message) for w in ours]}"
-        )
+        ours = [w for w in caught if issubclass(w.category, (UserWarning, RuntimeWarning)) and "shim" in str(w.message).lower()]
+        assert not ours, f"shim emitted spurious warnings on repeat fit: {[str(w.message) for w in ours]}"
 
 
 # =====================================================================
 # 8. End-to-end: shim wired into _configure_lightgbm_params
 # =====================================================================
+
 
 class TestLGBShimIntegrationWithMlframeSuite:
     """Suite-level tests that the shim is wired into
@@ -508,6 +516,7 @@ class TestLGBShimIntegrationWithMlframeSuite:
         flag-flip away.
         """
         from mlframe.training import trainer as tr_mod
+
         monkeypatch.setattr(tr_mod, "USE_LGB_DATASET_REUSE_SHIM", False)
 
         clf = tr_mod._lgb_classifier_cls()
@@ -522,6 +531,7 @@ class TestLGBShimIntegrationWithMlframeSuite:
 # 9. Source-level checks: shim cache hand-off across sklearn.clone()
 #    in core.py's strategy/weight-schema loop
 # =====================================================================
+
 
 class TestLGBShimCacheHandoffInCoreLoop:
     """Mirror of the XGB hand-off tests. Ensures core.py's strategy loop
@@ -552,8 +562,7 @@ class TestLGBShimCacheHandoffInCoreLoop:
         # drops them, dataset reuse silently dies for the LGB shim.
         for _attr in ("_cached_train_dataset", "_cached_val_dataset"):
             assert _attr in _DATASET_REUSE_CACHE_ATTRS, (
-                f"{_attr!r} missing from _DATASET_REUSE_CACHE_ATTRS -- the "
-                f"forward helper will not propagate the LGB cache."
+                f"{_attr!r} missing from _DATASET_REUSE_CACHE_ATTRS -- the forward helper will not propagate the LGB cache."
             )
 
         X, y = small_classification_data
@@ -583,9 +592,7 @@ class TestLGBShimCacheHandoffInCoreLoop:
             "clone got None / different obj; next iteration's shim will "
             "rebuild the binned Dataset (silent perf regression)."
         )
-        assert cloned._cached_val_dataset is template._cached_val_dataset, (
-            "forward helper failed to propagate _cached_val_dataset"
-        )
+        assert cloned._cached_val_dataset is template._cached_val_dataset, "forward helper failed to propagate _cached_val_dataset"
 
     def test_lgb_shim_factory_is_invoked_from_configure_lightgbm(self, monkeypatch):
         """``_configure_lightgbm_params`` must dispatch through ``_lgb_classifier_cls`` /
@@ -619,8 +626,10 @@ class TestLGBShimCacheHandoffInCoreLoop:
 
         # Classification branch -> classifier factory invoked.
         out = tr_mod._configure_lightgbm_params(
-            configs=configs, cpu_configs=cpu_configs,
-            use_regression=False, prefer_cpu_for_lightgbm=True,
+            configs=configs,
+            cpu_configs=cpu_configs,
+            use_regression=False,
+            prefer_cpu_for_lightgbm=True,
             prefer_calibrated_classifiers=False,
             metamodel_func=lambda m: m,
         )
@@ -629,8 +638,10 @@ class TestLGBShimCacheHandoffInCoreLoop:
 
         # Regression branch -> regressor factory invoked.
         out = tr_mod._configure_lightgbm_params(
-            configs=configs, cpu_configs=cpu_configs,
-            use_regression=True, prefer_cpu_for_lightgbm=True,
+            configs=configs,
+            cpu_configs=cpu_configs,
+            use_regression=True,
+            prefer_cpu_for_lightgbm=True,
             prefer_calibrated_classifiers=False,
             metamodel_func=lambda m: m,
         )
@@ -648,6 +659,7 @@ class TestLGBShimCacheHandoffInCoreLoop:
 # 10. Pickle / joblib round-trip
 # =====================================================================
 
+
 class TestLGBShimPickleAndCacheLifecycle:
     """The 2026-04-24 prod regression on the XGB side was:
 
@@ -659,7 +671,9 @@ class TestLGBShimPickleAndCacheLifecycle:
     """
 
     def test_joblib_dump_load_round_trip(
-        self, small_classification_data, tmp_path,
+        self,
+        small_classification_data,
+        tmp_path,
     ):
         """Full joblib round-trip -- the exact call path mlframe.training.io
         uses (``joblib.dump`` / ``joblib.load``)."""
@@ -667,12 +681,12 @@ class TestLGBShimPickleAndCacheLifecycle:
 
         X, y = small_classification_data
         m = LGBMClassifierWithDatasetReuse(
-            n_estimators=3, max_depth=3, **_QUIET_LGB,
+            n_estimators=3,
+            max_depth=3,
+            **_QUIET_LGB,
         )
         m.fit(X, y)
-        assert m._cached_train_dataset is not None, (
-            "precondition: fit must populate the cache"
-        )
+        assert m._cached_train_dataset is not None, "precondition: fit must populate the cache"
 
         fpath = tmp_path / "shim.dump"
         # This is the operation that would fail without __getstate__ stripping.
@@ -681,7 +695,9 @@ class TestLGBShimPickleAndCacheLifecycle:
         loaded = joblib.load(fpath)
         # Loaded model produces the same predictions as the live one.
         np.testing.assert_allclose(
-            loaded.predict_proba(X), m.predict_proba(X), atol=1e-6,
+            loaded.predict_proba(X),
+            m.predict_proba(X),
+            atol=1e-6,
             err_msg="reloaded shim diverged from live shim",
         )
         # Cache is NOT inherited across save/load -- it's transient state.
@@ -707,9 +723,7 @@ class TestLGBShimPickleAndCacheLifecycle:
             "_cached_val_key",
         ):
             assert state.get(_attr) is None, (
-                f"__getstate__ must null {_attr!r} before pickling -- "
-                f"the lightgbm.Dataset holds ctypes pointers that can't "
-                f"be serialised."
+                f"__getstate__ must null {_attr!r} before pickling -- the lightgbm.Dataset holds ctypes pointers that can't be serialised."
             )
         # But the LIVE instance's cache is untouched -- getstate must
         # not have mutated ``self.__dict__`` as a side effect.
@@ -722,10 +736,7 @@ class TestLGBShimPickleAndCacheLifecycle:
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
 
         # Simulate an ancient state dict that lacked the cache attrs.
-        legacy_state = {
-            k: v for k, v in m.__getstate__().items()
-            if not k.startswith("_cached_")
-        }
+        legacy_state = {k: v for k, v in m.__getstate__().items() if not k.startswith("_cached_")}
         assert not any(k.startswith("_cached_") for k in legacy_state)
 
         m2 = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
@@ -736,10 +747,7 @@ class TestLGBShimPickleAndCacheLifecycle:
             "_cached_train_key",
             "_cached_val_key",
         ):
-            assert hasattr(m2, _attr), (
-                f"__setstate__ must re-init {_attr!r} for backward "
-                f"compatibility with pre-shim saves"
-            )
+            assert hasattr(m2, _attr), f"__setstate__ must re-init {_attr!r} for backward compatibility with pre-shim saves"
             assert getattr(m2, _attr) is None
 
     def test_clear_cache_releases_dataset(self, small_classification_data):
@@ -764,9 +772,7 @@ class TestLGBShimPickleAndCacheLifecycle:
         m.fit(X, y)
         m.clear_cache()
         m.fit(X, y)
-        assert m._cached_train_dataset is not None, (
-            "cache should rebuild on the fit after clear_cache"
-        )
+        assert m._cached_train_dataset is not None, "cache should rebuild on the fit after clear_cache"
 
     def test_regressor_shim_also_pickles(self, small_regression_data, tmp_path):
         """Regressor variant has the same pickle contract as the
@@ -775,20 +781,25 @@ class TestLGBShimPickleAndCacheLifecycle:
 
         X, y = small_regression_data
         m = LGBMRegressorWithDatasetReuse(
-            n_estimators=3, max_depth=3, **_QUIET_LGB,
+            n_estimators=3,
+            max_depth=3,
+            **_QUIET_LGB,
         )
         m.fit(X, y)
         fpath = tmp_path / "regressor_shim.dump"
         joblib.dump(m, fpath)
         loaded = joblib.load(fpath)
         np.testing.assert_allclose(
-            loaded.predict(X), m.predict(X), atol=1e-6,
+            loaded.predict(X),
+            m.predict(X),
+            atol=1e-6,
         )
 
 
 # =====================================================================
 # 11. Auto-clear_cache at end of strategy iter in core.py suite loop
 # =====================================================================
+
 
 class TestCoreAutoClearsLGBShimCacheAtStrategyEnd:
     """The auto-clear hook in core.py is duck-typed via
@@ -821,6 +832,7 @@ class TestCoreAutoClearsLGBShimCacheAtStrategyEnd:
     def test_duck_typing_skips_non_shim_lgb(self):
         """Safety: vanilla LGBMClassifier has no ``clear_cache`` -- the
         helper's ``callable`` check skips it harmlessly."""
+
         def _probe(est):
             fn = getattr(est, "clear_cache", None)
             if callable(fn):

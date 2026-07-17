@@ -50,16 +50,28 @@ def test_ndcg_one_query_ndcg_at_k_lt_n():
 def test_summary_batched_kernel_compiles_and_runs():
     """The @njit parallel kernel must compile cleanly under the dropped
     kind= kwarg. Two groups of 4 docs each, both with perfect ordering."""
-    sorted_y_true = np.array([3.0, 0.0, 2.0, 1.0,    # group 0
-                              2.0, 1.0, 0.0, 0.0],   # group 1
-                             dtype=np.float64)
-    sorted_y_score = np.array([0.9, 0.1, 0.5, 0.3,
-                               0.8, 0.5, 0.2, 0.1], dtype=np.float64)
+    sorted_y_true = np.array(
+        [
+            3.0,
+            0.0,
+            2.0,
+            1.0,  # group 0
+            2.0,
+            1.0,
+            0.0,
+            0.0,
+        ],  # group 1
+        dtype=np.float64,
+    )
+    sorted_y_score = np.array([0.9, 0.1, 0.5, 0.3, 0.8, 0.5, 0.2, 0.1], dtype=np.float64)
     group_starts = np.array([0, 4, 8], dtype=np.int64)
     eval_ks = np.array([2, 4], dtype=np.int64)
 
     ndcg_sums, ndcg_counts, map_sums, map_counts, mrr_sum, mrr_n = _summary_batched_kernel(
-        sorted_y_true, sorted_y_score, group_starts, eval_ks,
+        sorted_y_true,
+        sorted_y_score,
+        group_starts,
+        eval_ks,
     )
     # Both groups have perfect score-relevance alignment -> NDCG=1 per group.
     assert ndcg_counts[0] == 2 and ndcg_counts[1] == 2
@@ -80,7 +92,10 @@ def test_summary_kernel_handles_tied_scores_deterministically():
     eval_ks = np.array([4], dtype=np.int64)
 
     ndcg_sums, ndcg_counts, map_sums, map_counts, mrr_sum, mrr_n = _summary_batched_kernel(
-        sorted_y_true, sorted_y_score, group_starts, eval_ks,
+        sorted_y_true,
+        sorted_y_score,
+        group_starts,
+        eval_ks,
     )
     assert ndcg_counts[0] == 1
     # All tied positives, perfect order trivially -> NDCG=1
@@ -108,12 +123,18 @@ def test_batch_per_class_ice_kernel_compiles_under_njit():
     desc_idx = np.ascontiguousarray(np.argsort(-y_p, axis=0).astype(np.int64))
 
     ice_per_class = _batch_per_class_ice_kernel(
-        y_t, y_p, desc_idx, 10, True,
-        3.0, 2.0, 0.8,    # mae_weight, std_weight, brier_loss_weight
-        1.5, 0.1,         # roc_auc_weight, pr_auc_weight
-        0.54, 0.0,        # min_roc_auc, roc_auc_penalty
+        y_t,
+        y_p,
+        desc_idx,
+        10,
+        True,
+        3.0,
+        2.0,
+        0.8,  # mae_weight, std_weight, brier_loss_weight
+        1.5,
+        0.1,  # roc_auc_weight, pr_auc_weight
+        0.54,
+        0.0,  # min_roc_auc, roc_auc_penalty
     )
     assert ice_per_class.shape == (K,)
-    assert np.all(np.isfinite(ice_per_class)), (
-        f"ICE per class must be finite; got {ice_per_class.tolist()}"
-    )
+    assert np.all(np.isfinite(ice_per_class)), f"ICE per class must be finite; got {ice_per_class.tolist()}"

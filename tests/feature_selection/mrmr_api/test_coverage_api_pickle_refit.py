@@ -10,6 +10,7 @@ whose state is missing assorted ctor params (simulating an OLD pickle predating 
 params) must re-fit cleanly AND keep the documented legacy override value
 (``mrmr_identity_cache_ycorr_threshold`` -> 0.0, NOT the live ctor default 0.5).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -29,8 +30,7 @@ def _data(n: int = 150, m: int = 4, seed: int = 0):
 
 
 def _fast(**kw):
-    base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0,
-                fe_fast_search=False, interactions_max_order=1)
+    base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, fe_fast_search=False, interactions_max_order=1)
     base.update(kw)
     return MRMR(**base)
 
@@ -76,8 +76,7 @@ def test_pickle_state_missing_params_refits_and_keeps_legacy_override():
     m = _fast(random_seed=3).fit(X, y)
 
     state = m.__getstate__()
-    for k in ("fe_wavelet_enable", "dtype", "mrmr_identity_cache_ycorr_threshold",
-              "nbins_strategy", "bur_lambda", "fe_kfold_te_enable"):
+    for k in ("fe_wavelet_enable", "dtype", "mrmr_identity_cache_ycorr_threshold", "nbins_strategy", "bur_lambda", "fe_kfold_te_enable"):
         state.pop(k, None)
 
     restored = MRMR.__new__(MRMR)

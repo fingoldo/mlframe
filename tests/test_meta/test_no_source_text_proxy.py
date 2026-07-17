@@ -15,6 +15,7 @@ Legitimate read_text uses (LOC budgets, CHANGELOG cross-walk, meta-linters,
 docstring/annotation scanners) are NOT flagged: the scanner only matches a
 string-constant membership test against a read_text-derived name.
 """
+
 from __future__ import annotations
 
 import sys
@@ -68,7 +69,7 @@ def test_no_new_source_text_proxy_assertions() -> None:
 
     if new:
         pytest.fail(
-            f"{len(new)} NEW source-text-proxy assertion(s): `assert \"x\" in <read_text-var>` "
+            f'{len(new)} NEW source-text-proxy assertion(s): `assert "x" in <read_text-var>` '
             f"asserts code STRUCTURE as a stand-in for BEHAVIOUR. Replace with a real runtime "
             f"check (call the function / spy the call site / assert the effect):\n  "
             + "\n  ".join(new[:30])

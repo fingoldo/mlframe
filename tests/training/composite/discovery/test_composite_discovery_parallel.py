@@ -11,6 +11,7 @@ These tests pin:
 2. Biz value: parallel is NOT slower than serial when n_jobs > 1 (the
    refactor must not regress wall time even when the speedup is modest).
 """
+
 from __future__ import annotations
 
 import time
@@ -35,10 +36,16 @@ def _build_problem(n: int = 600, seed: int = 11):
     f6 = rng.normal(size=n)
     # y = mixture of linear + non-linear structure on base1 + light noise.
     y = 1.5 * base1 + 0.3 * f3 - 0.2 * f4 + rng.normal(0.0, 1.0, n)
-    df = pd.DataFrame({
-        "base1": base1, "base2": base2,
-        "f3": f3, "f4": f4, "f5": f5, "f6": f6,
-    })
+    df = pd.DataFrame(
+        {
+            "base1": base1,
+            "base2": base2,
+            "f3": f3,
+            "f4": f4,
+            "f5": f5,
+            "f6": f6,
+        }
+    )
     return df, y
 
 
@@ -85,18 +92,13 @@ class TestParallelDiscoveryEquivalence:
         # Same kept specs (same names, same order after the sort by mi_gain).
         ser_names = [s.name for s in serial.specs_]
         par_names = [s.name for s in parallel.specs_]
-        assert ser_names == par_names, (
-            f"parallel path diverged from serial:\n"
-            f"  serial:   {ser_names}\n"
-            f"  parallel: {par_names}"
-        )
+        assert ser_names == par_names, f"parallel path diverged from serial:\n  serial:   {ser_names}\n  parallel: {par_names}"
 
         # Per-spec mi_gain / mi_t / mi_y must match bit-for-bit (deterministic
         # numpy ops, same input). Pre-binning is deterministic; bootstrap is off.
         for ser_spec, par_spec in zip(serial.specs_, parallel.specs_):
             assert np.isclose(ser_spec.mi_gain, par_spec.mi_gain, atol=1e-12), (
-                f"mi_gain diverged for '{ser_spec.name}': "
-                f"serial={ser_spec.mi_gain}, parallel={par_spec.mi_gain}"
+                f"mi_gain diverged for '{ser_spec.name}': serial={ser_spec.mi_gain}, parallel={par_spec.mi_gain}"
             )
             assert np.isclose(ser_spec.mi_t, par_spec.mi_t, atol=1e-12)
             assert np.isclose(ser_spec.mi_y, par_spec.mi_y, atol=1e-12)
@@ -112,8 +114,12 @@ class TestParallelDiscoveryBizValue:
 
     def test_parallel_not_slower_than_serial(self) -> None:
         transforms = [
-            "linear_residual", "diff", "ratio", "logratio",
-            "monotonic_residual", "quantile_residual",
+            "linear_residual",
+            "diff",
+            "ratio",
+            "logratio",
+            "monotonic_residual",
+            "quantile_residual",
         ]
 
         # Warm up: run once to JIT any numba kernels so the timing is fair.
@@ -213,21 +219,14 @@ class TestParallelRerankEquivalence:
         ser_scores = dict(getattr(serial, "_tiny_rerank_scores", {}))
         par_scores = dict(getattr(parallel, "_tiny_rerank_scores", {}))
         assert set(ser_scores) == set(par_scores), (
-            f"parallel rerank produced a different spec set:\n"
-            f"  serial:   {sorted(ser_scores)}\n"
-            f"  parallel: {sorted(par_scores)}"
+            f"parallel rerank produced a different spec set:\n  serial:   {sorted(ser_scores)}\n  parallel: {sorted(par_scores)}"
         )
         for name, ser_rmse in ser_scores.items():
             par_rmse = par_scores[name]
             if np.isfinite(ser_rmse) and np.isfinite(par_rmse):
-                assert np.isclose(ser_rmse, par_rmse, atol=1e-10), (
-                    f"rerank RMSE for '{name}' diverged: "
-                    f"serial={ser_rmse}, parallel={par_rmse}"
-                )
+                assert np.isclose(ser_rmse, par_rmse, atol=1e-10), f"rerank RMSE for '{name}' diverged: serial={ser_rmse}, parallel={par_rmse}"
             else:
-                assert (
-                    np.isnan(ser_rmse) == np.isnan(par_rmse)
-                ), f"finiteness mismatch for '{name}'"
+                assert np.isnan(ser_rmse) == np.isnan(par_rmse), f"finiteness mismatch for '{name}'"
 
     def test_wilcoxon_per_seed_matches_serial(self) -> None:
         serial = _run_rerank(n_jobs=1, seed_repeats=3)
@@ -235,13 +234,13 @@ class TestParallelRerankEquivalence:
 
         ser_per_seed = getattr(serial, "_wilcoxon_per_seed_composite", {})
         par_per_seed = getattr(parallel, "_wilcoxon_per_seed_composite", {})
-        assert set(ser_per_seed) == set(par_per_seed), (
-            "Wilcoxon per-seed key set diverged between serial and parallel"
-        )
+        assert set(ser_per_seed) == set(par_per_seed), "Wilcoxon per-seed key set diverged between serial and parallel"
         for key, ser_arr in ser_per_seed.items():
             par_arr = par_per_seed[key]
             assert ser_arr.shape == par_arr.shape
             np.testing.assert_allclose(
-                ser_arr, par_arr, atol=1e-10,
+                ser_arr,
+                par_arr,
+                atol=1e-10,
                 err_msg=f"per-seed RMSE array diverged for {key}",
             )

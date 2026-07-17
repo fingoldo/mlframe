@@ -12,13 +12,17 @@
 
 Env: heavy mlframe import path is CUDA-disabled so the selector fits CPU-only (host segfaults otherwise).
 """
+
 from __future__ import annotations
 import os
+
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("MLFRAME_NO_CUDA_AUTOCONFIG", "1")
 os.environ.setdefault("MLFRAME_KEEP_BROKEN_CUPY", "1")
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings
+
+warnings.filterwarnings("ignore")
 
 import numpy as np
 import pandas as pd
@@ -34,18 +38,22 @@ from tests.conftest import fast_n_estimators
 
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
 
+
 def _xor_bed(n=2000, seed=0, n_pairs=3, n_noise=24):
     rng = np.random.default_rng(seed)
     cols, logit = {}, np.zeros(n)
     for p in range(n_pairs):
-        a = rng.standard_normal(n); b = rng.standard_normal(n)
-        cols[f"xa_{p}"] = a; cols[f"xb_{p}"] = b
+        a = rng.standard_normal(n)
+        b = rng.standard_normal(n)
+        cols[f"xa_{p}"] = a
+        cols[f"xb_{p}"] = b
         logit += 1.8 * np.sign(a) * np.sign(b)
     for i in range(n_noise):
         cols[f"noise_{i}"] = rng.standard_normal(n)
     y = (rng.random(n) < 1.0 / (1.0 + np.exp(-logit))).astype(int)
     X = pd.DataFrame(cols)
-    order = list(X.columns); rng.shuffle(order)
+    order = list(X.columns)
+    rng.shuffle(order)
     return X[order], pd.Series(y, name="target")
 
 
@@ -56,35 +64,38 @@ def _cluster_bed(n=2000, seed=0, n_clusters=4, copies=5, n_noise=16):
     for c in range(n_clusters):
         z = rng.standard_normal(n)
         logit += coef[c % len(coef)] * z
-        for j in range(copies):                       # later copy is cleaner -> first-column is a worse member
+        for j in range(copies):  # later copy is cleaner -> first-column is a worse member
             cols[f"c{c}_{j}"] = z + max(0.55 - 0.09 * j, 0.05) * rng.standard_normal(n)
     for i in range(n_noise):
         cols[f"noise_{i}"] = rng.standard_normal(n)
     y = (rng.random(n) < 1.0 / (1.0 + np.exp(-(logit / 1.3)))).astype(int)
     X = pd.DataFrame(cols)
-    order = list(X.columns); rng.shuffle(order)
+    order = list(X.columns)
+    rng.shuffle(order)
     return X[order], pd.Series(y, name="target")
 
 
 def _honest_auc(Xtr, ytr, Xte, yte, sel, seed):
     import lightgbm as lgb
+
     feats = [c for c in sel if c in Xtr.columns]
     if not feats:
         return 0.5
-    m = lgb.LGBMClassifier(n_estimators=fast_n_estimators(300, fast=120), num_leaves=31, learning_rate=0.05, n_jobs=-1,
-                           verbose=-1, random_state=seed)
+    m = lgb.LGBMClassifier(n_estimators=fast_n_estimators(300, fast=120), num_leaves=31, learning_rate=0.05, n_jobs=-1, verbose=-1, random_state=seed)
     m.fit(Xtr[feats], ytr)
     return float(roc_auc_score(yte, m.predict_proba(Xte[feats])[:, 1]))
 
 
 def _fit(X, y, **kw):
     from mlframe.feature_selection import HybridSelector
+
     return HybridSelector(random_state=kw.pop("random_state", 0), **kw).fit(X, y)
 
 
 # ===================================================================== UNIT: defaults + plumbing
 def test_default_knobs_are_gain_and_first():
     from mlframe.feature_selection import HybridSelector
+
     h = HybridSelector()
     assert h.cooccur_weight == "gain"  # measured win on interaction beds -> default
     assert h.cluster_rep == "first"  # FI-based reps are bed-dependent (regress on some beds) -> opt-in, not default
@@ -93,10 +104,11 @@ def test_default_knobs_are_gain_and_first():
 @pytest.mark.parametrize("mode", ["first", "max_fi", "sum_fi"])
 def test_rep_member_honours_each_mode(mode):
     from mlframe.feature_selection import HybridSelector
+
     h = HybridSelector(cluster_rep=mode)
     members = ["a", "b", "c"]
-    h.fi_ = {"a": 0.1, "b": 0.3, "c": 0.2}        # max mean-FI = b
-    h._fi_sum_ = {"a": 0.1, "b": 0.2, "c": 0.9}   # max sum-FI = c
+    h.fi_ = {"a": 0.1, "b": 0.3, "c": 0.2}  # max mean-FI = b
+    h._fi_sum_ = {"a": 0.1, "b": 0.2, "c": 0.9}  # max sum-FI = c
     rep = h._rep_member(members)
     assert rep == {"first": "a", "max_fi": "b", "sum_fi": "c"}[mode]
     assert h._rep_member([]) is None
@@ -104,8 +116,9 @@ def test_rep_member_honours_each_mode(mode):
 
 def test_rep_member_sum_fi_falls_back_to_mean_when_no_sum():
     from mlframe.feature_selection import HybridSelector
+
     h = HybridSelector(cluster_rep="sum_fi")
-    h.fi_ = {"a": 0.1, "b": 0.4}                   # no _fi_sum_ -> falls back to mean FI
+    h.fi_ = {"a": 0.1, "b": 0.4}  # no _fi_sum_ -> falls back to mean FI
     assert h._rep_member(["a", "b"]) == "b"
 
 
@@ -155,4 +168,5 @@ def test_cluster_rep_sum_fi_is_a_valid_optin_selection():
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "-v", "-s", "--no-cov", "-p", "no:cacheprovider", "-p", "no:randomly"]))

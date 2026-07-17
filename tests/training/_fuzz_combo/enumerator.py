@@ -1,4 +1,5 @@
 """Deterministic pairwise/triple-greedy combo enumerator + dedup."""
+
 from __future__ import annotations
 
 import random
@@ -153,63 +154,31 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         # axes. Previously declared in AXES + dataclass but not threaded
         # through _build_combo, so randomised values silently fell back to
         # dataclass defaults. Wired 2026-05-21.
-        prep_ext_polynomial_max_features_cfg=axes.get(
-            "prep_ext_polynomial_max_features_cfg", 10_000
-        ),
-        prep_ext_polynomial_interaction_only_cfg=axes.get(
-            "prep_ext_polynomial_interaction_only_cfg", True
-        ),
-        prep_ext_memory_safety_max_bytes_cfg=axes.get(
-            "prep_ext_memory_safety_max_bytes_cfg", 500_000_000
-        ),
+        prep_ext_polynomial_max_features_cfg=axes.get("prep_ext_polynomial_max_features_cfg", 10_000),
+        prep_ext_polynomial_interaction_only_cfg=axes.get("prep_ext_polynomial_interaction_only_cfg", True),
+        prep_ext_memory_safety_max_bytes_cfg=axes.get("prep_ext_memory_safety_max_bytes_cfg", 500_000_000),
         # 2026-05-19 -- composite-discovery stacked-residual axes. Same
         # un-wired bug as above; defaulting these collapsed every combo to
         # the False / True dataclass defaults regardless of the axis value.
-        composite_use_stacked_discovery_cfg=axes.get(
-            "composite_use_stacked_discovery_cfg", False
-        ),
-        composite_use_stacked_discovery_residual_cfg=axes.get(
-            "composite_use_stacked_discovery_residual_cfg", False
-        ),
+        composite_use_stacked_discovery_cfg=axes.get("composite_use_stacked_discovery_cfg", False),
+        composite_use_stacked_discovery_residual_cfg=axes.get("composite_use_stacked_discovery_residual_cfg", False),
         # 2026-05-22 -- six gate-flip axes from the TVT-MLP-collapse
         # cascade. Defaults match the post-fix values; AXES holds the
         # pre-fix variant for regression coverage.
-        composite_skip_raw_dominates_ratio_cfg=axes.get(
-            "composite_skip_raw_dominates_ratio_cfg", 0.0
-        ),
-        composite_skip_ablation_delta_pct_cfg=axes.get(
-            "composite_skip_ablation_delta_pct_cfg", 0.0
-        ),
-        composite_eps_mi_gain_cfg=axes.get(
-            "composite_eps_mi_gain_cfg", -10.0
-        ),
-        composite_top_k_after_mi_cfg=axes.get(
-            "composite_top_k_after_mi_cfg", 32
-        ),
-        composite_require_beats_raw_baseline_cfg=axes.get(
-            "composite_require_beats_raw_baseline_cfg", False
-        ),
-        composite_per_bin_n_bins_cfg=axes.get(
-            "composite_per_bin_n_bins_cfg", 0
-        ),
-        composite_tiny_screening_mode_cfg=axes.get(
-            "composite_tiny_screening_mode_cfg", "per_family"
-        ),
-        composite_include_additive_residual_cfg=axes.get(
-            "composite_include_additive_residual_cfg", True
-        ),
+        composite_skip_raw_dominates_ratio_cfg=axes.get("composite_skip_raw_dominates_ratio_cfg", 0.0),
+        composite_skip_ablation_delta_pct_cfg=axes.get("composite_skip_ablation_delta_pct_cfg", 0.0),
+        composite_eps_mi_gain_cfg=axes.get("composite_eps_mi_gain_cfg", -10.0),
+        composite_top_k_after_mi_cfg=axes.get("composite_top_k_after_mi_cfg", 32),
+        composite_require_beats_raw_baseline_cfg=axes.get("composite_require_beats_raw_baseline_cfg", False),
+        composite_per_bin_n_bins_cfg=axes.get("composite_per_bin_n_bins_cfg", 0),
+        composite_tiny_screening_mode_cfg=axes.get("composite_tiny_screening_mode_cfg", "per_family"),
+        composite_include_additive_residual_cfg=axes.get("composite_include_additive_residual_cfg", True),
         mlp_activation_cfg=axes.get("mlp_activation_cfg", "ReLU"),
-        composite_skip_wrap_pass_predict_cfg=axes.get(
-            "composite_skip_wrap_pass_predict_cfg", True
-        ),
+        composite_skip_wrap_pass_predict_cfg=axes.get("composite_skip_wrap_pass_predict_cfg", True),
         # 2026-05-21 -- mini-HPT (target + feature distribution analyzer)
         # + MRMR FE pair-check subsample knob.
-        enable_target_distribution_analyzer_cfg=axes.get(
-            "enable_target_distribution_analyzer_cfg", True
-        ),
-        fe_check_pairs_subsample_n_cfg=axes.get(
-            "fe_check_pairs_subsample_n_cfg", 0
-        ),
+        enable_target_distribution_analyzer_cfg=axes.get("enable_target_distribution_analyzer_cfg", True),
+        fe_check_pairs_subsample_n_cfg=axes.get("fe_check_pairs_subsample_n_cfg", 0),
         # 2026-05-21 iter150 -- multi-target / multi-target-type axis.
         extra_targets=axes.get("extra_targets", None),
         # 2026-05-21 iter151 -- P0/P1/P2 audit fill-in.
@@ -273,9 +242,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         prefer_gpu_configs_cfg=axes.get("prefer_gpu_configs_cfg", True),
         prefer_cpu_for_lightgbm_cfg=axes.get("prefer_cpu_for_lightgbm_cfg", True),
         mrmr_identity_cache_scope_cfg=axes.get("mrmr_identity_cache_scope_cfg", "ctx"),
-        skip_identity_equivalent_pre_pipelines_cfg=axes.get(
-            "skip_identity_equivalent_pre_pipelines_cfg", True
-        ),
+        skip_identity_equivalent_pre_pipelines_cfg=axes.get("skip_identity_equivalent_pre_pipelines_cfg", True),
         rfecv_leakage_corr_threshold_cfg=axes.get("rfecv_leakage_corr_threshold_cfg", 0.95),
         rfecv_mbh_adaptive_threshold_cfg=axes.get("rfecv_mbh_adaptive_threshold_cfg", 30),
         # 2026-05-22 iter162 -- nested-config / depth-2 audit fill-in.
@@ -302,9 +269,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         composite_mi_nbins_cfg=axes.get("composite_mi_nbins_cfg", 16),
         composite_mi_aggregation_cfg=axes.get("composite_mi_aggregation_cfg", "mean"),
         composite_mi_sample_strategy_cfg=axes.get("composite_mi_sample_strategy_cfg", "random"),
-        composite_stacked_residual_aggregation_cfg=axes.get(
-            "composite_stacked_residual_aggregation_cfg", "mean"
-        ),
+        composite_stacked_residual_aggregation_cfg=axes.get("composite_stacked_residual_aggregation_cfg", "mean"),
         composite_discovery_n_jobs_cfg=axes.get("composite_discovery_n_jobs_cfg", 1),
         quantile_crossing_fix_cfg=axes.get("quantile_crossing_fix_cfg", "sort"),
         quantile_coverage_pairs_cfg=axes.get("quantile_coverage_pairs_cfg", "default"),
@@ -354,84 +319,38 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         # 2026-05-28 audit-pass-2 B1-B6: ShapProxiedFS deeper extension axes.
         shap_proxied_config_jitter_cfg=axes.get("shap_proxied_config_jitter_cfg", False),
         shap_proxied_uncertainty_penalty_cfg=axes.get("shap_proxied_uncertainty_penalty_cfg", 0.0),
-        shap_proxied_within_cluster_refine_cfg=axes.get(
-            "shap_proxied_within_cluster_refine_cfg", True
-        ),
-        shap_proxied_use_bias_corrector_cfg=axes.get(
-            "shap_proxied_use_bias_corrector_cfg", True
-        ),
-        shap_proxied_refine_n_estimators_cfg=axes.get(
-            "shap_proxied_refine_n_estimators_cfg", 100
-        ),
-        shap_proxied_trust_guard_n_estimators_cfg=axes.get(
-            "shap_proxied_trust_guard_n_estimators_cfg", 100
-        ),
+        shap_proxied_within_cluster_refine_cfg=axes.get("shap_proxied_within_cluster_refine_cfg", True),
+        shap_proxied_use_bias_corrector_cfg=axes.get("shap_proxied_use_bias_corrector_cfg", True),
+        shap_proxied_refine_n_estimators_cfg=axes.get("shap_proxied_refine_n_estimators_cfg", 100),
+        shap_proxied_trust_guard_n_estimators_cfg=axes.get("shap_proxied_trust_guard_n_estimators_cfg", 100),
         # 2026-05-28 ShapProxiedFS audit-pass-3 axes (W3).
-        shap_proxied_cluster_weighting_cfg=axes.get(
-            "shap_proxied_cluster_weighting_cfg", "pca_pc1"
-        ),
+        shap_proxied_cluster_weighting_cfg=axes.get("shap_proxied_cluster_weighting_cfg", "pca_pc1"),
         # iter624 (audit-pass-13 INFORMATIONAL): iter67 SU-pairwise cluster.
-        shap_proxied_cluster_use_precomputed_bins_cfg=axes.get(
-            "shap_proxied_cluster_use_precomputed_bins_cfg", True
-        ),
-        shap_proxied_cluster_su_threshold_cfg=axes.get(
-            "shap_proxied_cluster_su_threshold_cfg", 0.5
-        ),
-        shap_proxied_max_interaction_features_cfg=axes.get(
-            "shap_proxied_max_interaction_features_cfg", 16
-        ),
-        shap_proxied_prefilter_top_cfg=axes.get(
-            "shap_proxied_prefilter_top_cfg", 2000
-        ),
-        shap_proxied_prefilter_n_estimators_cfg=axes.get(
-            "shap_proxied_prefilter_n_estimators_cfg", 100
-        ),
+        shap_proxied_cluster_use_precomputed_bins_cfg=axes.get("shap_proxied_cluster_use_precomputed_bins_cfg", True),
+        shap_proxied_cluster_su_threshold_cfg=axes.get("shap_proxied_cluster_su_threshold_cfg", 0.5),
+        shap_proxied_max_interaction_features_cfg=axes.get("shap_proxied_max_interaction_features_cfg", 16),
+        shap_proxied_prefilter_top_cfg=axes.get("shap_proxied_prefilter_top_cfg", 2000),
+        shap_proxied_prefilter_n_estimators_cfg=axes.get("shap_proxied_prefilter_n_estimators_cfg", 100),
         # 2026-05-28 ShapProxiedFS audit-pass-5 axes (W5).
-        shap_proxied_trust_guard_stratified_anchors_cfg=axes.get(
-            "shap_proxied_trust_guard_stratified_anchors_cfg", False
-        ),
-        shap_proxied_trust_guard_uniform_tail_frac_cfg=axes.get(
-            "shap_proxied_trust_guard_uniform_tail_frac_cfg", 0.2
-        ),
-        shap_proxied_trust_guard_cardinality_dist_cfg=axes.get(
-            "shap_proxied_trust_guard_cardinality_dist_cfg", "zipf"
-        ),
-        shap_proxied_trust_guard_zipf_alpha_cfg=axes.get(
-            "shap_proxied_trust_guard_zipf_alpha_cfg", 0.25
-        ),
-        shap_proxied_trust_guard_fidelity_weights_cfg=axes.get(
-            "shap_proxied_trust_guard_fidelity_weights_cfg", (0.6, 0.4)
-        ),
-        shap_proxied_trust_guard_metric_cfg=axes.get(
-            "shap_proxied_trust_guard_metric_cfg", "proxy_fidelity_score"
-        ),
-        shap_proxied_fidelity_floor_cfg=axes.get(
-            "shap_proxied_fidelity_floor_cfg", 0.5
-        ),
-        shap_proxied_oof_shap_n_estimators_cfg=axes.get(
-            "shap_proxied_oof_shap_n_estimators_cfg", 100
-        ),
+        shap_proxied_trust_guard_stratified_anchors_cfg=axes.get("shap_proxied_trust_guard_stratified_anchors_cfg", False),
+        shap_proxied_trust_guard_uniform_tail_frac_cfg=axes.get("shap_proxied_trust_guard_uniform_tail_frac_cfg", 0.2),
+        shap_proxied_trust_guard_cardinality_dist_cfg=axes.get("shap_proxied_trust_guard_cardinality_dist_cfg", "zipf"),
+        shap_proxied_trust_guard_zipf_alpha_cfg=axes.get("shap_proxied_trust_guard_zipf_alpha_cfg", 0.25),
+        shap_proxied_trust_guard_fidelity_weights_cfg=axes.get("shap_proxied_trust_guard_fidelity_weights_cfg", (0.6, 0.4)),
+        shap_proxied_trust_guard_metric_cfg=axes.get("shap_proxied_trust_guard_metric_cfg", "proxy_fidelity_score"),
+        shap_proxied_fidelity_floor_cfg=axes.get("shap_proxied_fidelity_floor_cfg", 0.5),
+        shap_proxied_oof_shap_n_estimators_cfg=axes.get("shap_proxied_oof_shap_n_estimators_cfg", 100),
         # 2026-05-28 audit-pass-2 PART A coverage-gap axes.
-        ensembling_degenerate_class_ratio_cfg=axes.get(
-            "ensembling_degenerate_class_ratio_cfg", 0.01
-        ),
-        target_temporal_audit_granularity_cfg=axes.get(
-            "target_temporal_audit_granularity_cfg", "auto"
-        ),
+        ensembling_degenerate_class_ratio_cfg=axes.get("ensembling_degenerate_class_ratio_cfg", 0.01),
+        target_temporal_audit_granularity_cfg=axes.get("target_temporal_audit_granularity_cfg", "auto"),
         prep_ext_dim_n_components_cfg=axes.get("prep_ext_dim_n_components_cfg", 50),
         fhc_text_min_cardinality_cfg=axes.get("fhc_text_min_cardinality_cfg", 300),
-        composite_auto_skip_on_baseline_optimal_cfg=axes.get(
-            "composite_auto_skip_on_baseline_optimal_cfg", False
-        ),
+        composite_auto_skip_on_baseline_optimal_cfg=axes.get("composite_auto_skip_on_baseline_optimal_cfg", False),
         composite_mi_n_neighbors_cfg=axes.get("composite_mi_n_neighbors_cfg", 3),
         composite_auto_base_null_perms_cfg=axes.get("composite_auto_base_null_perms_cfg", 20),
         composite_multi_base_max_k_cfg=axes.get("composite_multi_base_max_k_cfg", 3),
-        extreme_ar_group_aware_skip_models_cfg=axes.get(
-            "extreme_ar_group_aware_skip_models_cfg", "default_neural"
-        ),
-        fs_pre_screen_null_fraction_threshold_cfg=axes.get(
-            "fs_pre_screen_null_fraction_threshold_cfg", 0.99
-        ),
+        extreme_ar_group_aware_skip_models_cfg=axes.get("extreme_ar_group_aware_skip_models_cfg", "default_neural"),
+        fs_pre_screen_null_fraction_threshold_cfg=axes.get("fs_pre_screen_null_fraction_threshold_cfg", 0.99),
         linear_l1_ratio_cfg=axes.get("linear_l1_ratio_cfg", 0.5),
         recurrent_hidden_size_cfg=axes.get("recurrent_hidden_size_cfg", 128),
         catfe_fwer_correction_cfg=axes.get("catfe_fwer_correction_cfg", "none"),
@@ -501,37 +420,23 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         calibration_policy_auto_pick_cfg=axes.get("calibration_policy_auto_pick_cfg", True),
         calibration_n_bootstrap_cfg=axes.get("calibration_n_bootstrap_cfg", 1000),
         calibration_candidates_cfg=axes.get("calibration_candidates_cfg", None),
-        pipeline_cache_ram_budget_fraction_cfg=axes.get(
-            "pipeline_cache_ram_budget_fraction_cfg", 0.4
-        ),
-        reporting_compute_trainset_metrics_cfg=axes.get(
-            "reporting_compute_trainset_metrics_cfg", False
-        ),
+        pipeline_cache_ram_budget_fraction_cfg=axes.get("pipeline_cache_ram_budget_fraction_cfg", 0.4),
+        reporting_compute_trainset_metrics_cfg=axes.get("reporting_compute_trainset_metrics_cfg", False),
         reporting_mase_seasonality_cfg=axes.get("reporting_mase_seasonality_cfg", 1),
-        recurrent_use_stratified_sampler_cfg=axes.get(
-            "recurrent_use_stratified_sampler_cfg", True
-        ),
-        behavior_model_file_hash_suffix_cfg=axes.get(
-            "behavior_model_file_hash_suffix_cfg", True
-        ),
+        recurrent_use_stratified_sampler_cfg=axes.get("recurrent_use_stratified_sampler_cfg", True),
+        behavior_model_file_hash_suffix_cfg=axes.get("behavior_model_file_hash_suffix_cfg", True),
         # 2026-05-30 audit-pass-6 (W6).
         slice_stable_es_enabled_cfg=axes.get("slice_stable_es_enabled_cfg", False),
         slice_stable_es_aggregate_cfg=axes.get("slice_stable_es_aggregate_cfg", "mean"),
         slice_stable_es_source_cfg=axes.get("slice_stable_es_source_cfg", "temporal"),
-        slice_stable_es_pareto_best_iter_selection_cfg=axes.get(
-            "slice_stable_es_pareto_best_iter_selection_cfg", False
-        ),
-        slice_stable_es_diagnostic_only_cfg=axes.get(
-            "slice_stable_es_diagnostic_only_cfg", False
-        ),
+        slice_stable_es_pareto_best_iter_selection_cfg=axes.get("slice_stable_es_pareto_best_iter_selection_cfg", False),
+        slice_stable_es_diagnostic_only_cfg=axes.get("slice_stable_es_diagnostic_only_cfg", False),
         mrmr_nbins_strategy_cfg=axes.get("mrmr_nbins_strategy_cfg", "mdlp"),
         mrmr_mi_correction_cfg=axes.get("mrmr_mi_correction_cfg", "none"),
         mrmr_redundancy_aggregator_cfg=axes.get("mrmr_redundancy_aggregator_cfg", None),
         mrmr_bur_lambda_cfg=axes.get("mrmr_bur_lambda_cfg", 0.0),
         mrmr_cmi_perm_stop_cfg=axes.get("mrmr_cmi_perm_stop_cfg", False),
-        mrmr_stability_selection_method_cfg=axes.get(
-            "mrmr_stability_selection_method_cfg", "classic"
-        ),
+        mrmr_stability_selection_method_cfg=axes.get("mrmr_stability_selection_method_cfg", "classic"),
         mrmr_mi_normalization_cfg=axes.get("mrmr_mi_normalization_cfg", "none"),
         mrmr_dcd_enable_cfg=axes.get("mrmr_dcd_enable_cfg", True),
         # 2026-05-30 audit-pass-7 #2/#3/#4 -- defaults verified at
@@ -540,64 +445,26 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_low_card_cap_cfg=axes.get("mrmr_low_card_cap_cfg", 32),
         mrmr_collapsed_fallback_nbins_cfg=axes.get("mrmr_collapsed_fallback_nbins_cfg", 5),
         cv_selector_mode_cfg=axes.get("cv_selector_mode_cfg", "mean"),
-        auto_wrap_partial_fit_es_force_off_cfg=axes.get(
-            "auto_wrap_partial_fit_es_force_off_cfg", False
-        ),
+        auto_wrap_partial_fit_es_force_off_cfg=axes.get("auto_wrap_partial_fit_es_force_off_cfg", False),
         # 2026-05-30 audit-pass-6 LOW-tier deferred batch (W6 LOW).
-        shap_proxied_prefilter_stage1_keep_cfg=axes.get(
-            "shap_proxied_prefilter_stage1_keep_cfg", None
-        ),
-        shap_proxied_prefilter_univariate_batch_size_cfg=axes.get(
-            "shap_proxied_prefilter_univariate_batch_size_cfg", None
-        ),
-        shap_proxied_shap_prefilter_enabled_cfg=axes.get(
-            "shap_proxied_shap_prefilter_enabled_cfg", True
-        ),
-        shap_proxied_shap_prefilter_safety_factor_cfg=axes.get(
-            "shap_proxied_shap_prefilter_safety_factor_cfg", 4
-        ),
-        shap_proxied_shap_prefilter_min_features_cfg=axes.get(
-            "shap_proxied_shap_prefilter_min_features_cfg", 40
-        ),
-        shap_proxied_shap_aware_stage1_keep_cfg=axes.get(
-            "shap_proxied_shap_aware_stage1_keep_cfg", True
-        ),
-        shap_proxied_shap_aware_stage1_cushion_cfg=axes.get(
-            "shap_proxied_shap_aware_stage1_cushion_cfg", 2
-        ),
-        shap_proxied_shap_aware_stage1_floor_cfg=axes.get(
-            "shap_proxied_shap_aware_stage1_floor_cfg", 200
-        ),
-        shap_proxied_refine_ucb_enabled_cfg=axes.get(
-            "shap_proxied_refine_ucb_enabled_cfg", True
-        ),
-        shap_proxied_refine_ucb_min_eval_size_cfg=axes.get(
-            "shap_proxied_refine_ucb_min_eval_size_cfg", None
-        ),
-        shap_proxied_refine_ucb_slack_cfg=axes.get(
-            "shap_proxied_refine_ucb_slack_cfg", None
-        ),
-        shap_proxied_refine_ucb_stdev_multiplier_cfg=axes.get(
-            "shap_proxied_refine_ucb_stdev_multiplier_cfg", 1.0
-        ),
-        shap_proxied_revalidation_n_estimators_cfg=axes.get(
-            "shap_proxied_revalidation_n_estimators_cfg", 100
-        ),
-        shap_proxied_revalidation_ucb_enabled_cfg=axes.get(
-            "shap_proxied_revalidation_ucb_enabled_cfg", True
-        ),
-        shap_proxied_revalidation_ucb_min_eval_size_cfg=axes.get(
-            "shap_proxied_revalidation_ucb_min_eval_size_cfg", None
-        ),
-        shap_proxied_revalidation_ucb_slack_cfg=axes.get(
-            "shap_proxied_revalidation_ucb_slack_cfg", None
-        ),
-        shap_proxied_revalidation_ucb_stdev_multiplier_cfg=axes.get(
-            "shap_proxied_revalidation_ucb_stdev_multiplier_cfg", None
-        ),
-        shap_proxied_inner_n_jobs_cap_cfg=axes.get(
-            "shap_proxied_inner_n_jobs_cap_cfg", False
-        ),
+        shap_proxied_prefilter_stage1_keep_cfg=axes.get("shap_proxied_prefilter_stage1_keep_cfg", None),
+        shap_proxied_prefilter_univariate_batch_size_cfg=axes.get("shap_proxied_prefilter_univariate_batch_size_cfg", None),
+        shap_proxied_shap_prefilter_enabled_cfg=axes.get("shap_proxied_shap_prefilter_enabled_cfg", True),
+        shap_proxied_shap_prefilter_safety_factor_cfg=axes.get("shap_proxied_shap_prefilter_safety_factor_cfg", 4),
+        shap_proxied_shap_prefilter_min_features_cfg=axes.get("shap_proxied_shap_prefilter_min_features_cfg", 40),
+        shap_proxied_shap_aware_stage1_keep_cfg=axes.get("shap_proxied_shap_aware_stage1_keep_cfg", True),
+        shap_proxied_shap_aware_stage1_cushion_cfg=axes.get("shap_proxied_shap_aware_stage1_cushion_cfg", 2),
+        shap_proxied_shap_aware_stage1_floor_cfg=axes.get("shap_proxied_shap_aware_stage1_floor_cfg", 200),
+        shap_proxied_refine_ucb_enabled_cfg=axes.get("shap_proxied_refine_ucb_enabled_cfg", True),
+        shap_proxied_refine_ucb_min_eval_size_cfg=axes.get("shap_proxied_refine_ucb_min_eval_size_cfg", None),
+        shap_proxied_refine_ucb_slack_cfg=axes.get("shap_proxied_refine_ucb_slack_cfg", None),
+        shap_proxied_refine_ucb_stdev_multiplier_cfg=axes.get("shap_proxied_refine_ucb_stdev_multiplier_cfg", 1.0),
+        shap_proxied_revalidation_n_estimators_cfg=axes.get("shap_proxied_revalidation_n_estimators_cfg", 100),
+        shap_proxied_revalidation_ucb_enabled_cfg=axes.get("shap_proxied_revalidation_ucb_enabled_cfg", True),
+        shap_proxied_revalidation_ucb_min_eval_size_cfg=axes.get("shap_proxied_revalidation_ucb_min_eval_size_cfg", None),
+        shap_proxied_revalidation_ucb_slack_cfg=axes.get("shap_proxied_revalidation_ucb_slack_cfg", None),
+        shap_proxied_revalidation_ucb_stdev_multiplier_cfg=axes.get("shap_proxied_revalidation_ucb_stdev_multiplier_cfg", None),
+        shap_proxied_inner_n_jobs_cap_cfg=axes.get("shap_proxied_inner_n_jobs_cap_cfg", False),
         mrmr_relaxmrmr_alpha_cfg=axes.get("mrmr_relaxmrmr_alpha_cfg", 0.0),
         mrmr_uaed_auto_size_cfg=axes.get("mrmr_uaed_auto_size_cfg", False),
         mrmr_cpt_test_cfg=axes.get("mrmr_cpt_test_cfg", False),
@@ -608,28 +475,18 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         cv_persist_fold_scores_cfg=axes.get("cv_persist_fold_scores_cfg", False),
         # 2026-05-31 audit-pass-8 HIGH (#1-#4). Defaults source-verified at
         # filters/mrmr.py:334 / :326 and training/neural/base.py:217 / :218.
-        mrmr_cardinality_bias_correction_cfg=axes.get(
-            "mrmr_cardinality_bias_correction_cfg", True
-        ),
-        mrmr_min_relevance_gain_relative_to_first_cfg=axes.get(
-            "mrmr_min_relevance_gain_relative_to_first_cfg", 0.05
-        ),
+        mrmr_cardinality_bias_correction_cfg=axes.get("mrmr_cardinality_bias_correction_cfg", True),
+        mrmr_min_relevance_gain_relative_to_first_cfg=axes.get("mrmr_min_relevance_gain_relative_to_first_cfg", 0.05),
         mlp_random_state_cfg=axes.get("mlp_random_state_cfg", None),
         mlp_class_weight_cfg=axes.get("mlp_class_weight_cfg", None),
         # 2026-05-31 audit-pass-8 MED + LOW->MED (#5/#7/#8/#9/#10). Defaults
         # source-verified at shap_proxied_fs.py:208 / flat.py:205 + library
         # defaults for the remaining MLP / frame-builder injection axes.
-        shap_proxied_adaptive_prescreen_by_stability_cfg=axes.get(
-            "shap_proxied_adaptive_prescreen_by_stability_cfg", False
-        ),
+        shap_proxied_adaptive_prescreen_by_stability_cfg=axes.get("shap_proxied_adaptive_prescreen_by_stability_cfg", False),
         mlp_use_layernorm_cfg=axes.get("mlp_use_layernorm_cfg", False),
         mlp_l1_alpha_cfg=axes.get("mlp_l1_alpha_cfg", 0.0),
-        mlp_inject_zero_sample_weight_batch_cfg=axes.get(
-            "mlp_inject_zero_sample_weight_batch_cfg", False
-        ),
-        inject_xor_synergy_pair_cfg=axes.get(
-            "inject_xor_synergy_pair_cfg", False
-        ),
+        mlp_inject_zero_sample_weight_batch_cfg=axes.get("mlp_inject_zero_sample_weight_batch_cfg", False),
+        inject_xor_synergy_pair_cfg=axes.get("inject_xor_synergy_pair_cfg", False),
         # 2026-05-31 audit-pass-9 (W9). Defaults mirror source verbatim.
         mlp_adamw_betas_cfg=axes.get("mlp_adamw_betas_cfg", (0.9, 0.95)),
         mlp_use_ema_cfg=axes.get("mlp_use_ema_cfg", False),
@@ -639,67 +496,31 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mlp_use_learnable_cat_embeddings_cfg=axes.get("mlp_use_learnable_cat_embeddings_cfg", True),
         mlp_categorical_embed_dim_cfg=axes.get("mlp_categorical_embed_dim_cfg", None),
         mlp_numerical_embedding_cfg=axes.get("mlp_numerical_embedding_cfg", None),
-        mlp_numerical_embedding_kwargs_cfg=axes.get(
-            "mlp_numerical_embedding_kwargs_cfg", "paper_default"
-        ),
-        mrmr_fe_hybrid_orth_enable_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_enable_cfg", False
-        ),
-        mrmr_fe_hybrid_orth_pair_enable_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_pair_enable_cfg", True
-        ),
+        mlp_numerical_embedding_kwargs_cfg=axes.get("mlp_numerical_embedding_kwargs_cfg", "paper_default"),
+        mrmr_fe_hybrid_orth_enable_cfg=axes.get("mrmr_fe_hybrid_orth_enable_cfg", False),
+        mrmr_fe_hybrid_orth_pair_enable_cfg=axes.get("mrmr_fe_hybrid_orth_pair_enable_cfg", True),
         # 2026-05-31 audit-pass-10 (W10). Defaults mirror source verbatim.
         mlp_optimizer_cfg=axes.get("mlp_optimizer_cfg", "adamw"),
-        mrmr_fe_hybrid_orth_degrees_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_degrees_cfg", (2, 3)
-        ),
-        mrmr_fe_hybrid_orth_basis_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_basis_cfg", "auto"
-        ),
-        mrmr_fe_hybrid_orth_top_k_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_top_k_cfg", 5
-        ),
-        mrmr_fe_hybrid_orth_pair_max_degree_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_pair_max_degree_cfg", 2
-        ),
+        mrmr_fe_hybrid_orth_degrees_cfg=axes.get("mrmr_fe_hybrid_orth_degrees_cfg", (2, 3)),
+        mrmr_fe_hybrid_orth_basis_cfg=axes.get("mrmr_fe_hybrid_orth_basis_cfg", "auto"),
+        mrmr_fe_hybrid_orth_top_k_cfg=axes.get("mrmr_fe_hybrid_orth_top_k_cfg", 5),
+        mrmr_fe_hybrid_orth_pair_max_degree_cfg=axes.get("mrmr_fe_hybrid_orth_pair_max_degree_cfg", 2),
         # 2026-05-31 audit-pass-12 (W12). Defaults mirror source verbatim
         # (Group A canon-only markers, Group B MRMR FE master switches,
         # Group C MRMR+ShapProxiedFS coupling).
-        composite_target_multilabel_strategy_cfg=axes.get(
-            "composite_target_multilabel_strategy_cfg", "per_target"
-        ),
+        composite_target_multilabel_strategy_cfg=axes.get("composite_target_multilabel_strategy_cfg", "per_target"),
         enable_ct_ensemble_cfg=axes.get("enable_ct_ensemble_cfg", True),
         mtr_eval_metric_cfg=axes.get("mtr_eval_metric_cfg", None),
-        mrmr_fe_kfold_te_enable_cfg=axes.get(
-            "mrmr_fe_kfold_te_enable_cfg", False
-        ),
-        mrmr_fe_missingness_indicator_enable_cfg=axes.get(
-            "mrmr_fe_missingness_indicator_enable_cfg", False
-        ),
-        mrmr_fe_missingness_count_enable_cfg=axes.get(
-            "mrmr_fe_missingness_count_enable_cfg", False
-        ),
-        mrmr_fe_missingness_pattern_enable_cfg=axes.get(
-            "mrmr_fe_missingness_pattern_enable_cfg", False
-        ),
-        mrmr_fe_cat_aux_enable_cfg=axes.get(
-            "mrmr_fe_cat_aux_enable_cfg", "off"
-        ),
-        mrmr_fe_hybrid_orth_extra_bases_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_extra_bases_cfg", ()
-        ),
-        mrmr_fe_ratio_delta_diff_cfg=axes.get(
-            "mrmr_fe_ratio_delta_diff_cfg", "off"
-        ),
-        mrmr_fe_mi_greedy_enable_cfg=axes.get(
-            "mrmr_fe_mi_greedy_enable_cfg", False
-        ),
-        mrmr_shap_proxy_artifact_reuse_cfg=axes.get(
-            "mrmr_shap_proxy_artifact_reuse_cfg", "off"
-        ),
-        mrmr_shap_proxy_align_mode_cfg=axes.get(
-            "mrmr_shap_proxy_align_mode_cfg", "exact"
-        ),
+        mrmr_fe_kfold_te_enable_cfg=axes.get("mrmr_fe_kfold_te_enable_cfg", False),
+        mrmr_fe_missingness_indicator_enable_cfg=axes.get("mrmr_fe_missingness_indicator_enable_cfg", False),
+        mrmr_fe_missingness_count_enable_cfg=axes.get("mrmr_fe_missingness_count_enable_cfg", False),
+        mrmr_fe_missingness_pattern_enable_cfg=axes.get("mrmr_fe_missingness_pattern_enable_cfg", False),
+        mrmr_fe_cat_aux_enable_cfg=axes.get("mrmr_fe_cat_aux_enable_cfg", "off"),
+        mrmr_fe_hybrid_orth_extra_bases_cfg=axes.get("mrmr_fe_hybrid_orth_extra_bases_cfg", ()),
+        mrmr_fe_ratio_delta_diff_cfg=axes.get("mrmr_fe_ratio_delta_diff_cfg", "off"),
+        mrmr_fe_mi_greedy_enable_cfg=axes.get("mrmr_fe_mi_greedy_enable_cfg", False),
+        mrmr_shap_proxy_artifact_reuse_cfg=axes.get("mrmr_shap_proxy_artifact_reuse_cfg", "off"),
+        mrmr_shap_proxy_align_mode_cfg=axes.get("mrmr_shap_proxy_align_mode_cfg", "exact"),
         # 2026-05-31 audit-pass-14 (W14). Defaults source-verified at HEAD:
         #   F14-1 shap_proxied_cluster_backend_cfg = "auto"
         #         (shap_proxied_fs.py:258)
@@ -710,67 +531,31 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         #   F14-4 mrmr_dcd_tau_cluster_cfg = 0.7 (filters/mrmr.py:621)
         #   F14-5 mrmr_dcd_distance_cfg = "su" (filters/mrmr.py:622)
         #         mrmr_dcd_swap_method_cfg = "auto" (filters/mrmr.py:655)
-        shap_proxied_cluster_backend_cfg=axes.get(
-            "shap_proxied_cluster_backend_cfg", "auto"
-        ),
-        mrmr_partial_fit_decay_cfg=axes.get(
-            "mrmr_partial_fit_decay_cfg", 0.0
-        ),
-        mrmr_partial_fit_min_recompute_cfg=axes.get(
-            "mrmr_partial_fit_min_recompute_cfg", 100
-        ),
-        mrmr_partial_fit_window_cfg=axes.get(
-            "mrmr_partial_fit_window_cfg", None
-        ),
-        mrmr_dcd_tau_cluster_cfg=axes.get(
-            "mrmr_dcd_tau_cluster_cfg", 0.7
-        ),
-        mrmr_dcd_distance_cfg=axes.get(
-            "mrmr_dcd_distance_cfg", "su"
-        ),
-        mrmr_dcd_swap_method_cfg=axes.get(
-            "mrmr_dcd_swap_method_cfg", "auto"
-        ),
+        shap_proxied_cluster_backend_cfg=axes.get("shap_proxied_cluster_backend_cfg", "auto"),
+        mrmr_partial_fit_decay_cfg=axes.get("mrmr_partial_fit_decay_cfg", 0.0),
+        mrmr_partial_fit_min_recompute_cfg=axes.get("mrmr_partial_fit_min_recompute_cfg", 100),
+        mrmr_partial_fit_window_cfg=axes.get("mrmr_partial_fit_window_cfg", None),
+        mrmr_dcd_tau_cluster_cfg=axes.get("mrmr_dcd_tau_cluster_cfg", 0.7),
+        mrmr_dcd_distance_cfg=axes.get("mrmr_dcd_distance_cfg", "su"),
+        mrmr_dcd_swap_method_cfg=axes.get("mrmr_dcd_swap_method_cfg", "auto"),
         # iter639/640 audit-pass-15. Defaults source-verified at HEAD
         # against feature_selection/filters/mrmr.py and
         # training/neural/_flat_torch_module.py / flat.py.
-        mrmr_fe_hybrid_orth_default_scorer_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_default_scorer_cfg", "plug_in"
-        ),
-        mrmr_fe_hybrid_orth_meta_enable_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_meta_enable_cfg", False
-        ),
-        mrmr_fe_hybrid_orth_bootstrap_enable_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_bootstrap_enable_cfg", False
-        ),
-        mrmr_fe_hybrid_orth_three_gate_enable_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_three_gate_enable_cfg", False
-        ),
+        mrmr_fe_hybrid_orth_default_scorer_cfg=axes.get("mrmr_fe_hybrid_orth_default_scorer_cfg", "plug_in"),
+        mrmr_fe_hybrid_orth_meta_enable_cfg=axes.get("mrmr_fe_hybrid_orth_meta_enable_cfg", False),
+        mrmr_fe_hybrid_orth_bootstrap_enable_cfg=axes.get("mrmr_fe_hybrid_orth_bootstrap_enable_cfg", False),
+        mrmr_fe_hybrid_orth_three_gate_enable_cfg=axes.get("mrmr_fe_hybrid_orth_three_gate_enable_cfg", False),
         mlp_use_sam_cfg=axes.get("mlp_use_sam_cfg", False),
         mlp_use_lookahead_cfg=axes.get("mlp_use_lookahead_cfg", False),
         mlp_use_mixup_cfg=axes.get("mlp_use_mixup_cfg", False),
-        mlp_spectral_norm_output_only_cfg=axes.get(
-            "mlp_spectral_norm_output_only_cfg", False
-        ),
+        mlp_spectral_norm_output_only_cfg=axes.get("mlp_spectral_norm_output_only_cfg", False),
         # iter642 audit-pass-15 batch 2.
-        mrmr_fe_hybrid_orth_ensemble_enable_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_ensemble_enable_cfg", False
-        ),
-        mrmr_fe_hybrid_orth_lasso_enable_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_lasso_enable_cfg", False
-        ),
-        mrmr_fe_hybrid_orth_elasticnet_enable_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_elasticnet_enable_cfg", False
-        ),
-        mrmr_fe_hybrid_orth_adaptive_arity_enable_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_adaptive_arity_enable_cfg", False
-        ),
-        mrmr_fe_hybrid_orth_diff_basis_enable_cfg=axes.get(
-            "mrmr_fe_hybrid_orth_diff_basis_enable_cfg", False
-        ),
-        mrmr_fe_semi_supervised_enable_cfg=axes.get(
-            "mrmr_fe_semi_supervised_enable_cfg", False
-        ),
+        mrmr_fe_hybrid_orth_ensemble_enable_cfg=axes.get("mrmr_fe_hybrid_orth_ensemble_enable_cfg", False),
+        mrmr_fe_hybrid_orth_lasso_enable_cfg=axes.get("mrmr_fe_hybrid_orth_lasso_enable_cfg", False),
+        mrmr_fe_hybrid_orth_elasticnet_enable_cfg=axes.get("mrmr_fe_hybrid_orth_elasticnet_enable_cfg", False),
+        mrmr_fe_hybrid_orth_adaptive_arity_enable_cfg=axes.get("mrmr_fe_hybrid_orth_adaptive_arity_enable_cfg", False),
+        mrmr_fe_hybrid_orth_diff_basis_enable_cfg=axes.get("mrmr_fe_hybrid_orth_diff_basis_enable_cfg", False),
+        mrmr_fe_semi_supervised_enable_cfg=axes.get("mrmr_fe_semi_supervised_enable_cfg", False),
         # audit-pass-16 — MRMR Layers 87-91.
         mrmr_fe_grouped_agg_enable_cfg=axes.get("mrmr_fe_grouped_agg_enable_cfg", False),
         mrmr_fe_grouped_quantile_enable_cfg=axes.get("mrmr_fe_grouped_quantile_enable_cfg", False),
@@ -805,15 +590,11 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         fs_new_selectors_enabled_cfg=axes.get("fs_new_selectors_enabled_cfg", True),
         auto_optimize_threshold_cfg=axes.get("auto_optimize_threshold_cfg", True),
         check_isotonic_overfit_risk_cfg=axes.get("check_isotonic_overfit_risk_cfg", True),
-        recommend_diversity_additions_in_leaderboard_cfg=axes.get(
-            "recommend_diversity_additions_in_leaderboard_cfg", True
-        ),
+        recommend_diversity_additions_in_leaderboard_cfg=axes.get("recommend_diversity_additions_in_leaderboard_cfg", True),
         oof_n_splits_cfg=axes.get("oof_n_splits_cfg", 0),
         oof_has_time_cfg=axes.get("oof_has_time_cfg", False),
         oof_random_seed_cfg=axes.get("oof_random_seed_cfg", 42),
-        diversity_recommendation_correlation_threshold_cfg=axes.get(
-            "diversity_recommendation_correlation_threshold_cfg", 0.85
-        ),
+        diversity_recommendation_correlation_threshold_cfg=axes.get("diversity_recommendation_correlation_threshold_cfg", 0.85),
         diversity_recommendation_min_improvement_cfg=axes.get("diversity_recommendation_min_improvement_cfg", 0.0),
         diversity_recommendation_top_k_cfg=axes.get("diversity_recommendation_top_k_cfg"),
         categorical_powerset_concat_enabled_cfg=axes.get("categorical_powerset_concat_enabled_cfg", False),
@@ -829,7 +610,6 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         inject_point_mass_cfg=axes.get("inject_point_mass_cfg", False),
         mlframe_models_explicit_cfg=axes.get("mlframe_models_explicit_cfg", True),
     )
-
 
 
 def _all_axis_pairs() -> set[tuple[str, Any, str, Any]]:
@@ -1055,9 +835,7 @@ _3WAY_AXES: tuple[str, ...] = (
 
 
 def _all_axis_triples() -> set[tuple[str, Any, str, Any, str, Any]]:
-    axes_ext: dict[str, tuple[Any, ...]] = {
-        name: AXES[name] for name in _3WAY_AXES if name in AXES
-    }
+    axes_ext: dict[str, tuple[Any, ...]] = {name: AXES[name] for name in _3WAY_AXES if name in AXES}
     axes_ext["n_models"] = (1, 2, 3, 4, 5)
     names = list(axes_ext.keys())
     out: set[tuple] = set()
@@ -1073,20 +851,14 @@ def _all_axis_triples() -> set[tuple[str, Any, str, Any, str, Any]]:
 
 
 def _combo_triples(combo: FuzzCombo) -> set[tuple[str, Any, str, Any, str, Any]]:
-    values = {
-        name: getattr(combo, name) for name in _3WAY_AXES if hasattr(combo, name)
-    }
+    values = {name: getattr(combo, name) for name in _3WAY_AXES if hasattr(combo, name)}
     values["n_models"] = len(combo.models)
     names = list(values.keys())
     out: set[tuple] = set()
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             for k in range(j + 1, len(names)):
-                out.add(
-                    (names[i], values[names[i]],
-                     names[j], values[names[j]],
-                     names[k], values[names[k]])
-                )
+                out.add((names[i], values[names[i]], names[j], values[names[j]], names[k], values[names[k]]))
     return out
 
 
@@ -1167,4 +939,3 @@ def enumerate_combos_3way(
         combos.append(candidate)
 
     return combos[:target]
-

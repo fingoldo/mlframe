@@ -7,6 +7,7 @@ Per CLAUDE.md "Every new ML trick gets a biz_val synthetic test":
     weighting the cross-regime average wins. Same encoder call, two weight schemas, opposite per-category
     mean.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -25,7 +26,7 @@ def _build_regime_split_dataset(n=500, seed=0):
     cats = rng.choice(["a", "b"], size=n)
     # Older = first 2/3, recent = last 1/3.
     is_recent = np.zeros(n, dtype=bool)
-    is_recent[-(n // 3):] = True
+    is_recent[-(n // 3) :] = True
     y = np.where(is_recent, 1.0 + 0.05 * rng.normal(size=n), 0.0 + 0.05 * rng.normal(size=n))
     return cats, y, is_recent
 
@@ -43,12 +44,8 @@ def test_biz_val_leakage_safe_encoder_weighted_mean_dominates_recent_regime():
     # Cross-regime average for category ``a`` should sit near 0.5 (it's just below since two-thirds of the rows are older).
     mean_a_uniform = unweighted._category_means["a"]
     mean_a_weighted = weighted._category_means["a"]
-    assert 0.2 < mean_a_uniform < 0.6, (
-        f"unweighted category-a mean should be around the cross-regime average; got {mean_a_uniform:.3f}"
-    )
-    assert mean_a_weighted > 0.85, (
-        f"recency-weighted category-a mean should dominate to the recent-row y (~1.0); got {mean_a_weighted:.3f}"
-    )
+    assert 0.2 < mean_a_uniform < 0.6, f"unweighted category-a mean should be around the cross-regime average; got {mean_a_uniform:.3f}"
+    assert mean_a_weighted > 0.85, f"recency-weighted category-a mean should dominate to the recent-row y (~1.0); got {mean_a_weighted:.3f}"
     # Shift must be at least 0.3 in absolute terms -- a real, measurable biz_value delta.
     shift = abs(mean_a_weighted - mean_a_uniform)
     assert shift > 0.3, f"recency vs uniform shift must exceed 0.3 to count as a meaningful biz_value win; got {shift:.3f}"

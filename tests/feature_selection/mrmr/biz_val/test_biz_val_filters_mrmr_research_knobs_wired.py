@@ -25,6 +25,7 @@ the evaluation read-site consults. The end-to-end downstream lift is marked
 NEEDS-DEEPER-BENCH (it needs an uncontended large-n bench where Fleuret/FE no longer
 dominate) rather than faked at this size.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -96,7 +97,8 @@ def test_biz_val_mrmr_relaxmrmr_alpha_wired_into_threadlocal():
     evaluation.py candidate-scoring read-site (``get_relaxmrmr_alpha``) consults; the
     activation path must leave the global default OFF (0.0) once a fit completes."""
     from mlframe.feature_selection.filters.info_theory import (
-        get_relaxmrmr_alpha, set_relaxmrmr_alpha,
+        get_relaxmrmr_alpha,
+        set_relaxmrmr_alpha,
     )
 
     set_relaxmrmr_alpha(0.0)
@@ -146,8 +148,7 @@ def test_biz_val_mrmr_pid_synergy_bonus_surfaces_xor_pair_over_redundant():
     assert syn_copy < 0.05, f"redundant copy pair must carry ~0 synergy; got {syn_copy:.4f}"
     assert bonus_xor >= 3.0, f"bonus=5 on the XOR pair must add >=3.0 relevance (measured 3.466); got {bonus_xor:.4f}"
     assert bonus_xor - bonus_copy >= 3.0, (
-        f"the synergy bonus must select the XOR pair over a redundant pair by >=3.0; "
-        f"got xor={bonus_xor:.4f}, copy={bonus_copy:.4f}"
+        f"the synergy bonus must select the XOR pair over a redundant pair by >=3.0; got xor={bonus_xor:.4f}, copy={bonus_copy:.4f}"
     )
 
 
@@ -155,7 +156,8 @@ def test_biz_val_mrmr_pid_synergy_bonus_wired_into_threadlocal():
     """The MRMR constructor must route ``pid_synergy_bonus`` into the thread-local
     (``get_pid_synergy_bonus``) that the evaluation.py bonus read-site consults."""
     from mlframe.feature_selection.filters.info_theory import (
-        get_pid_synergy_bonus, set_pid_synergy_bonus,
+        get_pid_synergy_bonus,
+        set_pid_synergy_bonus,
     )
 
     set_pid_synergy_bonus(0.0)
@@ -199,30 +201,41 @@ def test_biz_val_mrmr_cmi_perm_stop_drops_conditionally_redundant_keeps_informat
     flip = rng.random(n) < 0.10
     cand_red[flip] = rng.integers(0, 4, int(flip.sum()))
     sig_red, obs_red, p_red = cmi_permutation_stop(
-        cand_red.astype(np.int64), y_a, [z], 4, 2, [4],
-        n_permutations=50, alpha=0.05, seed=1,
+        cand_red.astype(np.int64),
+        y_a,
+        [z],
+        4,
+        2,
+        [4],
+        n_permutations=50,
+        alpha=0.05,
+        seed=1,
     )
 
     # B: conditionally-informative candidate given z.
     z2 = rng.integers(0, 4, n).astype(np.int64)
     y_b = ((z % 2) ^ (z2 % 2)).astype(np.int64)
     sig_inf, obs_inf, p_inf = cmi_permutation_stop(
-        z2, y_b, [z], 4, 2, [4],
-        n_permutations=50, alpha=0.05, seed=1,
+        z2,
+        y_b,
+        [z],
+        4,
+        2,
+        [4],
+        n_permutations=50,
+        alpha=0.05,
+        seed=1,
     )
 
     assert not sig_red and p_red >= 0.5, (
-        f"conditionally-redundant candidate must be dropped (not significant, p>=0.5); "
-        f"got significant={sig_red}, obs={obs_red:.4f}, p={p_red:.3f}"
+        f"conditionally-redundant candidate must be dropped (not significant, p>=0.5); got significant={sig_red}, obs={obs_red:.4f}, p={p_red:.3f}"
     )
     assert sig_inf and obs_inf >= 0.55, (
-        f"conditionally-informative candidate must survive (significant, CMI>=0.55); "
-        f"got significant={sig_inf}, obs={obs_inf:.4f}, p={p_inf:.3f}"
+        f"conditionally-informative candidate must survive (significant, CMI>=0.55); got significant={sig_inf}, obs={obs_inf:.4f}, p={p_inf:.3f}"
     )
     # The DELTA: the stop cleanly separates the two by conditional CMI.
     assert obs_inf - obs_red >= 0.5, (
-        f"the stop must separate informative from redundant by >=0.5 conditional CMI; "
-        f"got informative={obs_inf:.4f}, redundant={obs_red:.4f}"
+        f"the stop must separate informative from redundant by >=0.5 conditional CMI; got informative={obs_inf:.4f}, redundant={obs_red:.4f}"
     )
 
 
@@ -231,7 +244,8 @@ def test_biz_val_mrmr_cmi_perm_stop_wired_into_threadlocal():
     thread-local tuple (``get_cmi_perm_stop``) that the evaluation.py early-stop read-site
     consults; default state must be OFF."""
     from mlframe.feature_selection.filters.info_theory import (
-        get_cmi_perm_stop, set_cmi_perm_stop,
+        get_cmi_perm_stop,
+        set_cmi_perm_stop,
     )
 
     set_cmi_perm_stop(False, 0.05, 100)
@@ -279,9 +293,16 @@ def test_mrmr_research_knobs_full_fit_downstream_lift_needs_deeper_bench():
     ys = pd.Series(y, name="y")
 
     sel = MRMR(
-        verbose=0, random_seed=42, n_workers=1, max_runtime_mins=1, quantization_nbins=8,
-        relaxmrmr_alpha=1.0, pid_synergy_bonus=5.0,
-        cmi_perm_stop=True, cmi_perm_n_permutations=20, cmi_perm_alpha=0.05,
+        verbose=0,
+        random_seed=42,
+        n_workers=1,
+        max_runtime_mins=1,
+        quantization_nbins=8,
+        relaxmrmr_alpha=1.0,
+        pid_synergy_bonus=5.0,
+        cmi_perm_stop=True,
+        cmi_perm_n_permutations=20,
+        cmi_perm_alpha=0.05,
     )
     sel.fit(df, ys)
     # Mechanism-level guarantee: a fit with all three knobs ON completes and yields a

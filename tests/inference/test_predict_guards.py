@@ -1,4 +1,5 @@
 """Regression tests for the predict-guard fixes."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,8 +59,7 @@ def test_nan_guard_uses_persisted_stats_no_leakage():
     train_mean = float(train_x.mean())
     persisted_imp = model._mlframe_nan_imputer
     assert abs(float(persisted_imp.statistics_[0]) - train_mean) < 1e-6, (
-        "persisted imputer mean must equal train mean; got "
-        f"{persisted_imp.statistics_[0]} vs {train_mean}"
+        f"persisted imputer mean must equal train mean; got {persisted_imp.statistics_[0]} vs {train_mean}"
     )
 
 
@@ -151,11 +151,7 @@ def test_persisted_stats_path_reuses_train_mean_for_nan_imputation():
     arr = transformed.to_numpy() if hasattr(transformed, "to_numpy") else np.asarray(transformed)
     # The NaN row had value=nan; imputed-then-scaled value should be (train_mean - train_mean) / train_std = 0.
     nan_row_scaled = float(arr[5, 0])
-    assert abs(nan_row_scaled - 0.0) < 1e-6, (
-        f"NaN row should be imputed to train_mean then standardised to 0.0; got {nan_row_scaled}"
-    )
+    assert abs(nan_row_scaled - 0.0) < 1e-6, f"NaN row should be imputed to train_mean then standardised to 0.0; got {nan_row_scaled}"
     # Non-NaN predict rows are FAR from zero because they were shifted +10000 from the train distribution.
     nonnan_row_scaled = float(arr[0, 0])
-    assert nonnan_row_scaled > 10.0, (
-        f"shifted predict row should standardise far from zero; got {nonnan_row_scaled}"
-    )
+    assert nonnan_row_scaled > 10.0, f"shifted predict row should standardise far from zero; got {nonnan_row_scaled}"

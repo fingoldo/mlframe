@@ -5,13 +5,14 @@ kernels, per-resample seeding). Pins the correctness contract that lets it be sa
     host-core count -- the property that makes the parallel result machine-portable.
   - the parallel CI is statistically equivalent to serial (bounds agree well within the metric's own scale).
 The default (n_jobs=1) must never change the serial numbers, so it is pinned separately."""
+
 import numpy as np
 import pytest
 
 from mlframe.evaluation.bootstrap import bootstrap_metrics
 
 _N = 8000  # above the n>=5000 parallel gate
-_R = 400   # above the n_bootstrap>=256 gate
+_R = 400  # above the n_bootstrap>=256 gate
 
 
 def _data(seed=0):
@@ -22,8 +23,7 @@ def _data(seed=0):
 
 
 def _mf():
-    return {"brier": lambda yy, pp: float(np.mean((yy - pp) ** 2)),
-            "mean_p": lambda yy, pp: float(np.mean(pp))}
+    return {"brier": lambda yy, pp: float(np.mean((yy - pp) ** 2)), "mean_p": lambda yy, pp: float(np.mean(pp))}
 
 
 def _ci(res):
@@ -55,4 +55,5 @@ def test_parallel_is_statistically_equivalent_to_serial():
         scale = max(abs(s["point"]), 1e-6)
         # bounds agree to well within 5% of the metric scale -- both are MC estimates of the same CI
         assert abs(s["lo"] - q["lo"]) < 0.05 * scale and abs(s["hi"] - q["hi"]) < 0.05 * scale, (
-            f"{name}: serial [{s['lo']:.5f},{s['hi']:.5f}] vs parallel [{q['lo']:.5f},{q['hi']:.5f}]")
+            f"{name}: serial [{s['lo']:.5f},{s['hi']:.5f}] vs parallel [{q['lo']:.5f},{q['hi']:.5f}]"
+        )

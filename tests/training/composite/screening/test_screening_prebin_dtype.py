@@ -17,6 +17,7 @@ The three things pinned here, any of which a regression would trip:
    overflow-boundary nbins (182, 200, 300) where an un-upcast int16 combo
    would wrap negative and corrupt the joint-count histogram.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,15 +47,9 @@ def _ref_prebin_int64(fm: np.ndarray, nbins: int) -> np.ndarray:
         if col_finite.sum() < 5 * nbins:
             binned[:, j] = -1
             continue
-        cut = (
-            np.quantile(col, q_edges)
-            if col_finite.all()
-            else np.nanquantile(col, q_edges)
-        )
+        cut = np.quantile(col, q_edges) if col_finite.all() else np.nanquantile(col, q_edges)
         col_idx = np.full(n_rows, -1, dtype=np.int64)
-        col_idx[col_finite] = np.searchsorted(
-            cut, col[col_finite], side="right"
-        ).astype(np.int64)
+        col_idx[col_finite] = np.searchsorted(cut, col[col_finite], side="right").astype(np.int64)
         np.clip(col_idx, 0, nbins - 1, out=col_idx, where=col_idx >= 0)
         binned[:, j] = col_idx
     return binned
@@ -65,9 +60,7 @@ def _make_matrix(n: int = 4000, k: int = 6, *, with_nan: bool, seed: int = 7):
     fm = rng.standard_normal((n, k)).astype(np.float32)
     if with_nan:
         fm[rng.random((n, k)) < 0.05] = np.nan
-    y = (fm[:, 0] * 0.7 + rng.standard_normal(n).astype(np.float32) * 0.3).astype(
-        np.float32
-    )
+    y = (fm[:, 0] * 0.7 + rng.standard_normal(n).astype(np.float32) * 0.3).astype(np.float32)
     # y must be finite for the prebinned MI target; impute the few NaN it
     # inherited from column 0.
     y = np.where(np.isfinite(y), y, 0.0).astype(np.float32)
@@ -83,8 +76,8 @@ def test_prebin_code_dtype_gated_at_182(nbins: int) -> None:
     expected = np.int16 if nbins < 182 else np.int32
     assert _prebin_code_dtype(nbins) == np.dtype(expected)
     # The boundary itself: 181**2-1 fits int16, 182**2-1 does not.
-    assert (181 ** 2 - 1) <= np.iinfo(np.int16).max
-    assert (182 ** 2 - 1) > np.iinfo(np.int16).max
+    assert (181**2 - 1) <= np.iinfo(np.int16).max
+    assert (182**2 - 1) > np.iinfo(np.int16).max
 
 
 @pytest.mark.parametrize("nbins", _NBINS_GRID)
@@ -114,10 +107,7 @@ def test_mi_bit_identical_to_int64_prebin(nbins: int, with_nan: bool) -> None:
     pb_ref = _ref_prebin_int64(fm, nbins=nbins)
     mi_new = _mi_to_target_prebinned(pb_new, y, nbins=nbins)
     mi_ref = _mi_to_target_prebinned(pb_ref, y, nbins=nbins)
-    assert mi_new == mi_ref, (
-        f"MI not bit-identical at nbins={nbins} with_nan={with_nan}: "
-        f"{mi_new!r} vs {mi_ref!r}"
-    )
+    assert mi_new == mi_ref, f"MI not bit-identical at nbins={nbins} with_nan={with_nan}: {mi_new!r} vs {mi_ref!r}"
 
 
 @pytest.mark.parametrize("nbins", [182, 200, 300, 1000])
@@ -143,9 +133,7 @@ def test_int16_combo_upcast_no_overflow(nbins: int) -> None:
     xi_codes = xi.astype(code_dtype)
     yi_codes = yi.astype(code_dtype)
     mi_codes = _mi_from_binned_pair(xi_codes, yi_codes, nbins=nbins)
-    mi_int64 = _mi_from_binned_pair(
-        xi.astype(np.int64), yi.astype(np.int64), nbins=nbins
-    )
+    mi_int64 = _mi_from_binned_pair(xi.astype(np.int64), yi.astype(np.int64), nbins=nbins)
     assert mi_codes == mi_int64
     # And the result is a sane, finite, non-negative MI (not a wrapped-index
     # artefact).

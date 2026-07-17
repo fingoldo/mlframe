@@ -33,6 +33,7 @@ Verified clean (do not refactor): all other dict-comp / dict-zip sites have
 key sources guaranteed unique by upstream contract (sklearn classes_,
 enumerate, range, families list, hash output, or all-equal-value init).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -85,7 +86,7 @@ def test_bruteforce_renames_handle_collisions() -> None:
     # The fix introduces the suffix-collision loop.
     assert "_renamed = [col.replace" in src
     assert "_final_names: list = []" in src
-    assert "f\"{_name}_{_seen[_name]}\"" in src
+    assert 'f"{_name}_{_seen[_name]}"' in src
 
 
 # ---------------------------------------------------------------------------

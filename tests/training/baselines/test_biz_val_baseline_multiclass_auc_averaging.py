@@ -10,6 +10,7 @@ This test calls the REAL production function
 ``_compute_metrics_table`` and fails if the multiclass AUC default is flipped
 to ``average='weighted'`` (B then scores below A and the assertion trips).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -56,10 +57,7 @@ def test_biz_val_baseline_multiclass_auc_macro_rewards_minority_ranking():
 
     # Macro must rank the minority-strong model strictly higher. A flip to
     # weighted averaging inverts this (majority class dominates) and fails here.
-    assert auc_b > auc_a + 0.05, (
-        f"macro AUC must reward minority ranking: B={auc_b:.4f} !> A={auc_a:.4f}; "
-        "default averaging likely flipped to 'weighted'"
-    )
+    assert auc_b > auc_a + 0.05, f"macro AUC must reward minority ranking: B={auc_b:.4f} !> A={auc_a:.4f}; default averaging likely flipped to 'weighted'"
 
 
 if __name__ == "__main__":

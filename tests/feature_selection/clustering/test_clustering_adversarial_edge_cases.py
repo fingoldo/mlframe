@@ -9,6 +9,7 @@ Targets: _standardize_align, compute_cluster_aggregate, pair_su (SU/VI/auto),
 and the aggregate combiners under constants / NaN / Inf / n<=3 / perfect dups /
 mixed-sign clusters / rank-deficiency.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,8 +31,8 @@ def _finite(a):
 # _standardize_align
 # ---------------------------------------------------------------------------
 
-class TestStandardizeAlign:
 
+class TestStandardizeAlign:
     def test_constant_column_no_nan(self):
         M = np.column_stack([np.zeros(50), np.arange(50.0)])  # col0 constant
         Z, mean, std, signs = _standardize_align(M, 0)
@@ -51,9 +52,7 @@ class TestStandardizeAlign:
         # cols 1 and 3 are anti-correlated with col 0; signs must flip them.
         rng = np.random.default_rng(0)
         z = rng.standard_normal(200)
-        M = np.column_stack([z, -z + 0.01 * rng.standard_normal(200),
-                             z + 0.01 * rng.standard_normal(200),
-                             -z + 0.01 * rng.standard_normal(200)])
+        M = np.column_stack([z, -z + 0.01 * rng.standard_normal(200), z + 0.01 * rng.standard_normal(200), -z + 0.01 * rng.standard_normal(200)])
         Z, mean, std, signs = _standardize_align(M, 0)
         assert signs[1] < 0 and signs[3] < 0 and signs[0] > 0 and signs[2] > 0
         # After alignment all columns point the same way -> mean has high variance.
@@ -75,27 +74,29 @@ class TestStandardizeAlign:
 # compute_cluster_aggregate (orth-basis path, post gap-03)
 # ---------------------------------------------------------------------------
 
-class TestComputeClusterAggregate:
 
+class TestComputeClusterAggregate:
     def _agg(self, X, members, aggregator):
         import pandas as pd
         from mlframe.feature_selection.filters._orthogonal_cluster_basis_fe import (
             compute_cluster_aggregate,
         )
+
         return compute_cluster_aggregate(pd.DataFrame(X), members, aggregator=aggregator)
 
     @pytest.mark.parametrize("aggregator", ["mean_z", "median_z", "pc1"])
     def test_all_nan_member_finite(self, aggregator):
         import pandas as pd
+
         n = 100
-        X = pd.DataFrame({"a": np.arange(n, dtype=float),
-                          "b": np.full(n, np.nan)})
+        X = pd.DataFrame({"a": np.arange(n, dtype=float), "b": np.full(n, np.nan)})
         out = self._agg(X, ["a", "b"], aggregator)
         assert _finite(out), f"{aggregator} emitted non-finite on all-NaN member"
 
     @pytest.mark.parametrize("aggregator", ["mean_z", "median_z", "pc1"])
     def test_constant_member_finite(self, aggregator):
         import pandas as pd
+
         n = 100
         rng = np.random.default_rng(0)
         X = pd.DataFrame({"a": rng.standard_normal(n), "b": np.full(n, 5.0)})
@@ -105,6 +106,7 @@ class TestComputeClusterAggregate:
     @pytest.mark.parametrize("aggregator", ["mean_z", "median_z", "pc1"])
     def test_identical_members_rank_deficient(self, aggregator):
         import pandas as pd
+
         rng = np.random.default_rng(1)
         col = rng.standard_normal(120)
         X = pd.DataFrame({"a": col, "b": col, "c": col})  # perfect dups
@@ -116,8 +118,8 @@ class TestComputeClusterAggregate:
 # combiners directly
 # ---------------------------------------------------------------------------
 
-class TestCombiners:
 
+class TestCombiners:
     @pytest.mark.parametrize("method", list(CLUSTER_AGGREGATE_METHODS))
     def test_combiner_finite_on_degenerate_Z(self, method):
         # Z with a zero column and a constant column.

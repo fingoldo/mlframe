@@ -9,6 +9,7 @@ sees only out-of-fold signal. Two assertions cover the contract:
    training data (tree on small N).
 2. ``score_ensemble(max_ensembling_level=2, ...)`` raises ValueError when any member lacks ``oof_preds`` / ``oof_probs``.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -51,10 +52,7 @@ def test_oof_preds_differ_from_in_sample_train_preds():
 
     # In-sample tree fits perfectly -> RMSE(in_sample, y) ~ 0; OOF must diverge from in_sample by > epsilon.
     rmse_oof_vs_insample = float(np.sqrt(np.mean((oof_preds - in_sample_preds) ** 2)))
-    assert rmse_oof_vs_insample > 0.1, (
-        f"OOF preds collapsed to in-sample preds (rmse={rmse_oof_vs_insample:.6f}); "
-        f"cross_val_predict is not actually folding."
-    )
+    assert rmse_oof_vs_insample > 0.1, f"OOF preds collapsed to in-sample preds (rmse={rmse_oof_vs_insample:.6f}); cross_val_predict is not actually folding."
 
 
 def test_score_ensemble_level2_raises_without_oof():

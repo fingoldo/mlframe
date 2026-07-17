@@ -7,6 +7,7 @@ marginal/additive signal), the additive model should score far worse than the fu
 ratio, interaction engineering correctly recommended) -- the diagnostic must actually distinguish the two
 regimes, not just report a number.
 """
+
 from __future__ import annotations
 
 import numpy as np

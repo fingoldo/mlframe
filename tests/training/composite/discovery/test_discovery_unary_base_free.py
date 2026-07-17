@@ -25,6 +25,7 @@ Post-fix:
 Each test below FAILS on pre-fix code (the 3-segment name / non-empty base /
 order-dependent mi_gain) and PASSES post-fix.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -45,13 +46,15 @@ def synthetic_df() -> tuple[pd.DataFrame, np.ndarray]:
     MI ranking (hence auto-base order) is deliberately permutable."""
     rng = np.random.default_rng(20260611)
     n = 3000
-    df = pd.DataFrame({
-        "x_base": rng.normal(100.0, 20.0, n),
-        "x_a": rng.normal(0.0, 1.0, n),
-        "x_b": rng.normal(0.0, 1.0, n),
-        "x_c": rng.normal(0.0, 1.0, n),
-        "x_d": rng.normal(0.0, 1.0, n),
-    })
+    df = pd.DataFrame(
+        {
+            "x_base": rng.normal(100.0, 20.0, n),
+            "x_a": rng.normal(0.0, 1.0, n),
+            "x_b": rng.normal(0.0, 1.0, n),
+            "x_c": rng.normal(0.0, 1.0, n),
+            "x_d": rng.normal(0.0, 1.0, n),
+        }
+    )
     df["y"] = 0.8 * df["x_base"] + 5.0 + rng.laplace(0.0, 3.0, n) + 0.5 * df["x_a"]
     train_idx = np.arange(int(0.8 * n))
     return df, train_idx
@@ -66,7 +69,8 @@ def _run_disc(df, feature_cols, train_idx, **cfg_kwargs):
     )
     disc = CompositeTargetDiscovery(config=cfg)
     disc.fit(
-        df=df, target_col="y",
+        df=df,
+        target_col="y",
         feature_cols=list(feature_cols),
         train_idx=train_idx,
     )
@@ -74,10 +78,7 @@ def _run_disc(df, feature_cols, train_idx, **cfg_kwargs):
 
 
 def _report_rows_for(disc, transform_name):
-    return [
-        r for r in disc.report_
-        if isinstance(r, dict) and r.get("transform_name") == transform_name
-    ]
+    return [r for r in disc.report_ if isinstance(r, dict) and r.get("transform_name") == transform_name]
 
 
 def test_unary_spec_name_has_no_base_segment(synthetic_df):
@@ -96,29 +97,16 @@ def test_unary_spec_name_has_no_base_segment(synthetic_df):
             name = row["name"]
             base_col = row.get("base_column", None)
             # Base-free: no third dash-segment, and base_column is the sentinel.
-            assert base_col == "", (
-                f"unary {unary!r} spec has base_column={base_col!r}; "
-                f"expected the empty sentinel (no base dependence)"
-            )
+            assert base_col == "", f"unary {unary!r} spec has base_column={base_col!r}; expected the empty sentinel (no base dependence)"
             # 2-segment form: exactly one dash separates target from alias, and
             # NONE of the feature columns appears as a trailing base segment.
-            assert name.count("-") == 1, (
-                f"unary {unary!r} name {name!r} is not the 2-segment "
-                f"base-free form ``y-<alias>``"
-            )
+            assert name.count("-") == 1, f"unary {unary!r} name {name!r} is not the 2-segment base-free form ``y-<alias>``"
             for f in feats:
-                assert not name.endswith(f"-{f}"), (
-                    f"unary {unary!r} name {name!r} carries a spurious base "
-                    f"segment {f!r}"
-                )
+                assert not name.endswith(f"-{f}"), f"unary {unary!r} name {name!r} carries a spurious base segment {f!r}"
             # The base-free name must still be recognised as a composite target
             # so downstream metric labels route to MTRESID, not raw MTTR.
-            assert is_composite_target_name(name), (
-                f"2-segment unary name {name!r} not recognised as composite"
-            )
-    assert found_any_unary, (
-        "no non-rejected unary spec produced; test fixture cannot exercise D13"
-    )
+            assert is_composite_target_name(name), f"2-segment unary name {name!r} not recognised as composite"
+    assert found_any_unary, "no non-rejected unary spec produced; test fixture cannot exercise D13"
 
 
 def test_unary_mi_gain_invariant_to_base_ordering(synthetic_df):
@@ -157,14 +145,8 @@ def test_unary_mi_gain_invariant_to_base_ordering(synthetic_df):
         # And mi_y (the baseline) is the full-X baseline in both orderings.
         ya = float(rows_a[0]["mi_y"])
         yb = float(rows_b[0]["mi_y"])
-        assert ya == pytest.approx(yb, abs=1e-9), (
-            f"unary {unary!r} mi_y baseline differs across orderings "
-            f"({ya} vs {yb}); not scored against the full matrix"
-        )
-    assert compared_any, (
-        "no finite-mi_gain unary spec available in BOTH orderings to compare; "
-        "fixture cannot exercise the order-invariance guarantee"
-    )
+        assert ya == pytest.approx(yb, abs=1e-9), f"unary {unary!r} mi_y baseline differs across orderings ({ya} vs {yb}); not scored against the full matrix"
+    assert compared_any, "no finite-mi_gain unary spec available in BOTH orderings to compare; fixture cannot exercise the order-invariance guarantee"
 
 
 def test_unary_dedup_single_context_one_spec_per_unary(synthetic_df):
@@ -174,15 +156,10 @@ def test_unary_dedup_single_context_one_spec_per_unary(synthetic_df):
     feats = ["x_base", "x_a", "x_b", "x_c", "x_d"]
     disc = _run_disc(df, feats, train_idx)
     from collections import Counter
-    counts = Counter(
-        r.get("transform_name") for r in disc.report_
-        if isinstance(r, dict)
-    )
+
+    counts = Counter(r.get("transform_name") for r in disc.report_ if isinstance(r, dict))
     for unary in _UNARY_TRANSFORMS:
-        assert counts[unary] == 1, (
-            f"unary {unary!r} evaluated {counts[unary]} times; expected exactly "
-            f"one (single dedicated full-X context)"
-        )
+        assert counts[unary] == 1, f"unary {unary!r} evaluated {counts[unary]} times; expected exactly one (single dedicated full-X context)"
 
 
 def test_unary_spec_iter_transform_applies_without_base(synthetic_df):
@@ -193,22 +170,15 @@ def test_unary_spec_iter_transform_applies_without_base(synthetic_df):
     feats = ["x_base", "x_a", "x_b", "x_c", "x_d"]
     # Force the unary to survive the eps gate so it lands in specs_.
     disc = _run_disc(df, feats, train_idx, eps_mi_gain=-1e9, top_k_after_mi=50)
-    unary_specs = [
-        s for s in disc.specs_
-        if s.transform_name in _UNARY_TRANSFORMS
-    ]
+    unary_specs = [s for s in disc.specs_ if s.transform_name in _UNARY_TRANSFORMS]
     if not unary_specs:
         pytest.skip("no unary spec survived to specs_ on this fixture")
     for s in unary_specs:
-        assert s.base_column == "", (
-            f"kept unary spec {s.name!r} has non-empty base_column {s.base_column!r}"
-        )
+        assert s.base_column == "", f"kept unary spec {s.name!r} has non-empty base_column {s.base_column!r}"
     # iter_transform must not raise on the empty base_column.
     emitted = dict(disc.iter_transform(df))
     for s in unary_specs:
         assert s.name in emitted, f"iter_transform dropped unary spec {s.name!r}"
         t = emitted[s.name]
         assert t.shape[0] == len(df)
-        assert np.isfinite(t).any(), (
-            f"unary spec {s.name!r} produced an all-NaN T column"
-        )
+        assert np.isfinite(t).any(), f"unary spec {s.name!r} produced an all-NaN T column"

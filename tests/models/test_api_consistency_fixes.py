@@ -15,6 +15,7 @@ Each test pins one fix and fails on the pre-fix code:
   API3  - auc_ci n_bootstrap default aligned to 1000
   API7  - auc_ci result carries a "point" alias key
 """
+
 from __future__ import annotations
 
 import inspect
@@ -27,6 +28,7 @@ import pytest
 # ----------------------------------------------------------------------------------------------------------------------------
 # API4 / API17 - MBHOptimizer wrapper vs class signature alignment
 # ----------------------------------------------------------------------------------------------------------------------------
+
 
 def _defaults(func):
     return {p.name: p.default for p in inspect.signature(func).parameters.values() if p.default is not inspect.Parameter.empty}
@@ -52,6 +54,7 @@ def test_api17_input_dtype_removed():
 # API5 - GPU default consistency in tuning.py
 # ----------------------------------------------------------------------------------------------------------------------------
 
+
 def test_api5_gpu_enabled_default_consistent():
     from mlframe.models.tuning import create_ctr_params, CatboostParamsOptimizer
 
@@ -63,6 +66,7 @@ def test_api5_gpu_enabled_default_consistent():
 # ----------------------------------------------------------------------------------------------------------------------------
 # API6 - default blend method agrees across materialised / streaming
 # ----------------------------------------------------------------------------------------------------------------------------
+
 
 def test_api6_default_blend_method_agrees():
     from mlframe.models.ensembling.predict import (
@@ -78,6 +82,7 @@ def test_api6_default_blend_method_agrees():
 # ----------------------------------------------------------------------------------------------------------------------------
 # API18 - no-op stubs warn + return None
 # ----------------------------------------------------------------------------------------------------------------------------
+
 
 def test_api18_stubs_warn_and_return_none(caplog):
     from mlframe.models.tuning import ParamsOptimizer
@@ -96,6 +101,7 @@ def test_api18_stubs_warn_and_return_none(caplog):
 # ----------------------------------------------------------------------------------------------------------------------------
 # API23 - not-ready vs exhaustion disambiguation
 # ----------------------------------------------------------------------------------------------------------------------------
+
 
 def test_api23_not_ready_distinct_from_none():
     from mlframe.models.optimization import MBHOptimizer, NOT_READY
@@ -172,6 +178,7 @@ def test_predict_runtimes_preempts_before_exceeding_budget():
 # API24 / API25 / API26 - get_model + justify_estimator
 # ----------------------------------------------------------------------------------------------------------------------------
 
+
 def _make_trials(n=60, seed=0, extra_col=False):
     rng = np.random.default_rng(seed)
     df = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n)})
@@ -222,6 +229,7 @@ def test_api26_gate_reproducible_with_same_seed():
 # API27 - empty members raise (both paths)
 # ----------------------------------------------------------------------------------------------------------------------------
 
+
 def test_api27_empty_members_raise():
     from mlframe.models.ensembling.predict import (
         ensemble_probabilistic_predictions,
@@ -237,6 +245,7 @@ def test_api27_empty_members_raise():
 # ----------------------------------------------------------------------------------------------------------------------------
 # API-P2 - ddof consistency, score default, selection ndarray
 # ----------------------------------------------------------------------------------------------------------------------------
+
 
 def test_apip2_uncertainty_ddof_consistent_across_paths():
     from mlframe.models.ensembling.predict import (
@@ -277,6 +286,7 @@ def test_apip2_selection_yields_ndarrays():
 # ----------------------------------------------------------------------------------------------------------------------------
 # API3 / API7 - auc_ci defaults + "point" alias
 # ----------------------------------------------------------------------------------------------------------------------------
+
 
 def test_api3_auc_ci_n_bootstrap_default_aligned():
     from mlframe.evaluation.bootstrap import auc_ci

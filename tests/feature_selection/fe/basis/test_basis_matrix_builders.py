@@ -9,6 +9,7 @@ The GEMV path computes ``B[:, :k] @ c`` so the column slice MUST match
 column-k drift would break Horner equivalence at runtime and only show
 up as biased MI scores under multi_fidelity=False.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,7 +41,9 @@ class TestBasisBuildersAgreeWithNumpyPolyval:
     @pytest.mark.parametrize("basis", sorted(_BUILDERS))
     @pytest.mark.parametrize("max_degree", [1, 3, 6])
     def test_basis_matrix_matches_polyval_for_random_coefs(
-        self, basis: str, max_degree: int,
+        self,
+        basis: str,
+        max_degree: int,
     ) -> None:
         builder, polyval_fn = _BUILDERS[basis]
         rng = np.random.default_rng(seed=11 + max_degree)
@@ -62,16 +65,17 @@ class TestBasisBuildersAgreeWithNumpyPolyval:
             gemv_out = B[:, :k] @ coef
             ref_out = polyval_fn(z, coef)
             np.testing.assert_allclose(
-                gemv_out, ref_out, atol=1e-10, rtol=1e-10,
-                err_msg=(
-                    f"basis={basis} max_degree={max_degree} k={k}: "
-                    f"GEMV path disagrees with numpy polyval"
-                ),
+                gemv_out,
+                ref_out,
+                atol=1e-10,
+                rtol=1e-10,
+                err_msg=(f"basis={basis} max_degree={max_degree} k={k}: GEMV path disagrees with numpy polyval"),
             )
 
     @pytest.mark.parametrize("basis", sorted(_BUILDERS))
     def test_public_dispatcher_returns_same_as_private_builder(
-        self, basis: str,
+        self,
+        basis: str,
     ) -> None:
         builder, _ = _BUILDERS[basis]
         rng = np.random.default_rng(seed=11)
@@ -107,7 +111,8 @@ class TestBasisBuilderEdgeCases:
 
     @pytest.mark.parametrize("basis", sorted(_BUILDERS))
     def test_max_degree_one_matches_first_degree_polynomial(
-        self, basis: str,
+        self,
+        basis: str,
     ) -> None:
         """P_1(z) is z for hermite/legendre/chebyshev, (1-z) for laguerre."""
         builder, polyval_fn = _BUILDERS[basis]
@@ -137,7 +142,9 @@ class TestBasisGEMVNumericalEquivalence:
     @pytest.mark.parametrize("basis", sorted(_BUILDERS))
     @pytest.mark.parametrize("n", [100, 5_000, 50_000])
     def test_gemv_matches_horner_dispatcher(
-        self, basis: str, n: int,
+        self,
+        basis: str,
+        n: int,
     ) -> None:
         from mlframe.feature_selection.filters.hermite_fe import polyeval_dispatch
 
@@ -156,9 +163,9 @@ class TestBasisGEMVNumericalEquivalence:
         horner_out = polyeval_dispatch(basis, z, coef)
         gemv_out = B @ coef
         np.testing.assert_allclose(
-            gemv_out, horner_out, atol=1e-10, rtol=1e-10,
-            err_msg=(
-                f"basis={basis} n={n}: GEMV path disagrees with the "
-                f"polyeval_dispatch Horner backend"
-            ),
+            gemv_out,
+            horner_out,
+            atol=1e-10,
+            rtol=1e-10,
+            err_msg=(f"basis={basis} n={n}: GEMV path disagrees with the polyeval_dispatch Horner backend"),
         )

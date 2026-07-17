@@ -5,6 +5,7 @@ skipping lags 2-6), the top-2 PACF-ranked candidates should recover exactly ``{1
 lags -- rather than a guessed fixed grid. A white-noise control series (no true lag structure) should flag
 close to the expected ~5% false-positive rate, not a large fraction of lags.
 """
+
 from __future__ import annotations
 
 import numpy as np

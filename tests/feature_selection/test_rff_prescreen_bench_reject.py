@@ -21,6 +21,7 @@ but it loses to the DIRECT all-pairs joint-MI sweep in every regime:
 These tests use ONLY the shipped ``info_theory`` MI helpers (no #9 production code exists -- by design).
 Small fixtures (n<=1500, p<=120) keep them fast on a RAM-contended box.
 """
+
 from __future__ import annotations
 
 import math
@@ -101,7 +102,8 @@ class TestJointMISweepHasNoBlindSpot:
                 pairs.append((i, j))
         scored = sorted(
             ((pr, _joint_mi(D, nbins, pr[0], pr[1], yc, fy)) for pr in pairs),
-            key=lambda kv: kv[1], reverse=True,
+            key=lambda kv: kv[1],
+            reverse=True,
         )
         ranked = [pr for pr, _ in scored]
         return ranked.index(tuple(needle)), dict(scored), (D, nbins, yc, fy)
@@ -116,9 +118,7 @@ class TestJointMISweepHasNoBlindSpot:
         assert rank == 0, f"zero-marginal product needle did not rank #0 (rank={rank})"
         needle_jmi = sc[(3, 100)]
         next_best = max(v for k, v in sc.items() if k != (3, 100))
-        assert needle_jmi > 2.0 * next_best, (
-            f"needle joint MI {needle_jmi:.4f} should dominate next-best noise pair {next_best:.4f}"
-        )
+        assert needle_jmi > 2.0 * next_best, f"needle joint MI {needle_jmi:.4f} should dominate next-best noise pair {next_best:.4f}"
 
     def test_joint_mi_sweep_recovers_smooth_interaction(self):
         # The RFF "smooth-interaction sweet spot" claim: the joint-MI sweep ALSO recovers
@@ -135,9 +135,7 @@ class TestJointMISweepHasNoBlindSpot:
         yc, fy, _ = _y_classes(y, nb=8)
         m1 = _marginal_mi(D, nbins, 1, yc, fy)
         m2 = _marginal_mi(D, nbins, 2, yc, fy)
-        assert sc[(1, 2)] > 1.5 * max(m1, m2), (
-            f"smooth needle joint MI {sc[(1, 2)]:.4f} should exceed its marginals {m1:.4f}/{m2:.4f}"
-        )
+        assert sc[(1, 2)] > 1.5 * max(m1, m2), f"smooth needle joint MI {sc[(1, 2)]:.4f} should exceed its marginals {m1:.4f}/{m2:.4f}"
 
 
 # =============================================================================
@@ -177,12 +175,9 @@ class TestRandomSupportCoverageIsTheWall:
             emp = hits / max(1, (_ + 1))
             # analytic must be in the expected small-coverage regime AND match empirical loosely.
             assert analytic < 0.13, (
-                f"R={R}: specific-needle hit prob {analytic:.3f} should be small (<0.13) at p={p} "
-                f"-- random supports cannot guarantee localized-needle recall"
+                f"R={R}: specific-needle hit prob {analytic:.3f} should be small (<0.13) at p={p} -- random supports cannot guarantee localized-needle recall"
             )
-            assert abs(emp - analytic) < 0.05, (
-                f"R={R}: empirical hit rate {emp:.3f} disagrees with analytic {analytic:.3f}"
-            )
+            assert abs(emp - analytic) < 0.05, f"R={R}: empirical hit rate {emp:.3f} disagrees with analytic {analytic:.3f}"
 
     def test_full_coverage_requires_enumerating_all_pairs(self):
         # 0.95 recall of ONE specific needle needs R ~ C(p,2)*ln(20) random draws -- i.e. MORE than

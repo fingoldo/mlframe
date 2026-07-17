@@ -54,8 +54,14 @@ def test_make_regime_dataset_c4_peak_rss_under_cap():
 
     def build():
         return make_regime_dataset(
-            n_samples=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8,
-            n_noise=19960, snr=8.0, task="binary", seed=0,
+            n_samples=10000,
+            n_informative=20,
+            n_redundant=20,
+            redundancy_rho=0.8,
+            n_noise=19960,
+            snr=8.0,
+            task="binary",
+            seed=0,
         )
 
     (X, y, roles), peak_bytes = _peak_rss_during(build)
@@ -109,7 +115,8 @@ def test_make_regime_dataset_recall_path_on_chunked_noise():
     pytest.importorskip("xgboost")
 
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import (
-        make_regime_dataset, oracle_subset,
+        make_regime_dataset,
+        oracle_subset,
     )
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -118,23 +125,34 @@ def test_make_regime_dataset_recall_path_on_chunked_noise():
     n_samples = 2000 if is_fast_mode() else 4000
     n_noise = 4300 if is_fast_mode() else 2985
     X, y, roles = make_regime_dataset(
-        n_samples=n_samples, n_informative=10, n_redundant=5, redundancy_rho=0.8,
-        n_noise=n_noise, snr=8.0, task="binary", seed=0,
+        n_samples=n_samples,
+        n_informative=10,
+        n_redundant=5,
+        redundancy_rho=0.8,
+        n_noise=n_noise,
+        snr=8.0,
+        task="binary",
+        seed=0,
     )
     informatives = set(oracle_subset(roles))
     assert len(informatives) == 10
 
     sel = ShapProxiedFS(
-        classification=True, metric="brier", optimizer="greedy_forward",
-        max_features=12, top_n=20, n_splits=3, n_revalidation_models=1,
-        trust_guard=False, random_state=0, verbose=False, n_jobs=1,
+        classification=True,
+        metric="brier",
+        optimizer="greedy_forward",
+        max_features=12,
+        top_n=20,
+        n_splits=3,
+        n_revalidation_models=1,
+        trust_guard=False,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
     )
     sel.fit(X, y)
     selected = set(sel.selected_features_)
     overlap = selected & informatives
     # Require at least 8/10 informatives recovered (allows for finite-sample
     # noise-pool effect documented in the data-generator module docstring).
-    assert len(overlap) >= 8, (
-        f"recall too low: only {len(overlap)}/10 informatives recovered; "
-        f"selected={sorted(selected)} informatives={sorted(informatives)}"
-    )
+    assert len(overlap) >= 8, f"recall too low: only {len(overlap)}/10 informatives recovered; selected={sorted(selected)} informatives={sorted(informatives)}"

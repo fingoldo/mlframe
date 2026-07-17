@@ -4,6 +4,7 @@
 GPU device-buffer items (CON10 pinned pool) are validated by a CPU-side test of the keying /
 lock / cap logic the fix introduced; the rest are pure host-side caches.
 """
+
 import threading
 
 import numpy as np
@@ -31,7 +32,8 @@ def test_con10_pinned_pool_has_lock_and_cap_and_per_thread_key():
         child_key_box["k"] = _key()
 
     t = threading.Thread(target=_worker)
-    t.start(); t.join()
+    t.start()
+    t.join()
     assert main_key != child_key_box["k"]  # same logical buffer request -> different per-thread keys
 
 

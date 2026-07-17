@@ -4,6 +4,7 @@ and indexes it by numba.get_thread_id(), so a missing nthr both raises TypeError
 swallowed by the warmup try/except, aborting every later kernel warmup in the same block)
 and would index out of bounds if it ran. This pins the call arity behaviourally.
 """
+
 import numpy as np
 
 

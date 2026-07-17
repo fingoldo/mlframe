@@ -16,6 +16,7 @@ preds, the ensemble call gets an empty tuple and
 ``ensemble_probabilistic_predictions`` returns ``(None, None, None)`` as
 it already does for the empty case.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -26,13 +27,18 @@ import pytest
 from mlframe.models.ensembling import _process_single_ensemble_method
 
 
-def _make_member(*, val_preds=None, test_preds=None, train_preds=None,
-                 val_probs=None, test_probs=None, train_probs=None):
+def _make_member(*, val_preds=None, test_preds=None, train_preds=None, val_probs=None, test_probs=None, train_probs=None):
     """Build a minimal namespace mimicking a trained-model entry."""
     return SimpleNamespace(
-        val_preds=val_preds, test_preds=test_preds, train_preds=train_preds,
-        val_probs=val_probs, test_probs=test_probs, train_probs=train_probs,
-        model=None, model_name="dummy", columns=None,
+        val_preds=val_preds,
+        test_preds=test_preds,
+        train_preds=train_preds,
+        val_probs=val_probs,
+        test_probs=test_probs,
+        train_probs=train_probs,
+        model=None,
+        model_name="dummy",
+        columns=None,
     )
 
 
@@ -77,7 +83,7 @@ class TestNonePredsDoesNotCrash:
         n = 32
         members = [
             _make_member(
-                val_preds=None,                          # disabled
+                val_preds=None,  # disabled
                 test_preds=np.linspace(0.1, 0.9, n),
                 train_preds=np.linspace(0.1, 0.9, n * 2),
             ),
@@ -105,7 +111,7 @@ class TestNonePredsDoesNotCrash:
                 test_preds=np.linspace(0.1, 0.9, n),
             ),
             _make_member(
-                val_preds=None,                          # one missing val
+                val_preds=None,  # one missing val
                 test_preds=np.linspace(0.2, 0.8, n),
             ),
         ]
@@ -123,7 +129,7 @@ class TestNonePredsDoesNotCrash:
         members = [
             _make_member(
                 val_preds=np.linspace(0.1, 0.9, n),
-                test_preds=None,                         # disabled
+                test_preds=None,  # disabled
                 train_preds=np.linspace(0.1, 0.9, n * 2),
             ),
             _make_member(

@@ -4,6 +4,7 @@ Each asserts the fixed behavior on the input regime that triggered the pre-fix b
 cubic-mean negative-base NaN, Pearson product-overflow collapse, and chao-shen
 bincount crash / rare-category cancellation.
 """
+
 import math
 
 import numpy as np
@@ -45,8 +46,8 @@ def test_quadratic_cubic_mean_large_scale_do_not_overflow_to_inf():
     np.random.seed(0)
     a = (np.random.randn(2000) * 5 + 2).astype(np.float64)
     res_n = list(compute_numerical_aggregates_numba(a, whiten_means=False))
-    exp_quad = np.sqrt(np.mean(a ** 2))
-    m3 = np.mean(a ** 3)
+    exp_quad = np.sqrt(np.mean(a**2))
+    m3 = np.mean(a**3)
     exp_qubic = np.sign(m3) * np.abs(m3) ** (1 / 3)
     assert np.isclose(res_n[13], exp_quad, rtol=1e-9)
     assert np.isclose(res_n[14], exp_qubic, rtol=1e-9)

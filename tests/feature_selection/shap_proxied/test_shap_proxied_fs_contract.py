@@ -21,13 +21,21 @@ def _fit_small():
     rng = np.random.default_rng(0)
     n = 1500
     inf = rng.normal(size=(n, 3))
-    X = pd.DataFrame(np.column_stack([inf, rng.normal(size=(n, 3))]),
-                     columns=["a", "b", "c", "d", "e", "f"])
+    X = pd.DataFrame(np.column_stack([inf, rng.normal(size=(n, 3))]), columns=["a", "b", "c", "d", "e", "f"])
     y = (0.9 * inf[:, 0] + 0.8 * inf[:, 1] - 0.7 * inf[:, 2] + 0.3 * rng.normal(size=n) > 0).astype(int)
-    sel = ShapProxiedFS(classification=True, metric="brier", optimizer="bruteforce",
-                        max_features=4, top_n=10, n_splits=3, n_revalidation_models=1,
-                        trust_guard=False, random_state=0, verbose=False,
-                        n_jobs=1)
+    sel = ShapProxiedFS(
+        classification=True,
+        metric="brier",
+        optimizer="bruteforce",
+        max_features=4,
+        top_n=10,
+        n_splits=3,
+        n_revalidation_models=1,
+        trust_guard=False,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
+    )
     sel.fit(X, y)
     return sel, X, y
 
@@ -75,9 +83,19 @@ def test_polars_input_supported():
     data = np.column_stack([inf, rng.normal(size=(n, 2))])
     Xpl = pl.DataFrame(data, schema=["a", "b", "c", "d", "e"])
     y = (0.9 * inf[:, 0] + 0.8 * inf[:, 1] - 0.6 * inf[:, 2] + 0.3 * rng.normal(size=n) > 0).astype(int)
-    sel = ShapProxiedFS(classification=True, metric="brier", optimizer="bruteforce", max_features=4,
-                        top_n=8, n_splits=3, n_revalidation_models=1, trust_guard=False,
-                        random_state=0, verbose=False, n_jobs=1)
+    sel = ShapProxiedFS(
+        classification=True,
+        metric="brier",
+        optimizer="bruteforce",
+        max_features=4,
+        top_n=8,
+        n_splits=3,
+        n_revalidation_models=1,
+        trust_guard=False,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
+    )
     sel.fit(Xpl, pl.Series(y))
     assert sel.n_features_in_ == 5
     out = sel.transform(Xpl)
@@ -113,15 +131,25 @@ def test_facade_spearman_floor_kwarg_deprecated_and_aliased_to_fidelity_floor():
     rng = np.random.default_rng(0)
     n = 600
     inf = rng.normal(size=(n, 3))
-    X = pd.DataFrame(np.column_stack([inf, rng.normal(size=(n, 3))]),
-                     columns=["a", "b", "c", "d", "e", "f"])
+    X = pd.DataFrame(np.column_stack([inf, rng.normal(size=(n, 3))]), columns=["a", "b", "c", "d", "e", "f"])
     y = (0.9 * inf[:, 0] + 0.8 * inf[:, 1] - 0.7 * inf[:, 2] + 0.3 * rng.normal(size=n) > 0).astype(int)
 
     # Construction with legacy kwarg succeeds (no deprecation at __init__).
-    sel = ShapProxiedFS(classification=True, metric="brier", optimizer="bruteforce",
-                        max_features=4, top_n=10, n_splits=3, n_revalidation_models=1,
-                        trust_guard=True, n_anchors=8, spearman_floor=0.55,
-                        random_state=0, verbose=False, n_jobs=1)
+    sel = ShapProxiedFS(
+        classification=True,
+        metric="brier",
+        optimizer="bruteforce",
+        max_features=4,
+        top_n=10,
+        n_splits=3,
+        n_revalidation_models=1,
+        trust_guard=True,
+        n_anchors=8,
+        spearman_floor=0.55,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
+    )
     assert sel.spearman_floor == 0.55
     # iter18 (commit 63a296fd): ``fidelity_floor`` defaults to the ``None`` unset
     # sentinel, not the literal 0.5 -- this preserves sklearn ``clone()`` identity
@@ -138,10 +166,21 @@ def test_facade_spearman_floor_kwarg_deprecated_and_aliased_to_fidelity_floor():
 
     # Setting both raises at fit-time (we can't catch it at __init__ without breaking sklearn's
     # "no validation in __init__" rule).
-    sel_both = ShapProxiedFS(classification=True, metric="brier", optimizer="bruteforce",
-                             max_features=4, top_n=10, n_splits=3, n_revalidation_models=1,
-                             trust_guard=True, n_anchors=8,
-                             fidelity_floor=0.4, spearman_floor=0.6,
-                             random_state=0, verbose=False, n_jobs=1)
+    sel_both = ShapProxiedFS(
+        classification=True,
+        metric="brier",
+        optimizer="bruteforce",
+        max_features=4,
+        top_n=10,
+        n_splits=3,
+        n_revalidation_models=1,
+        trust_guard=True,
+        n_anchors=8,
+        fidelity_floor=0.4,
+        spearman_floor=0.6,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
+    )
     with pytest.raises(ValueError, match="fidelity_floor.*spearman_floor"):
         sel_both.fit(X, y)

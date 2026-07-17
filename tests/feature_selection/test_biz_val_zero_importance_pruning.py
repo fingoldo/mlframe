@@ -7,6 +7,7 @@ columns, a tree ensemble's native importances should assign near-zero importance
 batch-dropping them each round should shrink the feature set substantially and improve held-out R2 versus the
 full feature set.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -74,9 +75,7 @@ def test_zero_importance_pruning_omitted_importance_fn_is_bit_identical_to_nativ
     estimator = RandomForestRegressor(n_estimators=50, max_depth=4, random_state=0)
 
     survivors_default = iterative_zero_importance_pruning(estimator, X, y, scoring=r2_score, cv=cv, importance_threshold=0.01)
-    survivors_explicit_none = iterative_zero_importance_pruning(
-        estimator, X, y, scoring=r2_score, cv=cv, importance_threshold=0.01, importance_fn=None
-    )
+    survivors_explicit_none = iterative_zero_importance_pruning(estimator, X, y, scoring=r2_score, cv=cv, importance_threshold=0.01, importance_fn=None)
 
     assert survivors_default == survivors_explicit_none
 

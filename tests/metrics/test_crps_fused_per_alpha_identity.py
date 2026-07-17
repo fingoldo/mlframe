@@ -6,6 +6,7 @@ Python loop calling ``pinball_loss(y, p[:, k], a[k])`` K times; it now uses the
 fused ``_fast_pinball_per_alpha`` matrix kernel (2.2x-6.9x faster, N in {10k..1M}).
 This locks in bit-identity so the perf change cannot silently alter CRPS values.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -17,6 +17,7 @@ Two defects this pins:
 - LEAK-FREE: the unfitted clone is fit on the TRAIN slice only; the holdout
   slice never touches the imputer/scaler/selector fit.
 """
+
 from __future__ import annotations
 
 import logging
@@ -53,10 +54,7 @@ def _fitted_shim(X, y, name="raw#0"):
 
 
 def _count_fallback_warnings(caplog) -> int:
-    return sum(
-        1 for r in caplog.records
-        if "pre_pipeline.transform failed" in r.getMessage()
-    )
+    return sum(1 for r in caplog.records if "pre_pipeline.transform failed" in r.getMessage())
 
 
 class TestTransformPairVia:
@@ -187,7 +185,4 @@ class TestOOFSpaceMatchesDeployment:
         # range. Pin that the OOF holdout RMSE is reasonable (transformed space).
         rmse = float(np.sqrt(np.mean((preds[:, 0] - y_oof) ** 2)))
         y_span = float(np.ptp(y))
-        assert rmse < y_span, (
-            f"OOF RMSE {rmse:.3f} exceeds target span {y_span:.3f}: the refit "
-            "likely scored in the wrong (raw) feature space."
-        )
+        assert rmse < y_span, f"OOF RMSE {rmse:.3f} exceeds target span {y_span:.3f}: the refit likely scored in the wrong (raw) feature space."

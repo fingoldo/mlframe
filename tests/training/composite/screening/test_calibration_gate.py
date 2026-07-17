@@ -5,6 +5,7 @@ well-calibrated spec gets ~0 penalty, no-harm pass-through on empty residuals,
 the default-disabled flag, and the biz_value ranking flip (calibrated spec A
 outranks lucky-but-miscalibrated overfit spec B even when raw RMSE favours B).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -112,9 +113,7 @@ def test_biz_val_calibration_ranks_calibrated_above_overfit():
 def test_smoke_import_dotted_module():
     import importlib
 
-    mod = importlib.import_module(
-        "mlframe.training.composite.discovery._calibration_gate"
-    )
+    mod = importlib.import_module("mlframe.training.composite.discovery._calibration_gate")
     assert hasattr(mod, "calibration_adjusted_score")
     assert hasattr(mod, "calibration_penalty")
     assert hasattr(mod, "CalibrationScore")

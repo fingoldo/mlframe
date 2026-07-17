@@ -38,8 +38,7 @@ def test_polars_transform_narrower_input_does_not_index_out_of_range():
 def test_polars_transform_reordered_input_selects_by_name_not_position():
     # Same width as fit but columns reordered. Positional indexing would return the wrong columns; name-based is right.
     m = _fitted_mrmr(["a", "b", "c", "d", "e", "f"], [5, 3])
-    X = pl.DataFrame({"f": [7.0, 8, 9], "e": [0.0, 0, 0], "d": [4.0, 5, 6],
-                      "c": [0.0, 0, 0], "b": [0.0, 0, 0], "a": [1.0, 2, 3]})
+    X = pl.DataFrame({"f": [7.0, 8, 9], "e": [0.0, 0, 0], "d": [4.0, 5, 6], "c": [0.0, 0, 0], "b": [0.0, 0, 0], "a": [1.0, 2, 3]})
     out = m.transform(X)
     assert out.columns == ["f", "d"]
     assert out["f"].to_list() == [7.0, 8, 9]

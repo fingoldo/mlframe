@@ -7,6 +7,7 @@ discrete / tied, NaN-holed, exact-duplicate (corr exactly 1.0), and degenerate
 (constant) columns. These tests pin that across many seeds and the degenerate
 case so a future kernel change cannot silently diverge the selection.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,7 +28,9 @@ from mlframe.training.composite.discovery._eval_stats import (
 
 def _fast(fm: np.ndarray, thr: float) -> np.ndarray:
     return near_collinear_keep_mask_fast(
-        fm, corr_threshold=thr, reference_fn=_near_collinear_keep_mask_numpy,
+        fm,
+        corr_threshold=thr,
+        reference_fn=_near_collinear_keep_mask_numpy,
     )
 
 
@@ -63,9 +66,7 @@ def test_fast_mask_bit_identical_to_numpy_reference(seed: int) -> None:
     fm, thr = _make_matrix(seed)
     ref = _near_collinear_keep_mask_numpy(fm, corr_threshold=thr)
     fast = _fast(fm, thr)
-    assert np.array_equal(ref, fast), (
-        f"seed={seed} kept ref={ref.sum()} fast={fast.sum()}"
-    )
+    assert np.array_equal(ref, fast), f"seed={seed} kept ref={ref.sum()} fast={fast.sum()}"
 
 
 def test_exact_duplicate_columns_dropped_identically() -> None:
@@ -254,8 +255,8 @@ class TestAllFiniteFastPath:
         calls = {"af": 0, "general": 0}
         orig_af = _cn._keep_mask_kernel_allfinite
         orig_gen = _cn._keep_mask_kernel
-        monkeypatch.setattr(_cn, "_keep_mask_kernel_allfinite", lambda *a, **k: (calls.__setitem__("af", calls["af"] + 1) or orig_af(*a, **k)))
-        monkeypatch.setattr(_cn, "_keep_mask_kernel", lambda *a, **k: (calls.__setitem__("general", calls["general"] + 1) or orig_gen(*a, **k)))
+        monkeypatch.setattr(_cn, "_keep_mask_kernel_allfinite", lambda *a, **k: calls.__setitem__("af", calls["af"] + 1) or orig_af(*a, **k))
+        monkeypatch.setattr(_cn, "_keep_mask_kernel", lambda *a, **k: calls.__setitem__("general", calls["general"] + 1) or orig_gen(*a, **k))
         _fast(fm, 0.99)
         assert calls["general"] == 1 and calls["af"] == 0
         _cn._KEEP_MASK_CACHE.clear()

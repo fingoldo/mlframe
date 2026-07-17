@@ -19,6 +19,7 @@ from mlframe.training import _ram_helpers as u
 
 # ----------------------------- helpers ----------------------------------------
 
+
 def _fake_psutil(rss_mb: float, free_mb: float):
     """Return a MagicMock mimicking psutil with given rss/available (in MB)."""
     fake = MagicMock()
@@ -39,6 +40,7 @@ def _install_fake_psutil(monkeypatch, fake):
     happening lazily elsewhere both see the fake.
     """
     import sys
+
     monkeypatch.setitem(sys.modules, "psutil", fake)
     monkeypatch.setattr(u, "psutil", fake)
 
@@ -108,6 +110,7 @@ class TestAdaptiveCleanRam:
     def test_psutil_importerror_fallback_to_true(self, monkeypatch):
         """When psutil import fails, should_clean_ram returns True (safe default)."""
         import builtins
+
         real_import = builtins.__import__
 
         def fake_import(name, *a, **kw):
@@ -124,11 +127,14 @@ class TestAdaptiveCleanRam:
         ``builtins.__import__`` is a no-op. To simulate "psutil unusable"
         we replace ``u.psutil`` with a stub whose ``.Process()`` raises;
         the prod try/except then falls back to the 0.0 sentinel."""
+
         class _PsutilRaises:
             def Process(self):
                 raise OSError("simulated psutil failure")
+
             def virtual_memory(self):
                 raise OSError("simulated psutil failure")
+
         monkeypatch.setattr(u, "psutil", _PsutilRaises())
         assert u.get_process_rss_mb() == 0.0
 
@@ -140,11 +146,14 @@ class TestAdaptiveCleanRam:
         we replace the LIVE ``u.psutil`` binding with a raising stub, not
         ``builtins.__import__`` (which the prod path never re-invokes).
         """
+
         class _PsutilRaises:
             def Process(self):
                 raise OSError("simulated psutil failure")
+
             def virtual_memory(self):
                 raise OSError("simulated psutil failure")
+
         monkeypatch.setattr(u, "psutil", _PsutilRaises())
 
         calls = []
@@ -186,9 +195,7 @@ class TestAdaptiveCleanRam:
 
         fake = MagicMock()
         fake.virtual_memory.return_value.available = 32_000 * 1024**2
-        type(fake.Process.return_value.memory_info.return_value).rss = property(
-            lambda self: fake_rss_bytes()
-        )
+        type(fake.Process.return_value.memory_info.return_value).rss = property(lambda self: fake_rss_bytes())
         _install_fake_psutil(monkeypatch, fake)
 
         # Patch get_process_rss_mb to reflect the same loop_state-keyed RSS so a fire's
@@ -208,9 +215,7 @@ class TestAdaptiveCleanRam:
 
         # iter i: rss = 1000 + 100*i; growth = 100*i; fires when 100*i > 500 -> i >= 6
         # (i=5 gives growth=500; threshold is strict ">" so first fire is i=6).
-        assert fired_iters == [6, 7, 8, 9], (
-            f"expected fires at iters [6,7,8,9] (growth crosses 500 MB), got {fired_iters}"
-        )
+        assert fired_iters == [6, 7, 8, 9], f"expected fires at iters [6,7,8,9] (growth crosses 500 MB), got {fired_iters}"
         assert len(calls) == 4
 
     def test_verbose_logs_reason_when_fires(self, monkeypatch, caplog):
@@ -245,6 +250,7 @@ class TestAdaptiveCleanRam:
         # LazyFrame, numpy, None, dict → inf (OOM-safe fallback; guards
         # clean_ram heuristic from silently missing Arrow/Modin/Dask inputs)
         import math
+
         assert math.isinf(u.estimate_df_size_mb(pldf.lazy()))
         assert math.isinf(u.estimate_df_size_mb(np.zeros((100, 100))))
         assert math.isinf(u.estimate_df_size_mb(None))

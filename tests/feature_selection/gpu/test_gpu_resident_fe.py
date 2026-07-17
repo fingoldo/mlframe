@@ -4,6 +4,7 @@ Correctness gate: the on-device (cupy) candidate grid + single big-k MI must mat
 njit) path -- same candidate names, MI ranking, and values to fp round-off -- and both must rank the
 a**2/b-equivalent candidate top on an a**2/b target. Speed is exercised by a separate opt-in bench
 (not a hard timing assert, to stay non-flaky)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -105,8 +106,10 @@ def test_cpu_path_edge_cases_no_nonfinite_escapes():
     finite + >= 0, at n below nbins too."""
     rng = np.random.default_rng(3)
     for n in (12, 2000):  # n=12 < nbins=20 (degenerate quantile binning)
-        a = rng.uniform(-3, 3, n); a[::5] = 0.0
-        b = rng.uniform(-3, 3, n); b[::4] = 0.0
+        a = rng.uniform(-3, 3, n)
+        a[::5] = 0.0
+        b = rng.uniform(-3, 3, n)
+        b[::4] = 0.0
         for kind in ("a2b", "logsin", "noise"):
             names, mi = cpu_pair_candidate_mi(a, b, _target(a, b, kind))
             assert len(names) == len(mi) == 8 * 8 * 6
@@ -122,7 +125,7 @@ def test_gpu_cpu_agree_heavytail_and_varied_targets():
 
     rng = np.random.default_rng(11)
     n = 50_000
-    a = rng.lognormal(0.0, 2.5, n)   # heavy tail
+    a = rng.lognormal(0.0, 2.5, n)  # heavy tail
     b = rng.lognormal(0.0, 2.5, n)
     for kind in ("a2b", "logsin", "noise"):
         yc = _target(a, b, kind)
@@ -176,8 +179,16 @@ def test_gpu_resident_emits_replayable_recipe():
 
     a, b, y_codes = _ab_target(n=20_000)  # below crossover -> dispatcher uses CPU leg (no cupy needed)
     recs = gpu_resident_pair_recipes(
-        a, b, y_codes, src_a_name="a", src_b_name="b", cols_names=["a", "b"],
-        unary_preset="minimal", binary_preset="minimal", quantization_nbins=None, top_k=3,
+        a,
+        b,
+        y_codes,
+        src_a_name="a",
+        src_b_name="b",
+        cols_names=["a", "b"],
+        unary_preset="minimal",
+        binary_preset="minimal",
+        quantization_nbins=None,
+        top_k=3,
     )
     assert recs, "no recipes emitted"
     name, recipe, mi = recs[0]
@@ -218,17 +229,28 @@ def test_grand_fused_pair_mi_bit_identical_to_cpu():
 
     rng = np.random.default_rng(0)
     n = 50_000
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); y = a**2 / b
-    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1]); yc = np.searchsorted(e, y).astype(np.int64)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    y = a**2 / b
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1])
+    yc = np.searchsorted(e, y).astype(np.int64)
     fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
 
     cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b))
     disc = discretize_2d_quantile_batch(cand, n_bins=20, dtype=np.int8)
     fnb = np.full(cand.shape[1], 20, dtype=np.int64)
     ref = batch_mi_with_noise_gate(
-        disc_2d=disc, factors_nbins=fnb, classes_y=yc, classes_y_safe=yc, freqs_y=fy,
-        npermutations=25, base_seed=np.uint64(0), min_nonzero_confidence=0.0, use_su=False,
-        dtype=np.int32, classes_dtype=np.int32,
+        disc_2d=disc,
+        factors_nbins=fnb,
+        classes_y=yc,
+        classes_y_safe=yc,
+        freqs_y=fy,
+        npermutations=25,
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=0.0,
+        use_su=False,
+        dtype=np.int32,
+        classes_dtype=np.int32,
     )
     _, gf = grand_fused_pair_mi(a, b, yc, yc, fy, nbins=20, npermutations=25)
     np.testing.assert_allclose(gf, ref, rtol=1e-6, atol=1e-9)
@@ -255,17 +277,22 @@ def test_grand_fusion_fused_bit_identical_to_nonfused():
     match is still required (selection-bearing)."""
     pytest.importorskip("cupy")
     from mlframe.feature_selection.filters._gpu_resident_fe import (
-        grand_fused_pair_mi, grand_fused_pair_mi_fused,
+        grand_fused_pair_mi,
+        grand_fused_pair_mi_fused,
     )
 
     rng = np.random.default_rng(1)
     n = 40_000
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); y = a**2 / b
-    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1]); yc = np.searchsorted(e, y).astype(np.int64)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    y = a**2 / b
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1])
+    yc = np.searchsorted(e, y).astype(np.int64)
     fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
 
     # Force the NON-fused leg by disabling grand fusion, then compare to the explicit fused call.
     import os as _os
+
     prev = _os.environ.get("MLFRAME_FE_GPU_GRAND_FUSION")
     _os.environ["MLFRAME_FE_GPU_GRAND_FUSION"] = "0"
     try:
@@ -300,11 +327,15 @@ def test_grand_fused_pair_mi_resident_gate_skips_d2h_then_h2d_round_trip():
 
     rng = np.random.default_rng(7)
     n = 6_000
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); y = a**2 / b
-    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1]); yc = np.searchsorted(e, y).astype(np.int64)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    y = a**2 / b
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1])
+    yc = np.searchsorted(e, y).astype(np.int64)
     fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
 
     import os as _os
+
     prev = _os.environ.get("MLFRAME_FE_GPU_GRAND_FUSION")
     _os.environ["MLFRAME_FE_GPU_GRAND_FUSION"] = "0"  # force the non-fused leg under test
 
@@ -332,10 +363,7 @@ def test_grand_fused_pair_mi_resident_gate_skips_d2h_then_h2d_round_trip():
         else:
             _os.environ["MLFRAME_FE_GPU_GRAND_FUSION"] = prev
 
-    assert calls_su_false == 0, (
-        f"use_su=False resident noise-gate should skip the codes D2H entirely; "
-        f"got {calls_su_false} int8 cp.asnumpy call(s)"
-    )
+    assert calls_su_false == 0, f"use_su=False resident noise-gate should skip the codes D2H entirely; got {calls_su_false} int8 cp.asnumpy call(s)"
     assert calls_su_true >= 1, "use_su=True (unsupported by the resident kernel) should still D2H the codes"
 
 
@@ -348,8 +376,11 @@ def test_grand_fusion_falls_back_when_shared_hist_too_big():
 
     rng = np.random.default_rng(2)
     n = 5_000
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); y = a**2 / b
-    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1]); yc = np.searchsorted(e, y).astype(np.int64)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    y = a**2 / b
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1])
+    yc = np.searchsorted(e, y).astype(np.int64)
     fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
     # P1 = 4001, nbins=20, K_y~20 -> ~6.4MB >> 48KB shared -> must raise.
     with pytest.raises(RuntimeError):
@@ -396,13 +427,15 @@ def test_gpu_discretize_codes_host_f64_bit_identical_to_cpu(monkeypatch):
     pytest.importorskip("cupy")
     monkeypatch.setenv("MLFRAME_FE_GPU_BINNING_DTYPE", "float64")
     from mlframe.feature_selection.filters._gpu_resident_fe import (
-        _build_candidate_matrix, gpu_discretize_codes_host,
+        _build_candidate_matrix,
+        gpu_discretize_codes_host,
     )
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
 
     rng = np.random.default_rng(0)
     for n in (20_000, 50_000):
-        a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n)
+        a = rng.uniform(1, 5, n)
+        b = rng.uniform(1, 5, n)
         cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b)).astype(np.float32)
         np.nan_to_num(cand, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
         cpu = discretize_2d_quantile_batch(cand, n_bins=20, dtype=np.int8, assume_finite=True)
@@ -418,13 +451,15 @@ def test_gpu_discretize_codes_host_f32_default_selection_safe():
     selection -- is preserved. Assert >=99.9% code agreement (selection-safe margin)."""
     pytest.importorskip("cupy")
     from mlframe.feature_selection.filters._gpu_resident_fe import (
-        _build_candidate_matrix, gpu_discretize_codes_host,
+        _build_candidate_matrix,
+        gpu_discretize_codes_host,
     )
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
 
     rng = np.random.default_rng(0)
     for n in (20_000, 50_000):
-        a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n)
+        a = rng.uniform(1, 5, n)
+        b = rng.uniform(1, 5, n)
         cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b)).astype(np.float32)
         np.nan_to_num(cand, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
         cpu = discretize_2d_quantile_batch(cand, n_bins=20, dtype=np.int8, assume_finite=True)
@@ -488,12 +523,24 @@ def test_radix_with_extremes_bit_identical_to_separate_minmax(monkeypatch):
     rng = np.random.default_rng(3)
     base = rng.standard_normal((30_000, 64))
     variants = {"normal": base.copy()}
-    v = base.copy(); v[:, 0] = 1.0; variants["const_col"] = v
-    v = base.copy(); v[:15_000, 1] = v[0, 1]; variants["half_tied"] = v
-    v = base.copy(); v[:, 2] = (v[:, 2] > 0).astype(float); variants["binary_col"] = v
-    v = base.copy(); v[:, 3] = np.repeat(np.arange(5), 6_000); variants["5_distinct"] = v
-    v = base.copy(); v[:, 4] *= -1e-300; variants["subnormal"] = v
-    v = base.copy(); v[:100, 5] = -0.0; variants["neg_zero"] = v
+    v = base.copy()
+    v[:, 0] = 1.0
+    variants["const_col"] = v
+    v = base.copy()
+    v[:15_000, 1] = v[0, 1]
+    variants["half_tied"] = v
+    v = base.copy()
+    v[:, 2] = (v[:, 2] > 0).astype(float)
+    variants["binary_col"] = v
+    v = base.copy()
+    v[:, 3] = np.repeat(np.arange(5), 6_000)
+    variants["5_distinct"] = v
+    v = base.copy()
+    v[:, 4] *= -1e-300
+    variants["subnormal"] = v
+    v = base.copy()
+    v[:100, 5] = -0.0
+    variants["neg_zero"] = v
 
     orig_fn = gs._radix_select_interior_edges
 
@@ -573,7 +620,8 @@ def test_radix_f32_bsearch_variant_bit_identical_to_linear(monkeypatch):
                 if K > 1:
                     base[:, ::3] = 1.0  # mix all-equal + two-valued columns
             cand = cp.ascontiguousarray(cp.asarray(base))
-            cl = _codes(cand, "linear"); cb = _codes(cand, "bsearch")
+            cl = _codes(cand, "linear")
+            cb = _codes(cand, "bsearch")
             md = int(cp.abs(cl.astype(cp.int64) - cb.astype(cp.int64)).max())
             assert md == 0, f"n={n} K={K} {kind} bsearch vs linear radix code maxdiff={md}"
 
@@ -594,17 +642,27 @@ def test_gpu_pairs_fe_mi_matches_cpu_dispatch_analytic(monkeypatch):
 
     rng = np.random.default_rng(0)
     n = 60_000  # >= analytic_null_min_n default (50k) so both take the analytic branch
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); y = a**2 / b
-    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1]); yc = np.searchsorted(e, y).astype(np.int64)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    y = a**2 / b
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1])
+    yc = np.searchsorted(e, y).astype(np.int64)
     fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
     cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b)).astype(np.float32)
     np.nan_to_num(cand, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+
     disc = discretize_2d_quantile_batch(cand, n_bins=20, dtype=np.int8, assume_finite=True)
     cpu = _dispatch_batch_mi_with_noise_gate(
-        disc_2d=disc, quantization_nbins=20, classes_y=yc, classes_y_safe=yc, freqs_y=fy,
-        npermutations=3, min_nonzero_confidence=0.0, use_su=False,
+        disc_2d=disc,
+        quantization_nbins=20,
+        classes_y=yc,
+        classes_y_safe=yc,
+        freqs_y=fy,
+        npermutations=3,
+        min_nonzero_confidence=0.0,
+        use_su=False,
         batch_mi_kernel=batch_mi_with_noise_gate,
     )
     gpu = gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, False)
@@ -617,7 +675,7 @@ def test_gpu_pairs_fe_mi_matches_cpu_dispatch_analytic(monkeypatch):
     # the argmax, so the gated MI vector agrees to full double precision and the same columns are kept + ranked.
     np.testing.assert_allclose(gpu, cpu, rtol=1e-12, atol=1e-12)
     assert int(np.argmax(gpu)) == int(np.argmax(cpu))
-    np.testing.assert_array_equal(gpu > 0.0, cpu > 0.0)   # identical keep/reject set
+    np.testing.assert_array_equal(gpu > 0.0, cpu > 0.0)  # identical keep/reject set
     assert int(np.argmax(gpu)) == int(np.argmax(cpu))
 
 
@@ -626,15 +684,19 @@ def test_gpu_pairs_fe_mi_returns_none_for_nonanalytic():
     npermutations<=0, or small n -- so the caller uses the CPU dispatch (no silent wrong path)."""
     pytest.importorskip("cupy")
     from mlframe.feature_selection.filters._gpu_resident_fe import _build_candidate_matrix, gpu_pairs_fe_mi
+
     rng = np.random.default_rng(0)
     n = 4_000  # below analytic_null_min_n -> must defer
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); y = a**2 / b
-    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1]); yc = np.searchsorted(e, y).astype(np.int64)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    y = a**2 / b
+    e = np.quantile(y, np.linspace(0, 1, 21)[1:-1])
+    yc = np.searchsorted(e, y).astype(np.int64)
     fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
     cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b)).astype(np.float32)
-    assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, False) is None      # small n
-    assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 0, 0.0, False) is None      # npermutations<=0
-    assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, True) is None       # SU-normalised
+    assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, False) is None  # small n
+    assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 0, 0.0, False) is None  # npermutations<=0
+    assert gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, True) is None  # SU-normalised
 
 
 def test_fused_bin_codes_bit_identical_to_per_column_searchsorted():
@@ -648,8 +710,7 @@ def test_fused_bin_codes_bit_identical_to_per_column_searchsorted():
     rng = np.random.default_rng(0)
     for n, K, dt in [(50_000, 128, cp.float32), (50_000, 128, cp.float64), (80_000, 257, cp.float32), (40_000, 1, cp.float32)]:
         cand = cp.asarray(rng.uniform(1, 5, (n, K)).astype(np.float32 if dt == cp.float32 else np.float64))
-        edges = cp.percentile(cand.ravel(), cp.linspace(0, 100, 21)).reshape(-1, 1) if K == 1 \
-            else cp.percentile(cand, cp.linspace(0, 100, 21), axis=0)
+        edges = cp.percentile(cand.ravel(), cp.linspace(0, 100, 21)).reshape(-1, 1) if K == 1 else cp.percentile(cand, cp.linspace(0, 100, 21), axis=0)
         interior = cp.ascontiguousarray(edges[1:-1])  # (nbins-1, K), f64
         fused = cp.asnumpy(_searchsorted_codes(cand, interior))
         ref = cp.empty((n, K), dtype=cp.int32)
@@ -673,13 +734,14 @@ def test_deferred_host_codes_bit_identical_to_eager():
 
     rng = np.random.default_rng(7)
     n, n_oper, K, nbins = 4000, 6, 40, 20
-    tv = (rng.random((n, n_oper)).astype(np.float32) + 0.1)
+    tv = rng.random((n, n_oper)).astype(np.float32) + 0.1
     a_cols = rng.integers(0, n_oper, size=K).astype(np.int64)
     b_cols = rng.integers(0, n_oper, size=K).astype(np.int64)
     ops = rng.integers(0, 9, size=K).astype(np.int8)
 
     # Force the resident-codes handoff on (so a device copy exists to defer from), and A/B the deferral.
     import os
+
     _saved = os.environ.get("MLFRAME_FE_GPU_DEFER_HOST_CODES")
     _saved_res = os.environ.get("MLFRAME_FE_GPU_RESIDENT_CODES")
     os.environ["MLFRAME_FE_GPU_RESIDENT_CODES"] = "1"
@@ -689,12 +751,12 @@ def test_deferred_host_codes_bit_identical_to_eager():
         eager = G.gpu_materialise_discretize_codes_host(tv, a_cols, b_cols, ops, nbins, dtype=np.int8).copy()
         os.environ["MLFRAME_FE_GPU_DEFER_HOST_CODES"] = "1"
         out = G.gpu_materialise_discretize_codes_host(tv, a_cols, b_cols, ops, nbins, dtype=np.int8)
-        dev = G.take_resident_codes(out)              # resident gate would consume these in place
+        dev = G.take_resident_codes(out)  # resident gate would consume these in place
         assert dev is not None and tuple(dev.shape) == (n, K)
-        np.testing.assert_array_equal(cp.asnumpy(dev), eager)   # device codes == eager host codes
-        G.ensure_host_codes_filled(out)               # host consumer (analytic/CPU) materialises lazily
-        np.testing.assert_array_equal(out, eager)     # bit-identical -> selection-equivalent
-        G.ensure_host_codes_filled(out)               # idempotent: second fill is a no-op
+        np.testing.assert_array_equal(cp.asnumpy(dev), eager)  # device codes == eager host codes
+        G.ensure_host_codes_filled(out)  # host consumer (analytic/CPU) materialises lazily
+        np.testing.assert_array_equal(out, eager)  # bit-identical -> selection-equivalent
+        G.ensure_host_codes_filled(out)  # idempotent: second fill is a no-op
         np.testing.assert_array_equal(out, eager)
     finally:
         for k, v in (("MLFRAME_FE_GPU_DEFER_HOST_CODES", _saved), ("MLFRAME_FE_GPU_RESIDENT_CODES", _saved_res)):
@@ -736,7 +798,7 @@ def test_fe_materialise_cm_bit_identical():
     import mlframe.feature_selection.filters._gpu_resident_select as M
 
     rng = np.random.RandomState(13)
-    for (n, K, nop) in [(3000, 50, 16), (10000, 257, 32), (40000, 583, 64), (2048, 1, 8)]:
+    for n, K, nop in [(3000, 50, 16), (10000, 257, 32), (40000, 583, 64), (2048, 1, 8)]:
         tv = rng.standard_normal((n, nop)).astype(np.float32)
         tv[::97, :] = 0.0
         tv[2, 0] = 1e30
@@ -748,6 +810,7 @@ def test_fe_materialise_cm_bit_identical():
 
         M._OPERAND_TABLE_CM_CACHE["ref"] = None  # avoid a stale cm cache from a prior shape
         import os
+
         os.environ["MLFRAME_FE_GPU_MATERIALISE_CM"] = "0"
         o_rm = M._fe_materialise_block_gpu(tvg, a, b, ops)
         os.environ["MLFRAME_FE_GPU_MATERIALISE_CM"] = "1"

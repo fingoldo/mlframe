@@ -34,9 +34,7 @@ def test_member_gate_median_matches_legacy_nanquantile():
     new_median = np.nanmedian(arr, axis=0)
     # Bit-equivalent at fp64 epsilon (numpy uses the same partition+sort under
     # the hood for q=0.5; nanmedian just skips the apply_along_axis dispatch).
-    assert np.allclose(new_median, legacy_median, atol=1e-12, rtol=0.0), (
-        "nanmedian vs nanquantile(0.5) should match to fp64 epsilon"
-    )
+    assert np.allclose(new_median, legacy_median, atol=1e-12, rtol=0.0), "nanmedian vs nanquantile(0.5) should match to fp64 epsilon"
 
 
 def test_member_gate_nan_in_one_member_isolates_other_members():
@@ -57,9 +55,7 @@ def test_member_gate_nan_in_one_member_isolates_other_members():
     arr = np.asarray(preds, dtype=np.float64)
     median_preds = np.nanmedian(arr, axis=0)
     # Median at row 17 takes the median of the OTHER 4 finite members.
-    assert np.isfinite(median_preds[17]), (
-        "nanmedian must skip the NaN cell so median_preds[17] stays finite"
-    )
+    assert np.isfinite(median_preds[17]), "nanmedian must skip the NaN cell so median_preds[17] stays finite"
 
     # End-to-end: per-member MAE/STD for members 1..K-1 must stay finite.
     kept, excluded, stats = ens.compute_member_quality_gate(preds)

@@ -11,6 +11,7 @@ Verifies that:
   * Dispatcher wiring: when filtered_val_df + val y are available,
     the ensemble is NNLS; otherwise equal_mean.
 """
+
 from __future__ import annotations
 
 import sys
@@ -61,8 +62,10 @@ def test_nnls_learns_optimal_weights_two_components():
     y = np.ones((n, k))
 
     ens = MTRPerColumnEqualMeanEnsemble(
-        components=[c1, c2], component_names=["c1", "c2"],
-        n_targets=k, strategy="nnls",
+        components=[c1, c2],
+        component_names=["c1", "c2"],
+        n_targets=k,
+        strategy="nnls",
     )
     ens.fit(X, y)
     # predict should recover ~1 everywhere (the only assertion that
@@ -92,8 +95,10 @@ def test_nnls_per_column_independence():
     y = np.tile([5.0, 3.0], (n, 1))
 
     ens = MTRPerColumnEqualMeanEnsemble(
-        components=[c1, c2, c3], component_names=["c1", "c2", "c3"],
-        n_targets=k, strategy="nnls",
+        components=[c1, c2, c3],
+        component_names=["c1", "c2", "c3"],
+        n_targets=k,
+        strategy="nnls",
     )
     ens.fit(X, y)
     w = ens.weights
@@ -122,8 +127,10 @@ def test_nnls_degenerate_zero_column_falls_back_to_equal_mean():
     y = np.tile([7.0, 1.0], (n, 1))
 
     ens = MTRPerColumnEqualMeanEnsemble(
-        components=[c1, c2], component_names=["c1", "c2"],
-        n_targets=k, strategy="nnls",
+        components=[c1, c2],
+        component_names=["c1", "c2"],
+        n_targets=k,
+        strategy="nnls",
     )
     ens.fit(X, y)
     w = ens.weights
@@ -142,8 +149,10 @@ def test_supplied_weights_take_precedence():
     c2 = _FixedComponent(np.full((n, k), 3.0))
     custom_w = np.array([[0.25, 0.75], [0.75, 0.25]])  # (n_comp=2, K=2)
     ens = MTRPerColumnEqualMeanEnsemble(
-        components=[c1, c2], component_names=["c1", "c2"],
-        n_targets=k, weights=custom_w,
+        components=[c1, c2],
+        component_names=["c1", "c2"],
+        n_targets=k,
+        weights=custom_w,
     )
     assert ens.strategy == "nnls"
     np.testing.assert_array_equal(ens.weights, custom_w)
@@ -159,8 +168,10 @@ def test_supplied_weights_wrong_shape_raises():
     c1 = _FixedComponent(np.zeros((n, k)))
     with pytest.raises(ValueError, match=r"weights shape"):
         MTRPerColumnEqualMeanEnsemble(
-            components=[c1], component_names=["c1"],
-            n_targets=k, weights=np.zeros((3, 5)),
+            components=[c1],
+            component_names=["c1"],
+            n_targets=k,
+            weights=np.zeros((3, 5)),
         )
 
 
@@ -169,8 +180,10 @@ def test_invalid_strategy_raises():
     c1 = _FixedComponent(np.zeros((n, k)))
     with pytest.raises(ValueError, match=r"strategy must be"):
         MTRPerColumnEqualMeanEnsemble(
-            components=[c1], component_names=["c1"],
-            n_targets=k, strategy="not_a_strategy",
+            components=[c1],
+            component_names=["c1"],
+            n_targets=k,
+            strategy="not_a_strategy",
         )
 
 
@@ -181,8 +194,10 @@ def test_equal_mean_fit_is_noop():
     c1 = _FixedComponent(np.zeros((n, k)))
     c2 = _FixedComponent(np.ones((n, k)))
     ens = MTRPerColumnEqualMeanEnsemble(
-        components=[c1, c2], component_names=["c1", "c2"],
-        n_targets=k, strategy="equal_mean",
+        components=[c1, c2],
+        component_names=["c1", "c2"],
+        n_targets=k,
+        strategy="equal_mean",
     )
     w_before = ens.weights
     ret = ens.fit(np.zeros((5, 3)), np.zeros((5, k)))
@@ -202,9 +217,12 @@ def _make_models_dict_for_dispatcher(n_components=3, n_targets=2, n=30):
     # values (i, i*2) tiled.
     for i in range(n_components):
         comp_preds = np.tile([float(i), float(i * 2)], (n, 1))
-        entries.append(SimpleNamespace(
-            model=_FixedComponent(comp_preds), pre_pipeline=None,
-        ))
+        entries.append(
+            SimpleNamespace(
+                model=_FixedComponent(comp_preds),
+                pre_pipeline=None,
+            )
+        )
     return {target_type: {target_name: entries}}, target_type, target_name
 
 
@@ -239,20 +257,28 @@ def test_dispatcher_uses_nnls_oof_when_train_data_available():
     target_by_type = {tt: {tn: y}}
 
     _build_cross_target_ensemble_for_target(
-        _tt_e=tt, _orig_tname=tn,
-        _spec_list=[], _ce_strategy="weighted_mean",
-        models=models, metadata=metadata,
+        _tt_e=tt,
+        _orig_tname=tn,
+        _spec_list=[],
+        _ce_strategy="weighted_mean",
+        models=models,
+        metadata=metadata,
         target_by_type=target_by_type,
         composite_target_discovery_config=None,
-        target_name=tn, model_name="test",
+        target_name=tn,
+        model_name="test",
         filtered_train_df=X,
         filtered_val_df=None,
         test_df_pd=None,
-        filtered_train_idx=train_idx, filtered_val_idx=None,
+        filtered_train_idx=train_idx,
+        filtered_val_idx=None,
         test_idx=None,
-        train_df_pd=None, val_df_pd=None,
-        train_idx=None, val_idx=None,
-        reporting_config=None, plot_file=None,
+        train_df_pd=None,
+        val_df_pd=None,
+        train_idx=None,
+        val_idx=None,
+        reporting_config=None,
+        plot_file=None,
         _train_pred_cache=cache,
     )
     # 3 originals + 1 ensemble = 4.
@@ -275,20 +301,28 @@ def test_dispatcher_falls_back_to_equal_mean_without_train_data():
     target_by_type = {tt: {tn: np.tile([2.0, 4.0], (n, 1))}}
 
     _build_cross_target_ensemble_for_target(
-        _tt_e=tt, _orig_tname=tn,
-        _spec_list=[], _ce_strategy="weighted_mean",
-        models=models, metadata=metadata,
+        _tt_e=tt,
+        _orig_tname=tn,
+        _spec_list=[],
+        _ce_strategy="weighted_mean",
+        models=models,
+        metadata=metadata,
         target_by_type=target_by_type,
         composite_target_discovery_config=None,
-        target_name=tn, model_name="test",
+        target_name=tn,
+        model_name="test",
         filtered_train_df=None,
         filtered_val_df=val_df,
         test_df_pd=None,
-        filtered_train_idx=None, filtered_val_idx=None,
+        filtered_train_idx=None,
+        filtered_val_idx=None,
         test_idx=None,
-        train_df_pd=None, val_df_pd=None,
-        train_idx=None, val_idx=None,
-        reporting_config=None, plot_file=None,
+        train_df_pd=None,
+        val_df_pd=None,
+        train_idx=None,
+        val_idx=None,
+        reporting_config=None,
+        plot_file=None,
         _train_pred_cache=cache,
     )
     assert len(models[tt][tn]) == 4
@@ -306,20 +340,28 @@ def test_dispatcher_falls_back_to_equal_mean_without_val_data():
     target_by_type = {tt: {tn: np.zeros((n, k))}}
 
     _build_cross_target_ensemble_for_target(
-        _tt_e=tt, _orig_tname=tn,
-        _spec_list=[], _ce_strategy="weighted_mean",
-        models=models, metadata=metadata,
+        _tt_e=tt,
+        _orig_tname=tn,
+        _spec_list=[],
+        _ce_strategy="weighted_mean",
+        models=models,
+        metadata=metadata,
         target_by_type=target_by_type,
         composite_target_discovery_config=None,
-        target_name=tn, model_name="test",
+        target_name=tn,
+        model_name="test",
         filtered_train_df=None,
         filtered_val_df=None,  # <- no val data
         test_df_pd=None,
-        filtered_train_idx=None, filtered_val_idx=None,
+        filtered_train_idx=None,
+        filtered_val_idx=None,
         test_idx=None,
-        train_df_pd=None, val_df_pd=None,
-        train_idx=None, val_idx=None,
-        reporting_config=None, plot_file=None,
+        train_df_pd=None,
+        val_df_pd=None,
+        train_idx=None,
+        val_idx=None,
+        reporting_config=None,
+        plot_file=None,
         _train_pred_cache=cache,
     )
     ens_entry = models[tt][tn][-1]
@@ -334,11 +376,15 @@ def test_repr_includes_strategy():
     c1 = _FixedComponent(np.zeros((n, k)))
     c2 = _FixedComponent(np.ones((n, k)))
     ens_em = MTRPerColumnEqualMeanEnsemble(
-        components=[c1, c2], component_names=["c1", "c2"], n_targets=k,
+        components=[c1, c2],
+        component_names=["c1", "c2"],
+        n_targets=k,
     )
     assert "strategy='equal_mean'" in repr(ens_em)
     ens_nnls = MTRPerColumnEqualMeanEnsemble(
-        components=[c1, c2], component_names=["c1", "c2"], n_targets=k,
+        components=[c1, c2],
+        component_names=["c1", "c2"],
+        n_targets=k,
         strategy="nnls",
     )
     assert "strategy='nnls'" in repr(ens_nnls)

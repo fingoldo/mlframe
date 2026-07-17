@@ -6,6 +6,7 @@ iter142: on the RTX 500 Ada the cheap degree-5 Horner kernel is transfer-bound; 
 every swept n (incl. 1e6). Pre-fix the sweep left cuda_threshold=500_000, so the dispatcher kept routing
 large-n calls to cuda (~6.6-8.5x slower than njit_par). Post-fix it emits swept_max*100.
 """
+
 from __future__ import annotations
 
 import pytest

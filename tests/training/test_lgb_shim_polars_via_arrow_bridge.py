@@ -30,14 +30,10 @@ from mlframe.training.lgb_shim import (
 def _make_mixed_polars(n_rows: int, seed: int = 0) -> pl.DataFrame:
     rng = np.random.default_rng(seed)
     cat_pool = ["alpha", "beta", "gamma", "delta", "epsilon"]
-    data = {
-        f"num{i}": rng.normal(size=n_rows).astype(np.float64) for i in range(4)
-    }
+    data = {f"num{i}": rng.normal(size=n_rows).astype(np.float64) for i in range(4)}
     for j in range(2):
         codes = rng.integers(0, len(cat_pool), size=n_rows)
-        data[f"cat{j}"] = pl.Series(
-            f"cat{j}", [cat_pool[c] for c in codes], dtype=pl.Categorical
-        )
+        data[f"cat{j}"] = pl.Series(f"cat{j}", [cat_pool[c] for c in codes], dtype=pl.Categorical)
     return pl.DataFrame(data)
 
 
@@ -48,9 +44,7 @@ def test_bridge_preserves_categorical_dtype():
     assert isinstance(df_pd, pd.DataFrame)
     for cat_col in ("cat0", "cat1"):
         dtype = df_pd[cat_col].dtype
-        assert isinstance(dtype, pd.CategoricalDtype), (
-            f"{cat_col} arrived as {dtype}, expected pd.CategoricalDtype -- the bridge dropped the dictionary"
-        )
+        assert isinstance(dtype, pd.CategoricalDtype), f"{cat_col} arrived as {dtype}, expected pd.CategoricalDtype -- the bridge dropped the dictionary"
 
 
 def test_bridge_passthrough_for_non_polars():
@@ -83,9 +77,7 @@ def test_lgb_dataset_from_bridged_polars_keeps_categorical():
     cached = model._cached_train_dataset.get_data()
     assert isinstance(cached, pd.DataFrame)
     for cat_col in ("cat0", "cat1"):
-        assert isinstance(cached[cat_col].dtype, pd.CategoricalDtype), (
-            f"{cat_col} lost Categorical dtype inside the cached Dataset"
-        )
+        assert isinstance(cached[cat_col].dtype, pd.CategoricalDtype), f"{cat_col} lost Categorical dtype inside the cached Dataset"
 
 
 def test_predict_numerical_equivalence_polars_vs_bridged_pandas():
@@ -151,7 +143,7 @@ def test_biz_value_bridge_conversion_beats_bare_to_pandas(n_rows: int):
     pre_min = float(np.min(pre_times))
     ratio = post_min / max(pre_min, 1e-9)
     assert ratio < 3.5, (
-        f"Arrow split-blocks bridge ({post_min*1000:.2f}ms) is catastrophically slower than bare ``df.to_pandas()`` "
-        f"({pre_min*1000:.2f}ms); ratio={ratio:.3f} (expected < 3.5). "
+        f"Arrow split-blocks bridge ({post_min * 1000:.2f}ms) is catastrophically slower than bare ``df.to_pandas()`` "
+        f"({pre_min * 1000:.2f}ms); ratio={ratio:.3f} (expected < 3.5). "
         f"A ratio this high suggests the bridge guard slipped into the legacy round-trip path."
     )

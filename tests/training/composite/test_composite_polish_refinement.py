@@ -13,6 +13,7 @@
   with mixed-sign base.
 - Plot helpers smoke-test (figure objects produced + no crash).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,18 +42,22 @@ class TestRuntimeStatsCallback:
     def fitted_wrapper(self):
         rng = np.random.default_rng(0)
         n = 400
-        df = pd.DataFrame({
-            "base": rng.normal(loc=10, scale=3, size=n),
-            "x1": rng.normal(size=n),
-            "x2": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "base": rng.normal(loc=10, scale=3, size=n),
+                "x1": rng.normal(size=n),
+                "x2": rng.normal(size=n),
+            }
+        )
         y = 0.95 * df["base"].to_numpy() + 0.5 * df["x1"].to_numpy() + rng.normal(scale=0.3, size=n)
 
         captured: list = []
+
         def callback(stats: dict) -> None:
             captured.append(stats)
 
         from sklearn.linear_model import Ridge
+
         wrapper = CompositeTargetEstimator(
             base_estimator=Ridge(alpha=1.0),
             transform_name="linear_residual",
@@ -64,11 +69,13 @@ class TestRuntimeStatsCallback:
 
     def test_callback_fires_per_predict(self, fitted_wrapper):
         wrapper, captured = fitted_wrapper
-        df_test = pd.DataFrame({
-            "base": [10.0, 11.0, 12.0],
-            "x1": [0.0, 0.0, 0.0],
-            "x2": [0.0, 0.0, 0.0],
-        })
+        df_test = pd.DataFrame(
+            {
+                "base": [10.0, 11.0, 12.0],
+                "x1": [0.0, 0.0, 0.0],
+                "x2": [0.0, 0.0, 0.0],
+            }
+        )
         captured.clear()
         wrapper.predict(df_test)
         assert len(captured) == 1
@@ -81,9 +88,13 @@ class TestRuntimeStatsCallback:
     def test_callback_cumulative_counts(self, fitted_wrapper):
         wrapper, captured = fitted_wrapper
         captured.clear()
-        df_test = pd.DataFrame({
-            "base": [10.0] * 5, "x1": [0.0] * 5, "x2": [0.0] * 5,
-        })
+        df_test = pd.DataFrame(
+            {
+                "base": [10.0] * 5,
+                "x1": [0.0] * 5,
+                "x2": [0.0] * 5,
+            }
+        )
         wrapper.predict(df_test)
         wrapper.predict(df_test)
         wrapper.predict(df_test)
@@ -100,9 +111,13 @@ class TestRuntimeStatsCallback:
         wrapper.runtime_stats_callback = lambda stats: (_ for _ in ()).throw(
             RuntimeError("monitoring system down"),
         )
-        df_test = pd.DataFrame({
-            "base": [10.0], "x1": [0.0], "x2": [0.0],
-        })
+        df_test = pd.DataFrame(
+            {
+                "base": [10.0],
+                "x1": [0.0],
+                "x2": [0.0],
+            }
+        )
         # Predict should still succeed; callback failure is logged
         # at DEBUG and swallowed.
         result = wrapper.predict(df_test)
@@ -140,7 +155,8 @@ class TestSampleWeights:
 
     def test_zero_weights_fallback(self) -> None:
         params = _linear_residual_fit(
-            np.array([1.0, 2.0, 3.0]), np.array([0.5, 1.0, 1.5]),
+            np.array([1.0, 2.0, 3.0]),
+            np.array([0.5, 1.0, 1.5]),
             sample_weight=np.array([0.0, 0.0, 0.0]),
         )
         # All-zero weights -> alpha=0, beta=mean(y).
@@ -150,7 +166,8 @@ class TestSampleWeights:
     def test_weight_length_mismatch_raises(self) -> None:
         with pytest.raises(ValueError, match="length"):
             _linear_residual_fit(
-                np.array([1.0, 2.0]), np.array([0.5, 1.0]),
+                np.array([1.0, 2.0]),
+                np.array([0.5, 1.0]),
                 sample_weight=np.array([1.0, 1.0, 1.0]),
             )
 
@@ -168,18 +185,27 @@ class TestStratifiedSampling:
         rng = np.random.default_rng(0)
         n_total = 10_000
         # 95% bulk, 5% tail.
-        y = np.concatenate([
-            rng.normal(scale=1.0, size=int(n_total * 0.95)),
-            rng.normal(scale=20.0, size=int(n_total * 0.05)),
-        ])
+        y = np.concatenate(
+            [
+                rng.normal(scale=1.0, size=int(n_total * 0.95)),
+                rng.normal(scale=20.0, size=int(n_total * 0.05)),
+            ]
+        )
         sample_n = 1000
 
         idx_random = _sample_indices(
-            n_total, sample_n, random_state=0, strategy="random",
+            n_total,
+            sample_n,
+            random_state=0,
+            strategy="random",
         )
         idx_strat = _sample_indices(
-            n_total, sample_n, random_state=0,
-            strategy="stratified_quantile", y=y, n_strata=10,
+            n_total,
+            sample_n,
+            random_state=0,
+            strategy="stratified_quantile",
+            y=y,
+            n_strata=10,
         )
         # Both should produce arrays of approximately the requested
         # size (stratified can slightly over- or under-shoot due to
@@ -191,27 +217,33 @@ class TestStratifiedSampling:
         # quantile bins of y.
         cuts = np.quantile(y, np.linspace(0, 1, 11)[1:-1])
         random_per_bin = np.bincount(
-            np.searchsorted(cuts, y[idx_random], side="right"), minlength=10,
+            np.searchsorted(cuts, y[idx_random], side="right"),
+            minlength=10,
         )
         strat_per_bin = np.bincount(
-            np.searchsorted(cuts, y[idx_strat], side="right"), minlength=10,
+            np.searchsorted(cuts, y[idx_strat], side="right"),
+            minlength=10,
         )
         # Stratified per-bin counts much more uniform than random.
-        assert strat_per_bin.std() < random_per_bin.std() * 0.5, (
-            f"stratified {strat_per_bin} vs random {random_per_bin}"
-        )
+        assert strat_per_bin.std() < random_per_bin.std() * 0.5, f"stratified {strat_per_bin} vs random {random_per_bin}"
 
     def test_unknown_strategy_raises(self) -> None:
         with pytest.raises(ValueError, match="unknown strategy"):
             _sample_indices(
-                100, 50, random_state=0,
-                strategy="quantum_supremacy", y=np.zeros(100),
+                100,
+                50,
+                random_state=0,
+                strategy="quantum_supremacy",
+                y=np.zeros(100),
             )
 
     def test_stratified_falls_back_when_y_missing(self) -> None:
         # No y supplied -> falls back to random; check it doesn't crash.
         idx = _sample_indices(
-            1000, 100, random_state=0, strategy="stratified_quantile",
+            1000,
+            100,
+            random_state=0,
+            strategy="stratified_quantile",
             y=None,
         )
         assert len(idx) == 100
@@ -230,6 +262,7 @@ class _StubQuantileRegressor(BaseEstimator):
     a constant per-quantile value. ``q_to_value`` is the per-alpha
     constant. Inherits from ``BaseEstimator`` so ``sklearn.clone``
     works (the wrapper clones inner at fit time)."""
+
     def __init__(self, q_to_value: dict = None) -> None:
         self.q_to_value = q_to_value if q_to_value is not None else {0.5: 0.0}
 
@@ -249,10 +282,12 @@ class TestPredictQuantile:
         base=[10, 20, 30] expect y_q=[10.5, 20.5, 30.5]."""
         rng = np.random.default_rng(0)
         n = 200
-        df = pd.DataFrame({
-            "base": rng.normal(loc=10, scale=3, size=n),
-            "x1": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "base": rng.normal(loc=10, scale=3, size=n),
+                "x1": rng.normal(size=n),
+            }
+        )
         y = df["base"].to_numpy() + rng.normal(scale=0.3, size=n)
 
         wrapper = CompositeTargetEstimator(
@@ -261,10 +296,12 @@ class TestPredictQuantile:
             base_column="base",
         )
         wrapper.fit(df, y)
-        df_test = pd.DataFrame({
-            "base": [10.0, 20.0, 30.0],
-            "x1": [0.0, 0.0, 0.0],
-        })
+        df_test = pd.DataFrame(
+            {
+                "base": [10.0, 20.0, 30.0],
+                "x1": [0.0, 0.0, 0.0],
+            }
+        )
         y_q = wrapper.predict_quantile(df_test, alpha=0.9)
         # T_q (stub) = 0.5; inverse for diff: y = T + base.
         np.testing.assert_allclose(y_q, [10.5, 20.5, 30.5])
@@ -274,10 +311,12 @@ class TestPredictQuantile:
         quantile preservation breaks. Must raise NotImplementedError."""
         rng = np.random.default_rng(0)
         n = 200
-        df = pd.DataFrame({
-            "base": rng.uniform(0.5, 10.0, size=n),
-            "x1": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "base": rng.uniform(0.5, 10.0, size=n),
+                "x1": rng.normal(size=n),
+            }
+        )
         y = df["base"].to_numpy() * rng.uniform(0.8, 1.2, size=n)
 
         wrapper = CompositeTargetEstimator(
@@ -286,10 +325,12 @@ class TestPredictQuantile:
             base_column="base",
         )
         wrapper.fit(df, y)
-        df_test = pd.DataFrame({
-            "base": [-1.0, 1.0, 2.0],  # contains negative
-            "x1": [0.0, 0.0, 0.0],
-        })
+        df_test = pd.DataFrame(
+            {
+                "base": [-1.0, 1.0, 2.0],  # contains negative
+                "x1": [0.0, 0.0, 0.0],
+            }
+        )
         with pytest.raises(NotImplementedError, match="ratio"):
             wrapper.predict_quantile(df_test, alpha=0.5)
 
@@ -297,12 +338,15 @@ class TestPredictQuantile:
         """Inner without predict_quantile -> NotImplementedError with
         helpful message pointing the user at compatible regressors."""
         from sklearn.linear_model import Ridge
+
         rng = np.random.default_rng(0)
         n = 100
-        df = pd.DataFrame({
-            "base": rng.normal(size=n),
-            "x1": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "base": rng.normal(size=n),
+                "x1": rng.normal(size=n),
+            }
+        )
         y = rng.normal(size=n)
         wrapper = CompositeTargetEstimator(
             base_estimator=Ridge(),
@@ -322,6 +366,7 @@ class TestPredictQuantile:
 class TestPlotHelpers:
     def test_plot_target_distribution(self) -> None:
         from mlframe.training.composite.diagnostics import plot_target_distribution
+
         rng = np.random.default_rng(0)
         y = rng.normal(loc=10, scale=3, size=500)
         t = y - 9.5  # diff residual
@@ -331,6 +376,7 @@ class TestPlotHelpers:
 
     def test_plot_qq(self) -> None:
         from mlframe.training.composite.diagnostics import plot_qq
+
         rng = np.random.default_rng(0)
         t = rng.normal(size=500)
         fig = plot_qq(t)
@@ -338,6 +384,7 @@ class TestPlotHelpers:
 
     def test_plot_linear_fit(self) -> None:
         from mlframe.training.composite.diagnostics import plot_linear_fit
+
         rng = np.random.default_rng(0)
         base = rng.normal(loc=10, scale=3, size=500)
         y = 0.95 * base + rng.normal(scale=0.3, size=500)
@@ -346,6 +393,7 @@ class TestPlotHelpers:
 
     def test_plot_mi_gain_with_ci(self) -> None:
         from mlframe.training.composite.diagnostics import plot_mi_gain_with_ci
+
         specs = [
             {"name": "TVT__diff__base", "mi_gain": 0.5},
             {"name": "TVT__linear_residual__base", "mi_gain": 0.6},
@@ -356,6 +404,7 @@ class TestPlotHelpers:
 
     def test_plot_per_fold_tiny_rmse(self) -> None:
         from mlframe.training.composite.diagnostics import plot_per_fold_tiny_rmse
+
         per_fold = {
             "spec_a": [1.2, 1.3, 1.1, 1.25],
             "spec_b": [0.9, 1.0, 0.95, 0.92],
@@ -365,6 +414,7 @@ class TestPlotHelpers:
 
     def test_plot_per_fold_tiny_rmse_empty(self) -> None:
         from mlframe.training.composite.diagnostics import plot_per_fold_tiny_rmse
+
         fig = plot_per_fold_tiny_rmse({})
         # Empty input -> graceful empty-state Figure (may have no axes); we only require a real
         # matplotlib Figure object back so callers don't AttributeError on .savefig().
@@ -372,37 +422,42 @@ class TestPlotHelpers:
 
     def test_plot_per_family_disagreement(self) -> None:
         from mlframe.training.composite.diagnostics import plot_per_family_disagreement
+
         # 3 families, 4 specs.
         per_family = {
             "lightgbm": [1.0, 0.9, 1.2, 1.1],
-            "xgboost":  [1.1, 0.85, 1.3, 1.2],
+            "xgboost": [1.1, 0.85, 1.3, 1.2],
             "catboost": [0.95, 0.9, 1.25, 1.05],
         }
-        fig = plot_per_family_disagreement(per_family,
-                                            spec_names=["s1", "s2", "s3", "s4"])
+        fig = plot_per_family_disagreement(per_family, spec_names=["s1", "s2", "s3", "s4"])
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_per_family_disagreement_single_family(self) -> None:
         """One-family input -> graceful "need >= 2 families" placeholder."""
         from mlframe.training.composite.diagnostics import plot_per_family_disagreement
+
         fig = plot_per_family_disagreement(
-            {"lightgbm": [1.0, 0.9, 1.2]}, spec_names=["s1", "s2", "s3"],
+            {"lightgbm": [1.0, 0.9, 1.2]},
+            spec_names=["s1", "s2", "s3"],
         )
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_alpha_stability(self) -> None:
         from mlframe.training.composite.diagnostics import plot_alpha_stability
+
         alphas = [0.95, 0.97, 0.93, 0.96, 0.98, 0.94, 0.95]
         fig = plot_alpha_stability(alphas, expected_alpha=0.95)
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_alpha_stability_empty(self) -> None:
         from mlframe.training.composite.diagnostics import plot_alpha_stability
+
         fig = plot_alpha_stability([])
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_predictions_vs_actual(self) -> None:
         from mlframe.training.composite.diagnostics import plot_predictions_vs_actual
+
         rng = np.random.default_rng(0)
         y_true = rng.normal(size=500)
         y_preds = {
@@ -416,6 +471,7 @@ class TestPlotHelpers:
         """Mismatched y_pred size for a spec doesn't crash; that
         sub-plot just shows a placeholder error message."""
         from mlframe.training.composite.diagnostics import plot_predictions_vs_actual
+
         rng = np.random.default_rng(0)
         y_true = rng.normal(size=500)
         y_preds = {

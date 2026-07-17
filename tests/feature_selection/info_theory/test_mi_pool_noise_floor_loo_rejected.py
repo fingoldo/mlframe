@@ -16,6 +16,7 @@ These tests pin the two load-bearing facts so the lever is not re-shipped:
 2. Upper-trimming the pool (the proposed "fix") LOWERS the all-noise floor and
    leaks noise -- i.e. it would fail the all-noise ship gate.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,8 +41,7 @@ def _upper_trimmed_floor(pool: np.ndarray, sigma: float = 3.5, trim_frac: float 
 
 def test_pooled_floor_is_k1_robust_admits_lone_signal_tight_noise():
     # Realistic MI pool: 15 tight-noise MIs ~0.010 + one genuine signal 0.040.
-    noise = 0.010 + np.array([-.001, .001, -.0005, .0005, 0, .0008, -.0008, .0003,
-                              -.0003, .0006, -.0006, .0002, -.0002, .0009, -.0009])
+    noise = 0.010 + np.array([-0.001, 0.001, -0.0005, 0.0005, 0, 0.0008, -0.0008, 0.0003, -0.0003, 0.0006, -0.0006, 0.0002, -0.0002, 0.0009, -0.0009])
     sig = 0.040
     pool = np.concatenate([[sig], noise])
     floor = _classic_floor(pool)
@@ -87,6 +87,4 @@ def test_monte_carlo_trim_regresses_all_noise_leak():
             trim_leaks += 1
     # The trimmed "fix" admits noise on materially more all-noise pools -- the
     # bench-rejection reason. (~2-3x in the 300k run; require a clear margin here.)
-    assert trim_leaks > classic_leaks * 1.5, (
-        f"trim leak {trim_leaks} not materially worse than classic {classic_leaks}"
-    )
+    assert trim_leaks > classic_leaks * 1.5, f"trim leak {trim_leaks} not materially worse than classic {classic_leaks}"

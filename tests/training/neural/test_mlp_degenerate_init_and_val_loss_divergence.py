@@ -21,6 +21,7 @@ Deferred (separate commits):
 * #3 OOF predictions reuse from initial fit CV -- large scope, requires CV
   path threading through the initial trainer.
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,67 +36,64 @@ class TestDegenerateInitProbe:
     def test_zeros_init_triggers_warn(self, caplog) -> None:
         torch = pytest.importorskip("torch")
         from mlframe.training.neural.flat import generate_mlp
+
         caplog.set_level(logging.WARNING, logger="mlframe.training.neural.flat")
         # Force zeros initialisation. The probe inspects the just-built
         # nn.Linear modules; with zero weights every layer has std 0.
         generate_mlp(
-            num_features=10, num_classes=1, nlayers=2,
+            num_features=10,
+            num_classes=1,
+            nlayers=2,
             activation_function=torch.nn.ReLU,
             weights_init_fcn=torch.nn.init.zeros_,
-            use_layernorm=False, dropout_prob=0.0,
-            inputs_dropout_prob=0.0, verbose=0,
+            use_layernorm=False,
+            dropout_prob=0.0,
+            inputs_dropout_prob=0.0,
+            verbose=0,
         )
-        warnings = [
-            r for r in caplog.records
-            if "degenerate Linear layer" in r.message
-        ]
-        assert warnings, (
-            f"degenerate-init probe didn't fire on zeros-initialised MLP; "
-            f"captured records: {[r.message for r in caplog.records]}"
-        )
+        warnings = [r for r in caplog.records if "degenerate Linear layer" in r.message]
+        assert warnings, f"degenerate-init probe didn't fire on zeros-initialised MLP; captured records: {[r.message for r in caplog.records]}"
 
     def test_constant_init_triggers_warn(self, caplog) -> None:
         """``constant_(W, c)`` also collapses to zero std and must be caught."""
         torch = pytest.importorskip("torch")
         from functools import partial
         from mlframe.training.neural.flat import generate_mlp
+
         caplog.set_level(logging.WARNING, logger="mlframe.training.neural.flat")
         generate_mlp(
-            num_features=10, num_classes=1, nlayers=2,
+            num_features=10,
+            num_classes=1,
+            nlayers=2,
             activation_function=torch.nn.ReLU,
             weights_init_fcn=partial(torch.nn.init.constant_, val=0.5),
-            use_layernorm=False, dropout_prob=0.0,
-            inputs_dropout_prob=0.0, verbose=0,
+            use_layernorm=False,
+            dropout_prob=0.0,
+            inputs_dropout_prob=0.0,
+            verbose=0,
         )
-        warnings = [
-            r for r in caplog.records
-            if "degenerate Linear layer" in r.message
-        ]
-        assert warnings, (
-            f"degenerate-init probe didn't fire on constant_-initialised MLP; "
-            f"captured records: {[r.message for r in caplog.records]}"
-        )
+        warnings = [r for r in caplog.records if "degenerate Linear layer" in r.message]
+        assert warnings, f"degenerate-init probe didn't fire on constant_-initialised MLP; captured records: {[r.message for r in caplog.records]}"
 
     def test_kaiming_init_no_warn(self, caplog) -> None:
         """Reasonable init should not trip the probe."""
         torch = pytest.importorskip("torch")
         from mlframe.training.neural.flat import generate_mlp
+
         caplog.set_level(logging.WARNING, logger="mlframe.training.neural.flat")
         generate_mlp(
-            num_features=10, num_classes=1, nlayers=2,
+            num_features=10,
+            num_classes=1,
+            nlayers=2,
             activation_function=torch.nn.ReLU,
             weights_init_fcn=torch.nn.init.kaiming_normal_,
-            use_layernorm=False, dropout_prob=0.0,
-            inputs_dropout_prob=0.0, verbose=0,
+            use_layernorm=False,
+            dropout_prob=0.0,
+            inputs_dropout_prob=0.0,
+            verbose=0,
         )
-        warnings = [
-            r for r in caplog.records
-            if "degenerate Linear layer" in r.message
-        ]
-        assert not warnings, (
-            f"degenerate-init probe fired spuriously on kaiming_normal init: "
-            f"{[r.message for r in warnings]}"
-        )
+        warnings = [r for r in caplog.records if "degenerate Linear layer" in r.message]
+        assert not warnings, f"degenerate-init probe fired spuriously on kaiming_normal init: {[r.message for r in warnings]}"
 
 
 class TestValLossDivergenceCallback:
@@ -106,7 +104,9 @@ class TestValLossDivergenceCallback:
         pytest.importorskip("torch")
         pytest.importorskip("lightning")
         from mlframe.training.neural.base import ValLossDivergenceCallback
+
         cb = ValLossDivergenceCallback(monitor="val_loss", divergence_factor=10.0)
+
         # Construct a minimal mock trainer with growing val_loss.
         class MockTrainer:
             current_epoch = 1
@@ -121,23 +121,19 @@ class TestValLossDivergenceCallback:
 
         # Epoch 5 -> 50x baseline -> trip
         caplog.set_level(logging.WARNING, logger="mlframe.training.neural.base")
+
         class MockTrainer2:
             current_epoch = 5
             callback_metrics = {"val_loss": 2.5}  # 50x baseline of 0.05
 
         cb.on_validation_epoch_end(MockTrainer2(), MockModule())
-        diverge_warnings = [
-            r for r in caplog.records
-            if "mlp-val-divergence" in r.message
-        ]
-        assert diverge_warnings, (
-            f"ValLossDivergenceCallback didn't warn on 50x growth (factor=10); "
-            f"records: {[r.message for r in caplog.records]}"
-        )
+        diverge_warnings = [r for r in caplog.records if "mlp-val-divergence" in r.message]
+        assert diverge_warnings, f"ValLossDivergenceCallback didn't warn on 50x growth (factor=10); records: {[r.message for r in caplog.records]}"
 
     def test_callback_only_warns_once(self) -> None:
         pytest.importorskip("torch")
         from mlframe.training.neural.base import ValLossDivergenceCallback
+
         cb = ValLossDivergenceCallback(divergence_factor=10.0)
 
         class T:
@@ -173,6 +169,7 @@ class TestMRMRIdentityCacheCompositeAware:
     def test_mrmr_identity_cache_include_y_default_is_true(self) -> None:
         from mlframe.feature_selection.filters.mrmr import MRMR
         import inspect
+
         # ``mrmr_identity_cache_include_y`` is a constructor kwarg with
         # default ``True``; introspect the signature to assert.
         sig = inspect.signature(MRMR.__init__)
@@ -194,12 +191,12 @@ class TestSaveSizePrecheckThreshold:
     def test_default_threshold_is_50_mb(self) -> None:
         import inspect
         from mlframe.training.io import save_mlframe_model
+
         sig = inspect.signature(save_mlframe_model)
         assert "auto_lean_pre_check_mb" in sig.parameters
         param = sig.parameters["auto_lean_pre_check_mb"]
         assert param.default == 50.0, (
-            f"save-size pre-check threshold must be 50 MB to match the "
-            f"post-save sensor's 50 MB suspicious-threshold; got {param.default}"
+            f"save-size pre-check threshold must be 50 MB to match the post-save sensor's 50 MB suspicious-threshold; got {param.default}"
         )
 
 
@@ -209,6 +206,7 @@ class TestOutsideTrainYEnvelopeSensorBranch:
 
     def test_branch_fires_when_y_train_stats_supplied(self, caplog, monkeypatch) -> None:
         from mlframe.training.reporting import _reporting
+
         # report_regression_model_perf was carved out of _reporting.py into
         # sibling _reporting_regression.py during the 1k-LOC monolith split;
         # the logger.warning fires on the sibling's logger now.
@@ -234,16 +232,19 @@ class TestOutsideTrainYEnvelopeSensorBranch:
         preds = 11500 + rng_p.normal(0, 50, 1000)
         preds[0] = 14000  # outlier outside [11000, 12500] envelope
         _reporting.report_regression_model_perf(
-            targets=targets, columns=[], model_name="test-envelope",
-            model=None, preds=preds,
-            print_report=False, show_perf_chart=False, verbose=False,
-            y_train_min=11000.0, y_train_max=12500.0, y_train_std=200.0,
+            targets=targets,
+            columns=[],
+            model_name="test-envelope",
+            model=None,
+            preds=preds,
+            print_report=False,
+            show_perf_chart=False,
+            verbose=False,
+            y_train_min=11000.0,
+            y_train_max=12500.0,
+            y_train_std=200.0,
         )
-        envelope_warnings = [
-            r for r in caplog.records
-            if "outside-train-y-envelope" in r.message
-            or "linear-extrapolation" in r.message
-        ]
+        envelope_warnings = [r for r in caplog.records if "outside-train-y-envelope" in r.message or "linear-extrapolation" in r.message]
         assert envelope_warnings, (
             f"train-y envelope branch didn't fire on pred far outside "
             f"[y_train_min, y_train_max]; records: "
@@ -254,6 +255,7 @@ class TestOutsideTrainYEnvelopeSensorBranch:
         """Backward compat: callers that don't pass y_train stats see
         the same behaviour as pre-fix (only in-batch checks fire)."""
         from mlframe.training.reporting import _reporting
+
         # report_regression_model_perf was carved out of _reporting.py into
         # sibling _reporting_regression.py during the 1k-LOC monolith split;
         # the logger.warning fires on the sibling's logger now.
@@ -264,15 +266,14 @@ class TestOutsideTrainYEnvelopeSensorBranch:
         preds = 11500 + rng_p.normal(0, 50, 1000)
         # No train stats passed -> envelope branch can't fire by construction.
         _reporting.report_regression_model_perf(
-            targets=targets, columns=[], model_name="test-no-envelope",
-            model=None, preds=preds,
-            print_report=False, show_perf_chart=False, verbose=False,
+            targets=targets,
+            columns=[],
+            model_name="test-no-envelope",
+            model=None,
+            preds=preds,
+            print_report=False,
+            show_perf_chart=False,
+            verbose=False,
         )
-        envelope_warnings = [
-            r for r in caplog.records
-            if "outside-train-y-envelope" in r.message
-        ]
-        assert not envelope_warnings, (
-            f"envelope branch fired without y_train stats supplied: "
-            f"{[r.message for r in envelope_warnings]}"
-        )
+        envelope_warnings = [r for r in caplog.records if "outside-train-y-envelope" in r.message]
+        assert not envelope_warnings, f"envelope branch fired without y_train stats supplied: {[r.message for r in envelope_warnings]}"

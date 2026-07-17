@@ -12,6 +12,7 @@ Multioutput:
 
 None of these contracts had a behavioural test under mrmr_api/.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,11 +24,20 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 def _no_fe(**kw):
     base = dict(
-        random_seed=0, verbose=0, fe_max_steps=0, interactions_max_order=1,
-        dcd_enable=False, cluster_aggregate_enable=False, build_friend_graph=False,
-        cat_fe_config=None, fe_hinge_enable=False, fe_modular_enable=False,
-        fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False,
-        fe_row_argmax_enable=False, fe_conditional_gate_enable=False,
+        random_seed=0,
+        verbose=0,
+        fe_max_steps=0,
+        interactions_max_order=1,
+        dcd_enable=False,
+        cluster_aggregate_enable=False,
+        build_friend_graph=False,
+        cat_fe_config=None,
+        fe_hinge_enable=False,
+        fe_modular_enable=False,
+        fe_pairwise_modular_enable=False,
+        fe_integer_lattice_enable=False,
+        fe_row_argmax_enable=False,
+        fe_conditional_gate_enable=False,
     )
     base.update(kw)
     return MRMR(**base)
@@ -40,10 +50,16 @@ def _multi_signal_data(n=800, seed=2):
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
     x3 = rng.normal(size=n)
-    X = pd.DataFrame({
-        "x0": x0, "x1": x1, "x2": x2, "x3": x3,
-        "noise0": rng.normal(size=n), "noise1": rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "x0": x0,
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "noise0": rng.normal(size=n),
+            "noise1": rng.normal(size=n),
+        }
+    )
     # Decreasing weights -> decreasing per-feature relevance gains.
     y = (2.0 * x0 + 1.2 * x1 + 0.6 * x2 + 0.25 * x3 + rng.normal(0, 0.5, n) > 0).astype(int)
     return X, y
@@ -60,9 +76,7 @@ def test_relative_gain_floor_high_selects_fewer_than_low():
     low = _no_fe(min_relevance_gain_relative_to_first=0.0).fit(X, y)
     MRMR._FIT_CACHE.clear()
     high = _no_fe(min_relevance_gain_relative_to_first=0.5).fit(X, y)
-    assert _n_selected(high) <= _n_selected(low), (
-        f"high relative-gain floor must not select MORE: high={_n_selected(high)} low={_n_selected(low)}"
-    )
+    assert _n_selected(high) <= _n_selected(low), f"high relative-gain floor must not select MORE: high={_n_selected(high)} low={_n_selected(low)}"
 
 
 def test_near_one_relative_floor_keeps_only_anchor():
@@ -78,11 +92,9 @@ def test_absolute_mode_large_floor_stops_early():
     """absolute mode with a large min_relevance_gain selects fewer than the permissive default."""
     X, y = _multi_signal_data()
     MRMR._FIT_CACHE.clear()
-    permissive = _no_fe(min_relevance_gain_mode="absolute", min_relevance_gain=1e-9,
-                        min_relevance_gain_relative_to_first=0.0).fit(X, y)
+    permissive = _no_fe(min_relevance_gain_mode="absolute", min_relevance_gain=1e-9, min_relevance_gain_relative_to_first=0.0).fit(X, y)
     MRMR._FIT_CACHE.clear()
-    strict = _no_fe(min_relevance_gain_mode="absolute", min_relevance_gain=1.0,
-                    min_relevance_gain_relative_to_first=0.0).fit(X, y)
+    strict = _no_fe(min_relevance_gain_mode="absolute", min_relevance_gain=1.0, min_relevance_gain_relative_to_first=0.0).fit(X, y)
     assert _n_selected(strict) <= _n_selected(permissive)
     # A floor of 1.0 nat is enormous for a binary target (H(y) <= ln 2); only the fallback anchor remains.
     assert _n_selected(strict) >= 1  # never-empty floor (min_features_fallback default 1)
@@ -96,8 +108,7 @@ def test_min_features_fallback_keeps_support_nonempty():
     X = pd.DataFrame({f"n{i}": rng.normal(size=n) for i in range(5)})
     y = rng.integers(0, 2, size=n)
     MRMR._FIT_CACHE.clear()
-    m = _no_fe(min_relevance_gain_mode="absolute", min_relevance_gain=10.0,
-               min_features_fallback=1).fit(X, y)
+    m = _no_fe(min_relevance_gain_mode="absolute", min_relevance_gain=10.0, min_features_fallback=1).fit(X, y)
     assert _n_selected(m) >= 1, "min_features_fallback=1 must guarantee a non-empty support_"
 
 
@@ -107,10 +118,12 @@ def _mo_data(n=700, seed=3):
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
     X = pd.DataFrame({"x0": x0, "x1": x1, "x2": x2, "noise": rng.normal(size=n)})
-    Y = pd.DataFrame({
-        "y0": (x0 > 0).astype(int),         # depends on x0
-        "y1": (x1 > 0).astype(int),         # depends on x1
-    })
+    Y = pd.DataFrame(
+        {
+            "y0": (x0 > 0).astype(int),  # depends on x0
+            "y1": (x1 > 0).astype(int),  # depends on x1
+        }
+    )
     return X, Y
 
 

@@ -14,6 +14,7 @@ Contract under test
 * ``discover_incremental`` warm-starts a prior fit on an appended frame and
   returns a well-formed :class:`IncrementalDecision`.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,17 +42,15 @@ def _synthetic(n: int = 1200, seed: int = 0) -> pd.DataFrame:
     x2 = rng.normal(size=n)
     x3 = rng.normal(size=n)
     z = 0.5 * x1 - 0.4 * x2
-    y = 0.9 * base + z + 0.05 * z ** 3 + rng.normal(scale=0.3, size=n)
-    return pd.DataFrame(
-        {"base": base, "x1": x1, "x2": x2, "x3": x3, "y": y}
-    )
+    y = 0.9 * base + z + 0.05 * z**3 + rng.normal(scale=0.3, size=n)
+    return pd.DataFrame({"base": base, "x1": x1, "x2": x2, "x3": x3, "y": y})
 
 
 def _base_config(**overrides):
     cfg = dict(
         enabled=True,
         base_candidates=["base"],
-        screening="mi",            # skip tiny-model rerank: faster + deterministic
+        screening="mi",  # skip tiny-model rerank: faster + deterministic
         multi_base_enabled=False,  # isolate the opt-in hook from multi-base upgrades
         mi_sample_n=None,
         random_state=0,
@@ -75,11 +74,7 @@ def _fit(config, df=None):
 
 
 def _spec_keys(specs):
-    return [
-        (s.name, s.transform_name, s.base_column,
-         tuple(getattr(s, "extra_base_columns", ()) or ()))
-        for s in specs
-    ]
+    return [(s.name, s.transform_name, s.base_column, tuple(getattr(s, "extra_base_columns", ()) or ())) for s in specs]
 
 
 # ----------------------------------------------------------------------
@@ -148,6 +143,7 @@ def test_auto_chain_on_runs_and_appends_wellformed_specs():
     assert hasattr(disc, "auto_chains_")
     # Any appended chain spec is a well-formed CompositeSpec resolvable by name.
     from mlframe.training.composite.transforms import get_transform
+
     chain_specs = [s for s in disc.specs_ if s.transform_name.startswith("chain_")]
     for s in chain_specs:
         assert isinstance(s, CompositeSpec)
@@ -163,11 +159,13 @@ def test_auto_chain_on_runs_and_appends_wellformed_specs():
 
 def test_all_flags_on_together_runs_and_superset_of_baseline():
     baseline = _fit(_base_config())
-    full = _fit(_base_config(
-        region_adaptive_enabled=True,
-        interaction_base_discovery_enabled=True,
-        auto_chain_discovery_enabled=True,
-    ))
+    full = _fit(
+        _base_config(
+            region_adaptive_enabled=True,
+            interaction_base_discovery_enabled=True,
+            auto_chain_discovery_enabled=True,
+        )
+    )
     base_names = {s.name for s in baseline.specs_}
     full_names = {s.name for s in full.specs_}
     # Opt-in steps only ADD specs (auto-chain); never drop a baseline spec.

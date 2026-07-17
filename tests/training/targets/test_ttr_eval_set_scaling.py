@@ -6,6 +6,7 @@ Bug history:
 
 The fix: ``_TTRWithEvalSetScaling`` intercepts ``eval_set`` in fit_kwargs, applies the same fitted transformer to y_val, and forwards the scaled eval_set to the inner regressor. Supports both ``tuple`` (LGB / MLP) and ``list of tuples`` (CB / XGB) eval_set shapes.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -87,7 +88,7 @@ class TestEvalSetScaled:
         ttr.fit(X, y, eval_set=(X_val, y_val))
         # The recorded eval_set's y_val should be roughly mean-0, std-1 (StandardScaler effect).
         recorded_X_val, recorded_y_val = ttr.regressor_.last_eval_set
-        assert recorded_X_val is X_val   # X passes through unchanged
+        assert recorded_X_val is X_val  # X passes through unchanged
         # y_val standardised against y_train's scaler -> mean near 0 (since both drawn from similar distribution), std near 1.
         recorded_y_val = np.asarray(recorded_y_val)
         assert abs(np.mean(recorded_y_val)) < 0.5
@@ -150,7 +151,7 @@ class TestEvalSetScaled:
         ttr = TTR(regressor=inner, transformer=StandardScaler())
         ttr.fit(X, y, eval_set=(X_val, y_val_2d))
         recorded_y_val = np.asarray(ttr.regressor_.last_eval_set[1])
-        assert recorded_y_val.shape == y_val_2d.shape    # 2-D shape preserved
+        assert recorded_y_val.shape == y_val_2d.shape  # 2-D shape preserved
         assert abs(np.std(recorded_y_val) - 1.0) < 0.5
 
 
@@ -158,6 +159,7 @@ class TestRegressionAgainstUnpatchedTTR:
     def test_unpatched_ttr_LEAVES_eval_set_raw(self) -> None:
         """Sanity / regression sensor: the STOCK sklearn TransformedTargetRegressor does NOT scale eval_set -- demonstrating the bug F7 fixes. If sklearn ever changes this behavior the test will fail loudly and we can drop the custom subclass."""
         from sklearn.compose import TransformedTargetRegressor
+
         X, y = _make_data(n=300)
         X_val, y_val = _make_data(n=100, seed=4)
         inner = _RecordingEstimator()
@@ -167,4 +169,4 @@ class TestRegressionAgainstUnpatchedTTR:
         recorded_y_val = np.asarray(ttr_stock.regressor_.last_eval_set[1])
         assert abs(np.mean(recorded_y_val) - np.mean(y_val)) < 0.001
         # Raw y has std ~ sqrt(var(y_val)) which is ~ 100 (X[:, 0] * 100 + noise). NOT close to 1.
-        assert np.std(recorded_y_val) > 50    # raw scale; would be ~1 if scaled
+        assert np.std(recorded_y_val) > 50  # raw scale; would be ~1 if scaled

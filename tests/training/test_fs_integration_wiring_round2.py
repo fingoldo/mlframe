@@ -14,6 +14,7 @@ Covers the remaining wiring findings:
 
 Architecture: ``_build_feature_selection_report`` consumes ``FeatureSelectorSpec.report_extract``.
 """
+
 from __future__ import annotations
 
 import os
@@ -63,6 +64,7 @@ def _build(**over):
 
 # --------------------------------------------------------------------------- F3
 
+
 def test_f3_suite_rfecv_is_cluster_wrapped_when_default_on():
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
 
@@ -88,8 +90,11 @@ def test_f3_cluster_reduce_off_yields_bare_rfecv():
 def test_f3_wrapped_rfecv_threads_overrides_to_inner():
     rf = _FakeRFECV(keep=2)
     pps, _ = _build(
-        rfecv_models=["lgb"], rfecv_models_params={"lgb": rf},
-        rfecv_leakage_corr_threshold=0.77, rfecv_mbh_adaptive_threshold=11, rfecv_cluster_reduce=True,
+        rfecv_models=["lgb"],
+        rfecv_models_params={"lgb": rf},
+        rfecv_leakage_corr_threshold=0.77,
+        rfecv_mbh_adaptive_threshold=11,
+        rfecv_cluster_reduce=True,
     )
     # Overrides were applied to the prebuilt RFECV BEFORE wrapping.
     assert pps[0].estimator.leakage_corr_threshold == 0.77
@@ -114,10 +119,15 @@ def test_biz_f3_cluster_wrap_keeps_whole_correlated_cluster():
     """
     rng = np.random.default_rng(0)
     base = rng.standard_normal(400)
-    df = pd.DataFrame({
-        "a": base, "a_dup1": base + 1e-3 * rng.standard_normal(400), "a_dup2": base + 1e-3 * rng.standard_normal(400),
-        "noise0": rng.standard_normal(400), "noise1": rng.standard_normal(400),
-    })
+    df = pd.DataFrame(
+        {
+            "a": base,
+            "a_dup1": base + 1e-3 * rng.standard_normal(400),
+            "a_dup2": base + 1e-3 * rng.standard_normal(400),
+            "noise0": rng.standard_normal(400),
+            "noise1": rng.standard_normal(400),
+        }
+    )
     y = pd.Series((base > 0).astype(int))
 
     rf_bare = _FakeRFECV(keep=1)
@@ -125,8 +135,7 @@ def test_biz_f3_cluster_wrap_keeps_whole_correlated_cluster():
     bare_kept = list(bare_pps[0].fit(df, y).transform(df).columns)
 
     rf_wrap = _FakeRFECV(keep=1)
-    wrap_pps, _ = _build(rfecv_models=["lgb"], rfecv_models_params={"lgb": rf_wrap},
-                         rfecv_cluster_reduce=True, rfecv_cluster_corr_threshold=0.9)
+    wrap_pps, _ = _build(rfecv_models=["lgb"], rfecv_models_params={"lgb": rf_wrap}, rfecv_cluster_reduce=True, rfecv_cluster_corr_threshold=0.9)
     wrap_kept = list(wrap_pps[0].fit(df, y).transform(df).columns)
 
     # Bare keeps a single column; the wrap expands the correlated cluster {a, a_dup1, a_dup2} back together.
@@ -136,6 +145,7 @@ def test_biz_f3_cluster_wrap_keeps_whole_correlated_cluster():
 
 
 # --------------------------------------------------------------------------- F4
+
 
 def test_f4_shap_proxied_fs_reachable_from_suite():
     pps, names = _build(use_shap_proxied_fs=True, shap_proxied_fs_kwargs={"top_n": 5})
@@ -160,6 +170,7 @@ def test_f4_shap_proxied_fs_kind_classified():
 
 # --------------------------------------------------------------------------- F6
 
+
 def test_f6_shap_proxied_fs_kwargs_master_flag_gate():
     with pytest.raises(ValueError, match="shap_proxied_fs_kwargs supplied but use_shap_proxied_fs"):
         FeatureSelectionConfig(shap_proxied_fs_kwargs={"top_n": 5})
@@ -182,6 +193,7 @@ def test_f6_rfecv_cluster_corr_method_validated():
 
 
 # --------------------------------------------------------------------------- Architecture: report_extract
+
 
 def test_report_builder_consumes_registry_report_extract():
     """The central report builder fills ShapProxiedFS scores via the registry spec's report_extract."""

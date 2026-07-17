@@ -4,6 +4,7 @@ Each test pins a specific bug surfaced by the 2026-05-17 audit's
 ``neural/ + ranker (13 HIGH)`` table. Tests are written to fail on
 pre-fix code and pass on post-fix.
 """
+
 from __future__ import annotations
 
 import math
@@ -77,9 +78,7 @@ def test_h_neu_02_non_contiguous_label_set_keeps_stratified_sampler() -> None:
         batch_size=8,
     )
     dl = dm.train_dataloader()
-    assert isinstance(dl.sampler, WeightedRandomSampler), (
-        "Stratified sampler must be installed for non-contiguous label sets"
-    )
+    assert isinstance(dl.sampler, WeightedRandomSampler), "Stratified sampler must be installed for non-contiguous label sets"
 
 
 # ---------------------------------------------------------------------------
@@ -275,9 +274,7 @@ def test_h_neu_13_cache_key_distinguishes_different_payloads() -> None:
 
     k_a = _RecurrentWrapperBase._compute_cache_key(a, None)
     k_b = _RecurrentWrapperBase._compute_cache_key(b, None)
-    assert k_a != k_b, (
-        "Cache keys must differ when array content differs in interior cells"
-    )
+    assert k_a != k_b, "Cache keys must differ when array content differs in interior cells"
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +306,10 @@ def test_h_neu_14_save_load_round_trip_weights_only(tmp_path: Path) -> None:
     wrapper = RecurrentRegressorWrapper(config=cfg)
     # Skip the trainer; just install a constructed model so save() has state.
     wrapper.model = RecurrentTorchModel(
-        config=cfg, seq_input_size=4, aux_input_size=4, is_regression=True,
+        config=cfg,
+        seq_input_size=4,
+        aux_input_size=4,
+        is_regression=True,
     )
     wrapper._aux_input_size = 4
     wrapper._seq_input_size = 4
@@ -338,10 +338,7 @@ def test_h_neu_15_extract_sequences_speedup_and_equivalence() -> None:
 
     n_rows, seq_len = 1000, 20
     rng = np.random.default_rng(0)
-    data = {
-        col: [rng.standard_normal(seq_len).astype(np.float32).tolist() for _ in range(n_rows)]
-        for col in ("mjd", "mag", "magerr", "norm")
-    }
+    data = {col: [rng.standard_normal(seq_len).astype(np.float32).tolist() for _ in range(n_rows)] for col in ("mjd", "mag", "magerr", "norm")}
     df = pl.DataFrame(data)
 
     from mlframe.training.neural.recurrent import extract_sequences
@@ -413,9 +410,13 @@ def test_h_neu_16_ranks_within_group_equivalent_and_faster() -> None:
     # contention (concurrent test workers, scheduler jitter) cannot flip the
     # comparison. The min is the contention-free estimate of each path's cost.
     t_naive = min(timeit.repeat(lambda: _naive(scores, group_starts), number=3, repeat=5))
-    t_fast = min(timeit.repeat(
-        lambda: _r._ranks_within_group(scores, group_starts), number=3, repeat=5,
-    ))
+    t_fast = min(
+        timeit.repeat(
+            lambda: _r._ranks_within_group(scores, group_starts),
+            number=3,
+            repeat=5,
+        )
+    )
     # Vectorised lexsort must beat the per-group Python argsort loop on 5k groups.
     assert t_fast < t_naive, f"vectorised={t_fast:.3f}s naive={t_naive:.3f}s"
-    print(f"[H-NEU-16] naive={t_naive:.3f}s  vectorised={t_fast:.3f}s  speedup={t_naive/t_fast:.1f}x")
+    print(f"[H-NEU-16] naive={t_naive:.3f}s  vectorised={t_fast:.3f}s  speedup={t_naive / t_fast:.1f}x")

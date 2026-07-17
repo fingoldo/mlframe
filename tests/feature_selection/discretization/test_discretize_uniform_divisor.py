@@ -29,6 +29,7 @@ Fix (mirrored CPU + CUDA paths):
 - CUDA mirror at line 850 fixed identically (cross-backend
   bit-comparability preserved by both using the canonical formula).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,9 +39,12 @@ import pytest
 def _assert_uniformly_binned(arr, n_bins=10):
     """Each bin (0..n_bins-1) must be populated and counts roughly equal."""
     from mlframe.feature_selection.filters.discretization import discretize_uniform
+
     out = discretize_uniform(
-        arr=arr, n_bins=n_bins,
-        min_value=float(arr.min()), max_value=float(arr.max()),
+        arr=arr,
+        n_bins=n_bins,
+        min_value=float(arr.min()),
+        max_value=float(arr.max()),
         dtype=np.int16,
     )
     codes_used = sorted(set(int(c) for c in out))
@@ -53,9 +57,7 @@ def test_positive_shifted_linspace_uses_all_bins():
     """Pre-fix collapsed to 2 bins. Post-fix uses all 10."""
     arr = np.linspace(1000, 1100, 1000)
     codes, _ = _assert_uniformly_binned(arr, n_bins=10)
-    assert codes == list(range(10)), (
-        f"positive-shifted linspace lost bins: used={codes}"
-    )
+    assert codes == list(range(10)), f"positive-shifted linspace lost bins: used={codes}"
 
 
 def test_small_positive_linspace_uses_all_bins():
@@ -65,9 +67,7 @@ def test_small_positive_linspace_uses_all_bins():
     assert codes == list(range(10))
     # Last bin should have ~100 (n_total / n_bins) not 55.
     _, counts = np.unique(out, return_counts=True)
-    assert counts.min() >= 90, (
-        f"bin imbalance still present; counts={counts.tolist()}"
-    )
+    assert counts.min() >= 90, f"bin imbalance still present; counts={counts.tolist()}"
 
 
 def test_crossing_zero_linspace_uses_all_bins():
@@ -87,9 +87,9 @@ def test_negative_only_linspace_no_div_by_zero():
 def test_constant_column_yields_single_bin():
     """Zero-range input must produce a single honest bin 0, not crash."""
     from mlframe.feature_selection.filters.discretization import discretize_uniform
+
     arr = np.full(500, 7.0)
-    out = discretize_uniform(arr=arr, n_bins=10,
-                              min_value=7.0, max_value=7.0, dtype=np.int16)
+    out = discretize_uniform(arr=arr, n_bins=10, min_value=7.0, max_value=7.0, dtype=np.int16)
     assert (out == 0).all()
 
 
@@ -107,6 +107,7 @@ def test_e2e_via_discretize_array():
     entry point.
     """
     from mlframe.feature_selection.filters.discretization import discretize_array
+
     arr = np.linspace(1000, 1100, 1000)
     out = discretize_array(arr=arr, n_bins=10, method="uniform", dtype=np.int16)
     codes = sorted(set(int(c) for c in out))

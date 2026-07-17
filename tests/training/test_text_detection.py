@@ -45,14 +45,16 @@ class TestTriggerDefiniteLong:
     def test_long_text_classified_as_text(self):
         # Each row >100 chars to fire the "definite_long" trigger (vs
         # the "medium_with_tokens" trigger which catches shorter text).
-        df = pl.DataFrame({
-            "long_col": [
-                "a quick brown fox jumps over the lazy dog and over the moon and back ten times every full hour with extra commentary",
-                "another lengthy review with hundreds of characters typed by an enthusiastic reviewer who really likes this particular product line",
-                "third sample equally lengthy with multiple sentences and varied vocabulary that goes on for a reasonable while now and then more",
-                "fourth row to ensure mean is well above the 100 char threshold for definite-long classification with substantive content here",
-            ],
-        })
+        df = pl.DataFrame(
+            {
+                "long_col": [
+                    "a quick brown fox jumps over the lazy dog and over the moon and back ten times every full hour with extra commentary",
+                    "another lengthy review with hundreds of characters typed by an enthusiastic reviewer who really likes this particular product line",
+                    "third sample equally lengthy with multiple sentences and varied vocabulary that goes on for a reasonable while now and then more",
+                    "fourth row to ensure mean is well above the 100 char threshold for definite-long classification with substantive content here",
+                ],
+            }
+        )
         text_cols, decisions = detect_text_columns(df)
         assert "long_col" in text_cols
         d = next(d for d in decisions if d.column == "long_col")
@@ -66,14 +68,17 @@ class TestTriggerDefiniteLong:
 
 class TestTriggerMediumWithTokens:
     def test_short_review_classified_as_text(self):
-        df = pl.DataFrame({
-            "review": [
-                "this product worked very well for me",  # 38 chars, 7 tokens
-                "the camera quality is much better than expected",
-                "I would recommend it to a friend who needs one",
-                "the battery lasts the whole day fine",
-            ] * 5,  # padding for cardinality
-        })
+        df = pl.DataFrame(
+            {
+                "review": [
+                    "this product worked very well for me",  # 38 chars, 7 tokens
+                    "the camera quality is much better than expected",
+                    "I would recommend it to a friend who needs one",
+                    "the battery lasts the whole day fine",
+                ]
+                * 5,  # padding for cardinality
+            }
+        )
         text_cols, decisions = detect_text_columns(df)
         assert "review" in text_cols
 
@@ -86,12 +91,11 @@ class TestTriggerMediumWithTokens:
 class TestTriggerHighCardinality:
     def test_high_cardinality_with_substance_is_text(self):
         n = 400
-        df = pl.DataFrame({
-            "skills": [
-                f"skill {i} of many varied options including {i*2} bytes worth"
-                for i in range(n)
-            ],
-        })
+        df = pl.DataFrame(
+            {
+                "skills": [f"skill {i} of many varied options including {i * 2} bytes worth" for i in range(n)],
+            }
+        )
         text_cols, _ = detect_text_columns(df)
         assert "skills" in text_cols
 
@@ -104,9 +108,11 @@ class TestTriggerHighCardinality:
 class TestAntiUuidGuard:
     def test_uuid_column_rejected_by_entropy(self):
         """UUID-v4 entropy is ~4.04 < 4.5 threshold."""
-        df = pl.DataFrame({
-            "user_id": [str(uuid.UUID(int=i)) for i in range(200)],
-        })
+        df = pl.DataFrame(
+            {
+                "user_id": [str(uuid.UUID(int=i)) for i in range(200)],
+            }
+        )
         text_cols, decisions = detect_text_columns(df)
         assert "user_id" not in text_cols
         d = next(d for d in decisions if d.column == "user_id")
@@ -116,23 +122,25 @@ class TestAntiUuidGuard:
         """64-hex-char hash-style IDs have no spaces -> mean_tokens=1
         -> rejected even if cardinality is high."""
         rng = np.random.RandomState(0)
-        df = pl.DataFrame({
-            "hash_id": [
-                "".join(rng.choice(list("0123456789abcdef"), 64).tolist())
-                for _ in range(150)
-            ],
-        })
+        df = pl.DataFrame(
+            {
+                "hash_id": ["".join(rng.choice(list("0123456789abcdef"), 64).tolist()) for _ in range(150)],
+            }
+        )
         text_cols, decisions = detect_text_columns(df)
         assert "hash_id" not in text_cols
 
     def test_natural_text_passes_entropy(self):
         """Real English has entropy ~4.2-4.6 -- above the 4.5 threshold
         when the corpus is varied enough."""
-        df = pl.DataFrame({
-            "review": [
-                "Product reviews are written by humans who use a wide range of words and varied vocabulary often.",
-            ] * 50,
-        })
+        df = pl.DataFrame(
+            {
+                "review": [
+                    "Product reviews are written by humans who use a wide range of words and varied vocabulary often.",
+                ]
+                * 50,
+            }
+        )
         # Single repeated string -> entropy could be lower; this test
         # just verifies the anti-uuid filter doesn't fire on real
         # English with at least medium chars + tokens.
@@ -149,9 +157,11 @@ class TestAntiUuidGuard:
 
 class TestUserOverrides:
     def test_explicit_text_columns_bypass_heuristic(self):
-        df = pl.DataFrame({
-            "short_col": ["a", "b", "c"] * 30,  # short, low entropy -> normally cat
-        })
+        df = pl.DataFrame(
+            {
+                "short_col": ["a", "b", "c"] * 30,  # short, low entropy -> normally cat
+            }
+        )
         cfg = TextDetectionConfig(explicit_text_columns=["short_col"])
         text_cols, decisions = detect_text_columns(df, config=cfg)
         assert "short_col" in text_cols
@@ -159,9 +169,11 @@ class TestUserOverrides:
         assert d.rule_name == "explicit_text"
 
     def test_explicit_categorical_columns_bypass_heuristic(self):
-        df = pl.DataFrame({
-            "long_col": ["a quick brown fox " * 20] * 50,  # long -> normally text
-        })
+        df = pl.DataFrame(
+            {
+                "long_col": ["a quick brown fox " * 20] * 50,  # long -> normally text
+            }
+        )
         cfg = TextDetectionConfig(explicit_categorical_columns=["long_col"])
         text_cols, decisions = detect_text_columns(df, config=cfg)
         assert "long_col" not in text_cols
@@ -169,9 +181,11 @@ class TestUserOverrides:
         assert d.rule_name == "explicit_categorical"
 
     def test_skip_columns_excludes_from_analysis(self):
-        df = pl.DataFrame({
-            "ignore_me": ["this would normally be very long text " * 5] * 50,
-        })
+        df = pl.DataFrame(
+            {
+                "ignore_me": ["this would normally be very long text " * 5] * 50,
+            }
+        )
         cfg = TextDetectionConfig(skip_columns=["ignore_me"])
         text_cols, decisions = detect_text_columns(df, config=cfg)
         assert "ignore_me" not in text_cols
@@ -188,9 +202,11 @@ class TestCategoricalDtypeRespect:
     def test_explicit_categorical_dtype_polars(self):
         """A polars Categorical column gets cat-flag; high cardinality
         + substance won't override that user signal."""
-        df = pl.DataFrame({
-            "skills": [f"skill_{i}_lots_of_descriptive_text" for i in range(400)],
-        }).with_columns(pl.col("skills").cast(pl.Categorical))
+        df = pl.DataFrame(
+            {
+                "skills": [f"skill_{i}_lots_of_descriptive_text" for i in range(400)],
+            }
+        ).with_columns(pl.col("skills").cast(pl.Categorical))
 
         # Default: respect_explicit_categorical_dtype=True
         text_cols, decisions = detect_text_columns(df)
@@ -199,18 +215,21 @@ class TestCategoricalDtypeRespect:
         assert "skills" not in text_cols
 
     def test_explicit_categorical_dtype_pandas(self):
-        df = pd.DataFrame({
-            "skills": pd.Series([f"skill_{i}_lots_of_descriptive_text" for i in range(400)],
-                                 dtype="category"),
-        })
+        df = pd.DataFrame(
+            {
+                "skills": pd.Series([f"skill_{i}_lots_of_descriptive_text" for i in range(400)], dtype="category"),
+            }
+        )
         text_cols, decisions = detect_text_columns(df)
         d = next(d for d in decisions if d.column == "skills")
         assert d.rule_name == "explicit_categorical_dtype"
 
     def test_respect_disabled_via_config(self):
-        df = pl.DataFrame({
-            "skills": [f"skill_{i}_lots_of_descriptive_text" for i in range(400)],
-        }).with_columns(pl.col("skills").cast(pl.Categorical))
+        df = pl.DataFrame(
+            {
+                "skills": [f"skill_{i}_lots_of_descriptive_text" for i in range(400)],
+            }
+        ).with_columns(pl.col("skills").cast(pl.Categorical))
         cfg = TextDetectionConfig(respect_explicit_categorical_dtype=False)
         text_cols, decisions = detect_text_columns(df, config=cfg)
         # Now the heuristic runs; cardinality + tokens should classify it text.
@@ -248,9 +267,11 @@ class TestNonStringDtype:
 
 class TestCornerCases:
     def test_url_only_column_anti_uuid_filtered(self):
-        df = pl.DataFrame({
-            "url": [f"http://example.com/path/{i}" for i in range(150)],
-        })
+        df = pl.DataFrame(
+            {
+                "url": [f"http://example.com/path/{i}" for i in range(150)],
+            }
+        )
         text_cols, decisions = detect_text_columns(df)
         assert "url" not in text_cols
         # URLs typically have low alphabet entropy + few tokens.
@@ -285,20 +306,24 @@ class TestCornerCases:
 
 class TestDecisionsTrace:
     def test_one_decision_per_candidate_column(self):
-        df = pl.DataFrame({
-            "a": ["x"] * 50,
-            "b": ["alpha bravo charlie " * 5] * 50,
-            "c": [1.0] * 50,
-        })
+        df = pl.DataFrame(
+            {
+                "a": ["x"] * 50,
+                "b": ["alpha bravo charlie " * 5] * 50,
+                "c": [1.0] * 50,
+            }
+        )
         text_cols, decisions = detect_text_columns(df)
         assert len(decisions) == 3
         cols_seen = {d.column for d in decisions}
         assert cols_seen == {"a", "b", "c"}
 
     def test_stats_attached_to_decision(self):
-        df = pl.DataFrame({
-            "review": ["a long enough review with multiple tokens " * 3] * 50,
-        })
+        df = pl.DataFrame(
+            {
+                "review": ["a long enough review with multiple tokens " * 3] * 50,
+            }
+        )
         _, decisions = detect_text_columns(df)
         d = decisions[0]
         assert "mean_chars" in d.stats

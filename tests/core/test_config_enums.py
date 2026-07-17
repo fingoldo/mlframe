@@ -4,6 +4,7 @@ These enums are stamped into saved-model metadata / pipeline configs, so a pickl
 not round-trip to the SAME singleton member (identity, not just equality) or an accidental
 alias (two members sharing a value) would silently corrupt config replay.
 """
+
 from __future__ import annotations
 
 import pickle

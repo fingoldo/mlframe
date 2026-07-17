@@ -7,6 +7,7 @@ confirmation loop. The per-pair operands (``classes_pair``/``classes_x1``/``clas
 ``cat_confirm_freqs_y``.
 
 Skips when cupy is unavailable (CI without a GPU)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -106,7 +107,9 @@ def test_gpu_count_matches_cpu_reference_order_of_magnitude():
 
     n_perms = 200
     n_gpu = _count_nfailed_joint_indep_cupy(pair, freqs_pair, x1, freqs_x1, x2, freqs_x2, y, freqs_y, ii_obs=0.0, n_perms=n_perms, base_seed=7)
-    n_cpu = _count_nfailed_joint_indep_serial(pair, freqs_pair, x1, freqs_x1, x2, freqs_x2, y, freqs_y, ii_obs=0.0, n_perms=n_perms, base_seed=7, dtype=np.int64)
+    n_cpu = _count_nfailed_joint_indep_serial(
+        pair, freqs_pair, x1, freqs_x1, x2, freqs_x2, y, freqs_y, ii_obs=0.0, n_perms=n_perms, base_seed=7, dtype=np.int64
+    )
     # Different RNG streams (cupy vs numba LCG) -> not bit-identical counts, but both count occurrences of
     # a threshold event over the SAME statistical null -> must land in the same broad regime.
     assert abs(int(n_gpu) - int(n_cpu)) <= n_perms, f"gpu={n_gpu} cpu={n_cpu} n_perms={n_perms}"

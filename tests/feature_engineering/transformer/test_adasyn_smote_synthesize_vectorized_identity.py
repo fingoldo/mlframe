@@ -11,6 +11,7 @@ store-rounding (``out[i] = ...`` into a float32 array rounds the lerp in float32
 diverge by a single ULP. This test pins bit-identity against a self-contained reference re-implementing the OLD
 row-loop, including the ``candidates.size == 0`` no-draw branch.
 """
+
 from __future__ import annotations
 
 import numpy as np

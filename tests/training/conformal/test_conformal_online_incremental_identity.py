@@ -9,6 +9,7 @@ branches (alpha_t driven to 0 / 1) and the eviction path once the window fills.
 
 This test pins identity against a vendored copy of the pre-change kernel.
 """
+
 from __future__ import annotations
 
 import math
@@ -46,10 +47,12 @@ def test_cpx27_sorted_buffer_radius_bit_identical(buffer_n):
     steps = 8000
     # Heavy-tailed magnitudes + duplicate-prone small ints to stress the
     # bisect-eviction (ties must be removed value-for-value, not positionally).
-    residuals = np.concatenate([
-        np.abs(rng.normal(size=steps // 2)),
-        rng.integers(0, 5, size=steps - steps // 2).astype(float),
-    ])
+    residuals = np.concatenate(
+        [
+            np.abs(rng.normal(size=steps // 2)),
+            rng.integers(0, 5, size=steps - steps // 2).astype(float),
+        ]
+    )
     rng.shuffle(residuals)
     # alpha_t wandering across (0,1) incl. both saturations.
     alphas = np.clip(0.1 + np.cumsum(rng.normal(scale=0.02, size=steps)), 0.0, 1.0)

@@ -166,11 +166,7 @@ def test_mutually_exclusive_pairs_are_enforced_by_a_validator():
                 # Some other error — likely synth-value type mismatch.
                 # Inconclusive but skip.
                 continue
-            failures.append(
-                f"{cls.__name__}: docstring claims '{a}' and '{b}' are "
-                f"mutually exclusive, but cls({a}=..., {b}=...) succeeded "
-                f"without raising"
-            )
+            failures.append(f"{cls.__name__}: docstring claims '{a}' and '{b}' are mutually exclusive, but cls({a}=..., {b}=...) succeeded without raising")
 
     if audited_pairs == 0:
         # FYI for future contributors: this meta-test scans every
@@ -189,7 +185,4 @@ def test_mutually_exclusive_pairs_are_enforced_by_a_validator():
             "delete the file if the contract pattern is not used."
         )
     if failures:
-        pytest.fail(
-            f"{len(failures)} mutex-claim(s) without enforcing validator:\n  "
-            + "\n  ".join(failures)
-        )
+        pytest.fail(f"{len(failures)} mutex-claim(s) without enforcing validator:\n  " + "\n  ".join(failures))

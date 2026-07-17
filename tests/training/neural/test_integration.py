@@ -43,136 +43,107 @@ from mlframe.training.neural import (
 @pytest.fixture
 def classification_dataset():
     """Generate complete classification dataset with train/val/test splits."""
-    X, y = make_classification(
-        n_samples=300,
-        n_features=20,
-        n_informative=15,
-        n_redundant=5,
-        n_classes=4,
-        random_state=42
-    )
+    X, y = make_classification(n_samples=300, n_features=20, n_informative=15, n_redundant=5, n_classes=4, random_state=42)
 
     X_temp, X_test, y_temp, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=0.25, random_state=42)
 
     return {
-        'X_train': X_train.astype(np.float32),
-        'y_train': y_train.astype(np.int64),
-        'X_val': X_val.astype(np.float32),
-        'y_val': y_val.astype(np.int64),
-        'X_test': X_test.astype(np.float32),
-        'y_test': y_test.astype(np.int64),
-        'num_features': 20,
-        'num_classes': 4
+        "X_train": X_train.astype(np.float32),
+        "y_train": y_train.astype(np.int64),
+        "X_val": X_val.astype(np.float32),
+        "y_val": y_val.astype(np.int64),
+        "X_test": X_test.astype(np.float32),
+        "y_test": y_test.astype(np.int64),
+        "num_features": 20,
+        "num_classes": 4,
     }
 
 
 @pytest.fixture
 def regression_dataset():
     """Generate complete regression dataset with train/val/test splits."""
-    X, y = make_regression(
-        n_samples=300,
-        n_features=15,
-        n_informative=10,
-        noise=15.0,
-        random_state=42
-    )
+    X, y = make_regression(n_samples=300, n_features=15, n_informative=10, noise=15.0, random_state=42)
 
     X_temp, X_test, y_temp, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=0.25, random_state=42)
 
     return {
-        'X_train': X_train.astype(np.float32),
-        'y_train': y_train.astype(np.float32),
-        'X_val': X_val.astype(np.float32),
-        'y_val': y_val.astype(np.float32),
-        'X_test': X_test.astype(np.float32),
-        'y_test': y_test.astype(np.float32),
-        'num_features': 15
+        "X_train": X_train.astype(np.float32),
+        "y_train": y_train.astype(np.float32),
+        "X_val": X_val.astype(np.float32),
+        "y_val": y_val.astype(np.float32),
+        "X_test": X_test.astype(np.float32),
+        "y_test": y_test.astype(np.float32),
+        "num_features": 15,
     }
 
 
 @pytest.fixture
 def integration_estimator_params_classifier():
     """Generate proper estimator initialization parameters for integration tests - classification."""
-    network_params = {
-        'nlayers': 3,
-        'first_layer_num_neurons': 64,
-        'dropout_prob': 0.0,
-        'activation_function': torch.nn.ReLU
-    }
+    network_params = {"nlayers": 3, "first_layer_num_neurons": 64, "dropout_prob": 0.0, "activation_function": torch.nn.ReLU}
 
-    model_params = {
-        'loss_fn': torch.nn.CrossEntropyLoss(),
-        'learning_rate': 1e-3
-    }
+    model_params = {"loss_fn": torch.nn.CrossEntropyLoss(), "learning_rate": 1e-3}
 
     datamodule_params = {
-        'read_fcn': None,
-        'data_placement_device': None,
-        'features_dtype': torch.float32,
-        'labels_dtype': torch.int64,
-        'dataloader_params': {'batch_size': 32, 'num_workers': 0}
+        "read_fcn": None,
+        "data_placement_device": None,
+        "features_dtype": torch.float32,
+        "labels_dtype": torch.int64,
+        "dataloader_params": {"batch_size": 32, "num_workers": 0},
     }
 
     trainer_params = {
-        'max_epochs': 10,
-        'enable_model_summary': False,
-        'default_root_dir': None,
-        'log_every_n_steps': 1,
-        'devices': 1,  # Prevent multi-GPU training in tests
-        'logger': False  # Disable CSVLogger to avoid fieldnames issues in tests
+        "max_epochs": 10,
+        "enable_model_summary": False,
+        "default_root_dir": None,
+        "log_every_n_steps": 1,
+        "devices": 1,  # Prevent multi-GPU training in tests
+        "logger": False,  # Disable CSVLogger to avoid fieldnames issues in tests
     }
 
     return {
-        'model_class': MLPTorchModel,
-        'model_params': model_params,
-        'network_params': network_params,
-        'datamodule_class': TorchDataModule,
-        'datamodule_params': datamodule_params,
-        'trainer_params': trainer_params
+        "model_class": MLPTorchModel,
+        "model_params": model_params,
+        "network_params": network_params,
+        "datamodule_class": TorchDataModule,
+        "datamodule_params": datamodule_params,
+        "trainer_params": trainer_params,
     }
 
 
 @pytest.fixture
 def integration_estimator_params_regressor():
     """Generate proper estimator initialization parameters for integration tests - regression."""
-    network_params = {
-        'nlayers': 3,
-        'first_layer_num_neurons': 64,
-        'dropout_prob': 0.0,
-        'activation_function': torch.nn.ReLU
-    }
+    network_params = {"nlayers": 3, "first_layer_num_neurons": 64, "dropout_prob": 0.0, "activation_function": torch.nn.ReLU}
 
-    model_params = {
-        'loss_fn': torch.nn.MSELoss(),
-        'learning_rate': 1e-3
-    }
+    model_params = {"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-3}
 
     datamodule_params = {
-        'read_fcn': None,
-        'data_placement_device': None,
-        'features_dtype': torch.float32,
-        'labels_dtype': torch.float32,
-        'dataloader_params': {'batch_size': 32, 'num_workers': 0}
+        "read_fcn": None,
+        "data_placement_device": None,
+        "features_dtype": torch.float32,
+        "labels_dtype": torch.float32,
+        "dataloader_params": {"batch_size": 32, "num_workers": 0},
     }
 
     trainer_params = {
-        'max_epochs': 10,
-        'enable_model_summary': False,
-        'default_root_dir': None,
-        'log_every_n_steps': 1,
-        'devices': 1,  # Prevent multi-GPU training in tests
-        'logger': False  # Disable CSVLogger to avoid fieldnames issues in tests
+        "max_epochs": 10,
+        "enable_model_summary": False,
+        "default_root_dir": None,
+        "log_every_n_steps": 1,
+        "devices": 1,  # Prevent multi-GPU training in tests
+        "logger": False,  # Disable CSVLogger to avoid fieldnames issues in tests
     }
 
     return {
-        'model_class': MLPTorchModel,
-        'model_params': model_params,
-        'network_params': network_params,
-        'datamodule_class': TorchDataModule,
-        'datamodule_params': datamodule_params,
-        'trainer_params': trainer_params
+        "model_class": MLPTorchModel,
+        "model_params": model_params,
+        "network_params": network_params,
+        "datamodule_class": TorchDataModule,
+        "datamodule_params": datamodule_params,
+        "trainer_params": trainer_params,
     }
 
 
@@ -190,23 +161,19 @@ class TestClassificationPipeline:
         clf = PytorchLightningClassifier(**integration_estimator_params_classifier)
 
         # Fit with validation
-        eval_set = (classification_dataset['X_val'], classification_dataset['y_val'])
-        clf.fit(
-            classification_dataset['X_train'],
-            classification_dataset['y_train'],
-            eval_set=eval_set
-        )
+        eval_set = (classification_dataset["X_val"], classification_dataset["y_val"])
+        clf.fit(classification_dataset["X_train"], classification_dataset["y_train"], eval_set=eval_set)
 
         # Predict
-        predictions = clf.predict(classification_dataset['X_test'])
-        assert predictions.shape == classification_dataset['y_test'].shape
+        predictions = clf.predict(classification_dataset["X_test"])
+        assert predictions.shape == classification_dataset["y_test"].shape
 
         # Predict probabilities
-        probas = clf.predict_proba(classification_dataset['X_test'])
-        assert probas.shape == (len(classification_dataset['X_test']), classification_dataset['num_classes'])
+        probas = clf.predict_proba(classification_dataset["X_test"])
+        assert probas.shape == (len(classification_dataset["X_test"]), classification_dataset["num_classes"])
 
         # Score
-        accuracy = clf.score(classification_dataset['X_test'], classification_dataset['y_test'])
+        accuracy = clf.score(classification_dataset["X_test"], classification_dataset["y_test"])
         assert 0.0 <= accuracy <= 1.0
 
     def test_classification_with_different_architectures(self, classification_dataset, integration_estimator_params_classifier):
@@ -221,55 +188,46 @@ class TestClassificationPipeline:
 
         for arch in architectures:
             params = integration_estimator_params_classifier.copy()
-            params['network_params'] = params['network_params'].copy()
-            params['network_params']['neurons_by_layer_arch'] = arch
-            params['trainer_params'] = params['trainer_params'].copy()
-            params['trainer_params']['max_epochs'] = 3
+            params["network_params"] = params["network_params"].copy()
+            params["network_params"]["neurons_by_layer_arch"] = arch
+            params["trainer_params"] = params["trainer_params"].copy()
+            params["trainer_params"]["max_epochs"] = 3
             clf = PytorchLightningClassifier(**params)
 
-            clf.fit(
-                classification_dataset['X_train'],
-                classification_dataset['y_train']
-            )
+            clf.fit(classification_dataset["X_train"], classification_dataset["y_train"])
 
-            predictions = clf.predict(classification_dataset['X_test'])
-            assert len(predictions) == len(classification_dataset['X_test'])
+            predictions = clf.predict(classification_dataset["X_test"])
+            assert len(predictions) == len(classification_dataset["X_test"])
 
     def test_classification_with_regularization(self, classification_dataset, integration_estimator_params_classifier):
         """Test classification with dropout and L1 regularization."""
         params = integration_estimator_params_classifier.copy()
-        params['network_params'] = params['network_params'].copy()
-        params['network_params']['dropout_prob'] = 0.3
-        params['model_params'] = params['model_params'].copy()
-        params['model_params']['l1_alpha'] = 0.001
-        params['trainer_params'] = params['trainer_params'].copy()
-        params['trainer_params']['max_epochs'] = 5
+        params["network_params"] = params["network_params"].copy()
+        params["network_params"]["dropout_prob"] = 0.3
+        params["model_params"] = params["model_params"].copy()
+        params["model_params"]["l1_alpha"] = 0.001
+        params["trainer_params"] = params["trainer_params"].copy()
+        params["trainer_params"]["max_epochs"] = 5
         clf = PytorchLightningClassifier(**params)
 
-        clf.fit(
-            classification_dataset['X_train'],
-            classification_dataset['y_train']
-        )
+        clf.fit(classification_dataset["X_train"], classification_dataset["y_train"])
 
-        predictions = clf.predict(classification_dataset['X_test'])
-        assert len(predictions) == len(classification_dataset['X_test'])
+        predictions = clf.predict(classification_dataset["X_test"])
+        assert len(predictions) == len(classification_dataset["X_test"])
 
     def test_classification_with_normalization(self, classification_dataset, integration_estimator_params_classifier):
         """Test classification with various normalization layers."""
         params = integration_estimator_params_classifier.copy()
-        params['network_params'] = params['network_params'].copy()
-        params['network_params']['use_batchnorm'] = True
-        params['network_params']['use_layernorm_per_layer'] = True
-        params['trainer_params'] = params['trainer_params'].copy()
-        params['trainer_params']['max_epochs'] = 5
+        params["network_params"] = params["network_params"].copy()
+        params["network_params"]["use_batchnorm"] = True
+        params["network_params"]["use_layernorm_per_layer"] = True
+        params["trainer_params"] = params["trainer_params"].copy()
+        params["trainer_params"]["max_epochs"] = 5
         clf = PytorchLightningClassifier(**params)
 
-        clf.fit(
-            classification_dataset['X_train'],
-            classification_dataset['y_train']
-        )
+        clf.fit(classification_dataset["X_train"], classification_dataset["y_train"])
 
-        accuracy = clf.score(classification_dataset['X_test'], classification_dataset['y_test'])
+        accuracy = clf.score(classification_dataset["X_test"], classification_dataset["y_test"])
         assert 0.0 <= accuracy <= 1.0
 
 
@@ -287,19 +245,15 @@ class TestRegressionPipeline:
         reg = PytorchLightningRegressor(**integration_estimator_params_regressor)
 
         # Fit with validation
-        eval_set = (regression_dataset['X_val'], regression_dataset['y_val'])
-        reg.fit(
-            regression_dataset['X_train'],
-            regression_dataset['y_train'],
-            eval_set=eval_set
-        )
+        eval_set = (regression_dataset["X_val"], regression_dataset["y_val"])
+        reg.fit(regression_dataset["X_train"], regression_dataset["y_train"], eval_set=eval_set)
 
         # Predict
-        predictions = reg.predict(regression_dataset['X_test'])
-        assert predictions.shape == regression_dataset['y_test'].shape
+        predictions = reg.predict(regression_dataset["X_test"])
+        assert predictions.shape == regression_dataset["y_test"].shape
 
         # Score (R²)
-        r2 = reg.score(regression_dataset['X_test'], regression_dataset['y_test'])
+        r2 = reg.score(regression_dataset["X_test"], regression_dataset["y_test"])
         assert isinstance(r2, float)
 
     def test_regression_with_different_activations(self, regression_dataset, integration_estimator_params_regressor):
@@ -308,20 +262,17 @@ class TestRegressionPipeline:
 
         for activation in activations:
             params = integration_estimator_params_regressor.copy()
-            params['network_params'] = params['network_params'].copy()
-            params['network_params']['activation_function'] = activation
-            params['network_params']['nlayers'] = 2
-            params['trainer_params'] = params['trainer_params'].copy()
-            params['trainer_params']['max_epochs'] = 3
+            params["network_params"] = params["network_params"].copy()
+            params["network_params"]["activation_function"] = activation
+            params["network_params"]["nlayers"] = 2
+            params["trainer_params"] = params["trainer_params"].copy()
+            params["trainer_params"]["max_epochs"] = 3
             reg = PytorchLightningRegressor(**params)
 
-            reg.fit(
-                regression_dataset['X_train'],
-                regression_dataset['y_train']
-            )
+            reg.fit(regression_dataset["X_train"], regression_dataset["y_train"])
 
-            predictions = reg.predict(regression_dataset['X_test'])
-            assert len(predictions) == len(regression_dataset['X_test'])
+            predictions = reg.predict(regression_dataset["X_test"])
+            assert len(predictions) == len(regression_dataset["X_test"])
 
 
 # ================================================================================================
@@ -335,38 +286,32 @@ class TestPartialFitWorkflows:
     def test_sequential_partial_fit(self, classification_dataset, integration_estimator_params_classifier):
         """Test sequential partial_fit calls."""
         params = integration_estimator_params_classifier.copy()
-        params['network_params'] = params['network_params'].copy()
-        params['network_params']['nlayers'] = 2
-        params['trainer_params'] = params['trainer_params'].copy()
-        params['trainer_params']['max_epochs'] = 2
+        params["network_params"] = params["network_params"].copy()
+        params["network_params"]["nlayers"] = 2
+        params["trainer_params"] = params["trainer_params"].copy()
+        params["trainer_params"]["max_epochs"] = 2
         clf = PytorchLightningClassifier(**params)
 
         # Split training data into batches
-        n_samples = len(classification_dataset['X_train'])
+        n_samples = len(classification_dataset["X_train"])
         batch_size = n_samples // 3
 
         # First partial fit
         clf.partial_fit(
-            classification_dataset['X_train'][:batch_size],
-            classification_dataset['y_train'][:batch_size],
-            classes=np.arange(classification_dataset['num_classes'])
+            classification_dataset["X_train"][:batch_size],
+            classification_dataset["y_train"][:batch_size],
+            classes=np.arange(classification_dataset["num_classes"]),
         )
 
         # Second partial fit
-        clf.partial_fit(
-            classification_dataset['X_train'][batch_size:2*batch_size],
-            classification_dataset['y_train'][batch_size:2*batch_size]
-        )
+        clf.partial_fit(classification_dataset["X_train"][batch_size : 2 * batch_size], classification_dataset["y_train"][batch_size : 2 * batch_size])
 
         # Third partial fit
-        clf.partial_fit(
-            classification_dataset['X_train'][2*batch_size:],
-            classification_dataset['y_train'][2*batch_size:]
-        )
+        clf.partial_fit(classification_dataset["X_train"][2 * batch_size :], classification_dataset["y_train"][2 * batch_size :])
 
         # Verify model works
-        predictions = clf.predict(classification_dataset['X_test'])
-        assert len(predictions) == len(classification_dataset['X_test'])
+        predictions = clf.predict(classification_dataset["X_test"])
+        assert len(predictions) == len(classification_dataset["X_test"])
 
 
 # ================================================================================================
@@ -381,16 +326,16 @@ class TestDataModuleIntegration:
         """Test full training pipeline with TorchDataModule."""
         # Create DataModule
         dm = TorchDataModule(
-            train_features=classification_dataset['X_train'],
-            train_labels=classification_dataset['y_train'],
-            val_features=classification_dataset['X_val'],
-            val_labels=classification_dataset['y_val'],
-            test_features=classification_dataset['X_test'],
-            test_labels=classification_dataset['y_test'],
-            dataloader_params={'batch_size': 32}
+            train_features=classification_dataset["X_train"],
+            train_labels=classification_dataset["y_train"],
+            val_features=classification_dataset["X_val"],
+            val_labels=classification_dataset["y_val"],
+            test_features=classification_dataset["X_test"],
+            test_labels=classification_dataset["y_test"],
+            dataloader_params={"batch_size": 32},
         )
 
-        dm.setup(stage='fit')
+        dm.setup(stage="fit")
 
         # Verify dataloaders
         train_loader = dm.train_dataloader()
@@ -409,9 +354,9 @@ class TestDataModuleIntegration:
 
         # Create dataset
         dataset = TorchDataset(
-            features=classification_dataset['X_train'],
-            labels=classification_dataset['y_train'],
-            batch_size=0  # Sample mode
+            features=classification_dataset["X_train"],
+            labels=classification_dataset["y_train"],
+            batch_size=0,  # Sample mode
         )
 
         # Create DataLoader
@@ -421,9 +366,9 @@ class TestDataModuleIntegration:
         total_samples = 0
         for batch_x, batch_y in loader:
             total_samples += len(batch_x)
-            assert batch_x.shape[1] == classification_dataset['num_features']
+            assert batch_x.shape[1] == classification_dataset["num_features"]
 
-        assert total_samples == len(classification_dataset['X_train'])
+        assert total_samples == len(classification_dataset["X_train"])
 
 
 # ================================================================================================
@@ -437,21 +382,17 @@ class TestCheckpointingIntegration:
     def test_best_weights_restoration(self, classification_dataset, integration_estimator_params_classifier):
         """Test that best weights are restored after training."""
         params = integration_estimator_params_classifier.copy()
-        params['network_params'] = params['network_params'].copy()
-        params['network_params']['nlayers'] = 2
-        params['model_params'] = params['model_params'].copy()
-        params['model_params']['load_best_weights_on_train_end'] = True
+        params["network_params"] = params["network_params"].copy()
+        params["network_params"]["nlayers"] = 2
+        params["model_params"] = params["model_params"].copy()
+        params["model_params"]["load_best_weights_on_train_end"] = True
         clf = PytorchLightningClassifier(**params)
 
-        eval_set = (classification_dataset['X_val'], classification_dataset['y_val'])
-        clf.fit(
-            classification_dataset['X_train'],
-            classification_dataset['y_train'],
-            eval_set=eval_set
-        )
+        eval_set = (classification_dataset["X_val"], classification_dataset["y_val"])
+        clf.fit(classification_dataset["X_train"], classification_dataset["y_train"], eval_set=eval_set)
 
         # Model should have best_epoch attribute
-        if hasattr(clf.model, 'best_epoch'):
+        if hasattr(clf.model, "best_epoch"):
             assert clf.model.best_epoch is not None
 
 
@@ -468,45 +409,39 @@ class TestSchedulerIntegration:
         from torch.optim.lr_scheduler import OneCycleLR
 
         params = integration_estimator_params_classifier.copy()
-        params['network_params'] = params['network_params'].copy()
-        params['network_params']['nlayers'] = 2
-        params['model_params'] = params['model_params'].copy()
-        params['model_params']['lr_scheduler'] = OneCycleLR
-        params['model_params']['lr_scheduler_kwargs'] = {'max_lr': 0.01}
-        params['model_params']['lr_scheduler_interval'] = 'step'
-        params['trainer_params'] = params['trainer_params'].copy()
-        params['trainer_params']['max_epochs'] = 5
+        params["network_params"] = params["network_params"].copy()
+        params["network_params"]["nlayers"] = 2
+        params["model_params"] = params["model_params"].copy()
+        params["model_params"]["lr_scheduler"] = OneCycleLR
+        params["model_params"]["lr_scheduler_kwargs"] = {"max_lr": 0.01}
+        params["model_params"]["lr_scheduler_interval"] = "step"
+        params["trainer_params"] = params["trainer_params"].copy()
+        params["trainer_params"]["max_epochs"] = 5
         clf = PytorchLightningClassifier(**params)
 
-        clf.fit(
-            classification_dataset['X_train'],
-            classification_dataset['y_train']
-        )
+        clf.fit(classification_dataset["X_train"], classification_dataset["y_train"])
 
-        predictions = clf.predict(classification_dataset['X_test'])
-        assert len(predictions) == len(classification_dataset['X_test'])
+        predictions = clf.predict(classification_dataset["X_test"])
+        assert len(predictions) == len(classification_dataset["X_test"])
 
     def test_cosine_annealing_scheduler(self, classification_dataset, integration_estimator_params_classifier):
         """Test training with CosineAnnealingLR scheduler."""
         from torch.optim.lr_scheduler import CosineAnnealingLR
 
         params = integration_estimator_params_classifier.copy()
-        params['network_params'] = params['network_params'].copy()
-        params['network_params']['nlayers'] = 2
-        params['model_params'] = params['model_params'].copy()
-        params['model_params']['lr_scheduler'] = CosineAnnealingLR
-        params['model_params']['lr_scheduler_kwargs'] = {'T_max': 10}
-        params['model_params']['lr_scheduler_interval'] = 'epoch'
-        params['trainer_params'] = params['trainer_params'].copy()
-        params['trainer_params']['max_epochs'] = 5
+        params["network_params"] = params["network_params"].copy()
+        params["network_params"]["nlayers"] = 2
+        params["model_params"] = params["model_params"].copy()
+        params["model_params"]["lr_scheduler"] = CosineAnnealingLR
+        params["model_params"]["lr_scheduler_kwargs"] = {"T_max": 10}
+        params["model_params"]["lr_scheduler_interval"] = "epoch"
+        params["trainer_params"] = params["trainer_params"].copy()
+        params["trainer_params"]["max_epochs"] = 5
         clf = PytorchLightningClassifier(**params)
 
-        clf.fit(
-            classification_dataset['X_train'],
-            classification_dataset['y_train']
-        )
+        clf.fit(classification_dataset["X_train"], classification_dataset["y_train"])
 
-        accuracy = clf.score(classification_dataset['X_test'], classification_dataset['y_test'])
+        accuracy = clf.score(classification_dataset["X_test"], classification_dataset["y_test"])
         assert 0.0 <= accuracy <= 1.0
 
 
@@ -521,16 +456,16 @@ class TestPandasIntegration:
     def test_full_pipeline_with_pandas(self, classification_dataset, integration_estimator_params_classifier):
         """Test complete pipeline using pandas DataFrames."""
         # Convert to pandas
-        X_train_df = pd.DataFrame(classification_dataset['X_train'])
-        y_train_series = pd.Series(classification_dataset['y_train'])
-        X_test_df = pd.DataFrame(classification_dataset['X_test'])
-        y_test_series = pd.Series(classification_dataset['y_test'])
+        X_train_df = pd.DataFrame(classification_dataset["X_train"])
+        y_train_series = pd.Series(classification_dataset["y_train"])
+        X_test_df = pd.DataFrame(classification_dataset["X_test"])
+        y_test_series = pd.Series(classification_dataset["y_test"])
 
         params = integration_estimator_params_classifier.copy()
-        params['network_params'] = params['network_params'].copy()
-        params['network_params']['nlayers'] = 2
-        params['trainer_params'] = params['trainer_params'].copy()
-        params['trainer_params']['max_epochs'] = 5
+        params["network_params"] = params["network_params"].copy()
+        params["network_params"]["nlayers"] = 2
+        params["trainer_params"] = params["trainer_params"].copy()
+        params["trainer_params"]["max_epochs"] = 5
         clf = PytorchLightningClassifier(**params)
 
         # Fit
@@ -556,20 +491,16 @@ class TestMultiEpochTraining:
     def test_long_training_with_early_stopping(self, classification_dataset, integration_estimator_params_classifier):
         """Test long training with early stopping."""
         params = integration_estimator_params_classifier.copy()
-        params['trainer_params'] = params['trainer_params'].copy()
-        params['trainer_params']['max_epochs'] = 50  # Many epochs
+        params["trainer_params"] = params["trainer_params"].copy()
+        params["trainer_params"]["max_epochs"] = 50  # Many epochs
         clf = PytorchLightningClassifier(**params, early_stopping_rounds=5)
 
-        eval_set = (classification_dataset['X_val'], classification_dataset['y_val'])
-        clf.fit(
-            classification_dataset['X_train'],
-            classification_dataset['y_train'],
-            eval_set=eval_set
-        )
+        eval_set = (classification_dataset["X_val"], classification_dataset["y_val"])
+        clf.fit(classification_dataset["X_train"], classification_dataset["y_train"], eval_set=eval_set)
 
         # Should have stopped early
-        predictions = clf.predict(classification_dataset['X_test'])
-        assert len(predictions) == len(classification_dataset['X_test'])
+        predictions = clf.predict(classification_dataset["X_test"])
+        assert len(predictions) == len(classification_dataset["X_test"])
 
 
 # ================================================================================================
@@ -583,43 +514,21 @@ class TestRealWorldScenarios:
     def test_binary_classification_workflow(self):
         """Test binary classification from start to finish."""
         # Generate binary classification data
-        X, y = make_classification(
-            n_samples=500,
-            n_features=10,
-            n_classes=2,
-            n_informative=8,
-            random_state=42
-        )
+        X, y = make_classification(n_samples=500, n_features=10, n_classes=2, n_informative=8, random_state=42)
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42
-        )
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
         # Create and train classifier
-        network_params = {
-            'nlayers': 2,
-            'first_layer_num_neurons': 64,
-            'dropout_prob': 0.0,
-            'activation_function': torch.nn.ReLU
-        }
-        model_params = {
-            'loss_fn': torch.nn.CrossEntropyLoss(),
-            'learning_rate': 1e-3
-        }
+        network_params = {"nlayers": 2, "first_layer_num_neurons": 64, "dropout_prob": 0.0, "activation_function": torch.nn.ReLU}
+        model_params = {"loss_fn": torch.nn.CrossEntropyLoss(), "learning_rate": 1e-3}
         datamodule_params = {
-            'read_fcn': None,
-            'data_placement_device': None,
-            'features_dtype': torch.float32,
-            'labels_dtype': torch.int64,
-            'dataloader_params': {'batch_size': 32, 'num_workers': 0}
+            "read_fcn": None,
+            "data_placement_device": None,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.int64,
+            "dataloader_params": {"batch_size": 32, "num_workers": 0},
         }
-        trainer_params = {
-            'max_epochs': 10,
-            'enable_model_summary': False,
-            'default_root_dir': None,
-            'log_every_n_steps': 1,
-            'devices': 1
-        }
+        trainer_params = {"max_epochs": 10, "enable_model_summary": False, "default_root_dir": None, "log_every_n_steps": 1, "devices": 1}
 
         clf = PytorchLightningClassifier(
             model_class=MLPTorchModel,
@@ -627,7 +536,7 @@ class TestRealWorldScenarios:
             network_params=network_params,
             datamodule_class=TorchDataModule,
             datamodule_params=datamodule_params,
-            trainer_params=trainer_params
+            trainer_params=trainer_params,
         )
 
         clf.fit(X_train.astype(np.float32), y_train)
@@ -641,43 +550,21 @@ class TestRealWorldScenarios:
     def test_multiclass_classification_workflow(self):
         """Test multi-class classification from start to finish."""
         # Generate multi-class data
-        X, y = make_classification(
-            n_samples=500,
-            n_features=15,
-            n_classes=5,
-            n_informative=12,
-            random_state=42
-        )
+        X, y = make_classification(n_samples=500, n_features=15, n_classes=5, n_informative=12, random_state=42)
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42
-        )
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
         # Create and train classifier
-        network_params = {
-            'nlayers': 3,
-            'first_layer_num_neurons': 128,
-            'dropout_prob': 0.0,
-            'activation_function': torch.nn.ReLU
-        }
-        model_params = {
-            'loss_fn': torch.nn.CrossEntropyLoss(),
-            'learning_rate': 1e-3
-        }
+        network_params = {"nlayers": 3, "first_layer_num_neurons": 128, "dropout_prob": 0.0, "activation_function": torch.nn.ReLU}
+        model_params = {"loss_fn": torch.nn.CrossEntropyLoss(), "learning_rate": 1e-3}
         datamodule_params = {
-            'read_fcn': None,
-            'data_placement_device': None,
-            'features_dtype': torch.float32,
-            'labels_dtype': torch.int64,
-            'dataloader_params': {'batch_size': 32, 'num_workers': 0}
+            "read_fcn": None,
+            "data_placement_device": None,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.int64,
+            "dataloader_params": {"batch_size": 32, "num_workers": 0},
         }
-        trainer_params = {
-            'max_epochs': 15,
-            'enable_model_summary': False,
-            'default_root_dir': None,
-            'log_every_n_steps': 1,
-            'devices': 1
-        }
+        trainer_params = {"max_epochs": 15, "enable_model_summary": False, "default_root_dir": None, "log_every_n_steps": 1, "devices": 1}
 
         clf = PytorchLightningClassifier(
             model_class=MLPTorchModel,
@@ -685,7 +572,7 @@ class TestRealWorldScenarios:
             network_params=network_params,
             datamodule_class=TorchDataModule,
             datamodule_params=datamodule_params,
-            trainer_params=trainer_params
+            trainer_params=trainer_params,
         )
 
         clf.fit(X_train.astype(np.float32), y_train)
@@ -700,42 +587,21 @@ class TestRealWorldScenarios:
     def test_regression_workflow(self):
         """Test regression from start to finish."""
         # Generate regression data
-        X, y = make_regression(
-            n_samples=500,
-            n_features=10,
-            noise=20.0,
-            random_state=42
-        )
+        X, y = make_regression(n_samples=500, n_features=10, noise=20.0, random_state=42)
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42
-        )
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
         # Create and train regressor
-        network_params = {
-            'nlayers': 3,
-            'first_layer_num_neurons': 64,
-            'dropout_prob': 0.0,
-            'activation_function': torch.nn.ReLU
-        }
-        model_params = {
-            'loss_fn': torch.nn.MSELoss(),
-            'learning_rate': 1e-3
-        }
+        network_params = {"nlayers": 3, "first_layer_num_neurons": 64, "dropout_prob": 0.0, "activation_function": torch.nn.ReLU}
+        model_params = {"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-3}
         datamodule_params = {
-            'read_fcn': None,
-            'data_placement_device': None,
-            'features_dtype': torch.float32,
-            'labels_dtype': torch.float32,
-            'dataloader_params': {'batch_size': 32, 'num_workers': 0}
+            "read_fcn": None,
+            "data_placement_device": None,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
+            "dataloader_params": {"batch_size": 32, "num_workers": 0},
         }
-        trainer_params = {
-            'max_epochs': 15,
-            'enable_model_summary': False,
-            'default_root_dir': None,
-            'log_every_n_steps': 1,
-            'devices': 1
-        }
+        trainer_params = {"max_epochs": 15, "enable_model_summary": False, "default_root_dir": None, "log_every_n_steps": 1, "devices": 1}
 
         reg = PytorchLightningRegressor(
             model_class=MLPTorchModel,
@@ -743,7 +609,7 @@ class TestRealWorldScenarios:
             network_params=network_params,
             datamodule_class=TorchDataModule,
             datamodule_params=datamodule_params,
-            trainer_params=trainer_params
+            trainer_params=trainer_params,
         )
 
         reg.fit(X_train.astype(np.float32), y_train.astype(np.float32))

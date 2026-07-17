@@ -70,7 +70,9 @@ def test_e2e_conformal_config_threads_alphas(tmp_path):
     from mlframe.training.configs import ConformalConfig
 
     _, metadata = _run_regression_suite(
-        tmp_path, calib_size=0.2, conformal_config=ConformalConfig(alphas=(0.05,), score="absolute"),
+        tmp_path,
+        calib_size=0.2,
+        conformal_config=ConformalConfig(alphas=(0.05,), score="absolute"),
     )
     assert "conformal" in metadata
     rep = next(iter(metadata["conformal"].values()))

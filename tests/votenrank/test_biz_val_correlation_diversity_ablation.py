@@ -8,6 +8,7 @@ each other) plus one weaker-individually but genuinely-diverse model, and confir
 (a) flags the diverse model as low-correlation-but-lower-accuracy and (b) measures a REAL blend improvement
 from including it.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -49,7 +50,9 @@ def test_biz_val_diversity_ablation_flags_and_confirms_real_blend_improvement():
     assert "model_c" in flagged_names, f"expected model_c (diverse, lower individual score) to be flagged, got {flagged_names}"
 
     model_c_entry = next(e for e in report if e["model"] == "model_c")
-    assert model_c_entry["ablation_improvement"] > 0, f"expected including model_c to genuinely improve the blend, got ablation_improvement={model_c_entry['ablation_improvement']:.4f}"
+    assert model_c_entry["ablation_improvement"] > 0, (
+        f"expected including model_c to genuinely improve the blend, got ablation_improvement={model_c_entry['ablation_improvement']:.4f}"
+    )
     assert model_c_entry["max_correlation"] < 0.9
 
 

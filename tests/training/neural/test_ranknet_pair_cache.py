@@ -53,9 +53,7 @@ def test_cached_and_uncached_forward_equal():
     scores2, _ = _seed_query()
     loss_warm = ranknet_pairwise_loss(scores2, rel)
 
-    assert torch.allclose(loss_cold, loss_warm, atol=0, rtol=0), (
-        f"cached path diverged: cold={loss_cold.item()}, warm={loss_warm.item()}"
-    )
+    assert torch.allclose(loss_cold, loss_warm, atol=0, rtol=0), f"cached path diverged: cold={loss_cold.item()}, warm={loss_warm.item()}"
 
 
 def test_cached_and_uncached_gradient_equal():
@@ -101,9 +99,9 @@ def test_cache_size_holds_realistic_ltr_workload():
     pins the configured cap above the realistic working-set size so a future
     PR that cuts the cap back triggers this gate."""
     from mlframe.training.neural.ranker import _RANKNET_PAIR_CACHE_SIZE
+
     assert _RANKNET_PAIR_CACHE_SIZE >= 20_000, (
-        f"cache cap {_RANKNET_PAIR_CACHE_SIZE} is below the typical 200k-row "
-        f"LTR working set (~20k unique queries); see iter104 regression notes"
+        f"cache cap {_RANKNET_PAIR_CACHE_SIZE} is below the typical 200k-row LTR working set (~20k unique queries); see iter104 regression notes"
     )
 
 
@@ -167,7 +165,4 @@ def test_biz_value_cache_hit_faster_than_cold():
     # 15-25us per call across N=11 queries, yielding ~1.15-1.30x end-to-end
     # speedup. Gate at 1.1x to absorb CI jitter while still catching a full
     # regression (e.g. the cache silently disabled).
-    assert speedup >= 1.1, (
-        f"cache hit not delivering: speedup={speedup:.2f}x "
-        f"(cold={t_cold*1e6/iters:.2f}us, warm={t_warm*1e6/iters:.2f}us)"
-    )
+    assert speedup >= 1.1, f"cache hit not delivering: speedup={speedup:.2f}x (cold={t_cold * 1e6 / iters:.2f}us, warm={t_warm * 1e6 / iters:.2f}us)"

@@ -11,6 +11,7 @@ interpreted ints as nanoseconds, collapsing real seconds-since-epoch values to
 Fix: sniff the first non-null element; if numeric int, route through
 target_temporal_audit.coerce_timestamps_for_audit (auto-unit detect).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,11 +31,14 @@ def test_object_array_of_int_epoch_seconds_detected_correctly():
 
 def test_object_array_of_pd_timestamps_still_parsed():
     """The pd.Timestamp branch must still work after the new int branch was added."""
-    ts_obj = np.array([
-        pd.Timestamp("2023-11-14"),
-        pd.Timestamp("2023-11-15"),
-        pd.Timestamp("2023-11-16"),
-    ], dtype=object)
+    ts_obj = np.array(
+        [
+            pd.Timestamp("2023-11-14"),
+            pd.Timestamp("2023-11-15"),
+            pd.Timestamp("2023-11-16"),
+        ],
+        dtype=object,
+    )
     out = _normalize_timestamps(ts_obj)
     assert out is not None
     out_pd = pd.to_datetime(out).year

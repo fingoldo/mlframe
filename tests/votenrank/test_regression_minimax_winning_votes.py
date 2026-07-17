@@ -15,14 +15,10 @@ def _reference_winning_votes(lb):
     out = []
     for model in lb.models:
         models_scores = ((lb.ranks < lb.ranks.loc[model]) * lb.weights).sum(axis=1)
-        does_win = ((lb.ranks < lb.ranks.loc[model]) * lb.weights).sum(axis=1) > (
-            (lb.ranks > lb.ranks.loc[model]) * lb.weights
-        ).sum(axis=1)
+        does_win = ((lb.ranks < lb.ranks.loc[model]) * lb.weights).sum(axis=1) > ((lb.ranks > lb.ranks.loc[model]) * lb.weights).sum(axis=1)
         models_scores = models_scores * does_win
         out.append(models_scores.drop(model).max())
-    return (
-        -pd.Series(data=out, index=pd.Series(lb.models, name="Name"))
-    ).sort_values(ascending=False)
+    return (-pd.Series(data=out, index=pd.Series(lb.models, name="Name"))).sort_values(ascending=False)
 
 
 def test_minimax_winning_votes_identical_to_duplicated_reference():

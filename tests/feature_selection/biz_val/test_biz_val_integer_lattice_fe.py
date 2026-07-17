@@ -11,6 +11,7 @@ Measured (n=2000, seed=0, nbins=12, bench_integer_lattice_fe):
 
 Floors set ~15% below measured.
 """
+
 import numpy as np
 import pytest
 

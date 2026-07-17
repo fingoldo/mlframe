@@ -6,6 +6,7 @@ form (boolean mask + fancy-index copy + np.mean + np.std). Catches a future
 regression that changes the returned score, and confirms the seq path agrees
 with the parallel path it dispatches into above n=50k.
 """
+
 import numpy as np
 import pytest
 

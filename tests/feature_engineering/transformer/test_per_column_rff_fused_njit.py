@@ -9,6 +9,7 @@ test pins:
      selection-equivalent for any downstream boosting (never the ~1e-3 that could flip a split),
 so a future "rewrite the kernel" cannot silently introduce a real numeric drift.
 """
+
 from __future__ import annotations
 
 import numpy as np

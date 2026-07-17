@@ -1,4 +1,5 @@
 """Unit + biz_value tests for stability_select_specs (spec stability selection)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,7 +30,7 @@ class _FakeDiscovery:
         # replicates but is deterministic given the subsample. The subsample
         # sum's parity / mod is effectively a coin flip across random draws, so
         # each noise spec lands near ~50% selection -- below the 0.6 threshold.
-        s = int(np.asarray(train_idx).sum()) % (2 ** 32)
+        s = int(np.asarray(train_idx).sum()) % (2**32)
         coin = np.random.default_rng(s)
         if coin.random() < 0.4:
             names.append("noise_a")
@@ -51,11 +52,18 @@ def _df_and_idx(n: int = 200):
 # Unit tests
 # ---------------------------------------------------------------------------
 
+
 def test_frequencies_in_unit_interval_and_genuine_is_one():
     df, idx = _df_and_idx()
     res = stability_select_specs(
-        _FakeDiscovery, df, "y", ["x"], idx,
-        n_replicates=8, subsample_frac=0.5, freq_threshold=0.6,
+        _FakeDiscovery,
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=8,
+        subsample_frac=0.5,
+        freq_threshold=0.6,
     )
     assert isinstance(res, StabilityResult)
     assert res.frequencies
@@ -68,8 +76,14 @@ def test_frequencies_in_unit_interval_and_genuine_is_one():
 def test_stable_subset_is_high_frequency_only():
     df, idx = _df_and_idx()
     res = stability_select_specs(
-        _FakeDiscovery, df, "y", ["x"], idx,
-        n_replicates=8, subsample_frac=0.5, freq_threshold=0.6,
+        _FakeDiscovery,
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=8,
+        subsample_frac=0.5,
+        freq_threshold=0.6,
     )
     assert res.stable_specs == ["genuine"]
     # Noise specs exist in the frequency table but did not clear the threshold.
@@ -99,7 +113,12 @@ def test_different_seed_changes_subsamples_not_genuine():
 def test_n_replicates_respected():
     df, idx = _df_and_idx()
     res = stability_select_specs(
-        _FakeDiscovery, df, "y", ["x"], idx, n_replicates=5,
+        _FakeDiscovery,
+        df,
+        "y",
+        ["x"],
+        idx,
+        n_replicates=5,
     )
     assert res.n_replicates == 5
     assert res.n_successful == 5
@@ -158,6 +177,7 @@ def test_subsample_is_index_subset_no_frame_copy():
 # biz_value: genuine strong spec wins, noise specs dropped (real discovery)
 # ---------------------------------------------------------------------------
 
+
 def test_biz_val_stability_keeps_genuine_drops_noise():
     """On data with ONE genuine composite base (a near-copy of y whose residual
     ``y - base`` still carries LEARNABLE signal from another feature) plus pure-
@@ -187,27 +207,30 @@ def test_biz_val_stability_keeps_genuine_drops_noise():
 
     def factory():
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, screening="mi", mi_estimator="bin",
-            base_candidates="auto", transforms=("diff", "linear_residual"),
+            enabled=True,
+            screening="mi",
+            mi_estimator="bin",
+            base_candidates="auto",
+            transforms=("diff", "linear_residual"),
         )
         return CompositeTargetDiscovery(config=cfg)
 
     res = stability_select_specs(
-        factory, df, "y", feature_cols, train_idx,
-        n_replicates=5, subsample_frac=0.5, freq_threshold=0.6,
+        factory,
+        df,
+        "y",
+        feature_cols,
+        train_idx,
+        n_replicates=5,
+        subsample_frac=0.5,
+        freq_threshold=0.6,
     )
 
     assert res.n_successful >= 4, "discovery should run on most replicates"
     # At least one stable spec built on the genuine base survives.
-    genuine_freqs = [
-        f for name, f in res.frequencies.items() if "genuine_base" in name
-    ]
+    genuine_freqs = [f for name, f in res.frequencies.items() if "genuine_base" in name]
     assert genuine_freqs, f"no genuine-base spec discovered; got {res.frequencies}"
-    assert max(genuine_freqs) >= 0.8, (
-        f"genuine-base spec frequency {max(genuine_freqs):.2f} below 0.8 floor"
-    )
+    assert max(genuine_freqs) >= 0.8, f"genuine-base spec frequency {max(genuine_freqs):.2f} below 0.8 floor"
     # Every stable spec references the genuine base, never a pure-noise column.
     for name in res.stable_specs:
-        assert not any(f"noise{j}" in name for j in range(6)), (
-            f"noise-based spec {name!r} should not be stable; freqs={res.frequencies}"
-        )
+        assert not any(f"noise{j}" in name for j in range(6)), f"noise-based spec {name!r} should not be stable; freqs={res.frequencies}"

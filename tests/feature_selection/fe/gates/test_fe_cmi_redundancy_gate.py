@@ -48,6 +48,7 @@ n by test class:
     suite already runs green; it keeps the FE unary x binary candidate buffer in
     an 8GB CI box (30k / 100k OOM the box on the wide cross-product).
 """
+
 from __future__ import annotations
 
 import re
@@ -113,8 +114,8 @@ def _bin_y(y):
 
 def _candidates(df, yb):
     """Prototype's three engineered recipes: two genuine, one spurious cross-signal."""
-    div = df["a"] ** 2 / np.abs(df["b"])                                      # real ~ a**2/|b|
-    mul = np.log(df["c"]) * np.sin(df["d"])                                   # real ~ log(c)*sin(d)
+    div = df["a"] ** 2 / np.abs(df["b"])  # real ~ a**2/|b|
+    mul = np.log(df["c"]) * np.sin(df["d"])  # real ~ log(c)*sin(d)
     sub = np.exp(df["a"]) - np.sign(df["c"]) * np.abs(df["c"]) ** (-1.0 / 3.0)  # SPURIOUS exp(a)-c**(-1/3)
     cands = {}
     for nm, v in (("div", div), ("mul", mul), ("sub", sub)):
@@ -135,16 +136,12 @@ def test_gate_accepts_genuine_rejects_redundant(formula):
 
     assert "div" in accepted, f"[{formula}] genuine a**2/b form rejected: {diag['div']}"
     assert "mul" in accepted, f"[{formula}] genuine log(c)*sin(d) form rejected: {diag['mul']}"
-    assert "sub" not in accepted, (
-        f"[{formula}] spurious cross-signal feature admitted as independent: {diag['sub']}"
-    )
+    assert "sub" not in accepted, f"[{formula}] spurious cross-signal feature admitted as independent: {diag['sub']}"
     # The spurious feature is rejected on the RELATIVE-gap (TAU) leg, not by chance:
     # its DEBIASED EXCESS CMI is far below the weakest admitted feature's bar. (The
     # rel bar is now on the debiased-excess scale -- raw CMI would re-introduce the
     # finite-n bias that the excess removes.)
-    assert diag["sub"]["cmi_excess"] < diag["sub"]["rel_bar"], (
-        f"[{formula}] sub should fail the relative bar on debiased excess: {diag['sub']}"
-    )
+    assert diag["sub"]["cmi_excess"] < diag["sub"]["rel_bar"], f"[{formula}] sub should fail the relative bar on debiased excess: {diag['sub']}"
 
 
 @pytest.mark.parametrize("formula", ["F1", "F2"])
@@ -168,20 +165,14 @@ def test_gate_n_invariant_accepts_genuine_rejects_redundant(n, formula):
 
     assert "div" in accepted, f"[{formula} n={n}] genuine a**2/b form rejected: {diag['div']}"
     assert "mul" in accepted, f"[{formula} n={n}] genuine log(c)*sin(d) form rejected: {diag['mul']}"
-    assert "sub" not in accepted, (
-        f"[{formula} n={n}] spurious cross-signal feature admitted as independent "
-        f"(finite-n bias leak?): {diag['sub']}"
-    )
+    assert "sub" not in accepted, f"[{formula} n={n}] spurious cross-signal feature admitted as independent (finite-n bias leak?): {diag['sub']}"
     # The spurious feature's DEBIASED EXCESS collapses toward ~0 at every n (its
     # CMI is pure bias/noise given the admitted support), so it fails the rel bar.
-    assert diag["sub"]["cmi_excess"] < diag["sub"]["rel_bar"], (
-        f"[{formula} n={n}] sub excess should be below the relative bar: {diag['sub']}"
-    )
+    assert diag["sub"]["cmi_excess"] < diag["sub"]["rel_bar"], f"[{formula} n={n}] sub excess should be below the relative bar: {diag['sub']}"
     # The genuine features keep a POSITIVE excess (real private interaction), so
     # the separation is not an artefact of everything collapsing to zero.
     assert diag["div"]["cmi_excess"] > diag["sub"]["cmi_excess"], (
-        f"[{formula} n={n}] genuine div excess should exceed spurious sub excess: "
-        f"div={diag['div']} sub={diag['sub']}"
+        f"[{formula} n={n}] genuine div excess should exceed spurious sub excess: div={diag['div']} sub={diag['sub']}"
     )
 
 
@@ -212,9 +203,7 @@ def test_relative_gap_leg_is_load_bearing():
         # debiased relative-gap TAU leg (excess < rel_bar). Not a raw/unprincipled cut.
         caught_by_floor = sub["cmi"] <= sub["floor"]
         caught_by_rel_gap = sub["cmi_excess"] < sub["rel_bar"]
-        assert caught_by_floor or caught_by_rel_gap, (
-            f"[{formula}] spurious rejected by neither principled leg (floor nor relative-gap): {sub}"
-        )
+        assert caught_by_floor or caught_by_rel_gap, f"[{formula}] spurious rejected by neither principled leg (floor nor relative-gap): {sub}"
 
 
 # ---------------------------------------------------------------------------
@@ -242,14 +231,12 @@ def _disc(y, nbins=10):
 
 def _marg_cands(cols: dict, yb: np.ndarray) -> dict:
     return {
-        nm: (np.asarray(v, dtype=np.float64),
-             float(_cmi_from_binned(_quantile_bin(np.asarray(v, dtype=np.float64), nbins=10), yb, None)))
+        nm: (np.asarray(v, dtype=np.float64), float(_cmi_from_binned(_quantile_bin(np.asarray(v, dtype=np.float64), nbins=10), yb, None)))
         for nm, v in cols.items()
     }
 
 
-def _weak_complementary_fixture(seed: int = 1, n: int = 20_000, n_weak: int = 5,
-                                strong_coef: float = 8.0, weak_coef: float = 1.5):
+def _weak_complementary_fixture(seed: int = 1, n: int = 20_000, n_weak: int = 5, strong_coef: float = 8.0, weak_coef: float = 1.5):
     """One STRONG seed driver + several INDEPENDENT weak drivers, all genuinely
     complementary (each its OWN additive piece of y, none a function of another).
     The weak drivers' excess sits below TAU*seed_excess but each clears its floor
@@ -294,16 +281,12 @@ def test_complementary_weak_feature_not_falsely_rejected(seed):
         mi_ws = float(_cmi_from_binned(w_bin, s_bin, None))
         assert mi_ws < 0.02, f"weak driver {nm} not independent of strongS (MI={mi_ws}); fixture broken"
         cmi_given_seed = float(_cmi_from_binned(w_bin, yb, s_bin))
-        assert cmi_given_seed > 0.01, (
-            f"weak driver {nm} carries no conditional signal given the seed "
-            f"(CMI={cmi_given_seed}); fixture broken"
-        )
+        assert cmi_given_seed > 0.01, f"weak driver {nm} carries no conditional signal given the seed (CMI={cmi_given_seed}); fixture broken"
     # THE FIX: none of the genuinely complementary weak drivers is dropped.
     accepted, diag = apply_cmi_redundancy_gate(cols_to_cands(cols, yb), yb, nbins=10, seed=seed)
     rejected = [nm for nm in weak if nm not in accepted]
     assert not rejected, (
-        f"[seed={seed}] genuinely complementary weak drivers FALSELY REJECTED as "
-        f"redundant: {rejected}; diag={ {nm: diag[nm] for nm in rejected} }"
+        f"[seed={seed}] genuinely complementary weak drivers FALSELY REJECTED as redundant: {rejected}; diag={ {nm: diag[nm] for nm in rejected} }"
     )
 
 
@@ -314,11 +297,7 @@ def test_strong_significance_escape_is_decisive_for_weak_complementary():
     cols, yb = _weak_complementary_fixture(seed=1)
     accepted, diag = apply_cmi_redundancy_gate(cols_to_cands(cols, yb), yb, nbins=10, seed=1)
     weak = [nm for nm in cols if nm.startswith("weakW") and nm in accepted]
-    escaped = [
-        nm for nm in weak
-        if diag[nm]["cmi_excess"] < diag[nm]["rel_bar"]
-        and diag[nm]["cmi"] >= _CMI_SIGNIFICANCE_ESCAPE_MARGIN * diag[nm]["floor"]
-    ]
+    escaped = [nm for nm in weak if diag[nm]["cmi_excess"] < diag[nm]["rel_bar"] and diag[nm]["cmi"] >= _CMI_SIGNIFICANCE_ESCAPE_MARGIN * diag[nm]["floor"]]
     assert escaped, (
         "expected at least one weak complementary driver admitted via the "
         "strong-significance escape (excess < rel_bar but cmi >= margin*floor); "
@@ -332,14 +311,15 @@ def test_escape_disabled_reproduces_false_reject():
     escape (not some other change) is what fixes the false reject."""
     cols, yb = _weak_complementary_fixture(seed=1)
     accepted, _ = apply_cmi_redundancy_gate(
-        cols_to_cands(cols, yb), yb, nbins=10, seed=1, significance_escape_margin=1.0,
+        cols_to_cands(cols, yb),
+        yb,
+        nbins=10,
+        seed=1,
+        significance_escape_margin=1.0,
     )
     weak = [nm for nm in cols if nm.startswith("weakW")]
     rejected = [nm for nm in weak if nm not in accepted]
-    assert rejected, (
-        "with the escape disabled the pure two-leg gate should still drop the weak "
-        "complementary drivers (this is the bug the escape fixes)"
-    )
+    assert rejected, "with the escape disabled the pure two-leg gate should still drop the weak complementary drivers (this is the bug the escape fixes)"
 
 
 def test_escape_does_not_admit_monotone_redundant_remaps():
@@ -367,8 +347,8 @@ def test_escape_does_not_admit_monotone_redundant_remaps():
     yb = _disc(y, nbins=10)
     cols = {
         "drvA": A,
-        "redA_cube": A ** 3,          # monotone -> identical quantile bins to A
-        "redA_exp": np.exp(A),        # monotone -> identical quantile bins to A
+        "redA_cube": A**3,  # monotone -> identical quantile bins to A
+        "redA_exp": np.exp(A),  # monotone -> identical quantile bins to A
         "redA_affine": 2.5 * A - 7.0,  # monotone -> identical quantile bins to A
     }
     accepted, diag = apply_cmi_redundancy_gate(cols_to_cands(cols, yb), yb, nbins=10, seed=0)
@@ -463,9 +443,7 @@ def test_default_on_drops_redundant_keeps_genuine():
     # contract is "the genuine signal is recovered", and clean-vs-folded form is below that line; the
     # strict pure-form check was an artifact of the pre-subsumption pipeline.
     def _recovered(eng, va, vb):
-        return any({va, vb} <= _bare_vars(nm) for nm in eng) or (
-            any(va in _bare_vars(nm) for nm in eng) and any(vb in _bare_vars(nm) for nm in eng)
-        )
+        return any({va, vb} <= _bare_vars(nm) for nm in eng) or (any(va in _bare_vars(nm) for nm in eng) and any(vb in _bare_vars(nm) for nm in eng))
 
     assert _recovered(eng_cmi, "a", "b"), f"(a,b) a**2/b signal not recovered in ANY form under CMI gate: {eng_cmi}"
     assert _recovered(eng_cmi, "c", "d"), f"(c,d) log(c)*sin(d) signal not recovered in ANY form under CMI gate: {eng_cmi}"
@@ -474,8 +452,7 @@ def test_default_on_drops_redundant_keeps_genuine():
     # engineered features than the legacy ratio, and strictly fewer when the ratio
     # path lets a redundant cross-signal/extra column through.
     assert len(eng_cmi) <= len(eng_ratio), (
-        f"CMI gate admitted MORE engineered features than the legacy ratio "
-        f"(should be stricter): cmi={eng_cmi} ratio={eng_ratio}"
+        f"CMI gate admitted MORE engineered features than the legacy ratio (should be stricter): cmi={eng_cmi} ratio={eng_ratio}"
     )
 
 
@@ -573,31 +550,18 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
     # honest, n-symmetric invariant is signal-present-in-any-form; noise-exclusion (leg 3), the (c,d)
     # leg, and the strict-more-informative subsumption guard below stay strict.
     ab_pure = _covers("a", "b", exclude=("c", "d"))
-    ab_cross_mix = [
-        nm for nm in support
-        if {"a", "b"} <= _bare_vars(nm) and {"c", "d"} <= _bare_vars(nm)
-    ]
-    ab_present_any_form = (
-        any("a" in _bare_vars(nm) for nm in support)
-        and any("b" in _bare_vars(nm) for nm in support)
-    )
+    ab_cross_mix = [nm for nm in support if {"a", "b"} <= _bare_vars(nm) and {"c", "d"} <= _bare_vars(nm)]
+    ab_present_any_form = any("a" in _bare_vars(nm) for nm in support) and any("b" in _bare_vars(nm) for nm in support)
     assert ab_pure or ab_cross_mix or ab_present_any_form, (
-        f"[F2 n={n}] (a,b) a**2/b signal not recovered in ANY form (a and b operands absent from "
-        f"support): support={support}"
+        f"[F2 n={n}] (a,b) a**2/b signal not recovered in ANY form (a and b operands absent from support): support={support}"
     )
 
     # (2) The (c,d) signal must be recovered. The hardened pipeline folds it into a
     # cross-mix that ALSO carries the (a,b) operands (the max-MI subsumption), so accept
     # EITHER a pure (c,d) form OR such a cross-mix.
     cd_pure = _covers("c", "d", exclude=("a", "b"))
-    cross_mix = [
-        nm for nm in support
-        if {"c", "d"} <= _bare_vars(nm) and {"a", "b"} <= _bare_vars(nm)
-    ]
-    assert cd_pure or cross_mix, (
-        f"[F2 n={n}] (c,d) signal not recovered in ANY form (no pure (c,d) feature and "
-        f"no (a,b)+(c,d) cross-mix): support={support}"
-    )
+    cross_mix = [nm for nm in support if {"c", "d"} <= _bare_vars(nm) and {"a", "b"} <= _bare_vars(nm)]
+    assert cd_pure or cross_mix, f"[F2 n={n}] (c,d) signal not recovered in ANY form (no pure (c,d) feature and no (a,b)+(c,d) cross-mix): support={support}"
 
     # (3) Pure noise ``e`` is NOT selected.
     assert "e" not in support, f"[F2 n={n}] pure-noise 'e' wrongly selected: support={support}"
@@ -623,9 +587,7 @@ def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
         # transform() (replays the recipe byte-for-byte), then compare matched-grid MI.
         Xt = fs.transform(X)
         cm_name = cross_mix[0]
-        assert cm_name in Xt.columns, (
-            f"[F2 n={n}] cross-mix {cm_name!r} missing from transform() output"
-        )
+        assert cm_name in Xt.columns, f"[F2 n={n}] cross-mix {cm_name!r} missing from transform() output"
         cm_mi = _matched_mi(Xt[cm_name].to_numpy())
         # The campaign's canonical genuine (c,d) form for F2.
         cd_ref = np.log(X["c"].to_numpy()) * np.sin(X["d"].to_numpy())
@@ -698,8 +660,10 @@ def test_analytic_cmi_null_matches_permutation_decision():
     import importlib
 
     from mlframe.feature_selection.filters._analytic_mi_null import _HAVE_CHI2
+
     if not _HAVE_CHI2:
         import pytest as _pt
+
         _pt.skip("scipy.stats.chi2 unavailable")
 
     import mlframe.feature_selection.filters._fe_cmi_redundancy_gate as G
@@ -731,6 +695,7 @@ def test_analytic_cmi_null_matches_permutation_decision():
     assert abs(an_mean - perm_mean) < 5e-3, (an_mean, perm_mean)
     # a strongly-dependent candidate's observed CMI clears BOTH nulls' floors identically (accept)
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned
+
     cmi_obs = _cmi_from_binned(x, y, z)
     assert cmi_obs > perm_floor and cmi_obs > an_floor
 
@@ -745,13 +710,15 @@ def test_analytic_cmi_null_falls_back_on_sparse_cells():
     import numpy as np
     import mlframe.feature_selection.filters._fe_cmi_redundancy_gate as G
     from mlframe.feature_selection.filters._analytic_mi_null import _HAVE_CHI2
+
     if not _HAVE_CHI2:
         import pytest as _pt
+
         _pt.skip("scipy.stats.chi2 unavailable")
 
     rng = np.random.default_rng(5)
     n = 25_000
-    z = rng.integers(0, 4000, n).astype(np.int64)   # very high-cardinality support -> sparse xyz cells
+    z = rng.integers(0, 4000, n).astype(np.int64)  # very high-cardinality support -> sparse xyz cells
     x = rng.integers(0, 10, n).astype(np.int64)
     y = rng.integers(0, 6, n).astype(np.int64)
     saved = os.environ.get("MLFRAME_MI_ANALYTIC_NULL")
@@ -799,16 +766,23 @@ def test_gpu_resident_perm_null_selection_equivalent_to_cpu():
 
     # CPU permutation null (analytic forced off) -- replicate the host within-stratum shuffle setup.
     import os
+
     saved = os.environ.get("MLFRAME_MI_ANALYTIC_NULL")
     os.environ["MLFRAME_MI_ANALYTIC_NULL"] = "0"
     try:
         import mlframe.feature_selection.filters._fe_cmi_redundancy_gate as G
+
         # FORCE the CPU per-perm loop: route the CPU baseline through the host path (CMI_GPU off here).
         _cmi_prev = os.environ.get("MLFRAME_CMI_GPU")
-        os.environ["MLFRAME_CMI_GPU"] = "0"   # env is read live by the gate; no module reload needed
+        os.environ["MLFRAME_CMI_GPU"] = "0"  # env is read live by the gate; no module reload needed
         cpu_floor, cpu_mean = G._conditional_perm_null(
-            x.copy(), y.copy(), z.copy(),
-            n_permutations=25, quantile=0.95, seed=0, salt=3,
+            x.copy(),
+            y.copy(),
+            z.copy(),
+            n_permutations=25,
+            quantile=0.95,
+            seed=0,
+            salt=3,
         )
         if _cmi_prev is None:
             os.environ.pop("MLFRAME_CMI_GPU", None)
@@ -823,12 +797,17 @@ def test_gpu_resident_perm_null_selection_equivalent_to_cpu():
         z_rank = np.zeros(xi.size, dtype=np.float64)
         if xi.size > 1:
             z_rank[1:] = np.cumsum(sorted_z[1:] != sorted_z[:-1])
-        y_i, z_i, *_ = precompute_cmi_yz_terms(
-            np.ascontiguousarray(y, dtype=np.int64).ravel(), zi_raw
-        )
+        y_i, z_i, *_ = precompute_cmi_yz_terms(np.ascontiguousarray(y, dtype=np.int64).ravel(), zi_raw)
         gpu_floor, gpu_mean = conditional_perm_null_gpu(
-            xi, y_i, z_i, order=order, z_rank=z_rank,
-            n_permutations=25, quantile=0.95, seed=0, salt=3,
+            xi,
+            y_i,
+            z_i,
+            order=order,
+            z_rank=z_rank,
+            n_permutations=25,
+            quantile=0.95,
+            seed=0,
+            salt=3,
         )
     finally:
         if saved is None:

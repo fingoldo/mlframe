@@ -11,6 +11,7 @@ cheaper. These tests use small data so wall-clock measurements stay quick on CI;
 speedup multiplier is loose (the focus is correctness + non-zero hit-rate, not perf
 calibration -- that belongs to the bench script).
 """
+
 from __future__ import annotations
 
 import time
@@ -43,12 +44,24 @@ def test_compute_shap_matrix_default_no_cache_behaviour_unchanged():
 
     rng_a = np.random.default_rng(7)
     phi_a, base_a, y_a = compute_shap_matrix(
-        tpl, X, y, classification=True, out_of_fold=True, n_splits=3, rng=rng_a,
+        tpl,
+        X,
+        y,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
+        rng=rng_a,
     )
 
     rng_b = np.random.default_rng(7)
     phi_b, base_b, y_b = compute_shap_matrix(
-        tpl, X, y, classification=True, out_of_fold=True, n_splits=3, rng=rng_b,
+        tpl,
+        X,
+        y,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
+        rng=rng_b,
         cache_dir=None,
     )
 
@@ -73,7 +86,13 @@ def test_compute_shap_matrix_cache_hit_returns_identical(tmp_path: Path):
 
     rng_a = np.random.default_rng(7)
     phi_a, base_a, y_a = compute_shap_matrix(
-        tpl, X, y, classification=True, out_of_fold=True, n_splits=3, rng=rng_a,
+        tpl,
+        X,
+        y,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
+        rng=rng_a,
         cache_dir=cache_dir,
     )
     # Cache directory MUST be populated after the miss path.
@@ -83,7 +102,13 @@ def test_compute_shap_matrix_cache_hit_returns_identical(tmp_path: Path):
 
     rng_b = np.random.default_rng(7)
     phi_b, base_b, y_b = compute_shap_matrix(
-        tpl, X, y, classification=True, out_of_fold=True, n_splits=3, rng=rng_b,
+        tpl,
+        X,
+        y,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
+        rng=rng_b,
         cache_dir=cache_dir,
     )
     np.testing.assert_array_equal(phi_a, phi_b)
@@ -103,7 +128,14 @@ def test_compute_shap_matrix_per_fold_fit_cache_populated(tmp_path: Path):
 
     rng = np.random.default_rng(7)
     compute_shap_matrix(
-        tpl, X, y, classification=True, out_of_fold=True, n_splits=3, n_models=1, rng=rng,
+        tpl,
+        X,
+        y,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
+        n_models=1,
+        rng=rng,
         cache_dir=cache_dir,
     )
     files = list(cache_dir.iterdir())
@@ -136,21 +168,34 @@ def test_compute_shap_matrix_per_fold_cache_hits_on_outer_miss(tmp_path: Path):
 
     rng_a = np.random.default_rng(7)
     phi_a, base_a, y_a = compute_shap_matrix(
-        tpl, X, y, classification=True, out_of_fold=True, n_splits=3, n_models=1,
-        return_variance=False, rng=rng_a, cache_dir=cache_dir,
+        tpl,
+        X,
+        y,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
+        n_models=1,
+        return_variance=False,
+        rng=rng_a,
+        cache_dir=cache_dir,
     )
     # Filter ``.pkl.sha256`` sidecars produced by the safe_pickle migration.
-    fold_fit_files_after_first = sorted(
-        f.name for f in cache_dir.iterdir()
-        if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl")
-    )
+    fold_fit_files_after_first = sorted(f.name for f in cache_dir.iterdir() if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl"))
     assert len(fold_fit_files_after_first) == 3
 
     # Outer cache MISS (return_variance flips the outer-key state hash) but per-fold cache HIT.
     rng_b = np.random.default_rng(7)
     res_b = compute_shap_matrix(
-        tpl, X, y, classification=True, out_of_fold=True, n_splits=3, n_models=1,
-        return_variance=True, rng=rng_b, cache_dir=cache_dir,
+        tpl,
+        X,
+        y,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
+        n_models=1,
+        return_variance=True,
+        rng=rng_b,
+        cache_dir=cache_dir,
     )
     phi_b, base_b, y_b, var_b = res_b
 
@@ -159,17 +204,11 @@ def test_compute_shap_matrix_per_fold_cache_hits_on_outer_miss(tmp_path: Path):
     np.testing.assert_array_equal(base_a, base_b)
     np.testing.assert_array_equal(y_a, y_b)
 
-    fold_fit_files_after_second = sorted(
-        f.name for f in cache_dir.iterdir()
-        if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl")
-    )
+    fold_fit_files_after_second = sorted(f.name for f in cache_dir.iterdir() if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl"))
     # No new per-fold-fit entries: the second call was served entirely from cache.
     assert fold_fit_files_after_second == fold_fit_files_after_first
     # The second call now also seeded its own outer ``shap_phi_`` entry (return_variance=True).
-    phi_files = [
-        f for f in cache_dir.iterdir()
-        if f.name.startswith("shap_phi_") and f.name.endswith(".pkl")
-    ]
+    phi_files = [f for f in cache_dir.iterdir() if f.name.startswith("shap_phi_") and f.name.endswith(".pkl")]
     assert len(phi_files) == 2
 
 
@@ -187,24 +226,32 @@ def test_compute_shap_matrix_per_fold_cache_invalidates_on_template_change(tmp_p
     tpl_a = make_default_estimator(classification=True, random_state=0, n_estimators=50)
     rng_a = np.random.default_rng(7)
     compute_shap_matrix(
-        tpl_a, X, y, classification=True, out_of_fold=True, n_splits=3, n_models=1,
-        rng=rng_a, cache_dir=cache_dir,
+        tpl_a,
+        X,
+        y,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
+        n_models=1,
+        rng=rng_a,
+        cache_dir=cache_dir,
     )
-    entries_after_a = sorted(
-        f.name for f in cache_dir.iterdir()
-        if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl")
-    )
+    entries_after_a = sorted(f.name for f in cache_dir.iterdir() if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl"))
 
     tpl_b = make_default_estimator(classification=True, random_state=0, n_estimators=100)
     rng_b = np.random.default_rng(7)
     compute_shap_matrix(
-        tpl_b, X, y, classification=True, out_of_fold=True, n_splits=3, n_models=1,
-        rng=rng_b, cache_dir=cache_dir,
+        tpl_b,
+        X,
+        y,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
+        n_models=1,
+        rng=rng_b,
+        cache_dir=cache_dir,
     )
-    entries_after_b = sorted(
-        f.name for f in cache_dir.iterdir()
-        if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl")
-    )
+    entries_after_b = sorted(f.name for f in cache_dir.iterdir() if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl"))
 
     # Strictly more entries -- B's keys are disjoint from A's because params changed.
     assert len(entries_after_b) == 2 * len(entries_after_a)
@@ -223,7 +270,13 @@ def test_compute_shap_matrix_rng_state_matches_after_hit(tmp_path: Path):
     # Miss: capture rng-state after the call.
     rng_a = np.random.default_rng(7)
     compute_shap_matrix(
-        tpl, X, y, classification=True, out_of_fold=True, n_splits=3, rng=rng_a,
+        tpl,
+        X,
+        y,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
+        rng=rng_a,
         cache_dir=cache_dir,
     )
     post_state_a = rng_a.integers(0, 2**31 - 1, size=4).tolist()
@@ -231,7 +284,13 @@ def test_compute_shap_matrix_rng_state_matches_after_hit(tmp_path: Path):
     # Hit: same starting rng, must produce same post-state.
     rng_b = np.random.default_rng(7)
     compute_shap_matrix(
-        tpl, X, y, classification=True, out_of_fold=True, n_splits=3, rng=rng_b,
+        tpl,
+        X,
+        y,
+        classification=True,
+        out_of_fold=True,
+        n_splits=3,
+        rng=rng_b,
         cache_dir=cache_dir,
     )
     post_state_b = rng_b.integers(0, 2**31 - 1, size=4).tolist()

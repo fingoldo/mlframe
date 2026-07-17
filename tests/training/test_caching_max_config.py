@@ -42,8 +42,13 @@ def test_cache_max_override_propagates_to_pre_pipeline_cache():
         X = pd.DataFrame(rng.normal(size=(4, 2)), columns=["a", "b"])
         y = pd.Series(rng.normal(size=4), name=f"t{i}")
         _pre_pipeline_cache_set(
-            X, None, pipe, f"t_{i}", f"v_{i}",
-            train_target=y.to_numpy(), target_name=f"t{i}",
+            X,
+            None,
+            pipe,
+            f"t_{i}",
+            f"v_{i}",
+            train_target=y.to_numpy(),
+            target_name=f"t{i}",
             cache_max=cfg.pre_pipeline_cache_max,
         )
     assert len(_PRE_PIPELINE_CACHE) == 5

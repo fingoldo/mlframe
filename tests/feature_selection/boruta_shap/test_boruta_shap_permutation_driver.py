@@ -5,6 +5,7 @@ the 30% holdout that BorutaShap already carves so the shadow comparison is on he
 in-sample fit. These tests assert the driver (a) is a real constructor option exposed verbatim, (b) recovers
 informative features and rejects pure noise on a clean synthetic, and (c) the unknown-measure error now lists it.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -17,8 +18,7 @@ from sklearn.ensemble import RandomForestClassifier
 
 
 def _make(n=1200, seed=0):
-    X, y = make_classification(n_samples=n, n_features=8, n_informative=4, n_redundant=0,
-                               n_repeated=0, shuffle=False, random_state=seed)
+    X, y = make_classification(n_samples=n, n_features=8, n_informative=4, n_redundant=0, n_repeated=0, shuffle=False, random_state=seed)
     cols = [f"inf_{i}" for i in range(4)] + [f"noise_{i}" for i in range(4)]
     return pd.DataFrame(X, columns=cols), pd.Series(y), [f"inf_{i}" for i in range(4)], [f"noise_{i}" for i in range(4)]
 
@@ -49,9 +49,17 @@ def test_permutation_held_out_recovers_signal_and_is_clean():
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y, informative, noise = _make()
-    b = BorutaShap(model=RandomForestClassifier(n_estimators=80, n_jobs=-1, random_state=0),
-                   importance_measure="permutation", permutation_n_repeats=4, classification=True,
-                   n_trials=25, percentile=95, train_or_test="test", verbose=False, random_state=0)
+    b = BorutaShap(
+        model=RandomForestClassifier(n_estimators=80, n_jobs=-1, random_state=0),
+        importance_measure="permutation",
+        permutation_n_repeats=4,
+        classification=True,
+        n_trials=25,
+        percentile=95,
+        train_or_test="test",
+        verbose=False,
+        random_state=0,
+    )
     b.fit(X, y)
     selected = set(c for c in b.selected_features_ if c in X.columns)
     assert len(selected & set(informative)) >= 3, f"missed informative features: {selected}"
@@ -65,9 +73,17 @@ def test_permutation_in_bag_recovers_signal_but_leaks_more():
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y, informative, noise = _make()
-    b = BorutaShap(model=RandomForestClassifier(n_estimators=80, n_jobs=-1, random_state=0),
-                   importance_measure="permutation", permutation_n_repeats=4, classification=True,
-                   n_trials=25, percentile=95, train_or_test="train", verbose=False, random_state=0)
+    b = BorutaShap(
+        model=RandomForestClassifier(n_estimators=80, n_jobs=-1, random_state=0),
+        importance_measure="permutation",
+        permutation_n_repeats=4,
+        classification=True,
+        n_trials=25,
+        percentile=95,
+        train_or_test="train",
+        verbose=False,
+        random_state=0,
+    )
     b.fit(X, y)
     selected = set(c for c in b.selected_features_ if c in X.columns)
     assert len(selected & set(informative)) >= 3, f"missed informative features: {selected}"
@@ -80,9 +96,17 @@ def test_held_out_mode_populates_the_split_used_by_permutation():
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y, _, _ = _make(n=800)
-    b = BorutaShap(model=RandomForestClassifier(n_estimators=50, n_jobs=-1, random_state=0),
-                   importance_measure="permutation", permutation_n_repeats=2, classification=True,
-                   n_trials=8, percentile=95, train_or_test="test", verbose=False, random_state=0)
+    b = BorutaShap(
+        model=RandomForestClassifier(n_estimators=50, n_jobs=-1, random_state=0),
+        importance_measure="permutation",
+        permutation_n_repeats=2,
+        classification=True,
+        n_trials=8,
+        percentile=95,
+        train_or_test="test",
+        verbose=False,
+        random_state=0,
+    )
     b.fit(X, y)
     assert getattr(b, "X_boruta_test", None) is not None and getattr(b, "y_test", None) is not None
     # holdout is ~30% of the rows it was fit on.
@@ -93,7 +117,13 @@ def test_unknown_importance_measure_lists_permutation():
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X, y, _, _ = _make(n=400)
-    b = BorutaShap(model=RandomForestClassifier(n_estimators=20, random_state=0),
-                   importance_measure="bogus", classification=True, n_trials=4, verbose=False, random_state=0)
+    b = BorutaShap(
+        model=RandomForestClassifier(n_estimators=20, random_state=0),
+        importance_measure="bogus",
+        classification=True,
+        n_trials=4,
+        verbose=False,
+        random_state=0,
+    )
     with pytest.raises(ValueError, match="permutation"):
         b.fit(X, y)

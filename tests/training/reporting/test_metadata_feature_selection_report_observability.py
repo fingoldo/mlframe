@@ -12,6 +12,7 @@ Contract under test:
 Tested via the helper directly (unit-level) plus an end-to-end smoke that asserts the key lands
 on metadata when the suite trains with use_mrmr_fs=True.
 """
+
 from __future__ import annotations
 
 import logging
@@ -201,10 +202,12 @@ def test_build_report_for_boruta_shap_emits_history_means_and_reasons():
     class BorutaShap:
         all_columns = np.array(["a", "b", "c", "d"])
         history_x = pd.DataFrame(
-            np.array([
-                [0.1, 0.2, 0.3, 0.05],
-                [0.2, 0.3, 0.4, 0.10],
-            ]),
+            np.array(
+                [
+                    [0.1, 0.2, 0.3, 0.05],
+                    [0.2, 0.3, 0.4, 0.10],
+                ]
+            ),
             columns=["a", "b", "c", "d"],
         )
         accepted = ["a", "c"]
@@ -226,7 +229,10 @@ def test_build_report_for_boruta_shap_emits_history_means_and_reasons():
     assert pytest.approx(report["scores"]["a"], rel=1e-6) == 0.15
     assert pytest.approx(report["scores"]["c"], rel=1e-6) == 0.35
     assert report["reason_per_feature"] == {
-        "a": "accepted", "b": "tentative", "c": "accepted", "d": "rejected",
+        "a": "accepted",
+        "b": "tentative",
+        "c": "accepted",
+        "d": "rejected",
     }
 
 
@@ -282,11 +288,14 @@ def test_feature_selection_report_lands_on_metadata_with_mrmr(synthetic_binary_8
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         _result = train_mlframe_models_suite(
-            df=df, target_name="target", model_name="fs_report_smoke",
+            df=df,
+            target_name="target",
+            model_name="fs_report_smoke",
             features_and_targets_extractor=fte,
             mlframe_models=["linear"],
             feature_selection_config=fs_cfg,
-            use_mlframe_ensembles=False, verbose=0,
+            use_mlframe_ensembles=False,
+            verbose=0,
         )
 
     # train_mlframe_models_suite returns (models, metadata, ...) tuple or a ctx; normalise.
@@ -303,17 +312,10 @@ def test_feature_selection_report_lands_on_metadata_with_mrmr(synthetic_binary_8
     assert isinstance(metadata, dict), f"expected metadata dict, got {type(_result)}"
     _schemas = metadata.get("model_schemas") or {}
     assert _schemas, "expected at least one model_schemas entry"
-    _with_report = [
-        k for k, v in _schemas.items()
-        if isinstance(v, dict) and "feature_selection_report" in v
-    ]
-    assert _with_report, (
-        f"expected feature_selection_report on every model_schemas entry; keys: {list(_schemas.keys())}"
-    )
+    _with_report = [k for k, v in _schemas.items() if isinstance(v, dict) and "feature_selection_report" in v]
+    assert _with_report, f"expected feature_selection_report on every model_schemas entry; keys: {list(_schemas.keys())}"
     # At least one entry should be the MRMR branch (selector_name='MRMR').
     _kinds = {
-        v["feature_selection_report"]["selector_name"]
-        for v in _schemas.values()
-        if isinstance(v, dict) and isinstance(v.get("feature_selection_report"), dict)
+        v["feature_selection_report"]["selector_name"] for v in _schemas.values() if isinstance(v, dict) and isinstance(v.get("feature_selection_report"), dict)
     }
     assert "MRMR" in _kinds or None in _kinds, f"expected MRMR or ordinary branch; got {_kinds}"

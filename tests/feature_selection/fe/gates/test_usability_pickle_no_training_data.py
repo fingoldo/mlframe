@@ -6,6 +6,7 @@
 (or a raw column by name) and never reads `values`. Keeping them would embed the TRAINING DATA in the
 pickle (privacy leak + ~n*8 bytes per selected candidate of bloat). build_usability_lists clears them.
 """
+
 from __future__ import annotations
 
 import io
@@ -21,15 +22,20 @@ from tests.feature_selection.conftest import is_fast_mode
 
 def _fit_usability(n, seed=0):
     from mlframe.feature_selection.filters import MRMR
+
     rng = np.random.default_rng(seed)
     a, b, c, d, e, f = (rng.random(n) for _ in range(6))
     y = 0.2 * a**2 / b + np.log(c * 2) * np.sin(d / 3) + f / 5
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(verbose=0, random_seed=seed, usability_aware_lists=True,
-                  usability_greedy_kwargs=dict(shortlist=14, n_folds=3),
-                  usability_pool_kwargs=dict(max_per_pair=8)).fit(X=df, y=pd.Series(y, name="y"))
+        fs = MRMR(
+            verbose=0,
+            random_seed=seed,
+            usability_aware_lists=True,
+            usability_greedy_kwargs=dict(shortlist=14, n_folds=3),
+            usability_pool_kwargs=dict(max_per_pair=8),
+        ).fit(X=df, y=pd.Series(y, name="y"))
     return fs, df
 
 
@@ -44,8 +50,7 @@ def test_usability_lists_drop_training_values_and_replay_survives_pickle():
     for c in lists:
         v = getattr(c, "values", None)
         assert (not isinstance(v, np.ndarray)) or v.size == 0, (
-            f"candidate {c.name!r} still stores a full-n values array (size {getattr(v, 'size', '?')}) "
-            f"-- training data would be embedded in the pickle"
+            f"candidate {c.name!r} still stores a full-n values array (size {getattr(v, 'size', '?')}) -- training data would be embedded in the pickle"
         )
     # (2) transform_usability still works (replays from recipe / raw name, not from values).
     z_lin = fs.transform_usability(df, "linear")

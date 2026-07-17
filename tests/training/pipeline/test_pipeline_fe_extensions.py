@@ -6,6 +6,7 @@ Covers:
   A2-04  _filter_to_numeric cross-split column parity via keep_cols.
   A2-13  deepcopy (not shallow copy.copy) fallback for the auto-tune config rewrite.
 """
+
 from __future__ import annotations
 
 import numpy as np

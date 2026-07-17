@@ -3,6 +3,7 @@ semantics can shift the discovered specs. A polars 1->2 bump rewrites
 categorical codes; a numpy 2.x bump changes RNG defaults; we MUST refit
 in either case rather than replay stale specs.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -49,23 +50,16 @@ def test_discovery_cache_version_tuple_covers_polars_numpy_pandas_scipy_xgboost_
 
     # Existing libs (regression: don't drop them).
     for lib in ("mlframe", "sklearn", "lightgbm", "catboost"):
-        assert lib in versions, (
-            f"version tuple regressed - {lib} no longer in signature"
-        )
+        assert lib in versions, f"version tuple regressed - {lib} no longer in signature"
 
     # Newly required libs.
     for lib in ("xgboost", "polars", "numpy", "scipy", "pandas"):
-        assert lib in versions, (
-            f"version tuple missing {lib}; cache invalidation will miss "
-            f"a {lib} bump and replay stale specs"
-        )
+        assert lib in versions, f"version tuple missing {lib}; cache invalidation will miss a {lib} bump and replay stale specs"
 
     # Python major.minor must be present so a 3.x bump invalidates.
     assert "python" in versions, "python version missing from cache tuple"
     expected = f"{sys.version_info.major}.{sys.version_info.minor}"
-    assert versions["python"] == expected, (
-        f"python tuple should be major.minor only; got {versions['python']!r}"
-    )
+    assert versions["python"] == expected, f"python tuple should be major.minor only; got {versions['python']!r}"
 
 
 def test_discovery_cache_signature_changes_when_simulated_polars_version_bumps():
@@ -84,6 +78,7 @@ def test_discovery_cache_signature_changes_when_simulated_polars_version_bumps()
 
     # Bump the polars version in-process; the signature must move.
     import polars as pl
+
     original_version = pl.__version__
     try:
         pl.__version__ = "999.999.999"
@@ -91,7 +86,4 @@ def test_discovery_cache_signature_changes_when_simulated_polars_version_bumps()
     finally:
         pl.__version__ = original_version
 
-    assert real_signature != bumped_signature, (
-        "polars version bump did not change cache signature - stale spec "
-        "replay hazard"
-    )
+    assert real_signature != bumped_signature, "polars version bump did not change cache signature - stale spec replay hazard"

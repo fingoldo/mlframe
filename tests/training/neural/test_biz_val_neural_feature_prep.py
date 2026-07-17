@@ -11,6 +11,7 @@ synonym pools. TF-IDF sees only train-vocabulary tokens, so the test synonyms ar
 chance. Frozen transformer embeddings place synonyms of the same sentiment near each other, so a classifier fit on
 train embeddings generalizes to the unseen test synonyms.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,6 +41,7 @@ def _make_split(pos_words, neg_words, n, seed):
 
 def _fit_score(train_X, ytr, test_X, yte):
     from sklearn.linear_model import LogisticRegression
+
     clf = LogisticRegression(max_iter=1000).fit(train_X, ytr)
     return float((clf.predict(test_X) == yte).mean())
 
@@ -59,10 +61,13 @@ def test_biz_val_neural_feature_prep_hf_text_beats_tfidf_on_synonym_generalizati
 
     # Bag-of-words baseline on the same texts.
     from sklearn.feature_extraction.text import TfidfVectorizer
+
     vec = TfidfVectorizer().fit(Xtr["text_0"].tolist())
     tfidf_acc = _fit_score(
-        vec.transform(Xtr["text_0"].tolist()).toarray(), ytr,
-        vec.transform(Xte["text_0"].tolist()).toarray(), yte,
+        vec.transform(Xtr["text_0"].tolist()).toarray(),
+        ytr,
+        vec.transform(Xte["text_0"].tolist()).toarray(),
+        yte,
     )
 
     # HF embeddings generalize to unseen synonyms; TF-IDF (OOV test tokens) sits near chance.

@@ -12,6 +12,7 @@ conservative 0.25 as the source-code fallback. These tests pin:
 * (GPU) the candidate MI is selection-INVARIANT across fractions (chunk width is per-column-independent),
   so a wider tuned fraction never changes which features are selected.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -14,6 +14,7 @@ These tests pin the full contract:
 * the per-entry byte ceiling refuses an oversized code matrix (the 100GB-frame guard);
 * biz_value: a second prebin on the same matrix is materially faster via the cache than recomputing.
 """
+
 from __future__ import annotations
 
 import time
@@ -152,6 +153,5 @@ def test_biz_val_prebin_cache_second_call_faster():
 
     speedup = t_recompute / max(t_cached, 1e-9)
     assert speedup >= 3.0, (
-        f"prebin cache hit should be >=3x faster than recompute; "
-        f"recompute={t_recompute*1e3:.2f}ms cached={t_cached*1e3:.2f}ms speedup={speedup:.1f}x"
+        f"prebin cache hit should be >=3x faster than recompute; recompute={t_recompute * 1e3:.2f}ms cached={t_cached * 1e3:.2f}ms speedup={speedup:.1f}x"
     )

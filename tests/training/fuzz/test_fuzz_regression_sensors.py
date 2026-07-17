@@ -315,9 +315,7 @@ def test_sensor_mrmr_native_polars_no_full_to_pandas():
 
     # transform must return pl.DataFrame.
     out = sel.transform(pl_df)
-    assert isinstance(out, pl.DataFrame), (
-        f"MRMR.transform must preserve pl.DataFrame input type; got {type(out).__name__}"
-    )
+    assert isinstance(out, pl.DataFrame), f"MRMR.transform must preserve pl.DataFrame input type; got {type(out).__name__}"
 
 
 # ---------------------------------------------------------------------------
@@ -391,10 +389,7 @@ def test_sensor_mrmr_selects_informative_cat_features(frame_type):
     # MRMR must select at least one feature, and cat_signal must be first
     # (by highest MI with target).
     support = sel.support_
-    assert support is not None and len(support) >= 1, (
-        f"MRMR ({frame_type}) selected no features on perfectly-predictive "
-        f"cat_signal — MI computation is broken."
-    )
+    assert support is not None and len(support) >= 1, f"MRMR ({frame_type}) selected no features on perfectly-predictive cat_signal — MI computation is broken."
     selected_names = [sel.feature_names_in_[i] for i in support]
     assert "cat_signal" in selected_names, (
         f"MRMR ({frame_type}) did NOT select cat_signal despite perfect "
@@ -450,9 +445,7 @@ def test_sensor_categorize_dataset_recognizes_polars_cat_dtypes():
         )
     # The integer codes must fit in the quantization dtype, not NaN/str.
     assert np.issubdtype(data.dtype, np.integer), (
-        f"categorize_dataset returned data with dtype {data.dtype}; "
-        f"expected integer codes. Regression likely in the polars-cat "
-        f"encoding path."
+        f"categorize_dataset returned data with dtype {data.dtype}; expected integer codes. Regression likely in the polars-cat encoding path."
     )
 
 
@@ -631,9 +624,7 @@ def test_sensor_safeunpickler_allows_category_encoders(tmp_path):
     finally:
         logger.removeHandler(handler)
     log_text = buf.getvalue()
-    assert "Unsafe class blocked" not in log_text, (
-        f"Regression: _SafeUnpickler blocked a category_encoders class. Full WARN log: {log_text[:500]}"
-    )
+    assert "Unsafe class blocked" not in log_text, f"Regression: _SafeUnpickler blocked a category_encoders class. Full WARN log: {log_text[:500]}"
 
 
 # ---------------------------------------------------------------------------
@@ -830,9 +821,7 @@ def test_sensor_polars_fill_null_expands_enum_category_list():
         }
     )
     out = _polars_fill_null_in_categorical(df, ["cat_x"])
-    assert out["cat_x"].null_count() == 0, (
-        "Regression: fill_null on Enum with sentinel NOT in category list became a silent no-op again."
-    )
+    assert out["cat_x"].null_count() == 0, "Regression: fill_null on Enum with sentinel NOT in category list became a silent no-op again."
     assert out["cat_x"].to_list() == ["A", "__MISSING__", "B", "__MISSING__", "C"]
     # Enum category list must have been extended, not replaced.
     assert "__MISSING__" in out["cat_x"].dtype.categories
@@ -854,16 +843,19 @@ def test_sensor_fuzz_mrmr_fillna_zero_x_all_null_col_does_not_corrupt_mi():
     fit completes AND the resulting relevance scores are all finite."""
     import numpy as np
     import pandas as pd
+
     pytest.importorskip("polars")
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)
     n = 600
-    X = pd.DataFrame({
-        "x_informative": rng.normal(size=n),
-        "x_noise": rng.normal(size=n),
-        "x_all_null": pd.Series([np.nan] * n, dtype="float64"),
-    })
+    X = pd.DataFrame(
+        {
+            "x_informative": rng.normal(size=n),
+            "x_noise": rng.normal(size=n),
+            "x_all_null": pd.Series([np.nan] * n, dtype="float64"),
+        }
+    )
     y = (X["x_informative"] > 0).astype(int).to_numpy()
     sel = MRMR(
         max_runtime_mins=1,
@@ -881,15 +873,11 @@ def test_sensor_fuzz_mrmr_fillna_zero_x_all_null_col_does_not_corrupt_mi():
         rel = getattr(sel, "scores_", None)
     if rel is not None:
         rel_arr = np.asarray(list(rel.values()) if isinstance(rel, dict) else rel, dtype=float)
-        assert np.all(np.isfinite(rel_arr)), (
-            f"fillna_zero x all-null column produced non-finite MRMR relevance: {rel}"
-        )
+        assert np.all(np.isfinite(rel_arr)), f"fillna_zero x all-null column produced non-finite MRMR relevance: {rel}"
     # MRMR.support_ is an array of POSITIONAL INDICES into feature_names_in_ (not a sklearn boolean mask), so test it
     # by index membership -- a bool-cast would read index 0 as False and wrongly fail when x_informative (index 0) is picked.
     support = np.asarray(getattr(sel, "support_", []), dtype=np.int64).ravel()
-    assert support.size >= 1, (
-        "MRMR with all-null injected column must still select at least one feature when an informative column exists"
-    )
+    assert support.size >= 1, "MRMR with all-null injected column must still select at least one feature when an informative column exists"
     informative_idx = list(sel.feature_names_in_).index("x_informative")
     assert informative_idx in support.tolist(), (
         f"fillna_zero x all-null column corrupted MI: informative feature was dropped; support indices={support.tolist()}"
@@ -951,9 +939,14 @@ def test_pca2_custom_prep_canonicalises_off_when_inject_all_nan_col():
     combos = enumerate_combos(target=20, master_seed=7)
     base = combos[0]
     combo = dataclasses.replace(
-        base, custom_prep="pca2", inject_all_nan_col=True,
-        cat_feature_count=0, text_col_count=0, embedding_col_count=0,
-        inject_inf_nan=False, inject_degenerate_cols=False,
+        base,
+        custom_prep="pca2",
+        inject_all_nan_col=True,
+        cat_feature_count=0,
+        text_col_count=0,
+        embedding_col_count=0,
+        inject_inf_nan=False,
+        inject_degenerate_cols=False,
     )
     assert _custom_pre_pipelines_for_combo(combo) is None, (
         "inject_all_nan_col must disable the pca2 custom_pre_pipeline (IncrementalPCA can't handle "

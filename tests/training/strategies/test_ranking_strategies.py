@@ -106,7 +106,6 @@ class TestNativeRankingFlag:
 
 
 class TestRankerObjectiveKwargs:
-
     def test_cb_default_loss_is_yetirank_pairwise(self):
         cfg = LearningToRankConfig()
         out = CatBoostStrategy().get_ranker_objective_kwargs(cfg)
@@ -245,11 +244,14 @@ class TestPrepareInputs:
 class TestFitPredictPerStrategy:
     """End-to-end fit + predict on the same synthetic data for CB/XGB/LGB."""
 
-    @pytest.mark.parametrize("flavor,strategy_cls", [
-        ("cb", CatBoostStrategy),
-        ("xgb", XGBoostStrategy),
-        ("lgb", TreeModelStrategy),
-    ])
+    @pytest.mark.parametrize(
+        "flavor,strategy_cls",
+        [
+            ("cb", CatBoostStrategy),
+            ("xgb", XGBoostStrategy),
+            ("lgb", TreeModelStrategy),
+        ],
+    )
     def test_fit_predict_returns_per_row_scores(self, synthetic_ranking_data, flavor, strategy_cls):
         d = synthetic_ranking_data
         cfg = LearningToRankConfig()
@@ -258,8 +260,12 @@ class TestFitPredictPerStrategy:
             warnings.simplefilter("ignore")
             fitted = fit_ranker(
                 strategy_cls(),
-                d["X_train"], d["y_train"], d["g_train"],
-                X_val=d["X_val"], y_val=d["y_val"], group_ids_val=d["g_val"],
+                d["X_train"],
+                d["y_train"],
+                d["g_train"],
+                X_val=d["X_val"],
+                y_val=d["y_val"],
+                group_ids_val=d["g_val"],
                 ranking_config=cfg,
                 model_kwargs={iter_kw: 50, "learning_rate": 0.1},
                 early_stopping_rounds=10,
@@ -275,6 +281,8 @@ class TestFitPredictPerStrategy:
         with pytest.raises(NotImplementedError, match="does not support native ranking"):
             fit_ranker(
                 HGBStrategy(),
-                d["X_train"], d["y_train"], d["g_train"],
+                d["X_train"],
+                d["y_train"],
+                d["g_train"],
                 model_kwargs={"max_iter": 10},
             )

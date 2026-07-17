@@ -8,6 +8,7 @@ the same conditioning set the estimator sees, hence bit-identical importances.
 This test pins the buffer-build correctness directly (the np.delete equivalence) and the
 end-to-end importance identity vs a verbatim np.delete reference.
 """
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -26,7 +27,7 @@ def _scratch_build(X, j):
     if j > 0:
         buf[:, :j] = X[:, :j]
     if j < p - 1:
-        buf[:, j:] = X[:, j + 1:]
+        buf[:, j:] = X[:, j + 1 :]
     return buf
 
 
@@ -50,6 +51,7 @@ def _make(n=4000, p=30, seed=0):
 def _reference_cpi(model, X, y, n_repeats, random_state):
     """Verbatim np.delete-based reference of the importance loop."""
     from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
+
     X_arr = np.asarray(X)
     n, p = X_arr.shape
     rng = np.random.default_rng(random_state)
@@ -79,8 +81,7 @@ def _reference_cpi(model, X, y, n_repeats, random_state):
                 X_perm[:, j] = orig_col
             importances[j] = float(np.mean(score_losses))
             continue
-        tree = (DecisionTreeClassifier if _is_discrete_v2(Xj) else DecisionTreeRegressor)(
-            max_depth=None, min_samples_leaf=10, random_state=random_state)
+        tree = (DecisionTreeClassifier if _is_discrete_v2(Xj) else DecisionTreeRegressor)(max_depth=None, min_samples_leaf=10, random_state=random_state)
         try:
             tree.fit(Xnotj, Xj)
             leaves = tree.apply(Xnotj)
@@ -110,6 +111,7 @@ def _reference_cpi(model, X, y, n_repeats, random_state):
 
 def test_importances_bit_identical_to_np_delete_reference():
     from sklearn.linear_model import Ridge
+
     X, y = _make()
     model = Ridge().fit(X, y)
     ref = _reference_cpi(model, X, y, n_repeats=2, random_state=0)
@@ -119,6 +121,7 @@ def test_importances_bit_identical_to_np_delete_reference():
 
 def test_single_feature_path_runs():
     from sklearn.linear_model import Ridge
+
     rng = np.random.default_rng(1)
     X = rng.standard_normal((200, 1))
     y = X[:, 0] + rng.standard_normal(200) * 0.1

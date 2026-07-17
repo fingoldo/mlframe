@@ -9,6 +9,7 @@
   in flat.py; finite forward + backward AND preserves periodic signal
   better than monotonic activations.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,8 +26,10 @@ from mlframe.training.neural.flat import (
 
 def _build_mlp(activation_function, spectral_norm=False, nlayers=2):
     return generate_mlp(
-        num_features=32, num_classes=1,
-        nlayers=nlayers, first_layer_num_neurons=64,
+        num_features=32,
+        num_classes=1,
+        nlayers=nlayers,
+        first_layer_num_neurons=64,
         neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
         consec_layers_neurons_ratio=2.0,
         activation_function=activation_function,
@@ -71,13 +74,16 @@ def test_spectral_norm_bounds_linear_sigma_to_one() -> None:
     """
     torch.manual_seed(2)
     net = generate_mlp(
-        num_features=64, num_classes=1, nlayers=4,
+        num_features=64,
+        num_classes=1,
+        nlayers=4,
         first_layer_num_neurons=128,
         neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
         consec_layers_neurons_ratio=2.0,
         activation_function=nn.LeakyReLU,
         weights_init_fcn=None,
-        dropout_prob=0.0, inputs_dropout_prob=0.0,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
         spectral_norm=True,
         spectral_norm_n_power_iterations=5,
         verbose=0,
@@ -90,23 +96,23 @@ def test_spectral_norm_bounds_linear_sigma_to_one() -> None:
         if isinstance(m, nn.Linear):
             W = m.weight.detach()
             sigma_max = float(torch.linalg.matrix_norm(W, ord=2))
-            assert abs(sigma_max - 1.0) < 1e-4, (
-                f"SN Linear has sigma_max={sigma_max} after 50 iters; "
-                f"expected ~1.0 for spectral_norm=True."
-            )
+            assert abs(sigma_max - 1.0) < 1e-4, f"SN Linear has sigma_max={sigma_max} after 50 iters; expected ~1.0 for spectral_norm=True."
 
 
 def test_spectral_norm_off_no_constraint() -> None:
     """Without SN, Linear weights are arbitrary -- sigma_max may exceed 1."""
     torch.manual_seed(3)
     net = generate_mlp(
-        num_features=64, num_classes=1, nlayers=4,
+        num_features=64,
+        num_classes=1,
+        nlayers=4,
         first_layer_num_neurons=128,
         neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
         consec_layers_neurons_ratio=2.0,
         activation_function=nn.LeakyReLU,
         weights_init_fcn=None,
-        dropout_prob=0.0, inputs_dropout_prob=0.0,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
         spectral_norm=False,
         verbose=0,
     )
@@ -117,8 +123,7 @@ def test_spectral_norm_off_no_constraint() -> None:
     # Without SN, at least one Linear should differ noticeably from 1.0
     # (default init does not target sigma=1).
     assert max(abs(s - 1.0) for s in sigmas) > 0.05, (
-        f"SN=False net's Linear sigmas {sigmas} all ~1.0; "
-        f"either the init was unusually lucky or SN-off path was not honoured."
+        f"SN=False net's Linear sigmas {sigmas} all ~1.0; either the init was unusually lucky or SN-off path was not honoured."
     )
 
 
@@ -144,13 +149,16 @@ def test_snake_periodic_fit_finite_and_no_worse_than_tanh() -> None:
     def _train(act, epochs=300, lr=1e-2):
         torch.manual_seed(0)
         net = generate_mlp(
-            num_features=1, num_classes=1, nlayers=2,
+            num_features=1,
+            num_classes=1,
+            nlayers=2,
             first_layer_num_neurons=16,
             neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Constant,
             consec_layers_neurons_ratio=1.0,
             activation_function=act,
             weights_init_fcn=None,
-            dropout_prob=0.0, inputs_dropout_prob=0.0,
+            dropout_prob=0.0,
+            inputs_dropout_prob=0.0,
             verbose=0,
         )
         opt = torch.optim.Adam(net.parameters(), lr=lr)
@@ -169,9 +177,7 @@ def test_snake_periodic_fit_finite_and_no_worse_than_tanh() -> None:
     # periodicity advantage on fast-period targets is a separate
     # empirical claim left to bench scripts.
     assert np.isfinite(loss_tanh) and np.isfinite(loss_snake)
-    assert loss_snake < max(loss_tanh * 2.0, 0.5), (
-        f"Snake fit looks broken: snake={loss_snake:.4g} vs tanh={loss_tanh:.4g}"
-    )
+    assert loss_snake < max(loss_tanh * 2.0, 0.5), f"Snake fit looks broken: snake={loss_snake:.4g} vs tanh={loss_tanh:.4g}"
 
 
 def test_snake_learnable_alpha_trains() -> None:

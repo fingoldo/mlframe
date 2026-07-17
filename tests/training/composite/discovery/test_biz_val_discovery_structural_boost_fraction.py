@@ -9,6 +9,7 @@ The win: a near-affine predictor of y receives a positive boost, and DOUBLING th
 larger fraction can flip a near-MI-tie in favour of the structurally-correct base). A regression that ignores the
 fraction (hardcodes the nudge) flattens the proportionality and FAILS the test.
 """
+
 from __future__ import annotations
 
 import numpy as np

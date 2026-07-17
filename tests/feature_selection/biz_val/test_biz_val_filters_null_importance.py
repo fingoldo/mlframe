@@ -6,6 +6,7 @@ on gets SOME nonzero importance), while ``null_importance_filter`` correctly rej
 them (each noise feature's real importance rarely clears the 95th percentile of its own null distribution,
 by the definition of a percentile test) while retaining every genuinely informative feature.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -87,19 +88,12 @@ def test_biz_val_null_importance_filter_margin_score_ranks_by_true_signal_streng
     X_weak = rng.standard_normal((n, 3))
     X_noise = rng.standard_normal((n, n_noise))
 
-    y = (
-        2.5 * X_strong.sum(axis=1)
-        + 0.8 * X_medium.sum(axis=1)
-        + 0.15 * X_weak.sum(axis=1)
-        + 0.5 * rng.standard_normal(n)
-    )
+    y = 2.5 * X_strong.sum(axis=1) + 0.8 * X_medium.sum(axis=1) + 0.15 * X_weak.sum(axis=1) + 0.5 * rng.standard_normal(n)
     X = np.column_stack([X_strong, X_medium, X_weak, X_noise])
     tier_labels = np.array(["strong"] * 3 + ["medium"] * 3 + ["weak"] * 3 + ["noise"] * n_noise)
     true_rank_strength = np.array([3] * 3 + [2] * 3 + [1] * 3 + [0] * n_noise)  # ground-truth ordering
 
-    result = null_importance_filter(
-        X, y, _rf_importance_fn, n_shuffles=30, percentile=95.0, random_state=11, return_margin_score=True
-    )
+    result = null_importance_filter(X, y, _rf_importance_fn, n_shuffles=30, percentile=95.0, random_state=11, return_margin_score=True)
 
     assert "margin_score" in result
     assert result["margin_score"].shape == (3 + 3 + 3 + n_noise,)

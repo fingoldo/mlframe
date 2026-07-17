@@ -52,7 +52,7 @@ def test_resolve_auto_switches_two_stage_for_wide_when_no_gpu(monkeypatch):
     wide = PF._auto_fast_width()
     assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=4000) == "two_stage"
     # Even with many rows, no device means no gpu_model -> still two_stage on the wide side.
-    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=10 ** 6) == "two_stage"
+    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=10**6) == "two_stage"
 
 
 def test_resolve_auto_routes_gpu_when_device_and_enough_rows(monkeypatch):
@@ -91,9 +91,7 @@ def _wide_xy(seed=0, width=300, n_informative=5):
     n = 1200
     inf = rng.normal(size=(n, n_informative))
     noise = rng.normal(size=(n, width - n_informative))
-    X = pd.DataFrame(np.column_stack([inf, noise]),
-                     columns=[f"inf{i}" for i in range(n_informative)]
-                     + [f"noise{i}" for i in range(width - n_informative)])
+    X = pd.DataFrame(np.column_stack([inf, noise]), columns=[f"inf{i}" for i in range(n_informative)] + [f"noise{i}" for i in range(width - n_informative)])
     coefs = np.array([0.9, 0.8, -0.7, 0.6, 0.4])[:n_informative]
     logit = (inf * coefs).sum(axis=1)
     y = (logit + 0.3 * rng.normal(size=n) > 0).astype(int)
@@ -108,9 +106,7 @@ def test_prefilter_keeps_informatives_and_returns_sorted_original_indices(method
     X, y = _wide_xy(width=300, n_informative=5)
     model = make_default_estimator(classification=True, random_state=0, n_estimators=120)
     keep_k = 40
-    working_cols, info = prefilter_columns(
-        model, X, y.astype(np.float64), method=method, prefilter_top=keep_k,
-        classification=True, n_features=X.shape[1])
+    working_cols, info = prefilter_columns(model, X, y.astype(np.float64), method=method, prefilter_top=keep_k, classification=True, n_features=X.shape[1])
 
     # working_cols: sorted, unique, within range, length == kept.
     assert working_cols.ndim == 1 and len(working_cols) == keep_k == info["kept"]
@@ -137,8 +133,8 @@ def test_prefilter_no_importance_model_falls_through_to_identity():
 
     X, y = _wide_xy(width=50)
     working_cols, info = prefilter_columns(
-        _NoImportance(), X, y.astype(np.float64), method="model", prefilter_top=10,
-        classification=True, n_features=X.shape[1])
+        _NoImportance(), X, y.astype(np.float64), method="model", prefilter_top=10, classification=True, n_features=X.shape[1]
+    )
     np.testing.assert_array_equal(working_cols, np.arange(X.shape[1]))
     assert info["kept"] == X.shape[1] and info.get("skipped") == "no_importance"
 
@@ -153,10 +149,21 @@ def test_selector_support_stays_in_original_space_under_prefilter(method):
 
     X, y = _wide_xy(seed=1, width=200, n_informative=5)
     sel = ShapProxiedFS(
-        classification=True, metric="brier", optimizer="auto", prefilter_top=60,
-        prefilter_method=method, cluster_features=True, cluster_corr_threshold=0.7,
-        top_n=8, n_splits=3, n_revalidation_models=1, trust_guard=False,
-        run_importance_ablation=False, random_state=0, verbose=False)
+        classification=True,
+        metric="brier",
+        optimizer="auto",
+        prefilter_top=60,
+        prefilter_method=method,
+        cluster_features=True,
+        cluster_corr_threshold=0.7,
+        top_n=8,
+        n_splits=3,
+        n_revalidation_models=1,
+        trust_guard=False,
+        run_importance_ablation=False,
+        random_state=0,
+        verbose=False,
+    )
     sel.fit(X, pd.Series(y))
 
     assert sel.support_.shape == (X.shape[1],)
@@ -212,9 +219,7 @@ def test_prefilter_cap_preserves_top_k_jaccard_vs_uncapped():
     n, width, n_inf = 3000, 200, 8
     inf = rng.normal(size=(n, n_inf))
     noise = rng.normal(size=(n, width - n_inf))
-    X = pd.DataFrame(np.column_stack([inf, noise]),
-                     columns=[f"inf{i}" for i in range(n_inf)]
-                     + [f"noise{i}" for i in range(width - n_inf)])
+    X = pd.DataFrame(np.column_stack([inf, noise]), columns=[f"inf{i}" for i in range(n_inf)] + [f"noise{i}" for i in range(width - n_inf)])
     coefs = np.array([1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8])
     logit = (inf * coefs).sum(axis=1)
     y = (logit + 0.05 * rng.normal(size=n) > 0).astype(np.float64)
@@ -230,11 +235,11 @@ def test_prefilter_cap_preserves_top_k_jaccard_vs_uncapped():
         model_full = make_default_estimator(classification=True, random_state=0, n_estimators=300)
         model_cap = make_default_estimator(classification=True, random_state=0, n_estimators=300)
         uncapped, _ = prefilter_columns(
-            model_full, X, y, method=method, prefilter_top=signal_k, classification=True,
-            n_features=X.shape[1], n_estimators_cap=None)
+            model_full, X, y, method=method, prefilter_top=signal_k, classification=True, n_features=X.shape[1], n_estimators_cap=None
+        )
         capped, info = prefilter_columns(
-            model_cap, X, y, method=method, prefilter_top=signal_k, classification=True,
-            n_features=X.shape[1], n_estimators_cap=100)
+            model_cap, X, y, method=method, prefilter_top=signal_k, classification=True, n_features=X.shape[1], n_estimators_cap=100
+        )
         a, b = set(map(int, uncapped)), set(map(int, capped))
         jaccard = len(a & b) / len(a | b)
         assert jaccard >= 0.95, f"{method}: top-{signal_k} Jaccard {jaccard:.3f} < 0.95 (capped vs uncapped)"
@@ -243,12 +248,16 @@ def test_prefilter_cap_preserves_top_k_jaccard_vs_uncapped():
         # (the prefilter's decision-relevant output -- it doesn't need rank-stability among noise).
         capped_prod, info_prod = prefilter_columns(
             make_default_estimator(classification=True, random_state=0, n_estimators=300),
-            X, y, method=method, prefilter_top=prod_k, classification=True,
-            n_features=X.shape[1], n_estimators_cap=100)
+            X,
+            y,
+            method=method,
+            prefilter_top=prod_k,
+            classification=True,
+            n_features=X.shape[1],
+            n_estimators_cap=100,
+        )
         kept_prod = set(map(int, capped_prod))
-        assert set(range(n_inf)) <= kept_prod, (
-            f"{method}: capped prefilter lost informatives at prod K={prod_k}, "
-            f"got head={sorted(kept_prod)[:12]}")
+        assert set(range(n_inf)) <= kept_prod, f"{method}: capped prefilter lost informatives at prod K={prod_k}, got head={sorted(kept_prod)[:12]}"
         # Info dict surfaces the applied cap so downstream report consumers can see what ran.
         assert info["n_estimators_cap"] == 100
         assert info_prod["n_estimators_cap"] == 100
@@ -264,8 +273,8 @@ def test_prefilter_cap_none_is_legacy_uncapped_behaviour():
     X, y = _wide_xy(width=150, n_informative=5)
     model = make_default_estimator(classification=True, random_state=0, n_estimators=300)
     _, info = prefilter_columns(
-        model, X, y.astype(np.float64), method="model", prefilter_top=30,
-        classification=True, n_features=X.shape[1], n_estimators_cap=None)
+        model, X, y.astype(np.float64), method="model", prefilter_top=30, classification=True, n_features=X.shape[1], n_estimators_cap=None
+    )
     assert info["n_estimators_cap"] is None
 
 
@@ -283,8 +292,9 @@ def test_resolve_auto_routes_two_stage_at_wide_threshold_no_gpu(monkeypatch):
     monkeypatch.setattr(PF, "gpu_model_available", lambda: False)
     afw = PF._auto_fast_width()
     tsmw = PF._two_stage_min_width()
-    assert tsmw <= afw, ("default tsmw must not exceed afw -- iter21 unified them; if you raise tsmw "
-                        "via kernel_tuning_cache, the fast_model fallback test covers that branch.")
+    assert tsmw <= afw, (
+        "default tsmw must not exceed afw -- iter21 unified them; if you raise tsmw via kernel_tuning_cache, the fast_model fallback test covers that branch."
+    )
 
     # Below auto_fast_width -> "model"
     assert PF.resolve_prefilter_method("auto", n_features=afw - 1, n_rows=4000) == "model"
@@ -317,8 +327,8 @@ def test_two_stage_returns_original_indices_and_honors_prefilter_top():
     X, y = _wide_xy(seed=2, width=600, n_informative=5)
     model = make_default_estimator(classification=True, random_state=0, n_estimators=120)
     working_cols, info = prefilter_columns(
-        model, X, y.astype(np.float64), method="two_stage", prefilter_top=50,
-        classification=True, n_features=X.shape[1], n_estimators_cap=80, stage1_keep=200)
+        model, X, y.astype(np.float64), method="two_stage", prefilter_top=50, classification=True, n_features=X.shape[1], n_estimators_cap=80, stage1_keep=200
+    )
 
     # sorted, in range, mapped to ORIGINAL positional indices.
     assert working_cols.ndim == 1 and len(working_cols) == info["kept"] == 50
@@ -342,17 +352,17 @@ def test_two_stage_stage1_keep_defaults_to_min_2000_or_20pct(monkeypatch):
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import prefilter_columns, _default_stage1_keep
 
     # Direct unit on the helper -- avoids paying for a stage-B fit on huge widths.
-    assert _default_stage1_keep(100) == 20       # 0.2 binds (20 < 2000)
-    assert _default_stage1_keep(8000) == 1600    # 0.2 binds (1600 < 2000)
-    assert _default_stage1_keep(20000) == 2000   # 2000 ceiling binds (4000 > 2000)
-    assert _default_stage1_keep(0) == 1          # degenerate guard
+    assert _default_stage1_keep(100) == 20  # 0.2 binds (20 < 2000)
+    assert _default_stage1_keep(8000) == 1600  # 0.2 binds (1600 < 2000)
+    assert _default_stage1_keep(20000) == 2000  # 2000 ceiling binds (4000 > 2000)
+    assert _default_stage1_keep(0) == 1  # degenerate guard
 
     # End-to-end at small width: default kicks in, recorded in info.
     X, y = _wide_xy(seed=3, width=300, n_informative=4)
     model = make_default_estimator(classification=True, random_state=0, n_estimators=80)
     _, info = prefilter_columns(
-        model, X, y.astype(np.float64), method="two_stage", prefilter_top=25,
-        classification=True, n_features=X.shape[1], n_estimators_cap=80, stage1_keep=None)
+        model, X, y.astype(np.float64), method="two_stage", prefilter_top=25, classification=True, n_features=X.shape[1], n_estimators_cap=80, stage1_keep=None
+    )
     assert info["stage1_kept"] == _default_stage1_keep(X.shape[1])
 
 
@@ -378,16 +388,23 @@ def test_two_stage_recovery_matches_single_stage_on_main_effect_target():
     informative = set(range(5))
 
     single, _ = prefilter_columns(
-        model_a, X, y.astype(np.float64), method="model", prefilter_top=keep,
-        classification=True, n_features=X.shape[1], n_estimators_cap=80)
+        model_a, X, y.astype(np.float64), method="model", prefilter_top=keep, classification=True, n_features=X.shape[1], n_estimators_cap=80
+    )
     two_stage, _ = prefilter_columns(
-        model_b, X, y.astype(np.float64), method="two_stage", prefilter_top=keep,
-        classification=True, n_features=X.shape[1], n_estimators_cap=80, stage1_keep=120)
+        model_b,
+        X,
+        y.astype(np.float64),
+        method="two_stage",
+        prefilter_top=keep,
+        classification=True,
+        n_features=X.shape[1],
+        n_estimators_cap=80,
+        stage1_keep=120,
+    )
     rec_single = len(informative & set(map(int, single)))
     rec_two = len(informative & set(map(int, two_stage)))
     # 1-feature slack: same contract as the biz_value test.
-    assert rec_two >= rec_single - 1, (
-        f"two_stage recovery {rec_two}/5 < single-stage {rec_single}/5 - 1 slack")
+    assert rec_two >= rec_single - 1, f"two_stage recovery {rec_two}/5 < single-stage {rec_single}/5 - 1 slack"
 
 
 def test_prefilter_cap_does_not_increase_fast_model_budget():
@@ -425,8 +442,7 @@ def test_prefilter_cap_does_not_increase_fast_model_budget():
     probe = _ProbeXGB(n_estimators=300, random_state=0, verbosity=0, tree_method="hist")
     _rank_fast_model(probe, X, y.astype(np.float64), n_features=X.shape[1], n_estimators_cap=200)
     # fast_model would compute max(50, 300//4) = 75; cap=200 cannot raise it above 75.
-    assert _ProbeXGB.n_estimators_seen == 75, (
-        f"fast_model n_estimators wrongly raised by cap: got {_ProbeXGB.n_estimators_seen}, expected 75")
+    assert _ProbeXGB.n_estimators_seen == 75, f"fast_model n_estimators wrongly raised by cap: got {_ProbeXGB.n_estimators_seen}, expected 75"
 
     # And when the cap is SMALLER than fast_model's own reduced budget, the cap DOES bind.
     _ProbeXGB.n_estimators_seen = None
@@ -449,14 +465,16 @@ def test_two_stage_report_exposes_stage1_survivors_and_f_scores():
     must not have to dig into the report's internal key names)."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import (
-        get_cached_f_scores, get_stage1_survivors, prefilter_columns,
+        get_cached_f_scores,
+        get_stage1_survivors,
+        prefilter_columns,
     )
 
     X, y = _wide_xy(seed=5, width=600, n_informative=5)
     model = make_default_estimator(classification=True, random_state=0, n_estimators=120)
     working_cols, info = prefilter_columns(
-        model, X, y.astype(np.float64), method="two_stage", prefilter_top=50,
-        classification=True, n_features=X.shape[1], n_estimators_cap=80, stage1_keep=180)
+        model, X, y.astype(np.float64), method="two_stage", prefilter_top=50, classification=True, n_features=X.shape[1], n_estimators_cap=80, stage1_keep=180
+    )
 
     # New fields present.
     assert "stage1_survivors" in info and "stage1_f_scores" in info
@@ -467,12 +485,10 @@ def test_two_stage_report_exposes_stage1_survivors_and_f_scores():
     assert list(survivors) == sorted(set(int(c) for c in survivors))
     assert int(survivors.min()) >= 0 and int(survivors.max()) < X.shape[1]
     # working_cols is a SUBSET of stage1_survivors (stage B narrows further); recovery invariant.
-    assert set(int(c) for c in working_cols) <= set(int(c) for c in survivors), (
-        "working_cols escaped the stage-A cohort")
+    assert set(int(c) for c in working_cols) <= set(int(c) for c in survivors), "working_cols escaped the stage-A cohort"
     # F-scores: dense length-n_features, finite for non-constant columns, sentinel handled.
     assert fscores.ndim == 1 and fscores.shape[0] == X.shape[1]
-    assert np.isfinite(fscores).sum() >= X.shape[1] - 5, (
-        "too many non-finite F-scores on a clean synthetic")
+    assert np.isfinite(fscores).sum() >= X.shape[1] - 5, "too many non-finite F-scores on a clean synthetic"
     # The stage-A cohort is precisely the top-stage1_keep by F-score (a contract anchor for any
     # downstream consumer that wants to RE-rank the stage-A cohort by a different scorer).
     top_by_f = np.sort(np.argsort(-fscores, kind="stable")[: info["stage1_kept"]])
@@ -495,14 +511,14 @@ def test_univariate_report_exposes_f_scores_for_downstream_reuse():
     two-stage-only by design (univariate has no funnel)."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import (
-        get_cached_f_scores, get_stage1_survivors, prefilter_columns,
+        get_cached_f_scores,
+        get_stage1_survivors,
+        prefilter_columns,
     )
 
     X, y = _wide_xy(seed=6, width=400, n_informative=5)
     model = make_default_estimator(classification=True, random_state=0, n_estimators=80)
-    working_cols, info = prefilter_columns(
-        model, X, y.astype(np.float64), method="univariate", prefilter_top=40,
-        classification=True, n_features=X.shape[1])
+    working_cols, info = prefilter_columns(model, X, y.astype(np.float64), method="univariate", prefilter_top=40, classification=True, n_features=X.shape[1])
 
     fscores = get_cached_f_scores(info)
     assert fscores is not None and fscores.shape[0] == X.shape[1]
@@ -524,23 +540,21 @@ def test_biz_value_cached_f_scores_avoid_recomputation():
 
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import (
-        get_cached_f_scores, prefilter_columns,
+        get_cached_f_scores,
+        prefilter_columns,
     )
 
     rng = np.random.default_rng(11)
     n, width, n_inf = 2000, 4000, 8
     inf = rng.normal(size=(n, n_inf)).astype(np.float32)
     noise = rng.normal(size=(n, width - n_inf)).astype(np.float32)
-    X = pd.DataFrame(np.column_stack([inf, noise]),
-                     columns=[f"f{i}" for i in range(width)])
+    X = pd.DataFrame(np.column_stack([inf, noise]), columns=[f"f{i}" for i in range(width)])
     logit = (inf * np.linspace(1.2, 0.4, n_inf)).sum(axis=1)
     y = (logit + 0.3 * rng.normal(size=n) > 0).astype(np.float64)
 
     model = make_default_estimator(classification=True, random_state=0, n_estimators=80)
     # Run two_stage (the path that caches F-scores) -- inside it sklearn runs f_classif once.
-    _, info = prefilter_columns(
-        model, X, y, method="two_stage", prefilter_top=200, classification=True,
-        n_features=width, n_estimators_cap=80, stage1_keep=800)
+    _, info = prefilter_columns(model, X, y, method="two_stage", prefilter_top=200, classification=True, n_features=width, n_estimators_cap=80, stage1_keep=800)
 
     # 1) Cached path: just read the published vector (free).
     t0 = _time.perf_counter()
@@ -557,15 +571,16 @@ def test_biz_value_cached_f_scores_avoid_recomputation():
     fresh[~np.isfinite(fresh)] = -np.inf
 
     # Cached vector matches a fresh recomputation (same scorer, same -inf sentinel).
-    np.testing.assert_allclose(cached, fresh, rtol=1e-6, atol=1e-6,
-                               err_msg="cached F-scores diverged from a fresh f_classif call")
+    np.testing.assert_allclose(cached, fresh, rtol=1e-6, atol=1e-6, err_msg="cached F-scores diverged from a fresh f_classif call")
     # Cheap-now win: the cache hit is at least 10x faster than the recomputation. Print the actual
     # numbers so future iterations can see the win evolve under load (-s captures stdout).
-    print(f"[iter13 f_cache] cached={t_cached*1e3:.3f}ms recompute={t_fresh*1e3:.3f}ms "
-          f"speedup={t_fresh / max(t_cached, 1e-9):.1f}x width={width} n={n}", flush=True)
+    print(
+        f"[iter13 f_cache] cached={t_cached * 1e3:.3f}ms recompute={t_fresh * 1e3:.3f}ms speedup={t_fresh / max(t_cached, 1e-9):.1f}x width={width} n={n}",
+        flush=True,
+    )
     assert t_fresh > t_cached * 10, (
-        f"cached F-score lookup is not measurably faster than recompute: "
-        f"cached={t_cached*1e3:.2f}ms vs recompute={t_fresh*1e3:.2f}ms")
+        f"cached F-score lookup is not measurably faster than recompute: cached={t_cached * 1e3:.2f}ms vs recompute={t_fresh * 1e3:.2f}ms"
+    )
 
 
 @pytest.mark.parametrize("method", ["model", "fast_model"])
@@ -576,14 +591,16 @@ def test_booster_prefilter_methods_do_not_publish_f_scores(method):
     the prefilter took the booster path; the explicit None signals that."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import (
-        get_cached_f_scores, get_stage1_survivors, prefilter_columns,
+        get_cached_f_scores,
+        get_stage1_survivors,
+        prefilter_columns,
     )
 
     X, y = _wide_xy(seed=7, width=300, n_informative=5)
     model = make_default_estimator(classification=True, random_state=0, n_estimators=80)
     _, info = prefilter_columns(
-        model, X, y.astype(np.float64), method=method, prefilter_top=30,
-        classification=True, n_features=X.shape[1], n_estimators_cap=60)
+        model, X, y.astype(np.float64), method=method, prefilter_top=30, classification=True, n_features=X.shape[1], n_estimators_cap=60
+    )
     assert get_cached_f_scores(info) is None
     assert get_stage1_survivors(info) is None
 
@@ -608,9 +625,11 @@ def test_gpu_model_available_requires_xgboost_use_cuda_build(monkeypatch):
         cuda = type("cuda", (), {"runtime": _CudaRT})
 
     import sys
+
     monkeypatch.setitem(sys.modules, "cupy", _FakeCupy)
 
     import xgboost as xgb
+
     orig_build_info = xgb.build_info
     monkeypatch.setattr(xgb, "build_info", lambda: {**orig_build_info(), "USE_CUDA": False})
     PF.reset_gpu_model_available_cache()
@@ -636,6 +655,7 @@ def test_gpu_model_available_caches_result(monkeypatch):
         raise RuntimeError("build_info should not be re-called once cached")
 
     import xgboost as xgb
+
     monkeypatch.setattr(xgb, "build_info", _exploding_build_info)
     # Cache hit: no probe, returns the same answer.
     assert PF.gpu_model_available() == first
@@ -692,8 +712,8 @@ def test_two_stage_calls_gpu_path_when_gate_fires(monkeypatch):
     # Gate FORCED ON -> stage-B routes to gpu wrapper.
     monkeypatch.setattr(PF, "_stage_b_should_route_gpu", lambda **_: True)
     _, info_gpu = PF.prefilter_columns(
-        model, X, y.astype(np.float64), method="two_stage", prefilter_top=30,
-        classification=True, n_features=X.shape[1], n_estimators_cap=40, stage1_keep=120)
+        model, X, y.astype(np.float64), method="two_stage", prefilter_top=30, classification=True, n_features=X.shape[1], n_estimators_cap=40, stage1_keep=120
+    )
     assert info_gpu["stage_b_routed_gpu"] is True
     assert calls["gpu"] == 1 and calls["cpu"] == 0
 
@@ -702,8 +722,8 @@ def test_two_stage_calls_gpu_path_when_gate_fires(monkeypatch):
     calls["gpu"] = 0
     monkeypatch.setattr(PF, "_stage_b_should_route_gpu", lambda **_: False)
     _, info_cpu = PF.prefilter_columns(
-        model, X, y.astype(np.float64), method="two_stage", prefilter_top=30,
-        classification=True, n_features=X.shape[1], n_estimators_cap=40, stage1_keep=120)
+        model, X, y.astype(np.float64), method="two_stage", prefilter_top=30, classification=True, n_features=X.shape[1], n_estimators_cap=40, stage1_keep=120
+    )
     assert info_cpu["stage_b_routed_gpu"] is False
     assert calls["cpu"] == 1 and calls["gpu"] == 0
 
@@ -716,8 +736,7 @@ def test_stage_b_gpu_thresholds_overridable_via_kernel_tuning_cache(monkeypatch)
 
     # Override the cheap tuning helper with a synthetic dict; this is the only public hook on the
     # prefilter side and the same pattern existing tests use (e.g. auto_fast_width override).
-    monkeypatch.setattr(PF, "_prefilter_tuning",
-                        lambda: {"stage_b_gpu_min_rows": 1234, "stage_b_gpu_min_features": 77})
+    monkeypatch.setattr(PF, "_prefilter_tuning", lambda: {"stage_b_gpu_min_rows": 1234, "stage_b_gpu_min_features": 77})
     assert PF._stage_b_gpu_min_rows() == 1234
     assert PF._stage_b_gpu_min_features() == 77
 

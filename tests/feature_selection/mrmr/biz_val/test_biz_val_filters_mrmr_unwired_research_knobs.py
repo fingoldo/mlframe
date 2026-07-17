@@ -9,6 +9,7 @@ All four default to a no-op (alpha=0 / bonus=0 / stop=False / test=False) so the
 changes the selected support (the standalone kernel checks below additionally prove the underlying capability). RelaxMRMR and CMI-perm-stop act on the conditional-MI
 redundancy term that only exists in complex mode, so their activation tests run with ``use_simple_mode=False``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -23,7 +24,7 @@ def _patch_no_ktc_sweep():
     try:
         import pyutilz.performance.kernel_tuning.cache as _M
 
-        _M.KernelTuningCache.get_or_tune = lambda self, k, *, dims, tuner, axes, fallback, **kw: (fallback() if callable(fallback) else fallback)
+        _M.KernelTuningCache.get_or_tune = lambda self, k, *, dims, tuner, axes, fallback, **kw: fallback() if callable(fallback) else fallback
         _im = _M.KernelTuningCache(in_memory=True)
         _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _im)
     except Exception:

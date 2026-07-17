@@ -14,6 +14,7 @@ suite-side model *construction* dispatch -- which is exactly where the bug
 lived. This runs cb + MULTI_TARGET_REGRESSION through the full suite: pre-fix
 it raised at fit, post-fix it trains and returns the MTR target bucket.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,9 +27,7 @@ from mlframe.training.core import train_mlframe_models_suite
 from .shared import SimpleFeaturesAndTargetsExtractor, get_cpu_config, skip_if_dependency_missing
 
 
-def test_cb_multi_target_regression_trains_without_classification_loss(
-    temp_data_dir, common_init_params, fast_iterations
-):
+def test_cb_multi_target_regression_trains_without_classification_loss(temp_data_dir, common_init_params, fast_iterations):
     skip_if_dependency_missing("cb")
 
     rng = np.random.default_rng(0)
@@ -39,9 +38,7 @@ def test_cb_multi_target_regression_trains_without_classification_loss(
     # MTR target: object column of per-row [t0, t1] vectors -> stacked to (N, 2).
     df["target"] = list(np.column_stack([t0, t1]).astype(np.float32))
 
-    fte = SimpleFeaturesAndTargetsExtractor(
-        target_column="target", target_type=TargetTypes.MULTI_TARGET_REGRESSION
-    )
+    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", target_type=TargetTypes.MULTI_TARGET_REGRESSION)
     config_override = get_cpu_config("cb", fast_iterations)
 
     # Pre-fix this raised CatBoostError("Target Labels for MultiLogloss must be
@@ -62,9 +59,7 @@ def test_cb_multi_target_regression_trains_without_classification_loss(
 
     # Reaching here at all means the classification-loss crash is gone. The MTR
     # bucket must be present and populated (the model trained as a regressor).
-    assert TargetTypes.MULTI_TARGET_REGRESSION in models, (
-        f"MTR bucket missing; got target types {list(models.keys())}"
-    )
+    assert TargetTypes.MULTI_TARGET_REGRESSION in models, f"MTR bucket missing; got target types {list(models.keys())}"
     mtr_entries = models[TargetTypes.MULTI_TARGET_REGRESSION]
     assert mtr_entries, "MTR target bucket is empty -- the cb model did not train"
 
@@ -80,7 +75,7 @@ def test_cb_multi_target_regression_trains_without_classification_loss(
             if inner is not None and inner is not obj:
                 _walk_estimators(inner, depth + 1)
 
-    for entry in (mtr_entries.values() if isinstance(mtr_entries, dict) else []):
-        for v in (entry.values() if isinstance(entry, dict) else [entry]):
+    for entry in mtr_entries.values() if isinstance(mtr_entries, dict) else []:
+        for v in entry.values() if isinstance(entry, dict) else [entry]:
             model_obj = v.get("model") if isinstance(v, dict) else v
             _walk_estimators(model_obj)

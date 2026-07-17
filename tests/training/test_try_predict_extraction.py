@@ -16,6 +16,7 @@ pandas_view_cache, model_name, verbose) so:
 This refactor is behaviour-preserving: same fallback paths, same logging,
 same exception classes caught.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,6 +27,7 @@ import pytest
 def test_try_predict_with_pp_fallback_importable() -> None:
     """The extracted helper is a module-level symbol."""
     from mlframe.training.core.predict import _try_predict_with_pp_fallback
+
     assert callable(_try_predict_with_pp_fallback)
 
 

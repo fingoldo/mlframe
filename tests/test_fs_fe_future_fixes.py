@@ -28,11 +28,9 @@ import pytest
 def test_fs_p1_1_groups_kwarg_in_apply_pre_pipeline_signature():
     """``_apply_pre_pipeline_transforms`` must accept ``groups`` (was missing pre-fix)."""
     from mlframe.training.pipeline._pipeline_helpers import _apply_pre_pipeline_transforms
+
     sig = inspect.signature(_apply_pre_pipeline_transforms)
-    assert "groups" in sig.parameters, (
-        "groups kwarg missing from _apply_pre_pipeline_transforms signature; "
-        "FS-P1-1 fix not landed."
-    )
+    assert "groups" in sig.parameters, "groups kwarg missing from _apply_pre_pipeline_transforms signature; FS-P1-1 fix not landed."
 
 
 def test_fs_p1_1_passthrough_fit_transform_forwards_groups():
@@ -47,12 +45,17 @@ def test_fs_p1_1_passthrough_fit_transform_forwards_groups():
         return X
 
     import pandas as pd
+
     df = pd.DataFrame({"a": np.arange(10, dtype=np.float64), "b": np.arange(10)})
     y = np.zeros(10, dtype=np.int64)
     groups = np.repeat([0, 1], 5)
 
     _passthrough_cols_fit_transform(
-        fake_fit_transform, df, fit=True, target=y, groups=groups,
+        fake_fit_transform,
+        df,
+        fit=True,
+        target=y,
+        groups=groups,
     )
     assert received["groups"] is groups, "groups not forwarded to inner fit_transform"
 
@@ -74,20 +77,20 @@ def test_fs_p1_9_polars_input_runs_feature_engineering():
 
     rng = np.random.default_rng(0)
     n = 200
-    X = pl.DataFrame({
-        "a": rng.normal(size=n),
-        "b": rng.normal(size=n),
-        "c": rng.normal(size=n),
-    })
+    X = pl.DataFrame(
+        {
+            "a": rng.normal(size=n),
+            "b": rng.normal(size=n),
+            "c": rng.normal(size=n),
+        }
+    )
     y = ((X["a"].to_numpy() * X["b"].to_numpy()) > 0).astype(np.int64)
 
     sel = MRMR(fe_max_steps=1, fe_unary_preset="minimal", fe_binary_preset="minimal", verbose=0)
     sel.fit(X, y)
     # FE ran -> _engineered_recipes_ exists (may be empty if nothing was beneficial, but the
     # attribute itself must be populated, not omitted because polars was the input).
-    assert hasattr(sel, "_engineered_recipes_"), (
-        "FE did not execute on polars input; _engineered_recipes_ attribute missing."
-    )
+    assert hasattr(sel, "_engineered_recipes_"), "FE did not execute on polars input; _engineered_recipes_ attribute missing."
 
 
 # ----------------------------------------------------------------------------
@@ -95,27 +98,29 @@ def test_fs_p1_9_polars_input_runs_feature_engineering():
 # ----------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("param,bad_value", [
-    ("quantization_method", "totally-invalid-method"),
-    ("nan_strategy", "no-such-strategy"),
-    ("mrmr_relevance_algo", "not-an-algo"),
-    ("mrmr_redundancy_algo", "not-an-algo"),
-    ("fe_unary_preset", "bogus-preset"),
-    ("fe_binary_preset", "bogus-preset"),
-])
+@pytest.mark.parametrize(
+    "param,bad_value",
+    [
+        ("quantization_method", "totally-invalid-method"),
+        ("nan_strategy", "no-such-strategy"),
+        ("mrmr_relevance_algo", "not-an-algo"),
+        ("mrmr_redundancy_algo", "not-an-algo"),
+        ("fe_unary_preset", "bogus-preset"),
+        ("fe_binary_preset", "bogus-preset"),
+    ],
+)
 def test_fs_p2_1_string_ctor_params_validated(param, bad_value):
     """Bad string values raise ValueError with the valid set listed."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     import pandas as pd
+
     kwargs = {param: bad_value}
     sel = MRMR(**kwargs)
     df = pd.DataFrame({"a": np.arange(50, dtype=np.float64), "b": np.arange(50, dtype=np.float64)})
     y = np.random.RandomState(0).randint(0, 2, size=50)
     with pytest.raises(ValueError) as excinfo:
         sel.fit(df, y)
-    assert "Valid values" in str(excinfo.value), (
-        f"ValueError message must list valid values for {param}; got: {excinfo.value}"
-    )
+    assert "Valid values" in str(excinfo.value), f"ValueError message must list valid values for {param}; got: {excinfo.value}"
 
 
 # ----------------------------------------------------------------------------
@@ -144,9 +149,7 @@ def test_fs_p2_3_mrmr_fit_emits_no_print_chatter(capsys):
     combined = captured.out + captured.err
     forbidden = ("nunary_transformations:", "nbinary_transformations:", "time spent by binary func:")
     for tok in forbidden:
-        assert tok not in combined, (
-            f"MRMR.fit emitted bare print() chatter token {tok!r} on stdout/stderr; FS-P2-3 fix regressed."
-        )
+        assert tok not in combined, f"MRMR.fit emitted bare print() chatter token {tok!r} on stdout/stderr; FS-P2-3 fix regressed."
 
 
 # ----------------------------------------------------------------------------
@@ -181,9 +184,7 @@ def test_fs_l_2_float_target_with_high_ratio_treated_as_regression(caplog):
     _ratio = len(_y_arr) / max(1, _n_unique)
     _is_float = _y_arr.dtype.kind == "f"
     _is_classification = (not _is_float) and _ratio > 100 and _n_unique <= 64
-    assert _is_classification is False, (
-        f"float regression target misclassified: ratio={_ratio:.1f}, n_unique={_n_unique}, dtype={_y_arr.dtype}"
-    )
+    assert _is_classification is False, f"float regression target misclassified: ratio={_ratio:.1f}, n_unique={_n_unique}, dtype={_y_arr.dtype}"
 
 
 def test_fs_l_2_explicit_target_type_overrides_heuristic():
@@ -212,6 +213,7 @@ def test_fs_l_2_explicit_target_type_overrides_heuristic():
 def test_fe_p1_2_feature_types_first_flag_on_config():
     """FeatureTypesConfig exposes a feature_types_first flag with default True."""
     from mlframe.training.configs import FeatureTypesConfig
+
     cfg = FeatureTypesConfig()
     assert hasattr(cfg, "feature_types_first"), "feature_types_first flag missing"
     assert cfg.feature_types_first is True, "feature_types_first default must be True"
@@ -226,10 +228,10 @@ def test_fe_p1_2_phase_auto_detect_accepts_pandas_pre_snapshot():
     auto-detect view.
     """
     from mlframe.training.core._phase_helpers import _phase_auto_detect_feature_types
+
     sig = inspect.signature(_phase_auto_detect_feature_types)
     assert "train_df_pandas_pre_meta" in sig.parameters, (
-        "train_df_pandas_pre_meta kwarg missing from _phase_auto_detect_feature_types; "
-        "FE-P1-2 metadata-dict rewire not landed."
+        "train_df_pandas_pre_meta kwarg missing from _phase_auto_detect_feature_types; FE-P1-2 metadata-dict rewire not landed."
     )
 
 
@@ -249,65 +251,82 @@ def test_fe_p1_2_pandas_pre_snapshot_used_when_provided():
     # Pre-fit pandas frame: high-cardinality string column "skills_text". We materialise the dict
     # snapshot directly (mirroring what _phase_fit_pipeline bakes) so the test exercises the dict
     # consumer path without depending on the upstream phase running.
-    pre_pd = pd.DataFrame({
-        "skills_text": [f"unique_token_{i % 500}" for i in range(n)],
-        "numeric_a": rng.standard_normal(n),
-    })
+    pre_pd = pd.DataFrame(
+        {
+            "skills_text": [f"unique_token_{i % 500}" for i in range(n)],
+            "numeric_a": rng.standard_normal(n),
+        }
+    )
     pre_meta = {
         "columns": list(pre_pd.columns),
         "dtypes": {c: str(pre_pd[c].dtype) for c in pre_pd.columns},
-        "n_unique": {c: int(pre_pd[c].nunique(dropna=True)) for c in pre_pd.columns
-                     if pre_pd[c].dtype.kind in "OUSb" or isinstance(pre_pd[c].dtype, pd.CategoricalDtype)},
-        "non_null": {c: int(pre_pd[c].notna().sum()) for c in pre_pd.columns
-                     if pre_pd[c].dtype.kind in "OUSb" or isinstance(pre_pd[c].dtype, pd.CategoricalDtype)},
+        "n_unique": {
+            c: int(pre_pd[c].nunique(dropna=True)) for c in pre_pd.columns if pre_pd[c].dtype.kind in "OUSb" or isinstance(pre_pd[c].dtype, pd.CategoricalDtype)
+        },
+        "non_null": {
+            c: int(pre_pd[c].notna().sum()) for c in pre_pd.columns if pre_pd[c].dtype.kind in "OUSb" or isinstance(pre_pd[c].dtype, pd.CategoricalDtype)
+        },
         "embedding_object_cols": [],
         "shape": tuple(pre_pd.shape),
     }
     # Post-fit pandas frame: same skills_text but ordinal-encoded to int (what the ordinal encoder
     # produces). If detection ran on this it would silently treat the column as numeric and skip
     # text promotion.
-    post_pd = pd.DataFrame({
-        "skills_text": rng.integers(0, 500, size=n, dtype=np.int32),
-        "numeric_a": rng.standard_normal(n),
-    })
+    post_pd = pd.DataFrame(
+        {
+            "skills_text": rng.integers(0, 500, size=n, dtype=np.int32),
+            "numeric_a": rng.standard_normal(n),
+        }
+    )
 
     ft_cfg = FeatureTypesConfig(
-        auto_detect_feature_types=True, use_text_features=True,
+        auto_detect_feature_types=True,
+        use_text_features=True,
         cat_text_cardinality_threshold=50,
     )
 
     # With pre-snapshot meta supplied -> detection uses the dict -> promotes skills_text.
     result_pre = _phase_auto_detect_feature_types(
-        train_df=post_pd, val_df=None, test_df=None,
-        train_df_polars_pre=None, val_df_polars_pre=None, test_df_polars_pre=None,
-        cat_features=[], cat_features_polars=[],
-        was_polars_input=False, all_models_polars_native=False,
-        pipeline_config=None, feature_types_config=ft_cfg,
-        metadata={}, verbose=False,
+        train_df=post_pd,
+        val_df=None,
+        test_df=None,
+        train_df_polars_pre=None,
+        val_df_polars_pre=None,
+        test_df_polars_pre=None,
+        cat_features=[],
+        cat_features_polars=[],
+        was_polars_input=False,
+        all_models_polars_native=False,
+        pipeline_config=None,
+        feature_types_config=ft_cfg,
+        metadata={},
+        verbose=False,
         train_df_pandas_pre_meta=pre_meta,
     )
     _, _, _, _, _, _, text_features_pre, _, _, _, _ = result_pre
 
     # Without snapshot (legacy path) -> detection uses post_pd -> int column, no promotion.
     result_post = _phase_auto_detect_feature_types(
-        train_df=post_pd, val_df=None, test_df=None,
-        train_df_polars_pre=None, val_df_polars_pre=None, test_df_polars_pre=None,
-        cat_features=[], cat_features_polars=[],
-        was_polars_input=False, all_models_polars_native=False,
-        pipeline_config=None, feature_types_config=ft_cfg,
-        metadata={}, verbose=False,
+        train_df=post_pd,
+        val_df=None,
+        test_df=None,
+        train_df_polars_pre=None,
+        val_df_polars_pre=None,
+        test_df_polars_pre=None,
+        cat_features=[],
+        cat_features_polars=[],
+        was_polars_input=False,
+        all_models_polars_native=False,
+        pipeline_config=None,
+        feature_types_config=ft_cfg,
+        metadata={},
+        verbose=False,
         train_df_pandas_pre_meta=None,
     )
     _, _, _, _, _, _, text_features_post, _, _, _, _ = result_post
 
-    assert "skills_text" in text_features_pre, (
-        f"With pre-fit snapshot, skills_text should be promoted to text_features; "
-        f"got: {text_features_pre}"
-    )
-    assert "skills_text" not in text_features_post, (
-        "Without snapshot (legacy path), int-coded skills_text should NOT be promoted; "
-        f"got: {text_features_post}"
-    )
+    assert "skills_text" in text_features_pre, f"With pre-fit snapshot, skills_text should be promoted to text_features; got: {text_features_pre}"
+    assert "skills_text" not in text_features_post, f"Without snapshot (legacy path), int-coded skills_text should NOT be promoted; got: {text_features_post}"
 
 
 # ----------------------------------------------------------------------------
@@ -323,6 +342,7 @@ def test_fe_p1_3_phase_helpers_is_callable():
     behaviour itself is covered by test_fe_p1_3_back_merge_logic_executes_in_unit below; here we
     only assert the function exists and is callable so a refactor that renames / moves it trips."""
     from mlframe.training.core._phase_helpers import _phase_fit_pipeline
+
     assert callable(_phase_fit_pipeline)
 
 
@@ -336,11 +356,13 @@ def test_fe_p1_3_back_merge_logic_executes_in_unit():
     import pandas as pd
 
     pre_polars = pl.DataFrame({"a": [1, 2, 3], "b": [0.1, 0.2, 0.3]})
-    post_pandas = pd.DataFrame({
-        "a": [1, 2, 3],
-        "b": [0.1, 0.2, 0.3],
-        "ext_pysr_0": [10.0, 20.0, 30.0],
-    })
+    post_pandas = pd.DataFrame(
+        {
+            "a": [1, 2, 3],
+            "b": [0.1, 0.2, 0.3],
+            "ext_pysr_0": [10.0, 20.0, 30.0],
+        }
+    )
 
     _snapshot = list(pre_polars.columns)
     _new_cols = [c for c in post_pandas.columns if c not in set(_snapshot)]
@@ -387,9 +409,11 @@ def test_fe_p2_5_default_catboost_encoder_output_deterministic():
     enc1, _, _ = _get_pipeline_components(cfg, ["c"], random_seed=7)
     enc2, _, _ = _get_pipeline_components(cfg, ["c"], random_seed=7)
 
-    df = pd.DataFrame({
-        "c": ["a", "b", "a", "c", "b", "a", "c", "a"] * 4,
-    })
+    df = pd.DataFrame(
+        {
+            "c": ["a", "b", "a", "c", "b", "a", "c", "a"] * 4,
+        }
+    )
     y = np.array([0, 1, 0, 1, 0, 1, 1, 0] * 4, dtype=np.int64)
 
     # category_encoders 2.6 / sklearn < 1.6 combo (Python 3.9 CI) breaks the
@@ -401,10 +425,7 @@ def test_fe_p2_5_default_catboost_encoder_output_deterministic():
         out2 = enc2.fit_transform(df, y)
     except AttributeError as exc:
         if "__sklearn_tags__" in str(exc):
-            pytest.skip(
-                f"category_encoders / sklearn version mismatch on this runner: "
-                f"{exc}."
-            )
+            pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}.")
         raise
     # Same seed -> same encoding.
     np.testing.assert_array_equal(out1.to_numpy(), out2.to_numpy())
@@ -419,15 +440,11 @@ def test_fe_l_1_build_pipeline_signature_no_output_format():
     """``ModelPipelineStrategy.build_pipeline`` must not advertise
     ``output_format`` (was dropped during FE-L-1 cleanup)."""
     from mlframe.training.strategies import ModelPipelineStrategy, TreeModelStrategy
+
     base_sig = inspect.signature(ModelPipelineStrategy.build_pipeline)
     tree_sig = inspect.signature(TreeModelStrategy.build_pipeline)
-    assert "output_format" not in base_sig.parameters, (
-        "output_format still in ModelPipelineStrategy.build_pipeline signature; "
-        "FE-L-1 fix not landed."
-    )
-    assert "output_format" not in tree_sig.parameters, (
-        "output_format snuck into TreeModelStrategy.build_pipeline; FE-L-1 broke uniformity."
-    )
+    assert "output_format" not in base_sig.parameters, "output_format still in ModelPipelineStrategy.build_pipeline signature; FE-L-1 fix not landed."
+    assert "output_format" not in tree_sig.parameters, "output_format snuck into TreeModelStrategy.build_pipeline; FE-L-1 broke uniformity."
 
 
 # ----------------------------------------------------------------------------
@@ -446,12 +463,14 @@ def test_fe_l_3_int8_date_columns_pass_through_unchanged():
     from mlframe.training.configs import PreprocessingBackendConfig
 
     n = 50
-    df = pl.DataFrame({
-        "day": np.arange(n, dtype=np.int8) % 28 + 1,
-        "month": np.arange(n, dtype=np.int8) % 12 + 1,
-        "wide_int": np.arange(n, dtype=np.int64),
-        "feature": np.linspace(0.0, 1.0, n, dtype=np.float32),
-    })
+    df = pl.DataFrame(
+        {
+            "day": np.arange(n, dtype=np.int8) % 28 + 1,
+            "month": np.arange(n, dtype=np.int8) % 12 + 1,
+            "wide_int": np.arange(n, dtype=np.int64),
+            "feature": np.linspace(0.0, 1.0, n, dtype=np.float32),
+        }
+    )
     df = df.with_columns([pl.col("day").cast(pl.Int8), pl.col("month").cast(pl.Int8)])
 
     cfg = PreprocessingBackendConfig(
@@ -467,12 +486,6 @@ def test_fe_l_3_int8_date_columns_pass_through_unchanged():
     # Int8 date-decomp cols must remain Int8 (or at least NOT have been
     # upcast to Float32 / Float64); wide int64 column SHOULD have been cast to f32.
     out_schema = dict(out.schema)
-    assert out_schema["day"] == pl.Int8, (
-        f"Int8 'day' column was widened to {out_schema['day']}; FE-L-3 fix not landed."
-    )
-    assert out_schema["month"] == pl.Int8, (
-        f"Int8 'month' column was widened to {out_schema['month']}; FE-L-3 fix not landed."
-    )
-    assert out_schema["wide_int"] == pl.Float32, (
-        f"Wide int64 column must be cast to Float32; got {out_schema['wide_int']}."
-    )
+    assert out_schema["day"] == pl.Int8, f"Int8 'day' column was widened to {out_schema['day']}; FE-L-3 fix not landed."
+    assert out_schema["month"] == pl.Int8, f"Int8 'month' column was widened to {out_schema['month']}; FE-L-3 fix not landed."
+    assert out_schema["wide_int"] == pl.Float32, f"Wide int64 column must be cast to Float32; got {out_schema['wide_int']}."

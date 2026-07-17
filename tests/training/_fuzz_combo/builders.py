@@ -4,6 +4,7 @@ Each ``*_from_flat`` takes named primitives (no FuzzCombo dependency); the
 FuzzCombo-aware wrapper forwards ``combo.*`` attrs. mlframe configs are
 imported lazily in-body so this module stays import-light.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, Optional  # noqa: F401  (annotation strings under PEP 563)
@@ -23,8 +24,12 @@ from .combo import FuzzCombo  # noqa: F401  (annotation strings under PEP 563)
 # Pattern: the "_from_flat" function takes named primitives (no FuzzCombo
 # dependency); the FuzzCombo-aware wrapper just forwards combo.* attrs.
 
+
 def build_cat_fe_config_from_flat(
-    *, use_mrmr_fs: bool, cat_fe_enable: bool, cat_fe_include_numeric: bool,
+    *,
+    use_mrmr_fs: bool,
+    cat_fe_enable: bool,
+    cat_fe_include_numeric: bool,
 ):
     """Return a CatFEConfig honoring the cat-FE enable + include_numeric
     axes. None when use_mrmr_fs=False OR when defaults are fine (library
@@ -32,6 +37,7 @@ def build_cat_fe_config_from_flat(
     if not use_mrmr_fs:
         return None
     from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+
     if not cat_fe_enable:
         return CatFEConfig(enable=False)
     if cat_fe_include_numeric:
@@ -582,10 +588,7 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         # already pins the axis to "off" outside the compound gate, but the
         # build_mrmr_kwargs path is reached only when use_mrmr_fs=True so
         # we honour the axis value verbatim here.
-        retain_artifacts=(
-            combo.mrmr_shap_proxy_artifact_reuse_cfg == "on"
-            and combo.use_shap_proxied_fs
-        ),
+        retain_artifacts=(combo.mrmr_shap_proxy_artifact_reuse_cfg == "on" and combo.use_shap_proxied_fs),
         # 2026-05-31 audit-pass-14 (W14). Forward partial_fit + dcd_* axes
         # verbatim; canon-collapse at FuzzCombo.canonical_key reduces them
         # to source defaults outside their compound gates.
@@ -779,9 +782,16 @@ def build_mlp_kwargs_from_flat(
     # is mirrored in canonical_key; the builder respects whatever the
     # caller passes and emits the key only when non-None so the source
     # default (None) doesn't shadow downstream caller kwargs.
-    if class_weight is not None and mlp_active and target_type in (
-        "binary_classification", "multiclass_classification",
-    ) and imbalance_ratio in ("rare_5pct", "rare_1pct"):
+    if (
+        class_weight is not None
+        and mlp_active
+        and target_type
+        in (
+            "binary_classification",
+            "multiclass_classification",
+        )
+        and imbalance_ratio in ("rare_5pct", "rare_1pct")
+    ):
         kwargs["class_weight"] = class_weight
     # #7 use_layernorm: regression-only meaningful. The audit gate
     # ('mlp' in models AND target_type == "regression") is mirrored in
@@ -860,6 +870,7 @@ def build_mlp_kwargs_from_flat(
         # the muon_hybrid branch).
         if optimizer == "muon_hybrid":
             from mlframe.training.neural._muon_optimizer import MuonAdamWHybrid
+
             kwargs.setdefault("model_params", {})
             kwargs["model_params"]["optimizer"] = MuonAdamWHybrid
         # iter640 audit-pass-15. F-62/63/68-70/72 MLP options. Each emits
@@ -1147,11 +1158,7 @@ def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]
     # mrmr_shap_proxy_artifact_reuse_cfg = "off" outside that compound gate,
     # so the lookup is safe to gate solely on the master value here.
     _precomputed = None
-    if (
-        combo.use_mrmr_fs
-        and combo.use_shap_proxied_fs
-        and combo.mrmr_shap_proxy_artifact_reuse_cfg == "on"
-    ):
+    if combo.use_mrmr_fs and combo.use_shap_proxied_fs and combo.mrmr_shap_proxy_artifact_reuse_cfg == "on":
         _precomputed = _build_precomputed_sentinel_for_align_mode(
             combo.mrmr_shap_proxy_align_mode_cfg,
         )
@@ -1214,8 +1221,12 @@ def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]
 
 
 def build_composite_discovery_config_from_flat(
-    *, enabled: bool, transforms_mode: Optional[str] = None,
-    mi_estimator: str = "bin", mi_nbins: int = 16, mi_aggregation: str = "mean",
+    *,
+    enabled: bool,
+    transforms_mode: Optional[str] = None,
+    mi_estimator: str = "bin",
+    mi_nbins: int = 16,
+    mi_aggregation: str = "mean",
     mi_sample_strategy: str = "random",
     stacked_residual_aggregation: str = "mean",
     discovery_n_jobs: int = 1,
@@ -1267,31 +1278,35 @@ def build_composite_discovery_config_from_flat(
     enable + transforms_mode axes + (iter162) nested MI / stacked /
     parallelism knobs + (2026-05-22) TVT-MLP audit-followup gate axes."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
     if not enabled:
         return CompositeTargetDiscoveryConfig(enabled=False)
     if transforms_mode == "unary_only":
         transforms = ["cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y"]
     elif transforms_mode == "chain_only":
         transforms = [
-            "chain_linres_cbrt", "chain_linres_yj",
-            "chain_monres_cbrt", "chain_monres_yj",
+            "chain_linres_cbrt",
+            "chain_linres_yj",
+            "chain_monres_cbrt",
+            "chain_monres_yj",
         ]
     elif transforms_mode == "legacy":
         transforms = [
-            "diff", "ratio", "logratio", "linear_residual",
-            "quantile_residual", "monotonic_residual",
+            "diff",
+            "ratio",
+            "logratio",
+            "linear_residual",
+            "quantile_residual",
+            "monotonic_residual",
         ]
     else:
         transforms = None
     # The additive_residual toggle works on top of any transforms_mode:
     # if the chosen mode would include bivariate residuals, ensure
     # additive_residual is present / absent as requested.
-    if (transforms is not None and composite_include_additive_residual
-            and "additive_residual" not in transforms
-            and transforms_mode in (None, "legacy")):
+    if transforms is not None and composite_include_additive_residual and "additive_residual" not in transforms and transforms_mode in (None, "legacy"):
         transforms = ["additive_residual"] + transforms
-    elif (transforms is not None and not composite_include_additive_residual
-            and "additive_residual" in transforms):
+    elif transforms is not None and not composite_include_additive_residual and "additive_residual" in transforms:
         transforms = [t for t in transforms if t != "additive_residual"]
     kw: Dict[str, Any] = {
         "enabled": True,
@@ -1366,10 +1381,7 @@ def build_composite_discovery_config_from_flat(
 
 def build_composite_discovery_config(combo: "FuzzCombo"):
     """FuzzCombo-aware wrapper."""
-    enabled = (
-        combo.composite_discovery_enabled_cfg
-        and combo.target_type == "regression"
-    )
+    enabled = combo.composite_discovery_enabled_cfg and combo.target_type == "regression"
     return build_composite_discovery_config_from_flat(
         enabled=enabled,
         transforms_mode=combo.composite_transforms_mode_cfg if enabled else None,
@@ -1447,6 +1459,7 @@ def build_slice_stable_es_config_from_flat(
     source drift).
     """
     from mlframe.training.configs import SliceStableESConfig
+
     return SliceStableESConfig(
         enabled=enabled,
         aggregate=aggregate,
@@ -1472,4 +1485,3 @@ def build_slice_stable_es_config(combo: "FuzzCombo"):
         pareto_best_iter_selection=combo.slice_stable_es_pareto_best_iter_selection_cfg,
         diagnostic_only=combo.slice_stable_es_diagnostic_only_cfg,
     )
-

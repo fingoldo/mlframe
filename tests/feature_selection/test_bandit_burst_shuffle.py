@@ -48,8 +48,7 @@ def _seed_inputs(n: int = 50_000, k_y: int = 3):
     freqs_x1 = np.bincount(classes_x1, minlength=5).astype(np.float64) / n
     freqs_x2 = np.bincount(classes_x2, minlength=5).astype(np.float64) / n
     freqs_y = np.bincount(classes_y, minlength=k_y).astype(np.float64) / n
-    return (classes_pair, freqs_pair, classes_x1, freqs_x1, classes_x2, freqs_x2,
-            classes_y, freqs_y)
+    return (classes_pair, freqs_pair, classes_x1, freqs_x1, classes_x2, freqs_x2, classes_y, freqs_y)
 
 
 def test_burst_kernel_handles_K8_call():
@@ -57,7 +56,17 @@ def test_burst_kernel_handles_K8_call():
     without shape errors or NaN outputs."""
     cp, fp, cx1, fx1, cx2, fx2, cy, fy = _seed_inputs()
     ip, ix1, ix2 = _bulk_shuffle_and_compute_three_mis(
-        cp, fp, cx1, fx1, cx2, fx2, cy, fy, 8, np.uint64(0xDEADBEEF), np.int32,
+        cp,
+        fp,
+        cx1,
+        fx1,
+        cx2,
+        fx2,
+        cy,
+        fy,
+        8,
+        np.uint64(0xDEADBEEF),
+        np.int32,
     )
     assert ip.shape == (8,)
     assert ix1.shape == (8,)
@@ -74,7 +83,17 @@ def test_burst_K1_degenerate_falls_back_to_step_pair():
     call (so the burst-vs-sequential equivalence is solid in either path)."""
     cp, fp, cx1, fx1, cx2, fx2, cy, fy = _seed_inputs(n=10_000)
     ip, ix1, ix2 = _bulk_shuffle_and_compute_three_mis(
-        cp, fp, cx1, fx1, cx2, fx2, cy, fy, 1, np.uint64(0xC0FFEE), np.int32,
+        cp,
+        fp,
+        cx1,
+        fx1,
+        cx2,
+        fx2,
+        cy,
+        fy,
+        1,
+        np.uint64(0xC0FFEE),
+        np.int32,
     )
     assert ip.shape == (1,) and ix1.shape == (1,) and ix2.shape == (1,)
     assert np.all(np.isfinite(ip)) and np.all(np.isfinite(ix1)) and np.all(np.isfinite(ix2))
@@ -93,12 +112,30 @@ def test_burst_unique_seeds_per_invocation_avoid_duplicate_permutations():
     permutations (sampled via the MI output divergence)."""
     cp, fp, cx1, fx1, cx2, fx2, cy, fy = _seed_inputs(n=10_000)
     ip_a, _, _ = _bulk_shuffle_and_compute_three_mis(
-        cp, fp, cx1, fx1, cx2, fx2, cy, fy, 4,
-        np.uint64(0xDEADBEEF) + np.uint64(0) * np.uint64(0x9E3779B1), np.int32,
+        cp,
+        fp,
+        cx1,
+        fx1,
+        cx2,
+        fx2,
+        cy,
+        fy,
+        4,
+        np.uint64(0xDEADBEEF) + np.uint64(0) * np.uint64(0x9E3779B1),
+        np.int32,
     )
     ip_b, _, _ = _bulk_shuffle_and_compute_three_mis(
-        cp, fp, cx1, fx1, cx2, fx2, cy, fy, 4,
-        np.uint64(0xDEADBEEF) + np.uint64(1) * np.uint64(0x9E3779B1), np.int32,
+        cp,
+        fp,
+        cx1,
+        fx1,
+        cx2,
+        fx2,
+        cy,
+        fy,
+        4,
+        np.uint64(0xDEADBEEF) + np.uint64(1) * np.uint64(0x9E3779B1),
+        np.int32,
     )
     # The two batches MUST NOT be identical (different seeds -> different perms).
     assert not np.allclose(ip_a, ip_b), "successive burst seeds collapsed to identical permutations"

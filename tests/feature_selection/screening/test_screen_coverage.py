@@ -1,4 +1,5 @@
 """Additional coverage for screen.py -- Python-wrapper branches in screen_predictors and ScreenState."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -105,10 +106,17 @@ def test_screen_targets_data_none_defaults_to_factors():
     fd, fn, _td, _tn = _make_data(seed=3)
     # Need to pass a y index that exists in factors_data (last col)
     out = screen_predictors(
-        factors_data=fd, factors_nbins=fn, factors_names=[f"f{i}" for i in range(fd.shape[1])],
-        targets_data=None, targets_nbins=None,
+        factors_data=fd,
+        factors_nbins=fn,
+        factors_names=[f"f{i}" for i in range(fd.shape[1])],
+        targets_data=None,
+        targets_nbins=None,
         y=np.array([fd.shape[1] - 1], dtype=np.int32),
-        full_npermutations=5, baseline_npermutations=3, n_workers=1, verbose=0, random_seed=42,
+        full_npermutations=5,
+        baseline_npermutations=3,
+        n_workers=1,
+        verbose=0,
+        random_seed=42,
     )
     assert out is not None
 
@@ -130,22 +138,32 @@ def test_screen_factors_to_use_set():
 def test_screen_interactions_max_order_two():
     """interactions_max_order=2 enumerates pair-level candidates."""
     fd, fn, td, tn = _make_data(n=40, m=3, seed=6)
-    out = screen_predictors(**_common_kwargs(
-        fd, fn, td, tn,
-        interactions_max_order=2,
-        max_veteranes_interactions_order=2,
-    ))
+    out = screen_predictors(
+        **_common_kwargs(
+            fd,
+            fn,
+            td,
+            tn,
+            interactions_max_order=2,
+            max_veteranes_interactions_order=2,
+        )
+    )
     assert out is not None
 
 
 def test_screen_interactions_order_reversed():
     """interactions_order_reversed=True walks the order range in reverse."""
     fd, fn, td, tn = _make_data(n=40, m=3, seed=7)
-    out = screen_predictors(**_common_kwargs(
-        fd, fn, td, tn,
-        interactions_max_order=2,
-        interactions_order_reversed=True,
-    ))
+    out = screen_predictors(
+        **_common_kwargs(
+            fd,
+            fn,
+            td,
+            tn,
+            interactions_max_order=2,
+            interactions_order_reversed=True,
+        )
+    )
     assert out is not None
 
 

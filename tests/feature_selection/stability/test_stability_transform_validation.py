@@ -32,6 +32,7 @@ semantics):
 - ndarray (no names): width check vs ``n_features_in_``, raise on
   mismatch.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -44,19 +45,23 @@ import pytest
 def _fit():
     from mlframe.feature_selection.filters.stability import StabilityMRMR
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = 200
-    X = pd.DataFrame({
-        "a": rng.standard_normal(n),
-        "b": rng.standard_normal(n),
-        "c": rng.standard_normal(n),
-        "d": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": rng.standard_normal(n),
+            "b": rng.standard_normal(n),
+            "c": rng.standard_normal(n),
+            "d": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((X["b"] + X["c"] > 0).astype(np.int64))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         sel = StabilityMRMR(
-            estimator=MRMR(verbose=0), n_bootstraps=3,
+            estimator=MRMR(verbose=0),
+            n_bootstraps=3,
             sample_fraction=0.5,
         ).fit(X, y)
     return sel, X
@@ -74,8 +79,7 @@ def test_transform_reordered_columns_realigned():
     # Both outputs must reference the SAME underlying columns by name.
     if hasattr(out_ordered, "columns"):
         assert list(out_ordered.columns) == list(out_shuffled.columns), (
-            f"transform on reordered columns gave different output names: "
-            f"{list(out_ordered.columns)} vs {list(out_shuffled.columns)}"
+            f"transform on reordered columns gave different output names: {list(out_ordered.columns)} vs {list(out_shuffled.columns)}"
         )
         # And the values per column must match.
         for col in out_ordered.columns:
@@ -90,9 +94,7 @@ def test_transform_missing_fit_column_raises():
     sel, X = _fit()
     # Drop a column that was likely selected ('b' or 'c'); choose one
     # by inspecting the fitted feature names.
-    selected_names = [
-        sel.feature_names_in_[i] for i in sel.support_
-    ]
+    selected_names = [sel.feature_names_in_[i] for i in sel.support_]
     if not selected_names:
         pytest.skip("Empty support_; cannot test missing-column drop")
     drop_col = selected_names[0]

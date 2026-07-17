@@ -8,6 +8,7 @@ equivalence against the numpy reference (~1e-15 reduction-order tolerance; numpy
 left-to-right) across even/odd K and continuous / tied / discrete windows for both ``normalize`` settings,
 (c) NaN-bearing segments fall back to numpy bit-for-bit, and (d) K=1 (no diffs) yields all-zero TV.
 """
+
 from __future__ import annotations
 
 import numpy as np

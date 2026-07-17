@@ -19,6 +19,7 @@ Pins:
   positive ``honest_holdout_rmse_gain``;
 * the gate is a no-op when disabled and when the honest holdout is absent.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,10 +45,16 @@ def _additive_dominant_frame(n: int = 3000, seed: int = 1):
 def _mi_config(**overrides) -> CompositeTargetDiscoveryConfig:
     """screening='mi' config (the path that previously had NO OOS predictive gate)."""
     kw = dict(
-        enabled=True, random_state=0, screening="mi", base_candidates=["base"],
-        honest_holdout_frac=0.2, tiny_model_n_estimators=40,
-        multi_base_enabled=False, interaction_base_discovery_enabled=False,
-        auto_chain_discovery_enabled=False, auto_base_null_perms=0,
+        enabled=True,
+        random_state=0,
+        screening="mi",
+        base_candidates=["base"],
+        honest_holdout_frac=0.2,
+        tiny_model_n_estimators=40,
+        multi_base_enabled=False,
+        interaction_base_discovery_enabled=False,
+        auto_chain_discovery_enabled=False,
+        auto_base_null_perms=0,
     )
     kw.update(overrides)
     return CompositeTargetDiscoveryConfig(**kw)
@@ -68,9 +75,9 @@ def test_biz_val_honest_rmse_gate_rejects_mi_positive_ratio_pair():
     # Gate ON (default): the same MI-positive ratio pair is rejected on honest y-scale OOS RMSE.
     disc_on = CompositeTargetDiscovery(_mi_config(transforms=["ratio"]))
     disc_on.fit(df, "y", ["base", "x0", "x1"], train_idx)
-    assert not [
-        s for s in disc_on.specs_ if s.transform_name == "ratio"
-    ], "honest RMSE gate must reject the noise-amplifying ratio spec on the mi screening path"
+    assert not [s for s in disc_on.specs_ if s.transform_name == "ratio"], (
+        "honest RMSE gate must reject the noise-amplifying ratio spec on the mi screening path"
+    )
     stages = {row["stage"] for row in disc_on.rejection_ledger}
     assert "honest_rmse" in stages, "the rejection must be attributed to the honest_rmse ledger stage"
 
@@ -84,9 +91,9 @@ def test_biz_val_honest_rmse_gate_keeps_genuinely_helpful_linear_residual():
     assert kept, "helpful linear_residual on the dominant additive base must survive the gate"
     spec = kept[0]
     assert spec.honest_holdout_rmse is not None and spec.honest_holdout_raw_rmse is not None
-    assert (
-        spec.honest_holdout_rmse_gain is not None and spec.honest_holdout_rmse_gain > 0.0
-    ), f"the surviving composite must beat raw y OOS (gain={spec.honest_holdout_rmse_gain})"
+    assert spec.honest_holdout_rmse_gain is not None and spec.honest_holdout_rmse_gain > 0.0, (
+        f"the surviving composite must beat raw y OOS (gain={spec.honest_holdout_rmse_gain})"
+    )
     # The wide-range base defeats the tiny tree on raw y; the residual composite should win by a wide margin.
     assert spec.honest_holdout_rmse < 0.5 * spec.honest_holdout_raw_rmse
 
@@ -99,9 +106,16 @@ def test_biz_val_honest_rmse_gate_keeps_genuinely_helpful_linear_residual():
 def _dummy_spec(alpha: float = 50.0) -> CompositeSpec:
     """A bare linear_residual spec on ``base`` with the given alpha, for the direct-helper-call tests."""
     return CompositeSpec(
-        name="y-linres-base", target_col="y", transform_name="linear_residual", base_column="base",
+        name="y-linres-base",
+        target_col="y",
+        transform_name="linear_residual",
+        base_column="base",
         fitted_params={"alpha": float(alpha), "beta": 0.0},
-        mi_gain=1.0, mi_y=0.0, mi_t=1.0, valid_domain_frac=1.0, n_train_rows=100,
+        mi_gain=1.0,
+        mi_y=0.0,
+        mi_t=1.0,
+        valid_domain_frac=1.0,
+        n_train_rows=100,
     )
 
 
@@ -111,7 +125,14 @@ def test_honest_rmse_gate_noop_when_disabled():
     disc = CompositeTargetDiscovery(_mi_config(honest_rmse_gate_enabled=False))
     spec = _dummy_spec()
     out = apply_honest_rmse_gate(
-        disc, df, "y", [spec], ["base", "x0", "x1"], np.arange(400), np.arange(400, 500), y,
+        disc,
+        df,
+        "y",
+        [spec],
+        ["base", "x0", "x1"],
+        np.arange(400),
+        np.arange(400, 500),
+        y,
     )
     assert out == [spec], "disabled gate must keep every spec untouched"
 
@@ -133,7 +154,14 @@ def test_honest_rmse_gate_drops_harmful_spec_directly():
     rng = np.random.default_rng(0)
     perm = rng.permutation(len(df))
     out = apply_honest_rmse_gate(
-        disc, df, "y", [bad], ["base", "x0", "x1"], np.sort(perm[:1200]), np.sort(perm[1200:]), y,
+        disc,
+        df,
+        "y",
+        [bad],
+        ["base", "x0", "x1"],
+        np.sort(perm[:1200]),
+        np.sort(perm[1200:]),
+        y,
     )
     assert out == [], "alpha=50 mis-fit residual must fail the honest y-scale RMSE floor"
     assert any(r["stage"] == "honest_rmse" for r in disc.rejection_ledger)

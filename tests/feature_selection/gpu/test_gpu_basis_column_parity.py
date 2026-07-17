@@ -8,6 +8,7 @@ selection-bearing (the MI ranking decides which basis/degree survives), so a sil
 GPU/host drift would change selection. It also guards the Laguerre recurrence (the
 prior Clenshaw form was wrong and no canonical pin exercised it -- this test caught it).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -45,11 +46,7 @@ def test_gpu_basis_column_parity(seed, basis, degree):
     ra = _robust_axis_enabled()
     for dname, x in _datasets(seed).items():
         host = np.asarray(_evaluate_basis_column(x, basis, degree), dtype=np.float64)
-        gpu = cp.asnumpy(
-            _gpu_evaluate_basis_column(cp, cp.asarray(x), basis, degree, robust_axis=ra)
-        ).astype(np.float64)
+        gpu = cp.asnumpy(_gpu_evaluate_basis_column(cp, cp.asarray(x), basis, degree, robust_axis=ra)).astype(np.float64)
         denom = float(np.max(np.abs(host))) + 1e-12
         rel = float(np.max(np.abs(host - gpu))) / denom
-        assert rel < 1e-6, (
-            f"{dname}/{basis}/d={degree} GPU basis column drifted from host: rel={rel:.2e}"
-        )
+        assert rel < 1e-6, f"{dname}/{basis}/d={degree} GPU basis column drifted from host: rel={rel:.2e}"

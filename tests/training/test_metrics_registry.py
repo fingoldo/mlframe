@@ -8,6 +8,7 @@ Uses an autouse fixture that snapshot+restores the registry per test (per CLAUDE
 test-pollution rules + memory feedback_no_module_reload_without_snapshot) so the
 built-in multilabel registrations remain visible to other tests after this suite runs.
 """
+
 from __future__ import annotations
 
 import logging
@@ -60,8 +61,7 @@ def test_unregister_removes_metric():
     mr.register_metric(TargetTypes.REGRESSION, "todelete", _dummy_metric)
     assert "todelete" in mr.list_registered(TargetTypes.REGRESSION)
     mr.unregister_metric(TargetTypes.REGRESSION, "todelete")
-    assert "todelete" not in mr.list_registered(TargetTypes.REGRESSION), \
-        "unregister_metric must remove the named entry"
+    assert "todelete" not in mr.list_registered(TargetTypes.REGRESSION), "unregister_metric must remove the named entry"
 
 
 def test_unregister_missing_is_noop():
@@ -80,8 +80,7 @@ def test_iter_extra_metrics_yields_registered():
     y = np.array([0.0, 1.0, 2.0])
     out = dict(mr.iter_extra_metrics(TargetTypes.REGRESSION, y, y, y))
     assert "spec1" in out, "registered metric must surface from iter_extra_metrics"
-    assert out["spec1"] == pytest.approx(0.42), \
-        f"metric value must equal callable return; got {out['spec1']!r}"
+    assert out["spec1"] == pytest.approx(0.42), f"metric value must equal callable return; got {out['spec1']!r}"
 
 
 def test_iter_extra_metrics_skips_raising_metric(caplog):
@@ -96,12 +95,12 @@ def test_iter_extra_metrics_skips_raising_metric(caplog):
         out = dict(mr.iter_extra_metrics(TargetTypes.REGRESSION, y, y, y))
     assert "good_metric" in out, "non-failing metric must still yield"
     assert "bad_metric" not in out, "raising metric must be omitted from output"
-    assert any("bad_metric" in rec.getMessage() for rec in caplog.records), \
-        "expected warning log row naming the failing metric"
+    assert any("bad_metric" in rec.getMessage() for rec in caplog.records), "expected warning log row naming the failing metric"
 
 
 def test_iter_extra_metrics_keyboardinterrupt_propagates():
     """Programming bugs (e.g. KeyboardInterrupt, RuntimeError) must NOT be swallowed."""
+
     def _ki_metric(y_true, probs_NK, preds_NK):
         raise KeyboardInterrupt("user pressed ctrl-c")
 
@@ -124,8 +123,11 @@ def test_get_metric_direction_unknown_returns_none():
 
 def test_list_registered_specs_returns_metric_specs():
     mr.register_metric(
-        TargetTypes.REGRESSION, "with_desc", _dummy_metric,
-        higher_is_better=False, description="lower is better metric for X",
+        TargetTypes.REGRESSION,
+        "with_desc",
+        _dummy_metric,
+        higher_is_better=False,
+        description="lower is better metric for X",
     )
     specs = mr.list_registered_specs(TargetTypes.REGRESSION)
     assert isinstance(specs, dict)
@@ -156,14 +158,12 @@ def test_metric_spec_is_frozen():
 def test_metric_direction_higher_known():
     """Canonical higher-is-better names: AUC, NDCG, accuracy, F1, R2."""
     for name in ("auc", "AUC", "val_AUC", "test_NDCG@10", "ndcg", "r2", "f1_macro", "MAP"):
-        assert mr.metric_name_higher_is_better(name) is True, \
-            f"{name!r} must be classified as higher-is-better"
+        assert mr.metric_name_higher_is_better(name) is True, f"{name!r} must be classified as higher-is-better"
 
 
 def test_metric_direction_lower_known():
     for name in ("rmse", "MAE", "test_RMSE", "log_loss", "brier", "hamming_loss", "pinball"):
-        assert mr.metric_name_higher_is_better(name) is False, \
-            f"{name!r} must be classified as lower-is-better"
+        assert mr.metric_name_higher_is_better(name) is False, f"{name!r} must be classified as lower-is-better"
 
 
 def test_metric_direction_unknown_returns_none():
@@ -196,7 +196,10 @@ def test_metric_direction_non_string_returns_none():
 def test_metric_direction_falls_back_to_registry():
     """When name is neither in higher nor lower set, the function scans the registry."""
     mr.register_metric(
-        TargetTypes.REGRESSION, "custom_thing", _dummy_metric, higher_is_better=False,
+        TargetTypes.REGRESSION,
+        "custom_thing",
+        _dummy_metric,
+        higher_is_better=False,
     )
     # Not in either built-in set, but is in registry — must return its direction.
     assert mr.metric_name_higher_is_better("custom_thing") is False
@@ -256,14 +259,17 @@ def test_mtr_metrics_recover_flattened_preds(caplog):
     expected_rmse_macro = float(np.sqrt(mean_squared_error(y_true, preds_nk, multioutput="raw_values")).mean())
 
     with caplog.at_level(logging.WARNING):
-        out = dict(mr.iter_extra_metrics(
-            TargetTypes.MULTI_TARGET_REGRESSION, y_true, None, preds_nk.ravel(),
-        ))
+        out = dict(
+            mr.iter_extra_metrics(
+                TargetTypes.MULTI_TARGET_REGRESSION,
+                y_true,
+                None,
+                preds_nk.ravel(),
+            )
+        )
 
     # No "omitted from report" warning -- the metrics ran rather than being skipped.
-    assert not any("omitted from report" in r.message for r in caplog.records), (
-        "MTR metrics must not be omitted when preds arrive flattened"
-    )
+    assert not any("omitted from report" in r.message for r in caplog.records), "MTR metrics must not be omitted when preds arrive flattened"
     for name in ("rmse_macro", "rmse_max", "mae_macro", "r2_macro"):
         assert name in out, f"MTR metric {name} must surface from a flattened-preds call"
         assert np.isfinite(out[name]), f"{name} must be finite; got {out[name]!r}"

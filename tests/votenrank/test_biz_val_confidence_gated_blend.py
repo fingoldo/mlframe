@@ -5,6 +5,7 @@ uninformative (noise) elsewhere should improve overall log-loss when blended in 
 while a naive fixed-weight blend applied everywhere dilutes the main ensemble with noise on the rest of the
 data and ends up worse than the gated version (and can even be worse than not blending at all).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,14 +42,10 @@ def test_biz_val_confidence_gated_blend_beats_pure_ensemble_and_naive_fixed_blen
     naive_blend = 0.92 * ensemble_pred + 0.08 * auxiliary_pred
     loss_naive_blend = _log_loss(y, naive_blend)
 
-    gated_blend = confidence_gated_blend(
-        ensemble_pred, auxiliary_pred, auxiliary_confidence, confidence_threshold=0.6, gated_weight=0.6, default_weight=0.0
-    )
+    gated_blend = confidence_gated_blend(ensemble_pred, auxiliary_pred, auxiliary_confidence, confidence_threshold=0.6, gated_weight=0.6, default_weight=0.0)
     loss_gated_blend = _log_loss(y, gated_blend)
 
-    assert loss_gated_blend < loss_pure_ensemble, (
-        f"gated blend should beat the pure ensemble: gated={loss_gated_blend:.4f} pure={loss_pure_ensemble:.4f}"
-    )
+    assert loss_gated_blend < loss_pure_ensemble, f"gated blend should beat the pure ensemble: gated={loss_gated_blend:.4f} pure={loss_pure_ensemble:.4f}"
     assert loss_gated_blend < loss_naive_blend, (
         f"gated blend should beat a naive fixed-weight-everywhere blend: gated={loss_gated_blend:.4f} naive={loss_naive_blend:.4f}"
     )
@@ -115,9 +112,7 @@ def test_biz_val_confidence_gated_blend_per_sample_gate_calibration_beats_raw_co
     cal_y, _, cal_aux_pred, cal_confidence, _ = _make_miscalibrated_gate_data(seed=2)
     cal_reliability = (np.round(cal_aux_pred) == cal_y).astype(np.float64)
 
-    raw_gate_blend = confidence_gated_blend(
-        ensemble_pred, auxiliary_pred, raw_confidence, confidence_threshold=0.6, gated_weight=0.8, default_weight=0.0
-    )
+    raw_gate_blend = confidence_gated_blend(ensemble_pred, auxiliary_pred, raw_confidence, confidence_threshold=0.6, gated_weight=0.8, default_weight=0.0)
     loss_raw_gate = _log_loss(y, raw_gate_blend)
 
     calibrated_blend = confidence_gated_blend(

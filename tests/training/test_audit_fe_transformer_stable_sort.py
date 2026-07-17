@@ -24,6 +24,7 @@ secondary key for tie-determinism.
 Combined with waves 57+58, the stable-sort tie audit class is now FULLY closed
 across mlframe's entire surface (production + FE transformers).
 """
+
 from __future__ import annotations
 
 from pathlib import Path

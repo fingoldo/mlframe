@@ -1,5 +1,6 @@
 """F-34 final pieces: E1 (per-target K-grid charts) + E2 (per-column
 CT_ENSEMBLE)."""
+
 from __future__ import annotations
 
 import logging
@@ -40,7 +41,9 @@ def test_mtr_ensemble_equal_mean_2_components():
     c1 = _StubComponent(np.zeros((5, 2)))
     c2 = _StubComponent(np.tile([2.0, 4.0], (5, 1)))
     ens = MTRPerColumnEqualMeanEnsemble(
-        components=[c1, c2], component_names=["c1", "c2"], n_targets=2,
+        components=[c1, c2],
+        component_names=["c1", "c2"],
+        n_targets=2,
     )
     preds = ens.predict(X)
     assert preds.shape == (5, 2)
@@ -53,7 +56,9 @@ def test_mtr_ensemble_promotes_1d_components_to_2d():
     shape; this test only verifies the (N,) -> (N, 1) promotion path."""
     c = _StubComponent(np.array([1.0, 2.0, 3.0]))  # (N=3,)
     ens = MTRPerColumnEqualMeanEnsemble(
-        components=[c], component_names=["c1"], n_targets=1,
+        components=[c],
+        component_names=["c1"],
+        n_targets=1,
     )
     preds = ens.predict(np.zeros((3, 2)))
     assert preds.shape == (3, 1)
@@ -62,7 +67,9 @@ def test_mtr_ensemble_promotes_1d_components_to_2d():
 def test_mtr_ensemble_empty_components_raises():
     with pytest.raises(ValueError, match=r"at least 1 component"):
         MTRPerColumnEqualMeanEnsemble(
-            components=[], component_names=[], n_targets=2,
+            components=[],
+            component_names=[],
+            n_targets=2,
         )
 
 
@@ -70,7 +77,9 @@ def test_mtr_ensemble_repr_includes_counts():
     c1 = _StubComponent(np.zeros((4, 2)))
     c2 = _StubComponent(np.ones((4, 2)))
     ens = MTRPerColumnEqualMeanEnsemble(
-        components=[c1, c2], component_names=["alpha", "beta"], n_targets=2,
+        components=[c1, c2],
+        component_names=["alpha", "beta"],
+        n_targets=2,
     )
     r = repr(ens)
     assert "n_components=2" in r
@@ -91,10 +100,12 @@ def _make_models_dict_with_components(n_components=3, n_targets=2, n=20):
     entries = []
     for i in range(n_components):
         comp_preds = rng.normal(loc=float(i), size=(n, n_targets))
-        entries.append(SimpleNamespace(
-            model=_StubComponent(comp_preds),
-            pre_pipeline=None,
-        ))
+        entries.append(
+            SimpleNamespace(
+                model=_StubComponent(comp_preds),
+                pre_pipeline=None,
+            )
+        )
     return {target_type: {target_name: entries}}, target_type, target_name
 
 
@@ -106,8 +117,11 @@ def test_build_mtr_per_column_ensemble_appends_entry():
     target_by_type = {tt: {tn: np.zeros((20, 2))}}
 
     _build_mtr_per_column_ensemble(
-        _tt_e=tt, _orig_tname=tn,
-        models=models, metadata=metadata, target_by_type=target_by_type,
+        _tt_e=tt,
+        _orig_tname=tn,
+        models=models,
+        metadata=metadata,
+        target_by_type=target_by_type,
     )
 
     # Original 3 + 1 new ensemble entry.
@@ -130,8 +144,11 @@ def test_build_mtr_per_column_ensemble_skips_when_single_component(caplog):
     target_by_type = {tt: {tn: np.zeros((20, 2))}}
     with caplog.at_level(logging.INFO, logger="mlframe.training.core._phase_composite_post"):
         _build_mtr_per_column_ensemble(
-            _tt_e=tt, _orig_tname=tn,
-            models=models, metadata=metadata, target_by_type=target_by_type,
+            _tt_e=tt,
+            _orig_tname=tn,
+            models=models,
+            metadata=metadata,
+            target_by_type=target_by_type,
         )
     # Models length unchanged (only the 1 original component).
     assert len(models[tt][tn]) == 1
@@ -147,8 +164,11 @@ def test_build_mtr_per_column_ensemble_predict_averages_components():
     metadata = {}
     target_by_type = {tt: {tn: np.zeros((20, 2))}}
     _build_mtr_per_column_ensemble(
-        _tt_e=tt, _orig_tname=tn,
-        models=models, metadata=metadata, target_by_type=target_by_type,
+        _tt_e=tt,
+        _orig_tname=tn,
+        models=models,
+        metadata=metadata,
+        target_by_type=target_by_type,
     )
     ens = models[tt][tn][-1].model
     # The stub components emit predictions with loc=0, 1, 2 across the
@@ -217,15 +237,19 @@ def test_mtr_per_target_charts_render_k_files(tmp_path):
     plot_file = str(tmp_path / "mtr_chart.png")
     metrics = {}
     report_regression_model_perf(
-        targets=targets, columns=["f1", "f2", "f3"],
-        model_name="test_model", model=None, preds=preds,
-        metrics=metrics, print_report=False, show_perf_chart=False,
-        plot_outputs="matplotlib[png]", plot_file=plot_file,
+        targets=targets,
+        columns=["f1", "f2", "f3"],
+        model_name="test_model",
+        model=None,
+        preds=preds,
+        metrics=metrics,
+        print_report=False,
+        show_perf_chart=False,
+        plot_outputs="matplotlib[png]",
+        plot_file=plot_file,
     )
     expected = [tmp_path / f"mtr_chart_target{i}.png" for i in range(k)]
     rendered = sorted(p.name for p in tmp_path.iterdir())
-    assert len(rendered) >= k, (
-        f"expected at least {k} chart files; got {rendered}"
-    )
+    assert len(rendered) >= k, f"expected at least {k} chart files; got {rendered}"
     for ep in expected:
         assert ep.exists(), f"missing per-target chart {ep.name}; have {rendered}"

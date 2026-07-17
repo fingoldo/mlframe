@@ -205,7 +205,7 @@ class TestBetterPreprocessParams:
         # The concat-pool error should be smaller (more rows -> smaller
         # sampling noise around the true 0/1).
         assert err_p < err_l, (
-            f"seed={seed}: concat-pool z-score params no closer to truth " f"than labeled-only. labeled-only err={err_l:.4f}, " f"concat err={err_p:.4f}"
+            f"seed={seed}: concat-pool z-score params no closer to truth than labeled-only. labeled-only err={err_l:.4f}, concat err={err_p:.4f}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -231,7 +231,7 @@ class TestBetterPreprocessParams:
         # differ. (Equality would mean the aux path silently did nothing.)
         assert vals_labeled_only.shape == vals_with_aux.shape
         assert not np.allclose(vals_labeled_only, vals_with_aux), (
-            f"seed={seed}: aux_for_fit had no effect on basis output; " f"max abs diff = " f"{np.max(np.abs(vals_labeled_only - vals_with_aux)):.2e}"
+            f"seed={seed}: aux_for_fit had no effect on basis output; max abs diff = {np.max(np.abs(vals_labeled_only - vals_with_aux)):.2e}"
         )
 
 
@@ -340,7 +340,7 @@ class TestNoLeakage:
         )
         pool = _build_pool_mapping(X_l, X_u)
         # Mapping covers every numeric column shared by both frames.
-        assert set(pool.keys()) == set(X_l.columns), f"seed={seed}: pool keys {sorted(pool.keys())} != labeled cols " f"{sorted(X_l.columns)}"
+        assert set(pool.keys()) == set(X_l.columns), f"seed={seed}: pool keys {sorted(pool.keys())} != labeled cols {sorted(X_l.columns)}"
         # Each entry holds exactly the finite UNLABELED values (no labeled
         # rows, no y).
         for col in X_l.columns:
@@ -422,9 +422,7 @@ class TestNoLeakage:
 
         sig = inspect.signature(_build_pool_mapping)
         assert list(sig.parameters.keys()) == ["X_labeled", "X_unlabeled"], (
-            f"seed={seed}: _build_pool_mapping signature changed and now "
-            f"accepts y; semi-supervised augmentation MAY have a leakage "
-            f"path. signature={sig}"
+            f"seed={seed}: _build_pool_mapping signature changed and now accepts y; semi-supervised augmentation MAY have a leakage path. signature={sig}"
         )
         pool_a = _build_pool_mapping(X_l, X_u)
         pool_b = _build_pool_mapping(X_l, X_u)
@@ -460,9 +458,7 @@ class TestDefaultDisabledByteIdentical:
         # Exactly one UserWarning about the disabled flag must surface.
         flag_warns = [w for w in wlist if issubclass(w.category, UserWarning) and "fe_semi_supervised_enable=False" in str(w.message)]
         assert flag_warns, (
-            f"seed={seed}: expected UserWarning when fit_with_unlabeled is "
-            f"called with X_unlabeled but the flag is off; got "
-            f"{[str(w.message) for w in wlist]}"
+            f"seed={seed}: expected UserWarning when fit_with_unlabeled is called with X_unlabeled but the flag is off; got {[str(w.message) for w in wlist]}"
         )
 
         # Byte-equivalence: plain fit() produces the same selected support.
@@ -470,7 +466,7 @@ class TestDefaultDisabledByteIdentical:
         m2.fit(X_l, y)
         sup1 = list(m1.feature_names_in_)
         sup2 = list(m2.feature_names_in_)
-        assert sup1 == sup2, f"seed={seed}: default-off fit_with_unlabeled diverged from " f"plain fit. fit_with_unlabeled={sup1}, fit={sup2}"
+        assert sup1 == sup2, f"seed={seed}: default-off fit_with_unlabeled diverged from plain fit. fit_with_unlabeled={sup1}, fit={sup2}"
 
     @pytest.mark.parametrize("seed", (1, 7))
     def test_enabled_no_unlabeled_no_warning(self, seed):
@@ -488,11 +484,11 @@ class TestDefaultDisabledByteIdentical:
             warnings.simplefilter("always")
             fit_with_unlabeled(m1, X_l, y, X_unlabeled=None)
         flag_warns = [w for w in wlist if "fe_semi_supervised_enable" in str(w.message)]
-        assert not flag_warns, f"seed={seed}: unexpected flag-related warning when " f"X_unlabeled=None: {[str(w.message) for w in flag_warns]}"
+        assert not flag_warns, f"seed={seed}: unexpected flag-related warning when X_unlabeled=None: {[str(w.message) for w in flag_warns]}"
         m2 = _make_mrmr(fe_semi_supervised_enable=True)
         m2.fit(X_l, y)
         assert list(m1.feature_names_in_) == list(m2.feature_names_in_), (
-            f"seed={seed}: flag-on + X_unlabeled=None diverged from plain " f"fit (no augmentation should have happened)"
+            f"seed={seed}: flag-on + X_unlabeled=None diverged from plain fit (no augmentation should have happened)"
         )
 
     def test_thread_local_pool_empty_by_default(self):
@@ -552,4 +548,4 @@ class TestPickleAndClone:
                 v1 = Xt[c].to_numpy()
                 v2 = Xt2[c].to_numpy()
                 if not np.allclose(v1, v2, equal_nan=True, atol=1e-10):
-                    raise AssertionError(f"pickle changed transform() values for column " f"{c!r}: max abs diff " f"{np.nanmax(np.abs(v1 - v2)):.2e}")
+                    raise AssertionError(f"pickle changed transform() values for column {c!r}: max abs diff {np.nanmax(np.abs(v1 - v2)):.2e}")

@@ -15,6 +15,7 @@ trustworthy even during transition.
 
 Naming: ``test_biz_val_training_<class>_<parameter>``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -62,6 +63,7 @@ def _try_import_suite():
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training import OutputConfig
         from tests.training.shared import SimpleFeaturesAndTargetsExtractor
+
         return train_mlframe_models_suite, OutputConfig, SimpleFeaturesAndTargetsExtractor
     except (ImportError, AttributeError) as e:
         pytest.skip(f"suite not importable during refactor: {e}")
@@ -130,9 +132,7 @@ def test_biz_val_training_suite_classification_completes(tmp_path):
         pytest.skip(f"suite call broke during refactor: {e}")
     # Same behavioural contract as the regression path (see above).
     assert models is not None, "classification suite returned None models on lgb-only path"
-    assert hasattr(models, "__len__") and len(models) >= 1, (
-        f"models container empty after successful classification suite call; got {type(models).__name__}"
-    )
+    assert hasattr(models, "__len__") and len(models) >= 1, f"models container empty after successful classification suite call; got {type(models).__name__}"
     assert isinstance(metadata, dict) and len(metadata) > 0, "metadata empty / wrong type on classification path"
 
 
@@ -141,10 +141,13 @@ def test_biz_val_training_suite_classification_completes(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("model_list", [
-    ["lgb"],
-    ["xgb"],
-])
+@pytest.mark.parametrize(
+    "model_list",
+    [
+        ["lgb"],
+        ["xgb"],
+    ],
+)
 def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
     """``mlframe_models=[X]`` must train ONLY that model family.
     Parametrize over the boosting families."""
@@ -176,9 +179,7 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
     # MODEL OBJECT's class name (the leaf level is a list of model objects, not a dict). The suite-level
     # return nests as ``{TargetTypes.<X>: {target_name: [model_obj_1, model_obj_2, ...], ...}, ...}``.
     assert models is not None, f"suite returned None models on mlframe_models={model_list} path"
-    assert hasattr(models, "__len__") and len(models) >= 1, (
-        f"models container empty for mlframe_models={model_list}; got {type(models).__name__}"
-    )
+    assert hasattr(models, "__len__") and len(models) >= 1, f"models container empty for mlframe_models={model_list}; got {type(models).__name__}"
     if isinstance(models, dict):
         family = model_list[0]
         haystacks: list[str] = []
@@ -197,8 +198,12 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
                 haystacks.append(type(d).__name__)
                 haystacks.append(getattr(type(d), "__module__", "") or "")
                 for attr in (
-                    "model_name", "name", "estimator_type",
-                    "mlframe_model_name", "family", "model_type",
+                    "model_name",
+                    "name",
+                    "estimator_type",
+                    "mlframe_model_name",
+                    "family",
+                    "model_type",
                 ):
                     val = getattr(d, attr, None)
                     if isinstance(val, str):
@@ -218,10 +223,7 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
 
         _collect(models)
         keys_str = " ".join(haystacks).lower()
-        assert family in keys_str, (
-            f"mlframe_models={model_list} did not produce any {family}-related model; "
-            f"haystacks={haystacks}"
-        )
+        assert family in keys_str, f"mlframe_models={model_list} did not produce any {family}-related model; haystacks={haystacks}"
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +254,4 @@ def test_biz_val_training_suite_metadata_dict_schema(tmp_path):
         )
     except (TypeError, ImportError) as e:
         pytest.skip(f"suite call broke during refactor: {e}")
-    assert isinstance(metadata, dict), (
-        f"metadata must be a dict; got {type(metadata).__name__}"
-    )
+    assert isinstance(metadata, dict), f"metadata must be a dict; got {type(metadata).__name__}"

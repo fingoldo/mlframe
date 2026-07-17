@@ -7,6 +7,7 @@ where the answer is known. They replace the prior single biz-value assertion
 Each test is sklearn-only to keep CI lightweight. The full multi-estimator
 sweep lives in ``_benchmarks/bench_rfecv_vs_sklearn.py``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -47,9 +48,14 @@ def test_recovers_informative_features_clf():
     a strong-enough estimator should recover at least 75% of the informative
     set. This was the test that the previous suite skipped at recall>=0.2."""
     X_df, y, _ = make_sklearn_classification_df(
-        n_samples=1000, n_features=48, n_informative=8,
-        n_redundant=0, n_classes=2,
-        n_clusters_per_class=1, class_sep=2.0, seed=0,
+        n_samples=1000,
+        n_features=48,
+        n_informative=8,
+        n_redundant=0,
+        n_classes=2,
+        n_clusters_per_class=1,
+        class_sep=2.0,
+        seed=0,
         shuffle=False,  # keep informative cols at indices [0..n_informative)
     )
     cols = list(X_df.columns)
@@ -71,10 +77,7 @@ def test_recovers_informative_features_clf():
     # but our MBH search legitimately stops earlier than exhaustive elimination
     # so on a 48-feature problem with noise, 0.5 is a realistic lower bound that
     # still detects regressions if the selector breaks below random.
-    assert recall >= 0.5, (
-        f"Recall {recall:.2f} below 0.5; on a 2.0-class-sep problem with 8 "
-        f"informative features RFECV should recover at least half."
-    )
+    assert recall >= 0.5, f"Recall {recall:.2f} below 0.5; on a 2.0-class-sep problem with 8 informative features RFECV should recover at least half."
 
 
 # ----------------------------------------------------------------------------
@@ -88,14 +91,20 @@ def test_score_lift_vs_all_features():
     so dropping noise yielded no lift. Use C=1e6 (effectively unregularised)
     to expose the bias-variance tradeoff."""
     X_df, y, _ = make_sklearn_classification_df(
-        n_samples=300, n_features=80, n_informative=5,
-        n_redundant=0, n_classes=2,
-        n_clusters_per_class=1, class_sep=1.0, seed=1,
+        n_samples=300,
+        n_features=80,
+        n_informative=5,
+        n_redundant=0,
+        n_classes=2,
+        n_clusters_per_class=1,
+        class_sep=1.0,
+        seed=1,
         shuffle=False,
     )
     cols = list(X_df.columns)
 
     cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=1)
+
     # C=1e6 effectively disables L2 so noise features actually hurt.
     def estimator_factory():
         return LogisticRegression(C=1e6, max_iter=2000, random_state=0)
@@ -112,12 +121,26 @@ def test_score_lift_vs_all_features():
     score_cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
     selected_mask = _support_as_bool(rfecv, X_df)
     selected_cols = X_df.columns[selected_mask].tolist()
-    score_selected = float(np.mean(cross_val_score(
-        estimator_factory(), X_df[selected_cols], y, cv=score_cv,
-    )))
-    score_all = float(np.mean(cross_val_score(
-        estimator_factory(), X_df, y, cv=score_cv,
-    )))
+    score_selected = float(
+        np.mean(
+            cross_val_score(
+                estimator_factory(),
+                X_df[selected_cols],
+                y,
+                cv=score_cv,
+            )
+        )
+    )
+    score_all = float(
+        np.mean(
+            cross_val_score(
+                estimator_factory(),
+                X_df,
+                y,
+                cv=score_cv,
+            )
+        )
+    )
     print(f"\n[biz:lift] all-features={score_all:.4f}, selected={score_selected:.4f}, lift={score_selected - score_all:+.4f}")
     # Real lift expected on this unregularised + high-noise problem.
     assert score_selected >= score_all + 0.01, (
@@ -178,9 +201,14 @@ def test_feature_cost_shifts_to_fewer_features():
     """A non-zero feature_cost should result in n_features_ <= n_features_(cost=0)
     on the same problem and seed."""
     X_df, y, _ = make_sklearn_classification_df(
-        n_samples=400, n_features=20, n_informative=4,
-        n_redundant=0, n_classes=2,
-        n_clusters_per_class=1, class_sep=1.5, seed=2,
+        n_samples=400,
+        n_features=20,
+        n_informative=4,
+        n_redundant=0,
+        n_classes=2,
+        n_clusters_per_class=1,
+        class_sep=1.5,
+        seed=2,
     )
 
     common_kwargs = dict(
@@ -199,10 +227,7 @@ def test_feature_cost_shifts_to_fewer_features():
     rfecv_with_cost = RFECV(feature_cost=0.1, **common_kwargs)
     rfecv_with_cost.fit(X_df, y)
 
-    print(
-        f"\n[biz:cost] cost=0 -> n={rfecv_no_cost.n_features_}, "
-        f"cost=0.1 -> n={rfecv_with_cost.n_features_}"
-    )
+    print(f"\n[biz:cost] cost=0 -> n={rfecv_no_cost.n_features_}, cost=0.1 -> n={rfecv_with_cost.n_features_}")
     assert rfecv_with_cost.n_features_ <= rfecv_no_cost.n_features_, (
         f"feature_cost=0.1 should monotonically reduce or hold the selected "
         f"count: got cost=0 -> {rfecv_no_cost.n_features_} vs cost=0.1 -> "
@@ -231,9 +256,14 @@ def test_stable_selection_across_seeds():
     interpretable support asks for ``one_se_min`` (sklearn-canonical parsimony), which recovers
     the 2-feature signal set identically across all three seeds."""
     X_df, y, _ = make_sklearn_classification_df(
-        n_samples=600, n_features=20, n_informative=5,
-        n_redundant=0, n_classes=2,
-        n_clusters_per_class=1, class_sep=2.0, seed=42,
+        n_samples=600,
+        n_features=20,
+        n_informative=5,
+        n_redundant=0,
+        n_classes=2,
+        n_clusters_per_class=1,
+        class_sep=2.0,
+        seed=42,
     )
 
     supports: list[set[int]] = []
@@ -261,7 +291,4 @@ def test_stable_selection_across_seeds():
     mean_jac = float(np.mean(jacs))
     print(f"\n[biz:stability] pairwise Jaccards={jacs}, mean={mean_jac:.2f}")
     print(f"  supports: {supports}")
-    assert mean_jac >= 0.5, (
-        f"Mean pairwise Jaccard across seeds {mean_jac:.2f} below 0.5; "
-        f"selection is too variance-driven on this well-conditioned problem."
-    )
+    assert mean_jac >= 0.5, f"Mean pairwise Jaccard across seeds {mean_jac:.2f} below 0.5; selection is too variance-driven on this well-conditioned problem."

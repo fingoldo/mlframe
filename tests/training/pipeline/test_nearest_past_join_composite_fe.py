@@ -6,6 +6,7 @@ alignment, no-op gates, and predict-time replay (no fit-time state -- inherently
 construction) -- plus one biz_value test proving the wired module recovers a step-function signal a
 naive stale/no-join baseline can't.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -55,8 +56,13 @@ def test_apply_nearest_past_join_composite_fe_schema_aligned_across_splits():
     cfg = PreprocessingExtensionsConfig(nearest_past_join_on="t", nearest_past_join_by=["entity"], nearest_past_join_value_cols=["known_value"])
     metadata: dict = {}
     train, val, test = apply_nearest_past_join_composite_fe(
-        left.iloc[:70].reset_index(drop=True), left.iloc[70:85].reset_index(drop=True), left.iloc[85:].reset_index(drop=True),
-        cfg, right, metadata=metadata, verbose=0,
+        left.iloc[:70].reset_index(drop=True),
+        left.iloc[70:85].reset_index(drop=True),
+        left.iloc[85:].reset_index(drop=True),
+        cfg,
+        right,
+        metadata=metadata,
+        verbose=0,
     )
     assert set(train.columns) == set(val.columns) == set(test.columns)
     assert "known_value" in train.columns

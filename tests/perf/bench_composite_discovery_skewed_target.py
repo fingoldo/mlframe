@@ -3,6 +3,7 @@ target so the y-transform fits (Yeo-Johnson Brent scan, quantile_normal sort,
 signed_power skew-grid) get exercised heavily inside discovery + stability
 bootstrap. Stays under a minute via n=4000 + a handful of bootstrap runs.
 """
+
 from __future__ import annotations
 
 import cProfile
@@ -22,12 +23,17 @@ def build_df(n: int = 4000, seed: int = 11) -> pd.DataFrame:
     x_d = rng.uniform(-3.0, 3.0, n)
     # Heavy-tailed, strongly right-skewed target -- the regime where YJ /
     # quantile_normal / signed_power transforms get selected + refit per fold.
-    raw = 1.5 * x_a + 2.5 * x_b - 0.8 * (x_c ** 2) + np.sin(x_d) + rng.normal(0.0, 1.5, n)
+    raw = 1.5 * x_a + 2.5 * x_b - 0.8 * (x_c**2) + np.sin(x_d) + rng.normal(0.0, 1.5, n)
     y = np.exp(raw / raw.std() * 1.3)
     cols = {
-        "x_a": x_a, "x_b": x_b, "x_c": x_c, "x_d": x_d,
-        "n0": rng.standard_normal(n), "n1": rng.standard_normal(n),
-        "n2": rng.standard_normal(n), "n3": rng.standard_normal(n),
+        "x_a": x_a,
+        "x_b": x_b,
+        "x_c": x_c,
+        "x_d": x_d,
+        "n0": rng.standard_normal(n),
+        "n1": rng.standard_normal(n),
+        "n2": rng.standard_normal(n),
+        "n3": rng.standard_normal(n),
         "y": y,
     }
     return pd.DataFrame(cols)
@@ -42,9 +48,13 @@ def run_once(df: pd.DataFrame):
     cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=3000)
     disc = CompositeTargetDiscovery(config=cfg)
     disc.fit_with_stability_check(
-        df=df, target_col="y", feature_cols=feature_cols,
-        train_idx=np.arange(int(0.8 * n)), val_idx=np.arange(int(0.8 * n), n),
-        n_bootstrap_runs=5, min_keep_fraction=0.5,
+        df=df,
+        target_col="y",
+        feature_cols=feature_cols,
+        train_idx=np.arange(int(0.8 * n)),
+        val_idx=np.arange(int(0.8 * n), n),
+        n_bootstrap_runs=5,
+        min_keep_fraction=0.5,
     )
     return disc
 

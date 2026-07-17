@@ -52,6 +52,7 @@ Per CLAUDE.md "Every new ML trick gets a biz_value synthetic test": the quantita
 pinned 5-15% below MEASURED values; ``@pytest.mark.slow`` carries the full sweep, a fast representative
 subset runs under ``MLFRAME_FAST=1`` via the repo ``fast_subset`` helper.
 """
+
 from __future__ import annotations
 
 import re
@@ -114,9 +115,7 @@ _TARGET_AWARE_FLAG_SETS: dict[str, dict] = {
         fe_temporal_agg_time_col="tcol",
         fe_temporal_agg_lags=(1, 2),
     ),
-    "kfold_te": dict(
-        fe_kfold_te_enable=True, fe_kfold_te_cols=("cat_a", "cat_b"), fe_kfold_te_folds=5
-    ),
+    "kfold_te": dict(fe_kfold_te_enable=True, fe_kfold_te_cols=("cat_a", "cat_b"), fe_kfold_te_folds=5),
     "cat_num_interaction": dict(
         fe_cat_num_interaction_enable=True,
         fe_cat_num_interaction_cat_cols=("cat_a",),
@@ -143,12 +142,8 @@ _TARGET_AWARE_FLAG_SETS: dict[str, dict] = {
         fe_conditional_residual_enable=True,
         fe_conditional_residual_cols=("x0", "x1", "x2"),
     ),
-    "rare_category": dict(
-        fe_rare_category_enable=True, fe_rare_category_cols=("rare",)
-    ),
-    "rankgauss": dict(
-        fe_rankgauss_enable=True, fe_rankgauss_cols=("x0", "x1", "x2")
-    ),
+    "rare_category": dict(fe_rare_category_enable=True, fe_rare_category_cols=("rare",)),
+    "rankgauss": dict(fe_rankgauss_enable=True, fe_rankgauss_cols=("x0", "x1", "x2")),
 }
 
 # Families whose permuted-y engineered AUC EXCEEDS the ceiling (a real OOF leak). Empty today: the
@@ -182,15 +177,7 @@ def make_kitchen_sink(n: int = _TOTAL_N, seed: int = 42):
     tcol = np.arange(n)
     rare = rng.integers(0, 50, size=n)
     rare_signal = (rare < 3).astype(float) * 1.2
-    score = (
-        1.0 * x0
-        + 0.6 * x1
-        - 0.4 * x2
-        + 1.0 * cat_rate
-        + 0.9 * grp_effect
-        + 0.8 * rare_signal
-        + 0.3 * rng.normal(size=n)
-    )
+    score = 1.0 * x0 + 0.6 * x1 - 0.4 * x2 + 1.0 * cat_rate + 0.9 * grp_effect + 0.8 * rare_signal + 0.3 * rng.normal(size=n)
     y = (score > np.median(score)).astype(np.int64)
     df = pd.DataFrame(
         {
@@ -229,9 +216,7 @@ def _engineered_only(mrmr, X_ho, names_in):
     names_out = [str(nm) for nm in mrmr.get_feature_names_out()]
     arr = np.asarray(mrmr.transform(X_ho))
     if arr.shape[1] != len(names_out):
-        raise AssertionError(
-            f"transform width {arr.shape[1]} != get_feature_names_out length {len(names_out)}"
-        )
+        raise AssertionError(f"transform width {arr.shape[1]} != get_feature_names_out length {len(names_out)}")
     raw = set(names_in)
     eng_mask = np.array([nm not in raw for nm in names_out], dtype=bool)
     eng = arr[:, eng_mask]
@@ -308,9 +293,8 @@ def test_all_families_pass_leak_gate_full_sweep():
             continue
         if auc > _LEAK_AUC_CEIL:
             failures.append((family, n_eng, auc))
-    assert not failures, (
-        "OOF leak in target-aware FE families (permuted-y engineered AUC > "
-        f"{_LEAK_AUC_CEIL}): " + ", ".join(f"{f}={a:.4f} ({n} cols)" for f, n, a in failures)
+    assert not failures, f"OOF leak in target-aware FE families (permuted-y engineered AUC > {_LEAK_AUC_CEIL}): " + ", ".join(
+        f"{f}={a:.4f} ({n} cols)" for f, n, a in failures
     )
 
 
@@ -399,10 +383,7 @@ def test_conditional_residual_real_y_biz_value_floor():
     eng, eng_names = _engineered_only(m, X_ho, names_in)
     assert eng.shape[1] > 0, "conditional_residual emitted no engineered columns on REAL y."
     auc = _downstream_auc(eng, y_ho.to_numpy())
-    assert auc >= 0.85, (
-        f"conditional_residual engineered columns on REAL y reached holdout AUC {auc:.4f} < 0.85 "
-        f"(measured 0.973)."
-    )
+    assert auc >= 0.85, f"conditional_residual engineered columns on REAL y reached holdout AUC {auc:.4f} < 0.85 (measured 0.973)."
 
 
 def make_signal_only_fixture(n: int = 1800, seed: int = 42):

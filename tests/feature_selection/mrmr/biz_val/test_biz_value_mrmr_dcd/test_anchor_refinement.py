@@ -225,7 +225,7 @@ class TestLayer45_ScenarioA_NoSwap:
         # We tolerate aggregate-swap (denoising) but not member-swap.
         swap_log = (m.dcd_ or {}).get("swap_log", [])
         member_swaps = [e for e in swap_log if e.get("branch") == "member"]
-        assert not member_swaps, "Scenario A (anchor genuinely best) must not fire a " "member-swap branch; got " + repr(member_swaps)
+        assert not member_swaps, "Scenario A (anchor genuinely best) must not fire a member-swap branch; got " + repr(member_swaps)
 
 
 class TestLayer45_ScenarioB_MemberSwap:
@@ -256,7 +256,7 @@ class TestLayer45_ScenarioB_MemberSwap:
                 assert "member_relevance" in entry, "member-swap entry must record member_relevance"
                 # member_relevance must exceed anchor_relevance_in_ctx.
                 assert float(entry["member_relevance"]) >= float(entry["anchor_relevance_in_ctx"]), (
-                    "member-swap must only fire when member CMI > anchor " f"CMI; got {entry}"
+                    f"member-swap must only fire when member CMI > anchor CMI; got {entry}"
                 )
 
     def test_commit_swap_member_branch_updates_state_correctly(self):
@@ -349,7 +349,7 @@ class TestLayer45_ScenarioB_MemberSwap:
         )
         # On this fixture the member-swap branch must fire.
         assert decision.accept
-        assert decision.branch == "member", f"Expected member branch on noisy-anchor + clean-members " f"fixture; got {decision.branch}"
+        assert decision.branch == "member", f"Expected member branch on noisy-anchor + clean-members fixture; got {decision.branch}"
         member_idx = decision.new_col_idx
         assert member_idx in (2, 3)
         # Commit and verify state.
@@ -365,11 +365,11 @@ class TestLayer45_ScenarioB_MemberSwap:
         assert new_idx == member_idx
         # 1. Matrix is NOT extended.
         assert state.factors_data.shape[1] == n_cols_before, (
-            "member-swap must NOT extend factors_data; got " f"{state.factors_data.shape[1]} vs pre={n_cols_before}"
+            f"member-swap must NOT extend factors_data; got {state.factors_data.shape[1]} vs pre={n_cols_before}"
         )
         # 2. selected_vars contains the member (replacement of anchor).
         assert member_idx in selected_vars
-        assert 1 not in selected_vars, "old anchor must be removed from selected_vars; got " f"{selected_vars}"
+        assert 1 not in selected_vars, f"old anchor must be removed from selected_vars; got {selected_vars}"
         # 3. swap_log records member branch + empty aggregate_name.
         assert len(state.swap_log) == 1
         entry = state.swap_log[0]
@@ -400,7 +400,7 @@ class TestLayer45_ScenarioC_AggregateSwap:
         # fires it must be an aggregate-branch swap.
         if int((m.dcd_ or {}).get("n_swaps", 0)) >= 1:
             agg_entries = [e for e in swap_log if e.get("branch") == "aggregate"]
-            assert agg_entries, "On 3-dups fixture with a fired swap, the aggregate " "branch must dominate; got swap_log=" + repr(swap_log)
+            assert agg_entries, "On 3-dups fixture with a fired swap, the aggregate branch must dominate; got swap_log=" + repr(swap_log)
             for entry in agg_entries:
                 assert entry["aggregate_name"].startswith("_dcd_pc1_"), f"aggregate entry must carry _dcd_pc1_ name; got {entry}"
 
@@ -518,14 +518,12 @@ class TestLayer45_DirectDecision:
             f"member_relevance={decision.member_relevance}"
         )
         if decision.branch == "member":
-            assert decision.new_col_idx in (2, 3), f"member-swap new_col_idx must be one of the clean " f"members; got {decision.new_col_idx}"
+            assert decision.new_col_idx in (2, 3), f"member-swap new_col_idx must be one of the clean members; got {decision.new_col_idx}"
             assert decision.aggregate_name == ""
             assert decision.binned_rep is None
             # member_relevance must beat anchor_relevance by the gain.
             assert decision.member_relevance > (decision.anchor_relevance_in_ctx * 1.05), (
-                f"member-swap requires member_rel > anchor_rel * 1.05; "
-                f"got member={decision.member_relevance}, "
-                f"anchor={decision.anchor_relevance_in_ctx}"
+                f"member-swap requires member_rel > anchor_rel * 1.05; got member={decision.member_relevance}, anchor={decision.anchor_relevance_in_ctx}"
             )
 
     def test_evaluate_returns_none_branch_when_anchor_dominates(self):
@@ -613,7 +611,7 @@ class TestLayer45_DirectDecision:
         # every member.
         if decision.accept and decision.branch == "member":
             pytest.fail(
-                f"member-swap fired even though anchor dominates: " f"anchor_rel={decision.anchor_relevance_in_ctx}, " f"member_rel={decision.member_relevance}"
+                f"member-swap fired even though anchor dominates: anchor_rel={decision.anchor_relevance_in_ctx}, member_rel={decision.member_relevance}"
             )
 
 
@@ -642,7 +640,7 @@ class TestLayer45_Regression:
             verbose=0,
             random_seed=0,
         ).fit(X, y)
-        assert int(m.dcd_["n_swaps"]) >= 1, f"Layer 42 contract: threshold=2 must fire >=1 swap on the " f"3-dup fixture; got n_swaps={m.dcd_['n_swaps']}"
+        assert int(m.dcd_["n_swaps"]) >= 1, f"Layer 42 contract: threshold=2 must fire >=1 swap on the 3-dup fixture; got n_swaps={m.dcd_['n_swaps']}"
 
     def test_layer41_cluster_anchors_names_present(self):
         """L41 contract: ``cluster_anchors_names`` map is in the summary."""

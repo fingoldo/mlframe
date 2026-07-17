@@ -19,6 +19,7 @@ Fix: ``_apply_cluster_aggregate`` now applies the same ``nan_to_num``
 wrap at column extraction, matching the fit-time path. Train/replay
 become bit-identical row-for-row.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,10 +32,13 @@ def test_cluster_aggregate_replay_matches_fit_on_nan_rows():
     Post-fix: train and replay agree bit-for-bit.
     """
     from mlframe.feature_selection.filters._cluster_aggregate import (
-        _continuous_cols, _standardize_align, _derive_weights,
+        _continuous_cols,
+        _standardize_align,
+        _derive_weights,
     )
     from mlframe.feature_selection.filters.engineered_recipes import (
-        EngineeredRecipe, _apply_cluster_aggregate,
+        EngineeredRecipe,
+        _apply_cluster_aggregate,
     )
 
     rng = np.random.default_rng(0)
@@ -54,7 +58,8 @@ def test_cluster_aggregate_replay_matches_fit_on_nan_rows():
     agg_fit = Z_fit @ weights
 
     recipe = EngineeredRecipe(
-        kind="cluster_aggregate", name="test",
+        kind="cluster_aggregate",
+        name="test",
         src_names=["m0", "m1", "m2"],
         extra={
             "method": "pca_pc1",
@@ -68,15 +73,11 @@ def test_cluster_aggregate_replay_matches_fit_on_nan_rows():
     agg_replay = _apply_cluster_aggregate(recipe, X)
 
     # Bit-identical row-for-row including the NaN rows.
-    assert np.allclose(agg_fit, agg_replay, atol=1e-12), (
-        f"fit/replay parity broken. Max |diff|={np.max(np.abs(agg_fit-agg_replay)):.6f}"
-    )
+    assert np.allclose(agg_fit, agg_replay, atol=1e-12), f"fit/replay parity broken. Max |diff|={np.max(np.abs(agg_fit - agg_replay)):.6f}"
     # Specifically the NaN rows: each must produce the fit-time value
     # (not the post-fix-trivial zero produced by the pre-fix path).
     for r in nan_rows:
-        assert abs(agg_fit[r] - agg_replay[r]) < 1e-12, (
-            f"row {r} (NaN in m0): fit={agg_fit[r]:.6f} != replay={agg_replay[r]:.6f}"
-        )
+        assert abs(agg_fit[r] - agg_replay[r]) < 1e-12, f"row {r} (NaN in m0): fit={agg_fit[r]:.6f} != replay={agg_replay[r]:.6f}"
 
 
 def test_cluster_aggregate_replay_nan_free_data_unchanged():
@@ -84,20 +85,25 @@ def test_cluster_aggregate_replay_nan_free_data_unchanged():
     pre- and post-fix.
     """
     from mlframe.feature_selection.filters._cluster_aggregate import (
-        _continuous_cols, _standardize_align, _derive_weights,
+        _continuous_cols,
+        _standardize_align,
+        _derive_weights,
     )
     from mlframe.feature_selection.filters.engineered_recipes import (
-        EngineeredRecipe, _apply_cluster_aggregate,
+        EngineeredRecipe,
+        _apply_cluster_aggregate,
     )
 
     rng = np.random.default_rng(1)
     n = 100
     latent = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "m0": latent + 0.1 * rng.standard_normal(n),
-        "m1": latent + 0.1 * rng.standard_normal(n),
-        "m2": latent + 0.1 * rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "m0": latent + 0.1 * rng.standard_normal(n),
+            "m1": latent + 0.1 * rng.standard_normal(n),
+            "m2": latent + 0.1 * rng.standard_normal(n),
+        }
+    )
 
     M_fit = _continuous_cols(X, ["m0", "m1", "m2"])
     Z_fit, mean, std, signs = _standardize_align(M_fit, ref_col=0)
@@ -105,7 +111,8 @@ def test_cluster_aggregate_replay_nan_free_data_unchanged():
     agg_fit = Z_fit @ weights
 
     recipe = EngineeredRecipe(
-        kind="cluster_aggregate", name="test",
+        kind="cluster_aggregate",
+        name="test",
         src_names=["m0", "m1", "m2"],
         extra={
             "method": "pca_pc1",

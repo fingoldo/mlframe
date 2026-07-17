@@ -8,6 +8,7 @@ still hit the suite end-to-end without paying the full sweep budget.
 The slow 150-combo sweep moves to ``slow_only`` and only fires when
 explicitly enabled (or when ``-m slow`` is requested).
 """
+
 from __future__ import annotations
 
 import os
@@ -39,4 +40,5 @@ QUICK_COMBOS = enumerate_combos(target=_QUICK_COUNT, master_seed=_QUICK_MASTER_S
 def test_fuzz_train_mlframe_models_suite_quick(combo, tmp_path, request):
     """Quick smoke; delegates to the full suite's combo runner."""
     from .test_fuzz_suite import test_fuzz_train_mlframe_models_suite as _full
+
     _full(combo, tmp_path, request)

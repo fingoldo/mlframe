@@ -11,6 +11,7 @@ After the fix:
 - The large path consumes ``combinations(...)`` through ``_lazy_chunks(...)``
   so only ``chunk_size`` tuples live at once.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,6 +43,7 @@ def test_run_fe_step_does_not_materialise_full_pair_list():
     """Behavioral: monkey-patch ``combinations`` in the FE-step sibling, observe
     that the iterator is consumed in chunks, never wrapped in a single ``list(...)``."""
     from mlframe.feature_selection.filters import mrmr as _mrmr_mod
+
     # The pair-MI stage of ``_run_fe_step`` lives in the ``_mrmr_fe_step`` subpackage's
     # ``_step_pairmi`` submodule and looks up ``combinations`` from THAT module's globals ->
     # patch there, not on the package re-export facade (whose ``combinations`` the body never
@@ -119,9 +121,7 @@ def test_run_fe_step_does_not_materialise_full_pair_list():
     # correctly; this test confirms the iterator interface is actually used.)
     assert len(observed) >= 1, "combinations() was never invoked - fixture mis-wired"
     p = observed[-1]
-    assert p.n_consumed > 0, (
-        "combinations() was wrapped but never iterated; pre-fix code path may still be live"
-    )
+    assert p.n_consumed > 0, "combinations() was wrapped but never iterated; pre-fix code path may still be live"
 
 
 def test_run_fe_step_output_equivalence_under_seed():

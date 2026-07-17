@@ -5,6 +5,7 @@ O(n log n) sort for bounded-span integer group ids. These tests pin (a) that the
 actually taken for integer keys (FAILS on pre-fix code which always called np.argsort) and
 (b) that it produces output identical to the argsort path on ties / negatives / single group.
 """
+
 import numpy as np
 import pytest
 
@@ -31,11 +32,11 @@ def _argsort_segments(group_ids):
 @pytest.mark.parametrize(
     "gids",
     [
-        np.array([2, 0, 1, 0, 2, 1, 1, 0], dtype=np.int64),          # ties, unordered
-        np.array([-3, -1, -3, 5, -1, 5, 5], dtype=np.int64),          # negatives
-        np.array([7, 7, 7, 7], dtype=np.int64),                       # single group
-        np.arange(50, dtype=np.int64),                                # all distinct
-        np.zeros(10, dtype=np.int64),                                 # one big group
+        np.array([2, 0, 1, 0, 2, 1, 1, 0], dtype=np.int64),  # ties, unordered
+        np.array([-3, -1, -3, 5, -1, 5, 5], dtype=np.int64),  # negatives
+        np.array([7, 7, 7, 7], dtype=np.int64),  # single group
+        np.arange(50, dtype=np.int64),  # all distinct
+        np.zeros(10, dtype=np.int64),  # one big group
     ],
 )
 def test_counting_sort_bit_identical_to_argsort(gids):

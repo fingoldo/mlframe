@@ -27,6 +27,7 @@ from mlframe.feature_selection.filters import (
     compute_mi_from_classes,
 )
 
+
 class TestMRMRBasic:
     """Basic functionality tests for MRMR class."""
 
@@ -37,17 +38,11 @@ class TestMRMRBasic:
         assert mrmr.quantization_nbins == 10
         assert mrmr.verbose == 0
 
-
     def test_fit_returns_self(self, simple_classification_data):
         """Test that fit returns self for method chaining."""
         X, y, _ = simple_classification_data
 
-        mrmr = MRMR(
-            full_npermutations=3,
-            baseline_npermutations=3,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=3, baseline_npermutations=3, verbose=0, n_jobs=1)
 
         result = mrmr.fit(X, y)
 
@@ -57,29 +52,19 @@ class TestMRMRBasic:
         """Test that fit sets expected attributes."""
         X, y, _ = simple_classification_data
 
-        mrmr = MRMR(
-            full_npermutations=3,
-            baseline_npermutations=3,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=3, baseline_npermutations=3, verbose=0, n_jobs=1)
 
         mrmr.fit(X, y)
 
-        assert hasattr(mrmr, 'support_')
-        assert hasattr(mrmr, 'n_features_')
-        assert hasattr(mrmr, 'n_features_in_')
+        assert hasattr(mrmr, "support_")
+        assert hasattr(mrmr, "n_features_")
+        assert hasattr(mrmr, "n_features_in_")
 
     def test_transform_shape(self, simple_classification_data):
         """Test transform produces correct output shape."""
         X, y, _ = simple_classification_data
 
-        mrmr = MRMR(
-            full_npermutations=3,
-            baseline_npermutations=3,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=3, baseline_npermutations=3, verbose=0, n_jobs=1)
 
         mrmr.fit(X, y)
         X_transformed = mrmr.transform(X)
@@ -91,12 +76,7 @@ class TestMRMRBasic:
         """Test MRMR follows sklearn API conventions."""
         X, y, _ = simple_classification_data
 
-        mrmr = MRMR(
-            full_npermutations=3,
-            baseline_npermutations=3,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=3, baseline_npermutations=3, verbose=0, n_jobs=1)
 
         # fit_transform should work
         X_transformed = mrmr.fit_transform(X, y)
@@ -137,6 +117,7 @@ class TestMRMRFitCache:
         first fit's support_ (no cat-FE / permutation work redone).
         """
         from sklearn.base import clone
+
         rng = np.random.default_rng(0)
         X = pd.DataFrame({"a": rng.normal(size=200), "b": rng.normal(size=200)})
         y = pd.Series((rng.normal(size=200) > 0).astype(int))
@@ -172,13 +153,20 @@ class TestMRMRFitCache:
         X = pd.DataFrame({"a": rng.normal(size=200), "b": rng.normal(size=200)})
         y = pd.Series((rng.normal(size=200) > 0).astype(int))
         m1 = MRMR(
-            full_npermutations=2, baseline_npermutations=2, fe_max_steps=0,
-            quantization_nbins=10, verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            fe_max_steps=0,
+            quantization_nbins=10,
+            verbose=0,
+            n_jobs=1,
         )
         m2 = MRMR(
-            full_npermutations=2, baseline_npermutations=2, fe_max_steps=0,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            fe_max_steps=0,
             quantization_nbins=20,  # different param -> different cache key
-            verbose=0, n_jobs=1,
+            verbose=0,
+            n_jobs=1,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -193,12 +181,16 @@ class TestMRMRFitCache:
         the caller chose; replay only restores ``_engineered_recipes_``,
         ``support_``, etc."""
         from sklearn.base import clone
+
         rng = np.random.default_rng(0)
         X = pd.DataFrame({"a": rng.normal(size=200), "b": rng.normal(size=200)})
         y = pd.Series((rng.normal(size=200) > 0).astype(int))
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2, fe_max_steps=0,
-            verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            fe_max_steps=0,
+            verbose=0,
+            n_jobs=1,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -235,24 +227,30 @@ class TestMRMRPermutationSubsample:
         1000. We don't assert speedup at this tiny size (sub-second on
         both paths), only that the path activates cleanly."""
         from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+
         rng = np.random.default_rng(0)
         n = 1000
-        df = pd.DataFrame({
-            "a": pd.Categorical(rng.integers(0, 4, n).astype(str)),
-            "b": pd.Categorical(rng.integers(0, 4, n).astype(str)),
-            "c": pd.Categorical(rng.integers(0, 8, n).astype(str)),
-            "d": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "a": pd.Categorical(rng.integers(0, 4, n).astype(str)),
+                "b": pd.Categorical(rng.integers(0, 4, n).astype(str)),
+                "c": pd.Categorical(rng.integers(0, 8, n).astype(str)),
+                "d": rng.normal(size=n),
+            }
+        )
         y = pd.Series((rng.normal(size=n) > 0).astype(int))
         cfg = CatFEConfig(
-            enable=True, full_npermutations=10,
+            enable=True,
+            full_npermutations=10,
             permutation_subsample=200,
         )
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
+            full_npermutations=2,
+            baseline_npermutations=2,
             fe_max_steps=0,
             cat_fe_config=cfg,
-            verbose=0, n_jobs=1,
+            verbose=0,
+            n_jobs=1,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -265,6 +263,7 @@ class TestMRMRPermutationSubsample:
         N rows -- guards against an accidental default flip that would
         change statistical contract for all callers."""
         from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+
         cfg = CatFEConfig()  # all defaults
         assert cfg.permutation_subsample is None
 
@@ -272,27 +271,33 @@ class TestMRMRPermutationSubsample:
         """When ``n_rows <= permutation_subsample``, the optimization is
         a no-op (no need to subsample)."""
         from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+
         # Same setup, but the threshold is set BELOW n -- subsample
         # gate falls through and uses full data. Verified by clean
         # completion (the explicit guard ``n_samples > _perm_subsample``
         # at cat_interactions.py:~1330 short-circuits).
         rng = np.random.default_rng(0)
         n = 500
-        df = pd.DataFrame({
-            "a": pd.Categorical(rng.integers(0, 4, n).astype(str)),
-            "b": pd.Categorical(rng.integers(0, 4, n).astype(str)),
-            "d": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "a": pd.Categorical(rng.integers(0, 4, n).astype(str)),
+                "b": pd.Categorical(rng.integers(0, 4, n).astype(str)),
+                "d": rng.normal(size=n),
+            }
+        )
         y = pd.Series((rng.normal(size=n) > 0).astype(int))
         cfg = CatFEConfig(
-            enable=True, full_npermutations=5,
+            enable=True,
+            full_npermutations=5,
             permutation_subsample=10_000,  # > n, so no-op
         )
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
+            full_npermutations=2,
+            baseline_npermutations=2,
             fe_max_steps=0,
             cat_fe_config=cfg,
-            verbose=0, n_jobs=1,
+            verbose=0,
+            n_jobs=1,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -320,6 +325,7 @@ class TestMRMRPermKernelGPU:
             _count_nfailed_joint_indep_prange,
             _count_nfailed_joint_indep_cupy,
         )
+
         rng = np.random.default_rng(0)
         n = 50_000
         K_x = 5
@@ -336,14 +342,31 @@ class TestMRMRPermKernelGPU:
         base_seed = 7
         ii_obs = 0.0
         n_cpu = _count_nfailed_joint_indep_prange(
-            classes_pair, freqs_pair, classes_x1, freqs_x1,
-            classes_x2, freqs_x2, classes_y, freqs_y,
-            ii_obs, n_perms, base_seed, np.int32,
+            classes_pair,
+            freqs_pair,
+            classes_x1,
+            freqs_x1,
+            classes_x2,
+            freqs_x2,
+            classes_y,
+            freqs_y,
+            ii_obs,
+            n_perms,
+            base_seed,
+            np.int32,
         )
         n_gpu = _count_nfailed_joint_indep_cupy(
-            classes_pair, freqs_pair, classes_x1, freqs_x1,
-            classes_x2, freqs_x2, classes_y, freqs_y,
-            ii_obs, n_perms, base_seed,
+            classes_pair,
+            freqs_pair,
+            classes_x1,
+            freqs_x1,
+            classes_x2,
+            freqs_x2,
+            classes_y,
+            freqs_y,
+            ii_obs,
+            n_perms,
+            base_seed,
         )
         # Different RNG implementations (numba random.seed vs
         # cp.random.seed) produce different permutations even at the
@@ -360,6 +383,7 @@ class TestMRMRPermKernelGPU:
         from mlframe.feature_selection.filters.cat_interactions import (
             _perm_kernel_dispatch_use_gpu,
         )
+
         # 500k < 1M threshold -> CPU.
         assert _perm_kernel_dispatch_use_gpu(500_000, 50, "auto") is False
 
@@ -369,6 +393,7 @@ class TestMRMRPermKernelGPU:
         from mlframe.feature_selection.filters.cat_interactions import (
             _perm_kernel_dispatch_use_gpu,
         )
+
         assert _perm_kernel_dispatch_use_gpu(10_000_000, 100, "cpu") is False
 
 
@@ -417,25 +442,22 @@ class TestMRMRWave14Regressions:
         # mode); a third independent cat lets MRMR confirmation work.
         cat_a = rng.choice(["X", "Y", "Z", "W"], n, p=[0.4, 0.3, 0.2, 0.1])
         cat_b_map = {"X": "p", "Y": "q", "Z": "r", "W": "s"}
-        cat_b = np.array([
-            cat_b_map[a] if rng.random() < 0.85 else rng.choice(["p", "q", "r", "s"])
-            for a in cat_a
-        ])
+        cat_b = np.array([cat_b_map[a] if rng.random() < 0.85 else rng.choice(["p", "q", "r", "s"]) for a in cat_a])
         cat_c = rng.choice(["L", "M", "N"], n)
         num_a = rng.normal(0, 1, n)
         num_b = rng.normal(0, 1, n)
         # Target depends on synergistic cat_a x cat_b interaction +
         # num_a so cat-FE has a real signal to engineer.
-        target = (
-            (cat_a == "X").astype(float) * (cat_b == "p").astype(float) * 3.0
-            + num_a * 0.5
-            - num_b * 0.3
-            + rng.normal(0, 0.2, n)
+        target = (cat_a == "X").astype(float) * (cat_b == "p").astype(float) * 3.0 + num_a * 0.5 - num_b * 0.3 + rng.normal(0, 0.2, n)
+        df_pd = pd.DataFrame(
+            {
+                "cat_a": cat_a,
+                "cat_b": cat_b,
+                "cat_c": cat_c,
+                "num_a": num_a,
+                "num_b": num_b,
+            }
         )
-        df_pd = pd.DataFrame({
-            "cat_a": cat_a, "cat_b": cat_b, "cat_c": cat_c,
-            "num_a": num_a, "num_b": num_b,
-        })
         # Mimic the suite's ``__MISSING__`` sentinel pass (core.py:3795)
         # so cat cols carry the same boundary value the bug surfaced on.
         for col in df_pd.columns:
@@ -444,10 +466,12 @@ class TestMRMRWave14Regressions:
         y = pd.Series(target)
         X = df_pd
         mrmr = MRMR(
-            full_npermutations=5, baseline_npermutations=3,
+            full_npermutations=5,
+            baseline_npermutations=3,
             interactions_max_order=2,
             fe_max_steps=1,  # enables the numeric-FE step that crashed
-            verbose=0, n_jobs=1,
+            verbose=0,
+            n_jobs=1,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -475,6 +499,7 @@ class TestMRMRWave14Regressions:
         """
         pl = pytest.importorskip("polars")
         from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+
         rng = np.random.default_rng(0)
         n = 400
         enum_abc = pl.Enum(["A", "B", "C"])
@@ -482,46 +507,43 @@ class TestMRMRWave14Regressions:
         # keep -- empty support_ would short-circuit the transform path
         # before the dtype-preservation code runs, masking the bug.
         y_arr = (rng.normal(size=n) > 0).astype(np.int8)
-        df = pl.DataFrame({
-            # Strong signal: y itself + a little noise.
-            "num_0": (y_arr.astype(np.float32) + rng.normal(scale=0.1, size=n).astype(np.float32)),
-            "num_1": rng.normal(size=n).astype(np.float32),
-            "cat_x": pl.Series(rng.choice(["A", "B", "C"], size=n)).cast(enum_abc),
-        })
+        df = pl.DataFrame(
+            {
+                # Strong signal: y itself + a little noise.
+                "num_0": (y_arr.astype(np.float32) + rng.normal(scale=0.1, size=n).astype(np.float32)),
+                "num_1": rng.normal(size=n).astype(np.float32),
+                "cat_x": pl.Series(rng.choice(["A", "B", "C"], size=n)).cast(enum_abc),
+            }
+        )
         y = pd.Series(y_arr)
         mrmr = MRMR(
-            full_npermutations=3, baseline_npermutations=3,
+            full_npermutations=3,
+            baseline_npermutations=3,
             fe_max_steps=0,
             # Disable cat-FE to keep this test focused on the dtype-
             # preservation contract (the cat-FE engineered-col fix is
             # exercised by the other regression test above).
             cat_fe_config=CatFEConfig(enable=False),
-            verbose=0, n_jobs=1,
+            verbose=0,
+            n_jobs=1,
         )
         mrmr.set_output(transform="pandas")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             mrmr.fit(df, y)
             out = mrmr.transform(df)
-        assert isinstance(out, pd.DataFrame), \
-            f"Expected pandas DataFrame, got {type(out).__name__}"
+        assert isinstance(out, pd.DataFrame), f"Expected pandas DataFrame, got {type(out).__name__}"
         # Pre-fix: every column came out object. Post-fix at least one
         # column preserves a non-object dtype (the Arrow-preserving
         # ``.to_pandas()`` path).
         non_object = [c for c in out.columns if out[c].dtype != object]
-        assert non_object, (
-            f"All columns came out as object dtype -- the polars->pandas "
-            f"conversion is lossy. dtypes={dict(out.dtypes)}"
-        )
+        assert non_object, f"All columns came out as object dtype -- the polars->pandas conversion is lossy. dtypes={dict(out.dtypes)}"
         # Stronger: numeric columns that were pl.Float32 in the input
         # must NOT come out as object.
         for col in ("num_0", "num_1"):
             if col in out.columns:
-                assert out[col].dtype != object, (
-                    f"Column {col!r} was pl.Float32 in input but is "
-                    f"object dtype in output -- conversion lost numeric dtype."
-                )
+                assert out[col].dtype != object, f"Column {col!r} was pl.Float32 in input but is object dtype in output -- conversion lost numeric dtype."
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '--tb=short', '-x'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--tb=short", "-x"])

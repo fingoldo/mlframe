@@ -5,6 +5,7 @@ byte-identical to pre-2026-06-13); the opt-in "auto" sentinel adapts ONLY downwa
 cannot sustain 5 reliable folds, and equals 5 for n >= 500 (so it can never inject the noise the
 bench saw when K was lowered on data that could sustain 5 folds).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -19,10 +20,19 @@ def test_explicit_int_is_honoured_verbatim(k_int, n):
     assert resolve_adaptive_vote_k(k_int, n) == k_int
 
 
-@pytest.mark.parametrize("n,expected", [
-    (100000, 5), (5000, 5), (500, 5),   # n >= 500 -> 5 (== legacy default, no behaviour change)
-    (499, 4), (300, 3), (200, 2), (100, 2), (50, 2),  # tiny n -> guarded downward, floored at 2
-])
+@pytest.mark.parametrize(
+    "n,expected",
+    [
+        (100000, 5),
+        (5000, 5),
+        (500, 5),  # n >= 500 -> 5 (== legacy default, no behaviour change)
+        (499, 4),
+        (300, 3),
+        (200, 2),
+        (100, 2),
+        (50, 2),  # tiny n -> guarded downward, floored at 2
+    ],
+)
 def test_auto_is_guarded_n_floored(n, expected):
     assert resolve_adaptive_vote_k("auto", n) == expected
 

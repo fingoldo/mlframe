@@ -4,6 +4,7 @@ Covers the opt-in per-column swap-probability mode (``column_swap_probs``): call
 low-signal columns more aggressively than clean/informative ones when generating swap-noise-corrupted input
 for DAE pretraining, instead of the original uniform ``swap_prob`` applied identically to every column.
 """
+
 from __future__ import annotations
 
 import warnings

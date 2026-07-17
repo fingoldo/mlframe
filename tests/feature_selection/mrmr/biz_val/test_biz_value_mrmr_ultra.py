@@ -20,6 +20,7 @@ These tests stress MRMR's COMPETENCE — not just "find signal" but
 * Rank-stability under DCD: clustering shouldn't perturb the
   relative order of non-clustered signal features
 """
+
 from __future__ import annotations
 
 import re
@@ -43,6 +44,7 @@ class TestRedundancyAvoidance:
         pair {signal_a, signal_b} over multiple copies of signal_a.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(100)
         n = 1500
         sig_a = rng.standard_normal(n)
@@ -76,9 +78,7 @@ class TestRedundancyAvoidance:
         signal_a_recovered = any("signal_a" in nm for nm in names)
         copies_count = sum(1 for nm in names if "sig_a_copy" in nm)
         assert signal_b_recovered or signal_a_recovered, (
-            f"redundancy avoidance failed: neither signal_a nor signal_b "
-            f"recovered (raw or engineered); support={names} "
-            f"(copies={copies_count})"
+            f"redundancy avoidance failed: neither signal_a nor signal_b recovered (raw or engineered); support={names} (copies={copies_count})"
         )
 
     def test_signal_b_picked_when_copies_dominate(self):
@@ -87,6 +87,7 @@ class TestRedundancyAvoidance:
         the cluster - it should surface sig_b as well.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(101)
         n = 1500
         sig_a = rng.standard_normal(n)
@@ -100,7 +101,8 @@ class TestRedundancyAvoidance:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(
-                verbose=0, dcd_enable=True,
+                verbose=0,
+                dcd_enable=True,
                 dcd_tau_cluster=0.5,
                 dcd_cluster_size_threshold=3,
             ).fit(X, y)
@@ -120,8 +122,7 @@ class TestRedundancyAvoidance:
         # 0.999 on {sig_a0,sig_b} -- the diverse signal is genuinely used.
         sig_b_recovered = any(re.search(r"sig_b(?![0-9])", nm) for nm in names)
         assert sig_b_recovered or has_pc1, (
-            f"sig_b missed under 8-copy cluster pressure; neither a sig_b "
-            f"reference nor a DCD PC1 aggregate is present; support={names}"
+            f"sig_b missed under 8-copy cluster pressure; neither a sig_b reference nor a DCD PC1 aggregate is present; support={names}"
         )
 
 
@@ -138,6 +139,7 @@ class TestSuppressorVariable:
         MRMR with order-2 should find both.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(102)
         n = 2000
         x1 = rng.standard_normal(n)
@@ -145,22 +147,25 @@ class TestSuppressorVariable:
         # y = sign(x1 - x2). Individual MIs are low because each
         # marginal is symmetric around the y boundary.
         y = ((x1 - x2) > 0).astype(np.int64)
-        X = pd.DataFrame({
-            "x1": x1, "x2": x2,
-            "n0": rng.standard_normal(n),
-            "n1": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "x1": x1,
+                "x2": x2,
+                "n0": rng.standard_normal(n),
+                "n1": rng.standard_normal(n),
+            }
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(
-                verbose=0, interactions_max_order=2, fe_max_steps=0,
+                verbose=0,
+                interactions_max_order=2,
+                fe_max_steps=0,
             ).fit(X, pd.Series(y))
         names = list(sel.get_feature_names_out())
         # At least one of {x1, x2} or both must be selected; ideally
         # both for the suppressor pair to be recovered.
-        assert "x1" in names or "x2" in names, (
-            f"suppressor pair: at least one half lost; support={names}"
-        )
+        assert "x1" in names or "x2" in names, f"suppressor pair: at least one half lost; support={names}"
 
 
 # =============================================================================
@@ -176,6 +181,7 @@ class TestTargetLeakageHandling:
         under DCD-default and the cluster anchor wins).
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(103)
         n = 1500
         sig = rng.standard_normal(n)
@@ -184,11 +190,13 @@ class TestTargetLeakageHandling:
         leak = y_arr.copy()
         flip = rng.random(n) < 0.01
         leak[flip] = 1 - leak[flip]
-        X = pd.DataFrame({
-            "leak": leak.astype(float),
-            "signal": sig,
-            "noise": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "leak": leak.astype(float),
+                "signal": sig,
+                "noise": rng.standard_normal(n),
+            }
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0).fit(X, pd.Series(y_arr))
@@ -198,13 +206,8 @@ class TestTargetLeakageHandling:
         # transform of its operand (e.g. ``pmod_self__leak__m69`` = leak mod 69, lossless on a 0/1 leak), so the contract is "the
         # leak/signal information reaches the support", checked by raw-name membership OR an engineered name referencing the operand.
         _carries_signal = any(("leak" in str(nm)) or ("signal" in str(nm)) for nm in names)
-        assert _carries_signal, (
-            f"99% leak AND its cluster partner both missed (neither raw nor as an engineered operand); "
-            f"support={names}"
-        )
-        assert not getattr(sel, "fallback_used_", False), (
-            "fallback flag incorrectly set on a clear-signal fit"
-        )
+        assert _carries_signal, f"99% leak AND its cluster partner both missed (neither raw nor as an engineered operand); support={names}"
+        assert not getattr(sel, "fallback_used_", False), "fallback flag incorrectly set on a clear-signal fit"
 
 
 # =============================================================================
@@ -218,30 +221,33 @@ class TestEngineeredFEMultivariate:
         and (x2, x3) as informative joints.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(104)
         n = 2000
         x1 = rng.standard_normal(n)
         x2 = rng.standard_normal(n)
         x3 = rng.standard_normal(n)
         y = (((x1 + x2) * x3) > 0).astype(np.int64)
-        X = pd.DataFrame({
-            "x1": x1, "x2": x2, "x3": x3,
-            "n0": rng.standard_normal(n),
-            "n1": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "x1": x1,
+                "x2": x2,
+                "x3": x3,
+                "n0": rng.standard_normal(n),
+                "n1": rng.standard_normal(n),
+            }
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(
-                verbose=0, interactions_max_order=2, fe_max_steps=0,
+                verbose=0,
+                interactions_max_order=2,
+                fe_max_steps=0,
             ).fit(X, pd.Series(y))
         names = list(sel.get_feature_names_out())
         # x3 (the "switch") must appear; ideally at least one of x1/x2.
-        assert "x3" in names, (
-            f"product-of-sum: x3 switch missed; support={names}"
-        )
-        assert ("x1" in names) or ("x2" in names), (
-            f"product-of-sum: both x1 and x2 missed; support={names}"
-        )
+        assert "x3" in names, f"product-of-sum: x3 switch missed; support={names}"
+        assert ("x1" in names) or ("x2" in names), f"product-of-sum: both x1 and x2 missed; support={names}"
 
 
 # =============================================================================
@@ -257,6 +263,7 @@ class TestMultimodalDistributions:
         cardinality.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(105)
         n = 1500
         mode = rng.integers(0, 2, n)
@@ -266,18 +273,18 @@ class TestMultimodalDistributions:
             rng.normal(3, 0.5, n),
         )
         y = mode  # binary y exactly aligned with mode
-        X = pd.DataFrame({
-            "bimodal_sig": sig,
-            "n0": rng.standard_normal(n),
-            "n1": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "bimodal_sig": sig,
+                "n0": rng.standard_normal(n),
+                "n1": rng.standard_normal(n),
+            }
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0).fit(X, pd.Series(y))
         names = list(sel.get_feature_names_out())
-        assert "bimodal_sig" in names, (
-            f"bimodal signal lost; support={names}"
-        )
+        assert "bimodal_sig" in names, f"bimodal signal lost; support={names}"
 
 
 # =============================================================================
@@ -292,6 +299,7 @@ class TestDCDSwapRejection:
         swap to PC1 (it's WORSE than anchor).
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(106)
         n = 1500
         latent = rng.standard_normal(n)
@@ -315,9 +323,7 @@ class TestDCDSwapRejection:
         names = list(sel.get_feature_names_out())
         # strong_anchor should be in support (PC1 swap should be
         # rejected because aggregate is weaker).
-        assert "strong_anchor" in names or any("_pc1_" in n for n in names), (
-            f"latent signal lost; support={names}"
-        )
+        assert "strong_anchor" in names or any("_pc1_" in n for n in names), f"latent signal lost; support={names}"
 
 
 # =============================================================================
@@ -333,41 +339,47 @@ class TestPipelineIntegration:
         from sklearn.pipeline import Pipeline
         from sklearn.linear_model import LogisticRegression
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(107)
         n = 800
         sig = rng.standard_normal(n)
-        X = pd.DataFrame({
-            "signal": sig,
-            "noise0": rng.standard_normal(n),
-            "noise1": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "signal": sig,
+                "noise0": rng.standard_normal(n),
+                "noise1": rng.standard_normal(n),
+            }
+        )
         y = pd.Series((sig > 0).astype(np.int64))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            pipe = Pipeline([
-                ("mrmr", MRMR(verbose=0, random_seed=7)),
-                ("clf", LogisticRegression(max_iter=100)),
-            ])
+            pipe = Pipeline(
+                [
+                    ("mrmr", MRMR(verbose=0, random_seed=7)),
+                    ("clf", LogisticRegression(max_iter=100)),
+                ]
+            )
             pipe.fit(X, y)
             score = pipe.score(X, y)
         # With clear signal, train accuracy should be > 0.7
-        assert score > 0.7, (
-            f"Pipeline integration: low accuracy {score:.3f}"
-        )
+        assert score > 0.7, f"Pipeline integration: low accuracy {score:.3f}"
 
     def test_get_support_returns_correct_indices(self):
         """``sel.get_support(indices=True)`` returns the support_
         indices that map correctly to feature_names_in_.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(108)
         n = 500
         sig = rng.standard_normal(n)
-        X = pd.DataFrame({
-            "a": rng.standard_normal(n),
-            "signal": sig,
-            "c": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "a": rng.standard_normal(n),
+                "signal": sig,
+                "c": rng.standard_normal(n),
+            }
+        )
         y = pd.Series((sig > 0).astype(np.int64))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

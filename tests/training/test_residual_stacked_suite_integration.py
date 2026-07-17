@@ -11,6 +11,7 @@ Tests:
 2. Mutual exclusion: when BOTH flags are True, the residual variant wins
    and a warning is logged.
 """
+
 from __future__ import annotations
 
 import logging
@@ -81,7 +82,8 @@ class TestSuiteRoutesToResidualStackedWhenEnabled:
                     disc = CompositeTargetDiscovery(config=cfg)
                     if cfg.use_stacked_discovery_residual:
                         disc.fit_stacked_on_residual(
-                            df=df, target_col="y",
+                            df=df,
+                            target_col="y",
                             feature_cols=["x_a", "x_b"],
                             train_idx=train_idx,
                             n_oof_folds=cfg.stacked_n_oof_folds,
@@ -90,14 +92,8 @@ class TestSuiteRoutesToResidualStackedWhenEnabled:
 
         # fit_stacked_on_residual is the entry point; it calls .fit() internally
         # (for pass 1). fit_stacked must NOT be called.
-        assert "fit_stacked_on_residual" in call_log, (
-            f"residual flag did not route to fit_stacked_on_residual; "
-            f"call_log={call_log}"
-        )
-        assert "fit_stacked" not in call_log, (
-            f"feature-stack mode was called despite residual flag; "
-            f"call_log={call_log}"
-        )
+        assert "fit_stacked_on_residual" in call_log, f"residual flag did not route to fit_stacked_on_residual; call_log={call_log}"
+        assert "fit_stacked" not in call_log, f"feature-stack mode was called despite residual flag; call_log={call_log}"
 
 
 class TestSuiteRealPhaseRoutesToResidualStacked:
@@ -107,7 +103,8 @@ class TestSuiteRealPhaseRoutesToResidualStacked:
         from unittest.mock import patch
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import (
-            BaselineDiagnosticsConfig, CompositeTargetDiscoveryConfig,
+            BaselineDiagnosticsConfig,
+            CompositeTargetDiscoveryConfig,
         )
         from mlframe.training.core._phase_composite_discovery import (
             run_composite_target_discovery,
@@ -148,9 +145,11 @@ class TestSuiteRealPhaseRoutesToResidualStacked:
             call_log.append("fit")
             return real_fit(self, *a, **kw)
 
-        with patch.object(CompositeTargetDiscovery, "fit_stacked_on_residual", track_fsor), \
-             patch.object(CompositeTargetDiscovery, "fit_stacked", track_fs), \
-             patch.object(CompositeTargetDiscovery, "fit", track_fit):
+        with (
+            patch.object(CompositeTargetDiscovery, "fit_stacked_on_residual", track_fsor),
+            patch.object(CompositeTargetDiscovery, "fit_stacked", track_fs),
+            patch.object(CompositeTargetDiscovery, "fit", track_fit),
+        ):
             run_composite_target_discovery(
                 composite_target_discovery_config=cfg,
                 target_by_type=target_by_type,
@@ -158,17 +157,20 @@ class TestSuiteRealPhaseRoutesToResidualStacked:
                 metadata={},
                 filtered_train_df=df.iloc[train_idx].reset_index(drop=True),
                 filtered_train_idx=train_idx,
-                train_df_pd=df, val_df_pd=df.iloc[val_idx].reset_index(drop=True),
+                train_df_pd=df,
+                val_df_pd=df.iloc[val_idx].reset_index(drop=True),
                 test_df_pd=None,
-                train_idx=train_idx, val_idx=val_idx, test_idx=None,
+                train_idx=train_idx,
+                val_idx=val_idx,
+                test_idx=None,
                 baseline_diagnostics_config=BaselineDiagnosticsConfig(),
-                cat_features=None, verbose=False,
+                cat_features=None,
+                verbose=False,
             )
 
         # The REAL suite phase must route to fit_stacked_on_residual.
         assert "fit_stacked_on_residual" in call_log, (
-            f"real suite phase did not call fit_stacked_on_residual when "
-            f"use_stacked_discovery_residual=True; call_log={call_log}"
+            f"real suite phase did not call fit_stacked_on_residual when use_stacked_discovery_residual=True; call_log={call_log}"
         )
         assert "fit_stacked" not in call_log
 
@@ -191,7 +193,8 @@ class TestStackedResidualAggregationFirst:
             base_candidates=["x_a", "x_b"],
         )
         disc = CompositeTargetDiscovery(config=cfg).fit_stacked_on_residual(
-            df=df, target_col="y",
+            df=df,
+            target_col="y",
             feature_cols=["x_a", "x_b"],
             train_idx=train_idx,
             n_oof_folds=2,
@@ -245,17 +248,14 @@ class TestBothFlagsWarnAndPreferResidual:
                     "flag to silence this warning."
                 )
                 disc = CompositeTargetDiscovery(config=cfg).fit_stacked_on_residual(
-                    df=df, target_col="y",
+                    df=df,
+                    target_col="y",
                     feature_cols=["x_a", "x_b"],
                     train_idx=train_idx,
                     n_oof_folds=cfg.stacked_n_oof_folds,
                     residual_aggregation="mean",
                 )
 
-        assert any(
-            "use_stacked_discovery=True and use_stacked_discovery_residual=True"
-            in rec.message for rec in caplog.records
-        ), (
-            f"expected mutual-exclusion warning; got log records: "
-            f"{[r.message for r in caplog.records]}"
+        assert any("use_stacked_discovery=True and use_stacked_discovery_residual=True" in rec.message for rec in caplog.records), (
+            f"expected mutual-exclusion warning; got log records: {[r.message for r in caplog.records]}"
         )

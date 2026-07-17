@@ -6,6 +6,7 @@ already delegates to the model's own GPU-accelerated contribution path internall
 bypass. This is kept as a correctness pin only (bit-identical values), matching the module's own "rejected as a
 speedup, kept as a documented negative + functional alternative" framing.
 """
+
 from __future__ import annotations
 
 import numpy as np

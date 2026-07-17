@@ -6,6 +6,7 @@ all candidate columns simultaneously.
 
 Tests cover both the polars branch and the pandas branch.
 """
+
 from __future__ import annotations
 
 import time
@@ -49,6 +50,7 @@ def _synth_pandas(n_rows: int, n_cols: int, seed: int) -> pd.DataFrame:
 def _vendored_legacy_polars(df, ftc, cat_features):
     """Vendored pre-fix polars logic, used as the ground-truth oracle for the identical-classification test."""
     import polars as pl
+
     text_features = list(ftc.text_features or [])
     embedding_features = list(ftc.embedding_features or [])
     user_assigned = set(text_features) | set(embedding_features)
@@ -144,10 +146,7 @@ def test_auto_detect_polars_single_collect_bounded():
         pl.LazyFrame.collect = orig_collect
 
     # At least 1 (proves the lazy path is in use), at most 4 (slack for any internal polars schema/collect calls).
-    assert 1 <= counts["collect"] <= 4, (
-        f"post-fix expected 1..4 LazyFrame.collect calls, got {counts['collect']} "
-        f"(regression to per-col path?)"
-    )
+    assert 1 <= counts["collect"] <= 4, f"post-fix expected 1..4 LazyFrame.collect calls, got {counts['collect']} (regression to per-col path?)"
 
 
 def test_biz_val_auto_detect_polars_speedup():
@@ -177,8 +176,7 @@ def test_biz_val_auto_detect_polars_speedup():
 
     ratio = new_s / max(legacy_s, 1e-9)
     assert ratio <= 0.6, (
-        f"auto-detect single-pass regressed: new={new_s*1000:.1f}ms legacy={legacy_s*1000:.1f}ms "
-        f"ratio={ratio:.2f} (target<=0.6; bench-of-record ~0.36)"
+        f"auto-detect single-pass regressed: new={new_s * 1000:.1f}ms legacy={legacy_s * 1000:.1f}ms ratio={ratio:.2f} (target<=0.6; bench-of-record ~0.36)"
     )
 
 
@@ -211,10 +209,7 @@ def _vendored_legacy_pandas(df, ftc, cat_features):
             continue
         dtype_name = str(df[col].dtype)
         _dtype_lc = dtype_name.lower().lstrip("<")
-        _is_string_like = (
-            any(_dtype_lc.startswith(tok) for tok in _string_like_dtype_tokens)
-            or "stringdtype" in _dtype_lc
-        )
+        _is_string_like = any(_dtype_lc.startswith(tok) for tok in _string_like_dtype_tokens) or "stringdtype" in _dtype_lc
         if _is_string_like:
             if dtype_name.startswith("object"):
                 _series = df[col]
@@ -222,10 +217,7 @@ def _vendored_legacy_pandas(df, ftc, cat_features):
                     _first = next((v for v in _series.head(8) if v is not None), None)
                 except Exception:
                     _first = None
-                if _first is not None and (
-                    hasattr(_first, "shape")
-                    or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
-                ):
+                if _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
                     embedding_features.append(col)
                     continue
             n_unique = df[col].nunique()

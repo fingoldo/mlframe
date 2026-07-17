@@ -1,5 +1,6 @@
 """brier_and_precision_score must surface a real input-contract violation instead of
 silently returning 0.0 (the worst score), which would corrupt model selection."""
+
 from __future__ import annotations
 
 import numpy as np

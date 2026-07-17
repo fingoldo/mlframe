@@ -9,6 +9,7 @@
 - E5: PrePipelinePredictShim._transform swallowed ALL exceptions and fed
   untransformed X to the inner (silent garbage). Now re-raises.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,9 +55,7 @@ class TestFitNoCopyOnAllValid:
         est.fit(X, y)
         # diff domain is all-finite -> all rows valid -> no copy -> the (cloned)
         # inner must have been fit on the very same DataFrame object.
-        assert est.estimator_.fit_X_id == id(X), (
-            "fit() copied X even though every row passed domain_check"
-        )
+        assert est.estimator_.fit_X_id == id(X), "fit() copied X even though every row passed domain_check"
 
 
 class _RaisingPipeline(BaseEstimator, TransformerMixin):
@@ -72,7 +71,9 @@ class TestShimReraises:
         """E5: a failing pre_pipeline.transform must raise (loud), never feed
         the untransformed X to the inner."""
         shim = PrePipelinePredictShim(
-            model=_RecordingInner(), pre_pipeline=_RaisingPipeline(), name="c0",
+            model=_RecordingInner(),
+            pre_pipeline=_RaisingPipeline(),
+            name="c0",
         )
         X = pd.DataFrame({"a": [1.0, 2.0, 3.0]})
         with pytest.raises(RuntimeError, match="refusing to feed untransformed"):
@@ -89,18 +90,20 @@ class TestPerModelEnvelopeTrainOnly:
         from mlframe.training.core._phase_composite_wrapping import (
             emit_per_model_composite_y_scale_test,
         )
+
         n = 100
         rng = np.random.default_rng(1)
         feat = rng.normal(0.0, 1.0, size=n)
         y_full = np.empty(n, dtype=np.float64)
-        y_full[:80] = rng.uniform(0.0, 10.0, size=80)   # train range
-        y_full[80:] = 1000.0                            # extreme test rows
+        y_full[:80] = rng.uniform(0.0, 10.0, size=80)  # train range
+        y_full[80:] = 1000.0  # extreme test rows
         test_idx = np.arange(80, n)
         X = pd.DataFrame({"feat": feat})
         test_df = X.iloc[test_idx].reset_index(drop=True)
 
         class _Entry:
             pass
+
         entry = _Entry()
         entry.model = _RecordingInner().fit(X.iloc[:80], y_full[:80])
         spec = {
@@ -128,10 +131,7 @@ class TestPerModelEnvelopeTrainOnly:
         wrapper = self._run_hook(train_idx=np.arange(80))
         assert isinstance(wrapper, CompositeTargetEstimator)
         high = float(wrapper.fitted_params_["y_clip_high"])
-        assert high < 200.0, (
-            f"y_clip_high={high} leaked the extreme test rows into the "
-            f"clip envelope (expected ~100 from the train range)"
-        )
+        assert high < 200.0, f"y_clip_high={high} leaked the extreme test rows into the clip envelope (expected ~100 from the train range)"
 
     def test_full_y_would_leak_demonstrates_bug(self) -> None:
         """Control: without train_idx (legacy full-y path) the envelope is

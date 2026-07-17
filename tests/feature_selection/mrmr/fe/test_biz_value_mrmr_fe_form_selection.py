@@ -19,6 +19,7 @@ Two layers of coverage:
     near-maximal target MI (i.e. the search no longer returns a clearly
     suboptimal form).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,9 +31,9 @@ from mlframe.feature_selection.filters.feature_engineering import get_new_featur
 
 # config = (((idx_a, unary_a), (idx_b, unary_b)), binary_name, i)
 _COLS = ["c", "d"]
-_CFG_TRUE = (((0, "log"), (1, "sin")), "mul", 0)        # mul(log(c),sin(d))
-_CFG_ALT = (((0, "log"), (1, "reciproc")), "add", 1)    # add(log(c),reciproc(d))
-_CFG_Z = (((0, "identity"), (1, "sqr")), "add", 2)      # add(c,sqr(d)) -- name sorts late
+_CFG_TRUE = (((0, "log"), (1, "sin")), "mul", 0)  # mul(log(c),sin(d))
+_CFG_ALT = (((0, "log"), (1, "reciproc")), "add", 1)  # add(log(c),reciproc(d))
+_CFG_Z = (((0, "identity"), (1, "sqr")), "add", 2)  # add(c,sqr(d)) -- name sorts late
 
 
 def test_select_single_best_primary_target_mi_beats_secondary():
@@ -42,10 +43,7 @@ def test_select_single_best_primary_target_mi_beats_secondary():
     primary = {_CFG_TRUE: 0.32, _CFG_ALT: 0.25}
     secondary = {_CFG_TRUE: 0.10, _CFG_ALT: 0.99}  # would pick _CFG_ALT if used as primary
     winner = _select_single_best(primary, _COLS, secondary=secondary)
-    assert winner == _CFG_TRUE, (
-        f"expected the max-target-MI form {get_new_feature_name(_CFG_TRUE, _COLS)}, "
-        f"got {get_new_feature_name(winner, _COLS)}"
-    )
+    assert winner == _CFG_TRUE, f"expected the max-target-MI form {get_new_feature_name(_CFG_TRUE, _COLS)}, got {get_new_feature_name(winner, _COLS)}"
 
 
 def test_select_single_best_secondary_breaks_target_mi_ties():
@@ -123,6 +121,7 @@ def test_select_single_best_no_secondary_is_pure_max_primary():
 # ---------------------------------------------------------------------------
 def test_quantize_mi_tiebreak_collapses_subgrid_preserves_genuine():
     from mlframe.feature_selection.filters._fe_mi_contract import quantize_mi_tiebreak
+
     # sub-grid jitter (< 1e-7) -> identical key
     assert quantize_mi_tiebreak(0.30000000) == quantize_mi_tiebreak(0.30000001)
     # genuine gap (>> 1e-7) -> distinct, order preserved
@@ -157,8 +156,7 @@ def test_select_single_best_exact_mi_leg_still_resolves_genuine_within_band_gap(
     primary = {_CFG_TRUE: 0.1180, _CFG_ALT: 0.1167}
     winner = _select_single_best(primary, _COLS, mi_band=band)
     assert winner == _CFG_TRUE, (
-        "the exact-MI leg must still pick the higher within-band MI form; quantisation "
-        "only collapses sub-grid (1e-7) jitter, not a 1.3e-3 genuine gap"
+        "the exact-MI leg must still pick the higher within-band MI form; quantisation only collapses sub-grid (1e-7) jitter, not a 1.3e-3 genuine gap"
     )
 
 
@@ -177,12 +175,14 @@ NB = 10
 
 def _binned(arr):
     from mlframe.feature_selection.filters.discretization import discretize_array
+
     arr = np.nan_to_num(np.asarray(arr, float), nan=0.0, posinf=0.0, neginf=0.0)
     return discretize_array(arr=arr, n_bins=NB, method="quantile", dtype=np.int32)
 
 
 def _mi(xb, yb):
     from mlframe.feature_selection.filters.info_theory import compute_mi_from_classes, merge_vars
+
     fd = np.column_stack([xb, yb]).astype(np.int32)
     fn = np.array([NB, NB], dtype=np.int64)
     cx, fx, _ = merge_vars(fd, (0,), None, fn, dtype=np.int32)
@@ -209,10 +209,15 @@ def test_search_recovers_near_optimal_cd_form(seed):
     still distinguishes the recovered form from the broken one.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(seed)
     n = N
-    a = rng.random(n); b = rng.random(n); c = rng.random(n)
-    d = rng.random(n); e = rng.random(n); f = rng.random(n)
+    a = rng.random(n)
+    b = rng.random(n)
+    c = rng.random(n)
+    d = rng.random(n)
+    e = rng.random(n)
+    f = rng.random(n)
     y = a**2 / b + f / 5.0 + np.log(c) * np.sin(d)
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
 
@@ -231,12 +236,13 @@ def test_search_recovers_near_optimal_cd_form(seed):
     # the (equally clean) combined form and is dropped -- it conflated "captures the (c,d)
     # interaction" with "emits a STANDALONE (c,d) column", which the search does not guarantee.
     import re
+
     def bare(nm):
         return set(re.findall(r"(?<![A-Za-z_])([a-e])(?![A-Za-z_])", nm))
+
     cd_cols = [i for i, nm in enumerate(names) if "(" in nm and {"c", "d"} <= bare(nm)]
     assert cd_cols, f"no (c,d) engineered feature found in {names}"
     best_cd_mi = max(_mi(_binned(Xt[:, i]), yb) for i in cd_cols)
     assert best_cd_mi >= 0.90 * true_mi, (
-        f"[seed={seed}] chosen (c,d) form MI={best_cd_mi:.4f} is far below the "
-        f"true mul(log(c),sin(d)) MI={true_mi:.4f}; search picked a suboptimal form"
+        f"[seed={seed}] chosen (c,d) form MI={best_cd_mi:.4f} is far below the true mul(log(c),sin(d)) MI={true_mi:.4f}; search picked a suboptimal form"
     )

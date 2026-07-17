@@ -11,6 +11,7 @@ Also covers the opt-in ``k_values`` multi-k mode: one call at several k values s
 than calling the function once per k (it shares a single neighbor search extended to the largest k), while
 being numerically identical to the per-k single calls.
 """
+
 from __future__ import annotations
 
 import time
@@ -57,7 +58,9 @@ def test_biz_val_cross_sectional_neighbor_features_beats_raw_features_alone_mse(
     mse_augmented = mean_squared_error(df_augmented.iloc[test_idx]["y"], augmented.predict(df_augmented.iloc[test_idx][feature_cols]))
 
     improvement = 1.0 - mse_augmented / mse_baseline
-    assert improvement > 0.2, f"expected >20% MSE reduction from cross-sectional neighbor features, got {improvement:.4f} (baseline={mse_baseline:.2f}, augmented={mse_augmented:.2f})"
+    assert improvement > 0.2, (
+        f"expected >20% MSE reduction from cross-sectional neighbor features, got {improvement:.4f} (baseline={mse_baseline:.2f}, augmented={mse_augmented:.2f})"
+    )
 
 
 def test_cross_sectional_neighbor_features_output_shape_and_columns():
@@ -89,7 +92,13 @@ def test_cross_sectional_neighbor_features_default_unchanged_when_k_values_omitt
     df = _make_snapshot_cluster_dataset(n_snapshots=40, rows_per_snap=5, n_clusters=3, seed=5)
     result = compute_cross_sectional_neighbor_features(df, "snap", ["f0", "f1", "f2"], k=7, agg_stats=("mean", "std"))
     assert set(result.columns) == {
-        "xsnn_f0_mean", "xsnn_f0_std", "xsnn_f1_mean", "xsnn_f1_std", "xsnn_f2_mean", "xsnn_f2_std", "xsnn_distance_ratio",
+        "xsnn_f0_mean",
+        "xsnn_f0_std",
+        "xsnn_f1_mean",
+        "xsnn_f1_std",
+        "xsnn_f2_mean",
+        "xsnn_f2_std",
+        "xsnn_distance_ratio",
     }
     result_again = compute_cross_sectional_neighbor_features(df, "snap", ["f0", "f1", "f2"], k=7, agg_stats=("mean", "std"))
     for col in result.columns:
@@ -102,19 +111,25 @@ def test_cross_sectional_neighbor_features_multi_k_matches_per_k_single_calls():
     df = _make_snapshot_cluster_dataset(n_snapshots=60, rows_per_snap=4, n_clusters=4, seed=6)
     k_values = [3, 8, 15]
     multi = compute_cross_sectional_neighbor_features(df, "snap", ["f0", "f1", "f2"], agg_stats=("mean", "std"), k_values=k_values)
-    assert set(multi.columns) == {
-        f"xsnn_k{kv}_{col}_{stat}" for kv in k_values for col in ("f0", "f1", "f2") for stat in ("mean", "std")
-    } | {f"xsnn_k{kv}_distance_ratio" for kv in k_values}
+    assert set(multi.columns) == {f"xsnn_k{kv}_{col}_{stat}" for kv in k_values for col in ("f0", "f1", "f2") for stat in ("mean", "std")} | {
+        f"xsnn_k{kv}_distance_ratio" for kv in k_values
+    }
 
     for kv in k_values:
         single = compute_cross_sectional_neighbor_features(df, "snap", ["f0", "f1", "f2"], k=kv, agg_stats=("mean", "std"))
         for col in ("f0", "f1", "f2"):
             for stat in ("mean", "std"):
                 np.testing.assert_allclose(
-                    multi[f"xsnn_k{kv}_{col}_{stat}"].to_numpy(), single[f"xsnn_{col}_{stat}"].to_numpy(), rtol=1e-5, atol=1e-6,
+                    multi[f"xsnn_k{kv}_{col}_{stat}"].to_numpy(),
+                    single[f"xsnn_{col}_{stat}"].to_numpy(),
+                    rtol=1e-5,
+                    atol=1e-6,
                 )
         np.testing.assert_allclose(
-            multi[f"xsnn_k{kv}_distance_ratio"].to_numpy(), single["xsnn_distance_ratio"].to_numpy(), rtol=1e-5, atol=1e-6,
+            multi[f"xsnn_k{kv}_distance_ratio"].to_numpy(),
+            single["xsnn_distance_ratio"].to_numpy(),
+            rtol=1e-5,
+            atol=1e-6,
         )
 
 
@@ -145,4 +160,6 @@ def test_biz_val_cross_sectional_neighbor_features_multi_k_faster_than_per_k_cal
     t_per_k = min(_time_per_k() for _ in range(3))
 
     speedup = t_per_k / t_multi
-    assert speedup > 1.5, f"expected multi-k shared-search to beat {len(k_values)} separate per-k calls by >1.5x, got {speedup:.2f}x (multi={t_multi*1000:.1f}ms, per_k={t_per_k*1000:.1f}ms)"
+    assert speedup > 1.5, (
+        f"expected multi-k shared-search to beat {len(k_values)} separate per-k calls by >1.5x, got {speedup:.2f}x (multi={t_multi * 1000:.1f}ms, per_k={t_per_k * 1000:.1f}ms)"
+    )

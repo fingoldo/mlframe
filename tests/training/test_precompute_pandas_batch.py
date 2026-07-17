@@ -4,6 +4,7 @@ domain for ``pd.CategoricalDtype`` columns instead of a per-row data scan via ``
 The fast path matters when many cat columns survive the post-polars fixes (Enum/Categorical cast).
 On a 1M-row x 30 Categorical-col fixture the old code ran ~200ms; the fast path drops to ~1ms.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -54,10 +55,7 @@ def test_S06_categorical_dtype_uses_dtype_categories_not_unique_scan():
     # up here if get_categorical_columns include_string=False still picked it -- it doesn't, so
     # call_log should be empty entirely for this fixture.)
     cat_calls = [c for c in call_log if c in cat_cols]
-    assert cat_calls == [], (
-        f".unique() was called on Categorical-dtype columns {cat_calls}; the fast path must read "
-        f".dtype.categories instead."
-    )
+    assert cat_calls == [], f".unique() was called on Categorical-dtype columns {cat_calls}; the fast path must read .dtype.categories instead."
 
 
 def test_S06_categorical_dtype_returns_declared_domain():
@@ -69,16 +67,15 @@ def test_S06_categorical_dtype_returns_declared_domain():
     rng = np.random.default_rng(7)
     # Only observe alpha + beta; gamma + delta are declared but absent.
     observed = rng.choice(["alpha", "beta"], size=n)
-    df = pd.DataFrame({
-        "cc_0": pd.Categorical(observed, categories=cats),
-    })
+    df = pd.DataFrame(
+        {
+            "cc_0": pd.Categorical(observed, categories=cats),
+        }
+    )
 
     res = get_trainset_features_stats(df)
     got = set(res["cat_vals"]["cc_0"])
-    assert got == set(cats), (
-        f"cat_vals for declared Categorical must contain full dtype domain {set(cats)}, "
-        f"got {got}."
-    )
+    assert got == set(cats), f"cat_vals for declared Categorical must contain full dtype domain {set(cats)}, got {got}."
 
 
 def test_S06_max_ncats_filter_still_applies():
@@ -86,12 +83,12 @@ def test_S06_max_ncats_filter_still_applies():
     n = 200
     big_cats = [f"k_{i}" for i in range(150)]
     rng = np.random.default_rng(11)
-    df = pd.DataFrame({
-        "cc_big": pd.Categorical(rng.choice(big_cats, size=n)),
-        "cc_small": pd.Categorical(rng.choice(["a", "b", "c"], size=n)),
-    })
+    df = pd.DataFrame(
+        {
+            "cc_big": pd.Categorical(rng.choice(big_cats, size=n)),
+            "cc_small": pd.Categorical(rng.choice(["a", "b", "c"], size=n)),
+        }
+    )
     res = get_trainset_features_stats(df, max_ncats_to_track=100)
     assert "cc_small" in res["cat_vals"]
-    assert "cc_big" not in res["cat_vals"], (
-        "cc_big has 150 declared categories > 100; should be excluded by max_ncats_to_track."
-    )
+    assert "cc_big" not in res["cat_vals"], "cc_big has 150 declared categories > 100; should be excluded by max_ncats_to_track."

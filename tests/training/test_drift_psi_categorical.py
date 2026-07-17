@@ -3,6 +3,7 @@
 Before the fix ``compute_feature_distribution_drift`` was numeric-only; categorical drift via PSI was a documented TODO that never landed.
 Now ``compute_categorical_drift_psi`` is the public helper and ``categorical_psi`` is folded into the existing report dict.
 """
+
 from __future__ import annotations
 
 import math
@@ -50,6 +51,7 @@ def test_categorical_psi_vectorised_path_matches_python_loop_at_50_plus_cats():
     PSI for the same inputs -- the vectorised form uses identical
     dict.get + max-floor + log-ratio + sum math, just in numpy ufuncs."""
     import numpy as np
+
     rng = np.random.default_rng(20260527)
     # 100 cats -> vectorised path
     train_counts = {i: int(rng.integers(1, 1000)) for i in range(100)}
@@ -69,16 +71,20 @@ def test_categorical_psi_vectorised_path_matches_python_loop_at_50_plus_cats():
 
 def test_compute_categorical_drift_psi_dataframe_path_fires_warn_threshold():
     """Synthetic frame with shifted cat distribution must surface as a drift_candidate."""
-    train_df = pd.DataFrame({
-        "cat_a": ["X"] * 500 + ["Y"] * 500,
-        "cat_b": ["P"] * 1000,
-        "num_c": [0.5] * 1000,
-    })
-    val_df = pd.DataFrame({
-        "cat_a": ["X"] * 800 + ["Y"] * 200,
-        "cat_b": ["P"] * 1000,
-        "num_c": [0.5] * 1000,
-    })
+    train_df = pd.DataFrame(
+        {
+            "cat_a": ["X"] * 500 + ["Y"] * 500,
+            "cat_b": ["P"] * 1000,
+            "num_c": [0.5] * 1000,
+        }
+    )
+    val_df = pd.DataFrame(
+        {
+            "cat_a": ["X"] * 800 + ["Y"] * 200,
+            "cat_b": ["P"] * 1000,
+            "num_c": [0.5] * 1000,
+        }
+    )
     rep = compute_categorical_drift_psi(train_df, val_df, test_df=None)
     assert rep["n_categorical_features"] >= 2
     assert "cat_a" in rep["per_feature"]
@@ -99,14 +105,18 @@ def test_compute_categorical_drift_psi_identical_distributions_no_candidates():
 
 def test_feature_distribution_drift_includes_categorical_psi_payload():
     """The main feature-drift report now carries a categorical_psi payload alongside the numeric one."""
-    train_df = pd.DataFrame({
-        "num_a": [0.0, 1.0, 2.0, 3.0, 4.0] * 200,
-        "cat_b": ["X"] * 500 + ["Y"] * 500,
-    })
-    val_df = pd.DataFrame({
-        "num_a": [0.0, 1.0, 2.0, 3.0, 4.0] * 200,
-        "cat_b": ["X"] * 800 + ["Y"] * 200,
-    })
+    train_df = pd.DataFrame(
+        {
+            "num_a": [0.0, 1.0, 2.0, 3.0, 4.0] * 200,
+            "cat_b": ["X"] * 500 + ["Y"] * 500,
+        }
+    )
+    val_df = pd.DataFrame(
+        {
+            "num_a": [0.0, 1.0, 2.0, 3.0, 4.0] * 200,
+            "cat_b": ["X"] * 800 + ["Y"] * 200,
+        }
+    )
     rep = compute_feature_distribution_drift(train_df, val_df, test_df=None)
     assert "categorical_psi" in rep, "main report should expose categorical_psi key"
     cpsi = rep["categorical_psi"]

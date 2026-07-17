@@ -14,6 +14,7 @@ opt-in hook in ``_auto_base`` behind ``base_ranking_criterion="mrmr"``:
   fills with duplicates, giving lower ensemble correlation AND better held-out
   RMSE by a quantitative margin.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -37,11 +38,13 @@ def test_mrmr_picks_relevant_first_then_diverse_second():
     names = ["a", "b", "c"]
     rel = [1.0, 0.95, 0.60]
     # a~b strongly redundant; a~c and b~c nearly independent.
-    red = np.array([
-        [0.0, 0.90, 0.05],
-        [0.90, 0.0, 0.04],
-        [0.05, 0.04, 0.0],
-    ])
+    red = np.array(
+        [
+            [0.0, 0.90, 0.05],
+            [0.90, 0.0, 0.04],
+            [0.05, 0.04, 0.0],
+        ]
+    )
     order = mrmr_rank_bases(names, rel, red, 3, beta=1.0)
     assert order[0] == "a", "max-relevance candidate must lead"
     assert order[1] == "c", f"diverse candidate must be picked 2nd, got {order}"
@@ -51,11 +54,13 @@ def test_mrmr_beta_zero_is_pure_relevance_order():
     """beta=0 kills the redundancy term -> ordering is exactly by relevance."""
     names = ["a", "b", "c"]
     rel = [1.0, 0.95, 0.60]
-    red = np.array([
-        [0.0, 0.90, 0.05],
-        [0.90, 0.0, 0.04],
-        [0.05, 0.04, 0.0],
-    ])
+    red = np.array(
+        [
+            [0.0, 0.90, 0.05],
+            [0.90, 0.0, 0.04],
+            [0.05, 0.04, 0.0],
+        ]
+    )
     assert mrmr_rank_bases(names, rel, red, 3, beta=0.0) == ["a", "b", "c"]
 
 
@@ -64,11 +69,13 @@ def test_mrmr_callable_redundancy_matches_matrix():
     equivalent matrix (the ``_auto_base`` hook passes a memoised callable)."""
     names = ["a", "b", "c"]
     rel = [1.0, 0.95, 0.60]
-    red = np.array([
-        [0.0, 0.90, 0.05],
-        [0.90, 0.0, 0.04],
-        [0.05, 0.04, 0.0],
-    ])
+    red = np.array(
+        [
+            [0.0, 0.90, 0.05],
+            [0.90, 0.0, 0.04],
+            [0.05, 0.04, 0.0],
+        ]
+    )
     via_fn = mrmr_rank_bases(names, rel, lambda i, j: red[i, j], 3, beta=1.0)
     assert via_fn == mrmr_rank_bases(names, rel, red, 3, beta=1.0)
 
@@ -81,7 +88,11 @@ def test_mrmr_degenerate_pools():
     # All-identical relevance + redundancy: still returns min(k, n) items,
     # ties broken by original order.
     ident = mrmr_rank_bases(
-        ["a", "b", "c"], [0.7, 0.7, 0.7], np.ones((3, 3)), 5, beta=1.0,
+        ["a", "b", "c"],
+        [0.7, 0.7, 0.7],
+        np.ones((3, 3)),
+        5,
+        beta=1.0,
     )
     assert ident == ["a", "b", "c"]
 
@@ -120,7 +131,7 @@ def _base_config(**overrides):
         auto_base_structural_boost=False,
         auto_base_null_perms=0,
         auto_base_dedup_corr_threshold=1.0,  # isolate MRMR from crude dedup
-        base_max_abs_corr_with_y=1.0,        # keep near-copy exclusion out
+        base_max_abs_corr_with_y=1.0,  # keep near-copy exclusion out
         mi_estimator="bin",
         mi_nbins=16,
         mi_sample_n=None,
@@ -205,11 +216,17 @@ def test_biz_val_mrmr_shortlist_diverse_and_lower_rmse():
 
     top_mi = _auto_base(
         _make_self(_base_config(base_ranking_criterion="mi"), X, names),
-        None, names, y, train_idx,
+        None,
+        names,
+        y,
+        train_idx,
     )
     top_mrmr = _auto_base(
         _make_self(_base_config(base_ranking_criterion="mrmr"), X, names),
-        None, names, y, train_idx,
+        None,
+        names,
+        y,
+        train_idx,
     )
 
     assert "indep" not in top_mi, f"MI top-K should fill with dups, got {top_mi}"
@@ -217,14 +234,10 @@ def test_biz_val_mrmr_shortlist_diverse_and_lower_rmse():
 
     corr_mi = _mean_abs_corr(X, top_mi, names)
     corr_mrmr = _mean_abs_corr(X, top_mrmr, names)
-    assert corr_mrmr < corr_mi - 0.3, (
-        f"MRMR shortlist must be less redundant: mi={corr_mi:.3f} mrmr={corr_mrmr:.3f}"
-    )
+    assert corr_mrmr < corr_mi - 0.3, f"MRMR shortlist must be less redundant: mi={corr_mi:.3f} mrmr={corr_mrmr:.3f}"
 
     rmse_mi = _holdout_rmse(X, top_mi, names, y)
     rmse_mrmr = _holdout_rmse(X, top_mrmr, names, y)
     # sig2 carries ~1.5x of y's variance the dups cannot explain; adding it
     # measurably cuts held-out error. Floor 15% below the measured ~40% gain.
-    assert rmse_mrmr < 0.85 * rmse_mi, (
-        f"MRMR shortlist must predict better: mi={rmse_mi:.4f} mrmr={rmse_mrmr:.4f}"
-    )
+    assert rmse_mrmr < 0.85 * rmse_mi, f"MRMR shortlist must predict better: mi={rmse_mi:.4f} mrmr={rmse_mrmr:.4f}"

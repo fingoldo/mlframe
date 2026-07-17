@@ -10,6 +10,7 @@ of files per suite call) this exhausted the process fd ceiling.
 Post-fix: a _fd_adopted flag tracks whether BufferedWriter took ownership; the
 except branch explicitly os.close(fd) when adoption never happened.
 """
+
 from __future__ import annotations
 
 import os

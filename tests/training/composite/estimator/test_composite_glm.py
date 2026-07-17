@@ -7,6 +7,7 @@ residual-over-base composite beats both the base alone and a plain Poisson GBDT 
 Poisson deviance and RMSE. Contract: non-negative predictions, finite deviance,
 clear error on an inner with no offset path.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -74,17 +75,11 @@ class TestGLMBizValue:
 
         # Composite must clearly beat the base alone (it learns the residual the
         # log-linear base cannot see) on BOTH deviance and RMSE.
-        assert dev_comp <= dev_base * 0.92, (
-            f"composite dev {dev_comp:.4f} should beat base {dev_base:.4f}"
-        )
-        assert rmse_comp <= rmse_base * 0.97, (
-            f"composite rmse {rmse_comp:.4f} should beat base {rmse_base:.4f}"
-        )
+        assert dev_comp <= dev_base * 0.92, f"composite dev {dev_comp:.4f} should beat base {dev_base:.4f}"
+        assert rmse_comp <= rmse_base * 0.97, f"composite rmse {rmse_comp:.4f} should beat base {rmse_base:.4f}"
         # And it must at least match a plain Poisson GBDT on deviance (the offset
         # anchors the dominant effect, so it is never worse than re-deriving it).
-        assert dev_comp <= dev_plain * 1.01, (
-            f"composite dev {dev_comp:.4f} should match/beat plain GBDT {dev_plain:.4f}"
-        )
+        assert dev_comp <= dev_plain * 1.01, f"composite dev {dev_comp:.4f} should match/beat plain GBDT {dev_plain:.4f}"
 
 
 class TestGLMContract:
@@ -207,6 +202,7 @@ class TestGLMContract:
 
     def test_predict_before_fit_raises(self) -> None:
         from sklearn.exceptions import NotFittedError
+
         comp = CompositeGLMEstimator(family="poisson")
         with pytest.raises(NotFittedError):
             comp.predict(pd.DataFrame({"z": [0.1, 0.2]}))

@@ -11,6 +11,7 @@ rtol policy (from third-round numerical audit):
 * cached conditional MI  -> rtol=1e-9,  atol=1e-12  (4-term subtraction
   accumulates ~2e-9 error for n=10^4; numba recompile may exacerbate)
 """
+
 from __future__ import annotations
 
 import orjson
@@ -61,12 +62,8 @@ def capture_intermediate(mrmr, scenario_name: str, seed: int) -> dict[str, Any]:
     base = capture_pre_refactor(mrmr, scenario_name, seed)
     cached_MIs = _extract_attr(mrmr, "_cached_MIs") or _extract_attr(mrmr, "cached_MIs_")
     cached_cond = _extract_attr(mrmr, "_cached_cond_MIs") or _extract_attr(mrmr, "cached_cond_MIs_")
-    base["cached_MIs"] = (
-        {str(k): float(v) for k, v in cached_MIs.items()} if cached_MIs is not None else None
-    )
-    base["cached_cond_MIs"] = (
-        {str(k): float(v) for k, v in cached_cond.items()} if cached_cond is not None else None
-    )
+    base["cached_MIs"] = {str(k): float(v) for k, v in cached_MIs.items()} if cached_MIs is not None else None
+    base["cached_cond_MIs"] = {str(k): float(v) for k, v in cached_cond.items()} if cached_cond is not None else None
     expected_gains = _extract_attr(mrmr, "_expected_gains")
     if expected_gains is not None:
         base["expected_gains"] = {int(k): float(v) for k, v in expected_gains.items()}
@@ -103,10 +100,7 @@ def assert_support_equivalent(
     diff = actual_set ^ expected_set
     expected_gains = expected.get("expected_gains")
     if expected_gains is None or actual_expected_gains is None:
-        raise AssertionError(
-            f"support_ differs and no expected_gains captured for tie-break: "
-            f"diff={sorted(diff)}"
-        )
+        raise AssertionError(f"support_ differs and no expected_gains captured for tie-break: diff={sorted(diff)}")
     accepted_gains = list(expected_gains.values())
     for cand in diff:
         cand_gain = actual_expected_gains.get(cand) or expected_gains.get(str(cand))
@@ -114,10 +108,7 @@ def assert_support_equivalent(
             raise AssertionError(f"candidate {cand} has no gain recorded for tie-break")
         nearest = min((abs(cand_gain - g) for g in accepted_gains), default=float("inf"))
         if nearest >= tie_eps:
-            raise AssertionError(
-                f"candidate {cand} (gain={cand_gain}) not tied with accepted set "
-                f"(nearest delta={nearest})"
-            )
+            raise AssertionError(f"candidate {cand} (gain={cand_gain}) not tied with accepted set (nearest delta={nearest})")
 
 
 def assert_cached_close(
@@ -140,7 +131,5 @@ def assert_cached_close(
         actual_val = actual_cached[key]
         if not np.isclose(actual_val, expected_val, rtol=rtol, atol=atol):
             raise AssertionError(
-                f"cached value drift on key {key}: "
-                f"expected={expected_val}, actual={actual_val}, "
-                f"|diff|={abs(actual_val - expected_val)} > rtol*|expected|+atol"
+                f"cached value drift on key {key}: expected={expected_val}, actual={actual_val}, |diff|={abs(actual_val - expected_val)} > rtol*|expected|+atol"
             )

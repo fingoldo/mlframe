@@ -40,9 +40,7 @@ def test_combine_probs_arithm_with_precomputed_weights_matches_expected():
     stacked = rng.uniform(0.1, 0.9, size=(3, 50, 2))
     weights = np.array([0.6, 0.3, 0.1])
     out = combine_probs(stacked, "arithm", precomputed_weights=weights)
-    expected = (
-        weights[0] * stacked[0] + weights[1] * stacked[1] + weights[2] * stacked[2]
-    )
+    expected = weights[0] * stacked[0] + weights[1] * stacked[1] + weights[2] * stacked[2]
     np.testing.assert_allclose(out, expected, rtol=1e-12, atol=1e-12)
 
 
@@ -57,9 +55,7 @@ def test_combine_probs_harm_weighted_matches_definition():
     stacked = np.array([[0.5, 0.5], [0.25, 0.25], [0.1, 0.1]], dtype=np.float64)
     weights = np.array([0.5, 0.3, 0.2])
     out = combine_probs(stacked, "harm", precomputed_weights=weights)
-    expected = 1.0 / (
-        weights[0] / stacked[0] + weights[1] / stacked[1] + weights[2] / stacked[2]
-    )
+    expected = 1.0 / (weights[0] / stacked[0] + weights[1] / stacked[1] + weights[2] / stacked[2])
     np.testing.assert_allclose(out, expected, rtol=1e-12)
 
 
@@ -67,11 +63,7 @@ def test_combine_probs_geo_weighted_matches_definition():
     stacked = np.array([[0.5, 0.4], [0.3, 0.2], [0.6, 0.1]], dtype=np.float64)
     weights = np.array([0.5, 0.3, 0.2])
     out = combine_probs(stacked, "geo", precomputed_weights=weights)
-    expected = np.exp(
-        weights[0] * np.log(stacked[0])
-        + weights[1] * np.log(stacked[1])
-        + weights[2] * np.log(stacked[2])
-    )
+    expected = np.exp(weights[0] * np.log(stacked[0]) + weights[1] * np.log(stacked[1]) + weights[2] * np.log(stacked[2]))
     np.testing.assert_allclose(out, expected, rtol=1e-10)
 
 
@@ -79,11 +71,7 @@ def test_combine_probs_quad_weighted_matches_definition():
     stacked = np.array([[0.5, 0.4], [0.3, 0.2], [0.6, 0.1]], dtype=np.float64)
     weights = np.array([0.5, 0.3, 0.2])
     out = combine_probs(stacked, "quad", precomputed_weights=weights)
-    expected = np.sqrt(
-        weights[0] * stacked[0] ** 2
-        + weights[1] * stacked[1] ** 2
-        + weights[2] * stacked[2] ** 2
-    )
+    expected = np.sqrt(weights[0] * stacked[0] ** 2 + weights[1] * stacked[1] ** 2 + weights[2] * stacked[2] ** 2)
     np.testing.assert_allclose(out, expected, rtol=1e-12)
 
 
@@ -91,11 +79,7 @@ def test_combine_probs_qube_weighted_matches_definition():
     stacked = np.array([[0.5, 0.4], [0.3, 0.2], [0.6, 0.1]], dtype=np.float64)
     weights = np.array([0.5, 0.3, 0.2])
     out = combine_probs(stacked, "qube", precomputed_weights=weights)
-    expected = np.cbrt(
-        weights[0] * stacked[0] ** 3
-        + weights[1] * stacked[1] ** 3
-        + weights[2] * stacked[2] ** 3
-    )
+    expected = np.cbrt(weights[0] * stacked[0] ** 3 + weights[1] * stacked[1] ** 3 + weights[2] * stacked[2] ** 3)
     np.testing.assert_allclose(out, expected, rtol=1e-12)
 
 
@@ -148,9 +132,7 @@ def test_ensemble_probabilistic_predictions_forwards_weights():
         verbose=False,
         precomputed_weights=weights,
     )
-    expected = (
-        weights[0] * preds[0] + weights[1] * preds[1] + weights[2] * preds[2]
-    )
+    expected = weights[0] * preds[0] + weights[1] * preds[1] + weights[2] * preds[2]
     np.testing.assert_allclose(out, expected, rtol=1e-12)
 
 
@@ -162,7 +144,9 @@ def test_ensemble_probabilistic_predictions_realigns_weights_after_none():
     arr_c = rng.uniform(0.1, 0.9, size=(15, 2))
     weights = np.array([0.7, 0.2, 0.1])  # member B (index 1) is None below.
     out, _, _ = ensemble_probabilistic_predictions(
-        arr_a, None, arr_c,
+        arr_a,
+        None,
+        arr_c,
         ensemble_method="arithm",
         verbose=False,
         precomputed_weights=weights,
@@ -272,9 +256,7 @@ def test_score_ensemble_applies_nnls_weights_to_blend():
     np.testing.assert_allclose(actual, expected, rtol=1e-9, atol=1e-9)
     # Sanity: when the weights are not uniform, the blend must differ from
     # the uniform mean. If this fails the wire-up regressed.
-    assert not np.allclose(actual, uniform, rtol=1e-6), (
-        "NNLS weights did not change the blend (still uniform mean)"
-    )
+    assert not np.allclose(actual, uniform, rtol=1e-6), "NNLS weights did not change the blend (still uniform mean)"
 
 
 def test_score_ensemble_use_nnls_weights_false_falls_back_to_uniform():

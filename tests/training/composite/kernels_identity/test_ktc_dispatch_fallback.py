@@ -14,6 +14,7 @@ two safety contracts that matter regardless of whether a sweep has ever run:
 Both backends are bit-identical by construction, so this only needs to verify the
 routing logic, not numeric equality (that is pinned in the bit-identity sensors).
 """
+
 from __future__ import annotations
 
 import numpy as np

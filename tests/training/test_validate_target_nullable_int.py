@@ -15,6 +15,7 @@ infinity values before training"). Post-fix the helper coerces via to_numpy
 with na_value=nan for pandas and cast(Float64) for polars-Int-with-null, so
 np.isfinite sees a real numeric NaN.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,6 +27,7 @@ from mlframe.training._data_helpers import _validate_target_values
 
 
 # ---- pandas paths ---------------------------------------------------------
+
 
 def test_pandas_float_nan_detected():
     """Baseline: legacy float NaN was always detected."""
@@ -68,6 +70,7 @@ def test_pandas_float_with_inf_detected():
 
 # ---- polars paths ---------------------------------------------------------
 
+
 def test_polars_int64_with_null_detected_post_fix():
     """REGRESSION: pre-fix polars Int64 nulls also slipped through (different code path,
     same defeat-the-check shape)."""
@@ -101,6 +104,7 @@ def test_polars_clean_target_passes():
 
 
 # ---- classification single-class detection (post-fix path still works) ----
+
 
 def test_single_class_target_raises_classification_error():
     t = pd.Series([1, 1, 1, 1], dtype=np.int8)

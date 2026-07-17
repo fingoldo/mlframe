@@ -9,6 +9,7 @@ and low-cardinality binned inputs (incl. the int16->int32 storage boundary at nb
 warm-wall perf sentinel asserting the njit path is not slower than numpy at the production sample
 size.
 """
+
 from __future__ import annotations
 
 from timeit import default_timer as timer
@@ -56,14 +57,10 @@ def test_njit_bit_identical_tied_and_low_card() -> None:
     nbins = 16
     # All-constant codes -> MI exactly 0.0 on both paths.
     x0 = np.zeros(1000, dtype=np.int16)
-    assert _mi_from_binned_pair(x0, x0, nbins=nbins) == _mi_from_binned_pair_numpy(
-        x0, x0, nbins=nbins
-    )
+    assert _mi_from_binned_pair(x0, x0, nbins=nbins) == _mi_from_binned_pair_numpy(x0, x0, nbins=nbins)
     # Perfectly dependent low-cardinality (2-level) -> MI = log(2), same on both.
     x2 = (np.arange(1000) % 2).astype(np.int16)
-    assert abs(
-        _mi_from_binned_pair(x2, x2, nbins=nbins) - _mi_from_binned_pair_numpy(x2, x2, nbins=nbins)
-    ) < _MAXDIFF
+    assert abs(_mi_from_binned_pair(x2, x2, nbins=nbins) - _mi_from_binned_pair_numpy(x2, x2, nbins=nbins)) < _MAXDIFF
     # Heavy ties: most mass in one cell, a few off-diagonal.
     rng = np.random.default_rng(3)
     x = np.zeros(5000, dtype=np.int16)
@@ -71,9 +68,7 @@ def test_njit_bit_identical_tied_and_low_card() -> None:
     idx = rng.choice(5000, 200, replace=False)
     x[idx] = rng.integers(0, nbins, 200).astype(np.int16)
     y[idx] = rng.integers(0, nbins, 200).astype(np.int16)
-    assert abs(
-        _mi_from_binned_pair(x, y, nbins=nbins) - _mi_from_binned_pair_numpy(x, y, nbins=nbins)
-    ) < _MAXDIFF
+    assert abs(_mi_from_binned_pair(x, y, nbins=nbins) - _mi_from_binned_pair_numpy(x, y, nbins=nbins)) < _MAXDIFF
 
 
 @pytest.mark.skipif(not _HAS_NUMBA, reason="numba unavailable")
@@ -82,9 +77,7 @@ def test_njit_handles_empty_and_single_row() -> None:
     empty = np.empty(0, dtype=np.int16)
     assert _mi_from_binned_pair(empty, empty, nbins=nbins) == 0.0
     one = np.array([3], dtype=np.int16)
-    assert _mi_from_binned_pair(one, one, nbins=nbins) == _mi_from_binned_pair_numpy(
-        one, one, nbins=nbins
-    )
+    assert _mi_from_binned_pair(one, one, nbins=nbins) == _mi_from_binned_pair_numpy(one, one, nbins=nbins)
 
 
 @pytest.mark.skipif(not _HAS_NUMBA, reason="numba unavailable")

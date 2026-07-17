@@ -27,6 +27,7 @@ Contracts pinned (real AUC numbers, Bayes-feasible fixtures, never xfail):
 
 2026-06-01 Layer 99.
 """
+
 from __future__ import annotations
 
 import os
@@ -69,12 +70,14 @@ def _build_group_fixture(seed: int, n: int = 4000):
     group_mean = rng.uniform(-3.0, 3.0, n_groups)
     x = group_mean[region] + rng.normal(0.0, 3.0, n)
     y = (group_mean[region] + 0.1 * rng.normal(0.0, 1.0, n) > 0.0).astype(int)
-    X = pd.DataFrame({
-        "region": region.astype(np.int64),
-        "x": x,
-        "noise_0": rng.normal(0.0, 1.0, n),
-        "noise_1": rng.normal(0.0, 1.0, n),
-    })
+    X = pd.DataFrame(
+        {
+            "region": region.astype(np.int64),
+            "x": x,
+            "noise_0": rng.normal(0.0, 1.0, n),
+            "noise_1": rng.normal(0.0, 1.0, n),
+        }
+    )
     return X, y
 
 
@@ -143,7 +146,7 @@ class TestRuleRecommender:
         """A datetime column plus an entity column enables fe_temporal_agg_enable."""
         X, y = _build_time_entity_fixture(42)
         flags = recommend_fe_flags_by_rules(X, y)
-        assert flags["fe_temporal_agg_enable"] is True, f"time + entity must enable temporal; got " f"{ {k: v for k, v in flags.items() if v} }"
+        assert flags["fe_temporal_agg_enable"] is True, f"time + entity must enable temporal; got { {k: v for k, v in flags.items() if v} }"
 
     def test_clean_continuous_no_spurious_enables(self):
         """Pure Gaussian numerics with linear signal -> NO cat / temporal /
@@ -197,6 +200,7 @@ class TestRecommendEnabledFe:
     def test_classmethod_returns_recommendations_for_group_data(self):
         """Passing group data recommends fe_grouped_agg_enable alongside the static flip_safe taxonomy."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_group_fixture(13)
         rep = MRMR.recommend_enabled_fe(X, y)
         assert "fe_grouped_agg_enable" in rep["recommended_enable"]
@@ -206,6 +210,7 @@ class TestRecommendEnabledFe:
     def test_classmethod_empty_recommendation_without_data(self):
         """Without X/y, recommended_enable is empty but the static taxonomy is still returned."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rep = MRMR.recommend_enabled_fe()
         assert rep["recommended_enable"] == []
         assert rep["flip_risky"], "flip-safety taxonomy must still be returned"
@@ -230,14 +235,18 @@ class TestFeAutoEndToEnd:
             X, y = _build_group_fixture(s, n=4000)
             ys = pd.Series(y, name="y")
             Xtr, Xte, ytr, yte = train_test_split(
-                X, ys, test_size=0.3, random_state=s, stratify=ys,
+                X,
+                ys,
+                test_size=0.3,
+                random_state=s,
+                stratify=ys,
             )
 
             # Auto mode: only fe_auto=True, nothing else.
             m_auto = MRMR(max_runtime_mins=1.0, fe_auto=True)
             m_auto.fit(Xtr, ytr)
             ga_auto = list(getattr(m_auto, "grouped_agg_features_", []) or [])
-            assert ga_auto, f"seed={s}: fe_auto=True produced no grouped_agg features " f"(support should include the auto-enabled grouped aggregates)."
+            assert ga_auto, f"seed={s}: fe_auto=True produced no grouped_agg features (support should include the auto-enabled grouped aggregates)."
 
             # Manual-best: explicitly enable grouped_agg with the right cols.
             m_manual = MRMR(
@@ -257,13 +266,14 @@ class TestFeAutoEndToEnd:
         mean_auto = float(np.mean([a for a, _ in auto_lifts]))
         mean_manual = float(np.mean([m for _, m in auto_lifts]))
         assert mean_auto >= mean_manual - 0.02, (
-            f"fe_auto AUC {mean_auto:.4f} fell more than 0.02 below the " f"manual-best {mean_manual:.4f} (per-seed {auto_lifts})."
+            f"fe_auto AUC {mean_auto:.4f} fell more than 0.02 below the manual-best {mean_manual:.4f} (per-seed {auto_lifts})."
         )
 
     def test_fe_auto_false_byte_identical_default(self):
         """fe_auto=False (the default) leaves the legacy path untouched: no
         grouped_agg features, fe_grouped_agg_enable stays False before/after."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_group_fixture(42, n=2000)
         ys = pd.Series(y, name="y")
 
@@ -281,6 +291,7 @@ class TestFeAutoEndToEnd:
         the constructor-arg semantics are restored (so clone / pickle / refit
         are stable)."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_group_fixture(7, n=2000)
         m = MRMR(max_runtime_mins=0.5, fe_auto=True)
         assert bool(m.fe_grouped_agg_enable) is False
@@ -350,13 +361,14 @@ class TestLearnedRecommender:
 
         assert learned != rules_fresh, "learned recommender failed to override the cold-start rules."
         assert learned["fe_hybrid_orth_enable"] is True, (
-            f"learned recommender did not pick the empirically-best flag-set A; " f"got {{k: v for k, v in learned.items() if v}}."
+            f"learned recommender did not pick the empirically-best flag-set A; got {{k: v for k, v in learned.items() if v}}."
         )
 
     def test_fit_observe_is_stat_only(self, tmp_path):
         """The learned store must persist ONLY scalar fingerprint stats + the
         flag-set + the score -- never raw arrays."""
         import orjson
+
         store = os.path.join(str(tmp_path), "meta_fe_stat.parquet")
         rec = MetaFERecommender(store)
         X, y = _build_group_fixture(1, n=2000)
@@ -385,6 +397,7 @@ class TestPickleClonePreservesFeAuto:
     def test_clone_preserves_fe_auto(self):
         """sklearn clone() preserves fe_auto=True."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(fe_auto=True)
         c = clone(m)
         assert bool(c.fe_auto) is True
@@ -392,6 +405,7 @@ class TestPickleClonePreservesFeAuto:
     def test_pickle_round_trip_preserves_fe_auto(self):
         """A pickle round-trip preserves fe_auto=True, and the default MRMR() round-trips to fe_auto=False."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(fe_auto=True, max_runtime_mins=0.5)
         m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert bool(m2.fe_auto) is True

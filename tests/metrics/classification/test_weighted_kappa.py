@@ -76,8 +76,10 @@ def test_biz_val_quadratic_penalizes_far_errors_more_than_linear():
     lin = weighted_kappa(y, pred_far, weights="linear", n_classes=5)
     # both degenerate (constant y) -> denominator 0 -> 0.0; use a non-degenerate case instead
     y2 = np.array([0, 1, 2, 3, 4, 0, 1, 2, 3, 4])
-    a_far = y2.copy(); a_far[0] = 4  # one 4-grade miss
-    a_near = y2.copy(); a_near[0] = 1  # one 1-grade miss
+    a_far = y2.copy()
+    a_far[0] = 4  # one 4-grade miss
+    a_near = y2.copy()
+    a_near[0] = 1  # one 1-grade miss
     q_far = quadratic_weighted_kappa(y2, a_far, n_classes=5)
     q_near = quadratic_weighted_kappa(y2, a_near, n_classes=5)
     assert q_near > q_far  # the far miss lowers QWK more

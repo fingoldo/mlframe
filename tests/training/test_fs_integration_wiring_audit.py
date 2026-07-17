@@ -13,6 +13,7 @@ Covers two integration-layer bugs found in the 2026-06-22 FS suite-integration a
      consumes those keys), so they were forwarded verbatim to ``RFECV(**kwargs)`` and crashed
      at construction. The validator must now reject them at config time.
 """
+
 from __future__ import annotations
 
 import os

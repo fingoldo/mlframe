@@ -9,6 +9,7 @@ to a TEST regime where ``x1``/``x2`` DECORRELATE (an out-of-distribution extrapo
 learned the wrong split would get wrong, even though it fit the training sum perfectly) -- exactly the
 "auxiliary target using contributions gave a high boost" claim from the source competition.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -52,11 +53,15 @@ def test_biz_val_additive_decomposition_component_supervision_beats_sum_only_ood
     sum_only.fit(X_train, y_train)
     mse_sum_only = mean_squared_error(y_test, sum_only.predict(X_test))
 
-    supervised = AdditiveDecompositionRegressor(component_names=("c1", "c2"), hidden_sizes=(), component_task_weight=1.0, n_epochs=1000, lr=0.05, random_state=0)
+    supervised = AdditiveDecompositionRegressor(
+        component_names=("c1", "c2"), hidden_sizes=(), component_task_weight=1.0, n_epochs=1000, lr=0.05, random_state=0
+    )
     supervised.fit(X_train, y_train, component_targets={"c1": c1_train, "c2": c2_train})
     mse_supervised = mean_squared_error(y_test, supervised.predict(X_test))
 
-    assert mse_supervised < mse_sum_only * 0.75, f"expected component supervision to cut OOD test MSE by >=25% vs sum-only training, got supervised={mse_supervised:.4f} sum_only={mse_sum_only:.4f}"
+    assert mse_supervised < mse_sum_only * 0.75, (
+        f"expected component supervision to cut OOD test MSE by >=25% vs sum-only training, got supervised={mse_supervised:.4f} sum_only={mse_sum_only:.4f}"
+    )
 
 
 def test_additive_decomposition_predict_components_recovers_true_split():
@@ -116,7 +121,9 @@ def test_additive_decomposition_no_constraints_is_bit_identical_to_pre_constrain
     pred_no_constraints_arg = model.predict(X_test)
     components_no_constraints_arg = model.predict_components(X_test)
 
-    model_explicit_none = AdditiveDecompositionRegressor(component_names=("c1", "c2"), hidden_sizes=(8,), component_constraints=None, n_epochs=40, lr=0.05, random_state=7)
+    model_explicit_none = AdditiveDecompositionRegressor(
+        component_names=("c1", "c2"), hidden_sizes=(8,), component_constraints=None, n_epochs=40, lr=0.05, random_state=7
+    )
     model_explicit_none.fit(X_train, y_train, component_targets={"c1": c1_train, "c2": c2_train})
     pred_explicit_none = model_explicit_none.predict(X_test)
 
@@ -213,4 +220,6 @@ def test_biz_val_additive_decomposition_non_negative_constraint_eliminates_sign_
     # Threshold set well below the weakest observed unconstrained violation rate (343/1000 = 34.3% at seed=20,
     # the minimum across the 5 seeds measured) -- proves the sign violation is a reliable, reproducible failure
     # mode of the unconstrained head, not a cherry-picked outlier.
-    assert min(n_negative_unconstrained) >= 250, f"expected the unconstrained head to reliably violate non-negativity (>=250/1000 rows), got {n_negative_unconstrained}"
+    assert min(n_negative_unconstrained) >= 250, (
+        f"expected the unconstrained head to reliably violate non-negativity (>=250/1000 rows), got {n_negative_unconstrained}"
+    )

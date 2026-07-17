@@ -7,6 +7,7 @@ Verifies:
 - _WelfordAccumulator combine() exactly merges two partial accumulators
 - Memory footprint O(N*K) — empirically verified via memory_info().private
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,6 +47,7 @@ def test_streaming_median_raises():
 
 def test_streaming_outlier_filter_warn(caplog):
     import logging
+
     preds = _make_preds(M=6)
     with caplog.at_level(logging.WARNING):
         ensemble_probabilistic_predictions_streaming(*preds, ensemble_method="arithm", verbose=True)
@@ -63,9 +65,7 @@ def test_streaming_1d_input_preserved():
     """1-D preds should return 1-D ensembled output (not (N, 1))."""
     rng = np.random.default_rng(0)
     preds = [rng.uniform(0.01, 0.99, size=(100,)) for _ in range(4)]
-    ens, unc, _ = ensemble_probabilistic_predictions_streaming(
-        *preds, ensemble_method="arithm", verbose=False
-    )
+    ens, unc, _ = ensemble_probabilistic_predictions_streaming(*preds, ensemble_method="arithm", verbose=False)
     assert ens.ndim == 1
     assert ens.shape == (100,)
 
@@ -91,12 +91,15 @@ def test_welford_combine_exact_merge():
     shape = preds[0].shape
     a = _WelfordAccumulator(shape=shape)
     b = _WelfordAccumulator(shape=shape)
-    for p in preds[:4]: a.push(p)
-    for p in preds[4:]: b.push(p)
+    for p in preds[:4]:
+        a.push(p)
+    for p in preds[4:]:
+        b.push(p)
     combined = _WelfordAccumulator.combine(a, b).result()
 
     full = _WelfordAccumulator(shape=shape)
-    for p in preds: full.push(p)
+    for p in preds:
+        full.push(p)
     ref = full.result()
 
     np.testing.assert_allclose(combined["mean"], ref["mean"], atol=1e-12)

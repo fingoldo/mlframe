@@ -5,6 +5,7 @@ Pre-existing `test_ranking_strategies.py` / `test_ranking_ensemble.py` /
 paths. This file adds focused per-function tests for `qid_to_group_sizes`
 and the three `prepare_*_inputs` backends to lock parity contracts.
 """
+
 from __future__ import annotations
 
 import numpy as np

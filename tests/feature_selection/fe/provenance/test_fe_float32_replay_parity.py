@@ -24,6 +24,7 @@ spurious O(1) divergence that has nothing to do with selection stability.
 All cells are CPU-only and n<=1200 so each finishes well under the ~55s
 per-test budget.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -77,10 +78,9 @@ def _make_univariate_data(n: int = 1200, seed: int = 0):
     x0 = rng.normal(size=n)
     x1 = rng.normal(size=n)
     noise = rng.normal(size=(n, 4))
-    score = x0 ** 2 - 1.0 + 0.5 * x1
+    score = x0**2 - 1.0 + 0.5 * x1
     y = (score > np.median(score)).astype(np.int64)
-    X = pd.DataFrame(np.column_stack([x0, x1, noise]),
-                     columns=[f"x{i}" for i in range(6)])
+    X = pd.DataFrame(np.column_stack([x0, x1, noise]), columns=[f"x{i}" for i in range(6)])
     return X, pd.Series(y, name="y")
 
 
@@ -129,10 +129,7 @@ def test_transform_holdout_all_finite(mech, dtype):
     Xh = _make_probe_frame()
     out = m.transform(Xh.astype(dtype))
     arr = np.asarray(out, dtype=np.float64)
-    assert np.isfinite(arr).all(), (
-        f"{mech} @ {np.dtype(dtype).name}: transform() produced non-finite "
-        f"values ({(~np.isfinite(arr)).sum()} of {arr.size})"
-    )
+    assert np.isfinite(arr).all(), f"{mech} @ {np.dtype(dtype).name}: transform() produced non-finite values ({(~np.isfinite(arr)).sum()} of {arr.size})"
 
 
 # ---------------------------------------------------------------------------
@@ -152,10 +149,7 @@ def test_f32_nameset_matches_f64(mech):
     set32 = _selected_nameset(_fit_mrmr(flags, np.float32))
     if set64 != set32:
         diff = set64.symmetric_difference(set32)
-        pytest.xfail(
-            "PROD BUG: f32 selection diverges from f64 for "
-            f"{mech}; symmetric diff={sorted(diff)}"
-        )
+        pytest.xfail(f"PROD BUG: f32 selection diverges from f64 for {mech}; symmetric diff={sorted(diff)}")
     assert set64 == set32
 
 
@@ -176,10 +170,7 @@ def test_recipe_replay_allclose_f32_vs_f64(mech):
     eng64 = {r.name: r for r in getattr(m64, "_engineered_recipes_", [])}
     eng32 = {r.name: r for r in getattr(m32, "_engineered_recipes_", [])}
     common = set(eng64) & set(eng32)
-    assert common, (
-        f"{mech}: expected >=1 engineered recipe produced by both f32 and f64 "
-        f"fits (f64={sorted(eng64)}, f32={sorted(eng32)})"
-    )
+    assert common, f"{mech}: expected >=1 engineered recipe produced by both f32 and f64 fits (f64={sorted(eng64)}, f32={sorted(eng32)})"
 
     Xh = _make_probe_frame()
     Xh64 = Xh.astype(np.float64)
@@ -187,13 +178,8 @@ def test_recipe_replay_allclose_f32_vs_f64(mech):
     for nm in sorted(common):
         v64 = np.asarray(apply_recipe(eng64[nm], Xh64), dtype=np.float64)
         v32 = np.asarray(apply_recipe(eng32[nm], Xh32), dtype=np.float64)
-        assert np.isfinite(v32).all(), (
-            f"{mech}: recipe '{nm}' f32 replay produced non-finite values"
-        )
-        assert np.allclose(v64, v32, rtol=1e-4, atol=1e-4), (
-            f"{mech}: recipe '{nm}' diverges between f32/f64 fits; "
-            f"max|diff|={np.nanmax(np.abs(v64 - v32)):.3e}"
-        )
+        assert np.isfinite(v32).all(), f"{mech}: recipe '{nm}' f32 replay produced non-finite values"
+        assert np.allclose(v64, v32, rtol=1e-4, atol=1e-4), f"{mech}: recipe '{nm}' diverges between f32/f64 fits; max|diff|={np.nanmax(np.abs(v64 - v32)):.3e}"
 
 
 # ---------------------------------------------------------------------------
@@ -216,10 +202,7 @@ def test_all_modern_fe_mechanisms_f32_parity():
 
         set64 = _selected_nameset(m64)
         set32 = _selected_nameset(m32)
-        assert set64 == set32, (
-            f"{mech}: f32 selection diverged from f64; "
-            f"diff={sorted(set64.symmetric_difference(set32))}"
-        )
+        assert set64 == set32, f"{mech}: f32 selection diverged from f64; diff={sorted(set64.symmetric_difference(set32))}"
 
         out32 = np.asarray(m32.transform(Xh32), dtype=np.float64)
         assert np.isfinite(out32).all(), f"{mech}: f32 transform non-finite"
@@ -229,7 +212,4 @@ def test_all_modern_fe_mechanisms_f32_parity():
         for nm in set(eng64) & set(eng32):
             v64 = np.asarray(apply_recipe(eng64[nm], Xh64), dtype=np.float64)
             v32 = np.asarray(apply_recipe(eng32[nm], Xh32), dtype=np.float64)
-            assert np.allclose(v64, v32, rtol=1e-4, atol=1e-4), (
-                f"{mech}: recipe '{nm}' f32/f64 divergence "
-                f"max={np.nanmax(np.abs(v64 - v32)):.3e}"
-            )
+            assert np.allclose(v64, v32, rtol=1e-4, atol=1e-4), f"{mech}: recipe '{nm}' f32/f64 divergence max={np.nanmax(np.abs(v64 - v32)):.3e}"

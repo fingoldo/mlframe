@@ -22,6 +22,7 @@ This test asserts:
 4. Calling ``_build_pre_pipelines(use_mrmr_fs=True, ...)`` DOES trigger the
    import (user opt-in path still works correctly).
 """
+
 from __future__ import annotations
 
 import importlib
@@ -54,9 +55,9 @@ def _restore_filters_sysmodules_snapshot():
     2026-05-22 trace identified this as the canonical pollution pattern.
     """
     snapshot = {
-        name: mod for name, mod in sys.modules.items()
-        if name == _FILTERS_MODULE or name.startswith(_FILTERS_MODULE + ".")
-        or name == "mlframe.training.core._setup_helpers"
+        name: mod
+        for name, mod in sys.modules.items()
+        if name == _FILTERS_MODULE or name.startswith(_FILTERS_MODULE + ".") or name == "mlframe.training.core._setup_helpers"
     }
     yield
     # Restore originals so module-level ``from ... import MRMR`` references
@@ -67,8 +68,7 @@ def _restore_filters_sysmodules_snapshot():
     # loop would never re-insert the snapshotted (OLD) module objects -- leaving filters
     # absent and forcing the NEXT test's import to bind a fresh NEW class (the identity
     # split that breaks pickling + MRMR._FIT_CACHE asserts in sibling tests).
-    relevant = lambda name: (name == _FILTERS_MODULE or name.startswith(_FILTERS_MODULE + ".")
-                             or name == "mlframe.training.core._setup_helpers")
+    relevant = lambda name: name == _FILTERS_MODULE or name.startswith(_FILTERS_MODULE + ".") or name == "mlframe.training.core._setup_helpers"
     for name in set(sys.modules) | set(snapshot):
         if not relevant(name):
             continue
@@ -84,9 +84,9 @@ def test_setup_helpers_module_has_no_top_level_mrmr_attribute():
     at runtime so ``hasattr`` returns False).
     """
     from mlframe.training.core import _setup_helpers
+
     assert not hasattr(_setup_helpers, "MRMR"), (
-        "_setup_helpers must NOT re-export MRMR at module level -- that would "
-        "force the ~16s feature_selection.filters import on every caller"
+        "_setup_helpers must NOT re-export MRMR at module level -- that would force the ~16s feature_selection.filters import on every caller"
     )
 
 
@@ -99,10 +99,7 @@ def test_filters_subgraph_not_loaded_after_setup_helpers_import():
     # exercised on this turn.
     sys.modules.pop("mlframe.training.core._setup_helpers", None)
     importlib.import_module("mlframe.training.core._setup_helpers")
-    assert _FILTERS_MODULE not in sys.modules, (
-        f"{_FILTERS_MODULE} ended up in sys.modules just from importing "
-        f"_setup_helpers -- the deferral regressed"
-    )
+    assert _FILTERS_MODULE not in sys.modules, f"{_FILTERS_MODULE} ended up in sys.modules just from importing _setup_helpers -- the deferral regressed"
 
 
 def test_build_pre_pipelines_with_use_mrmr_false_does_not_import_filters():
@@ -121,10 +118,7 @@ def test_build_pre_pipelines_with_use_mrmr_false_does_not_import_filters():
         mrmr_kwargs={},
         custom_pre_pipelines=None,
     )
-    assert _FILTERS_MODULE not in sys.modules, (
-        f"{_FILTERS_MODULE} loaded even though use_mrmr_fs=False -- the "
-        f"deferral did not gate correctly"
-    )
+    assert _FILTERS_MODULE not in sys.modules, f"{_FILTERS_MODULE} loaded even though use_mrmr_fs=False -- the deferral did not gate correctly"
     # And the pipelines list should not contain MRMR
     assert all("MRMR" not in name for name in pre_pipeline_names)
 
@@ -145,9 +139,6 @@ def test_build_pre_pipelines_with_use_mrmr_true_does_import_filters():
         mrmr_kwargs={},
         custom_pre_pipelines=None,
     )
-    assert _FILTERS_MODULE in sys.modules, (
-        f"{_FILTERS_MODULE} NOT in sys.modules even though use_mrmr_fs=True -- "
-        f"the deferral broke the opt-in path"
-    )
+    assert _FILTERS_MODULE in sys.modules, f"{_FILTERS_MODULE} NOT in sys.modules even though use_mrmr_fs=True -- the deferral broke the opt-in path"
     # And the pipelines list should contain MRMR
     assert any("MRMR" in name for name in pre_pipeline_names)

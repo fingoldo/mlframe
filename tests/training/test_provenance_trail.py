@@ -8,6 +8,7 @@ only the expected split (train / train_only / oof / etc.).
 This sensor exercises the helper directly (unit) and verifies the analyzer wire-in
 on a synthetic call (integration) without needing a full suite run.
 """
+
 from __future__ import annotations
 
 import numpy as np

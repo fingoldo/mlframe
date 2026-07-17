@@ -13,6 +13,7 @@ Guards two confirmed 2026-06-22 divergences (found by the CPU/GPU-equivalency + 
 
 Both assertions below FAIL on the pre-fix kernels and pass after.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -60,8 +61,8 @@ def ab():
     a = rng.normal(0, 3, n)
     b = rng.normal(0, 3, n)
     # Inject small + exact-zero denominators -- the regime where the perturbed div diverges.
-    b[:50] = rng.uniform(1e-7, 1e-5, 50)   # tiny positive: perturbed != exact by ~2*eps/b
-    b[50:60] = 0.0                          # exact zero: eps floor must engage in both forms
+    b[:50] = rng.uniform(1e-7, 1e-5, 50)  # tiny positive: perturbed != exact by ~2*eps/b
+    b[50:60] = 0.0  # exact zero: eps floor must engage in both forms
     return a.astype(np.float64), b.astype(np.float64)
 
 
@@ -74,7 +75,10 @@ def test_extval_njit_all_ops_match_numpy(ab):
         ref = _ref(op, a, b)
         # extval is exact float64; div/ratio_abs exact, the rest bit-exact ufuncs.
         np.testing.assert_allclose(
-            out[:, j], ref, rtol=0, atol=1e-9,
+            out[:, j],
+            ref,
+            rtol=0,
+            atol=1e-9,
             err_msg=f"extval op {op!r} diverged (ops 6/7/8 were silently computed as min before the fix)",
         )
 
@@ -82,8 +86,8 @@ def test_extval_njit_all_ops_match_numpy(ab):
 def test_chunk_njit_all_ops_match_numpy_f32(ab):
     a, b = ab
     tv = np.ascontiguousarray(np.column_stack([a, b]).astype(np.float32))
-    a_cols = np.zeros(len(_OPS), dtype=np.int64)         # operand 0 = a
-    b_cols = np.ones(len(_OPS), dtype=np.int64)          # operand 1 = b
+    a_cols = np.zeros(len(_OPS), dtype=np.int64)  # operand 0 = a
+    b_cols = np.ones(len(_OPS), dtype=np.int64)  # operand 1 = b
     codes = np.array([_NJIT_BINARY_OP_CODES[o] for o in _OPS], dtype=np.int8)
     out = np.empty((a.shape[0], len(_OPS)), dtype=np.float32)
     _materialise_chunk_njit(tv, a_cols, b_cols, codes, out)
@@ -93,7 +97,10 @@ def test_chunk_njit_all_ops_match_numpy_f32(ab):
         ref = np.nan_to_num(ref, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
         # f32 tolerance; the tiny-denominator div would miss this by ~2*eps/b under the old perturbed form.
         np.testing.assert_allclose(
-            out[:, j], ref, rtol=1e-5, atol=1e-5,
+            out[:, j],
+            ref,
+            rtol=1e-5,
+            atol=1e-5,
             err_msg=f"chunk op {op!r} diverged from canonical _safe_div/numpy",
         )
 

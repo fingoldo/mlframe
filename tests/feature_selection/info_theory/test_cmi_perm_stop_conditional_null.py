@@ -8,6 +8,7 @@ distribution of I(X_perm; Y | Z) is no longer centered at the observed value for
 SA1: the permutation p-value must use the add-one (Phipson & Smyth 2010) estimator ``(1 + nexceed) / (B + 1)`` so it is
 never exactly 0.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,9 +55,15 @@ def test_conditional_null_does_not_flag_feature_redundant_given_z():
     n = 2000
     x, y, z, nb = _make_redundant_given_z(n, seed=7)
     is_sig, obs, p = cmi_permutation_stop(
-        x_cand=x, y=y, selected_cols=[z],
-        nbins_x=nb, nbins_y=nb, nbins_selected=[nb],
-        n_permutations=200, alpha=0.05, seed=0,
+        x_cand=x,
+        y=y,
+        selected_cols=[z],
+        nbins_x=nb,
+        nbins_y=nb,
+        nbins_selected=[nb],
+        n_permutations=200,
+        alpha=0.05,
+        seed=0,
     )
     assert not is_sig, f"conditional null wrongly flagged a feature redundant given Z (p={p}, obs_cmi={obs})"
     assert p > 0.05, f"expected non-significant conditional p-value, got {p}"
@@ -87,8 +94,15 @@ def test_conditional_null_is_calibrated_marginal_null_is_not():
     )
     # And the public stop, which now uses the conditional null, must agree the observed sits inside the conditional null.
     _, obs_pub, p = cmi_permutation_stop(
-        x_cand=x, y=y, selected_cols=[z], nbins_x=nb, nbins_y=nb, nbins_selected=[nb],
-        n_permutations=200, alpha=0.05, seed=0,
+        x_cand=x,
+        y=y,
+        selected_cols=[z],
+        nbins_x=nb,
+        nbins_y=nb,
+        nbins_selected=[nb],
+        n_permutations=200,
+        alpha=0.05,
+        seed=0,
     )
     assert obs_pub == pytest.approx(obs)
     assert p > 0.05
@@ -103,9 +117,15 @@ def test_pvalue_never_exactly_zero():
     x = rng.integers(0, 2, size=n).astype(np.int64)
     y = (x ^ z).astype(np.int64)
     is_sig, obs, p = cmi_permutation_stop(
-        x_cand=x, y=y, selected_cols=[z],
-        nbins_x=2, nbins_y=2, nbins_selected=[2],
-        n_permutations=50, alpha=0.05, seed=1,
+        x_cand=x,
+        y=y,
+        selected_cols=[z],
+        nbins_x=2,
+        nbins_y=2,
+        nbins_selected=[2],
+        n_permutations=50,
+        alpha=0.05,
+        seed=1,
     )
     assert p > 0.0, "add-one correction must keep the permutation p-value strictly positive"
     assert p == pytest.approx(1.0 / 51.0), f"expected the add-one floor 1/(B+1)=1/51, got {p}"

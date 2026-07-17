@@ -7,6 +7,7 @@ Arch-6: ``metadata["ensemble_composition"]`` exposes per-target {flavour, member
 
 Behavioural, not source-inspecting; assertions hit the metadata dict directly.
 """
+
 from __future__ import annotations
 
 import logging
@@ -64,7 +65,8 @@ def test_combine_probs_warns_on_calibration_mix(caplog):
     metadata: dict = {}
     with caplog.at_level(logging.WARNING):
         out = _combine_probs(
-            probs, "arithm",
+            probs,
+            "arithm",
             is_calibrated_per_model=[True, False, True],
             metadata=metadata,
             target_label="binary/y",
@@ -83,7 +85,8 @@ def test_combine_probs_no_warn_when_all_calibrated(caplog):
     metadata: dict = {}
     with caplog.at_level(logging.WARNING):
         _combine_probs(
-            probs, "arithm",
+            probs,
+            "arithm",
             is_calibrated_per_model=[True, True],
             metadata=metadata,
         )
@@ -98,7 +101,8 @@ def test_combine_probs_no_warn_when_none_calibrated(caplog):
     metadata: dict = {}
     with caplog.at_level(logging.WARNING):
         _combine_probs(
-            probs, "arithm",
+            probs,
+            "arithm",
             is_calibrated_per_model=[False, False],
             metadata=metadata,
         )
@@ -112,7 +116,8 @@ def test_combine_probs_proceeds_on_mix_does_not_refuse():
 
     probs = [np.full(4, 0.1), np.full(4, 0.9)]
     out = _combine_probs(
-        probs, "arithm",
+        probs,
+        "arithm",
         is_calibrated_per_model=[True, False],
         metadata={},
     )

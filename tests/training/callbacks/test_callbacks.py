@@ -23,6 +23,7 @@ import pytest
 
 try:
     import xgboost
+
     HAS_XGBOOST = True
     XGBOOST_VERSION = tuple(int(x) for x in xgboost.__version__.split(".")[:2])
 except ImportError:
@@ -31,24 +32,28 @@ except ImportError:
 
 try:
     import lightgbm  # noqa: F401
+
     HAS_LIGHTGBM = True
 except ImportError:
     HAS_LIGHTGBM = False
 
 try:
     import catboost  # noqa: F401
+
     HAS_CATBOOST = True
 except ImportError:
     HAS_CATBOOST = False
 
 try:
     from mlframe.training.helpers import XGBoostCallback, LightGBMCallback, CatBoostCallback
+
     HAS_MLFRAME_HELPERS = True
 except (ImportError, ModuleNotFoundError):
     HAS_MLFRAME_HELPERS = False
 
 try:
     from mlframe.training.trainer import _setup_early_stopping_callback
+
     HAS_MLFRAME_TRAINER = True
 except (ImportError, ModuleNotFoundError):
     HAS_MLFRAME_TRAINER = False
@@ -60,12 +65,8 @@ except (ImportError, ModuleNotFoundError):
 requires_xgboost = pytest.mark.skipif(not HAS_XGBOOST, reason="xgboost not installed")
 requires_lightgbm = pytest.mark.skipif(not HAS_LIGHTGBM, reason="lightgbm not installed")
 requires_catboost = pytest.mark.skipif(not HAS_CATBOOST, reason="catboost not installed")
-requires_mlframe_helpers = pytest.mark.skipif(
-    not HAS_MLFRAME_HELPERS, reason="mlframe.training.helpers could not be imported"
-)
-requires_mlframe_trainer = pytest.mark.skipif(
-    not HAS_MLFRAME_TRAINER, reason="mlframe.training.trainer could not be imported"
-)
+requires_mlframe_helpers = pytest.mark.skipif(not HAS_MLFRAME_HELPERS, reason="mlframe.training.helpers could not be imported")
+requires_mlframe_trainer = pytest.mark.skipif(not HAS_MLFRAME_TRAINER, reason="mlframe.training.trainer could not be imported")
 # XGBoost >= 2.x changed TrainingCallback to ABC with strict isinstance check
 requires_xgboost_2 = pytest.mark.skipif(
     not HAS_XGBOOST or XGBOOST_VERSION < (2, 0),
@@ -93,8 +94,7 @@ class TestXGBoostCallbackIsInstance:
 
         cb = XGBoostCallback()
         assert isinstance(cb, TrainingCallback), (
-            "XGBoostCallback must be a TrainingCallback subclass. "
-            "XGBoost >= 2.x CallbackContainer raises TypeError otherwise."
+            "XGBoostCallback must be a TrainingCallback subclass. XGBoost >= 2.x CallbackContainer raises TypeError otherwise."
         )
 
     @requires_xgboost
@@ -115,6 +115,7 @@ class TestXGBoostCallbackIsInstance:
         original_init = TrainingCallback.__init__
 
         try:
+
             def patched_init(self):
                 init_calls.append(self)
                 original_init(self)
@@ -122,8 +123,7 @@ class TestXGBoostCallbackIsInstance:
             TrainingCallback.__init__ = patched_init
             cb = XGBoostCallback()
             assert cb in init_calls, (
-                "TrainingCallback.__init__ was not called during XGBoostCallback instantiation. "
-                "UniversalCallback.__init__ must call super().__init__()."
+                "TrainingCallback.__init__ was not called during XGBoostCallback instantiation. UniversalCallback.__init__ must call super().__init__()."
             )
         finally:
             TrainingCallback.__init__ = original_init
@@ -211,6 +211,7 @@ class TestSetupEarlyStoppingCallbackLegacyFilter:
 
         class LegacyCallback:
             """Old-style XGBoost 1.x callback — does not inherit TrainingCallback."""
+
             def after_iteration(self, model, epoch, evals_log):
                 return False
 
@@ -245,7 +246,9 @@ class TestSetupEarlyStoppingCallbackLegacyFilter:
                 return False
 
         model_obj = XGBClassifier(
-            n_estimators=20, early_stopping_rounds=3, verbosity=0,
+            n_estimators=20,
+            early_stopping_rounds=3,
+            verbosity=0,
             callbacks=[LegacyCallback()],
         )
         _setup_early_stopping_callback("xgb", {}, {"time_budget_mins": 60, "patience": 5}, model_obj)
@@ -327,7 +330,7 @@ class TestCatBoostMonotonicDeclineWiring:
 
         for v in [0.5, 0.6, 0.7]:
             cb.after_iteration(_info(v))
-        assert cb.after_iteration(_info(0.7)) is True   # plateau resets streak
-        assert cb.after_iteration(_info(0.8)) is True   # decline 1
-        assert cb.after_iteration(_info(0.9)) is True   # decline 2
+        assert cb.after_iteration(_info(0.7)) is True  # plateau resets streak
+        assert cb.after_iteration(_info(0.8)) is True  # decline 1
+        assert cb.after_iteration(_info(0.9)) is True  # decline 2
         assert cb.after_iteration(_info(1.0)) is False  # decline 3 -> stop

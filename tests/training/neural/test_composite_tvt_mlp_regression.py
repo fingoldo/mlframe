@@ -34,6 +34,7 @@ LGBM-proxy folds on real heavy-tail residuals, and per-bin variance
 collapse). The per-default unit tests in the sibling file already
 lock the constants; this test locks the joint behaviour.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -61,9 +62,14 @@ def _tvt_like_synthetic(n: int = 2000, seed: int = 0):
     lag_y = np.r_[y[0], y[:-1]].astype(np.float64)
     x_corr = (y + rng.normal(scale=5.0, size=n)).astype(np.float64)
     x_noise = rng.normal(size=n).astype(np.float64)
-    df = pd.DataFrame({
-        "lag_y": lag_y, "x_corr": x_corr, "x_noise": x_noise, "y": y,
-    })
+    df = pd.DataFrame(
+        {
+            "lag_y": lag_y,
+            "x_corr": x_corr,
+            "x_noise": x_noise,
+            "y": y,
+        }
+    )
     feature_cols = ["lag_y", "x_corr", "x_noise"]
     train_idx = np.arange(int(0.8 * n))
     return df, "y", feature_cols, train_idx
@@ -73,13 +79,16 @@ def _has_pure_lag_spec(disc) -> bool:
     """True iff at least one spec uses ``lag_y`` as base AND
     a residualisation transform (no Y-only unary transform)."""
     pure_lag_transforms = {
-        "linear_residual", "monotonic_residual", "diff",
-        "chain_linres_cbrt", "chain_linres_yj",
-        "chain_monres_cbrt", "chain_monres_yj",
+        "linear_residual",
+        "monotonic_residual",
+        "diff",
+        "chain_linres_cbrt",
+        "chain_linres_yj",
+        "chain_monres_cbrt",
+        "chain_monres_yj",
     }
     for s in disc.specs_:
-        if (getattr(s, "base_column", None) == "lag_y"
-                and getattr(s, "transform_name", None) in pure_lag_transforms):
+        if getattr(s, "base_column", None) == "lag_y" and getattr(s, "transform_name", None) in pure_lag_transforms:
             return True
     return False
 
@@ -110,8 +119,10 @@ class TestTVTPureLagSurvivesDefaults:
             base_candidates=["lag_y"],
             transforms=["linear_residual", "monotonic_residual", "diff"],
             screening="hybrid",
-            mi_sample_n=1500, tiny_model_sample_n=1200,
-            tiny_model_n_estimators=40, tiny_model_cv_folds=3,
+            mi_sample_n=1500,
+            tiny_model_sample_n=1200,
+            tiny_model_n_estimators=40,
+            tiny_model_cv_folds=3,
             top_m_after_tiny=3,
             random_state=0,
             use_baseline_diagnostics_hint=False,
@@ -163,13 +174,9 @@ class TestTVTPureLagSurvivesDefaults:
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df, target_col=tgt, feature_cols=feats, train_idx=train_idx)
         pure_lag_specs = [
-            s for s in disc.specs_
-            if getattr(s, "base_column", None) == "lag_y"
-            and getattr(s, "transform_name", None) in {"linear_residual", "diff"}
+            s for s in disc.specs_ if getattr(s, "base_column", None) == "lag_y" and getattr(s, "transform_name", None) in {"linear_residual", "diff"}
         ]
-        assert pure_lag_specs, (
-            f"Expected pure-lag spec in specs_={[s.name for s in disc.specs_]}"
-        )
+        assert pure_lag_specs, f"Expected pure-lag spec in specs_={[s.name for s in disc.specs_]}"
         # The residual T = y - alpha*lag_y on AR(1) noise=1.0 data has
         # std ~ 1.0 (matches the AR innovation std). y itself has std
         # ~ 30 (free-drift AR1). The composite should compress target
@@ -177,6 +184,7 @@ class TestTVTPureLagSurvivesDefaults:
         # tiny-MI-screening noise doesn't trip the test.
         y_full = df["y"].to_numpy()
         from mlframe.training.composite.transforms import get_transform
+
         spec = pure_lag_specs[0]
         transform = get_transform(spec.transform_name)
         lag_full = df["lag_y"].to_numpy()

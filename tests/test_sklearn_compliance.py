@@ -1,4 +1,5 @@
 """Sklearn-compliance tests for estimators touched by fix-agent #8."""
+
 import numpy as np
 import pytest
 
@@ -70,6 +71,7 @@ def test_classifier_with_early_stopping_proxies_predict_proba():
 def test_cluster_module_imports_cleanly():
     # regression guard for DBSCAN NameError at cluster.py:26
     import mlframe.preprocessing.cluster as cluster
+
     assert hasattr(cluster, "DBSCAN")
     assert hasattr(cluster, "clusterize")
 
@@ -99,6 +101,7 @@ def test_feature_importance_sign_check_uses_sorted_order():
     # Regression: sign check must index via sorted_idx[0], not raw [0].
     # Simulate: feature_importances with a negative min NOT at index 0 => previous logic missed the branch.
     import numpy as np
+
     feature_importances = np.array([0.5, -0.3, 0.1])
     sorted_idx = np.argsort(feature_importances)  # [1, 2, 0]
     # Fixed code: feature_importances[sorted_idx[0]] < 0

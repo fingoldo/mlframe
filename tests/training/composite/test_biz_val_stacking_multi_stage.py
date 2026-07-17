@@ -13,6 +13,7 @@ feeding stage 1's hard ``predict()`` label in as a meta-feature collapses that p
 throwing away exactly the magnitude information the primary target depends on. Feeding the continuous
 ``predict_proba`` positive-class probability in instead preserves it.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,7 +59,9 @@ def test_biz_val_multi_stage_stacker_beats_raw_feature_baseline_mse():
     stacker_mse = mean_squared_error(y_test, stacker.predict(X_test))
 
     improvement = 1.0 - stacker_mse / baseline_mse
-    assert improvement > 0.4, f"expected >40% MSE reduction vs. a raw-feature-only linear baseline, got {improvement:.4f} (baseline={baseline_mse:.2f}, stacker={stacker_mse:.2f})"
+    assert improvement > 0.4, (
+        f"expected >40% MSE reduction vs. a raw-feature-only linear baseline, got {improvement:.4f} (baseline={baseline_mse:.2f}, stacker={stacker_mse:.2f})"
+    )
 
 
 def test_multi_stage_stacker_requires_all_auxiliary_targets():
@@ -81,13 +84,17 @@ def test_multi_stage_stacker_works_with_pandas_and_ndarray_input():
     X_df = pd.DataFrame(X, columns=[f"col{j}" for j in range(X.shape[1])])
 
     stacker_arr = MultiStageMetaFeatureStacker(
-        stage1_estimator_factories={"aux": lambda: LinearRegression()}, stage2_estimator=LinearRegression(), n_splits=3,
+        stage1_estimator_factories={"aux": lambda: LinearRegression()},
+        stage2_estimator=LinearRegression(),
+        n_splits=3,
     )
     stacker_arr.fit(X, y_primary, {"aux": y_aux})
     pred_arr = stacker_arr.predict(X)
 
     stacker_df = MultiStageMetaFeatureStacker(
-        stage1_estimator_factories={"aux": lambda: LinearRegression()}, stage2_estimator=LinearRegression(), n_splits=3,
+        stage1_estimator_factories={"aux": lambda: LinearRegression()},
+        stage2_estimator=LinearRegression(),
+        n_splits=3,
     )
     stacker_df.fit(X_df, y_primary, {"aux": y_aux})
     pred_df = stacker_df.predict(X_df)

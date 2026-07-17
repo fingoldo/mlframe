@@ -16,6 +16,7 @@ drift. Soft contract -- booster libs are typically forward-compatible
 for minor versions, so we don't raise; operators just see the skew
 before chasing weird predict crashes.
 """
+
 from __future__ import annotations
 
 import logging
@@ -31,13 +32,9 @@ def test_lgb_shim_stamps_lgb_version_on_pickle():
     inst = LGBMClassifierWithDatasetReuse(n_estimators=2, verbosity=-1)
     state = inst.__getstate__()
     assert "_saved_lgb_version" in state, (
-        "Wave 19 P1 regression: lgb_shim.__getstate__ no longer stamps "
-        "_saved_lgb_version. Booster JSON inside __dict__ is "
-        "library-version-sensitive."
+        "Wave 19 P1 regression: lgb_shim.__getstate__ no longer stamps _saved_lgb_version. Booster JSON inside __dict__ is library-version-sensitive."
     )
-    assert state["_saved_lgb_version"] not in (None, ""), (
-        "stamp must be non-empty"
-    )
+    assert state["_saved_lgb_version"] not in (None, ""), "stamp must be non-empty"
 
 
 def test_lgb_shim_warns_on_version_drift(caplog):
@@ -62,14 +59,8 @@ def test_lgb_shim_warns_on_version_drift(caplog):
         # or the manual WARN is never captured.
         fresh = LGBMClassifierWithDatasetReuse(n_estimators=2, verbosity=-1)
         fresh.__setstate__({"_saved_lgb_version": "0.001-FAKE-OLD"})
-    drift_warns = [
-        r for r in caplog.records
-        if "lightgbm version drift" in r.message
-    ]
-    assert drift_warns, (
-        f"expected lightgbm version drift WARN; got: "
-        f"{[r.message for r in caplog.records]}"
-    )
+    drift_warns = [r for r in caplog.records if "lightgbm version drift" in r.message]
+    assert drift_warns, f"expected lightgbm version drift WARN; got: {[r.message for r in caplog.records]}"
 
 
 def test_xgb_shim_stamps_xgb_version_on_pickle():
@@ -78,13 +69,8 @@ def test_xgb_shim_stamps_xgb_version_on_pickle():
 
     inst = XGBClassifierWithDMatrixReuse(n_estimators=2)
     state = inst.__getstate__()
-    assert "_saved_xgb_version" in state, (
-        "Wave 19 P1 regression: xgb_shim.__getstate__ no longer stamps "
-        "_saved_xgb_version."
-    )
-    assert state["_saved_xgb_version"] not in (None, ""), (
-        "stamp must be non-empty"
-    )
+    assert "_saved_xgb_version" in state, "Wave 19 P1 regression: xgb_shim.__getstate__ no longer stamps _saved_xgb_version."
+    assert state["_saved_xgb_version"] not in (None, ""), "stamp must be non-empty"
 
 
 def test_xgb_shim_warns_on_version_drift(caplog):
@@ -94,14 +80,8 @@ def test_xgb_shim_warns_on_version_drift(caplog):
     fresh = XGBClassifierWithDMatrixReuse(n_estimators=2)
     with caplog.at_level(logging.WARNING, logger="mlframe.training.xgb_shim"):
         fresh.__setstate__({"_saved_xgb_version": "0.001-FAKE-OLD"})
-    drift_warns = [
-        r for r in caplog.records
-        if "xgboost version drift" in r.message
-    ]
-    assert drift_warns, (
-        f"expected xgboost version drift WARN; got: "
-        f"{[r.message for r in caplog.records]}"
-    )
+    drift_warns = [r for r in caplog.records if "xgboost version drift" in r.message]
+    assert drift_warns, f"expected xgboost version drift WARN; got: {[r.message for r in caplog.records]}"
 
 
 def test_legacy_pickle_without_stamp_loads_silently(caplog):
@@ -115,11 +95,5 @@ def test_legacy_pickle_without_stamp_loads_silently(caplog):
     with caplog.at_level(logging.WARNING, logger="mlframe.training.lgb_shim"):
         # State dict without _saved_lgb_version simulates a legacy pickle.
         fresh.__setstate__({})
-    drift_warns = [
-        r for r in caplog.records
-        if "version drift" in r.message
-    ]
-    assert drift_warns == [], (
-        f"legacy pickles (no version stamp) must NOT WARN; got: "
-        f"{[r.message for r in caplog.records]}"
-    )
+    drift_warns = [r for r in caplog.records if "version drift" in r.message]
+    assert drift_warns == [], f"legacy pickles (no version stamp) must NOT WARN; got: {[r.message for r in caplog.records]}"

@@ -502,7 +502,7 @@ def test_example_input_array():
         verbose=0,
     )
 
-    assert hasattr(model, 'example_input_array')
+    assert hasattr(model, "example_input_array")
     assert model.example_input_array.shape == (1, num_features)
 
 
@@ -638,6 +638,7 @@ def test_very_small_features():
 def test_verbose_output(caplog):
     """Test that verbose=1 produces log output."""
     import logging
+
     caplog.set_level(logging.INFO)
 
     model = generate_mlp(
@@ -660,6 +661,7 @@ def test_verbose_output(caplog):
 def test_verbose_includes_model_type(caplog):
     """Test that verbose output includes model type (C/R/FE)."""
     import logging
+
     caplog.set_level(logging.INFO)
 
     # Test Classification
@@ -920,7 +922,7 @@ def test_weight_init_bias_handling():
     for m in model.modules():
         if isinstance(m, nn.Linear):
             # Bias should exist and be properly initialized
-            assert hasattr(m, 'bias')
+            assert hasattr(m, "bias")
             assert m.bias is not None
             assert m.bias.shape[0] == m.out_features
 

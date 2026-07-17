@@ -30,6 +30,7 @@ Fix:
   defined when the call fires (entry block); mirror in the
   finally-block restore.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,10 +45,10 @@ def test_factors_names_none_does_not_crash():
     the public surface still works.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = 200
-    X = pd.DataFrame(rng.standard_normal((n, 4)),
-                      columns=["a", "b", "c", "d"])
+    X = pd.DataFrame(rng.standard_normal((n, 4)), columns=["a", "b", "c", "d"])
     y = pd.Series((X["a"] > 0).astype(np.int64), name="y")
     # Happy path - if iter-25 broke the preamble we'd see a TypeError
     # / ValueError here.
@@ -64,6 +65,7 @@ def test_screen_predictors_factors_names_empty_list_no_mismatch():
     from mlframe.feature_selection.filters._screen_predictors import (
         screen_predictors,
     )
+
     # Build a tiny synthetic input that the screen will reject quickly.
     rng = np.random.default_rng(0)
     n_rows, n_cols = 100, 5
@@ -86,17 +88,10 @@ def test_screen_predictors_factors_names_empty_list_no_mismatch():
             verbose=0,
         )
     except TypeError as exc:
-        pytest.fail(
-            f"factors_names=[] should trigger auto-name branch without "
-            f"TypeError; got {exc!r}"
-        )
+        pytest.fail(f"factors_names=[] should trigger auto-name branch without TypeError; got {exc!r}")
     except ValueError as exc:
         if "len(factors_names)" in str(exc):
-            pytest.fail(
-                f"auto-name branch produced wrong-length name list "
-                f"(should use factors_data.shape[1] = {n_cols}); "
-                f"got: {exc}"
-            )
+            pytest.fail(f"auto-name branch produced wrong-length name list (should use factors_data.shape[1] = {n_cols}); got: {exc}")
         # Any other ValueError (e.g. signature mismatch from a
         # less-than-perfect harness) is acceptable for this iter-25
         # regression - the preamble validation already passed.

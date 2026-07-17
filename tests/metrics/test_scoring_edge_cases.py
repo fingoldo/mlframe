@@ -4,6 +4,7 @@
 Complements ``test_scoring`` (basic values / dtype pairs) and ``test_scoring_proba_proxy_guard``
 (1-D input + far-out-of-range index).
 """
+
 from __future__ import annotations
 
 import numpy as np

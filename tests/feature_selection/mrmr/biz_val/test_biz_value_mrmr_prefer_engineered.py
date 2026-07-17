@@ -17,6 +17,7 @@ both halves: the selection decision AND the downstream quantitative win. It is
 falsifiable -- delete the tie-break (or set ``prefer_engineered_rel_eps=0.0``)
 and the AUC assertion drops to ~0.5.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -48,7 +49,7 @@ def _even_symmetric_fixture(seed: int = 0, n: int = 1500):
             "noise_3": rng.standard_normal(n),
         }
     )
-    y = ((x1 ** 2 - 1.0) + 0.2 * rng.standard_normal(n) > 0).astype(int)
+    y = ((x1**2 - 1.0) + 0.2 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
 
@@ -82,17 +83,11 @@ def test_prefer_engineered_he2_over_raw_x1(backend, monkeypatch):
     m = MRMR(**_mrmr_hybrid_kw()).fit(X, y)
     out = list(m.get_feature_names_out())
 
-    assert "x1__He2" in out, (
-        f"backend={backend}: directed-FE tie-break must surface the "
-        f"engineered He_2 transform on the MI-tie; got {out}"
-    )
+    assert "x1__He2" in out, f"backend={backend}: directed-FE tie-break must surface the engineered He_2 transform on the MI-tie; got {out}"
     # The raw parent must NOT be the (only) thing selected -- that is the bug
     # this rule fixes. (x1 may legitimately be absent; if present alongside
     # x1__He2 the downstream AUC test below still pins the value.)
-    assert out != ["x1"], (
-        f"backend={backend}: selecting raw x1 alone is the regression this "
-        f"rule prevents; got {out}"
-    )
+    assert out != ["x1"], f"backend={backend}: selecting raw x1 alone is the regression this rule prevents; got {out}"
 
 
 def test_downstream_logreg_auc_with_engineered_feature():

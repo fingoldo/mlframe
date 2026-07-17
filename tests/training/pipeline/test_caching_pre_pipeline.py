@@ -49,18 +49,31 @@ def test_pre_pipeline_cache_isolates_targets_by_content():
     # Stash a sentinel for target_a; the second target must NOT see it.
     sentinel_a = ("train_a", "val_a")
     _pre_pipeline_cache_set(
-        X, None, pipe, sentinel_a[0], sentinel_a[1],
-        train_target=y_a.to_numpy(), target_name="target_a",
+        X,
+        None,
+        pipe,
+        sentinel_a[0],
+        sentinel_a[1],
+        train_target=y_a.to_numpy(),
+        target_name="target_a",
     )
     # Same X object identity, same pipeline, different target.
     hit_b = _pre_pipeline_cache_get(
-        X, None, pipe, train_target=y_b.to_numpy(), target_name="target_b",
+        X,
+        None,
+        pipe,
+        train_target=y_b.to_numpy(),
+        target_name="target_b",
     )
     assert hit_b is None, "cache must NOT serve target_a's slot to target_b"
 
     # Sanity: target_a still resolves cleanly.
     hit_a = _pre_pipeline_cache_get(
-        X, None, pipe, train_target=y_a.to_numpy(), target_name="target_a",
+        X,
+        None,
+        pipe,
+        train_target=y_a.to_numpy(),
+        target_name="target_a",
     )
     # Cache entry is 3-tuple (train_out, val_out, fitted_pipeline) since 2026-05-16.
     assert hit_a is not None
@@ -79,11 +92,20 @@ def test_pre_pipeline_cache_hits_when_inputs_match():
 
     sentinel = ("train_out", "val_out")
     _pre_pipeline_cache_set(
-        X, None, pipe, sentinel[0], sentinel[1],
-        train_target=y.to_numpy(), target_name="t",
+        X,
+        None,
+        pipe,
+        sentinel[0],
+        sentinel[1],
+        train_target=y.to_numpy(),
+        target_name="t",
     )
     hit = _pre_pipeline_cache_get(
-        X, None, pipe, train_target=y.to_numpy(), target_name="t",
+        X,
+        None,
+        pipe,
+        train_target=y.to_numpy(),
+        target_name="t",
     )
     # Cache entry is (train_out, val_out, fitted_pipeline) since the 2026-05-16
     # fit-state-transfer fix; first two slots remain the sentinel.
@@ -102,8 +124,13 @@ def test_pre_pipeline_cache_size_respects_cache_max_override():
         X = pd.DataFrame(rng.normal(size=(8, 2)), columns=["a", "b"])
         y = pd.Series(rng.normal(size=8), name=f"t{i}")
         _pre_pipeline_cache_set(
-            X, None, pipe, f"train_{i}", f"val_{i}",
-            train_target=y.to_numpy(), target_name=f"t{i}",
+            X,
+            None,
+            pipe,
+            f"train_{i}",
+            f"val_{i}",
+            train_target=y.to_numpy(),
+            target_name=f"t{i}",
             cache_max=3,
         )
     assert len(_PRE_PIPELINE_CACHE) == 3

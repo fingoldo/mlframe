@@ -23,8 +23,8 @@ def test_fused_aucs_with_ks_matches_separate_kernels():
         roc0, pr0 = fast_numba_aucs(y_true, y_pred, desc)
         ks0 = ks_statistic(y_true.astype(np.int64), y_pred, desc_order=desc)
         assert roc == roc0, f"ROC AUC must be bit-identical (n={n})"
-        assert abs(pr - pr0) < 1e-12, f"PR AUC drift {abs(pr-pr0)} (n={n})"
-        assert abs(ks - ks0) < 1e-9, f"KS drift {abs(ks-ks0)} (n={n})"
+        assert abs(pr - pr0) < 1e-12, f"PR AUC drift {abs(pr - pr0)} (n={n})"
+        assert abs(ks - ks0) < 1e-9, f"KS drift {abs(ks - ks0)} (n={n})"
 
 
 def test_fused_aucs_with_ks_identical_on_tied_discrete_scores():
@@ -63,16 +63,12 @@ def test_fast_aucs_per_group_optimized_return_ks():
     y_pred = rng.beta(2, 5, n)
     y_true = (rng.random(n) < y_pred).astype(np.float64)
 
-    roc, pr, ga, order, ks = fast_aucs_per_group_optimized(
-        y_true=y_true, y_score=y_pred, group_ids=None, return_order=True, return_ks=True
-    )
+    roc, pr, ga, order, ks = fast_aucs_per_group_optimized(y_true=y_true, y_score=y_pred, group_ids=None, return_order=True, return_ks=True)
     ks0 = ks_statistic(y_true.astype(np.int64), y_pred, desc_order=_argsort_desc_for_metrics(y_pred))
     assert ks is not None and abs(ks - ks0) < 1e-9
 
     # return_ks alone (no order)
-    roc2, pr2, ga2, ks2 = fast_aucs_per_group_optimized(
-        y_true=y_true, y_score=y_pred, group_ids=None, return_ks=True
-    )
+    roc2, pr2, ga2, ks2 = fast_aucs_per_group_optimized(y_true=y_true, y_score=y_pred, group_ids=None, return_ks=True)
     assert roc2 == roc and abs(ks2 - ks) < 1e-12
 
 

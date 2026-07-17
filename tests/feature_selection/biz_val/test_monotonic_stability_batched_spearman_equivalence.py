@@ -5,6 +5,7 @@ subsample's row mask via ``_spearman_corr_batch``. Pins the new batched path aga
 per-column ``_spearman_corr`` loop (kept in the module, unused by the public function) across randomized
 configs including NaN, constant columns, and the segment-conditional path.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -17,8 +18,16 @@ from mlframe.feature_selection.filters._monotonic_stability import (
 
 
 def _reference_filter(
-    df, y, group_col, feature_cols, n_subsamples, group_fraction, min_stable_fraction,
-    random_state, segment_col=None, segment_min_agreement=None,
+    df,
+    y,
+    group_col,
+    feature_cols,
+    n_subsamples,
+    group_fraction,
+    min_stable_fraction,
+    random_state,
+    segment_col=None,
+    segment_min_agreement=None,
 ):
     """Frozen copy of the pre-Wave-11 per-column ``scipy.stats.spearmanr`` loop implementation."""
     if feature_cols is None:
@@ -48,12 +57,14 @@ def _reference_filter(
     rows = []
     for col in feature_cols:
         agreement_fraction = agreement_counts[col] / n_subsamples
-        rows.append({
-            "feature": col,
-            "full_sample_correlation": full_sample_corr[col],
-            "sign_agreement_fraction": agreement_fraction,
-            "stable": agreement_fraction >= min_stable_fraction,
-        })
+        rows.append(
+            {
+                "feature": col,
+                "full_sample_correlation": full_sample_corr[col],
+                "sign_agreement_fraction": agreement_fraction,
+                "stable": agreement_fraction >= min_stable_fraction,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -85,15 +96,24 @@ def test_batched_spearman_matches_reference_across_random_configs():
                 df, y = _make_data(seed, nan_frac=nan_frac, const_frac=const_frac)
                 feat_cols = [c for c in df.columns if c.startswith("f")]
                 kwargs = dict(
-                    df=df, y=y, group_col="group", feature_cols=feat_cols,
-                    n_subsamples=15, group_fraction=0.5, min_stable_fraction=0.7, random_state=seed,
+                    df=df,
+                    y=y,
+                    group_col="group",
+                    feature_cols=feat_cols,
+                    n_subsamples=15,
+                    group_fraction=0.5,
+                    min_stable_fraction=0.7,
+                    random_state=seed,
                 )
                 r_ref = _reference_filter(**kwargs)
                 r_new = monotonic_deviation_stability_filter(**kwargs)
                 n_checks += 1
                 pd.testing.assert_frame_equal(
-                    r_ref.reset_index(drop=True), r_new.reset_index(drop=True),
-                    check_exact=False, atol=1e-9, rtol=1e-9,
+                    r_ref.reset_index(drop=True),
+                    r_new.reset_index(drop=True),
+                    check_exact=False,
+                    atol=1e-9,
+                    rtol=1e-9,
                 )
     assert n_checks == 24
 
@@ -113,7 +133,12 @@ def test_biz_val_monotonic_stability_still_separates_stable_from_jumpy():
     df = pd.DataFrame({"group": group_ids, "good_feature": good_feature, "jumpy_feature": jumpy_feature})
 
     result = monotonic_deviation_stability_filter(
-        df, y, group_col="group", feature_cols=["good_feature", "jumpy_feature"], n_subsamples=40, random_state=0,
+        df,
+        y,
+        group_col="group",
+        feature_cols=["good_feature", "jumpy_feature"],
+        n_subsamples=40,
+        random_state=0,
     )
     by_name = {row["feature"]: row for _, row in result.iterrows()}
     assert by_name["good_feature"]["stable"]

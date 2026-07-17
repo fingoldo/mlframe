@@ -9,6 +9,7 @@ Pins:
 The dispatcher inside ``_apply_nan_guard`` switches branches by input type; the regression test forces a pandas copy of the same data to drive the legacy branch
 and compares outputs side by side.
 """
+
 from __future__ import annotations
 
 import time
@@ -60,6 +61,7 @@ def test_polars_input_with_nans_takes_polars_native_branch_and_matches_sklearn_b
 
     # Reference: drive the legacy branch by passing a pandas copy of the same data.
     import pandas as pd
+
     X_pd = pd.DataFrame(arr.copy(), columns=cols)
     model_pd = _FakeRidge()
     prime_nan_guard_stats(model_pd, X_pd)
@@ -112,6 +114,7 @@ def test_biz_val_predict_nan_guard_polars_faster_than_pandas_at_100k_rows():
     arr = _synth_with_nans(100_000, 30, nan_rate=0.10, seed=10)
     X_pl = pl.DataFrame(arr, schema=[f"c{i}" for i in range(30)])
     import pandas as pd
+
     X_pd = pd.DataFrame(arr.copy(), columns=[f"c{i}" for i in range(30)])
     fn = lambda x: np.zeros(len(x), dtype=np.float64)
 
@@ -151,8 +154,8 @@ def test_biz_val_predict_nan_guard_polars_faster_than_pandas_at_100k_rows():
     speedup_med = pd_med / pl_med
     print(
         f"\n[biz_val] predict_nan_guard n=100k: "
-        f"polars min={pl_min*1000:.1f}ms med={pl_med*1000:.1f}ms / "
-        f"pandas min={pd_min*1000:.1f}ms med={pd_med*1000:.1f}ms / "
+        f"polars min={pl_min * 1000:.1f}ms med={pl_med * 1000:.1f}ms / "
+        f"pandas min={pd_min * 1000:.1f}ms med={pd_med * 1000:.1f}ms / "
         f"speedup min={speedup_min:.2f}x med={speedup_med:.2f}x"
     )
     # The reference 6.73x speedup was measured on a quiet dev box; under
@@ -164,6 +167,6 @@ def test_biz_val_predict_nan_guard_polars_faster_than_pandas_at_100k_rows():
     assert speedup_min >= 0.7, (
         f"polars-native NaN-guard slower than legacy by >30% at n=100k "
         f"(min-time speedup={speedup_min:.2f}x, median={speedup_med:.2f}x; "
-        f"polars min={pl_min*1000:.1f}ms vs pandas min={pd_min*1000:.1f}ms). "
+        f"polars min={pl_min * 1000:.1f}ms vs pandas min={pd_min * 1000:.1f}ms). "
         f"Likely regression: polars input was round-tripped through pandas."
     )

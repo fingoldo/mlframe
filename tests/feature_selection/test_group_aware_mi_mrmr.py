@@ -3,6 +3,7 @@
 The kernel itself is unit-tested in ``test_group_mi_kernel.py``; here we pin the END-TO-END wiring through the joblib
 worker path (thread-local publish/republish) and the constructor / strict-block / no-harm contracts.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -116,9 +117,7 @@ def test_fs_config_lever_folds_group_aware_mi_into_mrmr_kwargs():
     """The ``FeatureSelectionConfig.mrmr_group_aware_mi`` first-class lever folds into ``mrmr_kwargs`` (D-surface)."""
     from mlframe.training._feature_selection_config import FeatureSelectionConfig
 
-    cfg = FeatureSelectionConfig(
-        use_mrmr_fs=True, mrmr_group_aware_mi=True, mrmr_group_mi_min_rows=25, mrmr_group_mi_aggregate="equal"
-    )
+    cfg = FeatureSelectionConfig(use_mrmr_fs=True, mrmr_group_aware_mi=True, mrmr_group_mi_min_rows=25, mrmr_group_mi_aggregate="equal")
     assert cfg.mrmr_kwargs["group_aware_mi"] is True
     assert cfg.mrmr_kwargs["group_mi_min_rows"] == 25
     assert cfg.mrmr_kwargs["group_mi_aggregate"] == "equal"

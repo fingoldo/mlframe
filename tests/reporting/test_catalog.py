@@ -78,8 +78,7 @@ def test_standalone_diagnostics_listed_and_described():
 
     rows = standalone_diagnostics()
     names = {name for name, _desc in rows}
-    for expected in ("pdp_ice", "model_comparison", "slice_finder", "decision_curve",
-                     "calibration_drift", "shap_panels", "learning_curve", "combined_html"):
+    for expected in ("pdp_ice", "model_comparison", "slice_finder", "decision_curve", "calibration_drift", "shap_panels", "learning_curve", "combined_html"):
         assert expected in names, f"{expected} missing from standalone diagnostics catalogue"
     for name, desc in rows:
         assert desc and desc != "(no description)", f"{name} has no description"

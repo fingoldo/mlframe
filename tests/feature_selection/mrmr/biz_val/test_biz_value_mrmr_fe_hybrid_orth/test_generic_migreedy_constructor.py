@@ -199,10 +199,10 @@ class TestDefaultIsLegacyByteIdentical:
         X, _y, m = _linear_default_fit(seed)
         assert m.fe_mi_greedy_enable is False
         assert m.mi_greedy_features_ == [], (
-            f"seed={seed}: default fe_mi_greedy_enable=False should produce " f"empty mi_greedy_features_, got {m.mi_greedy_features_}"
+            f"seed={seed}: default fe_mi_greedy_enable=False should produce empty mi_greedy_features_, got {m.mi_greedy_features_}"
         )
         assert list(m.feature_names_in_) == list(X.columns), (
-            f"seed={seed}: feature_names_in_ must equal raw X.columns when " f"MI-greedy FE is off; got {list(m.feature_names_in_)}"
+            f"seed={seed}: feature_names_in_ must equal raw X.columns when MI-greedy FE is off; got {list(m.feature_names_in_)}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -257,7 +257,7 @@ class TestLogSignalRecovered:
         # MI-greedy constructor recovers the signal; which specific monotone
         # transform wins among log_abs / sqrt_abs / abs is bench-driven).
         x_derived = [c for c in appended if c in {"log_abs(x)", "sqrt_abs(x)", "abs(x)", "square(x)"}]
-        assert x_derived, f"seed={seed}: at least one |x|-monotone transform should appear " f"in mi_greedy_features_; got {appended}"
+        assert x_derived, f"seed={seed}: at least one |x|-monotone transform should appear in mi_greedy_features_; got {appended}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_log_signal_appears_in_support_or_recipes(self, seed):
@@ -299,7 +299,7 @@ class TestRatioSignalRecovered:
         # ratio_log (both surrogates for the ratio) on the right pair must
         # show up in the engineered columns.
         ratio_like = [c for c in appended if (("x_revenue" in c) and ("x_cost" in c) and (("__div__" in c) or ("__ratio_log__" in c)))]
-        assert ratio_like, f"seed={seed}: at least one (x_revenue ? x_cost) ratio-surrogate " f"engineered column should appear; got {appended}"
+        assert ratio_like, f"seed={seed}: at least one (x_revenue ? x_cost) ratio-surrogate engineered column should appear; got {appended}"
 
 
 # ---------------------------------------------------------------------------
@@ -326,9 +326,7 @@ class TestSquareSignalRecovered:
         # square(x) or one of its monotone-in-x^2 siblings (abs / sqrt_abs)
         # must appear -- the |x| family carries the signal of sign(x^2-1).
         x2_derived = [c for c in appended if c in {"square(x)", "abs(x)", "sqrt_abs(x)", "log_abs(x)"}]
-        assert x2_derived, (
-            f"seed={seed}: at least one x^2-monotone unary transform " f"(square / abs / sqrt_abs / log_abs of x) should appear; " f"got {appended}"
-        )
+        assert x2_derived, f"seed={seed}: at least one x^2-monotone unary transform (square / abs / sqrt_abs / log_abs of x) should appear; got {appended}"
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +401,7 @@ class TestDownstreamLogRegLift:
             f"mi_greedy_features_={mrmr_mg.mi_greedy_features_}"
         )
         assert auc_aug - auc_raw >= 0.20, (
-            f"seed={seed}: MI-greedy FE should lift LogReg holdout AUC by " f">= +0.20 on XOR product. raw={auc_raw:.3f}, " f"aug={auc_aug:.3f}"
+            f"seed={seed}: MI-greedy FE should lift LogReg holdout AUC by >= +0.20 on XOR product. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
         )
 
 
@@ -447,7 +445,7 @@ class TestNoYLeakage:
             arr_b,
             rtol=1e-12,
             atol=1e-12,
-            err_msg=(f"seed={seed}: transform is non-deterministic in X; the " f"engineered columns must depend ONLY on X."),
+            err_msg=(f"seed={seed}: transform is non-deterministic in X; the engineered columns must depend ONLY on X."),
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -655,12 +653,10 @@ class TestCombineWithHybridOrth:
             f"capture the ratio signal. hybrid={m.hybrid_orth_features_}, "
             f"mig={m.mi_greedy_features_}"
         )
-        assert len(m.mi_greedy_features_) >= 1, (
-            f"seed={seed}: mi_greedy_features_ unexpectedly empty when both " f"signals present; got {m.mi_greedy_features_}"
-        )
+        assert len(m.mi_greedy_features_) >= 1, f"seed={seed}: mi_greedy_features_ unexpectedly empty when both signals present; got {m.mi_greedy_features_}"
         # No name overlap.
         overlap = set(m.hybrid_orth_features_) & set(m.mi_greedy_features_)
-        assert not overlap, f"seed={seed}: hybrid and MI-greedy feature names overlapped: " f"{overlap}"
+        assert not overlap, f"seed={seed}: hybrid and MI-greedy feature names overlapped: {overlap}"
         # transform() doesn't crash and returns a DataFrame.
         out = m.transform(X)
         assert out.shape[0] == X.shape[0]

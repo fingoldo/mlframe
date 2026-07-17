@@ -64,6 +64,7 @@ def _mrmr_kw(**overrides):
 
 class TestNameRankCache:
     """Test Name Rank Cache."""
+
     def test_cache_field_present_and_used(self):
         """Cache field present and used."""
         from mlframe.feature_selection.filters._confirm_predictor import ScreenContext
@@ -135,6 +136,7 @@ class TestNameRankCache:
 
 class TestEngineeredParentIndexCache:
     """Test Engineered Parent Index Cache."""
+
     def test_cache_field_present(self):
         """Cache field present."""
         from mlframe.feature_selection.filters._confirm_predictor import ScreenContext

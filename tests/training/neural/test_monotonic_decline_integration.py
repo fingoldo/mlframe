@@ -1,6 +1,7 @@
 """Integration: the default-on MonotonicDeclineStopCallback ends a real MLP fit early on an
 overfit-prone target, using FEWER epochs than the no-monotonic baseline at the same holdout.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -17,9 +18,12 @@ def _params(max_epochs=50, monotonic=3):
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 5e-2},
         "network_params": {
-            "nlayers": 3, "first_layer_num_neurons": 128,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 3,
+            "first_layer_num_neurons": 128,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": torch.nn.ReLU,
         },
         "datamodule_class": TorchDataModule,
@@ -29,9 +33,13 @@ def _params(max_epochs=50, monotonic=3):
             "dataloader_params": {"batch_size": 16, "num_workers": 0},
         },
         "trainer_params": {
-            "max_epochs": max_epochs, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": max_epochs,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         "random_state": 0,
         "early_stopping_rounds": 1000,  # huge patience -> isolate the monotonic effect

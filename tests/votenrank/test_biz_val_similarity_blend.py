@@ -8,6 +8,7 @@ training set (high weight on the in-distribution model near A, low weight far aw
 close to each specialist's own accuracy in its own region -- mirroring the MoA 5th place's
 seen/unseen-drug similarity-blended validation-scheme technique.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -145,8 +146,12 @@ def test_biz_val_similarity_blend_n_specialist_beats_global_and_2blend_mse():
     improvement_vs_global = 1.0 - mse_n / mse_global
     improvement_vs_2blend = 1.0 - mse_n / mse_2blend
 
-    assert improvement_vs_global > 0.9, f"expected >90% MSE reduction vs. a single global model, got {improvement_vs_global:.4f} (global={mse_global:.4f}, n_blend={mse_n:.4f})"
-    assert improvement_vs_2blend > 0.5, f"expected >50% MSE reduction vs. a naive 2-specialist blend, got {improvement_vs_2blend:.4f} (2blend={mse_2blend:.4f}, n_blend={mse_n:.4f})"
+    assert improvement_vs_global > 0.9, (
+        f"expected >90% MSE reduction vs. a single global model, got {improvement_vs_global:.4f} (global={mse_global:.4f}, n_blend={mse_n:.4f})"
+    )
+    assert improvement_vs_2blend > 0.5, (
+        f"expected >50% MSE reduction vs. a naive 2-specialist blend, got {improvement_vs_2blend:.4f} (2blend={mse_2blend:.4f}, n_blend={mse_n:.4f})"
+    )
 
 
 def test_similarity_blend_n_specialist_weights_sum_to_one_and_default_path_unchanged():

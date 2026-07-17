@@ -7,6 +7,7 @@ Covers:
   (monkeypatch-based: we patch the inline path to raise; if the suite calls it, the suite raises).
 - The suite falls back to the inline compute when the bundle field is None.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -34,6 +35,7 @@ def _try_import_suite():
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training import OutputConfig
         from tests.training.shared import SimpleFeaturesAndTargetsExtractor
+
         return train_mlframe_models_suite, OutputConfig, SimpleFeaturesAndTargetsExtractor
     except (ImportError, AttributeError) as e:
         pytest.skip(f"suite not importable: {e}")
@@ -69,6 +71,7 @@ def test_suite_signature_exposes_precomputed_kwarg():
     pre-existing downstream master breakages so the bundle wiring contract is testable today."""
     train_mlframe_models_suite, _OC, _FTE = _try_import_suite()
     import inspect
+
     sig = inspect.signature(train_mlframe_models_suite)
     assert "precomputed" in sig.parameters
     param = sig.parameters["precomputed"]
@@ -181,6 +184,7 @@ def test_suite_falls_back_to_inline_when_bundle_field_is_none(tmp_path, monkeypa
         get_trainset_features_stats as _real_pd_stats,
     )
     from mlframe.training.core import main as _main_mod
+
     # The body of ``train_mlframe_models_suite`` was moved through
     # ``_main_train_suite`` -> ``_main_train_suite_phases`` by successive
     # monolith-split waves. The runtime ``get_trainset_features_stats`` call

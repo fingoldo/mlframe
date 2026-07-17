@@ -3,6 +3,7 @@
 Validity tests only. Timing/perf comparisons removed (flaky). For microbenchmarks,
 use pytest-benchmark via the ``@pytest.mark.benchmark`` marker.
 """
+
 import numpy as np
 import pytest
 

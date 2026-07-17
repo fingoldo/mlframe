@@ -44,9 +44,7 @@ def test_missing_sentinel_at_last_code_simple():
         f"Sentinel must sit at the LAST code (len-1={len(categories) - 1}); got code {sentinel_idx} "
         f"in categories={categories!r}. Plain sorted() would put it at 0 (ASCII '_' < letters)."
     )
-    assert sentinel_idx != 0, (
-        f"Sentinel landed at code 0 - the alphabetical-sort regression. categories={categories!r}"
-    )
+    assert sentinel_idx != 0, f"Sentinel landed at code 0 - the alphabetical-sort regression. categories={categories!r}"
     # Real categories must remain alphabetically sorted (deterministic across reruns).
     real = [c for c in categories if c != SENTINEL]
     assert real == sorted(real), f"Real categories not in sorted order: {real!r}"
@@ -75,8 +73,7 @@ def test_missing_sentinel_shuffle_stable_to_last_code(real_values):
     sentinel_idx = _sentinel_code(train_df)
 
     assert sentinel_idx == len(categories) - 1, (
-        f"For input {real_values!r}: sentinel at code {sentinel_idx}, expected {len(categories) - 1}. "
-        f"categories={categories!r}"
+        f"For input {real_values!r}: sentinel at code {sentinel_idx}, expected {len(categories) - 1}. categories={categories!r}"
     )
     assert categories[-1] == SENTINEL
     # The set of real categories is identical to the input set, and they are sorted among themselves.
@@ -92,9 +89,7 @@ def test_missing_sentinel_no_sentinel_when_no_nulls():
     prepare_dfs_for_catboost_joint(train_df=train_df, val_df=None, test_df=None, cat_features=["cat"])
 
     categories = list(train_df["cat"].cat.categories)
-    assert SENTINEL not in categories, (
-        f"Sentinel was injected even though train had no NaN: categories={categories!r}"
-    )
+    assert SENTINEL not in categories, f"Sentinel was injected even though train had no NaN: categories={categories!r}"
     assert categories == sorted(categories)
 
 
@@ -108,7 +103,10 @@ def test_missing_sentinel_at_last_code_with_val_union():
     test_df = pd.DataFrame({"cat": ["foo", "newcat"], "x": [0.0, 1.0]})
 
     prepare_dfs_for_catboost_joint(
-        train_df=train_df, val_df=val_df, test_df=test_df, cat_features=["cat"],
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        cat_features=["cat"],
     )
 
     categories = list(train_df["cat"].cat.categories)

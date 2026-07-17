@@ -6,6 +6,7 @@ matches the permutation kernel's null mean and is decision-equivalent on the p-v
 restores the permutation path, (3) below threshold the analytic path stays dormant (byte-identical),
 (4) the analytic path is dramatically faster (the biz-value win that motivated it).
 """
+
 from __future__ import annotations
 
 import time
@@ -36,9 +37,18 @@ def _binned(n, signal, seed):
 
 
 def _md(data, nbins, **kw):
-    return mi_direct(data, x=(0,), y=(1,), factors_nbins=nbins, npermutations=64,
-                     min_nonzero_confidence=0.0, parallelism="none", prefer_gpu=False,
-                     return_null_mean=True, **kw)
+    return mi_direct(
+        data,
+        x=(0,),
+        y=(1,),
+        factors_nbins=nbins,
+        npermutations=64,
+        min_nonzero_confidence=0.0,
+        parallelism="none",
+        prefer_gpu=False,
+        return_null_mean=True,
+        **kw,
+    )
 
 
 def test_permutation_converges_to_analytic(monkeypatch):
@@ -54,12 +64,20 @@ def test_permutation_converges_to_analytic(monkeypatch):
         mi_a, _c, nm_a, p_a = _md(data, nbins)  # analytic
         monkeypatch.setenv("MLFRAME_MI_ANALYTIC_NULL", "0")
         # high-nperm permutation -> should match the analytic value closely.
-        mi_lo, _c, nm_lo, p_lo = mi_direct(data, x=(0,), y=(1,), factors_nbins=nbins, npermutations=64,
-                                           min_nonzero_confidence=0.0, parallelism="none",
-                                           prefer_gpu=False, return_null_mean=True)
-        mi_hi, _c, nm_hi, p_hi = mi_direct(data, x=(0,), y=(1,), factors_nbins=nbins, npermutations=2048,
-                                           min_nonzero_confidence=0.0, parallelism="none",
-                                           prefer_gpu=False, return_null_mean=True)
+        mi_lo, _c, nm_lo, p_lo = mi_direct(
+            data, x=(0,), y=(1,), factors_nbins=nbins, npermutations=64, min_nonzero_confidence=0.0, parallelism="none", prefer_gpu=False, return_null_mean=True
+        )
+        mi_hi, _c, nm_hi, p_hi = mi_direct(
+            data,
+            x=(0,),
+            y=(1,),
+            factors_nbins=nbins,
+            npermutations=2048,
+            min_nonzero_confidence=0.0,
+            parallelism="none",
+            prefer_gpu=False,
+            return_null_mean=True,
+        )
         # observed MI identical on both paths (same estimator).
         assert mi_a == pytest.approx(mi_hi, rel=1e-9)
         # high-nperm permutation null_mean within 2% of analytic; and CLOSER than low-nperm (convergence).
@@ -143,8 +161,11 @@ def test_analytic_is_faster_large_n(monkeypatch):
 
 
 def _mi_nats(x, y, n, nb):
-    j = np.zeros((nb, nb)); np.add.at(j, (x, y), 1); j /= n
-    px = j.sum(1, keepdims=True); py = j.sum(0, keepdims=True)
+    j = np.zeros((nb, nb))
+    np.add.at(j, (x, y), 1)
+    j /= n
+    px = j.sum(1, keepdims=True)
+    py = j.sum(0, keepdims=True)
     m = j > 0
     return float((j[m] * np.log(j[m] / (px @ py)[m])).sum())
 
@@ -180,9 +201,7 @@ def test_batch_noise_gate_keeps_signal_rejects_noise():
     # is the gate rejects the BULK of noise, not that it is infallible.
     n_noise = K - len(signal)
     false_pos = kept - signal
-    assert len(false_pos) <= max(3, int(0.10 * n_noise)), (
-        f"too many noise candidates admitted: {sorted(false_pos)} (n_noise={n_noise})"
-    )
+    assert len(false_pos) <= max(3, int(0.10 * n_noise)), f"too many noise candidates admitted: {sorted(false_pos)} (n_noise={n_noise})"
 
 
 def test_analytic_batch_noise_gate_vectorised_matches_scalar_loop():
@@ -216,10 +235,10 @@ def test_analytic_batch_noise_gate_vectorised_matches_scalar_loop():
     for _ in range(400):
         K = int(rng.integers(1, 80))
         observed = rng.uniform(-0.02, 0.6, K)
-        observed[rng.random(K) < 0.25] = 0.0                       # some non-positive MI
+        observed[rng.random(K) < 0.25] = 0.0  # some non-positive MI
         by = int(rng.integers(2, 10))
         n = int(rng.choice([50, 100, 5_000, 30_000, 50_000, 300_000]))
-        bx = rng.integers(1, 15, K)                                 # 1 -> df=0 edge
+        bx = rng.integers(1, 15, K)  # 1 -> df=0 edge
         got = analytic_batch_noise_gate(None, observed.copy(), np.arange(by), n, min_conf, bx_per_col=bx.copy())
         exp = _scalar_gate(observed, by, n, min_conf, bx)
         assert np.array_equal(got, exp), f"vectorised gate diverged (K={K}, n={n}, by={by})"

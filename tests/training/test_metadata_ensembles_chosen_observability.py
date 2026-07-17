@@ -12,6 +12,7 @@ Contract under test (per Wave-8 observability spec):
   * Confidence-subset variants (``" conf"`` suffix) and side-channel reports (``"_diversity"``) are
     excluded from candidate ranking.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,8 +40,8 @@ def test_choose_picks_lowest_integral_error_on_oof():
 
     ensembles = {
         "arithm": _FakeEnsResult({"oof": {"integral_error": 0.20}}),
-        "harm":   _FakeEnsResult({"oof": {"integral_error": 0.05}}),
-        "geo":    _FakeEnsResult({"oof": {"integral_error": 0.15}}),
+        "harm": _FakeEnsResult({"oof": {"integral_error": 0.05}}),
+        "geo": _FakeEnsResult({"oof": {"integral_error": 0.15}}),
     }
     assert _choose_ensemble_flavour(ensembles) == "harm"
 
@@ -51,8 +52,8 @@ def test_choose_falls_back_to_oof_rmse():
 
     ensembles = {
         "arithm": _FakeEnsResult({"oof": {"rmse": 0.9}}),
-        "harm":   _FakeEnsResult({"oof": {"rmse": 0.1}}),
-        "geo":    _FakeEnsResult({"oof": {"rmse": 0.5}}),
+        "harm": _FakeEnsResult({"oof": {"rmse": 0.1}}),
+        "geo": _FakeEnsResult({"oof": {"rmse": 0.5}}),
     }
     assert _choose_ensemble_flavour(ensembles) == "harm"
 
@@ -62,10 +63,10 @@ def test_choose_skips_conf_variants():
     from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
     ensembles = {
-        "arithm":      _FakeEnsResult({"oof": {"integral_error": 0.20}}),
-        "harm":        _FakeEnsResult({"oof": {"integral_error": 0.10}}),
-        "harm conf":   _FakeEnsResult({"oof": {"integral_error": 0.0001}}),  # decoy
-        "_diversity":  {"foo": "bar"},  # not even an ens_result
+        "arithm": _FakeEnsResult({"oof": {"integral_error": 0.20}}),
+        "harm": _FakeEnsResult({"oof": {"integral_error": 0.10}}),
+        "harm conf": _FakeEnsResult({"oof": {"integral_error": 0.0001}}),  # decoy
+        "_diversity": {"foo": "bar"},  # not even an ens_result
     }
     assert _choose_ensemble_flavour(ensembles) == "harm"
 
@@ -75,7 +76,7 @@ def test_choose_skips_underscore_prefixed_side_channels():
     from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
     ensembles = {
-        "arithm":     _FakeEnsResult({"oof": {"rmse": 0.5}}),
+        "arithm": _FakeEnsResult({"oof": {"rmse": 0.5}}),
         "_diversity": {"high_correlation_pairs": []},
     }
     assert _choose_ensemble_flavour(ensembles) == "arithm"
@@ -87,7 +88,7 @@ def test_choose_falls_back_to_test_split_when_oof_missing():
 
     ensembles = {
         "arithm": _FakeEnsResult({"test": {"rmse": 0.9}}),
-        "harm":   _FakeEnsResult({"test": {"rmse": 0.1}}),
+        "harm": _FakeEnsResult({"test": {"rmse": 0.1}}),
     }
     assert _choose_ensemble_flavour(ensembles) == "harm"
 
@@ -98,7 +99,7 @@ def test_choose_returns_first_candidate_when_no_metric_present():
 
     ensembles = {
         "arithm": _FakeEnsResult({}),
-        "harm":   _FakeEnsResult({}),
+        "harm": _FakeEnsResult({}),
     }
     # Must be one of the candidate keys, NOT None.
     assert _choose_ensemble_flavour(ensembles) in ensembles
@@ -142,8 +143,8 @@ def test_stamping_layout_harm_wins():
 
     ensembles_for_target = {
         "arithm": _FakeEnsResult({"oof": {"integral_error": 0.30}}),
-        "harm":   _FakeEnsResult({"oof": {"integral_error": 0.05}}),  # winner
-        "geo":    _FakeEnsResult({"oof": {"integral_error": 0.20}}),
+        "harm": _FakeEnsResult({"oof": {"integral_error": 0.05}}),  # winner
+        "geo": _FakeEnsResult({"oof": {"integral_error": 0.20}}),
     }
     metadata: dict = {}
     target_type = "binary_classification"
@@ -162,8 +163,8 @@ def test_predict_read_matches_train_stamp():
 
     ensembles_for_target = {
         "arithm": _FakeEnsResult({"oof": {"integral_error": 0.30}}),
-        "harm":   _FakeEnsResult({"oof": {"integral_error": 0.05}}),
-        "mean":   _FakeEnsResult({"oof": {"integral_error": 0.20}}),
+        "harm": _FakeEnsResult({"oof": {"integral_error": 0.05}}),
+        "mean": _FakeEnsResult({"oof": {"integral_error": 0.20}}),
     }
     metadata: dict = {}
     target_type = "regression"

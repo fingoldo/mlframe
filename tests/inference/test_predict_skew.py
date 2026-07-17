@@ -1,5 +1,6 @@
 """Regression tests for the predict-entry skew fixes (slug-keys, quantile-ens post-aggregation,
 chunked inference, probe-eager model_names filter)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -45,10 +46,7 @@ def test_combine_probs_no_quantile_alphas_skips_crossing_fix():
     out_no_alpha_arr = np.asarray(out_no_alpha)
     # Should be exact mean -- raw, NOT sorted. Mean is [0.15, 0.55, 0.45],
     # so [0, 2]=0.45 < [0, 1]=0.55 confirms the crossing is preserved.
-    assert out_no_alpha_arr[0, 2] < out_no_alpha_arr[0, 1], (
-        "without quantile_alphas the output should NOT be sorted; "
-        f"got {out_no_alpha_arr[0]}"
-    )
+    assert out_no_alpha_arr[0, 2] < out_no_alpha_arr[0, 1], f"without quantile_alphas the output should NOT be sorted; got {out_no_alpha_arr[0]}"
 
 
 def test_resolve_quantile_alphas_metadata_lookup():

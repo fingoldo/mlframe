@@ -5,6 +5,7 @@ support_indices_, n_features_in_ or any other public fitted attribute. This pins
 so the FS cache (keyed on params + content hashes, NOT weights) remains valid across pre-fix
 and post-fix snapshots of the codebase.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -33,9 +34,7 @@ def test_mrmr_fit_sample_weight_none_matches_omitted():
     df, y = _toy_dataset()
     sel_a = MRMR(verbose=0, random_seed=42, max_runtime_mins=0.5).fit(df, y)
     sel_b = MRMR(verbose=0, random_seed=42, max_runtime_mins=0.5).fit(df, y, sample_weight=None)
-    assert list(sel_a.support_) == list(sel_b.support_), (
-        f"support_ differs: omitted={list(sel_a.support_)} vs None={list(sel_b.support_)}"
-    )
+    assert list(sel_a.support_) == list(sel_b.support_), f"support_ differs: omitted={list(sel_a.support_)} vs None={list(sel_b.support_)}"
 
 
 def test_mrmr_fit_uniform_sample_weight_matches_unweighted():
@@ -47,9 +46,7 @@ def test_mrmr_fit_uniform_sample_weight_matches_unweighted():
     sw_uniform = np.full(n, 2.5)
     sel_a = MRMR(verbose=0, random_seed=42, max_runtime_mins=0.5).fit(df, y)
     sel_b = MRMR(verbose=0, random_seed=42, max_runtime_mins=0.5).fit(df, y, sample_weight=sw_uniform)
-    assert list(sel_a.support_) == list(sel_b.support_), (
-        f"uniform-weight support_ {list(sel_b.support_)} != unweighted {list(sel_a.support_)}"
-    )
+    assert list(sel_a.support_) == list(sel_b.support_), f"uniform-weight support_ {list(sel_b.support_)} != unweighted {list(sel_a.support_)}"
 
 
 def test_mrmr_fit_sample_weight_validates_shape_and_values():

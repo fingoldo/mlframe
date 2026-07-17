@@ -3,6 +3,7 @@
 Imports the module behind importorskip for optional calibration deps,
 then verifies public helpers operate on a tiny synthetic binary task.
 """
+
 from __future__ import annotations
 
 import numpy as np

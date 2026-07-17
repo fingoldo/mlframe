@@ -4,6 +4,7 @@ The kernel replaces the K-pass ``(y>=lo)&(y<hi)`` boolean-mask + ``X_pool[mask].
 (per-thread float64 sums + counts). These sensors pin (a) the kernel exists and is importable (the symbol is the sensor that fails on pre-fix code), (b) bucket
 assignment partitions every row exactly once with the same half-open membership the old loop used, and (c) the resulting centroids equal a float64 reference exactly.
 """
+
 from __future__ import annotations
 
 import numpy as np

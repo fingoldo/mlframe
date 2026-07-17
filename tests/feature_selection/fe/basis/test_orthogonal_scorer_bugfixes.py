@@ -9,6 +9,7 @@ Each test pins one confirmed bug fix in the ``_orthogonal_*_fe`` scorer family:
 5. bare ``except Exception: return 0.0`` swallowing programming errors (meta_scorer)
 6. blanket ``simplefilter("ignore")`` hiding ConvergenceWarning (elasticnet)
 """
+
 from __future__ import annotations
 
 import logging
@@ -49,8 +50,7 @@ def test_ksg_near_zero_baseline_uplift_not_exploded(monkeypatch):
     raw_X, eng, y = _near_zero_baseline_frames()
     # Force a genuinely near-zero baseline (KSG's noise floor would otherwise
     # estimate a constant source above eps) and a small engineered MI.
-    monkeypatch.setattr(ksg, "_ksg_mi_batch",
-                        lambda X, *a, **k: np.full(X.shape[1], 1e-10))
+    monkeypatch.setattr(ksg, "_ksg_mi_batch", lambda X, *a, **k: np.full(X.shape[1], 1e-10))
     df = ksg.score_features_by_ksg_mi_uplift(raw_X, eng, y)
     up = float(df["uplift"].iloc[0])
     # Pre-fix this divided 1e-10 / (1e-10 + 1e-12) -> ~0.99 OR a huge ratio when
@@ -98,7 +98,11 @@ def test_adaptive_degree_near_zero_baseline_does_not_pass_gate():
     X = pd.DataFrame({"a": np.ones(n), "b": rng.normal(size=n)})
     y = (rng.random(n) > 0.5).astype(np.int64)
     eng, mlmeta = adeg.generate_adaptive_degree_basis_features(
-        X, y, cols=["a"], degree_range=(2, 3), min_uplift=1.05,
+        X,
+        y,
+        cols=["a"],
+        degree_range=(2, 3),
+        min_uplift=1.05,
     )
     # No engineered column off the constant source should survive via an
     # exploded uplift.
@@ -109,12 +113,15 @@ def test_adaptive_degree_near_zero_baseline_does_not_pass_gate():
 # --------------------------------------------------------------------------- #
 # Bug 2: silent continuous-y truncation                                        #
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("coerce", [
-    adeg._coerce_y_classif,
-    boot._coerce_y_int64,
-    cmim._coerce_y_int64,
-    tc._coerce_y_int64,
-])
+@pytest.mark.parametrize(
+    "coerce",
+    [
+        adeg._coerce_y_classif,
+        boot._coerce_y_int64,
+        cmim._coerce_y_int64,
+        tc._coerce_y_int64,
+    ],
+)
 def test_coerce_y_does_not_truncate_float_labels(coerce):
     # Two distinct float labels inside [0, 1) collapse to class 0 under
     # plain .astype(int64) -- destroying a binary signal entirely.
@@ -272,5 +279,4 @@ def test_elasticnet_non_convergence_logged(caplog):
     y = rng.normal(size=n)
     with caplog.at_level(logging.WARNING, logger=enet.logger.name):
         enet._fit_elasticnet_abs_coefs(X, y, alpha=1e-9, l1_ratio=0.5, standardize=True)
-    assert any("did not converge" in r.message for r in caplog.records), \
-        "non-convergence must be surfaced, not silently ignored"
+    assert any("did not converge" in r.message for r in caplog.records), "non-convergence must be surfaced, not silently ignored"

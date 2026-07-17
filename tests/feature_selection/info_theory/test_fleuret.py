@@ -8,6 +8,7 @@ Public surface covered:
 Confidence semantics: ``confidence = 1 - (1 + nfailed) / (1 + nchecked)`` (add-one-corrected p-value) where ``nfailed`` is the count of permuted-y shuffles whose conditional gain still met the
 bootstrapped target. High confidence == genuine signal (no permutation matched the original); low confidence == easily faked (target was noise).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -72,8 +73,7 @@ def _call_core(
     max_failed: int = None,
     extra_x_shuffling: bool = True,
 ):
-    """Invoke the njit core directly. We pre-build the numba.typed.Dict caches so the function signature is satisfied and the core can mutate them in place.
-    """
+    """Invoke the njit core directly. We pre-build the numba.typed.Dict caches so the function signature is satisfied and the core can mutate them in place."""
     if selected_vars is None:
         selected_vars = [0]
     if max_failed is None:
@@ -144,7 +144,11 @@ def test_xor_perfect_synergy_high_confidence(xor_factors):
     """
     factors_data, factors_nbins = xor_factors
     nfailed, nchecked = _call_core(
-        factors_data, factors_nbins, npermutations=150, bootstrapped_gain=0.1, max_failed=150,
+        factors_data,
+        factors_nbins,
+        npermutations=150,
+        bootstrapped_gain=0.1,
+        max_failed=150,
     )
     conf = _confidence_from_core(nfailed, nchecked)
     assert conf >= 0.9, f"expected XOR synergy confidence >= 0.9, got {conf} (nfailed={nfailed}/{nchecked})"
@@ -157,7 +161,11 @@ def test_uncorrelated_target_low_confidence(noise_factors):
     """
     factors_data, factors_nbins = noise_factors
     nfailed, nchecked = _call_core(
-        factors_data, factors_nbins, npermutations=100, bootstrapped_gain=0.0, max_failed=100,
+        factors_data,
+        factors_nbins,
+        npermutations=100,
+        bootstrapped_gain=0.0,
+        max_failed=100,
     )
     conf = _confidence_from_core(nfailed, nchecked)
     assert conf <= 0.05, f"expected uncorrelated target with bootstrapped_gain=0 to give confidence ~ 0, got {conf} (nfailed={nfailed}/{nchecked})"
@@ -251,9 +259,17 @@ def test_core_aliased_buffer_matches_fresh_copy_each_call(xor_factors):
     """
     factors_data, factors_nbins = xor_factors
     kw = dict(
-        factors_nbins=factors_nbins, x=(1,), y=np.asarray([3], dtype=np.int64), selected_vars=[0],
-        npermutations=40, bootstrapped_gain=0.1, max_failed=40, nexisting=0,
-        mrmr_relevance_algo="fleuret", mrmr_redundancy_algo="fleuret", max_veteranes_interactions_order=1,
+        factors_nbins=factors_nbins,
+        x=(1,),
+        y=np.asarray([3], dtype=np.int64),
+        selected_vars=[0],
+        npermutations=40,
+        bootstrapped_gain=0.1,
+        max_failed=40,
+        nexisting=0,
+        mrmr_relevance_algo="fleuret",
+        mrmr_redundancy_algo="fleuret",
+        max_veteranes_interactions_order=1,
         extra_x_shuffling=True,
     )
     shared = factors_data.copy()
@@ -387,7 +403,11 @@ def test_biz_xor_synergy_confidence_high():
     """
     factors_data, factors_nbins = _build_xor_factors(n=2000, seed=42)
     nfailed, nchecked = _call_core(
-        factors_data, factors_nbins, npermutations=200, bootstrapped_gain=0.1, max_failed=200,
+        factors_data,
+        factors_nbins,
+        npermutations=200,
+        bootstrapped_gain=0.1,
+        max_failed=200,
     )
     conf = _confidence_from_core(nfailed, nchecked)
     assert conf >= 0.95, f"expected XOR biz confidence >= 0.95, got {conf} (nfailed={nfailed}/{nchecked})"

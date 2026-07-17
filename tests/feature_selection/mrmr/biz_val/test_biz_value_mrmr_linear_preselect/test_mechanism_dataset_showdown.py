@@ -48,6 +48,7 @@ NEVER xfail.
 
 2026-06-01 Layer 83.
 """
+
 from __future__ import annotations
 
 import time
@@ -117,6 +118,8 @@ LINEAR_DATASETS = ("breast_cancer", "iris", "wine", "diabetes")
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
+
 def _mechanism_kwargs(mechanism: str) -> dict:
     """Return the ctor overrides that enable ONE selection mechanism on
     top of the always-on hybrid orth-poly base.
@@ -180,8 +183,14 @@ def _load_wine():
 def _load_make_classification():
     """Build a synthetic 1500x20 binary classification dataset."""
     Xa, ya = make_classification(
-        n_samples=1500, n_features=20, n_informative=3, n_redundant=2,
-        n_repeated=0, n_classes=2, class_sep=0.8, random_state=0,
+        n_samples=1500,
+        n_features=20,
+        n_informative=3,
+        n_redundant=2,
+        n_repeated=0,
+        n_classes=2,
+        class_sep=0.8,
+        random_state=0,
     )
     X = pd.DataFrame(Xa, columns=[f"f{i:02d}" for i in range(Xa.shape[1])])
     y = pd.Series(ya, name="y")
@@ -233,7 +242,10 @@ def _split(X, y, *, task: str, test_size: float = 0.25, random_state: int = 0):
     """Train/holdout split, stratified on the target for classification tasks."""
     stratify = y if task == "classification" else None
     return train_test_split(
-        X, y, test_size=test_size, random_state=random_state,
+        X,
+        y,
+        test_size=test_size,
+        random_state=random_state,
         stratify=stratify,
     )
 
@@ -298,7 +310,10 @@ def matrix():
         cells: dict = {}
         for mech in MECHANISMS:
             score, size, dt = _mechanism_score(
-                X, y, task=task, mechanism=mech,
+                X,
+                y,
+                task=task,
+                mechanism=mech,
             )
             cells[mech] = {"score": score, "size": size, "dt": dt}
         out[ds_name] = {
@@ -326,7 +341,7 @@ class TestMechanismOnEveryDataset:
             for mech, cell in payload["mech"].items():
                 if not np.isfinite(cell["score"]):
                     bad.append((ds, mech))
-        assert not bad, f"{len(bad)} (dataset, mechanism) cells produced non-finite " f"score: {bad[:10]} ..."
+        assert not bad, f"{len(bad)} (dataset, mechanism) cells produced non-finite score: {bad[:10]} ..."
 
     def test_full_matrix_shape_70_cells(self, matrix):
         """The matrix covers exactly 7 datasets x 10 mechanisms = 70 cells."""
@@ -410,7 +425,7 @@ def _get_best_mechanism(matrix: dict, dataset_name: str) -> str:
             best_score = s
             best_mech = mech
     if best_mech is None:
-        raise RuntimeError(f"no finite score on dataset {dataset_name!r}; " f"cells={cells!r}")
+        raise RuntimeError(f"no finite score on dataset {dataset_name!r}; cells={cells!r}")
     return best_mech
 
 
@@ -436,8 +451,8 @@ class TestPerDatasetBestMechanismDocumented:
             best_mech = _get_best_mechanism(matrix, ds)
             best_score = cells[best_mech]["score"]
             if best_score < median:
-                below_median.append(f"{ds}: best={best_mech} score={best_score:.4f} < " f"median={median:.4f}")
-        assert not below_median, "best-mechanism winners that score below median (impossible " "by construction):\n" + "\n".join(below_median)
+                below_median.append(f"{ds}: best={best_mech} score={best_score:.4f} < median={median:.4f}")
+        assert not below_median, "best-mechanism winners that score below median (impossible by construction):\n" + "\n".join(below_median)
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +464,8 @@ class TestLinearDatasetMechanismTieBand:
     """On linear-friendly datasets, most mechanisms should agree on top columns."""
 
     def test_at_least_5_mechanisms_within_002_on_linear_datasets(
-        self, matrix,
+        self,
+        matrix,
     ):
         """On the linear-friendly datasets there exists a cluster of at
         least ``LINEAR_TIE_MIN_COUNT`` mechanisms within
@@ -479,11 +495,9 @@ class TestLinearDatasetMechanismTieBand:
             if best_cluster < LINEAR_TIE_MIN_COUNT:
                 pretty = {m: round(cells[m]["score"], 4) for m in MECHANISMS}
                 violations.append(
-                    f"{ds}: largest in-band cluster of width {band:.3f} "
-                    f"has only {best_cluster} mechanisms; required >= "
-                    f"{LINEAR_TIE_MIN_COUNT}. scores={pretty}"
+                    f"{ds}: largest in-band cluster of width {band:.3f} has only {best_cluster} mechanisms; required >= {LINEAR_TIE_MIN_COUNT}. scores={pretty}"
                 )
-        assert not violations, "linear-friendly datasets where the mechanism tie-band gate " "failed:\n" + "\n".join(violations)
+        assert not violations, "linear-friendly datasets where the mechanism tie-band gate failed:\n" + "\n".join(violations)
 
 
 # ---------------------------------------------------------------------------
@@ -517,9 +531,7 @@ class TestRosterAtLeast82PriorLayers:
         # Layer 29 was relocated into a themed subpackage as test_hybrid_fe_toy_datasets.py; match the FILENAME
         # (not source text) so the baseline-reference presence check survives the consolidation.
         relocated = any(p.name == "test_hybrid_fe_toy_datasets.py" for p in root.glob("test_biz_value_mrmr_*/test_hybrid_fe_toy_datasets.py"))
-        assert flat.exists() or relocated, (
-            "Layer 29 module missing; Layer 83 expands L29's 5-dataset " "validation to 10 mechanisms and uses it as the reference."
-        )
+        assert flat.exists() or relocated, "Layer 29 module missing; Layer 83 expands L29's 5-dataset validation to 10 mechanisms and uses it as the reference."
 
 
 # ---------------------------------------------------------------------------
@@ -562,8 +574,8 @@ class TestCombinedAllOnSmoke:
         fit_dt = time.perf_counter() - t0
         Xt = m.transform(X)
         total_dt = time.perf_counter() - t0
-        assert total_dt < 300.0, f"combined all-on fit+transform on digits-subset took " f"{total_dt:.1f}s; budget 300s. fit alone={fit_dt:.1f}s."
-        assert Xt.shape[1] > 0, "combined all-on transform produced 0 columns; FE-compose " "dropped every candidate"
+        assert total_dt < 300.0, f"combined all-on fit+transform on digits-subset took {total_dt:.1f}s; budget 300s. fit alone={fit_dt:.1f}s."
+        assert Xt.shape[1] > 0, "combined all-on transform produced 0 columns; FE-compose dropped every candidate"
 
     def test_combined_all_on_no_engineered_name_collisions(self):
         """When every scorer flag is on, the FE-compose stage must NOT
@@ -581,7 +593,7 @@ class TestCombinedAllOnSmoke:
         Xt = m.transform(X)
         cols = list(Xt.columns)
         dupes = [c for c in set(cols) if cols.count(c) > 1]
-        assert not dupes, f"combined all-on transform produced duplicate column names: " f"{dupes!r}; FE-compose name-uniqueness invariant violated."
+        assert not dupes, f"combined all-on transform produced duplicate column names: {dupes!r}; FE-compose name-uniqueness invariant violated."
 
 
 # ---------------------------------------------------------------------------

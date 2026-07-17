@@ -14,6 +14,7 @@ documented rather than papered over with a cherry-picked synthetic: the architec
 convention) for callers who want the param-reduction/interpretability property regardless of the unproven
 generalization claim, but it is NOT validated as a net win and should not be assumed superior to a flat MLP.
 """
+
 from __future__ import annotations
 
 import numpy as np

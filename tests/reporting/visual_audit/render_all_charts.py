@@ -50,16 +50,14 @@ import numpy as np
 # (XGBClassifierWithDMatrixReuse / LGBMClassifierWithDatasetReuse /
 # *WithFastpath) get reduced to the canonical upstream name.
 # Mirror that here so the audit reflects what real users see.
-PROD_HEADER = (
-    "TEST XGBClassifier-recency_07 "
-    "[114F+11491.3506 trained on 4.1M rows @iter=37/125F/527.4K rows]"
-)
+PROD_HEADER = "TEST XGBClassifier-recency_07 [114F+11491.3506 trained on 4.1M rows @iter=37/125F/527.4K rows]"
 
 
 def _render(out_dir: str, name: str, spec) -> None:
     """Render a FigureSpec to matplotlib + plotly PNG."""
     from mlframe.reporting.output import parse_plot_output_dsl
     from mlframe.reporting.renderers import render_and_save
+
     base = os.path.join(out_dir, name)
     render_and_save(spec, parse_plot_output_dsl("matplotlib[png] + plotly[png]"), base)
     print(f"  {name}.matplotlib.png + {name}.plotly.png")
@@ -69,6 +67,7 @@ def _render(out_dir: str, name: str, spec) -> None:
 def audit_calibration(out_dir: str) -> None:
     print("[1/7] calibration (binary)...")
     from mlframe.reporting.charts.calibration import build_calibration_spec
+
     rng = np.random.default_rng(0)
     nbins = 10
     freqs_predicted = np.linspace(0.05, 0.95, nbins)
@@ -88,13 +87,16 @@ def audit_regression(out_dir: str) -> None:
     print("[2/7] regression (3-panel)...")
     from mlframe.reporting.charts.regression import build_regression_panel_spec
     from mlframe.training.targets.regression_residual_audit import audit_residuals
+
     rng = np.random.default_rng(1)
     n = 5000
     y_true = rng.standard_normal(n) * 100 + 11000
     y_pred = y_true + rng.standard_normal(n) * 15
     audit = audit_residuals(y_true, y_pred)
     spec = build_regression_panel_spec(
-        y_true, y_pred, audit=audit,
+        y_true,
+        y_pred,
+        audit=audit,
         header_str=PROD_HEADER,
         metrics_str="MAE=10.6531 RMSE=14.8344 MaxError=156.1475 R2=0.9995",
     )
@@ -105,6 +107,7 @@ def audit_regression(out_dir: str) -> None:
 def audit_multiclass(out_dir: str) -> None:
     print("[3/7] multiclass (6-panel grid)...")
     from mlframe.reporting.charts.multiclass import compose_multiclass_figure
+
     rng = np.random.default_rng(2)
     n = 3000
     K = 4
@@ -117,7 +120,9 @@ def audit_multiclass(out_dir: str) -> None:
             other = rng.dirichlet([1.0] * (K - 1))
             proba[i, [k for k in range(K) if k != y_true[i]]] = 0.3 * other
     spec = compose_multiclass_figure(
-        y_true, proba, classes=[f"cls_{i}" for i in range(K)],
+        y_true,
+        proba,
+        classes=[f"cls_{i}" for i in range(K)],
         panels_template="CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC",
         suptitle=PROD_HEADER,
     )
@@ -128,13 +133,16 @@ def audit_multiclass(out_dir: str) -> None:
 def audit_multilabel(out_dir: str) -> None:
     print("[4/7] multilabel (5-panel grid)...")
     from mlframe.reporting.charts.multilabel import compose_multilabel_figure
+
     rng = np.random.default_rng(3)
     n = 2000
     K = 4
     y_true = (rng.standard_normal((n, K)) > 0.3).astype(np.int8)
     y_proba = np.clip(y_true * 0.7 + rng.standard_normal((n, K)) * 0.2, 0, 1)
     spec = compose_multilabel_figure(
-        y_true, y_proba, labels=[f"label_{i}" for i in range(K)],
+        y_true,
+        y_proba,
+        labels=[f"label_{i}" for i in range(K)],
         panels_template="PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST",
         suptitle=PROD_HEADER,
     )
@@ -145,6 +153,7 @@ def audit_multilabel(out_dir: str) -> None:
 def audit_ltr(out_dir: str) -> None:
     print("[5/7] LTR (5-panel grid)...")
     from mlframe.reporting.charts.ltr import compose_ltr_figure
+
     rng = np.random.default_rng(4)
     n_queries = 200
     docs_per = 10
@@ -153,7 +162,9 @@ def audit_ltr(out_dir: str) -> None:
     y_score = y_true * 0.3 + rng.standard_normal(n) * 0.5
     group_ids = np.repeat(np.arange(n_queries), docs_per)
     spec = compose_ltr_figure(
-        y_true, y_score, group_ids,
+        y_true,
+        y_score,
+        group_ids,
         panels_template="NDCG_K NDCG_DIST LIFT MRR_DIST SCORE_BY_REL",
         suptitle=PROD_HEADER,
     )
@@ -165,6 +176,7 @@ def audit_quantile(out_dir: str) -> None:
     print("[6/7] quantile regression (5-panel grid)...")
     from mlframe.reporting.charts.quantile import compose_quantile_figure
     from scipy import stats
+
     rng = np.random.default_rng(5)
     n = 5000
     alphas = np.array([0.1, 0.25, 0.5, 0.75, 0.9])
@@ -179,7 +191,9 @@ def audit_quantile(out_dir: str) -> None:
     for j, a in enumerate(alphas):
         preds_NK[:, j] = base_pred + stats.norm.ppf(a) * per_row_sigma
     spec = compose_quantile_figure(
-        y_true, preds_NK, alphas=alphas,
+        y_true,
+        preds_NK,
+        alphas=alphas,
         panels_template="RELIABILITY PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST",
         suptitle=PROD_HEADER,
     )
@@ -197,17 +211,17 @@ def audit_temporal(out_dir: str) -> None:
     # shape with a SimpleNamespace -- we don't depend on the audit
     # module here.
     from types import SimpleNamespace
+
     rng = np.random.default_rng(6)
     n = 200
     bin_starts = np.arange(n).astype(np.int64)
     rates = 0.5 + 0.1 * np.sin(bin_starts / 10) + rng.standard_normal(n) * 0.05
-    bins = [
-        SimpleNamespace(bin_start=int(t), target_rate=float(r), kept=True)
-        for t, r in zip(bin_starts, rates)
-    ]
+    bins = [SimpleNamespace(bin_start=int(t), target_rate=float(r), kept=True) for t, r in zip(bin_starts, rates)]
     audit = SimpleNamespace(
-        bins=bins, target_name="y_test",
-        granularity="day", target_type="binary",
+        bins=bins,
+        target_name="y_test",
+        granularity="day",
+        target_type="binary",
         segments=[],
     )
     spec = build_temporal_audit_spec(audit)
@@ -227,7 +241,8 @@ def main(argv: Sequence[str] = ()) -> int:
     default_out = os.path.join(tempfile.gettempdir(), "chart_audit")
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
-        "--out", default=default_out,
+        "--out",
+        default=default_out,
         help=f"Output directory (default: {default_out})",
     )
     args = ap.parse_args(list(argv) if argv else None)
@@ -251,6 +266,7 @@ def main(argv: Sequence[str] = ()) -> int:
         except Exception as e:
             failures.append((name, e))
             import traceback
+
             traceback.print_exc()
 
     print(f"\nDONE. Inspect PNGs in {out_dir}")

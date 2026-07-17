@@ -5,6 +5,7 @@ called ``np.median([])`` -- a RuntimeWarning on NumPy 1.x and a hard error on
 some NumPy 2.x configurations. The fix guards with ``base_finite.any()`` and
 defaults ``scale=0.0``; ``eps`` then falls to the documented ``1e-12`` floor.
 """
+
 from __future__ import annotations
 
 import warnings

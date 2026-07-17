@@ -22,6 +22,7 @@ These tests pin:
   (4) Length-mismatch / heterogeneous-shape children skip aggregation (defensive).
   (5) Empty estimators_ list does NOT aggregate.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -113,6 +114,7 @@ def test_multilabel_empty_estimators_skips_aggregation():
     NOT enter the aggregation path and falls through to the standard
     non-native handling."""
     from types import SimpleNamespace
+
     fake = SimpleNamespace()
     fake.estimators_ = []  # empty
     fi = get_model_feature_importances(fake, ["a", "b"], X=None, y=None)
@@ -158,10 +160,7 @@ def test_multilabel_hgb_uses_per_child_permutation_not_wrapper():
     assert out.shape == (len(cols),)
 
     # (a) per-child permutation fired -- one call per HGB child.
-    assert len(call_records) == 3, (
-        f"Expected 3 per-child permutation calls (one per label); "
-        f"got {len(call_records)}. Records: {call_records}"
-    )
+    assert len(call_records) == 3, f"Expected 3 per-child permutation calls (one per label); got {len(call_records)}. Records: {call_records}"
     # (b) every call passed a 1-D y slice (NOT the 2-D wrapper y).
     for child_id, y_shape, y_ndim in call_records:
         assert y_ndim == 1, (
@@ -176,9 +175,7 @@ def test_multilabel_hgb_uses_per_child_permutation_not_wrapper():
     child_ids = {id(c) for c in model.estimators_}
     for child_id, _, _ in call_records:
         assert child_id in child_ids and child_id != wrapper_id, (
-            f"Per-child permutation must receive a child estimator, not "
-            f"the wrapper. Got id={child_id}, wrapper={wrapper_id}, "
-            f"children={child_ids}"
+            f"Per-child permutation must receive a child estimator, not the wrapper. Got id={child_id}, wrapper={wrapper_id}, children={child_ids}"
         )
 
 

@@ -15,6 +15,7 @@ argmin-identical for the hard-assignment). This pins:
 3. ``argmin`` over the GEMM distances agrees exactly with ``argmin`` over the broadcast distances -- the
    hard-assignment used for per-anchor aggregates is unchanged.
 """
+
 from __future__ import annotations
 
 import numpy as np

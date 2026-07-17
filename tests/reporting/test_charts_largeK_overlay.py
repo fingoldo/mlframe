@@ -65,8 +65,10 @@ def test_multiclass_smallK_renders_all_classes_unchanged():
     rng = np.random.default_rng(3)
     n, K = 4000, 6
     y = rng.integers(0, K, n)
-    logits = rng.normal(0, 1, (n, K)); logits[np.arange(n), y] += 2.0
-    e = np.exp(logits - logits.max(1, keepdims=True)); proba = e / e.sum(1, keepdims=True)
+    logits = rng.normal(0, 1, (n, K))
+    logits[np.arange(n), y] += 2.0
+    e = np.exp(logits - logits.max(1, keepdims=True))
+    proba = e / e.sum(1, keepdims=True)
     fig = compose_multiclass_figure(y, proba, list(range(K)), panels_template="ROC CALIB_GRID PR_CURVES")
     roc = _find_line_panel(fig, "Per-class ROC")
     assert "of" not in roc.title and "macro" not in roc.title
@@ -77,8 +79,7 @@ def test_multiclass_smallK_renders_all_classes_unchanged():
 
 def test_multiclass_largeK_switches_to_topN_plus_macro():
     y, proba, classes = _multiclass_with_hard_classes()
-    fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC CALIB_GRID PR_CURVES",
-                                    overlay_max_classes=12, overlay_top_n=8)
+    fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC CALIB_GRID PR_CURVES", overlay_max_classes=12, overlay_top_n=8)
     roc = _find_line_panel(fig, "Per-class ROC")
     assert "8 of 40" in roc.title
     macro_labels = [s for s in roc.series_labels if "macro" in s]
@@ -91,8 +92,7 @@ def test_multiclass_largeK_selects_genuinely_worst_classes():
     """The deliberately-hard (low-AUC) classes must appear among the drawn worst-N curves."""
     hard = (3, 11, 27, 38)
     y, proba, classes = _multiclass_with_hard_classes(hard=hard)
-    fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC",
-                                    overlay_max_classes=12, overlay_top_n=8)
+    fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC", overlay_max_classes=12, overlay_top_n=8)
     roc = _find_line_panel(fig, "Per-class ROC")
     drawn = {int(s.split(" ")[0]) for s in roc.series_labels if s and s[0].isdigit()}
     for h in hard:
@@ -101,8 +101,7 @@ def test_multiclass_largeK_selects_genuinely_worst_classes():
 
 def test_multiclass_macro_present_on_all_overlay_panels():
     y, proba, classes = _multiclass_with_hard_classes()
-    fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC PR_CURVES CALIB_GRID",
-                                    overlay_max_classes=12, overlay_top_n=8)
+    fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC PR_CURVES CALIB_GRID", overlay_max_classes=12, overlay_top_n=8)
     for title in ("Per-class ROC", "Per-class PR", "Per-class reliability"):
         panel = _find_line_panel(fig, title)
         assert any("macro" in s for s in panel.series_labels), f"{title} missing macro-avg"
@@ -128,8 +127,7 @@ def test_multilabel_smallK_renders_all_labels_unchanged():
 def test_multilabel_largeK_switches_to_topN_plus_macro_and_picks_worst():
     hard = (2, 14, 33)
     yt, proba, labels = _multilabel_with_hard_labels(hard=hard)
-    fig = compose_multilabel_figure(yt, proba, labels, panels_template="ROC CALIB_GRID",
-                                    overlay_max_labels=12, overlay_top_n=8)
+    fig = compose_multilabel_figure(yt, proba, labels, panels_template="ROC CALIB_GRID", overlay_max_labels=12, overlay_top_n=8)
     roc = _find_line_panel(fig, "Per-label ROC")
     assert "8 of 40" in roc.title
     assert sum("macro" in s for s in roc.series_labels) == 1
@@ -142,8 +140,7 @@ def test_multilabel_largeK_switches_to_topN_plus_macro_and_picks_worst():
 
 def test_overlay_top_n_param_controls_curve_count():
     y, proba, classes = _multiclass_with_hard_classes()
-    fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC",
-                                    overlay_max_classes=12, overlay_top_n=5)
+    fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC", overlay_max_classes=12, overlay_top_n=5)
     roc = _find_line_panel(fig, "Per-class ROC")
     assert "5 of 40" in roc.title
     assert len(roc.y) == 5 + 2  # chance + 5 + macro

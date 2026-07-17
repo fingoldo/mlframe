@@ -7,6 +7,7 @@ one. Fixed by wrapping each candidate's fit/predict in its own try/except, loggi
 continuing with the remaining candidates -- the failure is reported (not silently dropped) via the new
 ``failed_calibrators`` return value.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -42,8 +43,14 @@ def test_compare_postcalibrators_one_bad_calibrator_does_not_kill_the_rest():
 
     with patch("mlframe.calibration.post.get_postcalibrators", return_value=fake_calibrators):
         metrics_df, calibrators, failed = compare_postcalibrators(
-            model_name="m", columns=["y"], calib_probs=probs, calib_target=target,
-            oos_probs=None, oos_target=None, calib_type="calib", include_patterns=["sklearn", "test"],
+            model_name="m",
+            columns=["y"],
+            calib_probs=probs,
+            calib_target=target,
+            oos_probs=None,
+            oos_target=None,
+            calib_type="calib",
+            include_patterns=["sklearn", "test"],
         )
 
     assert metrics_df is not None, "pre-fix: one raising calibrator propagated the exception and the whole call died"

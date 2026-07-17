@@ -18,6 +18,7 @@ These are bug-detector tests: a regression that re-introduces a NaN leak, a
 broadcast crash, a non-deterministic predict, or a pandas/polars divergence
 fails here rather than weeks into prod.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -241,9 +242,7 @@ class TestPandasPolarsParity:
         y_pd = est_pd.predict(X)
         y_pl = est_pl.predict(X_pl)
         assert y_pd.shape == y_pl.shape
-        assert np.array_equal(y_pd, y_pl), (
-            f"pandas vs polars predict diverged for '{transform_name}'"
-        )
+        assert np.array_equal(y_pd, y_pl), f"pandas vs polars predict diverged for '{transform_name}'"
 
     @pytest.mark.parametrize("transform_name", ["diff", "linear_residual"])
     def test_quantile_predict_parity(self, transform_name) -> None:

@@ -37,11 +37,7 @@ FORBIDDEN_PATTERNS = [
 
 
 def _iter_test_files() -> list[Path]:
-    return [
-        p
-        for p in TESTS_ROOT.rglob("test_*.py")
-        if "__pycache__" not in p.parts and p.name != Path(__file__).name
-    ]
+    return [p for p in TESTS_ROOT.rglob("test_*.py") if "__pycache__" not in p.parts and p.name != Path(__file__).name]
 
 
 def test_no_audit_wave_filenames() -> None:
@@ -52,7 +48,4 @@ def test_no_audit_wave_filenames() -> None:
             if pat.match(stem):
                 offenders.append(str(path.relative_to(TESTS_ROOT)))
                 break
-    assert not offenders, (
-        "Audit-wave filenames must be renamed to topic-canonical names. "
-        f"Offenders ({len(offenders)}): {offenders[:10]}"
-    )
+    assert not offenders, f"Audit-wave filenames must be renamed to topic-canonical names. Offenders ({len(offenders)}): {offenders[:10]}"

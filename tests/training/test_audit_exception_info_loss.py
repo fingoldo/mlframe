@@ -32,6 +32,7 @@ for chained exceptions.
        feature_engineering/mps.py:652 (print -> logger.exception)
        feature_engineering/mps.py:679 (parquet read warning)
 """
+
 from __future__ import annotations
 
 import importlib
@@ -82,6 +83,7 @@ def test_predict_per_model_loop_uses_exc_info() -> None:
     # tolerates either location.
     import pathlib
     import mlframe as _mlframe
+
     _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
     src = ""
     for nm in ("predict.py", "_predict_main_from_models.py", "_predict_main.py", "_predict_pre_pipeline.py"):
@@ -101,9 +103,9 @@ def test_inference_predict_uses_raise_from() -> None:
     # The fix wraps the original ValueError with `from e`.
     assert "is not inside trusted_root" in src
     # Must NOT be the bare raise.
-    assert "is not inside trusted_root {abs_root}\")\n        if common" not in src
+    assert 'is not inside trusted_root {abs_root}")\n        if common' not in src
     # Must include `from e`.
-    assert "from e\n        if common" in src or "is not inside trusted_root {abs_root}\") from e" in src
+    assert "from e\n        if common" in src or 'is not inside trusted_root {abs_root}") from e' in src
 
 
 def test_trainer_cache_load_preserves_traceback() -> None:
@@ -112,6 +114,7 @@ def test_trainer_cache_load_preserves_traceback() -> None:
     # Read both so the structural pin tolerates either location.
     import pathlib
     import mlframe as _mlframe
+
     _root = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
     src = ""
     for nm in ("trainer.py", "_trainer_train_and_evaluate.py", "_trainer_configure.py"):
@@ -244,6 +247,4 @@ def test_save_mlframe_model_logs_traceback_on_failure(caplog) -> None:
         # logger.exception sets exc_info on the record.
         relevant = [r for r in caplog.records if "Could not save model" in r.getMessage()]
         if relevant:
-            assert relevant[0].exc_info is not None, (
-                "save_mlframe_model swallowed an exception without exc_info; traceback was lost."
-            )
+            assert relevant[0].exc_info is not None, "save_mlframe_model swallowed an exception without exc_info; traceback was lost."

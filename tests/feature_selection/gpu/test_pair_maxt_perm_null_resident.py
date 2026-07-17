@@ -12,6 +12,7 @@ differs from numpy's (acceptable), but
 
 Auto-skips when cupy is unavailable (CI without GPU).
 """
+
 from __future__ import annotations
 
 from itertools import combinations
@@ -55,12 +56,28 @@ def test_device_floor_tracks_host_floor(mm_debias, n_classes_y):
     the RNG-stream difference over K=25 draws produces, far below the synergy gap the gate cares about."""
     fd, nb, pa, pb, y, fy = _make_pool(20000, 12, 8, n_classes_y, seed=7)
     host = pooled_pair_permutation_null_joint_mi_floor(
-        factors_data=fd, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y, freqs_y=fy,
-        n_permutations=25, quantile=0.95, random_seed=42, mm_debias=mm_debias,
+        factors_data=fd,
+        nbins=nb,
+        pair_a=pa,
+        pair_b=pb,
+        classes_y=y,
+        freqs_y=fy,
+        n_permutations=25,
+        quantile=0.95,
+        random_seed=42,
+        mm_debias=mm_debias,
     )
     dev = pooled_pair_permutation_null_joint_mi_floor_cupy(
-        factors_data=fd, pair_a=pa, pair_b=pb, nbins=nb, classes_y=y, freqs_y=fy,
-        n_permutations=25, quantile=0.95, random_seed=42, mm_debias=mm_debias,
+        factors_data=fd,
+        pair_a=pa,
+        pair_b=pb,
+        nbins=nb,
+        classes_y=y,
+        freqs_y=fy,
+        n_permutations=25,
+        quantile=0.95,
+        random_seed=42,
+        mm_debias=mm_debias,
     )
     assert dev is not None
     assert dev > 0.0 and host > 0.0
@@ -73,10 +90,22 @@ def test_device_floor_reproducible_per_seed():
     """Same seed -> identical device floor (the device RNG is seeded from random_seed)."""
     fd, nb, pa, pb, y, fy = _make_pool(20000, 12, 8, 4, seed=7)
     d1 = pooled_pair_permutation_null_joint_mi_floor_cupy(
-        factors_data=fd, pair_a=pa, pair_b=pb, nbins=nb, classes_y=y, freqs_y=fy, random_seed=123,
+        factors_data=fd,
+        pair_a=pa,
+        pair_b=pb,
+        nbins=nb,
+        classes_y=y,
+        freqs_y=fy,
+        random_seed=123,
     )
     d2 = pooled_pair_permutation_null_joint_mi_floor_cupy(
-        factors_data=fd, pair_a=pa, pair_b=pb, nbins=nb, classes_y=y, freqs_y=fy, random_seed=123,
+        factors_data=fd,
+        pair_a=pa,
+        pair_b=pb,
+        nbins=nb,
+        classes_y=y,
+        freqs_y=fy,
+        random_seed=123,
     )
     assert d1 == d2
 
@@ -95,19 +124,31 @@ def test_gate_decisions_identical_on_synergy_fixture(mm_debias):
         bias = pairwise_mm_joint_bias(fd, pa, pb, nb, int(fy.shape[0]))
         obs = obs - bias
     host = pooled_pair_permutation_null_joint_mi_floor(
-        factors_data=fd, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y, freqs_y=fy,
-        random_seed=42, mm_debias=mm_debias,
+        factors_data=fd,
+        nbins=nb,
+        pair_a=pa,
+        pair_b=pb,
+        classes_y=y,
+        freqs_y=fy,
+        random_seed=42,
+        mm_debias=mm_debias,
     )
     dev = pooled_pair_permutation_null_joint_mi_floor_cupy(
-        factors_data=fd, pair_a=pa, pair_b=pb, nbins=nb, classes_y=y, freqs_y=fy,
-        random_seed=42, mm_debias=mm_debias, mm_bias=bias,
+        factors_data=fd,
+        pair_a=pa,
+        pair_b=pb,
+        nbins=nb,
+        classes_y=y,
+        freqs_y=fy,
+        random_seed=42,
+        mm_debias=mm_debias,
+        mm_bias=bias,
     )
     assert dev is not None
     gate_host = obs >= host
     gate_dev = obs >= dev
     assert np.array_equal(gate_host, gate_dev), (
-        f"gate flip: host_floor={host:.4e} dev_floor={dev:.4e}; "
-        f"pass host={int(gate_host.sum())} dev={int(gate_dev.sum())}"
+        f"gate flip: host_floor={host:.4e} dev_floor={dev:.4e}; pass host={int(gate_host.sum())} dev={int(gate_dev.sum())}"
     )
     assert gate_host.sum() >= 1  # the XOR pair must clear the floor on both
 
@@ -134,6 +175,11 @@ def test_degenerate_pools_noop(n, npairs_ok):
     y = np.zeros(n, dtype=np.int64)
     fy = np.array([1.0], dtype=np.float64)
     dev = pooled_pair_permutation_null_joint_mi_floor_cupy(
-        factors_data=fd, pair_a=pa, pair_b=pb, nbins=nb, classes_y=y, freqs_y=fy,
+        factors_data=fd,
+        pair_a=pa,
+        pair_b=pb,
+        nbins=nb,
+        classes_y=y,
+        freqs_y=fy,
     )
     assert dev == 0.0

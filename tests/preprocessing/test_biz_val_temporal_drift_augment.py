@@ -6,6 +6,7 @@ get scored before their full history is in), because the standardization stats i
 matched the truncated-history stats it faces at query time. Augmenting training data with truncated-history,
 re-standardized copies (same real label) should measurably improve accuracy on early-vintage queries.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -137,9 +138,7 @@ def test_biz_val_temporal_drift_augment_weight_by_recency_beats_naive_equal_weig
 
     n_drop_options = tuple(range(1, 38))
 
-    naive = augment_temporal_drift(
-        train_df, entity_col="entity_id", time_col="t", feature_cols=["x"], n_drop_options=n_drop_options, weight_by_recency=False
-    )
+    naive = augment_temporal_drift(train_df, entity_col="entity_id", time_col="t", feature_cols=["x"], n_drop_options=n_drop_options, weight_by_recency=False)
     weighted = augment_temporal_drift(
         train_df,
         entity_col="entity_id",
@@ -156,9 +155,7 @@ def test_biz_val_temporal_drift_augment_weight_by_recency_beats_naive_equal_weig
     train_naive = pd.concat([train_last, naive_augmented_only], axis=0, ignore_index=True)
 
     weighted_augmented_only = weighted.loc[weighted["_temporal_drift_augmented"], ["x", "y", "_sample_weight"]]
-    train_weighted = pd.concat(
-        [train_last.assign(_sample_weight=1.0), weighted_augmented_only], axis=0, ignore_index=True
-    )
+    train_weighted = pd.concat([train_last.assign(_sample_weight=1.0), weighted_augmented_only], axis=0, ignore_index=True)
 
     # realistic production query: moderate truncation (drop last 1 period) on the NORMAL entity
     # population, not the long-noisy-history minority that pollutes the naive augmented pool.
@@ -172,9 +169,7 @@ def test_biz_val_temporal_drift_augment_weight_by_recency_beats_naive_equal_weig
     early_test = pd.DataFrame(early_rows)
 
     model_naive = LogisticRegression().fit(train_naive[["x"]], train_naive["y"])
-    model_weighted = LogisticRegression().fit(
-        train_weighted[["x"]], train_weighted["y"], sample_weight=train_weighted["_sample_weight"]
-    )
+    model_weighted = LogisticRegression().fit(train_weighted[["x"]], train_weighted["y"], sample_weight=train_weighted["_sample_weight"])
 
     loss_naive = log_loss(early_test["y"], model_naive.predict_proba(early_test[["x"]])[:, 1])
     loss_weighted = log_loss(early_test["y"], model_weighted.predict_proba(early_test[["x"]])[:, 1])
@@ -196,9 +191,7 @@ def test_augment_temporal_drift_weight_by_recency_default_off_is_bit_identical()
         }
     )
     default_result = augment_temporal_drift(df, entity_col="entity_id", time_col="t", feature_cols=["x"], n_drop_options=(1, 2))
-    explicit_off_result = augment_temporal_drift(
-        df, entity_col="entity_id", time_col="t", feature_cols=["x"], n_drop_options=(1, 2), weight_by_recency=False
-    )
+    explicit_off_result = augment_temporal_drift(df, entity_col="entity_id", time_col="t", feature_cols=["x"], n_drop_options=(1, 2), weight_by_recency=False)
     pd.testing.assert_frame_equal(default_result, explicit_off_result)
     assert "_sample_weight" not in default_result.columns
 

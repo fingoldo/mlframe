@@ -18,6 +18,7 @@ These tests pin:
 * (GPU) ``gpu_discretize_codes_host`` is bit-identical (maxdiff 0) to ``discretize_2d_quantile_batch``;
 * (GPU) a full F2 100k fit recovers the SAME feature set with binning forced CPU vs forced GPU.
 """
+
 from __future__ import annotations
 
 import os
@@ -32,6 +33,7 @@ from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_
 def _has_cuda() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return bool(is_cuda_available())
     except Exception:
         return False
@@ -58,6 +60,7 @@ def test_global_kill_switch_disables_binning(monkeypatch):
 def test_binning_ktc_kernel_registered():
     """The dedicated binning crossover helpers exist and are distinct from the pair-MI ones."""
     from mlframe.feature_selection.filters import _gpu_resident_basis as b
+
     assert callable(b.fe_gpu_binning_backend_choice)
     assert callable(b._run_fe_gpu_binning_sweep)
     assert callable(b._fe_gpu_binning_fallback_choice)
@@ -70,9 +73,10 @@ def test_binning_fallback_crossover_math(monkeypatch):
     """The pre-sweep fallback routes large work to GPU, tiny work to CPU (lower crossover than the
     full MI path: binning is a cheaper op)."""
     from mlframe.feature_selection.filters import _gpu_resident_basis as b
+
     monkeypatch.delenv("MLFRAME_FE_GPU_BINNING_MIN_NK", raising=False)
-    assert b._fe_gpu_binning_fallback_choice(100_000, 256) == "gpu"   # 2.56e7 >= 1e6
-    assert b._fe_gpu_binning_fallback_choice(5_000, 50) == "cpu"      # 2.5e5  < 1e6
+    assert b._fe_gpu_binning_fallback_choice(100_000, 256) == "gpu"  # 2.56e7 >= 1e6
+    assert b._fe_gpu_binning_fallback_choice(5_000, 50) == "cpu"  # 2.5e5  < 1e6
 
 
 @pytest.mark.skipif(not _has_cuda(), reason="CUDA required")
@@ -80,6 +84,7 @@ def test_gpu_binning_bit_identical_to_cpu():
     """``gpu_discretize_codes_host`` == ``discretize_2d_quantile_batch`` codes, maxdiff 0."""
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
     from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host
+
     rng = np.random.default_rng(0)
     cand = np.ascontiguousarray(rng.uniform(0.1, 5.0, (20_000, 64)).astype(np.float32))
     for nb in (10, 20):
@@ -98,9 +103,13 @@ def test_f2_selection_identical_cpu_vs_gpu_binning(monkeypatch):
 
     def mk(n, seed):
         r = np.random.default_rng(seed)
-        a = r.uniform(0.1, 1.1, n); b = r.uniform(0.1, 1.1, n); c = r.uniform(0.1, 1.1, n)
-        d = r.uniform(0, 2 * np.pi, n); e = r.uniform(0.1, 1.1, n); f = r.uniform(0.1, 1.1, n)
-        return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), a ** 2 / b + f / 5 + np.log(np.abs(c) + 1e-9) * np.sin(d)
+        a = r.uniform(0.1, 1.1, n)
+        b = r.uniform(0.1, 1.1, n)
+        c = r.uniform(0.1, 1.1, n)
+        d = r.uniform(0, 2 * np.pi, n)
+        e = r.uniform(0.1, 1.1, n)
+        f = r.uniform(0.1, 1.1, n)
+        return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), a**2 / b + f / 5 + np.log(np.abs(c) + 1e-9) * np.sin(d)
 
     df, y = mk(60_000, 7)
 

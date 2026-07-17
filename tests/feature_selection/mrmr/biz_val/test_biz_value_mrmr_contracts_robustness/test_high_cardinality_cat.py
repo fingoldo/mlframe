@@ -88,6 +88,7 @@ REFERENCES
 * The MI-normalisation knob is documented in
   ``MRMR.__init__`` around the ``mi_normalization`` parameter.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -229,12 +230,12 @@ class TestHighCardCatFEDisabledNumericSignalsSurvive:
     def test_num_signal_1_in_support(self):
         """num_signal_1 (true numeric signal) survives the high-card user_id distractor."""
         _X, _y, names = _build_and_fit_layer10(101)
-        assert "num_signal_1" in names, f"num_signal_1 (true signal) missing from support; the " f"high-card user_id hijacked the budget. support={names}"
+        assert "num_signal_1" in names, f"num_signal_1 (true signal) missing from support; the high-card user_id hijacked the budget. support={names}"
 
     def test_num_signal_2_in_support(self):
         """num_signal_2 (true numeric signal) survives the high-card user_id distractor."""
         _X, _y, names = _build_and_fit_layer10(101)
-        assert "num_signal_2" in names, f"num_signal_2 (true signal) missing from support; " f"support={names}"
+        assert "num_signal_2" in names, f"num_signal_2 (true signal) missing from support; support={names}"
 
 
 class TestHighCardCatFEDisabledRegionSurvives:
@@ -247,7 +248,7 @@ class TestHighCardCatFEDisabledRegionSurvives:
         """region (medium-card categorical with real signal) is not crowded out."""
         _X, _y, names = _build_and_fit_layer10(101)
         assert "region" in names, (
-            f"region (medium-card cat with real signal) dropped; the " f"high-card user_id likely crowded it out via false " f"redundancy. support={names}"
+            f"region (medium-card cat with real signal) dropped; the high-card user_id likely crowded it out via false redundancy. support={names}"
         )
 
 
@@ -264,7 +265,7 @@ class TestHighCardCatFEDisabledSeedRobustness:
         _X, _y, names = _build_and_fit_layer10(seed)
         true_signals = {"num_signal_1", "num_signal_2", "region"}
         missing = true_signals - set(names)
-        assert not missing, f"seed={seed}: true-signal column(s) {missing} missing from " f"support; support={names}"
+        assert not missing, f"seed={seed}: true-signal column(s) {missing} missing from support; support={names}"
 
     @pytest.mark.parametrize("seed", [202, 303, 404, 505])
     def test_user_id_not_top_pick_majority_seeds(self, seed):
@@ -279,7 +280,7 @@ class TestHighCardCatFEDisabledSeedRobustness:
         """
         _X, _y, names = _build_and_fit_layer10(seed)
         assert names, f"seed={seed}: empty support"
-        assert names[0] != "user_id", f"seed={seed}: user_id ranked #1 -- the cardinality-bias " f"hijack escaped onto a normally-clean seed; support={names}"
+        assert names[0] != "user_id", f"seed={seed}: user_id ranked #1 -- the cardinality-bias hijack escaped onto a normally-clean seed; support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +338,7 @@ class TestHighCardHijackFullyResolved:
         _X, _y, names = _build_and_fit_layer10(seed)
         kept = {"num_signal_1", "num_signal_2"} & set(names)
         assert kept == {"num_signal_1", "num_signal_2"}, (
-            f"seed={seed}: pre-screen/MM-correction cut a real numeric " f"signal. support={names}; missing={ {'num_signal_1', 'num_signal_2'} - kept }"
+            f"seed={seed}: pre-screen/MM-correction cut a real numeric signal. support={names}; missing={ {'num_signal_1', 'num_signal_2'} - kept }"
         )
 
     @pytest.mark.parametrize("seed", [101, 202, 303, 404, 505])

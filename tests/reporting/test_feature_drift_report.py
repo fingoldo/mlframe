@@ -5,6 +5,7 @@ Sensor lands 2026-05-22 to complement the existing
 the TVT-2026-05-21 MLP path (Ridge tolerates 14-sigma TVT_prev drift fine
 via linear extrapolation; MLP collapses).
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,20 +26,26 @@ def _make_frames(*, drift_z: float, n: int = 1000, seed: int = 0):
     """Build train/val/test pandas frames where ``f_shift`` has its test mean
     drifted by exactly ``drift_z`` train-stds. f_stable matches across splits."""
     rng = np.random.default_rng(seed)
-    train = pd.DataFrame({
-        "f_stable": rng.normal(0.0, 1.0, n),
-        "f_shift": rng.normal(0.0, 1.0, n),
-    })
-    val = pd.DataFrame({
-        "f_stable": rng.normal(0.0, 1.0, n // 2),
-        "f_shift": rng.normal(0.0, 1.0, n // 2),
-    })
+    train = pd.DataFrame(
+        {
+            "f_stable": rng.normal(0.0, 1.0, n),
+            "f_shift": rng.normal(0.0, 1.0, n),
+        }
+    )
+    val = pd.DataFrame(
+        {
+            "f_stable": rng.normal(0.0, 1.0, n // 2),
+            "f_shift": rng.normal(0.0, 1.0, n // 2),
+        }
+    )
     # Inject a deterministic mean shift into f_shift on the test slice. The
     # underlying noise std stays ~1 so train_std=1 and the z is exactly drift_z.
-    test = pd.DataFrame({
-        "f_stable": rng.normal(0.0, 1.0, n // 2),
-        "f_shift": rng.normal(drift_z, 1.0, n // 2),
-    })
+    test = pd.DataFrame(
+        {
+            "f_stable": rng.normal(0.0, 1.0, n // 2),
+            "f_shift": rng.normal(drift_z, 1.0, n // 2),
+        }
+    )
     return train, val, test
 
 
@@ -62,14 +69,11 @@ class TestFeatureDriftSensor:
         assert "f_stable" not in names
         # The log line surfaces at INFO level with the top-drifter list.
         info_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
-        assert any("[feature-distribution-drift]" in m for m in info_msgs), (
-            f"INFO log missing on moderate drift; got info_msgs={info_msgs}"
-        )
+        assert any("[feature-distribution-drift]" in m for m in info_msgs), f"INFO log missing on moderate drift; got info_msgs={info_msgs}"
         # And NO WARN should fire at this magnitude without FI weighting.
         warn_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert not any("[feature-distribution-drift]" in m for m in warn_msgs), (
-            f"WARN level fired on moderate drift without FI weighting; "
-            f"design says only escalate at >=10x sigma OR weighted>=1.0. warn_msgs={warn_msgs}"
+            f"WARN level fired on moderate drift without FI weighting; design says only escalate at >=10x sigma OR weighted>=1.0. warn_msgs={warn_msgs}"
         )
 
     def test_extreme_drift_escalates_to_warn(self, caplog):
@@ -93,13 +97,13 @@ class TestFeatureDriftSensor:
         train, val, test = _make_frames(drift_z=8.0)
         with caplog.at_level(logging.WARNING):
             rep = compute_feature_distribution_drift(
-                train, val, test,
+                train,
+                val,
+                test,
                 feature_importance={"f_shift": 1.0, "f_stable": 0.0},
             )
         ws = rep["weighted_drift_score"]
-        assert ws is not None and ws > 5.0, (
-            f"FI-weighted aggregate should be ~ z of the drifting dominant feature; got {ws}"
-        )
+        assert ws is not None and ws > 5.0, f"FI-weighted aggregate should be ~ z of the drifting dominant feature; got {ws}"
         # And WARN fires because weighted_drift_score >= 1.0.
         msgs = " | ".join(rec.getMessage() for rec in caplog.records)
         assert "[feature-distribution-drift]" in msgs
@@ -114,17 +118,22 @@ class TestFeatureDriftSensor:
         Skip-neural is too blunt (loses stacking diversity). The empirical
         approach: change the MLP HPT under drift, don't drop the model."""
         import mlframe.training.feature_drift_report as fdr
+
         monkeypatch.setattr(
-            fdr, "ROBUST_MLP_OVERRIDES_UNDER_DRIFT",
+            fdr,
+            "ROBUST_MLP_OVERRIDES_UNDER_DRIFT",
             {"alpha": 1.0, "hidden_layer_sizes": (16,)},
         )
         train, val, test = _make_frames(drift_z=8.0)
         rep = compute_feature_distribution_drift(
-            train, val, test,
+            train,
+            val,
+            test,
             feature_importance={"f_shift": 1.0, "f_stable": 0.0},
         )
         assert rep["recommend_neural_overrides"] == {
-            "alpha": 1.0, "hidden_layer_sizes": (16,),
+            "alpha": 1.0,
+            "hidden_layer_sizes": (16,),
         }, f"expected override dict from sweep, got {rep['recommend_neural_overrides']}"
 
     def test_recommend_neural_overrides_silent_below_threshold(self, monkeypatch):
@@ -133,12 +142,17 @@ class TestFeatureDriftSensor:
         experiment showed weighted_drift_score < 3.0 has high false-positive
         rate vs MLP_excess_harm > 0.1."""
         import mlframe.training.feature_drift_report as fdr
+
         monkeypatch.setattr(
-            fdr, "ROBUST_MLP_OVERRIDES_UNDER_DRIFT", {"alpha": 1.0},
+            fdr,
+            "ROBUST_MLP_OVERRIDES_UNDER_DRIFT",
+            {"alpha": 1.0},
         )
         train, val, test = _make_frames(drift_z=2.0)
         rep = compute_feature_distribution_drift(
-            train, val, test,
+            train,
+            val,
+            test,
             feature_importance={"f_shift": 1.0, "f_stable": 0.0},
         )
         assert rep["recommend_neural_overrides"] is None
@@ -148,8 +162,11 @@ class TestFeatureDriftSensor:
         recommendation MUST stay None -- the per-feature z-score alone is
         not a grounded harm signal (drift on FI=0 features is harmless)."""
         import mlframe.training.feature_drift_report as fdr
+
         monkeypatch.setattr(
-            fdr, "ROBUST_MLP_OVERRIDES_UNDER_DRIFT", {"alpha": 1.0},
+            fdr,
+            "ROBUST_MLP_OVERRIDES_UNDER_DRIFT",
+            {"alpha": 1.0},
         )
         train, val, test = _make_frames(drift_z=35.0)  # extreme drift
         rep = compute_feature_distribution_drift(train, val, test)  # no FI
@@ -161,10 +178,13 @@ class TestFeatureDriftSensor:
         the constant), the report must not invent a recommendation -- it must
         stay None so downstream code does no-op merge."""
         import mlframe.training.feature_drift_report as fdr
+
         monkeypatch.setattr(fdr, "ROBUST_MLP_OVERRIDES_UNDER_DRIFT", {})
         train, val, test = _make_frames(drift_z=8.0)
         rep = compute_feature_distribution_drift(
-            train, val, test,
+            train,
+            val,
+            test,
             feature_importance={"f_shift": 1.0, "f_stable": 0.0},
         )
         assert rep["recommend_neural_overrides"] is None
@@ -173,10 +193,13 @@ class TestFeatureDriftSensor:
         """When ROBUST_MLP_OVERRIDES_UNDER_DRIFT is populated (2026-05-22
         sweep result), the report surfaces those keys at the actual default."""
         from mlframe.training.feature_drift_report import ROBUST_MLP_OVERRIDES_UNDER_DRIFT
+
         assert ROBUST_MLP_OVERRIDES_UNDER_DRIFT, "sweep constant must be populated"
         train, val, test = _make_frames(drift_z=8.0)
         rep = compute_feature_distribution_drift(
-            train, val, test,
+            train,
+            val,
+            test,
             feature_importance={"f_shift": 1.0, "f_stable": 0.0},
         )
         assert rep["recommend_neural_overrides"] == dict(ROBUST_MLP_OVERRIDES_UNDER_DRIFT)
@@ -188,18 +211,17 @@ class TestFeatureDriftSensor:
         train, val, test = _make_frames(drift_z=8.0)
         with caplog.at_level(logging.WARNING):
             rep = compute_feature_distribution_drift(
-                train, val, test,
+                train,
+                val,
+                test,
                 feature_importance={"f_shift": 0.0, "f_stable": 1.0},
             )
         ws = rep["weighted_drift_score"]
-        assert ws is not None and ws < 0.5, (
-            f"With drift on FI=0 feature, weighted score should stay low; got {ws}"
-        )
+        assert ws is not None and ws < 0.5, f"With drift on FI=0 feature, weighted score should stay low; got {ws}"
         # No WARN should fire -- the harm signal is grounded and doesn't escalate.
         warn_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert not any("[feature-distribution-drift]" in m for m in warn_msgs), (
-            f"WARN should NOT fire when the drift is on an unimportant feature. "
-            f"warn_msgs={warn_msgs}"
+            f"WARN should NOT fire when the drift is on an unimportant feature. warn_msgs={warn_msgs}"
         )
 
     def test_threshold_respected(self):
@@ -209,7 +231,10 @@ class TestFeatureDriftSensor:
         assert rep_default["drift_candidates"] == []
         # Tighter threshold (2.0) should catch it.
         rep_tight = compute_feature_distribution_drift(
-            train, val, test, warn_threshold_z=2.0,
+            train,
+            val,
+            test,
+            warn_threshold_z=2.0,
         )
         assert any(c == "f_shift" for c, _z in rep_tight["drift_candidates"])
 
@@ -237,9 +262,7 @@ class TestFeatureDriftSensor:
         val = pl.DataFrame({"f": rng.normal(0, 1, n // 2).astype(np.float32)})
         test = pl.DataFrame({"f": rng.normal(5, 1, n // 2).astype(np.float32)})  # 5-sigma drift
         rep = compute_feature_distribution_drift(train, val, test)
-        assert any(c == "f" for c, _z in rep["drift_candidates"]), (
-            f"Polars frame with clear drift not flagged: {rep}"
-        )
+        assert any(c == "f" for c, _z in rep["drift_candidates"]), f"Polars frame with clear drift not flagged: {rep}"
 
     def test_no_val_frame_falls_back_to_test_only(self):
         train, _, test = _make_frames(drift_z=6.0)
@@ -274,9 +297,11 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         assert mp["optimizer_kwargs"] == {"weight_decay": 0.5}
 
     def test_hidden_layer_sizes_single_layer(self):
-        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
-            "hidden_layer_sizes": (16,),
-        })
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+            {
+                "hidden_layer_sizes": (16,),
+            }
+        )
         np_ = out["network_params"]
         assert np_["nlayers"] == 1
         assert np_["first_layer_num_neurons"] == 16
@@ -284,9 +309,11 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         assert np_["consec_layers_neurons_ratio"] == 1.0
 
     def test_hidden_layer_sizes_two_layers_decode_ratio(self):
-        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
-            "hidden_layer_sizes": (32, 16),
-        })
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+            {
+                "hidden_layer_sizes": (32, 16),
+            }
+        )
         np_ = out["network_params"]
         assert np_["nlayers"] == 2
         assert np_["first_layer_num_neurons"] == 32
@@ -295,16 +322,22 @@ class TestSklearnToMlframeMlpKwargsTranslator:
 
     def test_activation_relu_maps_to_torch_relu(self):
         import torch
-        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
-            "activation": "relu",
-        })
+
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+            {
+                "activation": "relu",
+            }
+        )
         assert out["network_params"]["activation_function"] is torch.nn.ReLU
 
     def test_activation_tanh_maps_to_torch_tanh(self):
         import torch
-        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
-            "activation": "tanh",
-        })
+
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+            {
+                "activation": "tanh",
+            }
+        )
         assert out["network_params"]["activation_function"] is torch.nn.Tanh
 
     def test_activation_identity_uses_nn_identity_with_zero_dropout(self):
@@ -315,17 +348,22 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         -> Linear -> Identity ..., mathematically collapsing to a single linear
         transform of the input -- equivalent to sklearn's identity activation."""
         import torch
-        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
-            "activation": "identity",
-        })
+
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+            {
+                "activation": "identity",
+            }
+        )
         assert out["network_params"]["activation_function"] is torch.nn.Identity
         assert out["network_params"]["dropout_prob"] == 0.0
         assert out["network_params"]["inputs_dropout_prob"] == 0.0
 
     def test_unknown_activation_recorded_as_untranslated(self):
-        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
-            "activation": "gelu",
-        })
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+            {
+                "activation": "gelu",
+            }
+        )
         assert any("activation=gelu" in s for s in out.get("__untranslated__", []))
 
     def test_full_sweep_winner_translates_cleanly(self):
@@ -334,6 +372,7 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         assumes."""
         import torch
         from mlframe.training.feature_drift_report import ROBUST_MLP_OVERRIDES_UNDER_DRIFT
+
         assert ROBUST_MLP_OVERRIDES_UNDER_DRIFT, "sweep constant must be populated"
         out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
             ROBUST_MLP_OVERRIDES_UNDER_DRIFT,
@@ -373,8 +412,7 @@ class TestFeatureDriftAutoActionWireIn:
     before MLP construction reads it."""
 
     @staticmethod
-    def _stamped_metadata(sklearn_override: dict, target_type: str = "regression",
-                         cur_target_name: str = "y") -> dict:
+    def _stamped_metadata(sklearn_override: dict, target_type: str = "regression", cur_target_name: str = "y") -> dict:
         """Mirror the metadata shape ``run_per_target_diagnostics`` stamps."""
         return {
             "feature_distribution_drift": {
@@ -394,6 +432,7 @@ class TestFeatureDriftAutoActionWireIn:
             ROBUST_MLP_OVERRIDES_UNDER_DRIFT,
             translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs,
         )
+
         assert ROBUST_MLP_OVERRIDES_UNDER_DRIFT, "sweep constant must be populated"
 
         _orig_mlp_kwargs = {
@@ -415,6 +454,7 @@ class TestFeatureDriftAutoActionWireIn:
         # pick (32, was 128); activation_function becomes torch.nn.Identity
         # (linear-collapse path) and dropout sources are zeroed.
         import torch
+
         assert _merged["network_params"]["use_layernorm"] is False
         assert _merged["network_params"]["first_layer_num_neurons"] == 32
         # identity-activation collapses the stack to a single linear transform
@@ -429,16 +469,17 @@ class TestFeatureDriftAutoActionWireIn:
 
     def test_per_target_type_threshold_table(self):
         """Per-type threshold table:
-          regression -> 3.0 (grounded universally by paired study, precision=1.000)
-          classification -> 3.0 + linear-shape gate (interaction-rich
-            classification targets show negative correlation; gate enforces
-            the override only fires when init_score_baseline.delta_vs_raw_pct
-            says the target is linear-shape).
+        regression -> 3.0 (grounded universally by paired study, precision=1.000)
+        classification -> 3.0 + linear-shape gate (interaction-rich
+          classification targets show negative correlation; gate enforces
+          the override only fires when init_score_baseline.delta_vs_raw_pct
+          says the target is linear-shape).
         """
         from mlframe.training.feature_drift_report import (
             WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS,
             CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT,
         )
+
         assert WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["regression"] == 3.0
         assert WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["classification"] == 3.0
         assert CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT == 10.0
@@ -449,9 +490,12 @@ class TestFeatureDriftAutoActionWireIn:
         recommends the override on any regression target with drift >= 3.0
         regardless of linear_shape_delta_vs_raw_pct."""
         from mlframe.training.feature_drift_report import ROBUST_MLP_OVERRIDES_UNDER_DRIFT
+
         train, val, test = _make_frames(drift_z=8.0)
         rep = compute_feature_distribution_drift(
-            train, val, test,
+            train,
+            val,
+            test,
             feature_importance={"f_shift": 1.0, "f_stable": 0.0},
             target_type="regression",
             # Shape signal absent / arbitrary -- regression ignores it.
@@ -466,9 +510,12 @@ class TestFeatureDriftAutoActionWireIn:
         from mlframe.training.feature_drift_report import (
             ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION,
         )
+
         train, val, test = _make_frames(drift_z=8.0)
         rep = compute_feature_distribution_drift(
-            train, val, test,
+            train,
+            val,
+            test,
             feature_importance={"f_shift": 1.0, "f_stable": 0.0},
             target_type="binary_classification",
             linear_shape_delta_vs_raw_pct=5.0,  # linear within 10% of LGBM
@@ -482,7 +529,9 @@ class TestFeatureDriftAutoActionWireIn:
         recommendation must be None."""
         train, val, test = _make_frames(drift_z=8.0)
         rep = compute_feature_distribution_drift(
-            train, val, test,
+            train,
+            val,
+            test,
             feature_importance={"f_shift": 1.0, "f_stable": 0.0},
             target_type="binary_classification",
             linear_shape_delta_vs_raw_pct=45.0,  # LogReg far worse than LGBM
@@ -495,7 +544,9 @@ class TestFeatureDriftAutoActionWireIn:
         suites that didn't enable baseline_diagnostics."""
         train, val, test = _make_frames(drift_z=8.0)
         rep = compute_feature_distribution_drift(
-            train, val, test,
+            train,
+            val,
+            test,
             feature_importance={"f_shift": 1.0, "f_stable": 0.0},
             target_type="binary_classification",
             linear_shape_delta_vs_raw_pct=None,
@@ -520,6 +571,7 @@ class TestColValueCounts:
 
     def test_pandas_counts_exact_and_python_int(self):
         from mlframe.training.feature_drift_report import _col_value_counts
+
         df = pd.DataFrame({"c": ["a", "a", "b", "c", "c", "c"]})
         out = _col_value_counts(df, "c")
         assert out == {"a": 2, "b": 1, "c": 3}
@@ -529,6 +581,7 @@ class TestColValueCounts:
         """``value_counts(dropna=False)`` keeps NaN as its own bucket -- a new
         all-NaN column in serving is exactly the drift PSI must surface."""
         from mlframe.training.feature_drift_report import _col_value_counts
+
         df = pd.DataFrame({"c": [1.0, 1.0, np.nan, 2.0, np.nan]})
         out = _col_value_counts(df, "c")
         assert out[1.0] == 2 and out[2.0] == 1
@@ -538,6 +591,7 @@ class TestColValueCounts:
     def test_polars_counts_exact_and_python_int(self):
         pl = pytest.importorskip("polars")
         from mlframe.training.feature_drift_report import _col_value_counts
+
         df = pl.DataFrame({"c": ["x", "y", "y", "z", "z", "z"]})
         out = _col_value_counts(df, "c")
         assert out == {"x": 1, "y": 2, "z": 3}

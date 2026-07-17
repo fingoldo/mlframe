@@ -92,10 +92,10 @@ class TestComposePairFERegression:
         n_single_mi_calls_for_a = sum(1 for c in call_log if c == a_bytes)
         n_single_mi_calls_for_b = sum(1 for c in call_log if c == b_bytes)
         assert n_single_mi_calls_for_a <= 1, (
-            f"x_a's single-feature MI recomputed {n_single_mi_calls_for_a} times across " f"{n_rounds} rounds; expected <=1 (cached after round 1)"
+            f"x_a's single-feature MI recomputed {n_single_mi_calls_for_a} times across {n_rounds} rounds; expected <=1 (cached after round 1)"
         )
         assert n_single_mi_calls_for_b <= 1, (
-            f"x_b's single-feature MI recomputed {n_single_mi_calls_for_b} times across " f"{n_rounds} rounds; expected <=1 (cached after round 1)"
+            f"x_b's single-feature MI recomputed {n_single_mi_calls_for_b} times across {n_rounds} rounds; expected <=1 (cached after round 1)"
         )
         assert set(out.keys()) == {"X_aug", "names", "rounds"}
 
@@ -367,6 +367,4 @@ def test_biz_xor_pair_uplifts_over_parents():
         seed=0,
     )
     uplift = out["oos_mean"] / best_parent
-    assert uplift >= 2.0, (
-        f"XOR pair uplift {uplift:.2f}x over best parent (mi_a={mi_a:.4f}, mi_b={mi_b:.4f}, " f"oos_mean={out['oos_mean']:.4f}) - expected >= 2.0"
-    )
+    assert uplift >= 2.0, f"XOR pair uplift {uplift:.2f}x over best parent (mi_a={mi_a:.4f}, mi_b={mi_b:.4f}, oos_mean={out['oos_mean']:.4f}) - expected >= 2.0"

@@ -26,6 +26,7 @@ plus its sibling ``_utils.py``):
         predict_pre_clip / get_booster + the 5 delegated properties) is now
         defined in-body so it is discoverable to mypy / IDE / help().
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,6 +42,7 @@ from mlframe.training.composite.transforms import get_transform
 # Inner mocks
 # ----------------------------------------------------------------------
 
+
 class _ConstInner(BaseEstimator, RegressorMixin):
     """Predicts a fixed T-scale value (defaults to mean of training T)."""
 
@@ -49,11 +51,7 @@ class _ConstInner(BaseEstimator, RegressorMixin):
 
     def fit(self, X, y, **kw):
         self.n_features_in_ = X.shape[1]
-        self._mean_t = (
-            float(self.t_value)
-            if self.t_value is not None
-            else float(np.mean(np.asarray(y, dtype=np.float64)))
-        )
+        self._mean_t = float(self.t_value) if self.t_value is not None else float(np.mean(np.asarray(y, dtype=np.float64)))
         return self
 
     def predict(self, X):
@@ -124,6 +122,7 @@ def _diff_frame(n=200, seed=0):
 # E7: signature-gated sample_weight
 # ----------------------------------------------------------------------
 
+
 class TestE7SampleWeightSignatureGate:
     def test_deep_typeerror_in_weight_aware_inner_propagates_no_retry(self) -> None:
         """E7: a TypeError raised DEEP inside a weight-AWARE inner.fit must
@@ -144,8 +143,7 @@ class TestE7SampleWeightSignatureGate:
             est.fit(X, y, sample_weight=sw)
         # Exactly one fit attempt -- the gate did NOT trigger an unweighted retry.
         assert _WeightAwareButBuggyInner.fit_call_count == 1, (
-            f"expected 1 inner.fit call (no retry); got "
-            f"{_WeightAwareButBuggyInner.fit_call_count} (pre-fix retry bug)"
+            f"expected 1 inner.fit call (no retry); got {_WeightAwareButBuggyInner.fit_call_count} (pre-fix retry bug)"
         )
 
     def test_weight_aware_inner_receives_sample_weight(self) -> None:
@@ -180,6 +178,7 @@ class TestE7SampleWeightSignatureGate:
 # E10: from_fitted_inner unary T-clip centering
 # ----------------------------------------------------------------------
 
+
 class TestE10FromFittedInnerUnaryTClip:
     def _fit_log_y_params(self, y):
         tr = get_transform("log_y")
@@ -197,10 +196,15 @@ class TestE10FromFittedInnerUnaryTClip:
         t_med = float(np.median(T))
 
         inner = _ConstInner(t_value=t_med).fit(
-            pd.DataFrame({"f": np.zeros(3)}), np.zeros(3),
+            pd.DataFrame({"f": np.zeros(3)}),
+            np.zeros(3),
         )
         w = CompositeTargetEstimator.from_fitted_inner(
-            inner, "log_y", "", params, y,
+            inner,
+            "log_y",
+            "",
+            params,
+            y,
         )
         lo = w.fitted_params_["t_clip_low"]
         hi = w.fitted_params_["t_clip_high"]
@@ -210,10 +214,7 @@ class TestE10FromFittedInnerUnaryTClip:
         # +/- ~2.8, clipping the true T=6.9 OUT). The fixed low bound must be
         # well above the old -2.8 (i.e. positive, near the true T).
         old_symmetric_low = -10.0 * float(np.std(y))
-        assert lo > old_symmetric_low + 1.0, (
-            f"t_clip_low={lo} looks like the old symmetric envelope "
-            f"({old_symmetric_low})"
-        )
+        assert lo > old_symmetric_low + 1.0, f"t_clip_low={lo} looks like the old symmetric envelope ({old_symmetric_low})"
 
     def test_biz_value_in_distribution_roundtrip_not_clipped_flat(self) -> None:
         """biz_value (E10): an in-distribution unary prediction must round-trip
@@ -228,22 +229,22 @@ class TestE10FromFittedInnerUnaryTClip:
         t_med = float(np.median(T))
 
         inner = _ConstInner(t_value=t_med).fit(
-            pd.DataFrame({"f": np.zeros(3)}), np.zeros(3),
+            pd.DataFrame({"f": np.zeros(3)}),
+            np.zeros(3),
         )
         w = CompositeTargetEstimator.from_fitted_inner(
-            inner, "log_y", "", params, y,
+            inner,
+            "log_y",
+            "",
+            params,
+            y,
         )
         X_pred = pd.DataFrame({"f": np.zeros(10)})
         y_hat = w.predict(X_pred)
         # Post-fix: round-trips to ~1000 (median of y). Floor well above the
         # ~16 the pre-fix symmetric clip produced.
-        assert np.all(y_hat > 500.0), (
-            f"in-distribution unary prediction clipped flat: y_hat={y_hat[:3]} "
-            "(pre-fix symmetric T-clip bug)"
-        )
-        assert np.all(np.abs(y_hat - 1000.0) < 50.0), (
-            f"y_hat should round-trip to ~1000; got {y_hat[:3]}"
-        )
+        assert np.all(y_hat > 500.0), f"in-distribution unary prediction clipped flat: y_hat={y_hat[:3]} (pre-fix symmetric T-clip bug)"
+        assert np.all(np.abs(y_hat - 1000.0) < 50.0), f"y_hat should round-trip to ~1000; got {y_hat[:3]}"
 
     def test_base_dependent_transform_keeps_symmetric_proxy(self) -> None:
         """Behaviour-preservation: a base-dependent transform (diff) on the
@@ -253,10 +254,15 @@ class TestE10FromFittedInnerUnaryTClip:
         rng = np.random.default_rng(5)
         y = rng.normal(0.0, 2.0, size=300)
         inner = _ConstInner(t_value=0.0).fit(
-            pd.DataFrame({"f": np.zeros(3)}), np.zeros(3),
+            pd.DataFrame({"f": np.zeros(3)}),
+            np.zeros(3),
         )
         w = CompositeTargetEstimator.from_fitted_inner(
-            inner, "diff", "base", {}, y,
+            inner,
+            "diff",
+            "base",
+            {},
+            y,
         )
         lo = w.fitted_params_["t_clip_low"]
         hi = w.fitted_params_["t_clip_high"]
@@ -268,6 +274,7 @@ class TestE10FromFittedInnerUnaryTClip:
 # ----------------------------------------------------------------------
 # E11: grouped n_features_in_ invariant
 # ----------------------------------------------------------------------
+
 
 class TestE11GroupedNFeaturesInvariant:
     def _grouped_frame(self, n=400, seed=0):
@@ -323,18 +330,16 @@ class TestE11GroupedNFeaturesInvariant:
 # DX15: in-body discoverability of the public surface
 # ----------------------------------------------------------------------
 
+
 class TestDX15InBodySurface:
     @pytest.mark.parametrize(
         "name",
-        ["update", "get_buffer_state", "predict_pre_clip", "get_booster",
-         "predict", "predict_quantile"],
+        ["update", "get_buffer_state", "predict_pre_clip", "get_booster", "predict", "predict_quantile"],
     )
     def test_method_defined_in_class_body(self, name) -> None:
         """The public methods are defined in the class body (DX15) so they are
         discoverable to mypy / IDE / help(), not only runtime-bound."""
-        assert name in CompositeTargetEstimator.__dict__, (
-            f"{name} not defined in class body (runtime-bound only?)"
-        )
+        assert name in CompositeTargetEstimator.__dict__, f"{name} not defined in class body (runtime-bound only?)"
         assert callable(CompositeTargetEstimator.__dict__[name])
 
     @pytest.mark.parametrize(
@@ -345,9 +350,7 @@ class TestDX15InBodySurface:
         """The delegated sklearn-convention properties are defined in the class
         body as ``property`` objects (DX15)."""
         attr = CompositeTargetEstimator.__dict__.get(name)
-        assert isinstance(attr, property), (
-            f"{name} should be an in-body property, got {type(attr)!r}"
-        )
+        assert isinstance(attr, property), f"{name} should be an in-body property, got {type(attr)!r}"
 
     def test_in_body_property_still_delegates(self) -> None:
         """The in-body property bodies must still delegate to the carved

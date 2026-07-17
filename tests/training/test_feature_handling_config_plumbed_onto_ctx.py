@@ -8,6 +8,7 @@ Post-fix: the supplied config lands on ctx.artifacts["feature_handling_config"] 
 no dedicated slot, so artifacts is the only in-scope storage path; the consumer needs a separate follow-up to read
 from artifacts).
 """
+
 from __future__ import annotations
 
 from mlframe.training.core._phase_config_setup import setup_configuration
@@ -38,10 +39,7 @@ def test_feature_handling_config_lands_on_ctx_artifacts():
         mlframe_models=None,
         verbose=0,
     )
-    stashed = (
-        getattr(ctx, "feature_handling_config", None)
-        or ctx.artifacts.get("feature_handling_config")
-    )
+    stashed = getattr(ctx, "feature_handling_config", None) or ctx.artifacts.get("feature_handling_config")
     assert stashed is fhc, (
         "setup_configuration must plumb the caller's FeatureHandlingConfig onto ctx "
         "(slot OR artifacts) so the Wave-3 _maybe_run_feature_handling_apply consumer can see it."

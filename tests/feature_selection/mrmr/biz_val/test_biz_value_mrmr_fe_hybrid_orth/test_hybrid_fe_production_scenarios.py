@@ -193,16 +193,16 @@ class TestScenarioAFinancialCross:
             f"Either signal is too clean or noise too low."
         )
         # Contract A.2: hybrid clears 0.75 AUC (target from task spec).
-        assert auc_h >= 0.75, f"A seed={seed}: hybrid AUC {auc_h:.3f} should clear 0.75 on " f"price*volume XOR; support={sup_h}"
+        assert auc_h >= 0.75, f"A seed={seed}: hybrid AUC {auc_h:.3f} should clear 0.75 on price*volume XOR; support={sup_h}"
         # Contract A.3: per-seed lift floor at +0.20 (task floor +0.10,
         # observed range +0.36..+0.44 in calibration -- the +0.20 floor
         # absorbs seed variance while pinning a real lift, not a tie).
         lift = auc_h - auc_b
-        assert lift >= 0.20, f"A seed={seed}: hybrid AUC lift {lift:+.3f} should be >= +0.20 " f"(base={auc_b:.3f}, hybrid={auc_h:.3f}); support={sup_h}"
+        assert lift >= 0.20, f"A seed={seed}: hybrid AUC lift {lift:+.3f} should be >= +0.20 (base={auc_b:.3f}, hybrid={auc_h:.3f}); support={sup_h}"
         # Contract A.4: cross-basis term enters the support. Allow either leg
         # ordering ("price*volume" or "volume*price") since both can appear.
         has_cross = any(("*" in c) and ("price" in c) and ("volume" in c) for c in sup_h)
-        assert has_cross, f"A seed={seed}: expected a price*volume cross-basis column in " f"hybrid support; got {sup_h}"
+        assert has_cross, f"A seed={seed}: expected a price*volume cross-basis column in hybrid support; got {sup_h}"
 
 
 # ---------------------------------------------------------------------------
@@ -254,12 +254,10 @@ class TestScenarioBSensorUShape:
         sup_b = list(mb.get_feature_names_out())
 
         assert _has_univariate_basis_of(sup_b, "temperature"), (
-            f"B seed={seed}: a temperature univariate basis detector (the " f"U-shape recoverer) must be in the DEFAULT support; got {sup_b}"
+            f"B seed={seed}: a temperature univariate basis detector (the U-shape recoverer) must be in the DEFAULT support; got {sup_b}"
         )
         assert auc_b >= 0.90, (
-            f"B seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the "
-            f"univariate He_2 basis captures y = sign(temp^2-1) exactly; "
-            f"support={sup_b}"
+            f"B seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the univariate He_2 basis captures y = sign(temp^2-1) exactly; support={sup_b}"
         )
 
 
@@ -303,9 +301,9 @@ class TestScenarioCAsymmetricChurn:
         auc_b = _classifier_holdout_auc(mb, Xtr, ytr, Xte, yte)
         sup_b = list(mb.get_feature_names_out())
 
-        assert _has_univariate_basis_of(sup_b, "usage"), f"C seed={seed}: a usage univariate basis detector must enter the " f"DEFAULT support; got {sup_b}"
+        assert _has_univariate_basis_of(sup_b, "usage"), f"C seed={seed}: a usage univariate basis detector must enter the DEFAULT support; got {sup_b}"
         assert auc_b >= 0.90, (
-            f"C seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the " f"univariate basis recovers the sign(usage^2-1) U-shape; " f"support={sup_b}"
+            f"C seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the univariate basis recovers the sign(usage^2-1) U-shape; support={sup_b}"
         )
 
 
@@ -350,11 +348,9 @@ class TestScenarioDPolynomialRegression:
         r2_b = _regressor_holdout_r2(mb, Xtr, ytr, Xte, yte)
         sup_b = list(mb.get_feature_names_out())
 
-        assert _has_univariate_basis_of(sup_b, "x"), f"D seed={seed}: an x univariate basis detector must enter the " f"DEFAULT regression support; got {sup_b}"
+        assert _has_univariate_basis_of(sup_b, "x"), f"D seed={seed}: an x univariate basis detector must enter the DEFAULT regression support; got {sup_b}"
         assert r2_b >= 0.85, (
-            f"D seed={seed}: DEFAULT R^2 {r2_b:.3f} should clear 0.85 -- the "
-            f"univariate-basis-augmented LR essentially fits the quadratic; "
-            f"support={sup_b}"
+            f"D seed={seed}: DEFAULT R^2 {r2_b:.3f} should clear 0.85 -- the univariate-basis-augmented LR essentially fits the quadratic; support={sup_b}"
         )
 
 
@@ -412,7 +408,7 @@ class TestScenarioEMixedBag:
             f"b-univariate, c1*c2 cross); got recovered={recovered} (a={has_a}, "
             f"b={has_b}, cross={has_cross}); support={sup_b}"
         )
-        assert auc_b >= 0.80, f"E seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.80; " f"support={sup_b}"
+        assert auc_b >= 0.80, f"E seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.80; support={sup_b}"
 
 
 # ---------------------------------------------------------------------------
@@ -461,7 +457,7 @@ class TestNegativeControlLinearSignal:
         # ``*`` (cross-basis pair).
         engineered_in_support = [c for c in sup_h if ("__He" in c) or ("*" in c)]
         assert engineered_in_support == [], (
-            f"NC seed={seed}: pure-linear signal should produce ZERO " f"engineered columns in support; got {engineered_in_support}; " f"full support={sup_h}"
+            f"NC seed={seed}: pure-linear signal should produce ZERO engineered columns in support; got {engineered_in_support}; full support={sup_h}"
         )
         # Contract NC.2: AUC parity within a tight band -- hybrid must not
         # silently degrade by adding noise features either.

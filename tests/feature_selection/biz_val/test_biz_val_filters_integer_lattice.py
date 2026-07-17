@@ -14,6 +14,7 @@ Contracts pinned (measured, never xfail):
 * BUDGET GUARD: above max_int_cols the whole sweep is skipped (logged); selection still completes.
 * pickle / clone round-trip recipes + ctor params.
 """
+
 from __future__ import annotations
 
 import logging
@@ -36,8 +37,8 @@ from mlframe.feature_selection.filters._integer_lattice_fe import (
 from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _build_gcd_target(seed: int, n: int = 4000):
     """y = gcd(a,b) >= 3, with a weakly-informative raw col so MRMR screening has an anchor and does not 0-fallback
@@ -46,10 +47,15 @@ def _build_gcd_target(seed: int, n: int = 4000):
     a = rng.integers(1, 60, n)
     b = rng.integers(1, 60, n)
     y = (np.gcd(a, b) >= 3).astype(int)
-    X = pd.DataFrame({
-        "a": a, "b": b, "extra": (a % 2),
-        "n0": rng.integers(0, 50, n), "n1": rng.integers(0, 50, n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": a,
+            "b": b,
+            "extra": (a % 2),
+            "n0": rng.integers(0, 50, n),
+            "n1": rng.integers(0, 50, n),
+        }
+    )
     return X, y
 
 
@@ -106,24 +112,22 @@ class TestMRMRIntegration:
     def test_opt_out_is_no_op(self):
         """The opt-out (fe_integer_lattice_enable=False) must stay a byte-identical no-op for legacy/replay."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_gcd_target(42, n=2000)
         m = MRMR(fe_integer_lattice_enable=False, max_runtime_mins=0.5)
         m.fit(X, pd.Series(y, name="y"))
         il = list(getattr(m, "integer_lattice_features_", []) or [])
         assert il == [], f"integer-lattice added columns with the flag disabled: {il}"
         out = m.transform(X.iloc[:300])
-        assert not any(str(c).startswith("il_") for c in out.columns), (
-            "no il column may appear in transform output when the flag is OFF."
-        )
+        assert not any(str(c).startswith("il_") for c in out.columns), "no il column may appear in transform output when the flag is OFF."
 
     def test_default_on_detects_gcd_signal(self):
         """The DEFAULT (no flag passed) is now ON: a fresh MRMR recovers the gcd feature with no explicit flag."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_gcd_target(7, n=4000)
         m = MRMR(max_runtime_mins=2)
-        assert bool(getattr(m, "fe_integer_lattice_enable", False)) is True, (
-            "fe_integer_lattice_enable must default to True (the validated ON default)."
-        )
+        assert bool(getattr(m, "fe_integer_lattice_enable", False)) is True, "fe_integer_lattice_enable must default to True (the validated ON default)."
         m.fit(X, pd.Series(y, name="y"))
         out = m.transform(X.iloc[:500])
         il_cols = [c for c in out.columns if str(c).startswith("il_")]
@@ -131,6 +135,7 @@ class TestMRMRIntegration:
 
     def test_enabled_selects_gcd_feature_and_replays(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_gcd_target(7, n=4000)
         m = MRMR(fe_integer_lattice_enable=True, max_runtime_mins=2)
         m.fit(X, pd.Series(y, name="y"))
@@ -148,6 +153,7 @@ class TestMRMRIntegration:
         Combining gcd onto an engineered pmod_ column would build a recipe whose engineered source is unresolved at
         replay time -- transform() would emit a NaN column and silently drop the feature. Regression for that bug."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_gcd_target(1, n=4000)
         m = MRMR(fe_integer_lattice_enable=True, fe_pairwise_modular_enable=True, max_runtime_mins=2)
         m.fit(X, pd.Series(y, name="y"))
@@ -175,6 +181,7 @@ class TestMRMRIntegration:
 
     def test_clone_preserves_params(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(
             fe_integer_lattice_enable=True,
             fe_integer_lattice_top_k=3,
@@ -195,9 +202,14 @@ class TestBizValue:
         on, off = [], []
         for seed in (1, 7, 42):
             from mlframe.feature_selection.filters.mrmr import MRMR
+
             X, y = _build_gcd_target(seed, n=3000)
             Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=0.3, random_state=seed, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=seed,
+                stratify=y,
             )
             for flag, store in ((True, on), (False, off)):
                 m = MRMR(fe_integer_lattice_enable=flag, fe_pairwise_modular_enable=False, max_runtime_mins=1)
@@ -207,10 +219,7 @@ class TestBizValue:
                 clf = LogisticRegression(max_iter=2000).fit(Ftr, ytr)
                 store.append(roc_auc_score(yte, clf.predict_proba(Fte)[:, 1]))
         lift = float(np.mean(on) - np.mean(off))
-        assert lift >= 0.20, (
-            f"integer-lattice AUC lift {lift:.3f} below the +0.20 floor "
-            f"(ON {np.mean(on):.3f} vs OFF {np.mean(off):.3f})."
-        )
+        assert lift >= 0.20, f"integer-lattice AUC lift {lift:.3f} below the +0.20 floor (ON {np.mean(on):.3f} vs OFF {np.mean(off):.3f})."
 
 
 class TestIntegerLatticeTargetTypeRobustness:
@@ -242,11 +251,21 @@ class TestIntegerLatticeTargetTypeRobustness:
         import time
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, dcd_enable=False,
-                 cluster_aggregate_enable=False, build_friend_graph=False, cat_fe_config=None,
-                 quantization_nbins=10, random_seed=0,
-                 fe_pairwise_modular_enable=False, fe_integer_lattice_enable=True,
-                 fe_row_argmax_enable=False, fe_conditional_gate_enable=False)
+        m = MRMR(
+            verbose=0,
+            interactions_max_order=1,
+            fe_max_steps=0,
+            dcd_enable=False,
+            cluster_aggregate_enable=False,
+            build_friend_graph=False,
+            cat_fe_config=None,
+            quantization_nbins=10,
+            random_seed=0,
+            fe_pairwise_modular_enable=False,
+            fe_integer_lattice_enable=True,
+            fe_row_argmax_enable=False,
+            fe_conditional_gate_enable=False,
+        )
         assert bool(m.fe_integer_lattice_enable) is True
         t0 = time.time()
         m.fit(df, y)
@@ -284,4 +303,5 @@ class TestIntegerLatticeTargetTypeRobustness:
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "-v", "-s", "--no-cov"]))

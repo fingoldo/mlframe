@@ -25,9 +25,7 @@ def test_counts_hand_case():
     yt = np.array([0, 0, 1, 1, 2, 2])
     yp = np.array([0, 1, 1, 1, 2, 0])
     mat, labels = confusion_matrix_counts(yt, yp)
-    expected = np.array([[1, 1, 0],
-                         [0, 2, 0],
-                         [1, 0, 1]], dtype=np.int64)
+    expected = np.array([[1, 1, 0], [0, 2, 0], [1, 0, 1]], dtype=np.int64)
     assert np.array_equal(mat, expected)
     assert list(labels) == [0, 1, 2]
 

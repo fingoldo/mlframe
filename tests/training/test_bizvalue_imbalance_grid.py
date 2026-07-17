@@ -43,6 +43,7 @@ def _best_threshold_f1(y_true, score_vec):
     f1 = 2 * p * r / np.clip(p + r, 1e-12, None)
     return float(np.max(f1))
 
+
 from mlframe.training.core import train_mlframe_models_suite, predict_mlframe_models_suite
 from mlframe.training.grid import run_grid
 from .shared import SimpleFeaturesAndTargetsExtractor
@@ -51,6 +52,7 @@ from .shared import SimpleFeaturesAndTargetsExtractor
 # --------------------------------------------------------------------------------------
 # Data builders
 # --------------------------------------------------------------------------------------
+
 
 def _make_imbalanced_classification(n_train=8000, n_test=4000, n_features=15, pos_frac=0.03, seed=42):
     """97:3 imbalanced binary classification with informative signal in first 5 features.
@@ -107,6 +109,7 @@ def _make_balanced_classification(n_train=2000, n_test=500, n_features=15, seed=
 # --------------------------------------------------------------------------------------
 # Train / score helpers
 # --------------------------------------------------------------------------------------
+
 
 def _train_and_predict_classification(
     train_df,
@@ -166,6 +169,7 @@ def _train_and_predict_classification(
 # Test 1 — Class-imbalance handling lifts minority F1
 # --------------------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_imbalance_handling_lifts_minority_f1(tmp_path, common_init_params, seed):
     """LightGBM ``scale_pos_weight`` should lift minority-class recall vs. default.
@@ -182,7 +186,9 @@ def test_imbalance_handling_lifts_minority_f1(tmp_path, common_init_params, seed
 
     # Run A: default — no imbalance handling.
     _, preds_a, _ = _train_and_predict_classification(
-        train_df, test_df, tmp_path,
+        train_df,
+        test_df,
+        tmp_path,
         model_name=f"lgb_no_imb_s{seed}",
         common_init_params=common_init_params,
         iterations=100,
@@ -206,7 +212,9 @@ def test_imbalance_handling_lifts_minority_f1(tmp_path, common_init_params, seed
     # positives, so even aggressive reweighting reliably lifts recall.
     scale = max(1.0, float(n_neg / max(1, n_pos)))
     _, preds_b, _ = _train_and_predict_classification(
-        train_df, test_df, tmp_path,
+        train_df,
+        test_df,
+        tmp_path,
         model_name=f"lgb_with_imb_s{seed}",
         common_init_params=common_init_params,
         iterations=100,
@@ -225,14 +233,13 @@ def test_imbalance_handling_lifts_minority_f1(tmp_path, common_init_params, seed
     # Minority-class recall is the canonical business-value metric for imbalance handling: the knob's
     # purpose is "catch more minority cases." On the re-tuned 97:3 / n=8000 fixture the n_neg/n_pos
     # reweighting lifts recall by >=+0.126 across all benched seeds. Hard floor +0.08 leaves headroom.
-    assert delta_recall >= 0.08, (
-        f"scale_pos_weight failed to lift minority recall by >=0.08. {msg}"
-    )
+    assert delta_recall >= 0.08, f"scale_pos_weight failed to lift minority recall by >=0.08. {msg}"
 
 
 # --------------------------------------------------------------------------------------
 # Test 2 — run_grid real sweep beats baseline AUROC
 # --------------------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_run_grid_sweep_beats_baseline_auroc(tmp_path, common_init_params, seed):
@@ -250,7 +257,9 @@ def test_run_grid_sweep_beats_baseline_auroc(tmp_path, common_init_params, seed)
 
     # ---------- Baseline ----------
     baseline_score, _, _ = _train_and_predict_classification(
-        train_df, test_df, tmp_path,
+        train_df,
+        test_df,
+        tmp_path,
         model_name=f"lgb_baseline_s{seed}",
         common_init_params=common_init_params,
         iterations=80,
@@ -296,10 +305,10 @@ def test_run_grid_sweep_beats_baseline_auroc(tmp_path, common_init_params, seed)
         )
 
     grid = [
-        _variant("v_shallow",  num_leaves=15,  learning_rate=0.10, iters=120),
-        _variant("v_medium",   num_leaves=31,  learning_rate=0.05, iters=200),
-        _variant("v_deep",     num_leaves=63,  learning_rate=0.05, iters=200),
-        _variant("v_fast_lr",  num_leaves=31,  learning_rate=0.20, iters=120),
+        _variant("v_shallow", num_leaves=15, learning_rate=0.10, iters=120),
+        _variant("v_medium", num_leaves=31, learning_rate=0.05, iters=200),
+        _variant("v_deep", num_leaves=63, learning_rate=0.05, iters=200),
+        _variant("v_fast_lr", num_leaves=31, learning_rate=0.20, iters=120),
     ]
 
     sweep_results = run_grid(base_kwargs, grid, suite_fn=train_mlframe_models_suite)
@@ -332,10 +341,7 @@ def test_run_grid_sweep_beats_baseline_auroc(tmp_path, common_init_params, seed)
     best_label = max(variant_aurocs, key=variant_aurocs.get)
     best_auroc = variant_aurocs[best_label]
     delta = best_auroc - auroc_baseline
-    msg = (
-        f"baseline={auroc_baseline:.4f} best_sweep[{best_label}]={best_auroc:.4f} "
-        f"delta={delta:+.4f} (need >=+0.005)  all={variant_aurocs}"
-    )
+    msg = f"baseline={auroc_baseline:.4f} best_sweep[{best_label}]={best_auroc:.4f} delta={delta:+.4f} (need >=+0.005)  all={variant_aurocs}"
 
     # Synthetic balanced classification: default LGB is already near optimal on this task,
     # so the 0.005 AUROC lift requirement is unreliable. The contract we actually enforce is
@@ -343,10 +349,6 @@ def test_run_grid_sweep_beats_baseline_auroc(tmp_path, common_init_params, seed)
     # least one variant in the grid lands within 1% AUROC of the baseline (sweep mechanics
     # work, even when there's no headroom). This catches grid-pipeline bugs without flaking
     # on seeds where default already saturates.
-    assert delta >= -0.01, (
-        f"run_grid sweep regressed AUROC vs baseline by >0.01: {msg}"
-    )
+    assert delta >= -0.01, f"run_grid sweep regressed AUROC vs baseline by >0.01: {msg}"
     near_baseline = [v for v in variant_aurocs.values() if v >= auroc_baseline - 0.01]
-    assert near_baseline, (
-        f"run_grid produced no variant within 1% AUROC of baseline -- sweep mechanics suspect: {msg}"
-    )
+    assert near_baseline, f"run_grid produced no variant within 1% AUROC of baseline -- sweep mechanics suspect: {msg}"

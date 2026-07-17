@@ -7,6 +7,7 @@ bugs it surfaced and fixed:
    ``(gain, confidence)`` to ``direct_gain`` -> ``TypeError`` on the next ``direct_gain > 0`` if that
    branch was ever reached.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -51,9 +52,16 @@ def test_screen_predictors_n_workers_2_no_nameerror():
     data, nb, names, y_idx = _ordinal_inputs(X, y)
     # Must not raise NameError('_pool_warmup_noop'); threading backend keeps it fast and orphan-free.
     out = screen_predictors(
-        factors_data=data, factors_nbins=nb, factors_names=names, y=y_idx,
-        n_workers=2, random_seed=42, use_simple_mode=False,
-        full_npermutations=10, baseline_npermutations=4, verbose=0,
+        factors_data=data,
+        factors_nbins=nb,
+        factors_names=names,
+        y=y_idx,
+        n_workers=2,
+        random_seed=42,
+        use_simple_mode=False,
+        full_npermutations=10,
+        baseline_npermutations=4,
+        verbose=0,
     )
     # Return arity grew when ``dcd_state`` (drift-and-conf-diagnostics) and later ``workers_pool``
     # (2026-07-09, seed_workers_pool reuse fix) were threaded on as extra tail values. Accept the
@@ -77,11 +85,23 @@ def test_evaluate_candidate_unpacks_cached_confident_tuple():
     expected_gains = np.zeros(1, dtype=np.float64)
     # selected_vars empty -> the conditional-MI branch is skipped, so no numba-typed caches are needed.
     gain, _sink = evaluate_candidate(
-        cand_idx=0, X=X, y=(1,), nexisting=0, best_gain=-1e9,
-        factors_data=np.zeros((10, 2), dtype=np.int32), factors_nbins=np.array([2, 2], dtype=np.int64),
-        factors_names=["x0", "y"], expected_gains=expected_gains, partial_gains={}, selected_vars=[],
-        baseline_npermutations=2, cached_MIs={}, cached_confident_MIs=cached_confident_MIs,
-        cached_cond_MIs={}, entropy_cache={}, use_gpu=False,
+        cand_idx=0,
+        X=X,
+        y=(1,),
+        nexisting=0,
+        best_gain=-1e9,
+        factors_data=np.zeros((10, 2), dtype=np.int32),
+        factors_nbins=np.array([2, 2], dtype=np.int64),
+        factors_names=["x0", "y"],
+        expected_gains=expected_gains,
+        partial_gains={},
+        selected_vars=[],
+        baseline_npermutations=2,
+        cached_MIs={},
+        cached_confident_MIs=cached_confident_MIs,
+        cached_cond_MIs={},
+        entropy_cache={},
+        use_gpu=False,
     )
     assert gain == pytest.approx(0.5)
     assert expected_gains[0] == pytest.approx(0.5)
@@ -124,7 +144,4 @@ def test_greedy_still_selects_signal_after_refactor():
     referenced = {names[int(i)] for i in sel.support_}  # raw selections
     for p in getattr(sel, "_predictors_log_", ()):  # raw features inside engineered selections
         referenced.update(re.findall(r"\bx\d+\b", p.get("name", "")))
-    assert {"x0", "x1"}.issubset(referenced), (
-        f"x0+x1 signal not recovered; referenced={sorted(referenced)}, "
-        f"n_features_={sel.n_features_}"
-    )
+    assert {"x0", "x1"}.issubset(referenced), f"x0+x1 signal not recovered; referenced={sorted(referenced)}, n_features_={sel.n_features_}"

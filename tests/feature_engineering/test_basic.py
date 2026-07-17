@@ -17,30 +17,30 @@ def test_create_date_features_adds_columns(df_lib, n_rows):
     """Test that date features are added correctly for pandas and polars."""
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(n_rows)]
     if df_lib == "pandas":
-        df = pd.DataFrame({'date': dates, 'value': range(n_rows)})
+        df = pd.DataFrame({"date": dates, "value": range(n_rows)})
     else:
-        df = pl.DataFrame({'date': dates, 'value': list(range(n_rows))})
-    result = create_date_features(df, ['date'])
+        df = pl.DataFrame({"date": dates, "value": list(range(n_rows))})
+    result = create_date_features(df, ["date"])
 
-    assert 'date_day' in result.columns
-    assert 'date_weekday' in result.columns
-    assert 'date_month' in result.columns
-    assert 'date' not in result.columns  # Original deleted
+    assert "date_day" in result.columns
+    assert "date_weekday" in result.columns
+    assert "date_month" in result.columns
+    assert "date" not in result.columns  # Original deleted
 
 
 def test_create_date_features_keep_original():
     """Test keeping original columns."""
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(10)]
-    df = pd.DataFrame({'date': dates})
-    result = create_date_features(df, ['date'], delete_original_cols=False)
+    df = pd.DataFrame({"date": dates})
+    result = create_date_features(df, ["date"], delete_original_cols=False)
 
-    assert 'date' in result.columns
-    assert 'date_day' in result.columns
+    assert "date" in result.columns
+    assert "date_day" in result.columns
 
 
 def test_create_date_features_empty_cols():
     """Test with empty columns list."""
-    df = pd.DataFrame({'date': [datetime(2023, 1, 1)], 'value': [1]})
+    df = pd.DataFrame({"date": [datetime(2023, 1, 1)], "value": [1]})
     result = create_date_features(df, [])
 
     # Should return unchanged
@@ -50,16 +50,13 @@ def test_create_date_features_empty_cols():
 def test_create_date_features_custom_methods():
     """Test with custom methods."""
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(10)]
-    df = pd.DataFrame({'date': dates})
+    df = pd.DataFrame({"date": dates})
 
-    result = create_date_features(
-        df, ['date'],
-        methods={'day': np.int16, 'month': np.int16}
-    )
+    result = create_date_features(df, ["date"], methods={"day": np.int16, "month": np.int16})
 
-    assert 'date_day' in result.columns
-    assert 'date_month' in result.columns
-    assert 'date_weekday' not in result.columns
+    assert "date_day" in result.columns
+    assert "date_month" in result.columns
+    assert "date_weekday" not in result.columns
 
 
 @pytest.mark.parametrize("df_lib", ["pandas", "polars"])
@@ -67,12 +64,12 @@ def test_create_date_features_weekday_range(df_lib):
     """Test that weekday values are in correct range (0-6)."""
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(7)]
     if df_lib == "pandas":
-        df = pd.DataFrame({'date': dates})
+        df = pd.DataFrame({"date": dates})
     else:
-        df = pl.DataFrame({'date': dates})
-    result = create_date_features(df, ['date'])
+        df = pl.DataFrame({"date": dates})
+    result = create_date_features(df, ["date"])
 
-    weekdays = result['date_weekday'].to_list() if df_lib == "polars" else result['date_weekday'].values.tolist()
+    weekdays = result["date_weekday"].to_list() if df_lib == "polars" else result["date_weekday"].values.tolist()
     assert all(0 <= w <= 6 for w in weekdays)
 
 
@@ -80,40 +77,40 @@ def test_create_date_features_multiple_cols():
     """Test with multiple date columns."""
     dates1 = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(5)]
     dates2 = [datetime(2023, 6, 1) + timedelta(days=i) for i in range(5)]
-    df = pd.DataFrame({'date1': dates1, 'date2': dates2})
+    df = pd.DataFrame({"date1": dates1, "date2": dates2})
 
-    result = create_date_features(df, ['date1', 'date2'])
+    result = create_date_features(df, ["date1", "date2"])
 
-    assert 'date1_day' in result.columns
-    assert 'date2_day' in result.columns
-    assert 'date1' not in result.columns
-    assert 'date2' not in result.columns
+    assert "date1_day" in result.columns
+    assert "date2_day" in result.columns
+    assert "date1" not in result.columns
+    assert "date2" not in result.columns
 
 
 def test_create_date_features_day_values():
     """Test that day values are correct."""
     dates = [datetime(2023, 1, i) for i in range(1, 11)]
-    df = pd.DataFrame({'date': dates})
-    result = create_date_features(df, ['date'])
+    df = pd.DataFrame({"date": dates})
+    result = create_date_features(df, ["date"])
 
     expected_days = list(range(1, 11))
-    assert list(result['date_day'].values) == expected_days
+    assert list(result["date_day"].values) == expected_days
 
 
 def test_create_date_features_month_values():
     """Test that month values are correct."""
     dates = [datetime(2023, i, 1) for i in range(1, 13)]
-    df = pd.DataFrame({'date': dates})
-    result = create_date_features(df, ['date'])
+    df = pd.DataFrame({"date": dates})
+    result = create_date_features(df, ["date"])
 
     expected_months = list(range(1, 13))
-    assert list(result['date_month'].values) == expected_months
+    assert list(result["date_month"].values) == expected_months
 
 
 def test_create_date_features_invalid_df():
     """Test with invalid dataframe type."""
     with pytest.raises(ValueError):
-        create_date_features({'not': 'a dataframe'}, ['date'])
+        create_date_features({"not": "a dataframe"}, ["date"])
 
 
 @pytest.mark.parametrize("df_lib", ["pandas", "polars"])
@@ -121,16 +118,16 @@ def test_create_date_features_dtypes(df_lib):
     """Test that dtypes are correctly applied."""
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(10)]
     if df_lib == "pandas":
-        df = pd.DataFrame({'date': dates})
+        df = pd.DataFrame({"date": dates})
         expected_dtype = np.int8
     else:
-        df = pl.DataFrame({'date': dates})
+        df = pl.DataFrame({"date": dates})
         expected_dtype = pl.Int8
-    result = create_date_features(df, ['date'])
+    result = create_date_features(df, ["date"])
 
-    assert result['date_day'].dtype == expected_dtype
-    assert result['date_weekday'].dtype == expected_dtype
-    assert result['date_month'].dtype == expected_dtype
+    assert result["date_day"].dtype == expected_dtype
+    assert result["date_weekday"].dtype == expected_dtype
+    assert result["date_month"].dtype == expected_dtype
 
 
 # -----------------------------------------------------------------
@@ -145,13 +142,16 @@ def test_create_date_features_dtypes(df_lib):
 def test_create_date_features_warns_on_column_clash_pandas(caplog):
     import logging
     from datetime import datetime
+
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(5)]
-    df = pd.DataFrame({
-        'date': dates,
-        'date_day': [999, 999, 999, 999, 999],  # user's column, will clash
-    })
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "date_day": [999, 999, 999, 999, 999],  # user's column, will clash
+        }
+    )
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.basic"):
-        create_date_features(df, ['date'])
+        create_date_features(df, ["date"])
     warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
     assert any("date_day" in m and ("OVERWRITTEN" in m or "overwritten" in m.lower()) for m in warns), (
         f"Expected WARN naming 'date_day' as overwritten; got: {warns}"
@@ -161,13 +161,16 @@ def test_create_date_features_warns_on_column_clash_pandas(caplog):
 def test_create_date_features_warns_on_column_clash_polars(caplog):
     import logging
     from datetime import datetime
+
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(5)]
-    df = pl.DataFrame({
-        'date': dates,
-        'date_month': [99, 99, 99, 99, 99],
-    })
+    df = pl.DataFrame(
+        {
+            "date": dates,
+            "date_month": [99, 99, 99, 99, 99],
+        }
+    )
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.basic"):
-        create_date_features(df, ['date'])
+        create_date_features(df, ["date"])
     warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
     assert any("date_month" in m for m in warns), warns
 
@@ -177,10 +180,11 @@ def test_create_date_features_no_warn_without_clash(caplog):
     every pipeline; false positives would spam logs)."""
     import logging
     from datetime import datetime
+
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(5)]
-    df = pd.DataFrame({'date': dates, 'other_feature': [1.0] * 5})
+    df = pd.DataFrame({"date": dates, "other_feature": [1.0] * 5})
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.basic"):
-        create_date_features(df, ['date'])
+        create_date_features(df, ["date"])
     warns = [r for r in caplog.records if r.levelname == "WARNING"]
     assert not warns, f"Clean input must not warn; got: {[r.message for r in warns]}"
 
@@ -192,12 +196,23 @@ class TestResolvePandasMethod:
     def _dt(self):
         return pd.Series(pd.date_range("2021-03-01", periods=300, freq="7h")).dt
 
-    @pytest.mark.parametrize("method", [
-        "hour", "day", "weekday", "month", "day_of_year",
-        "is_weekend", "week_of_year", "year", "quarter",
-    ])
+    @pytest.mark.parametrize(
+        "method",
+        [
+            "hour",
+            "day",
+            "weekday",
+            "month",
+            "day_of_year",
+            "is_weekend",
+            "week_of_year",
+            "year",
+            "quarter",
+        ],
+    )
     def test_resolved_field_matches_direct_accessor(self, method):
         from mlframe.feature_engineering.basic import _resolve_pandas_method, _DATE_METHOD_ALIASES
+
         dt = self._dt()
         got = _resolve_pandas_method(dt, method, np.float64).to_numpy()
         # Reference field via the documented alias / special-case semantics.
@@ -212,6 +227,7 @@ class TestResolvePandasMethod:
 
     def test_unknown_accessor_raises_valueerror(self):
         from mlframe.feature_engineering.basic import _resolve_pandas_method
+
         with pytest.raises(ValueError, match="Unknown pandas .dt accessor"):
             _resolve_pandas_method(self._dt(), "not_a_real_field", np.float64)
 
@@ -242,8 +258,7 @@ def test_cyclical_pass_reuses_precomputed_date_fields_not_redecode(monkeypatch):
     # cyclical period not already extracted as an integer field is `hour`.
     float_methods = sorted({m for m, k in calls if k == "f"})
     assert float_methods == ["hour"], (
-        f"cyclical pass re-decoded already-extracted fields {float_methods}; "
-        "expected only 'hour' to need a fresh float extraction"
+        f"cyclical pass re-decoded already-extracted fields {float_methods}; expected only 'hour' to need a fresh float extraction"
     )
     assert "ts_month_sin" in out.columns and "ts_hour_cos" in out.columns
 
@@ -256,13 +271,15 @@ def test_cyclical_reuse_bit_identical_to_fresh_extraction():
     with_reuse = create_date_features(df, cols=["ts"])
     # Force the no-reuse path by calling the cyclical helper standalone (no _precomputed_bases).
     from mlframe.feature_engineering.basic import add_cyclical_date_features
+
     base = create_date_features(df, cols=["ts"], add_cyclical=False, delete_original_cols=False)
     fresh = add_cyclical_date_features(base, cols=["ts"], delete_original_cols=True)
 
     cyc_cols = [c for c in with_reuse.columns if c.endswith("_sin") or c.endswith("_cos")]
     for c in cyc_cols:
         np.testing.assert_array_equal(
-            with_reuse[c].to_numpy(), fresh[c].to_numpy(),
+            with_reuse[c].to_numpy(),
+            fresh[c].to_numpy(),
             err_msg=f"cyclical reuse diverged from fresh extraction on {c}",
         )
 

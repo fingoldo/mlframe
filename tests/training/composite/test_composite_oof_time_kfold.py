@@ -1,5 +1,6 @@
 """N21: time-respecting K-fold OOF (forward-walking TimeSeriesSplit) instead of
 the single trailing-slice downgrade."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,10 +28,16 @@ class TestN21TimeKfold:
         inner = LinearRegression().fit(X, y)
         ts = np.arange(len(X))  # monotone
         oof, yh, names = compute_oof_holdout_predictions(
-            component_models=[inner, inner], component_names=["c0", "c1"],
-            component_specs=[None, None], train_X=X, y_train_full=y,
-            base_train_full_per_spec={}, holdout_frac=0.2, random_state=0,
-            kfold=3, time_ordering=ts,
+            component_models=[inner, inner],
+            component_names=["c0", "c1"],
+            component_specs=[None, None],
+            train_X=X,
+            y_train_full=y,
+            base_train_full_per_spec={},
+            holdout_frac=0.2,
+            random_state=0,
+            kfold=3,
+            time_ordering=ts,
         )
         assert names == ["c0", "c1"]
         # Forward-walk leaves the FIRST fold's rows train-only, so coverage is
@@ -44,12 +51,18 @@ class TestN21TimeKfold:
         inner = LinearRegression().fit(X, y)
         ts = np.random.default_rng(1).permutation(len(X))  # NON-monotone
         import logging
+
         with caplog.at_level(logging.WARNING):
             oof, yh, names = compute_oof_holdout_predictions(
-                component_models=[inner, inner], component_names=["c0", "c1"],
-                component_specs=[None, None], train_X=X, y_train_full=y,
-                base_train_full_per_spec={}, holdout_frac=0.2, random_state=0,
-                kfold=3, time_ordering=ts,
+                component_models=[inner, inner],
+                component_names=["c0", "c1"],
+                component_specs=[None, None],
+                train_X=X,
+                y_train_full=y,
+                base_train_full_per_spec={},
+                holdout_frac=0.2,
+                random_state=0,
+                kfold=3,
+                time_ordering=ts,
             )
-        assert any("NON-monotone" in r.message or "Downgrading" in r.message
-                   for r in caplog.records)
+        assert any("NON-monotone" in r.message or "Downgrading" in r.message for r in caplog.records)

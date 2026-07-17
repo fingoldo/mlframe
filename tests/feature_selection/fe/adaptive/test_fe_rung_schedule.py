@@ -386,7 +386,7 @@ def test_bizvalue_equal_wall_deeper_needle():
     # count is recorded for the report but not used as a floor -- a higher flat count is a
     # cross-mix-retention artefact, not a recovery advantage.
     assert rung_eng >= 2, (
-        f"rung deeper-search recovered too few engineered features ({rung_eng}); " f"expected >= 2 (the (c,d) needle + at least one more). flat_eng={flat_eng}"
+        f"rung deeper-search recovered too few engineered features ({rung_eng}); expected >= 2 (the (c,d) needle + at least one more). flat_eng={flat_eng}"
     )
 
 
@@ -416,6 +416,6 @@ def test_cprofile_rung_screen_negligible():
             rung_cum = stat[3]  # cumulative
             break
     assert rung_cum <= 0.05 * total, (
-        f"rung-0 screen took {rung_cum:.4f}s of {total:.2f}s ({100*rung_cum/max(total,1e-9):.2f}%); "
+        f"rung-0 screen took {rung_cum:.4f}s of {total:.2f}s ({100 * rung_cum / max(total, 1e-9):.2f}%); "
         "expected negligible (reuses the gate's pair_mi, no MI compute)"
     )

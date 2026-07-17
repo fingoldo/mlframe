@@ -109,4 +109,4 @@ def test_every_strategy_value_is_a_strategy_instance():
         if not isinstance(strategy, ModelPipelineStrategy):
             bad.append(f"{key!r}: {type(strategy).__name__}")
     if bad:
-        pytest.fail("MODEL_STRATEGIES values must be instances of " "ModelPipelineStrategy:\n  " + "\n  ".join(bad))
+        pytest.fail("MODEL_STRATEGIES values must be instances of ModelPipelineStrategy:\n  " + "\n  ".join(bad))

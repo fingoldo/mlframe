@@ -31,7 +31,8 @@ def test_kaleido_persistent_failure_falls_back_to_oneshot(tmp_path):
     pytest.importorskip("kaleido")  # Not in CI [all,dev] extras; sensor needs the real package to patch.
     import plotly.graph_objects as go
     from mlframe.reporting.renderers.plotly import (
-        PlotlyRenderer, _restart_kaleido_server,
+        PlotlyRenderer,
+        _restart_kaleido_server,
     )
     import kaleido
 
@@ -49,6 +50,7 @@ def test_kaleido_persistent_failure_falls_back_to_oneshot(tmp_path):
 
     def _raise(*args, **kwargs):
         raise RuntimeError("synthetic kaleido failure for test")
+
     kaleido.write_fig_sync = _raise
 
     try:
@@ -66,10 +68,7 @@ def test_kaleido_persistent_failure_falls_back_to_oneshot(tmp_path):
 
     # Assertions:
     # 1. File exists -- oneshot fallback fired and wrote PNG.
-    assert os.path.exists(target), (
-        "PlotlyRenderer.save did not produce a fallback PNG after "
-        "the persistent kaleido path failed -- recovery is broken."
-    )
+    assert os.path.exists(target), "PlotlyRenderer.save did not produce a fallback PNG after the persistent kaleido path failed -- recovery is broken."
     # 2. Did not hang -- elapsed should be bounded by oneshot cost
     # (~30-40s on cold; well under the 60s pytest-timeout).
     # Failure recovery path: server-restart + oneshot fallback. On
@@ -82,10 +81,7 @@ def test_kaleido_persistent_failure_falls_back_to_oneshot(tmp_path):
         f"like the deadlock-on-error regression we fixed."
     )
     # 3. File has non-trivial size -- it's a real PNG, not 0-byte stub.
-    assert os.path.getsize(target) > 1000, (
-        f"Fallback PNG is suspiciously small "
-        f"({os.path.getsize(target)} bytes)."
-    )
+    assert os.path.getsize(target) > 1000, f"Fallback PNG is suspiciously small ({os.path.getsize(target)} bytes)."
 
 
 @pytest.mark.timeout(600)
@@ -96,7 +92,8 @@ def test_kaleido_recovery_restores_persistent_path(tmp_path):
     pytest.importorskip("kaleido")  # Not in CI [all,dev] extras; sensor needs the real package to patch.
     import plotly.graph_objects as go
     from mlframe.reporting.renderers.plotly import (
-        PlotlyRenderer, _restart_kaleido_server,
+        PlotlyRenderer,
+        _restart_kaleido_server,
     )
     import kaleido
 
@@ -114,6 +111,7 @@ def test_kaleido_recovery_restores_persistent_path(tmp_path):
 
     def _raise(*a, **kw):
         raise RuntimeError("synthetic")
+
     kaleido.write_fig_sync = _raise
     try:
         with warnings.catch_warnings():

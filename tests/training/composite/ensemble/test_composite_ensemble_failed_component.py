@@ -13,6 +13,7 @@ wrapper re-extracts its base column from ``external_holdout_X`` itself at
 predict time. The fix removes the dead param from the internal helper and
 corrects the docstring; the public param is retained (ignored) for back-compat.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -77,9 +78,9 @@ def _make_models_and_targets():
 
     X = pd.DataFrame({"feat": feat})
     # Two GOOD components close to the target, one BAD (explodes on predict).
-    good_a = _GoodRaw(offset=5.0).fit(X, y)   # excellent
-    good_b = _GoodRaw(offset=5.2).fit(X, y)   # decent
-    bad = _ExplodingRaw().fit(X, y)           # predict() raises
+    good_a = _GoodRaw(offset=5.0).fit(X, y)  # excellent
+    good_b = _GoodRaw(offset=5.2).fit(X, y)  # decent
+    bad = _ExplodingRaw().fit(X, y)  # predict() raises
     models = {
         TT.REGRESSION: {
             "y": [
@@ -101,6 +102,7 @@ def _make_config_proxy_path():
     from mlframe.training._composite_target_discovery_config import (
         CompositeTargetDiscoveryConfig,
     )
+
     return CompositeTargetDiscoveryConfig(
         enabled=True,
         oof_holdout_frac=0.0,
@@ -134,7 +136,8 @@ def _run_builder(strategy: str):
         train_idx=np.arange(n),
         val_idx=None,
         reporting_config=SimpleNamespace(
-            compute_valset_metrics=False, compute_testset_metrics=False,
+            compute_valset_metrics=False,
+            compute_testset_metrics=False,
         ),
         plot_file=None,
         _train_pred_cache={},
@@ -155,16 +158,12 @@ def test_failed_component_excluded_from_oof_weighted_ensemble():
     assert ens_entry is not None, "no CT_ENSEMBLE was built"
     ens = ens_entry[0].model
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
-    assert isinstance(ens, CompositeCrossTargetEnsemble), (
-        "expected a real ensemble (>=2 surviving components), got "
-        f"{type(ens).__name__}"
-    )
+
+    assert isinstance(ens, CompositeCrossTargetEnsemble), f"expected a real ensemble (>=2 surviving components), got {type(ens).__name__}"
     names = list(ens.component_names)
     weights = np.asarray(ens.weights, dtype=np.float64)
     # The exploding component (3rd entry -> "raw#2") is dropped entirely.
-    assert "raw#2" not in names, (
-        f"failed component still present in ensemble: {names}"
-    )
+    assert "raw#2" not in names, f"failed component still present in ensemble: {names}"
     # Both good components survive and split all the weight.
     assert {"raw#0", "raw#1"} <= set(names)
     np.testing.assert_allclose(weights.sum(), 1.0, atol=1e-9)
@@ -194,12 +193,8 @@ def test_failed_component_gets_zero_weight_in_nnls_stack():
 
 def test_internal_external_holdout_helper_drops_dead_base_param():
     """N9: the internal helper no longer accepts the unused param."""
-    params = inspect.signature(
-        _ens_mod._compute_oof_with_external_holdout
-    ).parameters
-    assert "external_holdout_base_per_spec" not in params, (
-        "dead param must be removed from _compute_oof_with_external_holdout"
-    )
+    params = inspect.signature(_ens_mod._compute_oof_with_external_holdout).parameters
+    assert "external_holdout_base_per_spec" not in params, "dead param must be removed from _compute_oof_with_external_holdout"
     # The train-side base dict is still needed (drives transform.forward).
     assert "base_train_full_per_spec" in params
 
@@ -208,9 +203,7 @@ def test_public_param_retained_but_ignored_for_back_compat():
     """N9: the public function keeps the param (back-compat) but it is unused;
     passing it or omitting it yields identical results on a composite external
     holdout."""
-    params = inspect.signature(
-        compute_oof_holdout_predictions
-    ).parameters
+    params = inspect.signature(compute_oof_holdout_predictions).parameters
     assert "external_holdout_base_per_spec" in params
 
     rng = np.random.default_rng(3)

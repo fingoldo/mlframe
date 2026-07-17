@@ -175,7 +175,7 @@ class TestSplineDetectsThreshold:
         )
         assert not eng.empty
         x1_cols = [c for c in eng.columns if c.startswith("x1__sp")]
-        assert len(x1_cols) >= 4, f"seed={seed}: spline generator with 7 knots should emit at " f"least 4 x1__sp* columns; got {x1_cols}"
+        assert len(x1_cols) >= 4, f"seed={seed}: spline generator with 7 knots should emit at least 4 x1__sp* columns; got {x1_cols}"
         # Each emitted column must round-trip through its recipe, to float32 precision (see
         # test_replay_matches_generator's docstring for why bit-identical is not the right bar).
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
@@ -296,9 +296,9 @@ class TestSplineLogRegAUCLift:
         auc_aug = roc_auc_score(yte, m_aug.predict_proba(Xte_aug.to_numpy())[:, 1])
         # Spline-augmented LogReg must clear a meaningful threshold;
         # raw is ~0.55 (random-ish on a box), spline should hit 0.85+.
-        assert auc_aug >= 0.85, f"seed={seed}: spline-augmented LogReg AUC {auc_aug:.3f} should " f"clear 0.85 on box-detector target. raw AUC {auc_raw:.3f}"
+        assert auc_aug >= 0.85, f"seed={seed}: spline-augmented LogReg AUC {auc_aug:.3f} should clear 0.85 on box-detector target. raw AUC {auc_raw:.3f}"
         assert auc_aug > auc_raw + 0.12, (
-            f"seed={seed}: spline FE should lift LogReg holdout AUC by " f">= +0.12 on box-detector target. raw={auc_raw:.3f}, " f"aug={auc_aug:.3f}"
+            f"seed={seed}: spline FE should lift LogReg holdout AUC by >= +0.12 on box-detector target. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
         )
 
 
@@ -559,5 +559,5 @@ class TestStandaloneGenerateAndReplay:
                 eng[name].to_numpy(),
                 rtol=1e-5,
                 atol=5e-6,
-                err_msg=(f"seed={seed}: recipe replay mismatched fit-time value " f"for engineered column {name!r}."),
+                err_msg=(f"seed={seed}: recipe replay mismatched fit-time value for engineered column {name!r}."),
             )

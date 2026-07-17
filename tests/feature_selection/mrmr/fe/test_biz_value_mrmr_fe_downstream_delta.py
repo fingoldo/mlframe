@@ -37,6 +37,7 @@ targets, not the univariate-basis features.
 NEVER xfail / weaken. If a delta regresses, the FE pipeline lost downstream
 value -- fix prod, not the assertion.
 """
+
 from __future__ import annotations
 
 
@@ -52,29 +53,44 @@ from sklearn.metrics import r2_score, roc_auc_score
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 from tests.feature_selection._biz_val_synth import (  # noqa: E402
-    make_polynomial_target, make_heavy_tail_skewed, make_signal_plus_noise, as_df,
+    make_polynomial_target,
+    make_heavy_tail_skewed,
+    make_signal_plus_noise,
+    as_df,
 )
 
 # Every default-ON FE generator OFF -> MRMR selects RAW columns only.
 _RAW_ONLY = dict(
     fe_max_steps=0,
-    fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False,
-    fe_hinge_enable=False, fe_conditional_dispersion_enable=False,
-    fe_wavelet_enable=False, fe_hybrid_orth_pair_enable=False,
-    fe_auto_escalation_enable=False, fe_pair_prewarp_enable=False,
-    fe_rung_schedule_enable=False, fe_stability_vote_enable=False,
-    cluster_aggregate_enable=False, dcd_enable=False,
+    fe_univariate_basis_enable=False,
+    fe_univariate_fourier_enable=False,
+    fe_hinge_enable=False,
+    fe_conditional_dispersion_enable=False,
+    fe_wavelet_enable=False,
+    fe_hybrid_orth_pair_enable=False,
+    fe_auto_escalation_enable=False,
+    fe_pair_prewarp_enable=False,
+    fe_rung_schedule_enable=False,
+    fe_stability_vote_enable=False,
+    cluster_aggregate_enable=False,
+    dcd_enable=False,
 )
 # Single-step pair composites only (always replayable); univariate paths OFF so
 # the delta is attributable to the engineered COMPOSITES, not basis features.
 _FE_ON = dict(
     fe_max_steps=1,
-    fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False,
-    fe_hinge_enable=False, fe_conditional_dispersion_enable=False,
-    fe_wavelet_enable=False, fe_hybrid_orth_pair_enable=False,
-    fe_auto_escalation_enable=False, fe_pair_prewarp_enable=False,
-    fe_rung_schedule_enable=False, fe_stability_vote_enable=False,
-    cluster_aggregate_enable=False, dcd_enable=False,
+    fe_univariate_basis_enable=False,
+    fe_univariate_fourier_enable=False,
+    fe_hinge_enable=False,
+    fe_conditional_dispersion_enable=False,
+    fe_wavelet_enable=False,
+    fe_hybrid_orth_pair_enable=False,
+    fe_auto_escalation_enable=False,
+    fe_pair_prewarp_enable=False,
+    fe_rung_schedule_enable=False,
+    fe_stability_vote_enable=False,
+    cluster_aggregate_enable=False,
+    dcd_enable=False,
 )
 
 
@@ -84,10 +100,13 @@ def _golden(seed: int = 42, n: int = 6000, scale: float = 3.0):
     non-additive: a LINEAR model cannot represent ``a**2/b`` or ``log(c)*sin(d)``
     from the raw inputs, so the recovered composites are what make it usable."""
     rng = np.random.default_rng(seed)
-    a = rng.uniform(1.0, 5.0, n); b = rng.uniform(1.0, 5.0, n)
-    c = rng.uniform(1.0, 5.0, n); d = rng.uniform(0.0, 2.0 * np.pi, n)
-    e = rng.normal(0.0, 1.0, n); f = rng.normal(0.0, 1.0, n)
-    y = a ** 2 / b + f / 5.0 + scale * np.log(c) * np.sin(d)
+    a = rng.uniform(1.0, 5.0, n)
+    b = rng.uniform(1.0, 5.0, n)
+    c = rng.uniform(1.0, 5.0, n)
+    d = rng.uniform(0.0, 2.0 * np.pi, n)
+    e = rng.normal(0.0, 1.0, n)
+    f = rng.normal(0.0, 1.0, n)
+    y = a**2 / b + f / 5.0 + scale * np.log(c) * np.sin(d)
     return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
 
 
@@ -98,8 +117,7 @@ def _split(df, y, frac: float = 0.7):
     np.random.default_rng(0).shuffle(idx)
     k = int(n * frac)
     tr, te = idx[:k], idx[k:]
-    return (df.iloc[tr].reset_index(drop=True), y.iloc[tr].reset_index(drop=True),
-            df.iloc[te].reset_index(drop=True), y.iloc[te].reset_index(drop=True))
+    return (df.iloc[tr].reset_index(drop=True), y.iloc[tr].reset_index(drop=True), df.iloc[te].reset_index(drop=True), y.iloc[te].reset_index(drop=True))
 
 
 def _linear_model(classification: bool):

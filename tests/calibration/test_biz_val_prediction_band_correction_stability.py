@@ -6,6 +6,7 @@ thousands of OOF rows and a genuine subpopulation shift should be trusted; a ban
 where the "shift" is mostly resampling noise should not be. This test proves ``assess_prediction_band_stability``
 tells the two apart with real numeric thresholds, not just qualitatively.
 """
+
 from __future__ import annotations
 
 import numpy as np

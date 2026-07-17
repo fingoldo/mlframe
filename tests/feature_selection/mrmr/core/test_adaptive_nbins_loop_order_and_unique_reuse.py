@@ -2,6 +2,7 @@
 ``np.unique(..., return_counts=True)`` reuse in ``_compute_col_edges`` must be selection-equivalent to
 the pre-fix versions (same returned edges / same picked winning M), not just faster.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -13,17 +14,22 @@ def test_edges_optimal_joint_matches_naive_loop_order_reference():
     production edges_optimal_joint (now outer-k/inner-M) returns byte-identical edges for several
     seeds/candidate sets -- pins that the loop-order swap did not change which M wins."""
     from mlframe.feature_selection.filters._adaptive_nbins import (
-        edges_optimal_joint, _edges_from_quantiles, _edges_from_uniform, _plug_in_mi,
+        edges_optimal_joint,
+        _edges_from_quantiles,
+        _edges_from_uniform,
+        _plug_in_mi,
     )
 
     def _reference(x, y, candidates=(4, 8, 16, 32), n_splits=3, base="quantile", random_state=0):
         x = np.asarray(x, dtype=np.float64).ravel()
         y = np.asarray(y).ravel()
         mask = np.isfinite(x)
-        x = x[mask]; y = y[mask]
+        x = x[mask]
+        y = y[mask]
         n = x.size
         if n < n_splits * 4:
             from mlframe.feature_selection.filters._adaptive_nbins import edges_freedman_diaconis
+
             return edges_freedman_diaconis(x, base=base)
         rng = np.random.default_rng(random_state)
         fold_idx = rng.permutation(n) % n_splits

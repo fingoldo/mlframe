@@ -33,6 +33,7 @@ def _automl_module_snapshot(request):
     test-pollution rule in CLAUDE.md.
     """
     import sys
+
     _key = "mlframe.training.automl"
     if _key in sys.modules:
         _mod_ref = sys.modules[_key]
@@ -49,17 +50,20 @@ def _automl_module_snapshot(request):
 # Fixtures
 # ================================================================================================
 
+
 @pytest.fixture
 def sample_train_df():
     """Generate sample training DataFrame for automl tests."""
     np.random.seed(42)
     n = 100
-    return pd.DataFrame({
-        "feature1": np.random.randn(n),
-        "feature2": np.random.randn(n),
-        "feature3": np.random.randn(n),
-        "target": np.random.randint(0, 2, n),
-    })
+    return pd.DataFrame(
+        {
+            "feature1": np.random.randn(n),
+            "feature2": np.random.randn(n),
+            "feature3": np.random.randn(n),
+            "target": np.random.randint(0, 2, n),
+        }
+    )
 
 
 @pytest.fixture
@@ -67,12 +71,14 @@ def sample_test_df():
     """Generate sample test DataFrame for automl tests."""
     np.random.seed(43)
     n = 50
-    return pd.DataFrame({
-        "feature1": np.random.randn(n),
-        "feature2": np.random.randn(n),
-        "feature3": np.random.randn(n),
-        "target": np.random.randint(0, 2, n),
-    })
+    return pd.DataFrame(
+        {
+            "feature1": np.random.randn(n),
+            "feature2": np.random.randn(n),
+            "feature3": np.random.randn(n),
+            "target": np.random.randint(0, 2, n),
+        }
+    )
 
 
 @pytest.fixture
@@ -85,15 +91,17 @@ def sample_polars_df(sample_train_df):
 # AutoGluon Tests
 # ================================================================================================
 
+
 class TestTrainAutogluonModel:
     """Tests for train_autogluon_model function."""
 
     def test_returns_none_when_autogluon_not_available(self, sample_train_df, _automl_module_snapshot):
         """Test that function returns None when AutoGluon is not installed."""
-        with patch.dict('sys.modules', {'autogluon': None, 'autogluon.tabular': None}):
+        with patch.dict("sys.modules", {"autogluon": None, "autogluon.tabular": None}):
             # Need to reimport to trigger the ImportError
             import importlib
             import mlframe.training.automl as automl_module
+
             importlib.reload(automl_module)
 
             result = automl_module.train_autogluon_model(sample_train_df)
@@ -115,9 +123,9 @@ class TestTrainAutogluonModel:
         # Behavioural: result must carry the trained model, metrics, and feature-importance
         # payload that downstream consumers depend on (model.predict, metrics dict, fi shape).
         assert result is not None
-        assert hasattr(result, 'model') and result.model is not None, "AutoGluon training returned None model"
-        assert hasattr(result, 'metrics'), "AutoGluon result missing metrics attribute"
-        assert hasattr(result, 'fi'), "AutoGluon result missing feature-importance attribute"
+        assert hasattr(result, "model") and result.model is not None, "AutoGluon training returned None model"
+        assert hasattr(result, "metrics"), "AutoGluon result missing metrics attribute"
+        assert hasattr(result, "fi"), "AutoGluon result missing feature-importance attribute"
         # Metrics must be a non-empty mapping with at least one score (RMSE / R2 / etc).
         if isinstance(result.metrics, dict):
             assert len(result.metrics) > 0, "AutoGluon metrics dict empty"
@@ -139,15 +147,12 @@ class TestTrainAutogluonModel:
         assert result is not None, "AutoGluon training returned None on test-df-evaluated path"
         assert result.test_probs is not None, "AutoGluon result.test_probs is None despite test_df supplied"
         # Behavioural: length matches the test frame AND the probability values are finite numerics in [0, 1] (probs, not log-odds).
-        assert len(result.test_probs) == len(sample_test_df), (
-            f"test_probs length {len(result.test_probs)} != test_df length {len(sample_test_df)}"
-        )
+        assert len(result.test_probs) == len(sample_test_df), f"test_probs length {len(result.test_probs)} != test_df length {len(sample_test_df)}"
         import numpy as np
+
         probs_arr = np.asarray(result.test_probs)
         assert np.all(np.isfinite(probs_arr)), "test_probs contain non-finite values"
-        assert (probs_arr.min() >= 0.0) and (probs_arr.max() <= 1.0), (
-            f"test_probs outside [0, 1] range: min={probs_arr.min()}, max={probs_arr.max()}"
-        )
+        assert (probs_arr.min() >= 0.0) and (probs_arr.max() <= 1.0), f"test_probs outside [0, 1] range: min={probs_arr.min()}, max={probs_arr.max()}"
 
 
 class TestTrainAutogluonModelMocked:
@@ -163,9 +168,10 @@ class TestTrainAutogluonModelMocked:
         mock_tabular.TabularPredictor.return_value = mock_predictor
         mock_tabular.TabularDataset.return_value = sample_train_df
 
-        with patch.dict('sys.modules', {'autogluon.tabular': mock_tabular}):
+        with patch.dict("sys.modules", {"autogluon.tabular": mock_tabular}):
             import importlib
             import mlframe.training.automl as automl_module
+
             importlib.reload(automl_module)
 
             result = automl_module.train_autogluon_model(
@@ -189,9 +195,10 @@ class TestTrainAutogluonModelMocked:
         mock_tabular.TabularPredictor.return_value = mock_predictor
         mock_tabular.TabularDataset.return_value = df
 
-        with patch.dict('sys.modules', {'autogluon.tabular': mock_tabular}):
+        with patch.dict("sys.modules", {"autogluon.tabular": mock_tabular}):
             import importlib
             import mlframe.training.automl as automl_module
+
             importlib.reload(automl_module)
 
             result = automl_module.train_autogluon_model(
@@ -202,21 +209,23 @@ class TestTrainAutogluonModelMocked:
 
             # Verify correct target was used
             call_kwargs = mock_tabular.TabularPredictor.call_args[1]
-            assert call_kwargs.get('label') == "custom_target"
+            assert call_kwargs.get("label") == "custom_target"
 
 
 # ================================================================================================
 # LAMA Tests
 # ================================================================================================
 
+
 class TestTrainLamaModel:
     """Tests for train_lama_model function."""
 
     def test_returns_none_when_lama_not_available(self, sample_train_df, _automl_module_snapshot):
         """Test that function returns None when LAMA is not installed."""
-        with patch.dict('sys.modules', {'lightautoml': None}):
+        with patch.dict("sys.modules", {"lightautoml": None}):
             import importlib
             import mlframe.training.automl as automl_module
+
             importlib.reload(automl_module)
 
             result = automl_module.train_lama_model(sample_train_df)
@@ -236,8 +245,8 @@ class TestTrainLamaModel:
         )
 
         assert result is not None
-        assert hasattr(result, 'model')
-        assert hasattr(result, 'metrics')
+        assert hasattr(result, "model")
+        assert hasattr(result, "metrics")
 
     @pytest.mark.skip(reason="LAMA heavy dependency - run manually if needed")
     def test_training_with_test_df(self, sample_train_df, sample_test_df):
@@ -278,16 +287,20 @@ class TestTrainLamaModelMocked:
         mock_mpl.rcParams = {}
         mock_mpl.rcParamsDefault = {}
 
-        with patch.dict('sys.modules', {
-            'lightautoml': MagicMock(),
-            'lightautoml.automl': MagicMock(),
-            'lightautoml.automl.presets': MagicMock(),
-            'lightautoml.automl.presets.tabular_presets': mock_presets,
-            'lightautoml.tasks': mock_tasks,
-            'matplotlib': mock_mpl,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "lightautoml": MagicMock(),
+                "lightautoml.automl": MagicMock(),
+                "lightautoml.automl.presets": MagicMock(),
+                "lightautoml.automl.presets.tabular_presets": mock_presets,
+                "lightautoml.tasks": mock_tasks,
+                "matplotlib": mock_mpl,
+            },
+        ):
             import importlib
             import mlframe.training.automl as automl_module
+
             importlib.reload(automl_module)
 
             result = automl_module.train_lama_model(
@@ -296,12 +309,13 @@ class TestTrainLamaModelMocked:
             )
 
             # Verify Task was created with 'binary'
-            mock_tasks.Task.assert_called_with('binary')
+            mock_tasks.Task.assert_called_with("binary")
 
 
 # ================================================================================================
 # Suite Function Tests
 # ================================================================================================
+
 
 class TestTrainAutomlModelsSuite:
     """Tests for train_automl_models_suite function."""
@@ -401,7 +415,7 @@ class TestTrainAutomlModelsSuiteMocked:
             test_target=None,
         )
 
-        with patch('mlframe.training.automl.train_autogluon_model', return_value=mock_result):
+        with patch("mlframe.training.automl.train_autogluon_model", return_value=mock_result):
             config = AutoMLConfig(use_autogluon=True, use_lama=False)
 
             result = train_automl_models_suite(
@@ -410,8 +424,8 @@ class TestTrainAutomlModelsSuiteMocked:
                 verbose=0,
             )
 
-            assert 'autogluon' in result
-            assert result['autogluon'] == mock_result
+            assert "autogluon" in result
+            assert result["autogluon"] == mock_result
 
     def test_trains_lama_when_enabled(self, sample_train_df):
         """Test that LAMA is trained when enabled in config."""
@@ -423,7 +437,7 @@ class TestTrainAutomlModelsSuiteMocked:
             test_target=None,
         )
 
-        with patch('mlframe.training.automl.train_lama_model', return_value=mock_result):
+        with patch("mlframe.training.automl.train_lama_model", return_value=mock_result):
             config = AutoMLConfig(use_autogluon=False, use_lama=True)
 
             result = train_automl_models_suite(
@@ -432,28 +446,28 @@ class TestTrainAutomlModelsSuiteMocked:
                 verbose=0,
             )
 
-            assert 'lama' in result
-            assert result['lama'] == mock_result
+            assert "lama" in result
+            assert result["lama"] == mock_result
 
     def test_trains_both_when_enabled(self, sample_train_df):
         """Test that both models are trained when enabled."""
         mock_ag_result = SimpleNamespace(
             model=MagicMock(),
-            metrics={'test_auc': 0.8},
+            metrics={"test_auc": 0.8},
             fi=None,
             test_probs=None,
             test_target=None,
         )
         mock_lama_result = SimpleNamespace(
             model=MagicMock(),
-            metrics={'test_auc': 0.85},
+            metrics={"test_auc": 0.85},
             fi=None,
             test_probs=None,
             test_target=None,
         )
 
-        with patch('mlframe.training.automl.train_autogluon_model', return_value=mock_ag_result):
-            with patch('mlframe.training.automl.train_lama_model', return_value=mock_lama_result):
+        with patch("mlframe.training.automl.train_autogluon_model", return_value=mock_ag_result):
+            with patch("mlframe.training.automl.train_lama_model", return_value=mock_lama_result):
                 config = AutoMLConfig(use_autogluon=True, use_lama=True)
 
                 result = train_automl_models_suite(
@@ -462,12 +476,12 @@ class TestTrainAutomlModelsSuiteMocked:
                     verbose=0,
                 )
 
-                assert 'autogluon' in result
-                assert 'lama' in result
+                assert "autogluon" in result
+                assert "lama" in result
 
     def test_skips_model_when_returns_none(self, sample_train_df):
         """Test that model is skipped when training returns None."""
-        with patch('mlframe.training.automl.train_autogluon_model', return_value=None):
+        with patch("mlframe.training.automl.train_autogluon_model", return_value=None):
             config = AutoMLConfig(use_autogluon=True)
 
             result = train_automl_models_suite(
@@ -476,7 +490,7 @@ class TestTrainAutomlModelsSuiteMocked:
                 verbose=0,
             )
 
-            assert 'autogluon' not in result
+            assert "autogluon" not in result
 
     def test_passes_config_params_to_autogluon(self, sample_train_df):
         """Test that config parameters are passed to train_autogluon_model."""
@@ -488,11 +502,11 @@ class TestTrainAutomlModelsSuiteMocked:
             test_target=None,
         )
 
-        with patch('mlframe.training.automl.train_autogluon_model', return_value=mock_result) as mock_fn:
+        with patch("mlframe.training.automl.train_autogluon_model", return_value=mock_result) as mock_fn:
             config = AutoMLConfig(
                 use_autogluon=True,
-                autogluon_init_params={'path': '/test'},
-                autogluon_fit_params={'time_limit': 60},
+                autogluon_init_params={"path": "/test"},
+                autogluon_fit_params={"time_limit": 60},
                 automl_verbose=2,
             )
 
@@ -503,9 +517,9 @@ class TestTrainAutomlModelsSuiteMocked:
             )
 
             call_kwargs = mock_fn.call_args[1]
-            assert call_kwargs['init_params'] == {'path': '/test'}
-            assert call_kwargs['fit_params'] == {'time_limit': 60}
-            assert call_kwargs['verbose'] == 2
+            assert call_kwargs["init_params"] == {"path": "/test"}
+            assert call_kwargs["fit_params"] == {"time_limit": 60}
+            assert call_kwargs["verbose"] == 2
 
     def test_passes_config_params_to_lama(self, sample_train_df):
         """Test that config parameters are passed to train_lama_model."""
@@ -517,11 +531,11 @@ class TestTrainAutomlModelsSuiteMocked:
             test_target=None,
         )
 
-        with patch('mlframe.training.automl.train_lama_model', return_value=mock_result) as mock_fn:
+        with patch("mlframe.training.automl.train_lama_model", return_value=mock_result) as mock_fn:
             config = AutoMLConfig(
                 use_lama=True,
-                lama_init_params={'timeout': 30},
-                lama_fit_params={'roles': {}},
+                lama_init_params={"timeout": 30},
+                lama_fit_params={"roles": {}},
                 automl_verbose=0,
             )
 
@@ -532,14 +546,15 @@ class TestTrainAutomlModelsSuiteMocked:
             )
 
             call_kwargs = mock_fn.call_args[1]
-            assert call_kwargs['init_params'] == {'timeout': 30}
-            assert call_kwargs['fit_params'] == {'roles': {}}
-            assert call_kwargs['verbose'] == 0
+            assert call_kwargs["init_params"] == {"timeout": 30}
+            assert call_kwargs["fit_params"] == {"roles": {}}
+            assert call_kwargs["verbose"] == 0
 
 
 # ================================================================================================
 # AutoMLConfig Tests
 # ================================================================================================
+
 
 class TestAutoMLConfig:
     """Tests for AutoMLConfig dataclass."""
@@ -563,17 +578,17 @@ class TestAutoMLConfig:
         config = AutoMLConfig(
             use_autogluon=True,
             use_lama=True,
-            autogluon_init_params={'eval_metric': 'auc'},
-            autogluon_fit_params={'time_limit': 3600},
-            lama_init_params={'timeout': 1800},
+            autogluon_init_params={"eval_metric": "auc"},
+            autogluon_fit_params={"time_limit": 3600},
+            lama_init_params={"timeout": 1800},
             automl_verbose=0,
             automl_target_label="label",
         )
 
         assert config.use_autogluon is True
         assert config.use_lama is True
-        assert config.autogluon_init_params == {'eval_metric': 'auc'}
-        assert config.autogluon_fit_params == {'time_limit': 3600}
-        assert config.lama_init_params == {'timeout': 1800}
+        assert config.autogluon_init_params == {"eval_metric": "auc"}
+        assert config.autogluon_fit_params == {"time_limit": 3600}
+        assert config.lama_init_params == {"timeout": 1800}
         assert config.automl_verbose == 0
         assert config.automl_target_label == "label"

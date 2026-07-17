@@ -9,6 +9,7 @@
   agrees with ``_discovery_cache_bytes_total``), and orphan ``*.tmp`` /
   ``.lru.lock`` files are swept by eviction and ``clear()``.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -63,15 +64,13 @@ class TestS25VersionFoldedUnconditionally:
         sig_real = compute_config_signature_v1(_Cfg())  # NO library_versions
         with mock.patch("mlframe.__version__", "999.999"):
             sig_bumped = compute_config_signature_v1(_Cfg())  # NO library_versions
-        assert sig_real != sig_bumped, (
-            "mlframe version bump did not change the config signature without "
-            "library_versions -- stale spec replay hazard (S25)"
-        )
+        assert sig_real != sig_bumped, "mlframe version bump did not change the config signature without library_versions -- stale spec replay hazard (S25)"
 
     def test_signature_changes_when_schema_version_bumps(self) -> None:
         # Patch to a value DIFFERENT from the current default (hardcoding "2" collided once the default itself was
         # bumped to 2); the digest must change whenever the schema-version component changes.
         from mlframe.training.composite import cache as _cache_mod
+
         sig_v1 = compute_config_signature_v1(_Cfg())
         with mock.patch(
             "mlframe.training.composite.cache._DISCOVERY_CACHE_SCHEMA_VERSION",
@@ -103,10 +102,7 @@ class TestS18EvictionAccountingAndSweep:
         for k in ("a", "b", "c"):
             cache.set(k * 32, {"v": k})
         d = cache.cache_dir
-        pkl_only = sum(
-            os.path.getsize(os.path.join(d, n))
-            for n in os.listdir(d) if n.endswith(".pkl")
-        )
+        pkl_only = sum(os.path.getsize(os.path.join(d, n)) for n in os.listdir(d) if n.endswith(".pkl"))
         reported = _discovery_cache_bytes_total(cache)
         assert reported > pkl_only, "sidecars must contribute to the reported footprint"
         # Cap strictly between pkl-only and pkl+sidecar totals. Pre-fix accounting

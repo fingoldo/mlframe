@@ -19,18 +19,21 @@ import pytest
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.feature_selection.wrappers.rfecv import _fit
+
     return _fit
 
 
 @pytest.fixture(scope="module")
 def setup_sibling():
     from mlframe.feature_selection.wrappers.rfecv import _fit_setup
+
     return _fit_setup
 
 
 @pytest.fixture(scope="module")
 def fold_sibling():
     from mlframe.feature_selection.wrappers.rfecv import _fit_fold
+
     return _fit_fold
 
 
@@ -52,11 +55,13 @@ def test_facade_loc_budget(parent_module):
 
 def test_filter_cat_features_drops_numeric_encoded(setup_sibling):
     """Cat columns that have been numerically encoded upstream are stripped."""
-    df = pd.DataFrame({
-        "cat_kept": pd.Series(["a", "b", "c", "a"], dtype="category"),
-        "cat_encoded": [0.1, 0.2, 0.3, 0.4],  # float, was encoded
-        "num": [1, 2, 3, 4],
-    })
+    df = pd.DataFrame(
+        {
+            "cat_kept": pd.Series(["a", "b", "c", "a"], dtype="category"),
+            "cat_encoded": [0.1, 0.2, 0.3, 0.4],  # float, was encoded
+            "num": [1, 2, 3, 4],
+        }
+    )
     out = setup_sibling.filter_cat_features_by_dtype(df, ["cat_kept", "cat_encoded"], verbose=0)
     assert out == ["cat_kept"]
 
@@ -68,6 +73,7 @@ def test_filter_cat_features_passthrough_when_none(setup_sibling):
 
 def test_resolve_default_scoring_classifier(setup_sibling):
     from sklearn.linear_model import LogisticRegression
+
     est = LogisticRegression()
     scoring = setup_sibling.resolve_default_scoring(None, est)
     assert scoring is not None and callable(scoring)
@@ -75,6 +81,7 @@ def test_resolve_default_scoring_classifier(setup_sibling):
 
 def test_resolve_default_scoring_regressor(setup_sibling):
     from sklearn.linear_model import LinearRegression
+
     est = LinearRegression()
     scoring = setup_sibling.resolve_default_scoring(None, est)
     assert scoring is not None and callable(scoring)
@@ -84,6 +91,7 @@ def test_resolve_default_scoring_passthrough(setup_sibling):
     """If caller supplies a scoring callable, return it unchanged."""
     from sklearn.metrics import make_scorer, mean_absolute_error
     from sklearn.linear_model import LinearRegression
+
     custom = make_scorer(mean_absolute_error, greater_is_better=False)
     out = setup_sibling.resolve_default_scoring(custom, LinearRegression())
     assert out is custom
@@ -92,14 +100,21 @@ def test_resolve_default_scoring_passthrough(setup_sibling):
 def test_resolve_n_jobs_falls_back_for_multithreaded(setup_sibling):
     """sklearn RF is multi-threaded -> n_jobs>1 auto-falls back to 1 unless force_parallel."""
     from sklearn.ensemble import RandomForestRegressor
+
     est = RandomForestRegressor()
     n_jobs, _is_mt = setup_sibling.resolve_effective_n_jobs(
-        n_jobs_requested=4, estimator=est, force_parallel=False, verbose=0,
+        n_jobs_requested=4,
+        estimator=est,
+        force_parallel=False,
+        verbose=0,
     )
     assert _is_mt is True
     assert n_jobs == 1
     n_jobs2, _ = setup_sibling.resolve_effective_n_jobs(
-        n_jobs_requested=4, estimator=est, force_parallel=True, verbose=0,
+        n_jobs_requested=4,
+        estimator=est,
+        force_parallel=True,
+        verbose=0,
     )
     assert n_jobs2 == 4
 

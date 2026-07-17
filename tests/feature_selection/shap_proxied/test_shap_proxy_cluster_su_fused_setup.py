@@ -120,15 +120,19 @@ def test_fused_setup_parity_with_kernel():
     """Cluster labels produced via fused-setup parallel path == serial Python loop."""
     bins, names = _build_synthetic_bins(n_samples=900, n_features=120, n_bins=8, seed=17)
     serial = cluster_correlated_features_su(
-        bins, threshold=0.35, feature_names=names, use_parallel=False,
+        bins,
+        threshold=0.35,
+        feature_names=names,
+        use_parallel=False,
     )
     parallel = cluster_correlated_features_su(
-        bins, threshold=0.35, feature_names=names, use_parallel=True,
+        bins,
+        threshold=0.35,
+        feature_names=names,
+        use_parallel=True,
         parallel_min_features=10,
     )
-    assert np.array_equal(serial, parallel), (
-        "fused-setup parallel kernel diverges from serial loop at width=120"
-    )
+    assert np.array_equal(serial, parallel), "fused-setup parallel kernel diverges from serial loop at width=120"
 
 
 def test_fused_setup_speedup_at_width_1500():
@@ -139,13 +143,17 @@ def test_fused_setup_speedup_at_width_1500():
     is identical in both cases so we isolate the contribution of the fold.
     """
     import numba
+
     if numba.get_num_threads() < 2:
         pytest.skip(f"numba reports {numba.get_num_threads()} thread(s); parallel setup needs >=2 cores")
 
     width = 1500
     n_samples = 1500
     bins, names = _build_synthetic_bins(
-        n_samples=n_samples, n_features=width, n_bins=10, seed=5,
+        n_samples=n_samples,
+        n_features=width,
+        n_bins=10,
+        seed=5,
     )
     _, arrays = _resolve_columns(bins, names)
 
@@ -166,10 +174,7 @@ def test_fused_setup_speedup_at_width_1500():
     assert old is not None
 
     speedup = t_old / max(t_new, 1e-9)
-    assert speedup >= 1.15, (
-        f"fused setup did not beat two-pass by >=15%: "
-        f"new={t_new*1000:.2f}ms, old={t_old*1000:.2f}ms, speedup={speedup:.2f}x"
-    )
+    assert speedup >= 1.15, f"fused setup did not beat two-pass by >=15%: new={t_new * 1000:.2f}ms, old={t_old * 1000:.2f}ms, speedup={speedup:.2f}x"
 
 
 def test_compute_marginals_packed_handles_padded_constant_column():
@@ -183,7 +188,12 @@ def test_compute_marginals_packed_handles_padded_constant_column():
     constant_mask = np.empty(1, dtype=np.bool_)
 
     _compute_marginals_packed(
-        bins_packed, nbins, freqs_offsets, freqs_packed, h_marginals, constant_mask,
+        bins_packed,
+        nbins,
+        freqs_offsets,
+        freqs_packed,
+        h_marginals,
+        constant_mask,
     )
 
     assert constant_mask[0], "single-bin column with padded nb must be marked constant"

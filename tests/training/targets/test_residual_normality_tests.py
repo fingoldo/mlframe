@@ -2,6 +2,7 @@
 2026-05-27 move to ``pyutilz.stats.normality``. Full calibration suite
 lives in pyutilz/tests/stats/test_normality.py.
 """
+
 from __future__ import annotations
 
 import numpy as np

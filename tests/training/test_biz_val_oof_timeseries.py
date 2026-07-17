@@ -118,9 +118,7 @@ def test_biz_val_oof_random_seed_is_deterministic_and_varies_folds():
 
     def _run(seed):
         est = DecisionTreeRegressor(max_depth=4, random_state=0)
-        preds, _ = _compute_oof_preds(
-            model=est, train_df=X, train_target=y, is_classifier_model=False, n_splits=5, random_seed=seed
-        )
+        preds, _ = _compute_oof_preds(model=est, train_df=X, train_target=y, is_classifier_model=False, n_splits=5, random_seed=seed)
         return preds
 
     a1 = _run(seed=0)
@@ -154,9 +152,7 @@ def test_biz_val_oof_group_kfold_keeps_groups_intact():
     X = pd.DataFrame({"x0": x0})
 
     est = DecisionTreeRegressor(max_depth=4, random_state=0)
-    preds, probs = _compute_oof_preds(
-        model=est, train_df=X, train_target=y, is_classifier_model=False, n_splits=5, random_seed=0, group_ids=group_ids
-    )
+    preds, probs = _compute_oof_preds(model=est, train_df=X, train_target=y, is_classifier_model=False, n_splits=5, random_seed=0, group_ids=group_ids)
 
     assert probs is None
     assert preds is not None

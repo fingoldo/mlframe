@@ -7,6 +7,7 @@ holds -- a classic "exclusive or" diagnostic pattern) is UNLEARNABLE by a linear
 columns alone (their individual coefficients can't express the interaction), but trivially learnable once the
 XOR interaction column is added.
 """
+
 from __future__ import annotations
 
 import numpy as np

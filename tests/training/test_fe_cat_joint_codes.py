@@ -8,6 +8,7 @@ Fix: compute joint category union from ``train + val`` (held-out test must
 use ``strict=False`` semantics with missing categories -> NaN), then cast
 each split with that fixed dtype.
 """
+
 from __future__ import annotations
 
 import pandas as pd
@@ -24,7 +25,10 @@ def test_cat_codes_consistent_across_train_val_test():
     test = pd.DataFrame({"x": ["A", "D"]})
 
     prepare_dfs_for_catboost_joint(
-        train_df=train, val_df=val, test_df=test, cat_features=["x"],
+        train_df=train,
+        val_df=val,
+        test_df=test,
+        cat_features=["x"],
     )
 
     # All three frames must use a Categorical dtype.
@@ -43,12 +47,8 @@ def test_cat_codes_consistent_across_train_val_test():
         idx = (df["x"] == value).idxmax()
         return int(df["x"].cat.codes.iloc[idx])
 
-    assert code_for(train, "A") == code_for(test, "A"), (
-        "code for 'A' differs between train and test"
-    )
-    assert code_for(train, "B") == code_for(val, "B"), (
-        "code for 'B' differs between train and val"
-    )
+    assert code_for(train, "A") == code_for(test, "A"), "code for 'A' differs between train and test"
+    assert code_for(train, "B") == code_for(val, "B"), "code for 'B' differs between train and val"
 
     # Test row holding 'D' (unseen at union-construction time) must land
     # as a NaN/-1 code, not collide with another category.
@@ -71,8 +71,7 @@ def test_cat_codes_naive_per_split_cast_drifts():
     # If the codes happen to coincide here, the inverse case ("B"/"C")
     # demonstrates the divergence:
     train_code_for_B = int(train["x"].cat.codes.iloc[1])  # B in train is code 1
-    val_code_for_C = int(val["x"].cat.codes.iloc[1])      # C in val is code 1
+    val_code_for_C = int(val["x"].cat.codes.iloc[1])  # C in val is code 1
     assert train_code_for_B == val_code_for_C, (
-        "sanity probe expected per-split cast to confuse different values "
-        "to the same code (B in train vs C in val); fix the probe."
+        "sanity probe expected per-split cast to confuse different values to the same code (B in train vs C in val); fix the probe."
     )

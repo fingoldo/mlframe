@@ -6,6 +6,7 @@ on pre-fix code and pass on post-fix. See
 ``mlframe/audit/CODE_REVIEW_2026-05-17.md`` rows H-FH-04 through
 H-FH-16 for the full disposition.
 """
+
 from __future__ import annotations
 
 import os
@@ -114,10 +115,7 @@ def test_h_fh_06_fingerprint_cache_concurrent_put() -> None:
     fp_mod.reset_session()
 
     # Build a handful of distinct frames so id(df) varies.
-    frames = [
-        pl.DataFrame({"a": np.arange(64), "b": np.random.randn(64)})
-        for _ in range(8)
-    ]
+    frames = [pl.DataFrame({"a": np.arange(64), "b": np.random.randn(64)}) for _ in range(8)]
 
     errors: list = []
 
@@ -157,12 +155,14 @@ def test_h_fh_07_xxhash_absent_fallback_faster_than_legacy() -> None:
 
     n = 4096
     rng = np.random.default_rng(0)
-    df = pl.DataFrame({
-        "a": rng.standard_normal(n),
-        "b": rng.standard_normal(n).astype(np.float32),
-        "c": rng.integers(0, 1000, n),
-        "d": [f"str_{i % 100}" for i in range(n)],
-    })
+    df = pl.DataFrame(
+        {
+            "a": rng.standard_normal(n),
+            "b": rng.standard_normal(n).astype(np.float32),
+            "c": rng.integers(0, 1000, n),
+            "d": [f"str_{i % 100}" for i in range(n)],
+        }
+    )
 
     # Force the xxhash-absent branch even when xxhash is installed.
     with patch.object(fp_mod, "_HAVE_XX", False):
@@ -194,8 +194,7 @@ def test_h_fh_07_xxhash_absent_fallback_faster_than_legacy() -> None:
     # to flake on machines where new=27ms / legacy=99ms — 3.6x speedup, real
     # win, but below the old threshold). 2x still locks the qualitative claim.
     assert new_path < legacy_baseline / 2.0, (
-        f"xxhash-absent fingerprint path no longer faster than legacy CSV: "
-        f"new={new_path*1000:.1f}ms legacy={legacy_baseline*1000:.1f}ms"
+        f"xxhash-absent fingerprint path no longer faster than legacy CSV: new={new_path * 1000:.1f}ms legacy={legacy_baseline * 1000:.1f}ms"
     )
 
 
@@ -278,8 +277,10 @@ def test_h_fh_09_batch_size_recovers_after_oom() -> None:
                 # Raise a torch OOM-shaped error so classify_cuda_error
                 # routes it to OUT_OF_MEMORY.
                 raise torch.cuda.OutOfMemoryError("simulated OOM")
+
             class _Out:
                 pass
+
             out = _Out()
             out.last_hidden_state = torch.zeros(B, 8, 4)
             return out
@@ -307,10 +308,7 @@ def test_h_fh_09_batch_size_recovers_after_oom() -> None:
     )
     assert half_idx is not None, "test setup wrong - never halved"
     sizes_after_half = seen_sizes[half_idx:]
-    assert 32 in sizes_after_half, (
-        f"batch_size never recovered after OOM; sizes after halve: "
-        f"{sizes_after_half[:20]}"
-    )
+    assert 32 in sizes_after_half, f"batch_size never recovered after OOM; sizes after halve: {sizes_after_half[:20]}"
 
 
 # =====================================================================
@@ -353,6 +351,7 @@ def test_h_fh_10_stale_lock_retry_uses_fresh_filelock() -> None:
         # Hold a real filelock on it so the FIRST acquire times out
         # quickly, triggering the stale-reclaim path.
         from filelock import FileLock as _FL
+
         holder = _FL(lock_path)
         holder.acquire(timeout=1.0)
 
@@ -364,9 +363,7 @@ def test_h_fh_10_stale_lock_retry_uses_fresh_filelock() -> None:
         # was warned.
         with warnings.catch_warnings(record=True) as ws:
             warnings.simplefilter("always")
-            lock = PIDAwareFileLock(
-                lock_path, timeout=1.0, reclaim_grace_timeout=0.5
-            )
+            lock = PIDAwareFileLock(lock_path, timeout=1.0, reclaim_grace_timeout=0.5)
             try:
                 lock.__enter__()
             except Exception:
@@ -423,10 +420,7 @@ def test_h_fh_11_acquire_provider_lru_before_refcount() -> None:
     with reg.acquire_provider(p, _CC):
         seen_in_lru.append(p.signature in reg._LRU_HARD)
 
-    assert seen_in_lru == [True], (
-        "signature must be in _LRU_HARD before refcount bumps to avoid "
-        "the release-side race window"
-    )
+    assert seen_in_lru == [True], "signature must be in _LRU_HARD before refcount bumps to avoid the release-side race window"
     reg.shutdown_all()
 
 
@@ -465,10 +459,7 @@ def test_h_fh_12_prewarm_failure_drops_registry_entry() -> None:
 
     # Pre-fix: signature still in _REGISTRY -> next acquire reuses the
     # broken entry. Post-fix: dropped on failure.
-    assert bad.signature not in reg._REGISTRY, (
-        "failed prewarm must drop the registry entry so the next acquire "
-        "rebuilds a fresh provider"
-    )
+    assert bad.signature not in reg._REGISTRY, "failed prewarm must drop the registry entry so the next acquire rebuilds a fresh provider"
     assert bad.signature not in reg._LRU_HARD
 
 
@@ -499,10 +490,10 @@ def test_h_fh_13_no_lying_f821_noqa_in_target_encoders() -> None:
     # Behavioural: actually run ruff/pyflakes on the file; F821 must be zero.
     import subprocess
     from pathlib import Path
+
     path = Path(te.__file__)
     # Try ruff first; fall back to pyflakes; skip if neither installed.
-    for cmd in (["ruff", "check", "--select", "F821", "--no-cache", str(path)],
-                ["python", "-m", "pyflakes", str(path)]):
+    for cmd in (["ruff", "check", "--select", "F821", "--no-cache", str(path)], ["python", "-m", "pyflakes", str(path)]):
         try:
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -510,9 +501,7 @@ def test_h_fh_13_no_lying_f821_noqa_in_target_encoders() -> None:
         # ruff/pyflakes exit 0 means no issues; otherwise output lists them.
         # We are only interested in F821 (undefined name) - other warnings irrelevant.
         out = (res.stdout or "") + (res.stderr or "")
-        assert "F821" not in out, (
-            f"target_encoders.py has F821 undefined-name issues: {out}"
-        )
+        assert "F821" not in out, f"target_encoders.py has F821 undefined-name issues: {out}"
         return
     pytest.skip("Neither ruff nor pyflakes available; cannot run static F821 check.")
 
@@ -578,6 +567,7 @@ def test_h_fh_14_fit_transform_speedup() -> None:
     # plus the inner per-row dict.get loop.
     def legacy_kfold():
         from sklearn.model_selection import KFold
+
         kf = KFold(n_splits=3, shuffle=True, random_state=0)
         out = np.empty(n, dtype=np.float64)
         for train_idx, val_idx in kf.split(cats):
@@ -616,8 +606,7 @@ def test_h_fh_14_fit_transform_speedup() -> None:
     # log perf for visibility but do NOT fail on it -- the ``test_h_fh_14_per_category_vectorised``
     # test (separate; n=10k correctness) is the regression sentinel.
     print(
-        f"\n[H-FH-14 perf] legacy={legacy_path*1000:.1f}ms "
-        f"new={new_path*1000:.1f}ms speedup={speedup:.2f}x",
+        f"\n[H-FH-14 perf] legacy={legacy_path * 1000:.1f}ms new={new_path * 1000:.1f}ms speedup={speedup:.2f}x",
         flush=True,
     )
 
@@ -642,25 +631,19 @@ def test_h_fh_16_per_target_cache_mismatch_raises() -> None:
     # Same parent_cache args -> should construct fine.
     FeatureHandlingConfig(
         cache=parent_cache,
-        per_target={
-            "t1": FeatureHandlingConfig(cache=CacheConfig(dir="/tmp/cache-A", namespace="ns-A", persistence="auto"))
-        },
+        per_target={"t1": FeatureHandlingConfig(cache=CacheConfig(dir="/tmp/cache-A", namespace="ns-A", persistence="auto"))},
     )
 
     # Mismatching child cache.dir -> raise.
     with pytest.raises(ValueError, match="per_target"):
         FeatureHandlingConfig(
             cache=parent_cache,
-            per_target={
-                "t1": FeatureHandlingConfig(cache=CacheConfig(dir="/tmp/cache-B", namespace="ns-A", persistence="auto"))
-            },
+            per_target={"t1": FeatureHandlingConfig(cache=CacheConfig(dir="/tmp/cache-B", namespace="ns-A", persistence="auto"))},
         )
 
     # Mismatching namespace -> raise.
     with pytest.raises(ValueError, match="per_target"):
         FeatureHandlingConfig(
             cache=parent_cache,
-            per_target={
-                "t1": FeatureHandlingConfig(cache=CacheConfig(dir="/tmp/cache-A", namespace="ns-B", persistence="auto"))
-            },
+            per_target={"t1": FeatureHandlingConfig(cache=CacheConfig(dir="/tmp/cache-A", namespace="ns-B", persistence="auto"))},
         )

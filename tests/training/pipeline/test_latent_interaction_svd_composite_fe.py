@@ -6,6 +6,7 @@ events-table contract (fit once, join by group_ids), schema alignment, and predi
 ``transform_new_entities`` on a FRESH events table (no refitting) -- plus one biz_value test proving
 the wired module recovers a latent customer-cluster signal a raw entity-id can't.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,7 +40,16 @@ def test_apply_latent_interaction_svd_composite_fe_noop_when_entities_unset():
     events, df, group_ids = _events_and_frame()
     cfg = PreprocessingExtensionsConfig()
     train, val, test = apply_latent_interaction_svd_composite_fe(
-        df.iloc[:70], df.iloc[70:], None, cfg, events, group_ids, np.arange(70), np.arange(70, 100), None, verbose=0,
+        df.iloc[:70],
+        df.iloc[70:],
+        None,
+        cfg,
+        events,
+        group_ids,
+        np.arange(70),
+        np.arange(70, 100),
+        None,
+        verbose=0,
     )
     assert list(train.columns) == list(df.columns)
 
@@ -57,13 +67,24 @@ def test_apply_latent_interaction_svd_composite_fe_schema_aligned_across_splits(
     events, df, group_ids = _events_and_frame()
     train_idx, val_idx, test_idx = np.arange(0, 70), np.arange(70, 85), np.arange(85, 100)
     cfg = PreprocessingExtensionsConfig(
-        latent_interaction_svd_row_entity="customer_id", latent_interaction_svd_col_entity="item_id",
-        latent_interaction_svd_weight_col="qty", latent_interaction_svd_n_components=5,
+        latent_interaction_svd_row_entity="customer_id",
+        latent_interaction_svd_col_entity="item_id",
+        latent_interaction_svd_weight_col="qty",
+        latent_interaction_svd_n_components=5,
     )
     metadata: dict = {}
     train, val, test = apply_latent_interaction_svd_composite_fe(
-        df.iloc[train_idx].reset_index(drop=True), df.iloc[val_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True),
-        cfg, events, group_ids, train_idx, val_idx, test_idx, metadata=metadata, verbose=0,
+        df.iloc[train_idx].reset_index(drop=True),
+        df.iloc[val_idx].reset_index(drop=True),
+        df.iloc[test_idx].reset_index(drop=True),
+        cfg,
+        events,
+        group_ids,
+        train_idx,
+        val_idx,
+        test_idx,
+        metadata=metadata,
+        verbose=0,
     )
     assert set(train.columns) == set(val.columns) == set(test.columns)
     svd_cols = [c for c in train.columns if "svd" in c]
@@ -75,7 +96,9 @@ def test_replay_latent_interaction_svd_composite_fe_uses_fresh_events_no_refit()
     events, df, group_ids = _events_and_frame()
     train_idx = np.arange(0, 100)
     cfg = PreprocessingExtensionsConfig(
-        latent_interaction_svd_row_entity="customer_id", latent_interaction_svd_col_entity="item_id", latent_interaction_svd_n_components=4,
+        latent_interaction_svd_row_entity="customer_id",
+        latent_interaction_svd_col_entity="item_id",
+        latent_interaction_svd_n_components=4,
     )
     metadata: dict = {}
     train, _, _ = apply_latent_interaction_svd_composite_fe(df, None, None, cfg, events, group_ids, train_idx, None, None, metadata=metadata, verbose=0)
@@ -93,7 +116,9 @@ def test_replay_latent_interaction_svd_composite_fe_uses_fresh_events_no_refit()
 def test_replay_latent_interaction_svd_composite_fe_cold_start_entity_gets_zero_vector():
     events, df, group_ids = _events_and_frame(n_customers=10)
     train_idx = np.arange(0, 100)
-    cfg = PreprocessingExtensionsConfig(latent_interaction_svd_row_entity="customer_id", latent_interaction_svd_col_entity="item_id", latent_interaction_svd_n_components=3)
+    cfg = PreprocessingExtensionsConfig(
+        latent_interaction_svd_row_entity="customer_id", latent_interaction_svd_col_entity="item_id", latent_interaction_svd_n_components=3
+    )
     metadata: dict = {}
     apply_latent_interaction_svd_composite_fe(df, None, None, cfg, events, group_ids, train_idx, None, None, metadata=metadata, verbose=0)
 
@@ -137,7 +162,9 @@ def test_biz_val_latent_interaction_svd_composite_wiring_recovers_customer_clust
 
     train_idx, test_idx = train_test_split(np.arange(n_customers), test_size=0.3, random_state=0, stratify=y)
     cfg = PreprocessingExtensionsConfig(
-        latent_interaction_svd_row_entity="customer_id", latent_interaction_svd_col_entity="item_id", latent_interaction_svd_n_components=5,
+        latent_interaction_svd_row_entity="customer_id",
+        latent_interaction_svd_col_entity="item_id",
+        latent_interaction_svd_n_components=5,
     )
     out_df, _, _ = apply_latent_interaction_svd_composite_fe(df, None, None, cfg, events, group_ids, np.arange(n_customers), None, None, verbose=0)
 
@@ -152,6 +179,5 @@ def test_biz_val_latent_interaction_svd_composite_wiring_recovers_customer_clust
     auc_wired = _auc(svd_cols)
 
     assert auc_wired > auc_raw + 0.2, (
-        f"wired SVD embedding should recover the customer cluster far better than the raw id, "
-        f"got auc_wired={auc_wired:.3f} vs auc_raw={auc_raw:.3f}"
+        f"wired SVD embedding should recover the customer cluster far better than the raw id, got auc_wired={auc_wired:.3f} vs auc_raw={auc_raw:.3f}"
     )

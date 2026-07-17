@@ -33,6 +33,7 @@ so callers can default explicitly (instead of silently picking wrong).
 
 All 6 sites now call this single dispatcher.
 """
+
 from __future__ import annotations
 
 import logging
@@ -43,43 +44,74 @@ import pytest
 # ---- direction lookup ---------------------------------------------------
 
 
-@pytest.mark.parametrize("name,expected", [
-    # Higher-is-better classification + ranking
-    ("val_AUC", True), ("val_roc_auc", True), ("val_pr_auc", True),
-    ("val_F1", True), ("val_f1_macro", True), ("val_accuracy", True),
-    ("val_R2", True), ("val_explained_variance", True),
-    ("val_AP", True), ("val_average_precision", True),
-    ("val_NDCG@10", True), ("val_NDCG@5", True), ("val_MAP@10", True),
-    ("val_MRR", True), ("val_recall_at_k", True),
-    ("val_gini", True), ("val_kappa", True), ("val_mcc", True),
-    ("val_balanced_accuracy", True), ("val_jaccard", True),
-    ("val_precision", True), ("val_recall", True),
-    # Lower-is-better losses + calibration
-    ("val_RMSE", False), ("val_MAE", False), ("val_MSE", False),
-    ("val_MAPE", False), ("val_smape", False),
-    ("val_log_loss", False), ("val_logloss", False),
-    ("val_brier", False), ("val_brier_score", False),
-    # Multi-class / multi-label aggregation variants. Without these, the
-    # canonicalised lookup misses the parent ("log_loss" != "log_loss_macro")
-    # and _pick_strongest warns then silently defaults to minimize.
-    # _dummy_metrics_pick_plot.py always emits the *_macro / *_micro
-    # variants for multilabel / multiclass dummy baseline tables.
-    ("val_log_loss_macro", False), ("val_log_loss_micro", False),
-    ("test_logloss_weighted", False), ("val_brier_macro", False),
-    ("val_brier_score_micro", False), ("val_cross_entropy_macro", False),
-    ("val_ICE", False), ("val_integral_error", False),
-    ("val_ECE", False), ("val_KL", False), ("val_perplexity", False),
-    ("val_pinball", False), ("val_hamming_loss", False),
-    # @k cutoffs strip correctly
-    ("val_NDCG@20", True), ("val_precision_at_k@5", True),
-    # Mixed prefix
-    ("test_AUC", True), ("oof_log_loss", False), ("train_R2", True),
-])
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        # Higher-is-better classification + ranking
+        ("val_AUC", True),
+        ("val_roc_auc", True),
+        ("val_pr_auc", True),
+        ("val_F1", True),
+        ("val_f1_macro", True),
+        ("val_accuracy", True),
+        ("val_R2", True),
+        ("val_explained_variance", True),
+        ("val_AP", True),
+        ("val_average_precision", True),
+        ("val_NDCG@10", True),
+        ("val_NDCG@5", True),
+        ("val_MAP@10", True),
+        ("val_MRR", True),
+        ("val_recall_at_k", True),
+        ("val_gini", True),
+        ("val_kappa", True),
+        ("val_mcc", True),
+        ("val_balanced_accuracy", True),
+        ("val_jaccard", True),
+        ("val_precision", True),
+        ("val_recall", True),
+        # Lower-is-better losses + calibration
+        ("val_RMSE", False),
+        ("val_MAE", False),
+        ("val_MSE", False),
+        ("val_MAPE", False),
+        ("val_smape", False),
+        ("val_log_loss", False),
+        ("val_logloss", False),
+        ("val_brier", False),
+        ("val_brier_score", False),
+        # Multi-class / multi-label aggregation variants. Without these, the
+        # canonicalised lookup misses the parent ("log_loss" != "log_loss_macro")
+        # and _pick_strongest warns then silently defaults to minimize.
+        # _dummy_metrics_pick_plot.py always emits the *_macro / *_micro
+        # variants for multilabel / multiclass dummy baseline tables.
+        ("val_log_loss_macro", False),
+        ("val_log_loss_micro", False),
+        ("test_logloss_weighted", False),
+        ("val_brier_macro", False),
+        ("val_brier_score_micro", False),
+        ("val_cross_entropy_macro", False),
+        ("val_ICE", False),
+        ("val_integral_error", False),
+        ("val_ECE", False),
+        ("val_KL", False),
+        ("val_perplexity", False),
+        ("val_pinball", False),
+        ("val_hamming_loss", False),
+        # @k cutoffs strip correctly
+        ("val_NDCG@20", True),
+        ("val_precision_at_k@5", True),
+        # Mixed prefix
+        ("test_AUC", True),
+        ("oof_log_loss", False),
+        ("train_R2", True),
+    ],
+)
 def test_metric_name_higher_is_better_known(name, expected):
     from mlframe.training.metrics_registry import metric_name_higher_is_better
+
     assert metric_name_higher_is_better(name) is expected, (
-        f"direction for {name!r} should be higher_is_better={expected}; "
-        f"got {metric_name_higher_is_better(name)}"
+        f"direction for {name!r} should be higher_is_better={expected}; got {metric_name_higher_is_better(name)}"
     )
 
 
@@ -87,6 +119,7 @@ def test_metric_name_higher_is_better_unknown_returns_none():
     """Genuinely unknown metric MUST return None (not a silent default)
     so the caller is forced to decide whether to raise / warn / default."""
     from mlframe.training.metrics_registry import metric_name_higher_is_better
+
     assert metric_name_higher_is_better("val_completely_made_up_xyz") is None
     assert metric_name_higher_is_better("") is None
     assert metric_name_higher_is_better("   ") is None
@@ -94,6 +127,7 @@ def test_metric_name_higher_is_better_unknown_returns_none():
 
 def test_metric_name_higher_is_better_handles_non_string():
     from mlframe.training.metrics_registry import metric_name_higher_is_better
+
     assert metric_name_higher_is_better(None) is None
     assert metric_name_higher_is_better(123) is None  # type: ignore[arg-type]
 
@@ -101,18 +135,32 @@ def test_metric_name_higher_is_better_handles_non_string():
 # ---- derive_mode migration ---------------------------------------------
 
 
-@pytest.mark.parametrize("name,expected", [
-    ("val_AUC", "max"), ("val_RMSE", "min"), ("val_F1", "max"),
-    ("val_accuracy", "max"), ("val_R2", "max"), ("val_NDCG@10", "max"),
-    ("val_pinball", "min"), ("val_ICE", "min"), ("val_brier", "min"),
-    # Wave-20 P0 cases: pre-fix derive_mode classified these as "min" via
-    # the endswith("e") fallback. Post-fix: registry dispatcher returns
-    # correct direction.
-    ("val_gini", "max"), ("val_kappa", "max"), ("val_pr_auc", "max"),
-    ("val_mcc", "max"), ("val_balanced_accuracy", "max"),
-    ("val_MAPE", "min"), ("val_MSE", "min"), ("val_perplexity", "min"),
-    ("val_KL", "min"),
-])
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("val_AUC", "max"),
+        ("val_RMSE", "min"),
+        ("val_F1", "max"),
+        ("val_accuracy", "max"),
+        ("val_R2", "max"),
+        ("val_NDCG@10", "max"),
+        ("val_pinball", "min"),
+        ("val_ICE", "min"),
+        ("val_brier", "min"),
+        # Wave-20 P0 cases: pre-fix derive_mode classified these as "min" via
+        # the endswith("e") fallback. Post-fix: registry dispatcher returns
+        # correct direction.
+        ("val_gini", "max"),
+        ("val_kappa", "max"),
+        ("val_pr_auc", "max"),
+        ("val_mcc", "max"),
+        ("val_balanced_accuracy", "max"),
+        ("val_MAPE", "min"),
+        ("val_MSE", "min"),
+        ("val_perplexity", "min"),
+        ("val_KL", "min"),
+    ],
+)
 def test_callbacks_derive_mode_correct_direction(name, expected):
     from mlframe.training.callbacks._callbacks import UniversalCallback
 
@@ -145,10 +193,7 @@ def test_derive_mode_unknown_warns_and_defaults_min(caplog):
     with caplog.at_level(logging.WARNING, logger="mlframe.training.callbacks._callbacks"):
         out = cb.derive_mode("totally_made_up_metric")
     assert out == "min"
-    assert any(
-        "cannot determine optimization direction" in r.message
-        for r in caplog.records
-    )
+    assert any("cannot determine optimization direction" in r.message for r in caplog.records)
 
 
 # ---- migration wiring (runtime, not source-text) -----------------------
@@ -174,9 +219,7 @@ def test_dummy_baselines_uses_central_dispatcher():
     from mlframe.training.metrics_registry import metric_name_higher_is_better
     from mlframe.training.baselines import _dummy_metrics_pick_plot as pick
 
-    assert _imports_dispatcher(pick), (
-        "Wave 20 P0: _dummy_metrics_pick_plot must import the central dispatcher, not a local whitelist"
-    )
+    assert _imports_dispatcher(pick), "Wave 20 P0: _dummy_metrics_pick_plot must import the central dispatcher, not a local whitelist"
     # Metrics the pre-fix whitelist excluded -> picked the WORST baseline as strongest.
     for name in ("val_AUC", "val_F1", "val_R2", "val_gini", "val_kappa"):
         assert metric_name_higher_is_better(name) is True
@@ -186,9 +229,8 @@ def test_dummy_baselines_uses_central_dispatcher():
 
 def test_composite_post_uses_central_dispatcher():
     from mlframe.training.core import _phase_composite_post_summary as summ
-    assert _imports_dispatcher(summ), (
-        "Wave 20 P0: _phase_composite_post_summary must import the central dispatcher"
-    )
+
+    assert _imports_dispatcher(summ), "Wave 20 P0: _phase_composite_post_summary must import the central dispatcher"
 
 
 def test_callbacks_derive_mode_not_endswith_e_heuristic():

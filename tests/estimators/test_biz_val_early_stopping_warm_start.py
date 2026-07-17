@@ -16,6 +16,7 @@ This file pins, across classifiers AND regressors (RandomForest/ExtraTrees/Gradi
 random_state is pinned so the wrapper's internal model and any separate full-run baseline share one
 trajectory. The warm-start-capable estimator list is also discovered dynamically so new ones are covered.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -167,8 +168,7 @@ def test_start_iter_defers_patience_counting():
     y = rng.randint(0, 2, size=400)
     # monotonic_decline_patience=None: this test pins that start_iter alone defers patience to the full
     # count; disable the orthogonal monotonic detector so it doesn't co-fire and confound the assertion.
-    es = _fit_es(lambda: GradientBoostingClassifier(n_estimators=1, random_state=0), X, y, patience=2,
-                 start_iter=_MAX_N, monotonic_decline_patience=None)
+    es = _fit_es(lambda: GradientBoostingClassifier(n_estimators=1, random_state=0), X, y, patience=2, start_iter=_MAX_N, monotonic_decline_patience=None)
     # Patience only starts at the last stage, so it can never accumulate -> best uses the full count.
     assert es.best_model_.get_params()["n_estimators"] == _MAX_N
 
@@ -178,7 +178,10 @@ def test_max_runtime_mins_stops_quickly():
     # Near-zero budget: the wall-clock guard must break after the first growth step, not run to max_iter.
     es = EarlyStoppingWrapper(
         RandomForestRegressor(n_estimators=1, random_state=0),
-        patience=99, max_iter=_MAX_N, validation_fraction=0.15, max_runtime_mins=1e-9,
+        patience=99,
+        max_iter=_MAX_N,
+        validation_fraction=0.15,
+        max_runtime_mins=1e-9,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

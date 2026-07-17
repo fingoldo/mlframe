@@ -5,6 +5,7 @@ recover the true breakpoints exactly, and using per-detected-regime baselines in
 should recover close to the true noise floor RMSE instead of being badly blurred by averaging across regimes.
 Also verifies the effect-size filter suppresses a spurious tiny-magnitude break.
 """
+
 from __future__ import annotations
 
 import numpy as np

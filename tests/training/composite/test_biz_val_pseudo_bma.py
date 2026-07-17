@@ -1,4 +1,5 @@
 """Unit + biz_value tests for pseudo-BMA composite-ensemble weighting (``composite/_pseudo_bma.py``)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -150,6 +151,7 @@ def test_biz_val_pseudo_bma_blend_beats_equal_and_single_best_overfit():
 
 def test_biz_val_bb_no_worse_than_point_and_more_stable():
     """BB-pseudo-BMA blend RMSE is no worse than point pseudo-BMA (within margin) while being more stable across seeds."""
+
     def gen(n, seed):
         # Two NEAR-TIED good components (same expected skill) + one bad: point pseudo-BMA's weight on component 0 swings
         # seed-to-seed on estimation noise (winner-take-all via exp on a tiny, noisy elpd gap), so point weights are

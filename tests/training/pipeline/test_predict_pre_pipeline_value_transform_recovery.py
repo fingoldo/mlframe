@@ -20,6 +20,7 @@ broken produces a prediction (the model is kept) that is WRONG (computed on
 unscaled raw input). Post-fix: the model is dropped (empty predictions) -- a
 clean, announced degrade.
 """
+
 from __future__ import annotations
 
 import logging
@@ -66,8 +67,7 @@ def _build_value_transform_suite():
     # --- value-transform model (must be dropped) ---
     scaler = Pipeline([("scale", StandardScaler())])
     X_scaled = pd.DataFrame(scaler.fit_transform(df), columns=["x0", "x1"], index=df.index)
-    m_scaled = LGBMRegressor(n_estimators=30, num_leaves=15, min_child_samples=5,
-                             random_state=RANDOM_SEED, verbosity=-1)
+    m_scaled = LGBMRegressor(n_estimators=30, num_leaves=15, min_child_samples=5, random_state=RANDOM_SEED, verbosity=-1)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m_scaled.fit(X_scaled, y)
@@ -77,8 +77,7 @@ def _build_value_transform_suite():
     # --- pure-selector model (must survive via raw-subset recovery) ---
     selector = Pipeline([("pre", SelectKBest(f_regression, k=2))])
     selector.fit(df, y)
-    m_sel = LGBMRegressor(n_estimators=30, num_leaves=15, min_child_samples=5,
-                          random_state=RANDOM_SEED, verbosity=-1)
+    m_sel = LGBMRegressor(n_estimators=30, num_leaves=15, min_child_samples=5, random_state=RANDOM_SEED, verbosity=-1)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m_sel.fit(df, y)
@@ -125,19 +124,11 @@ def test_value_transform_pre_pipeline_failure_drops_model_not_silent_raw(caplog)
         "model, not serve predictions on un-transformed raw input; got "
         f"{_names} -- the silent-wrong-result bug is still present."
     )
-    assert any("y_selector" in _n for _n in _names), (
-        "the pure-selector model's raw-subset recovery is value-correct and "
-        f"must survive; got {_names}"
-    )
+    assert any("y_selector" in _n for _n in _names), f"the pure-selector model's raw-subset recovery is value-correct and must survive; got {_names}"
     (sel_pred,) = [v for k, v in preds_map.items() if "y_selector" in k]
-    assert np.allclose(np.asarray(sel_pred), expected_sel), (
-        "pure-selector recovery must reproduce inner.predict(df[['x0','x1']])"
-    )
-    assert any(
-        "value-transforms features" in rec.getMessage() for rec in caplog.records
-    ), (
-        "expected the 'value-transforms features' re-raise warning; got: "
-        + repr([r.getMessage() for r in caplog.records])
+    assert np.allclose(np.asarray(sel_pred), expected_sel), "pure-selector recovery must reproduce inner.predict(df[['x0','x1']])"
+    assert any("value-transforms features" in rec.getMessage() for rec in caplog.records), (
+        "expected the 'value-transforms features' re-raise warning; got: " + repr([r.getMessage() for r in caplog.records])
     )
 
 
@@ -161,6 +152,7 @@ def test_pure_selector_recovery_still_works():
 
     # Pipeline with a value-altering step alongside -> NOT pure.
     from sklearn.preprocessing import StandardScaler
+
     pipe_scaler = Pipeline([("scale", StandardScaler())]).fit(X, y)
     assert _pre_pipeline_is_pure_selector(pipe_scaler) is False
     assert _pre_pipeline_is_pure_selector(None) is False

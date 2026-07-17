@@ -10,6 +10,7 @@ Validated contract:
 * business value: on a cell-varying-slope regression, the multi-stat columns fed alongside the raw feature
   lift a held-out GBM vs the mean-only encoding -- the regime where target-spread proxies the slope.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -101,14 +102,18 @@ def test_biz_value_multistat_lifts_varying_slope_regression():
         def _encode(stats):
             te_df, recipes = kfold_target_encode_fit(df.iloc[tr], y[tr], ["cell"], stats=stats)
             from mlframe.feature_selection.filters.engineered_recipes import build_kfold_target_encoded_recipe
+
             cols_tr = [te_df[c].to_numpy() for c in te_df.columns]
             info = recipes["cell"]
             cols_te = []
             for s in stats:
                 rec = build_kfold_target_encoded_recipe(
-                    name=engineered_name_te_stat("cell", s), src_name="cell",
-                    lookup=info["stat_lookups"][s], global_mean=info["global_stats"][s],
-                    smoothing=info["smoothing"])
+                    name=engineered_name_te_stat("cell", s),
+                    src_name="cell",
+                    lookup=info["stat_lookups"][s],
+                    global_mean=info["global_stats"][s],
+                    smoothing=info["smoothing"],
+                )
                 cols_te.append(apply_recipe(rec, df.iloc[te]))
             Xtr = np.column_stack([df["x_raw"].to_numpy()[tr]] + cols_tr)
             Xte = np.column_stack([df["x_raw"].to_numpy()[te]] + cols_te)

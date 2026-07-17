@@ -12,6 +12,7 @@ NOTE: this is the ONE bed/seed where stability replicated a clear win in the cro
 'importance'; this test guards the opt-in win so a future regression that breaks the
 fold-selection-frequency discount is caught by a FAILING WIN, not just an interface check.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,20 +26,25 @@ from mlframe.feature_selection.wrappers.rfecv import RFECV
 from tests.conftest import fast_n_estimators
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _make_many_steady(seed=1, n=900):
     rng = np.random.default_rng(seed)
     n_strong, n_steady, n_noise = 1, 6, 20
     cols, logit = {}, np.zeros(n)
     for i in range(n_strong):
-        x = rng.standard_normal(n); cols[f"strong_{i}"] = x; logit += 1.3 * x
+        x = rng.standard_normal(n)
+        cols[f"strong_{i}"] = x
+        logit += 1.3 * x
     for i in range(n_steady):
-        x = rng.standard_normal(n); cols[f"steady_{i}"] = x; logit += 0.45 * x
+        x = rng.standard_normal(n)
+        cols[f"steady_{i}"] = x
+        logit += 0.45 * x
     for i in range(n_noise):
         cols[f"noise_{i}"] = rng.standard_normal(n)
     import pandas as pd
+
     p = 1.0 / (1.0 + np.exp(-logit))
     y = (rng.random(n) < p).astype(int)
     return pd.DataFrame(cols), y
@@ -47,8 +53,13 @@ def _make_many_steady(seed=1, n=900):
 def _fit_select(X, y, rule, seed=1):
     r = RFECV(
         estimator=RandomForestClassifier(n_estimators=fast_n_estimators(80), max_depth=6, n_jobs=-1, random_state=seed),
-        cv=3, scoring=None, verbose=0, max_refits=8, random_state=seed,
-        importance_getter="feature_importances_", elimination_rule=rule,
+        cv=3,
+        scoring=None,
+        verbose=0,
+        max_refits=8,
+        random_state=seed,
+        importance_getter="feature_importances_",
+        elimination_rule=rule,
         n_features_selection_rule="one_se_min",
     )
     r.fit(X, y)

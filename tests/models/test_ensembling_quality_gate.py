@@ -11,6 +11,7 @@ instead of N-times per (flavor, split). Tests pin the contract:
 * stats dict carries ``median_mae`` / ``median_std`` /
   ``rel_*_threshold`` / ``per_member_*`` for the caller's log line.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,8 +20,7 @@ import pytest
 from mlframe.models.ensembling import compute_member_quality_gate
 
 
-def _make_members(n_members: int, n_rows: int = 100, *, outlier_idx: int = -1,
-                  outlier_noise_mult: float = 1.0, seed: int = 42):
+def _make_members(n_members: int, n_rows: int = 100, *, outlier_idx: int = -1, outlier_noise_mult: float = 1.0, seed: int = 42):
     rng = np.random.default_rng(seed)
     ground = rng.random(n_rows)
     members = []
@@ -33,7 +33,8 @@ def _make_members(n_members: int, n_rows: int = 100, *, outlier_idx: int = -1,
 def test_excludes_clear_outlier_relative():
     members = _make_members(4, outlier_idx=3, outlier_noise_mult=100.0)
     kept, excluded, stats = compute_member_quality_gate(
-        members, max_mae_relative=2.5,
+        members,
+        max_mae_relative=2.5,
     )
     assert kept == [0, 1, 2]
     assert len(excluded) == 1 and excluded[0][0] == 3
@@ -52,7 +53,8 @@ def test_two_member_is_noop():
     """
     members = _make_members(2)
     kept, excluded, stats = compute_member_quality_gate(
-        members, max_mae_relative=2.5,
+        members,
+        max_mae_relative=2.5,
     )
     assert kept == [0, 1]
     assert excluded == []
@@ -96,8 +98,10 @@ def test_absolute_threshold_excludes():
     # Disable relative; use a permissive absolute that still kicks the outlier.
     kept, excluded, stats = compute_member_quality_gate(
         members,
-        max_mae=0.5, max_std=0.5,
-        max_mae_relative=0.0, max_std_relative=0.0,
+        max_mae=0.5,
+        max_std=0.5,
+        max_mae_relative=0.0,
+        max_std_relative=0.0,
     )
     # Outlier (member 2) should be the only excluded
     assert kept == [0, 1, 3]
@@ -109,7 +113,8 @@ def test_uniform_members_keeps_all():
     """All members near-identical: nothing should be excluded."""
     members = _make_members(5, outlier_noise_mult=1.0)  # no outlier
     kept, excluded, stats = compute_member_quality_gate(
-        members, max_mae_relative=2.5,
+        members,
+        max_mae_relative=2.5,
     )
     assert kept == [0, 1, 2, 3, 4]
     assert excluded == []
@@ -141,21 +146,34 @@ def test_score_ensemble_label_drops_excluded_member(caplog):
             preds = ground + rng.standard_normal(n_rows) * 5.0
         else:
             preds = ground + rng.standard_normal(n_rows) * 0.05
-        members.append(SimpleNamespace(
-            model=None, model_name=name,
-            val_preds=preds, test_preds=preds, train_preds=preds,
-            val_probs=None, test_probs=None, train_probs=None,
-            columns=[], pre_pipeline=None,
-        ))
+        members.append(
+            SimpleNamespace(
+                model=None,
+                model_name=name,
+                val_preds=preds,
+                test_preds=preds,
+                train_preds=preds,
+                val_probs=None,
+                test_probs=None,
+                train_probs=None,
+                columns=[],
+                pre_pipeline=None,
+            )
+        )
 
     with caplog.at_level(logging.INFO, logger="mlframe.models.ensembling"):
         score_ensemble(
             models_and_predictions=members,
             ensemble_name="[cb+xgb+lgb+linear] ",
-            target=ground, train_target=ground, val_target=ground, test_target=ground,
-            train_idx=np.arange(n_rows), val_idx=np.arange(n_rows),
+            target=ground,
+            train_target=ground,
+            val_target=ground,
+            test_target=ground,
+            train_idx=np.arange(n_rows),
+            val_idx=np.arange(n_rows),
             test_idx=np.arange(n_rows),
-            df=None, verbose=True,
+            df=None,
+            verbose=True,
             max_mae_relative=2.5,
             ensembling_methods=("arithm",),
             # Test members have val/test/train preds but no OOF; without this
@@ -170,27 +188,19 @@ def test_score_ensemble_label_drops_excluded_member(caplog):
     # pre-filter (K>2 absolute-MAE ratio) handles the obvious-outlier
     # case earlier than the peer-median gate; either log surface counts
     # because both surface the dropped member name.
-    diag_lines = [r.getMessage() for r in caplog.records
-                  if ("member quality gate" in r.getMessage()
-                      or "catastrophic-drop" in r.getMessage()
-                      or "catastrophic" in r.getMessage())]
-    assert any("linear" in m for m in diag_lines), (
-        f"expected gate/catastrophic-drop line to flag 'linear' as excluded; got: {diag_lines}"
-    )
+    diag_lines = [
+        r.getMessage()
+        for r in caplog.records
+        if ("member quality gate" in r.getMessage() or "catastrophic-drop" in r.getMessage() or "catastrophic" in r.getMessage())
+    ]
+    assert any("linear" in m for m in diag_lines), f"expected gate/catastrophic-drop line to flag 'linear' as excluded; got: {diag_lines}"
 
     # ANY downstream prefix line referencing the ensemble must NOT
     # include the dropped 'linear' member in the [...] label.
     # The model_name_prefix builds out via "Ens... {ensemble_name}"
     # so we look for matching log lines.
-    ens_prefix_lines = [
-        r.getMessage() for r in caplog.records
-        if "[cb+xgb+lgb+linear]" in r.getMessage()
-        and "quality gate" not in r.getMessage()
-    ]
-    assert not ens_prefix_lines, (
-        f"ensemble name should drop 'linear' after gate; still saw: "
-        f"{ens_prefix_lines}"
-    )
+    ens_prefix_lines = [r.getMessage() for r in caplog.records if "[cb+xgb+lgb+linear]" in r.getMessage() and "quality gate" not in r.getMessage()]
+    assert not ens_prefix_lines, f"ensemble name should drop 'linear' after gate; still saw: {ens_prefix_lines}"
 
 
 def test_multioutput_predictions_supported():
@@ -202,7 +212,8 @@ def test_multioutput_predictions_supported():
     bad = ground + rng.standard_normal((50, 3)) * 5.0
     members = good + [bad]
     kept, excluded, stats = compute_member_quality_gate(
-        members, max_mae_relative=2.5,
+        members,
+        max_mae_relative=2.5,
     )
     assert kept == [0, 1, 2]
     assert len(excluded) == 1 and excluded[0][0] == 3
@@ -246,8 +257,7 @@ def test_ensemble_scoring_respects_reporting_metric_switches(monkeypatch):
 
     captured = []
 
-    def _fake_train_and_evaluate_model(*, model, data, control, metrics, reporting,
-                                       naming, output, confidence, predictions):
+    def _fake_train_and_evaluate_model(*, model, data, control, metrics, reporting, naming, output, confidence, predictions):
         captured.append(
             (
                 control.compute_trainset_metrics,

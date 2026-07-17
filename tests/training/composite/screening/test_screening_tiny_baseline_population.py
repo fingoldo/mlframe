@@ -19,6 +19,7 @@ on a serial run it aborts the remaining folds. (The rerank-side wiring that
 computes the raw baseline before the per-spec loop and passes the threshold in
 lives in ``_tiny_rerank.py`` and is tracked separately.)
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -79,19 +80,33 @@ class TestA5BaselinePopulationParity:
         assert not bool(valid.all()), "fixture must have domain-invalid rows"
 
         full_pop = _tiny_cv_rmse_y_scale(
-            y_train=y, base_train=base, transform=transform,
-            fitted_params=params, x_train_matrix=X,
-            family="linear", n_estimators=10, num_leaves=8,
-            learning_rate=0.1, cv_folds=3, random_state=0,
+            y_train=y,
+            base_train=base,
+            transform=transform,
+            fitted_params=params,
+            x_train_matrix=X,
+            family="linear",
+            n_estimators=10,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            random_state=0,
         )
         # The pre-fix behaviour == manually pre-masking to the valid rows (the
         # old code path). That score must be DRAMATICALLY smaller because it
         # never sees the +500 invalid rows.
         valid_only = _tiny_cv_rmse_y_scale(
-            y_train=y[valid], base_train=base[valid], transform=transform,
-            fitted_params=params, x_train_matrix=X[valid],
-            family="linear", n_estimators=10, num_leaves=8,
-            learning_rate=0.1, cv_folds=3, random_state=0,
+            y_train=y[valid],
+            base_train=base[valid],
+            transform=transform,
+            fitted_params=params,
+            x_train_matrix=X[valid],
+            family="linear",
+            n_estimators=10,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            random_state=0,
         )
         assert np.isfinite(full_pop) and np.isfinite(valid_only)
         # 120/600 = 20% of scored rows carry a ~+500 fallback error -> the
@@ -100,8 +115,7 @@ class TestA5BaselinePopulationParity:
         # ONLY thing it ever scored), so this ratio collapses to ~1.0 and the
         # test fails -- the regression sensor.
         assert full_pop > valid_only * 5.0, (
-            f"A5 not applied: full-population RMSE={full_pop:.3f} should be "
-            f">> valid-only RMSE={valid_only:.3f} (invalid rows must be scored)"
+            f"A5 not applied: full-population RMSE={full_pop:.3f} should be >> valid-only RMSE={valid_only:.3f} (invalid rows must be scored)"
         )
 
     def test_scored_population_size_matches_raw_baseline(self, monkeypatch) -> None:
@@ -124,19 +138,25 @@ class TestA5BaselinePopulationParity:
 
         monkeypatch.setattr(stp, "_per_bin_rmse", _spy_per_bin)
         _tiny_cv_rmse_y_scale(
-            y_train=y, base_train=base, transform=transform,
-            fitted_params=params, x_train_matrix=X,
-            family="linear", n_estimators=10, num_leaves=8,
-            learning_rate=0.1, cv_folds=3, random_state=0,
-            return_per_bin=True, n_bins=5,
+            y_train=y,
+            base_train=base,
+            transform=transform,
+            fitted_params=params,
+            x_train_matrix=X,
+            family="linear",
+            n_estimators=10,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            random_state=0,
+            return_per_bin=True,
+            n_bins=5,
         )
         # Sum of fold val sizes == total finite-y population (600), NOT the
         # valid-only subset (480). Pre-fix the splits ran over the 480 masked
         # rows, so the sum would be 480.
         assert sum(seen_val_sizes) == int(np.isfinite(y).sum()), (
-            f"scored val rows={sum(seen_val_sizes)} must equal the finite-y "
-            f"population={int(np.isfinite(y).sum())}, not the valid subset "
-            f"({int(valid.sum())})"
+            f"scored val rows={sum(seen_val_sizes)} must equal the finite-y population={int(np.isfinite(y).sum())}, not the valid subset ({int(valid.sum())})"
         )
 
     def test_all_valid_is_bit_identical(self) -> None:
@@ -152,17 +172,30 @@ class TestA5BaselinePopulationParity:
         params = transform.fit(y, base)
         assert bool(np.asarray(transform.domain_check(y, base)).all())
         score = _tiny_cv_rmse_y_scale(
-            y_train=y, base_train=base, transform=transform,
-            fitted_params=params, x_train_matrix=X,
-            family="linear", n_estimators=15, num_leaves=8,
-            learning_rate=0.1, cv_folds=3, random_state=42,
+            y_train=y,
+            base_train=base,
+            transform=transform,
+            fitted_params=params,
+            x_train_matrix=X,
+            family="linear",
+            n_estimators=15,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            random_state=42,
         )
         masked = _tiny_cv_rmse_y_scale(
-            y_train=y[np.isfinite(y)], base_train=base[np.isfinite(y)],
-            transform=transform, fitted_params=params,
+            y_train=y[np.isfinite(y)],
+            base_train=base[np.isfinite(y)],
+            transform=transform,
+            fitted_params=params,
             x_train_matrix=X[np.isfinite(y)],
-            family="linear", n_estimators=15, num_leaves=8,
-            learning_rate=0.1, cv_folds=3, random_state=42,
+            family="linear",
+            n_estimators=15,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            random_state=42,
         )
         assert score == pytest.approx(masked, abs=1e-12)
 
@@ -182,35 +215,54 @@ class TestA12EarlyStopThreadedThroughMultiseed:
 
         monkeypatch.setattr(st, "_tiny_cv_rmse_y_scale", _spy)
         _tiny_cv_rmse_y_scale_multiseed(
-            y_train=y, base_train=base, transform=transform,
-            fitted_params=params, x_train_matrix=X,
-            family="linear", n_estimators=10, num_leaves=8,
-            learning_rate=0.1, cv_folds=3,
-            n_seed_repeats=2, base_random_state=0,
+            y_train=y,
+            base_train=base,
+            transform=transform,
+            fitted_params=params,
+            x_train_matrix=X,
+            family="linear",
+            n_estimators=10,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            n_seed_repeats=2,
+            base_random_state=0,
             early_stop_threshold=0.5,
         )
         assert seen_thresholds, "underlying single-seed call was never invoked"
-        assert all(t == 0.5 for t in seen_thresholds), (
-            f"early_stop_threshold not forwarded per seed: {seen_thresholds}"
-        )
+        assert all(t == 0.5 for t in seen_thresholds), f"early_stop_threshold not forwarded per seed: {seen_thresholds}"
 
     def test_multiseed_inf_threshold_bit_identical(self) -> None:
         """Default ``inf`` threshold => the multiseed median is bit-identical to
         the no-threshold call (the early-stop branch never fires)."""
         y, base, X, params, transform, valid, inv = _partial_domain_dataset()
         legacy = _tiny_cv_rmse_y_scale_multiseed(
-            y_train=y, base_train=base, transform=transform,
-            fitted_params=params, x_train_matrix=X,
-            family="linear", n_estimators=10, num_leaves=8,
-            learning_rate=0.1, cv_folds=3,
-            n_seed_repeats=3, base_random_state=0,
+            y_train=y,
+            base_train=base,
+            transform=transform,
+            fitted_params=params,
+            x_train_matrix=X,
+            family="linear",
+            n_estimators=10,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            n_seed_repeats=3,
+            base_random_state=0,
         )
         with_inf = _tiny_cv_rmse_y_scale_multiseed(
-            y_train=y, base_train=base, transform=transform,
-            fitted_params=params, x_train_matrix=X,
-            family="linear", n_estimators=10, num_leaves=8,
-            learning_rate=0.1, cv_folds=3,
-            n_seed_repeats=3, base_random_state=0,
+            y_train=y,
+            base_train=base,
+            transform=transform,
+            fitted_params=params,
+            x_train_matrix=X,
+            family="linear",
+            n_estimators=10,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            n_seed_repeats=3,
+            base_random_state=0,
             early_stop_threshold=float("inf"),
         )
         assert legacy == pytest.approx(with_inf, abs=1e-12)
@@ -223,11 +275,18 @@ class TestA12EarlyStopThreadedThroughMultiseed:
         the dropped folds, never raising."""
         y, base, X, params, transform, valid, inv = _partial_domain_dataset()
         res = _tiny_cv_rmse_y_scale_multiseed(
-            y_train=y, base_train=base, transform=transform,
-            fitted_params=params, x_train_matrix=X,
-            family="lgb", n_estimators=30, num_leaves=8,
-            learning_rate=0.1, cv_folds=3,
-            n_seed_repeats=2, base_random_state=0,
+            y_train=y,
+            base_train=base,
+            transform=transform,
+            fitted_params=params,
+            x_train_matrix=X,
+            family="lgb",
+            n_estimators=30,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            n_seed_repeats=2,
+            base_random_state=0,
             n_jobs=1,
             early_stop_threshold=1e-6,  # impossibly tight -> fold-1 partial-sum trips
         )

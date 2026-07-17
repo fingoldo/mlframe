@@ -2,6 +2,7 @@
 (ewma_residual / frac_diff). Default OFF keeps predict stateless + bit-identical;
 ON seeds the inverse from the train tail so a continuation batch is not biased on
 its first ~k rows."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,15 +30,15 @@ def test_continuation_reduces_cold_start_bias(transform) -> None:
 
     def first_k_rmse(flag):
         est = CompositeTargetEstimator(
-            base_estimator=LinearRegression(), transform_name=transform,
-            base_column="base", recurrence_continuation=flag,
+            base_estimator=LinearRegression(),
+            transform_name=transform,
+            base_column="base",
+            recurrence_continuation=flag,
         ).fit(Xtr, ytr)
         p = est.predict(Xte)
         return float(np.sqrt(np.mean((p[:k] - yte[:k]) ** 2)))
 
-    assert first_k_rmse(True) < first_k_rmse(False), (
-        "continuation seeding must lower the first-k cold-start error"
-    )
+    assert first_k_rmse(True) < first_k_rmse(False), "continuation seeding must lower the first-k cold-start error"
 
 
 @pytest.mark.parametrize("transform", ["ewma_residual", "frac_diff"])
@@ -45,12 +46,15 @@ def test_default_off_is_bit_identical(transform) -> None:
     X, y = _trending(seed=1)
     Xtr, Xte = X.iloc[:1500], X.iloc[1500:]
     base = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name=transform,
+        base_estimator=LinearRegression(),
+        transform_name=transform,
         base_column="base",
     ).fit(Xtr, y[:1500])
     explicit_off = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name=transform,
-        base_column="base", recurrence_continuation=False,
+        base_estimator=LinearRegression(),
+        transform_name=transform,
+        base_column="base",
+        recurrence_continuation=False,
     ).fit(Xtr, y[:1500])
     np.testing.assert_array_equal(base.predict(Xte), explicit_off.predict(Xte))
     # The persisted flag is absent by default (stateless predict).
@@ -59,8 +63,10 @@ def test_default_off_is_bit_identical(transform) -> None:
 
 def test_clone_preserves_flag() -> None:
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="ewma_residual",
-        base_column="base", recurrence_continuation=True,
+        base_estimator=LinearRegression(),
+        transform_name="ewma_residual",
+        base_column="base",
+        recurrence_continuation=True,
     )
     assert clone(est).recurrence_continuation is True
 
@@ -68,7 +74,8 @@ def test_clone_preserves_flag() -> None:
 def test_tail_anchor_stored_in_fit() -> None:
     X, y = _trending(seed=2)
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="ewma_residual",
+        base_estimator=LinearRegression(),
+        transform_name="ewma_residual",
         base_column="base",
     ).fit(X, y)
     assert "tail_anchor" in est.fitted_params_

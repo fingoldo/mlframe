@@ -5,6 +5,7 @@ transforms (ewma_residual / rolling_quantile_ratio / frac_diff) join the
 discovery candidate set; combined with ``time_column`` (M6) the screening sample
 is time-ordered so they evaluate on a genuine forward sequence.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -49,16 +50,23 @@ class TestM9Discovery:
         lag = np.concatenate([[0.0], y[:-1]])
         feat = rng.normal(0.0, 1.0, size=n)
         perm = rng.permutation(n)  # shuffle rows so the frame is not pre-sorted
-        df = pd.DataFrame({
-            "y": y[perm], "lag": lag[perm], "feat": feat[perm], "ts": ts[perm],
-        })
+        df = pd.DataFrame(
+            {
+                "y": y[perm],
+                "lag": lag[perm],
+                "feat": feat[perm],
+                "ts": ts[perm],
+            }
+        )
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=800, base_candidates=["lag"],
-            time_series_transforms_enabled=True, time_column="ts",
+            enabled=True,
+            mi_sample_n=800,
+            base_candidates=["lag"],
+            time_series_transforms_enabled=True,
+            time_column="ts",
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, "y", ["lag", "feat"], np.arange(n),
-                 time_ordering=df["ts"].to_numpy())
+        disc.fit(df, "y", ["lag", "feat"], np.arange(n), time_ordering=df["ts"].to_numpy())
         assert getattr(disc, "_screen_time_ordered_", False) is True
         # Discovery completed and produced a (possibly empty) spec list.
         assert isinstance(disc.specs_, list)

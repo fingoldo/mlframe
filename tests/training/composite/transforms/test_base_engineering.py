@@ -6,6 +6,7 @@ earlier engineered value), original-row-order remapping after a time sort, and t
 biz_value claim -- the auto lag-1 base lets discovery's leakage screen pass (NOT flagged
 leaky) on an AR(1) target where a same-time (shift-0) base WOULD be flagged.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -47,7 +48,7 @@ def test_rolling_window_is_causal_excludes_current_row():
     assert rm[4] == pytest.approx(3.0)  # y[1:4]=2,3,4
     # explicit no-current-row check: removing current value never changes the mean
     for i in range(3, len(y)):
-        assert rm[i] == pytest.approx(y[i - 3:i].mean())
+        assert rm[i] == pytest.approx(y[i - 3 : i].mean())
 
 
 def test_rolling_median_causal():
@@ -73,7 +74,11 @@ def test_diff_is_lagged_not_same_time():
 def test_nan_head_handling():
     y = np.arange(6.0)
     bases = engineer_temporal_bases(
-        _frame(y), "y", "t", lags=(1, 2), rolling_windows=(3,),
+        _frame(y),
+        "y",
+        "t",
+        lags=(1, 2),
+        rolling_windows=(3,),
         ops=("lag", "rolling_mean", "diff"),
     )
     assert int(np.isnan(bases["y_lag1"]).sum()) == 1
@@ -87,13 +92,21 @@ def test_no_future_leak_perturbation():
     n = 20
     y = np.linspace(0.0, 5.0, n)
     base = engineer_temporal_bases(
-        _frame(y), "y", "t", lags=(1, 2), rolling_windows=(3, 5),
+        _frame(y),
+        "y",
+        "t",
+        lags=(1, 2),
+        rolling_windows=(3, 5),
         ops=("lag", "rolling_mean", "rolling_median", "diff"),
     )
     y2 = y.copy()
     y2[15:] += 1000.0  # perturb only rows 15..19
     pert = engineer_temporal_bases(
-        _frame(y2), "y", "t", lags=(1, 2), rolling_windows=(3, 5),
+        _frame(y2),
+        "y",
+        "t",
+        lags=(1, 2),
+        rolling_windows=(3, 5),
         ops=("lag", "rolling_mean", "rolling_median", "diff"),
     )
     for name in base:

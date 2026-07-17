@@ -17,6 +17,7 @@ Production stop path under test (same shared ``MonotonicDeclineStopper`` everywh
 The boosters are fit through their REAL mlframe fit paths so this exercises production code, not a
 reimplementation.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,8 +41,8 @@ def _overfit_prone_split():
         logit = X @ w + rng.normal(size=n) * noise
         return X.astype(np.float32), (logit > 0).astype(int)
 
-    X_tr, y_tr = make(220, noise=3.0)     # heavy label noise -> overfit
-    X_val, y_val = make(400, noise=0.3)   # clean val -> curve diverges after early best
+    X_tr, y_tr = make(220, noise=3.0)  # heavy label noise -> overfit
+    X_val, y_val = make(400, noise=0.3)  # clean val -> curve diverges after early best
     X_te, y_te = make(400, noise=0.3)
     return X_tr, y_tr, X_val, y_val, X_te, y_te
 
@@ -57,7 +58,11 @@ def test_biz_val_lgb_monotonic_stops_earlier_no_test_regression():
 
     def run(mono):
         m = LGBMClassifierWithDatasetReuse(
-            n_estimators=N_ROUNDS, num_leaves=63, learning_rate=0.2, verbose=-1, random_state=SEED,
+            n_estimators=N_ROUNDS,
+            num_leaves=63,
+            learning_rate=0.2,
+            verbose=-1,
+            random_state=SEED,
         )
         m.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], eval_metric="auc", monotonic_decline_patience=mono)
         return m.booster_.current_iteration(), roc_auc_score(y_te, m.predict_proba(X_te)[:, 1])
@@ -79,7 +84,11 @@ def test_biz_val_xgb_monotonic_stops_earlier_no_test_regression():
 
     def run(mono):
         m = XGBClassifierWithDMatrixReuse(
-            n_estimators=N_ROUNDS, max_depth=8, learning_rate=0.3, eval_metric="auc", random_state=SEED,
+            n_estimators=N_ROUNDS,
+            max_depth=8,
+            learning_rate=0.3,
+            eval_metric="auc",
+            random_state=SEED,
         )
         m.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], monotonic_decline_patience=mono)
         return m.get_booster().num_boosted_rounds(), roc_auc_score(y_te, m.predict_proba(X_te)[:, 1])
@@ -107,8 +116,13 @@ def test_biz_val_cb_monotonic_stops_earlier_no_test_regression():
 
     def run(mono):
         model = catboost.CatBoostClassifier(
-            iterations=N_ROUNDS, depth=8, learning_rate=0.3, eval_metric="AUC",
-            random_seed=SEED, verbose=0, allow_writing_files=False,
+            iterations=N_ROUNDS,
+            depth=8,
+            learning_rate=0.3,
+            eval_metric="AUC",
+            random_seed=SEED,
+            verbose=0,
+            allow_writing_files=False,
         )
         callbacks = [CBMonotonicDeclineStop(patience=mono)] if mono is not None else None
         model.fit(X_tr, y_tr, eval_set=(X_val, y_val), callbacks=callbacks)

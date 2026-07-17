@@ -5,6 +5,7 @@ Each test passes a string categorical column + numerics and ``cat_features=[...]
 codes BEFORE its NaN/inf validator (no ``dtype('O')`` error) and produce finite predictions of the right shape. Also covers the no-cat regression
 (the hook is a no-op when no ``cat_features`` are named) and a fit->pickle->unpickle->predict round-trip.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -30,21 +31,35 @@ def _common(labels_dtype, loss_fn):
         model_params={"loss_fn": loss_fn, "learning_rate": 1e-3},
         network_params={"nlayers": 2, "first_layer_num_neurons": 16, "dropout_prob": 0.0, "activation_function": torch.nn.ReLU},
         datamodule_class=TorchDataModule,
-        datamodule_params={"read_fcn": None, "data_placement_device": None, "features_dtype": torch.float32,
-                            "labels_dtype": labels_dtype, "dataloader_params": {"batch_size": 16, "num_workers": 0}},
-        trainer_params={"max_epochs": 1, "enable_model_summary": False, "default_root_dir": None,
-                        "log_every_n_steps": 1, "devices": 1, "logger": False, "accelerator": "cpu"},
+        datamodule_params={
+            "read_fcn": None,
+            "data_placement_device": None,
+            "features_dtype": torch.float32,
+            "labels_dtype": labels_dtype,
+            "dataloader_params": {"batch_size": 16, "num_workers": 0},
+        },
+        trainer_params={
+            "max_epochs": 1,
+            "enable_model_summary": False,
+            "default_root_dir": None,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "logger": False,
+            "accelerator": "cpu",
+        },
     )
 
 
 def _make_frame(n=64, seed=0):
     rng = np.random.default_rng(seed)
     cats = rng.choice(["red", "green", "blue", "yellow"], size=n)
-    X = pd.DataFrame({
-        "color": cats,                                   # string categorical
-        "num_0": rng.normal(size=n).astype(np.float32),
-        "num_1": rng.normal(size=n).astype(np.float32),
-    })
+    X = pd.DataFrame(
+        {
+            "color": cats,  # string categorical
+            "num_0": rng.normal(size=n).astype(np.float32),
+            "num_1": rng.normal(size=n).astype(np.float32),
+        }
+    )
     return X, cats, rng
 
 
@@ -87,11 +102,13 @@ def test_multiclass_classification_native_cat_embeddings():
 
 def test_multilabel_classification_native_cat_embeddings():
     X, cats, rng = _make_frame()
-    y = np.column_stack([
-        np.isin(cats, ["red", "blue"]).astype(np.int64),
-        np.isin(cats, ["green", "blue"]).astype(np.int64),
-        (X["num_0"].to_numpy() > 0).astype(np.int64),
-    ])
+    y = np.column_stack(
+        [
+            np.isin(cats, ["red", "blue"]).astype(np.int64),
+            np.isin(cats, ["green", "blue"]).astype(np.int64),
+            (X["num_0"].to_numpy() > 0).astype(np.int64),
+        ]
+    )
     clf = PytorchLightningClassifier(**_common(torch.float32, torch.nn.functional.binary_cross_entropy_with_logits))
     clf.fit(X, y, cat_features=["color"])
     assert clf._cat_cardinalities_ == [4]
@@ -128,7 +145,7 @@ def test_mlp_auto_factorizes_raw_object_cat_without_explicit_cat_features():
     y = np.array([lut[c] for c in cats], dtype=np.float32) + rng.normal(scale=0.1, size=len(cats)).astype(np.float32)
     reg = PytorchLightningRegressor(**_common(torch.float32, torch.nn.MSELoss()))
     reg.fit(X, y)  # no cat_features -> the raw object 'color' column must be auto-factorized, not crash
-    assert reg._n_cat_features_ == 1                # auto-detected the object column
+    assert reg._n_cat_features_ == 1  # auto-detected the object column
     assert reg._cat_cardinalities_ == [4]
     preds = np.asarray(reg.predict(X))
     assert preds.shape == (len(cats),) and np.all(np.isfinite(preds))
@@ -183,16 +200,18 @@ def test_categorical_dtype_cat_predict_routes_unseen_without_setitem_error():
     predict on an int Categorical-dtype column, including an all-UNSEEN level at predict that must route to the reserved code, must not raise."""
     rng = np.random.default_rng(0)
     n = 80
-    X = pd.DataFrame({
-        "c": pd.Categorical(rng.integers(0, 7, size=n)),       # int Categorical DTYPE, cardinality up to 7 (reserved code == 7.0)
-        "num_0": rng.normal(size=n).astype(np.float32),
-    })
+    X = pd.DataFrame(
+        {
+            "c": pd.Categorical(rng.integers(0, 7, size=n)),  # int Categorical DTYPE, cardinality up to 7 (reserved code == 7.0)
+            "num_0": rng.normal(size=n).astype(np.float32),
+        }
+    )
     y = rng.normal(size=n).astype(np.float32)
     reg = PytorchLightningRegressor(**_common(torch.float32, torch.nn.MSELoss()))
     reg.fit(X, y, cat_features=["c"])
-    preds = np.asarray(reg.predict(X))                          # predict -> _apply_cat_codes on the Categorical column
+    preds = np.asarray(reg.predict(X))  # predict -> _apply_cat_codes on the Categorical column
     assert preds.shape == (n,) and np.all(np.isfinite(preds))
     X_new = X.copy()
-    X_new["c"] = pd.Categorical(np.full(n, 999))               # an all-UNSEEN level -> every cell routes to the reserved unknown code
+    X_new["c"] = pd.Categorical(np.full(n, 999))  # an all-UNSEEN level -> every cell routes to the reserved unknown code
     preds2 = np.asarray(reg.predict(X_new))
     assert preds2.shape == (n,) and np.all(np.isfinite(preds2))

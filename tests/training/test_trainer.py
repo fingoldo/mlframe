@@ -160,27 +160,27 @@ class TestSubsetDataframe:
         """Test basic pandas DataFrame subsetting."""
         from mlframe.training.trainer import _subset_dataframe
 
-        df = pd.DataFrame({'a': [1, 2, 3, 4], 'b': [10, 20, 30, 40]})
+        df = pd.DataFrame({"a": [1, 2, 3, 4], "b": [10, 20, 30, 40]})
         idx = np.array([0, 2])
 
         result = _subset_dataframe(df, idx)
 
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 2
-        assert list(result['a']) == [1, 3]
+        assert list(result["a"]) == [1, 3]
 
     def test_pandas_with_drop_columns(self):
         """Test subsetting with column dropping."""
         from mlframe.training.trainer import _subset_dataframe
 
-        df = pd.DataFrame({'a': [1, 2, 3], 'b': [10, 20, 30], 'c': [100, 200, 300]})
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [10, 20, 30], "c": [100, 200, 300]})
         idx = np.array([0, 1])
 
-        result = _subset_dataframe(df, idx, drop_columns=['c'])
+        result = _subset_dataframe(df, idx, drop_columns=["c"])
 
-        assert 'c' not in result.columns
-        assert 'a' in result.columns
-        assert 'b' in result.columns
+        assert "c" not in result.columns
+        assert "a" in result.columns
+        assert "b" in result.columns
 
     def test_none_df_returns_none(self):
         """Test that None DataFrame returns None."""
@@ -194,7 +194,7 @@ class TestSubsetDataframe:
         """Test that None idx returns full DataFrame."""
         from mlframe.training.trainer import _subset_dataframe
 
-        df = pd.DataFrame({'a': [1, 2, 3]})
+        df = pd.DataFrame({"a": [1, 2, 3]})
 
         result = _subset_dataframe(df, None)
 
@@ -204,7 +204,7 @@ class TestSubsetDataframe:
         """Test Polars DataFrame subsetting."""
         from mlframe.training.trainer import _subset_dataframe
 
-        df = pl.DataFrame({'a': [1, 2, 3, 4], 'b': [10, 20, 30, 40]})
+        df = pl.DataFrame({"a": [1, 2, 3, 4], "b": [10, 20, 30, 40]})
         idx = np.array([0, 2])
 
         result = _subset_dataframe(df, idx)
@@ -216,12 +216,12 @@ class TestSubsetDataframe:
         """Test that string drop_columns logs warning and converts."""
         from mlframe.training.trainer import _subset_dataframe
 
-        df = pd.DataFrame({'a': [1, 2], 'b': [10, 20]})
+        df = pd.DataFrame({"a": [1, 2], "b": [10, 20]})
 
         # Should convert string to list and work
-        result = _subset_dataframe(df, None, drop_columns='a')
+        result = _subset_dataframe(df, None, drop_columns="a")
 
-        assert 'a' not in result.columns
+        assert "a" not in result.columns
 
 
 class TestPrepareDfForModel:
@@ -231,9 +231,9 @@ class TestPrepareDfForModel:
         """Test non-TabNet model returns DataFrame unchanged."""
         from mlframe.training.trainer import _prepare_df_for_model
 
-        df = pd.DataFrame({'a': [1, 2, 3]})
+        df = pd.DataFrame({"a": [1, 2, 3]})
 
-        result = _prepare_df_for_model(df, 'CatBoostRegressor')
+        result = _prepare_df_for_model(df, "CatBoostRegressor")
 
         pd.testing.assert_frame_equal(result, df)
 
@@ -241,7 +241,7 @@ class TestPrepareDfForModel:
         """Test None DataFrame returns None."""
         from mlframe.training.trainer import _prepare_df_for_model
 
-        result = _prepare_df_for_model(None, 'TabNetClassifier')
+        result = _prepare_df_for_model(None, "TabNetClassifier")
 
         assert result is None
 
@@ -263,8 +263,8 @@ class TestSetupSampleWeight:
         fit_params = {}
         _setup_sample_weight(sample_weight, train_idx, model_obj, fit_params)
 
-        assert 'sample_weight' in fit_params
-        np.testing.assert_array_equal(fit_params['sample_weight'], [1.0, 2.0])
+        assert "sample_weight" in fit_params
+        np.testing.assert_array_equal(fit_params["sample_weight"], [1.0, 2.0])
 
     def test_none_sample_weight_does_nothing(self):
         """Test None sample weight doesn't modify fit_params."""
@@ -275,7 +275,7 @@ class TestSetupSampleWeight:
 
         _setup_sample_weight(None, np.array([0, 1]), model_obj, fit_params)
 
-        assert 'sample_weight' not in fit_params
+        assert "sample_weight" not in fit_params
 
 
 class TestInitializeMutableDefaults:
@@ -285,8 +285,7 @@ class TestInitializeMutableDefaults:
         """Test None values are converted to empty containers."""
         from mlframe.training.trainer import _initialize_mutable_defaults
 
-        drop_columns, default_drop_columns, fi_kwargs, confidence_kwargs = \
-            _initialize_mutable_defaults(None, None, None, None)
+        drop_columns, default_drop_columns, fi_kwargs, confidence_kwargs = _initialize_mutable_defaults(None, None, None, None)
 
         assert drop_columns == []
         assert default_drop_columns == []
@@ -297,13 +296,12 @@ class TestInitializeMutableDefaults:
         """Test existing values are preserved."""
         from mlframe.training.trainer import _initialize_mutable_defaults
 
-        drop_columns, default_drop_columns, fi_kwargs, confidence_kwargs = \
-            _initialize_mutable_defaults(['a'], ['b'], {'k': 'v'}, {'c': 'd'})
+        drop_columns, default_drop_columns, fi_kwargs, confidence_kwargs = _initialize_mutable_defaults(["a"], ["b"], {"k": "v"}, {"c": "d"})
 
-        assert drop_columns == ['a']
-        assert default_drop_columns == ['b']
-        assert fi_kwargs == {'k': 'v'}
-        assert confidence_kwargs == {'c': 'd'}
+        assert drop_columns == ["a"]
+        assert default_drop_columns == ["b"]
+        assert fi_kwargs == {"k": "v"}
+        assert confidence_kwargs == {"c": "d"}
 
 
 # =============================================================================
@@ -329,26 +327,23 @@ class TestBuildConfigsFromParams:
         data_config, control_config, metrics_config, reporting_config, naming_config, confidence_config, predictions, output_config = result
 
         # Check types (these are dataclass/Pydantic models or similar)
-        assert hasattr(data_config, 'df')
-        assert hasattr(control_config, 'verbose')
-        assert hasattr(metrics_config, 'nbins')
-        assert hasattr(reporting_config, 'figsize')
-        assert hasattr(naming_config, 'model_name')
-        assert hasattr(confidence_config, 'include')
-        assert hasattr(predictions, 'train_preds')
-        assert hasattr(output_config, 'data_dir')
+        assert hasattr(data_config, "df")
+        assert hasattr(control_config, "verbose")
+        assert hasattr(metrics_config, "nbins")
+        assert hasattr(reporting_config, "figsize")
+        assert hasattr(naming_config, "model_name")
+        assert hasattr(confidence_config, "include")
+        assert hasattr(predictions, "train_preds")
+        assert hasattr(output_config, "data_dir")
 
     def test_merges_drop_columns(self):
         """Test drop_columns and default_drop_columns are merged."""
         from mlframe.training.trainer import _build_configs_from_params
 
-        data_config, *_ = _build_configs_from_params(
-            drop_columns=['col1', 'col2'],
-            default_drop_columns=['col3']
-        )
+        data_config, *_ = _build_configs_from_params(drop_columns=["col1", "col2"], default_drop_columns=["col3"])
 
-        assert 'col1' in data_config.drop_columns
-        assert 'col3' in data_config.drop_columns
+        assert "col1" in data_config.drop_columns
+        assert "col3" in data_config.drop_columns
 
     def test_reporting_defaults_single_sourced_from_config_not_drifted(self):
         """INV-45: trainer-level reporting defaults must equal ReportingConfig defaults.
@@ -363,12 +358,16 @@ class TestBuildConfigsFromParams:
         _, _, _, reporting_config, *_ = _build_configs_from_params()
         ref = ReportingConfig()
         for field in (
-            "plot_outputs", "title_metrics_template", "title_metrics_tokens",
-            "multiclass_panels", "multilabel_panels", "ltr_panels", "quantile_panels",
+            "plot_outputs",
+            "title_metrics_template",
+            "title_metrics_tokens",
+            "multiclass_panels",
+            "multilabel_panels",
+            "ltr_panels",
+            "quantile_panels",
         ):
             assert getattr(reporting_config, field) == getattr(ref, field), (
-                f"trainer reporting default for {field!r} drifted from ReportingConfig "
-                f"default: {getattr(reporting_config, field)!r} != {getattr(ref, field)!r}"
+                f"trainer reporting default for {field!r} drifted from ReportingConfig default: {getattr(reporting_config, field)!r} != {getattr(ref, field)!r}"
             )
         # The slow kaleido PNG path must NOT be the default.
         assert reporting_config.plot_outputs == "plotly[html] + matplotlib[png]"
@@ -404,7 +403,7 @@ class TestTrainAndEvaluateModelBasic:
         X = np.random.randn(n_samples, n_features)
         y = 2 * X[:, 0] + np.random.randn(n_samples) * 0.5
 
-        df = pd.DataFrame(X, columns=[f'f{i}' for i in range(n_features)])
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(n_features)])
 
         train_idx = np.arange(80)
         test_idx = np.arange(80, 100)
@@ -430,9 +429,9 @@ class TestTrainAndEvaluateModelBasic:
         )
 
         assert result is not None
-        assert hasattr(result, 'model')
-        assert hasattr(result, 'test_preds')
-        assert hasattr(result, 'metrics')
+        assert hasattr(result, "model")
+        assert hasattr(result, "test_preds")
+        assert hasattr(result, "metrics")
         assert result.test_preds is not None
         assert len(result.test_preds) == len(test_idx)
 
@@ -483,8 +482,7 @@ class TestTrainAndEvaluateModelBasic:
         )
 
         assert isinstance(result, SimpleNamespace)
-        expected_attrs = ['model', 'test_preds', 'test_probs', 'val_preds', 'val_probs',
-                          'train_preds', 'train_probs', 'metrics', 'columns', 'pre_pipeline']
+        expected_attrs = ["model", "test_preds", "test_probs", "val_preds", "val_probs", "train_preds", "train_probs", "metrics", "columns", "pre_pipeline"]
         for attr in expected_attrs:
             assert hasattr(result, attr), f"Missing attribute: {attr}"
 
@@ -501,7 +499,7 @@ class TestTrainAndEvaluateModelMetrics:
         X = np.random.randn(n_samples, 5)
         y = (X[:, 0] + X[:, 1] > 0).astype(int)
 
-        df = pd.DataFrame(X, columns=[f'f{i}' for i in range(5)])
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
 
         train_idx = np.arange(150)
         val_idx = np.arange(150, 175)
@@ -531,9 +529,9 @@ class TestTrainAndEvaluateModelMetrics:
             verbose=False,
         )
 
-        assert 'train' in result.metrics
-        assert 'val' in result.metrics
-        assert 'test' in result.metrics
+        assert "train" in result.metrics
+        assert "val" in result.metrics
+        assert "test" in result.metrics
 
     def test_can_disable_trainset_metrics(self, classification_data):
         """Test that trainset metrics computation can be disabled."""
@@ -558,7 +556,7 @@ class TestTrainAndEvaluateModelMetrics:
         )
 
         # Train and val should be empty, test should have metrics
-        assert result.train_preds is None or len(result.metrics.get('train', {})) == 0
+        assert result.train_preds is None or len(result.metrics.get("train", {})) == 0
 
 
 class TestTrainAndEvaluateModelPrePipeline:
@@ -573,10 +571,10 @@ class TestTrainAndEvaluateModelPrePipeline:
         X = np.random.randn(100, 5)
         y = 2 * X[:, 0] + np.random.randn(100) * 0.5
 
-        df = pd.DataFrame(X, columns=[f'f{i}' for i in range(5)])
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
         target = pd.Series(y)
 
-        pre_pipeline = Pipeline([('scaler', StandardScaler())])
+        pre_pipeline = Pipeline([("scaler", StandardScaler())])
         model = Ridge(alpha=1.0)
 
         train_idx = np.arange(80)
@@ -608,7 +606,7 @@ class TestTrainAndEvaluateModelEdgeCases:
         X = np.random.randn(100, 5)
         y = X[:, 0] + np.random.randn(100) * 0.5
 
-        df = pd.DataFrame(X, columns=[f'f{i}' for i in range(5)])
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
         target = pd.Series(y)
         test_idx = np.arange(80, 100)
 
@@ -638,13 +636,13 @@ class TestTrainAndEvaluateModelEdgeCases:
         np.random.seed(42)
 
         # Create separate DataFrames
-        train_df = pd.DataFrame(np.random.randn(80, 5), columns=[f'f{i}' for i in range(5)])
-        val_df = pd.DataFrame(np.random.randn(10, 5), columns=[f'f{i}' for i in range(5)])
-        test_df = pd.DataFrame(np.random.randn(10, 5), columns=[f'f{i}' for i in range(5)])
+        train_df = pd.DataFrame(np.random.randn(80, 5), columns=[f"f{i}" for i in range(5)])
+        val_df = pd.DataFrame(np.random.randn(10, 5), columns=[f"f{i}" for i in range(5)])
+        test_df = pd.DataFrame(np.random.randn(10, 5), columns=[f"f{i}" for i in range(5)])
 
-        train_target = pd.Series(2 * train_df['f0'] + np.random.randn(80) * 0.5)
-        val_target = pd.Series(2 * val_df['f0'] + np.random.randn(10) * 0.5)
-        test_target = pd.Series(2 * test_df['f0'] + np.random.randn(10) * 0.5)
+        train_target = pd.Series(2 * train_df["f0"] + np.random.randn(80) * 0.5)
+        val_target = pd.Series(2 * val_df["f0"] + np.random.randn(10) * 0.5)
+        test_target = pd.Series(2 * test_df["f0"] + np.random.randn(10) * 0.5)
 
         model = Ridge(alpha=1.0)
 
@@ -727,6 +725,7 @@ class TestSetupEarlyStoppingCallback:
         # Create a custom user callback
         class CustomUserCallback(TrainingCallback):
             """Custom callback for testing."""
+
             def after_iteration(self, model, epoch, evals_log):
                 return False  # Continue training
 
@@ -833,7 +832,7 @@ class TestIsFitted:
         from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import StandardScaler
 
-        pipeline = Pipeline([('scaler', StandardScaler())])
+        pipeline = Pipeline([("scaler", StandardScaler())])
         assert _is_fitted(pipeline) is False
 
     def test_fitted_pipeline_returns_true(self):
@@ -842,7 +841,7 @@ class TestIsFitted:
         from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import StandardScaler
 
-        pipeline = Pipeline([('scaler', StandardScaler())])
+        pipeline = Pipeline([("scaler", StandardScaler())])
         pipeline.fit(np.array([[1, 2], [3, 4], [5, 6]]))
         assert _is_fitted(pipeline) is True
 
@@ -871,16 +870,20 @@ class TestApplyPrePipelineTransformsWithFittedPipeline:
     def simple_data(self):
         """Create simple training data."""
         np.random.seed(42)
-        train_df = pd.DataFrame({
-            'f0': np.random.randn(100),
-            'f1': np.random.randn(100),
-            'f2': np.random.randn(100),
-        })
-        val_df = pd.DataFrame({
-            'f0': np.random.randn(20),
-            'f1': np.random.randn(20),
-            'f2': np.random.randn(20),
-        })
+        train_df = pd.DataFrame(
+            {
+                "f0": np.random.randn(100),
+                "f1": np.random.randn(100),
+                "f2": np.random.randn(100),
+            }
+        )
+        val_df = pd.DataFrame(
+            {
+                "f0": np.random.randn(20),
+                "f1": np.random.randn(20),
+                "f2": np.random.randn(20),
+            }
+        )
         train_target = np.random.randint(0, 2, 100)
         return train_df, val_df, train_target
 
@@ -891,7 +894,7 @@ class TestApplyPrePipelineTransformsWithFittedPipeline:
         from sklearn.preprocessing import StandardScaler
 
         train_df, val_df, train_target = simple_data
-        pipeline = Pipeline([('scaler', StandardScaler())])
+        pipeline = Pipeline([("scaler", StandardScaler())])
 
         # Mock model to satisfy the condition
         model = MagicMock()
@@ -911,6 +914,7 @@ class TestApplyPrePipelineTransformsWithFittedPipeline:
 
         # Pipeline should now be fitted
         from mlframe.training.trainer import _is_fitted
+
         assert _is_fitted(pipeline) is True
         assert result_train is not None
         assert result_val is not None
@@ -924,21 +928,23 @@ class TestApplyPrePipelineTransformsWithFittedPipeline:
         train_df, val_df, train_target = simple_data
 
         # Pre-fit the pipeline
-        pipeline = Pipeline([('scaler', StandardScaler())])
+        pipeline = Pipeline([("scaler", StandardScaler())])
         pipeline.fit(train_df)
 
         # Store the fitted parameters
-        original_mean = pipeline.named_steps['scaler'].mean_.copy()
-        original_scale = pipeline.named_steps['scaler'].scale_.copy()
+        original_mean = pipeline.named_steps["scaler"].mean_.copy()
+        original_scale = pipeline.named_steps["scaler"].scale_.copy()
 
         assert _is_fitted(pipeline) is True
 
         # Create different data that would change the scaler if fit() was called
-        different_train_df = pd.DataFrame({
-            'f0': np.random.randn(100) * 10 + 100,  # Very different distribution
-            'f1': np.random.randn(100) * 10 + 100,
-            'f2': np.random.randn(100) * 10 + 100,
-        })
+        different_train_df = pd.DataFrame(
+            {
+                "f0": np.random.randn(100) * 10 + 100,  # Very different distribution
+                "f1": np.random.randn(100) * 10 + 100,
+                "f2": np.random.randn(100) * 10 + 100,
+            }
+        )
 
         model = MagicMock()
 
@@ -957,14 +963,10 @@ class TestApplyPrePipelineTransformsWithFittedPipeline:
 
         # Verify the scaler parameters were NOT changed (transform, not fit)
         np.testing.assert_array_almost_equal(
-            pipeline.named_steps['scaler'].mean_,
-            original_mean,
-            err_msg="Pipeline was re-fitted when it should have only transformed"
+            pipeline.named_steps["scaler"].mean_, original_mean, err_msg="Pipeline was re-fitted when it should have only transformed"
         )
         np.testing.assert_array_almost_equal(
-            pipeline.named_steps['scaler'].scale_,
-            original_scale,
-            err_msg="Pipeline was re-fitted when it should have only transformed"
+            pipeline.named_steps["scaler"].scale_, original_scale, err_msg="Pipeline was re-fitted when it should have only transformed"
         )
 
     def test_skip_pre_pipeline_transform_skips_all(self, simple_data):
@@ -974,7 +976,7 @@ class TestApplyPrePipelineTransformsWithFittedPipeline:
         from sklearn.preprocessing import StandardScaler
 
         train_df, val_df, train_target = simple_data
-        pipeline = Pipeline([('scaler', StandardScaler())])
+        pipeline = Pipeline([("scaler", StandardScaler())])
 
         model = MagicMock()
         original_train_df = train_df.copy()
@@ -999,21 +1001,27 @@ class TestApplyPrePipelineTransformsWithFittedPipeline:
 class TestValidateTargetValues:
     """Tests for _validate_target_values helper function."""
 
-    @pytest.mark.parametrize("target_factory", [
-        pytest.param(lambda arr: pd.Series(arr), id="pandas"),
-        pytest.param(lambda arr: np.array(arr), id="numpy"),
-        pytest.param(lambda arr: pl.Series(arr).to_numpy(), id="polars_to_numpy"),
-    ])
+    @pytest.mark.parametrize(
+        "target_factory",
+        [
+            pytest.param(lambda arr: pd.Series(arr), id="pandas"),
+            pytest.param(lambda arr: np.array(arr), id="numpy"),
+            pytest.param(lambda arr: pl.Series(arr).to_numpy(), id="polars_to_numpy"),
+        ],
+    )
     def test_clean_target_passes(self, target_factory):
         from mlframe.training.trainer import _validate_target_values
 
         target = target_factory([1.0, 2.0, 3.0, 4.0])
         _validate_target_values(target, "train")  # should not raise
 
-    @pytest.mark.parametrize("target_factory", [
-        pytest.param(lambda arr: pd.Series(arr), id="pandas"),
-        pytest.param(lambda arr: np.array(arr), id="numpy"),
-    ])
+    @pytest.mark.parametrize(
+        "target_factory",
+        [
+            pytest.param(lambda arr: pd.Series(arr), id="pandas"),
+            pytest.param(lambda arr: np.array(arr), id="numpy"),
+        ],
+    )
     def test_nan_in_target_raises(self, target_factory):
         from mlframe.training.trainer import _validate_target_values
 
@@ -1021,10 +1029,13 @@ class TestValidateTargetValues:
         with pytest.raises(ValueError, match="2 NaN"):
             _validate_target_values(target, "train")
 
-    @pytest.mark.parametrize("target_factory", [
-        pytest.param(lambda arr: pd.Series(arr), id="pandas"),
-        pytest.param(lambda arr: np.array(arr), id="numpy"),
-    ])
+    @pytest.mark.parametrize(
+        "target_factory",
+        [
+            pytest.param(lambda arr: pd.Series(arr), id="pandas"),
+            pytest.param(lambda arr: np.array(arr), id="numpy"),
+        ],
+    )
     def test_inf_in_target_raises(self, target_factory):
         from mlframe.training.trainer import _validate_target_values
 
@@ -1032,10 +1043,13 @@ class TestValidateTargetValues:
         with pytest.raises(ValueError, match="2 infinity"):
             _validate_target_values(target, "train")
 
-    @pytest.mark.parametrize("target_factory", [
-        pytest.param(lambda arr: pd.Series(arr), id="pandas"),
-        pytest.param(lambda arr: np.array(arr), id="numpy"),
-    ])
+    @pytest.mark.parametrize(
+        "target_factory",
+        [
+            pytest.param(lambda arr: pd.Series(arr), id="pandas"),
+            pytest.param(lambda arr: np.array(arr), id="numpy"),
+        ],
+    )
     def test_nan_and_inf_in_target_raises(self, target_factory):
         from mlframe.training.trainer import _validate_target_values
 
@@ -1069,9 +1083,7 @@ class TestPassthroughEmptyFrameGuard:
     def test_pandas_empty_frame_catch_returns_empty(self):
         from mlframe.training.trainer import _passthrough_cols_fit_transform
 
-        df = pd.DataFrame(
-            {"a": np.arange(10), "b": np.arange(10) * 0.5}
-        )
+        df = pd.DataFrame({"a": np.arange(10), "b": np.arange(10) * 0.5})
 
         def _raise_concat(x, y=None):
             raise ValueError("need at least one array to concatenate")
@@ -1139,10 +1151,7 @@ def test_trainer_reexports_every_name_trainer_configure_imports_at_runtime():
     # antipattern) and pick out the specific function's AST node by name.
     module_src = Path(inspect.getsourcefile(_trainer_configure)).read_text(encoding="utf-8")
     module_tree = ast.parse(module_src)
-    fn_node = next(
-        n for n in ast.walk(module_tree)
-        if isinstance(n, ast.FunctionDef) and n.name == "configure_training_params"
-    )
+    fn_node = next(n for n in ast.walk(module_tree) if isinstance(n, ast.FunctionDef) and n.name == "configure_training_params")
     names: list[str] = []
     for node in ast.walk(fn_node):
         if isinstance(node, ast.ImportFrom) and node.module == "trainer":

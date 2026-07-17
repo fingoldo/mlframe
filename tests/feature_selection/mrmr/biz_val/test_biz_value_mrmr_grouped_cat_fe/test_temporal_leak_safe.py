@@ -29,6 +29,7 @@ Contracts pinned (real AUC numbers, Bayes-feasible fixtures, never xfail):
 
 Consolidated verbatim from test_biz_value_mrmr_layer92.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -163,7 +164,10 @@ class TestL87WholeFoldLeaksOnTimeSeries:
             enc_full, _ = generate_grouped_agg_features(df, ["entity"], ["value"])
             feat = np.column_stack([df["value"].to_numpy(), enc_full[gm].to_numpy()])
             oof = cross_val_predict(
-                LogisticRegression(max_iter=1000), feat, y, cv=5,
+                LogisticRegression(max_iter=1000),
+                feat,
+                y,
+                cv=5,
                 method="predict_proba",
             )[:, 1]
             auc_leaky = roc_auc_score(y, oof)
@@ -174,7 +178,8 @@ class TestL87WholeFoldLeaksOnTimeSeries:
             Xtr, Xte, ytr, yte = _forward_split(df, y)
             enc_tr, _ = generate_grouped_agg_features(Xtr, ["entity"], ["value"])
             m = LogisticRegression(max_iter=1000).fit(
-                np.column_stack([Xtr["value"], enc_tr[gm]]), ytr,
+                np.column_stack([Xtr["value"], enc_tr[gm]]),
+                ytr,
             )
             enc_te, _ = generate_grouped_agg_features(Xte, ["entity"], ["value"])
             auc_fwd = roc_auc_score(
@@ -215,8 +220,13 @@ class TestL92LeakSafe:
             df, y = _build_past_mean_causal(s)
             Xtr, Xte, ytr, yte = _forward_split(df, y)
             X_aug, appended, recipes, _ = hybrid_temporal_agg_fe(
-                Xtr, ytr, entity_cols=["entity"], value_cols=["value"],
-                time_col="ts", stats=("mean", "std", "count"), lags=(1,),
+                Xtr,
+                ytr,
+                entity_cols=["entity"],
+                value_cols=["value"],
+                time_col="ts",
+                stats=("mean", "std", "count"),
+                lags=(1,),
                 top_k=10,
             )
             en = engineered_name_expanding("value", "entity", "mean")
@@ -224,7 +234,10 @@ class TestL92LeakSafe:
             rec = next(r for r in recipes if r.name == en)
             ftr = X_aug[en].to_numpy().reshape(-1, 1)
             oof = cross_val_predict(
-                LogisticRegression(max_iter=1000), ftr, ytr, cv=5,
+                LogisticRegression(max_iter=1000),
+                ftr,
+                ytr,
+                cv=5,
                 method="predict_proba",
             )[:, 1]
             auc_cv = roc_auc_score(ytr, oof)
@@ -234,7 +247,7 @@ class TestL92LeakSafe:
             gaps.append(abs(auc_cv - auc_fwd))
         mean_gap = float(np.mean(gaps))
         assert mean_gap < 0.05, (
-            f"L92 expanding agg is not leak-safe: |train-CV - forward-holdout| " f"AUC gap {mean_gap:.4f} >= 0.05 " f"(per-seed {[round(g, 4) for g in gaps]})."
+            f"L92 expanding agg is not leak-safe: |train-CV - forward-holdout| AUC gap {mean_gap:.4f} >= 0.05 (per-seed {[round(g, 4) for g in gaps]})."
         )
 
 
@@ -261,22 +274,26 @@ class TestL92RecoversPastMeanSignal:
             df, y = _build_past_mean_causal(s)
             Xtr, Xte, ytr, yte = _forward_split(df, y)
             X_aug, _appended, recipes, _ = hybrid_temporal_agg_fe(
-                Xtr, ytr, entity_cols=["entity"], value_cols=["value"],
-                time_col="ts", stats=("mean", "std", "count"), lags=(1,),
+                Xtr,
+                ytr,
+                entity_cols=["entity"],
+                value_cols=["value"],
+                time_col="ts",
+                stats=("mean", "std", "count"),
+                lags=(1,),
                 top_k=10,
             )
             en = engineered_name_expanding("value", "entity", "mean")
             rec = next(r for r in recipes if r.name == en)
             m = LogisticRegression(max_iter=1000).fit(
-                X_aug[en].to_numpy().reshape(-1, 1), ytr,
+                X_aug[en].to_numpy().reshape(-1, 1),
+                ytr,
             )
             fte = apply_recipe(rec, Xte).reshape(-1, 1)
             aucs.append(roc_auc_score(yte, m.predict_proba(fte)[:, 1]))
         mean_auc = float(np.mean(aucs))
         assert mean_auc >= 0.80, (
-            f"L92 expanding-mean forward-holdout AUC {mean_auc:.4f} < 0.80 "
-            f"(per-seed {[round(a, 4) for a in aucs]}); did not recover the "
-            f"past-mean signal."
+            f"L92 expanding-mean forward-holdout AUC {mean_auc:.4f} < 0.80 (per-seed {[round(a, 4) for a in aucs]}); did not recover the past-mean signal."
         )
 
 
@@ -298,7 +315,11 @@ class TestRollingWindow:
         for s in SEEDS:
             df, y = _build_rolling_window(s)
             enc, _ = generate_rolling_window_agg_features(
-                df, ["entity"], ["value"], "ts", windows=("30D",),
+                df,
+                ["entity"],
+                ["value"],
+                "ts",
+                windows=("30D",),
                 stats=("mean",),
             )
             assert enc.shape[1] >= 1, f"seed={s}: no rolling columns produced."
@@ -307,7 +328,7 @@ class TestRollingWindow:
             # AUC can be < 0.5 if anti-correlated; use the symmetric measure.
             if max(auc, 1.0 - auc) >= 0.80:
                 wins += 1
-        assert wins >= 4, f"rolling 30D window recovered the level signal on only " f"{wins}/{len(SEEDS)} seeds; expected >= 4."
+        assert wins >= 4, f"rolling 30D window recovered the level signal on only {wins}/{len(SEEDS)} seeds; expected >= 4."
 
 
 # ---------------------------------------------------------------------------
@@ -329,16 +350,18 @@ class TestLagFeatures:
         for s in SEEDS:
             df, y = _build_lag1_autoregressive(s)
             enc, _ = generate_lag_features(
-                df, ["entity"], ["value"], "ts", lags=(1,),
+                df,
+                ["entity"],
+                ["value"],
+                "ts",
+                lags=(1,),
             )
             ln = engineered_name_lag("value", "entity", 1)
             assert ln in enc.columns, f"seed={s}: lag-1 not produced."
             aucs.append(roc_auc_score(y, enc[ln].to_numpy()))
         mean_auc = float(np.mean(aucs))
         assert mean_auc >= 0.80, (
-            f"lag-1 feature AUC {mean_auc:.4f} < 0.80 "
-            f"(per-seed {[round(a, 4) for a in aucs]}); did not capture the "
-            f"autoregressive y = f(value_t-1) signal."
+            f"lag-1 feature AUC {mean_auc:.4f} < 0.80 (per-seed {[round(a, 4) for a in aucs]}); did not capture the autoregressive y = f(value_t-1) signal."
         )
 
 
@@ -374,13 +397,26 @@ class TestTransformLeakSafe:
         prefix = df.iloc[: int(len(df) * 0.7)].copy()
 
         _enc_e, raw_e = generate_expanding_agg_features(
-            df, ["entity"], ["value"], "ts", stats=("mean", "count"),
+            df,
+            ["entity"],
+            ["value"],
+            "ts",
+            stats=("mean", "count"),
         )
         _enc_l, raw_l = generate_lag_features(
-            df, ["entity"], ["value"], "ts", lags=(1, 2),
+            df,
+            ["entity"],
+            ["value"],
+            "ts",
+            lags=(1, 2),
         )
         _enc_r, raw_r = generate_rolling_window_agg_features(
-            df, ["entity"], ["value"], "ts", windows=("30D",), stats=("mean",),
+            df,
+            ["entity"],
+            ["value"],
+            "ts",
+            windows=("30D",),
+            stats=("mean",),
         )
 
         builders = []
@@ -399,11 +435,12 @@ class TestTransformLeakSafe:
             # The prefix rows must be identical whether or not the future rows
             # were present in the frame being transformed.
             np.testing.assert_allclose(
-                full[:n_pref], part, rtol=0, atol=1e-9, equal_nan=True,
-                err_msg=(
-                    f"recipe {rec.name!r}: prefix values changed when future "
-                    f"rows were appended -> test-future leak."
-                ),
+                full[:n_pref],
+                part,
+                rtol=0,
+                atol=1e-9,
+                equal_nan=True,
+                err_msg=(f"recipe {rec.name!r}: prefix values changed when future rows were appended -> test-future leak."),
             )
 
     def test_replay_independent_of_y(self):
@@ -417,8 +454,13 @@ class TestTransformLeakSafe:
 
         df, y = _build_past_mean_causal(13)
         _, _appended, recipes, _ = hybrid_temporal_agg_fe(
-            df, y, entity_cols=["entity"], value_cols=["value"],
-            time_col="ts", stats=("mean", "std", "count"), lags=(1,),
+            df,
+            y,
+            entity_cols=["entity"],
+            value_cols=["value"],
+            time_col="ts",
+            stats=("mean", "std", "count"),
+            lags=(1,),
             top_k=10,
         )
         assert recipes, "no recipes produced."
@@ -465,7 +507,7 @@ class TestDefaultDisabledByteIdentical:
         )
         m.fit(df, pd.Series(y, name="y"))
         ta = list(getattr(m, "temporal_agg_features_", []) or [])
-        assert len(ta) >= 1, "temporal_agg enabled but produced no engineered columns on the " "past-mean causal fixture."
+        assert len(ta) >= 1, "temporal_agg enabled but produced no engineered columns on the past-mean causal fixture."
 
 
 # ---------------------------------------------------------------------------
@@ -487,9 +529,15 @@ class TestPickleClone:
 
         df, y = _build_lag1_autoregressive(1)
         _, _appended, recipes, _ = hybrid_temporal_agg_fe(
-            df, y, entity_cols=["entity"], value_cols=["value"],
-            time_col="ts", stats=("mean", "std", "count"),
-            windows=("30D",), lags=(1, 2), top_k=20,
+            df,
+            y,
+            entity_cols=["entity"],
+            value_cols=["value"],
+            time_col="ts",
+            stats=("mean", "std", "count"),
+            windows=("30D",),
+            lags=(1, 2),
+            top_k=20,
         )
         assert recipes, "no recipes for pickle test."
         for r in recipes:

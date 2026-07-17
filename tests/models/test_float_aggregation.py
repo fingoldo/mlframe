@@ -67,7 +67,7 @@ def test_biz_val_robust_float_ensemble_beats_mean_on_outlier_folds(seed):
     y = x @ np.array([1.5, -2.0, 0.7, 1.1]) + rng.normal(0.0, 0.5, size=n)
     sd = float(np.std(y))
     members = [y + rng.normal(0.0, 0.3 * sd, size=n) for _ in range(4)]
-    members.append(y + 4.0 * sd)            # biased outlier fold
+    members.append(y + 4.0 * sd)  # biased outlier fold
     members.append(2.5 * y + rng.normal(0.0, 0.3 * sd, size=n))  # scale outlier fold
     stacked = np.stack(members)
 

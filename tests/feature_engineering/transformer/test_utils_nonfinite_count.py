@@ -6,6 +6,7 @@ across f32/f64, the serial/parallel dispatch boundary, and edge cases (all-NaN, 
 clean, mixed). A regression that broke +/-Inf detection or the dispatch would change the
 count and fail here.
 """
+
 from __future__ import annotations
 
 import numpy as np

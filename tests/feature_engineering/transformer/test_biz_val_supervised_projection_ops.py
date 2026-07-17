@@ -13,6 +13,7 @@ linear-downstream headroom (an honest finding -- their win needs a tree downstre
 * ``compute_local_classifier_features`` - locally-weighted logistic fit recovers a curved (XOR) boundary as proba.
 * ``compute_rf_proximity_attention`` - tree-proximity softmax-kNN target encoding recovers the XOR partition.
 """
+
 from __future__ import annotations
 
 import numpy as np

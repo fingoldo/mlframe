@@ -16,6 +16,7 @@ so it is pinned here deterministically, the same shape the project uses for othe
   B. on noise-scale coefficients (``||c||^2`` small) both regimes pay a small, comparable penalty (no spurious split).
   C. ``fe_hermite_l2_penalty <= 0`` disables the penalty entirely (0.0) in both regimes.
 """
+
 from __future__ import annotations
 
 import numpy as np

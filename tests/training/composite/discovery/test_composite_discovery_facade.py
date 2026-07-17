@@ -1,4 +1,5 @@
 """Sensor: composite_discovery method-rebinding preserves identity + class invariants."""
+
 from __future__ import annotations
 
 from pathlib import Path

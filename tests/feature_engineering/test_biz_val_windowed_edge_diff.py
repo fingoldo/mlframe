@@ -5,6 +5,7 @@ down over its observed history -- a plain groupby-mean aggregate carries zero si
 ``windowed_edge_aggregate_diff``'s first-N-vs-last-N diff/ratio directly captures that trend, giving a
 downstream classifier real separating power a level-only aggregate cannot provide.
 """
+
 from __future__ import annotations
 
 import numpy as np

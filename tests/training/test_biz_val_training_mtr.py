@@ -12,6 +12,7 @@ Two quantitative contracts on correlated-target synthetics:
    best single member by a wide margin when the component models are complementary per target column.
    Measured min lift ~6.6% across 8 seeds; floor set at 4%.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -71,8 +72,7 @@ def test_biz_val_mtr_shared_trunk_matches_independent(seed):
     rmse_indep = _macro_rmse(y_te, np.stack(indep_preds, axis=1))
 
     assert rmse_shared <= rmse_indep * 1.02, (
-        f"shared-trunk MultiRMSE regressed vs K independent CatBoost: "
-        f"shared={rmse_shared:.4f} indep={rmse_indep:.4f} ratio={rmse_shared / rmse_indep:.4f}"
+        f"shared-trunk MultiRMSE regressed vs K independent CatBoost: shared={rmse_shared:.4f} indep={rmse_indep:.4f} ratio={rmse_shared / rmse_indep:.4f}"
     )
 
 
@@ -98,7 +98,10 @@ def test_biz_val_mtr_nnls_ensemble_beats_best_single_member(seed):
     best_single = min(single_rmses)
 
     ens = MTRPerColumnEqualMeanEnsemble(
-        components=components, component_names=["lgb", "ridge"], n_targets=3, strategy="nnls",
+        components=components,
+        component_names=["lgb", "ridge"],
+        n_targets=3,
+        strategy="nnls",
     )
     ens.fit(X_va, y_va)  # learn per-column weights on held-out val
     rmse_ens = _macro_rmse(y_te, ens.predict(X_te))

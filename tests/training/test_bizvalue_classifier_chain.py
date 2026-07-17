@@ -7,6 +7,7 @@ gain (sklearn docs `plot_classifier_chain_yeast`): +2-5% Jaccard on correlated
 labels, at 3-5× training cost. This test enforces the lift on synthetic
 deliberately-correlated data so the ChainEnsemble dispatch path is justified.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -65,8 +66,11 @@ def test_classifier_chain_ensemble_beats_multioutput_on_correlated_labels():
         moc_jac = jaccard_score_multilabel(Y_te, moc_pred)
 
         chain_ensemble = _ChainEnsemble(
-            clone(base), n_labels=Y.shape[1], n_chains=3,
-            seeds=[seed * 10, seed * 10 + 1, seed * 10 + 2], cv=5,
+            clone(base),
+            n_labels=Y.shape[1],
+            n_chains=3,
+            seeds=[seed * 10, seed * 10 + 1, seed * 10 + 2],
+            cv=5,
         )
         chain_ensemble.fit(X_tr, Y_tr)
         chain_probs = chain_ensemble.predict_proba(X_te)
@@ -75,15 +79,11 @@ def test_classifier_chain_ensemble_beats_multioutput_on_correlated_labels():
 
         delta = chain_jac - moc_jac
         deltas.append(delta)
-        print(
-            f"[biz-value seed={seed}] MOC Jaccard={moc_jac:.4f}; "
-            f"Chain Jaccard={chain_jac:.4f}; delta={delta:+.4f}"
-        )
+        print(f"[biz-value seed={seed}] MOC Jaccard={moc_jac:.4f}; Chain Jaccard={chain_jac:.4f}; delta={delta:+.4f}")
 
     mean_delta = float(np.mean(deltas))
     pos_count = sum(1 for d in deltas if d > 0)
-    print(f"[biz-value] mean delta over 5 seeds: {mean_delta:+.4f}; "
-          f"positive in {pos_count}/5 seeds")
+    print(f"[biz-value] mean delta over 5 seeds: {mean_delta:+.4f}; positive in {pos_count}/5 seeds")
 
     # Sign assertion — chain ensemble must EITHER beat MOC on average across
     # seeds OR win in the majority of seeds (≥3/5). The dispatch path is

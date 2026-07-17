@@ -11,6 +11,7 @@ This file pins the full contract so a future refactor of the keep-best-first
 logic / the ``min_keep`` floor / the NaN-row guard cannot silently regress
 ensemble member selection (which tilts the downstream NNLS stacking weights).
 """
+
 from __future__ import annotations
 
 import numpy as np
