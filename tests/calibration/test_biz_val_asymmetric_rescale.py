@@ -15,6 +15,7 @@ from mlframe.calibration.asymmetric_rescale import apply_asymmetric_rescale, cro
 
 
 def _make_asymmetric_miscalibration_dataset(n: int, seed: int):
+    """Helper that make asymmetric miscalibration dataset."""
     rng = np.random.default_rng(seed)
     y_true = rng.normal(size=n)
     # the model systematically shrinks negative predictions toward zero relative to positive ones (a real,
@@ -24,10 +25,12 @@ def _make_asymmetric_miscalibration_dataset(n: int, seed: int):
 
 
 def _neg_mse(y_true, y_pred):
+    """Helper that neg mse."""
     return -float(np.mean((y_true - y_pred) ** 2))
 
 
 def test_biz_val_asymmetric_rescale_generalizes_to_held_out_split():
+    """Asymmetric rescale generalizes to held out split."""
     y_true_val, y_pred_val = _make_asymmetric_miscalibration_dataset(n=1500, seed=0)
     y_true_test, y_pred_test = _make_asymmetric_miscalibration_dataset(n=1500, seed=1)
 
@@ -46,12 +49,14 @@ def test_biz_val_asymmetric_rescale_generalizes_to_held_out_split():
 
 
 def test_apply_asymmetric_rescale_exact_values():
+    """Apply asymmetric rescale exact values."""
     y_pred = np.array([-2.0, -1.0, 1.0, 2.0])
     out = apply_asymmetric_rescale(y_pred, factor=1.5)
     np.testing.assert_allclose(out, [-3.0, -1.5, 1.0 / 1.5, 2.0 / 1.5])
 
 
 def test_apply_asymmetric_rescale_factor_one_is_noop():
+    """Apply asymmetric rescale factor one is noop."""
     y_pred = np.array([-2.0, -1.0, 1.0, 2.0])
     out = apply_asymmetric_rescale(y_pred, factor=1.0)
     np.testing.assert_allclose(out, y_pred)
@@ -60,6 +65,7 @@ def test_apply_asymmetric_rescale_factor_one_is_noop():
 def test_biz_val_cross_validate_asymmetric_rescale_flags_stable_vs_unstable_fit():
     # genuine, consistent asymmetric miscalibration at large n: every fold sees the same underlying signal,
     # so the fitted factor should be nearly identical fold-to-fold (low CV, flagged stable).
+    """Cross validate asymmetric rescale flags stable vs unstable fit."""
     y_true_stable, y_pred_stable = _make_asymmetric_miscalibration_dataset(n=4000, seed=42)
     stable_result = cross_validate_asymmetric_rescale(y_true_stable, y_pred_stable, _neg_mse, n_folds=5, factor_range=(1.0, 2.0), n_factors=50, seed=0)
 
@@ -83,6 +89,7 @@ def test_biz_val_cross_validate_asymmetric_rescale_flags_stable_vs_unstable_fit(
 def test_cross_validate_asymmetric_rescale_does_not_change_default_fit_behavior():
     # regression guard: the new opt-in CV mode must not alter fit_asymmetric_rescale/apply_asymmetric_rescale
     # when they're called directly (bit-identical to pre-extension behavior).
+    """Cross validate asymmetric rescale does not change default fit behavior."""
     y_true_val, y_pred_val = _make_asymmetric_miscalibration_dataset(n=1500, seed=0)
     fit_before = fit_asymmetric_rescale(y_true_val, y_pred_val, _neg_mse, factor_range=(1.0, 2.0), n_factors=50)
 

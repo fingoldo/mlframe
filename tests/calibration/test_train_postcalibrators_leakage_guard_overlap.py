@@ -14,6 +14,7 @@ import pytest
 
 
 def _synth(seed: int = 0, n: int = 300):
+    """Helper that synth."""
     rng = np.random.default_rng(seed)
     p1 = rng.random(n)
     probs = np.column_stack([1 - p1, p1])
@@ -36,6 +37,7 @@ def test_train_postcalibrators_raises_on_reordered_calib_target_reusing_test_row
     shuffled_target = target[perm]  # same multiset of values, different order -- same underlying rows
 
     class _FakeModel:
+        """Groups tests covering FakeModel."""
         columns = ["y"]
         test_target = target
 
@@ -74,6 +76,7 @@ def test_train_postcalibrators_raises_on_index_subset_overlap_with_test_target()
     calib_probs = probs[calib_idx]
 
     class _FakeModel:
+        """Groups tests covering FakeModel."""
         columns = ["y"]
         test_target = _outer_test_target
 
@@ -114,6 +117,7 @@ def test_train_postcalibrators_raises_on_probs_overlap_with_reshuffled_target():
     _outer_test_target = np.concatenate([independent_target, [0]])
 
     class _FakeModel:
+        """Groups tests covering FakeModel."""
         columns = ["y"]
         test_target = _outer_test_target
         test_probs = probs  # SAME probability rows as calib_probs_per_model below

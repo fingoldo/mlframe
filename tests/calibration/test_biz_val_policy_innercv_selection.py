@@ -17,12 +17,14 @@ from mlframe.calibration.policy import _ece_score, _fit_calibrator, pick_best_ca
 
 
 def _gen(rng, n, slope, noise):
+    """Helper that gen."""
     y = (rng.random(n) < 0.5).astype(int)
     p = np.clip(0.5 + (y - 0.5) * slope + rng.normal(0, noise, n), 0.005, 0.995)
     return p, y
 
 
 def _holdout_ece(selection, oof_p, oof_y, ho_p, ho_y, seed):
+    """Helper that holdout ece."""
     res = pick_best_calibrator(None, None, oof_p, oof_y, n_bootstrap=150, random_state=seed, selection=selection)
     cal = _fit_calibrator(res["chosen"], oof_p, oof_y)
     holdout = float(_ece_score(ho_y, cal(ho_p)))
