@@ -16,6 +16,7 @@ _BASES = sorted(_NJIT_FUNCS.keys())
 
 @pytest.mark.parametrize("basis", _BASES)
 def test_njit_single_and_parallel_agree_within_selection_tolerance(basis, monkeypatch):
+    """njit single-thread and njit_par outputs agree at rtol=1e-10 for every basis, far below any selection-flipping (>=1e-3) divergence."""
     rng = np.random.default_rng(0)
     # n large enough that the parallel kernel does real multi-chunk work (its chunking is what reassociates).
     x = rng.uniform(-0.9, 0.9, size=20000).astype(np.float64)

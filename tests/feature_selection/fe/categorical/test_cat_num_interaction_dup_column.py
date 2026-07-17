@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters._count_freq_interaction_fe import cat_num
 
 
 def test_cat_num_interaction_skips_duplicate_named_column():
+    """A duplicated column name (X[c] returns a DataFrame, no .dtype) is skipped rather than crashing the whole FE pass."""
     rng = np.random.default_rng(0)
     n = 50
     X = pd.DataFrame(
