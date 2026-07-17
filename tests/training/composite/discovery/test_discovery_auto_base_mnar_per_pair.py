@@ -122,6 +122,7 @@ def _make_self(config, X: np.ndarray, feature_names: list[str]):
     name_to_col = {n: i for i, n in enumerate(feature_names)}
 
     def _build_feature_matrix(df, cols, idx):
+        """Gathers the requested columns/rows directly from the pre-built X matrix, bypassing any DataFrame lookup."""
         if not cols:
             return np.zeros((idx.size, 0), dtype=np.float64)
         return np.column_stack([X[idx, name_to_col[c]] for c in cols])
@@ -134,6 +135,7 @@ def _make_self(config, X: np.ndarray, feature_names: list[str]):
 
 
 def _base_config(**overrides):
+    """Builds a CompositeTargetDiscoveryConfig with structural demoters/null-filter disabled, isolating MNAR per-pair MI ranking."""
     cfg = CompositeTargetDiscoveryConfig(
         enabled=True,
         auto_base_top_k=2,

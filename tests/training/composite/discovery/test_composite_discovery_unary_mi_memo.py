@@ -36,6 +36,7 @@ class _Disc:
         self.config = config
 
     def _reject(self, base, transform_name, mi_y, valid_frac, *, reason):
+        """Returns the standard rejected-spec dict shape eval_one_transform expects, tagged with the given reason."""
         return {"spec": None, "kept": False, "reason": reason, "base": base, "transform": transform_name}
 
 
@@ -196,6 +197,7 @@ def test_unary_memo_reduces_full_x_mi_calls(monkeypatch):
     real = _eval_mod._mi_to_target_prebinned
 
     def _counting(*args, **kwargs):
+        """Counts calls to _mi_to_target_prebinned, to prove the unary-memo cache avoids redundant recomputation."""
         calls["n"] += 1
         return real(*args, **kwargs)
 
