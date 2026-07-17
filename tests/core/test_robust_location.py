@@ -15,6 +15,7 @@ from mlframe.core.robust_location import (
 
 # ---------------------------------------------------------------- unit
 def test_robust_mean_no_outliers_matches_mean_closely():
+    """Robust mean no outliers matches mean closely."""
     rng = np.random.default_rng(0)
     x = rng.normal(5.0, 1.0, size=500)
     r = robust_mean_mestimator(x, weight="huber", param=3.0)  # large k -> near mean
@@ -22,18 +23,21 @@ def test_robust_mean_no_outliers_matches_mean_closely():
 
 
 def test_robust_mean_single_and_empty():
+    """Robust mean single and empty."""
     assert robust_mean_mestimator(np.array([7.0])) == 7.0
     assert np.isnan(robust_mean_mestimator(np.array([])))
 
 
 @pytest.mark.parametrize("weight", ["meshalkin", "huber", "tukey"])
 def test_robust_mean_ignores_extreme_outlier(weight):
+    """Robust mean ignores extreme outlier."""
     x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 1000.0])
     r = robust_mean_mestimator(x, weight=weight)
     assert 2.0 < r < 4.5, f"{weight} should resist the 1000 outlier, got {r}"
 
 
 def test_invalid_weight_and_param():
+    """Invalid weight and param."""
     with pytest.raises(ValueError):
         robust_mean_mestimator(np.arange(5.0), weight="nope")
     with pytest.raises(ValueError):
@@ -41,18 +45,21 @@ def test_invalid_weight_and_param():
 
 
 def test_geometric_median_1d_matches_median():
+    """Geometric median 1d matches median."""
     x = np.array([1.0, 2.0, 3.0, 4.0, 100.0])
     gm = geometric_median(x)
     assert abs(gm[0] - np.median(x)) < 1e-3
 
 
 def test_geometric_median_coincident_points_safe():
+    """Geometric median coincident points safe."""
     X = np.zeros((10, 2))  # all identical -> distance 0 for all; must not divide by zero
     gm = geometric_median(X)
     assert np.allclose(gm, 0.0)
 
 
 def test_geometric_median_empty():
+    """Geometric median empty."""
     gm = geometric_median(np.empty((0, 3)))
     assert gm.shape == (3,) and np.all(np.isnan(gm))
 
@@ -84,12 +91,14 @@ def test_biz_val_geometric_median_beats_coordinate_mean_under_contamination():
 
 
 def test_trimmed_and_winsorized_identity_at_zero():
+    """Trimmed and winsorized identity at zero."""
     x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     assert np.isclose(trimmed_mean(x, 0.0), x.mean())
     assert np.isclose(winsorized_mean(x, 0.0), x.mean())
 
 
 def test_trimmed_mean_invalid_proportion():
+    """Trimmed mean invalid proportion."""
     import pytest as _pt
 
     with _pt.raises(ValueError):
@@ -99,6 +108,7 @@ def test_trimmed_mean_invalid_proportion():
 
 
 def test_trimmed_mean_empty():
+    """Trimmed mean empty."""
     assert np.isnan(trimmed_mean(np.array([])))
     assert np.isnan(winsorized_mean(np.array([])))
 

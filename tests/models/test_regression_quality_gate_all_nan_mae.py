@@ -11,6 +11,7 @@ from mlframe.models.ensembling.quality_gate import compute_member_quality_gate
 
 
 def test_relative_gate_all_nan_mae_threshold_is_zero_not_nan():
+    """Relative gate all nan mae threshold is zero not nan."""
     n_rows = 50
     # Three members, every prediction NaN -> per-member MAE/STD are all NaN.
     preds_list = [np.full(n_rows, np.nan) for _ in range(3)]

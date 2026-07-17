@@ -51,6 +51,7 @@ def _run_sequence(MBHOpt, n_space: int, n_steps: int, seed: int) -> list:
 
 
 def _new_sequence(n_space, n_steps, seed):
+    """Helper: New sequence."""
     return _run_sequence(MBHOptimizer, n_space, n_steps, seed)
 
 
@@ -88,6 +89,7 @@ def _old_sequence(n_space, n_steps, seed):
 
 @pytest.mark.parametrize("seed", [0, 7, 123])
 def test_suggest_sequence_identical_old_vs_new(seed):
+    """Suggest sequence identical old vs new."""
     n_space, n_steps = 400, 120
     new_seq = _new_sequence(n_space, n_steps, seed)
     old_seq = _old_sequence(n_space, n_steps, seed)

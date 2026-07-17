@@ -25,6 +25,7 @@ from mlframe.feature_engineering.two_step_target_encode import two_step_recency_
 
 
 def _make_data(seed: int):
+    """Helper: Make data."""
     rng = np.random.default_rng(seed)
     n_entities = 300
     rows = []
@@ -52,6 +53,7 @@ def _make_data(seed: int):
 
 
 def test_biz_val_two_step_recency_weighted_encoding_beats_unweighted_aggregate():
+    """Biz val two step recency weighted encoding beats unweighted aggregate."""
     events_df, entity_label = _make_data(seed=0)
     y_all = events_df["y"].to_numpy()
 
@@ -112,6 +114,7 @@ def _make_data_with_boundary(seed: int):
 
 
 def test_biz_val_two_step_causal_avoids_future_leakage_at_early_scoring_point():
+    """Biz val two step causal avoids future leakage at early scoring point."""
     events_df, entity_label, boundary_idx = _make_data_with_boundary(seed=2)
     y_all = events_df["y"].to_numpy()
     entity_ids = events_df["entity"].to_numpy()
@@ -157,6 +160,7 @@ def test_two_step_recency_weighted_encode_default_unchanged_when_causal_not_pass
 
 
 def test_two_step_recency_weighted_encode_same_value_per_entity():
+    """Two step recency weighted encode same value per entity."""
     events_df, _ = _make_data(seed=1)
     y_all = events_df["y"].to_numpy()
     encoded = two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], y_all, "t", decay_half_life=2.0)

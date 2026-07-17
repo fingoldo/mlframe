@@ -48,10 +48,12 @@ _STDLIB_JSON_WHITELIST = {
 
 
 def _iter_test_files() -> list[Path]:
+    """Helper that iter test files."""
     return [p for p in TESTS_DIR.rglob("*.py") if p.name != "test_conventions.py"]
 
 
 def test_no_stdlib_json_in_tests() -> None:
+    """No stdlib json in tests."""
     offenders: list[str] = []
     for path in _iter_test_files():
         if path.relative_to(TESTS_DIR).as_posix() in _STDLIB_JSON_WHITELIST:
@@ -65,6 +67,7 @@ def test_no_stdlib_json_in_tests() -> None:
 
 
 def test_no_ensure_installed_in_tests() -> None:
+    """No ensure installed in tests."""
     offenders: list[str] = []
     for path in _iter_test_files():
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -74,6 +77,7 @@ def test_no_ensure_installed_in_tests() -> None:
 
 
 def test_postcalibration_include_re_is_compiled() -> None:
+    """Postcalibration include re is compiled."""
     pytest.importorskip("sklearn")
     postcalibration = pytest.importorskip("mlframe.calibration.post")
     include_re = getattr(postcalibration, "_INCLUDE_RE", None)

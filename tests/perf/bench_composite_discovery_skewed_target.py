@@ -16,6 +16,7 @@ import pandas as pd
 
 
 def build_df(n: int = 4000, seed: int = 11) -> pd.DataFrame:
+    """Helper that build df."""
     rng = np.random.default_rng(seed)
     x_a = rng.normal(100.0, 20.0, n)
     x_b = rng.normal(50.0, 10.0, n)
@@ -40,6 +41,7 @@ def build_df(n: int = 4000, seed: int = 11) -> pd.DataFrame:
 
 
 def run_once(df: pd.DataFrame):
+    """Helper that run once."""
     from mlframe.training.composite.discovery import CompositeTargetDiscovery
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
@@ -60,6 +62,7 @@ def run_once(df: pd.DataFrame):
 
 
 def main() -> None:
+    """Helper that main."""
     df = build_df()
     run_once(df)  # warm
     if "--profile" in sys.argv:

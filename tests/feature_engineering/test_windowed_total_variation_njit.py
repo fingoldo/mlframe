@@ -19,6 +19,7 @@ from mlframe.feature_engineering.grouped import per_group_sliding_window
 
 
 def _ref(values, window_K, normalize):
+    """Helper: Ref."""
     out = np.full(values.size, np.nan, dtype=np.float64)
     g = np.zeros(values.size, dtype=np.int64)
     for _si, wins, wi in per_group_sliding_window(values, g, window_K=window_K):
@@ -30,11 +31,13 @@ def _ref(values, window_K, normalize):
 
 
 def test_kernel_symbol_present_and_routed_on_finite_input():
+    """Kernel symbol present and routed on finite input."""
     assert hasattr(ws, "_total_variation_kernel")
     calls = {"n": 0}
     orig = ws._total_variation_kernel
 
     def spy(*a, **k):
+        """Spy."""
         calls["n"] += 1
         return orig(*a, **k)
 
@@ -52,6 +55,7 @@ def test_kernel_symbol_present_and_routed_on_finite_input():
 @pytest.mark.parametrize("normalize", [False, True])
 @pytest.mark.parametrize("kind", ["continuous", "tied_lowcard", "discrete_int"])
 def test_matches_numpy_reference_finite(window_K, normalize, kind):
+    """Matches numpy reference finite."""
     rng = np.random.default_rng(7)
     n = 4000
     if kind == "continuous":
@@ -68,6 +72,7 @@ def test_matches_numpy_reference_finite(window_K, normalize, kind):
 
 
 def test_nan_segment_falls_back_to_numpy_exact():
+    """Nan segment falls back to numpy exact."""
     rng = np.random.default_rng(3)
     v = rng.standard_normal(3000)
     v[100] = np.nan
@@ -78,6 +83,7 @@ def test_nan_segment_falls_back_to_numpy_exact():
 
 
 def test_window_k_one_is_all_zero_tv():
+    """Window k one is all zero tv."""
     v = np.random.default_rng(5).standard_normal(1000)
     g = np.zeros(1000, dtype=np.int64)
     got = ws.rolling_total_variation(v, g, window_K=1)

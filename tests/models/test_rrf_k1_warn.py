@@ -16,6 +16,7 @@ from mlframe.models.ensembling.base import _rrf_aggregate_probs
 
 
 def test_k1_input_emits_warn(caplog):
+    """K1 input emits warn."""
     rng = np.random.default_rng(0)
     preds_2d = rng.random((3, 50)).astype(np.float64)  # (M, N) -> auto-promoted to K=1
     with caplog.at_level(logging.WARNING, logger="mlframe.models.ensembling"):
@@ -26,6 +27,7 @@ def test_k1_input_emits_warn(caplog):
 
 
 def test_k2_binary_does_not_emit_k1_warn(caplog):
+    """K2 binary does not emit k1 warn."""
     rng = np.random.default_rng(0)
     preds = rng.random((3, 50, 2)).astype(np.float64)
     # Normalise each row to sum 1 so we feed real probabilities.

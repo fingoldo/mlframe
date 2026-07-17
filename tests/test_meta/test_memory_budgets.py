@@ -38,6 +38,7 @@ _BUDGETS_MB: dict[str, float] = {
 
 @pytest.fixture(scope="module")
 def small_regression_data():
+    """Helper that small regression data."""
     rng = np.random.default_rng(123)
     n_rows, n_features = 200, 8
     X = rng.standard_normal((n_rows, n_features))
@@ -47,6 +48,7 @@ def small_regression_data():
 
 @pytest.mark.parametrize("model_type,budget_mb", list(_BUDGETS_MB.items()))
 def test_linear_fit_stays_under_memory_budget(model_type, budget_mb, small_regression_data):
+    """Linear fit stays under memory budget."""
     from mlframe.training.configs import LinearModelConfig
     from mlframe.training.models import create_linear_model
 

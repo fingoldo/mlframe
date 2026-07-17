@@ -58,6 +58,7 @@ def _synthetic_audit_with_changepoint():
 
 
 def test_x_is_time_flag_set():
+    """X is time flag set."""
     spec = build_temporal_audit_spec(_synthetic_audit_with_changepoint())
     line = spec.panels[0][0]
     assert isinstance(line, LinePanelSpec)
@@ -100,6 +101,7 @@ def test_sparse_bins_rendered_as_marker_series():
 
 
 def test_three_series_kept_segment_sparse():
+    """Three series kept segment sparse."""
     spec = build_temporal_audit_spec(_synthetic_audit_with_changepoint())
     line = spec.panels[0][0]
     assert len(line.y) == 3
@@ -107,6 +109,7 @@ def test_three_series_kept_segment_sparse():
 
 
 def test_degenerate_no_bins_does_not_crash():
+    """Degenerate no bins does not crash."""
     res = TemporalAuditResult(
         target_name="y",
         target_type="regression",
@@ -165,6 +168,7 @@ from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec
 
 
 def _ar1_series(n: int, phi: float, seed: int) -> np.ndarray:
+    """Helper: Ar1 series."""
     rng = np.random.default_rng(seed)
     e = rng.standard_normal(n)
     y = np.zeros(n)
@@ -174,10 +178,13 @@ def _ar1_series(n: int, phi: float, seed: int) -> np.ndarray:
 
 
 class TestTargetAcfPacf:
+    """Groups tests for: TestTargetAcfPacf."""
     def test_tokens_registered(self):
+        """Tokens registered."""
         assert ALLOWED_TEMPORAL_PANEL_TOKENS == frozenset({"TARGET_ACF", "TARGET_PACF"})
 
     def test_acf_pacf_shape(self):
+        """Acf pacf shape."""
         y = _ar1_series(5000, 0.5, seed=0)
         fig = compose_target_acf_figure(y)
         panels = [p for row in fig.panels for p in row if p is not None]
@@ -188,10 +195,12 @@ class TestTargetAcfPacf:
             assert len(panel.categories) <= 50
 
     def test_unknown_token_raises(self):
+        """Unknown token raises."""
         with pytest.raises(ValueError, match="Unknown temporal panel tokens"):
             compose_target_acf_figure(np.zeros(100), panels_template="TARGET_ACF BOGUS")
 
     def test_constant_series_annotates(self):
+        """Constant series annotates."""
         fig = compose_target_acf_figure(np.full(500, 3.0))
         panels = [p for row in fig.panels for p in row if p is not None]
         assert all(isinstance(p, AnnotationPanelSpec) for p in panels)
@@ -223,6 +232,7 @@ class TestTargetAcfPacf:
         assert np.all(pacf_rest < 0.5 * pacf1), "PACF must cut off after lag 1 for an AR(1) target"
 
     def test_acf_pacf_render(self, tmp_path):
+        """Acf pacf render."""
         y = _ar1_series(3000, 0.6, seed=3)
         spec = compose_target_acf_figure(y)
         with warnings.catch_warnings():

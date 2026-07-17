@@ -10,6 +10,7 @@ import numpy as np
 
 
 def test_deviance_reexport_identity():
+    """Deviance reexport identity."""
     from mlframe.metrics.regression import _regression_deviance as sib
     from mlframe.metrics.regression import _regression_extras as parent
     from mlframe.metrics import core
@@ -20,6 +21,7 @@ def test_deviance_reexport_identity():
 
 
 def test_deviance_bodies_callable_with_sklearn_parity():
+    """Deviance bodies callable with sklearn parity."""
     from sklearn.metrics import mean_poisson_deviance, mean_gamma_deviance, mean_tweedie_deviance
 
     from mlframe.metrics.regression._regression_deviance import (
@@ -38,6 +40,7 @@ def test_deviance_bodies_callable_with_sklearn_parity():
 
 
 def test_deviance_invalid_rows_return_nan():
+    """Deviance invalid rows return nan."""
     from mlframe.metrics.regression._regression_deviance import fast_poisson_deviance
 
     # all rows invalid (y_pred <= 0) -> NaN

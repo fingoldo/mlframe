@@ -42,6 +42,7 @@ def _miscalibrated(n: int = 200_000, seed: int = 0):
 
 
 def _ece_pair(y, score, nbins):
+    """Helper: Ece pair."""
     fp, ft, hits = fast_calibration_binning(y, score, nbins=nbins)
     return standard_ece(fp, ft, hits), debiased_ece(fp, ft, hits)
 
@@ -50,6 +51,7 @@ def _ece_pair(y, score, nbins):
 
 
 def test_debiased_ece_present_in_spec_annotation():
+    """Debiased ece present in spec annotation."""
     y, score = _perfectly_calibrated(n=20_000)
     fp, ft, hits = fast_calibration_binning(y, score, nbins=15)
     spec = build_calibration_spec(fp, ft, hits, plot_title="rel")
@@ -59,6 +61,7 @@ def test_debiased_ece_present_in_spec_annotation():
 
 
 def test_ece_annotation_can_be_disabled():
+    """Ece annotation can be disabled."""
     y, score = _perfectly_calibrated(n=20_000)
     fp, ft, hits = fast_calibration_binning(y, score, nbins=15)
     spec = build_calibration_spec(fp, ft, hits, plot_title="rel", show_ece_annotation=False)
@@ -68,6 +71,7 @@ def test_ece_annotation_can_be_disabled():
 
 
 def test_standard_ece_formula_matches_manual():
+    """Standard ece formula matches manual."""
     fp = np.array([0.1, 0.5, 0.9])
     ft = np.array([0.2, 0.5, 0.7])
     hits = np.array([10.0, 30.0, 60.0])
@@ -76,6 +80,7 @@ def test_standard_ece_formula_matches_manual():
 
 
 def test_debiased_ece_subtracts_variance_term():
+    """Debiased ece subtracts variance term."""
     fp = np.array([0.5])
     ft = np.array([0.6])
     hits = np.array([100.0])
@@ -87,6 +92,7 @@ def test_debiased_ece_subtracts_variance_term():
 
 def test_debiased_ece_clamps_to_zero_when_gap_below_noise():
     # gap^2 (0.0001) is far below the variance term (0.5*0.5/50 = 0.005) -> debiased clamps to 0, not negative/nan.
+    """Debiased ece clamps to zero when gap below noise."""
     fp = np.array([0.5])
     ft = np.array([0.51])
     hits = np.array([50.0])
@@ -103,11 +109,13 @@ def test_debiased_ece_clamps_to_zero_when_gap_below_noise():
     ],
 )
 def test_debiased_ece_degenerate_returns_nan(fp, ft, hits):
+    """Debiased ece degenerate returns nan."""
     assert np.isnan(debiased_ece(fp, ft, hits))
 
 
 def test_degenerate_omits_debiased_term_keeps_chart():
     # all bins singleton -> debiased NaN; annotation must keep standard ECE and omit the debiased term, chart survives.
+    """Degenerate omits debiased term keeps chart."""
     fp = np.array([0.2, 0.8])
     ft = np.array([0.0, 1.0])
     hits = np.array([1.0, 1.0])
@@ -119,6 +127,7 @@ def test_degenerate_omits_debiased_term_keeps_chart():
 
 def test_single_class_input_omits_debiased():
     # All labels 0: positive rate per bin is 0 everywhere; binning still produces finite bins but std ECE is finite.
+    """Single class input omits debiased."""
     score = np.linspace(0.05, 0.95, 5000)
     y = np.zeros_like(score, dtype=np.int64)
     fp, ft, hits = fast_calibration_binning(y, score, nbins=15)
@@ -134,6 +143,7 @@ def test_biz_debiased_ece_corrects_spurious_bias_on_perfectly_calibrated():
     # Standard ECE is an L1 mean-|gap| whose expected value stays positive under perfect calibration (mean of |noise|
     # > 0); debiased works on the L2 scale where that noise is an additive variance. nbins=40 keeps each bin populous
     # enough that the variance estimate is accurate while the spurious bias clears 0.01.
+    """Biz debiased ece corrects spurious bias on perfectly calibrated."""
     std, deb = _ece_pair(*_perfectly_calibrated(n=20_000, seed=1), nbins=40)
     assert std >= 0.01, f"expected spurious standard-ECE bias >= 0.01, got {std:.4f}"
     # Debiased is materially closer to the truth (0): well under half the standard value at this bin count.
@@ -144,6 +154,7 @@ def test_biz_debiased_ece_corrects_spurious_bias_on_perfectly_calibrated():
 def test_biz_debiased_ece_bin_count_stable_on_perfectly_calibrated():
     # The signature of finite-sample binning bias: standard ECE INFLATES as bins grow (each bin holds fewer samples ->
     # noisier acc_k -> larger |conf-acc|). The debiased estimator subtracts that growing variance, so it stays ~flat.
+    """Biz debiased ece bin count stable on perfectly calibrated."""
     y, score = _perfectly_calibrated(n=20_000, seed=2)
     std5, deb5 = _ece_pair(y, score, nbins=5)
     std50, deb50 = _ece_pair(y, score, nbins=50)
@@ -157,6 +168,7 @@ def test_biz_debiased_ece_bin_count_stable_on_perfectly_calibrated():
 def test_biz_debiased_ece_does_not_mask_real_miscalibration():
     # Overconfident model with a genuine, non-vanishing gap. The O(1/n_k) variance term is negligible against the real
     # squared gap, so the correction barely moves the estimate -- debiased stays clearly positive (does NOT zero out).
+    """Biz debiased ece does not mask real miscalibration."""
     std, deb = _ece_pair(*_miscalibrated(n=20_000, seed=3), nbins=15)
     assert std >= 0.05, f"standard ECE should flag real miscalibration, got {std:.4f}"
     assert deb >= 0.05, f"debiased ECE must not mask real miscalibration, got {deb:.4f}"
@@ -170,6 +182,7 @@ def test_biz_debiased_ece_does_not_mask_real_miscalibration():
 def test_debiased_ece_is_o_bins_not_o_n():
     # The estimator must run on per-bin summaries only -- its cost must not depend on n. Profile at a fixed bin count
     # for two very different n and assert the call count for debiased_ece itself is identical (one call) and fast.
+    """Debiased ece is o bins not o n."""
     y_small, sc_small = _perfectly_calibrated(n=2_000, seed=4)
     y_big, sc_big = _perfectly_calibrated(n=400_000, seed=4)
     fps, fts, hs = fast_calibration_binning(y_small, sc_small, nbins=15)

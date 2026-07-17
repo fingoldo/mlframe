@@ -34,6 +34,7 @@ def _reference_numpy(X_std, W, b, m, dtype=np.float32):
 
 @pytest.mark.parametrize("n,d_input,m", [(500, 8, 4), (1000, 20, 4), (300, 5, 8)])
 def test_per_column_rff_fused_njit_selection(n, d_input, m):
+    """Per column rff fused njit selection."""
     rng = np.random.default_rng(123)
     X = rng.standard_normal((n, d_input)).astype(np.float32)
 

@@ -19,6 +19,7 @@ from mlframe.reporting.spec import FigureSpec, ScatterPanelSpec
 
 
 def _flat(fig: FigureSpec):
+    """Helper: Flat."""
     return [p for row in fig.panels for p in row if p is not None]
 
 
@@ -28,12 +29,14 @@ def _flat(fig: FigureSpec):
 
 
 def test_single_class_scores_zero():
+    """Single class scores zero."""
     z2 = np.random.default_rng(0).random((500, 2))
     y = np.ones(500)  # only one class present
     assert separability_score(z2, y) == 0.0
 
 
 def test_score_is_order_invariant():
+    """Score is order invariant."""
     rng = np.random.default_rng(1)
     z2 = rng.random((2000, 2))
     y = rng.integers(0, 2, size=2000).astype(float)
@@ -44,6 +47,7 @@ def test_score_is_order_invariant():
 
 
 def test_overlapping_classes_score_near_zero():
+    """Overlapping classes score near zero."""
     rng = np.random.default_rng(2)
     z2 = rng.standard_normal((4000, 2))  # both classes share the same distribution
     y = rng.integers(0, 2, size=4000).astype(float)
@@ -56,6 +60,7 @@ def test_overlapping_classes_score_near_zero():
 
 
 def test_panel_subsamples_and_labels():
+    """Panel subsamples and labels."""
     rng = np.random.default_rng(3)
     n = 20_000
     X = pd.DataFrame({"a": rng.random(n), "b": rng.random(n)})
@@ -68,6 +73,7 @@ def test_panel_subsamples_and_labels():
 
 
 def test_compose_picks_top2_by_importance():
+    """Compose picks top2 by importance."""
     rng = np.random.default_rng(4)
     n = 3000
     X = pd.DataFrame({"a": rng.random(n), "b": rng.random(n), "c": rng.random(n)})

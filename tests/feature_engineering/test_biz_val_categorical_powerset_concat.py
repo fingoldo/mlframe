@@ -19,6 +19,7 @@ from mlframe.feature_engineering.categorical_powerset_concat import categorical_
 
 
 def _make_pairwise_random_target(n_rows: int, n_levels: int, seed: int):
+    """Helper: Make pairwise random target."""
     rng = np.random.default_rng(seed)
     a = rng.integers(0, n_levels, size=n_rows)
     b = rng.integers(0, n_levels, size=n_rows)
@@ -29,6 +30,7 @@ def _make_pairwise_random_target(n_rows: int, n_levels: int, seed: int):
 
 
 def test_biz_val_categorical_powerset_concat_recovers_pairwise_random_mapping():
+    """Biz val categorical powerset concat recovers pairwise random mapping."""
     df, y = _make_pairwise_random_target(n_rows=12000, n_levels=12, seed=0)
     df_train, df_test, y_train, y_test = train_test_split(df, y, test_size=0.3, random_state=0, stratify=y)
 
@@ -54,12 +56,14 @@ def test_biz_val_categorical_powerset_concat_recovers_pairwise_random_mapping():
 
 
 def test_categorical_powerset_concat_column_count_and_names():
+    """Categorical powerset concat column count and names."""
     df = pd.DataFrame({"A": ["a0", "a1"], "B": ["b0", "b1"], "C": ["c0", "c1"]})
     out = categorical_powerset_concat(df, columns=["A", "B", "C"])
     assert set(out.columns) == {"A", "B", "C", "A_B", "A_C", "B_C", "A_B_C"}
 
 
 def test_categorical_powerset_concat_max_order_caps_to_pairwise():
+    """Categorical powerset concat max order caps to pairwise."""
     df = pd.DataFrame({"A": ["a0", "a1"], "B": ["b0", "b1"], "C": ["c0", "c1"]})
     out = categorical_powerset_concat(df, columns=["A", "B", "C"], max_order=2)
     assert "A_B_C" not in out.columns
@@ -90,6 +94,7 @@ def _make_mixed_informative_and_noise_target(n_rows: int, n_levels: int, n_noise
 
 
 def test_biz_val_categorical_powerset_concat_prune_against_target_keeps_informative_drops_noise():
+    """Biz val categorical powerset concat prune against target keeps informative drops noise."""
     n_noise_keys = 4
     df, y = _make_mixed_informative_and_noise_target(n_rows=15000, n_levels=8, n_noise_keys=n_noise_keys, seed=1)
     columns = ["A", "B"] + [f"N{k}" for k in range(n_noise_keys)]

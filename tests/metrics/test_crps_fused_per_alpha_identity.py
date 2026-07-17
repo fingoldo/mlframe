@@ -40,6 +40,7 @@ def _crps_loop_reference(y, p, a):
 @pytest.mark.parametrize("n", [1, 100, 5_000])
 @pytest.mark.parametrize("k", [2, 10, 19])
 def test_crps_fused_bit_identical_to_loop(n, k):
+    """Crps fused bit identical to loop."""
     rng = np.random.default_rng(n * 100 + k)
     y = rng.standard_normal(n)
     p = np.sort(rng.standard_normal((n, k)), axis=1)
@@ -51,6 +52,7 @@ def test_crps_fused_bit_identical_to_loop(n, k):
 
 
 def test_fused_per_alpha_matches_pinball_loss_per_column():
+    """Fused per alpha matches pinball loss per column."""
     rng = np.random.default_rng(7)
     n, k = 2_000, 9
     y = np.ascontiguousarray(rng.standard_normal(n))
@@ -63,6 +65,7 @@ def test_fused_per_alpha_matches_pinball_loss_per_column():
 
 def test_crps_non_contiguous_inputs_still_identical():
     # F-ordered / strided inputs must be handled by the ascontiguousarray casts.
+    """Crps non contiguous inputs still identical."""
     rng = np.random.default_rng(11)
     n, k = 500, 10
     y = rng.standard_normal(n * 2)[::2]  # strided

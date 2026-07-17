@@ -25,6 +25,7 @@ from mlframe.feature_engineering import compute_cross_sectional_neighbor_feature
 
 
 def _make_snapshot_cluster_dataset(n_snapshots: int, rows_per_snap: int, n_clusters: int, seed: int):
+    """Helper: Make snapshot cluster dataset."""
     rng = np.random.default_rng(seed)
     cluster_centers = rng.normal(scale=6, size=(n_clusters, 3))
     cluster_targets = rng.uniform(10, 100, n_clusters)
@@ -42,6 +43,7 @@ def _make_snapshot_cluster_dataset(n_snapshots: int, rows_per_snap: int, n_clust
 
 
 def test_biz_val_cross_sectional_neighbor_features_beats_raw_features_alone_mse():
+    """Biz val cross sectional neighbor features beats raw features alone mse."""
     df = _make_snapshot_cluster_dataset(n_snapshots=200, rows_per_snap=8, n_clusters=5, seed=0)
     rng = np.random.default_rng(1)
     perm = rng.permutation(len(df))
@@ -64,6 +66,7 @@ def test_biz_val_cross_sectional_neighbor_features_beats_raw_features_alone_mse(
 
 
 def test_cross_sectional_neighbor_features_output_shape_and_columns():
+    """Cross sectional neighbor features output shape and columns."""
     df = _make_snapshot_cluster_dataset(n_snapshots=30, rows_per_snap=4, n_clusters=3, seed=2)
     result = compute_cross_sectional_neighbor_features(df, "snap", ["f0", "f1"], k=5, agg_stats=("mean", "std"))
     assert result.shape[0] == df.shape[0]
@@ -71,6 +74,7 @@ def test_cross_sectional_neighbor_features_output_shape_and_columns():
 
 
 def test_cross_sectional_neighbor_features_distance_ratio_in_unit_range():
+    """Cross sectional neighbor features distance ratio in unit range."""
     df = _make_snapshot_cluster_dataset(n_snapshots=50, rows_per_snap=4, n_clusters=4, seed=3)
     result = compute_cross_sectional_neighbor_features(df, "snap", ["f0", "f1", "f2"], k=8, agg_stats=("mean",))
     ratio = result["xsnn_distance_ratio"].to_numpy()
@@ -146,11 +150,13 @@ def test_biz_val_cross_sectional_neighbor_features_multi_k_faster_than_per_k_cal
     compute_cross_sectional_neighbor_features(df, "snap", feature_cols, k=max(k_values))
 
     def _time_multi() -> float:
+        """Helper: Time multi."""
         t0 = time.perf_counter()
         compute_cross_sectional_neighbor_features(df, "snap", feature_cols, k_values=k_values)
         return time.perf_counter() - t0
 
     def _time_per_k() -> float:
+        """Helper: Time per k."""
         t0 = time.perf_counter()
         for kv in k_values:
             compute_cross_sectional_neighbor_features(df, "snap", feature_cols, k=kv)

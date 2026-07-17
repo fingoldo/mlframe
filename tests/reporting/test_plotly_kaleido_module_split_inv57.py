@@ -16,6 +16,7 @@ import os
 
 
 def test_inv57_public_kaleido_surface_reexported_from_plotly():
+    """Inv57 public kaleido surface reexported from plotly."""
     from mlframe.reporting.renderers import _kaleido, plotly
 
     public = [
@@ -36,6 +37,7 @@ def test_inv57_public_kaleido_surface_reexported_from_plotly():
 
 
 def test_inv57_oneshot_stats_roundtrip_through_reexport():
+    """Inv57 oneshot stats roundtrip through reexport."""
     from mlframe.reporting.renderers import _kaleido
     from mlframe.reporting.renderers.plotly import get_kaleido_oneshot_stats
 
@@ -49,15 +51,19 @@ def test_inv57_oneshot_stats_roundtrip_through_reexport():
 
 
 class _FakeFig:
+    """Groups tests for: FakeFig."""
     def __init__(self):
+        """Helper: Init  ."""
         self.image_calls = 0
         self.html_calls = 0
 
     def write_image(self, path, format=None):  # noqa: A002 -- must match plotly's real write_image(path, format=...) kwarg name; production calls it as format=fmt
+        """Write image."""
         self.image_calls += 1
         raise RuntimeError("no kaleido in this test")
 
     def write_html(self, path, include_plotlyjs=None, auto_open=None):
+        """Write html."""
         self.html_calls += 1
         with open(path, "w", encoding="utf-8") as f:
             f.write("<html>fallback</html>")
@@ -109,6 +115,7 @@ def test_inv57_write_image_via_kaleido_oneshot_html_fallback(tmp_path, monkeypat
 
 
 def test_inv57_plotly_module_under_house_loc_limit():
+    """Inv57 plotly module under house loc limit."""
     here = os.path.dirname(__import__("mlframe.reporting.renderers.plotly", fromlist=["__file__"]).__file__)
     plotly_path = os.path.join(here, "plotly.py")
     with open(plotly_path, encoding="utf-8") as f:

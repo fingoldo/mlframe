@@ -22,6 +22,7 @@ try:
 except ImportError:  # pragma: no cover
 
     def fast_subset(values, **_):
+        """Fast subset."""
         return list(values)
 
 
@@ -41,6 +42,7 @@ _PRESETS_FAST = fast_subset(VALID_PRESETS, representative="standard")
 
 @pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_returns_documented_keys(preset):
+    """Preset returns documented keys."""
     out = get_preset_kwargs(preset)
     missing = _REQUIRED_KEYS - set(out.keys())
     assert not missing, f"preset {preset!r} missing keys: {missing}"
@@ -48,6 +50,7 @@ def test_preset_returns_documented_keys(preset):
 
 @pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_binary_and_unary_lists_non_empty(preset):
+    """Preset binary and unary lists non empty."""
     out = get_preset_kwargs(preset)
     assert isinstance(out["binary_operators"], list)
     assert isinstance(out["unary_operators"], list)
@@ -60,6 +63,7 @@ def test_preset_unary_operators_are_strings(preset):
     # PySR contract: each unary entry is either the operator name (for
     # built-ins like "tanh", "square", "sin") or the full Julia signature
     # for custom operators. Both must be `str`.
+    """Preset unary operators are strings."""
     out = get_preset_kwargs(preset)
     for op in out["unary_operators"]:
         assert isinstance(op, str), f"unary op {op!r} not a string in preset {preset!r}"
@@ -67,6 +71,7 @@ def test_preset_unary_operators_are_strings(preset):
 
 @pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_binary_operators_are_strings(preset):
+    """Preset binary operators are strings."""
     out = get_preset_kwargs(preset)
     for op in out["binary_operators"]:
         assert isinstance(op, str), f"binary op {op!r} not a string in preset {preset!r}"
@@ -74,6 +79,7 @@ def test_preset_binary_operators_are_strings(preset):
 
 @pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_complexity_dict_has_positive_int_weights(preset):
+    """Preset complexity dict has positive int weights."""
     out = get_preset_kwargs(preset)
     weights = out["complexity_of_operators"]
     assert isinstance(weights, dict)
@@ -86,6 +92,7 @@ def test_preset_complexity_dict_has_positive_int_weights(preset):
 
 @pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_nested_constraints_is_nested_dict(preset):
+    """Preset nested constraints is nested dict."""
     out = get_preset_kwargs(preset)
     nc = out["nested_constraints"]
     assert isinstance(nc, dict)
@@ -101,6 +108,7 @@ def test_preset_nested_constraints_is_nested_dict(preset):
 
 @pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_extra_sympy_mappings_callables(preset):
+    """Preset extra sympy mappings callables."""
     out = get_preset_kwargs(preset)
     mappings = out["extra_sympy_mappings"]
     assert isinstance(mappings, dict)
@@ -112,11 +120,13 @@ def test_preset_extra_sympy_mappings_callables(preset):
 
 
 def test_unknown_preset_raises_value_error():
+    """Unknown preset raises value error."""
     with pytest.raises(ValueError, match="Unknown pysr_operator_preset"):
         get_preset_kwargs("not_a_preset")
 
 
 def test_unknown_preset_empty_string_raises():
+    """Unknown preset empty string raises."""
     with pytest.raises(ValueError, match="Unknown pysr_operator_preset"):
         get_preset_kwargs("")
 
@@ -126,12 +136,14 @@ def test_minimal_preset_is_subset_of_standard_binary():
     # strict subset of standard's binary ops. The presets are deliberately
     # layered; a future edit that drops "+" from standard would silently
     # break the layering.
+    """Minimal preset is subset of standard binary."""
     minimal = get_preset_kwargs("minimal")
     standard = get_preset_kwargs("standard")
     assert set(minimal["binary_operators"]).issubset(set(standard["binary_operators"]))
 
 
 def test_physics_preset_includes_trig_operators():
+    """Physics preset includes trig operators."""
     out = get_preset_kwargs("physics")
     unary_names = out["unary_operators"]
     # Trig ops live in physics by docstring contract.
@@ -143,6 +155,7 @@ def test_standard_preset_includes_safe_log_signature():
     # safe_log MUST be passed as the full Julia signature (not just "safe_log")
     # so PySR registers it correctly. Verify the signature string actually
     # ends up in the unary list.
+    """Standard preset includes safe log signature."""
     out = get_preset_kwargs("standard")
     assert OPERATOR_JULIA_SIGNATURES["safe_log"] in out["unary_operators"]
 
@@ -150,6 +163,7 @@ def test_standard_preset_includes_safe_log_signature():
 def test_safe_log_sympy_mapping_returns_nan_on_nonpositive_input():
     # The 2026-05 PySR Piecewise fix replaced the legacy sp.log(|x|+eps)
     # form with strict NaN-on-x<=0. Pin the new semantic.
+    """Safe log sympy mapping returns nan on nonpositive input."""
     out = get_preset_kwargs("standard")
     safe_log = out["extra_sympy_mappings"]["safe_log"]
     expr = safe_log(sp.Symbol("x"))
@@ -161,6 +175,7 @@ def test_safe_log_sympy_mapping_returns_nan_on_nonpositive_input():
 
 
 def test_safe_sqrt_sympy_mapping_handles_negative_inputs():
+    """Safe sqrt sympy mapping handles negative inputs."""
     out = get_preset_kwargs("standard")
     safe_sqrt = out["extra_sympy_mappings"]["safe_sqrt"]
     expr = safe_sqrt(sp.Symbol("x"))

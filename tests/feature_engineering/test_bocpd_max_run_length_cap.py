@@ -13,6 +13,7 @@ from mlframe.feature_engineering.bayesian import bocpd_features
 
 
 def _stream(seed, n):
+    """Helper: Stream."""
     rng = np.random.default_rng(seed)
     # Two regimes to exercise change points, then a long stable tail so run length grows.
     a = rng.normal(0.0, 1.0, size=n // 2)
@@ -22,6 +23,7 @@ def _stream(seed, n):
 
 @pytest.mark.parametrize("seed", [0, 2, 9])
 def test_high_cap_matches_uncapped_short_stream(seed):
+    """High cap matches uncapped short stream."""
     x = _stream(seed, 120)
     capped = bocpd_features(x, max_run_length=100000)  # >> stream length, never binds
     uncapped = bocpd_features(x, max_run_length=0)  # cap disabled
@@ -31,6 +33,7 @@ def test_high_cap_matches_uncapped_short_stream(seed):
 
 @pytest.mark.parametrize("cap", [10, 50, 200])
 def test_cap_bounds_run_length(cap):
+    """Cap bounds run length."""
     x = _stream(1, 2000)
     res = bocpd_features(x, max_run_length=cap)
     # The retained vector holds run lengths 0..cap (cap+1 slots), so MAP run length is bounded by cap --
@@ -43,6 +46,7 @@ def test_cap_bounds_run_length(cap):
 def test_default_cap_matches_uncapped_on_typical_stream():
     # Default cap (1000) must not change results vs uncapped on a realistic-length stream whose
     # run lengths stay well under 1000 (hazard default ~1/250).
+    """Default cap matches uncapped on typical stream."""
     x = _stream(7, 800)
     default = bocpd_features(x)  # max_run_length=1000 default
     uncapped = bocpd_features(x, max_run_length=0)

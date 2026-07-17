@@ -18,6 +18,7 @@ from mlframe.feature_engineering import row_wise_summary_stats
 
 
 def _make_dispersion_dataset(n: int, d: int, seed: int):
+    """Helper: Make dispersion dataset."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.normal(size=(n, d)), columns=[f"f{i}" for i in range(d)])
     y = X.to_numpy().std(axis=1) * 5.0 + rng.normal(scale=0.2, size=n)
@@ -25,6 +26,7 @@ def _make_dispersion_dataset(n: int, d: int, seed: int):
 
 
 def test_biz_val_row_wise_summary_stats_beats_raw_columns_alone_mse():
+    """Biz val row wise summary stats beats raw columns alone mse."""
     X, y = _make_dispersion_dataset(n=400, d=30, seed=0)
     rng = np.random.default_rng(1)
     perm = rng.permutation(len(y))
@@ -45,6 +47,7 @@ def test_biz_val_row_wise_summary_stats_beats_raw_columns_alone_mse():
 
 
 def test_row_wise_summary_stats_output_shape_and_columns():
+    """Row wise summary stats output shape and columns."""
     X, _ = _make_dispersion_dataset(n=50, d=5, seed=2)
     result = row_wise_summary_stats(X, stats=("mean", "std", "min", "max", "median", "q10"))
     assert result.shape[0] == 50
@@ -52,6 +55,7 @@ def test_row_wise_summary_stats_output_shape_and_columns():
 
 
 def test_row_wise_summary_stats_ignores_nan_within_row():
+    """Row wise summary stats ignores nan within row."""
     X = pd.DataFrame({"a": [1.0, np.nan, 3.0], "b": [3.0, 2.0, 5.0], "c": [5.0, 4.0, 7.0]})
     result = row_wise_summary_stats(X, stats=("mean",))
     np.testing.assert_allclose(result["row_summary_mean"].to_numpy(), [3.0, 3.0, 5.0])
@@ -83,6 +87,7 @@ def _make_multi_scale_dataset(n: int, d_signal: int, d_noise_scale: int, seed: i
 
 
 def test_biz_val_row_wise_summary_stats_grouped_beats_flat_when_scales_differ_mse():
+    """Biz val row wise summary stats grouped beats flat when scales differ mse."""
     X, y, cols_signal, cols_bigscale = _make_multi_scale_dataset(n=400, d_signal=15, d_noise_scale=15, seed=10)
     rng = np.random.default_rng(11)
     perm = rng.permutation(len(y))
@@ -106,6 +111,7 @@ def test_biz_val_row_wise_summary_stats_grouped_beats_flat_when_scales_differ_ms
 
 
 def test_row_wise_summary_stats_grouped_matches_manual_per_group_calls():
+    """Row wise summary stats grouped matches manual per group calls."""
     X, _, cols_signal, cols_bigscale = _make_multi_scale_dataset(n=60, d_signal=6, d_noise_scale=4, seed=12)
     groups = {"signal": cols_signal, "bigscale": cols_bigscale}
     grouped = row_wise_summary_stats(X, stats=("mean", "std", "q10"), groups=groups)

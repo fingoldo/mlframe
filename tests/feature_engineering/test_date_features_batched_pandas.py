@@ -27,6 +27,7 @@ from mlframe.feature_engineering.basic import (
 
 
 def _make_wide_df(n: int = 500, n_date_cols: int = 6, seed: int = 0) -> pd.DataFrame:
+    """Helper: Make wide df."""
     rng = np.random.default_rng(seed)
     base = pd.Timestamp("2020-01-01")
     data = {}
@@ -71,6 +72,7 @@ def _reference_loop(df, cols, methods, periods, add_cyclical):
 
 
 def test_create_date_features_batched_identical_and_no_fragmentation():
+    """Create date features batched identical and no fragmentation."""
     df = _make_wide_df()
     cols = [c for c in df.columns if c.startswith("dt")]
     methods = dict(_DEFAULT_DATE_METHODS)
@@ -94,6 +96,7 @@ def test_create_date_features_batched_identical_and_no_fragmentation():
 
 
 def test_add_cyclical_date_features_batched_identical_and_no_fragmentation():
+    """Add cyclical date features batched identical and no fragmentation."""
     df = _make_wide_df()
     cols = [c for c in df.columns if c.startswith("dt")]
     periods = _DEFAULT_CYCLICAL_PERIODS
@@ -108,6 +111,7 @@ def test_add_cyclical_date_features_batched_identical_and_no_fragmentation():
 
 
 def test_batched_preserves_exact_column_order():
+    """Batched preserves exact column order."""
     df = _make_wide_df()
     cols = [c for c in df.columns if c.startswith("dt")]
     got = create_date_features(

@@ -16,15 +16,18 @@ class _ProductModel:
     """f(x) = x0 * x1 -> a strong (0, 1) interaction, additive elsewhere."""
 
     def predict(self, X):
+        """Predict."""
         X = np.asarray(X, dtype=np.float64)
         return X[:, 0] * X[:, 1] + 0.5 * X[:, 2]
 
 
 def _data(seed=0, n=1200, d=4):
+    """Helper: Data."""
     return np.random.default_rng(seed).normal(size=(n, d))
 
 
 def test_interaction_strength_panel_is_valid_symmetric_heatmap_in_unit_range():
+    """Interaction strength panel is valid symmetric heatmap in unit range."""
     X = _data()
     panel = interaction_strength_panel(_ProductModel(), X, [0, 1, 2, 3], grid=15, sample=800)
     assert isinstance(panel, HeatmapPanelSpec)
@@ -38,6 +41,7 @@ def test_interaction_strength_panel_is_valid_symmetric_heatmap_in_unit_range():
 
 
 def test_compose_interaction_strength_figure_caps_features():
+    """Compose interaction strength figure caps features."""
     X = _data(d=12)
     fig = compose_interaction_strength_figure(_ProductModel(), X, list(range(12)), max_features=8, grid=8, sample=400)
     assert isinstance(fig, FigureSpec)
@@ -47,6 +51,7 @@ def test_compose_interaction_strength_figure_caps_features():
 
 def test_seriation_makes_a_known_block_permutation_contiguous():
     # Two 3-node blocks (A: 0,2,4  B: 1,3,5) with high within-block similarity, interleaved so the raw order hides them.
+    """Seriation makes a known block permutation contiguous."""
     blocks = [0, 1, 0, 1, 0, 1]
     n = len(blocks)
     M = np.array([[1.0 if blocks[i] == blocks[j] else 0.05 for j in range(n)] for i in range(n)], dtype=np.float64)
@@ -61,6 +66,7 @@ def test_seriation_makes_a_known_block_permutation_contiguous():
 def test_wilson_local_matches_core_proportion_stats():
     # calibration.wilson_ci (vectorised, per-bin) and core.proportion_stats.wilson_interval (scalar) implement the
     # same Wilson score formula; they agree to ~1e-9 (the only gap is the z constant: exact vs Acklam approximation).
+    """Wilson local matches core proportion stats."""
     from mlframe.core.proportion_stats import wilson_interval
     from mlframe.reporting.charts.calibration import wilson_ci
 

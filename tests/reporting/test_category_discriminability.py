@@ -20,10 +20,12 @@ from mlframe.reporting.spec import BarPanelSpec, FigureSpec
 
 
 def _flat(fig: FigureSpec):
+    """Helper: Flat."""
     return [p for row in fig.panels for p in row if p is not None]
 
 
 def _brute_woe(codes, y, n_levels, base_rate, alpha=0.5):
+    """Helper: Brute woe."""
     woe = np.zeros(n_levels)
     for lvl in range(n_levels):
         mask = codes == lvl
@@ -40,6 +42,7 @@ def _brute_woe(codes, y, n_levels, base_rate, alpha=0.5):
 
 
 def test_level_woe_matches_bruteforce_groupby():
+    """Level woe matches bruteforce groupby."""
     rng = np.random.default_rng(0)
     n, n_levels = 5000, 6
     codes = rng.integers(0, n_levels, size=n).astype(np.int64)
@@ -54,6 +57,7 @@ def test_level_woe_matches_bruteforce_groupby():
 
 
 def test_level_woe_skips_missing_codes():
+    """Level woe skips missing codes."""
     y = np.array([1.0, 0.0, 1.0, 0.0])
     codes = np.array([-1, 0, 0, -1], dtype=np.int64)  # two missing rows must not contribute
     _woe, counts = level_woe(codes, y, 1, base_rate=0.5, alpha=0.5)
@@ -66,6 +70,7 @@ def test_level_woe_skips_missing_codes():
 
 
 def test_min_support_floor_drops_rare_level(caplog):
+    """Min support floor drops rare level."""
     rng = np.random.default_rng(1)
     n = 4000
     # "rare" appears 5 times with an extreme rate; "common_*" fill the rest at ~base.
@@ -87,6 +92,7 @@ def test_min_support_floor_drops_rare_level(caplog):
 
 
 def test_panel_shape_orientation_and_signed_colors():
+    """Panel shape orientation and signed colors."""
     rng = np.random.default_rng(2)
     n = 6000
     col = rng.choice(["A", "B", "C"], size=n)
@@ -104,6 +110,7 @@ def test_panel_shape_orientation_and_signed_colors():
 
 
 def test_compose_figure_single_panel():
+    """Compose figure single panel."""
     rng = np.random.default_rng(3)
     n = 3000
     X = pd.DataFrame({"f": rng.choice(["x", "y", "z"], size=n)})
@@ -114,6 +121,7 @@ def test_compose_figure_single_panel():
 
 
 def test_high_cardinality_and_numeric_columns_skipped():
+    """High cardinality and numeric columns skipped."""
     rng = np.random.default_rng(4)
     n = 3000
     X = pd.DataFrame(

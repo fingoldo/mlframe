@@ -19,10 +19,12 @@ from mlframe.reporting.spec import FigureSpec, LinePanelSpec
 
 
 def _flat(fig: FigureSpec):
+    """Helper: Flat."""
     return [p for row in fig.panels for p in row if p is not None]
 
 
 def _separable(n=4000, sep=2.5, seed=0):
+    """Helper: Separable."""
     rng = np.random.default_rng(seed)
     y = rng.integers(0, 2, n)
     raw = rng.standard_normal(n) + sep * y
@@ -50,6 +52,7 @@ def _brute_net_benefit(y, s, pt):
 
 
 def test_net_benefit_matches_bruteforce():
+    """Net benefit matches bruteforce."""
     y, s = _separable(n=3000, seed=1)
     pt, nb, _nb_all, _nb_none = compute_net_benefit(y, s, n_thresholds=120)
     ref = _brute_net_benefit(y, s, pt)
@@ -57,6 +60,7 @@ def test_net_benefit_matches_bruteforce():
 
 
 def test_treat_all_and_none_references():
+    """Treat all and none references."""
     y, s = _separable(n=2000, seed=2)
     pt, _nb, nb_all, nb_none = compute_net_benefit(y, s, n_thresholds=80)
     prevalence = float(np.mean(y))
@@ -67,6 +71,7 @@ def test_treat_all_and_none_references():
 
 def test_tie_at_threshold_flagged_positive():
     # All-equal scores: at pt < score every row flagged; nb must equal treat-all there.
+    """Tie at threshold flagged positive."""
     y = np.array([0, 1, 0, 1, 1])
     s = np.full(5, 0.5)
     _pt, nb, nb_all, _nb_none = compute_net_benefit(y, s, pt_grid=np.array([0.3, 0.5, 0.7]))
@@ -78,11 +83,13 @@ def test_tie_at_threshold_flagged_positive():
 
 
 def test_empty_input_returns_zero_curves():
+    """Empty input returns zero curves."""
     _pt, nb, _nb_all, nb_none = compute_net_benefit([], [], n_thresholds=10)
     assert np.allclose(nb, 0.0) and np.allclose(nb_none, 0.0)
 
 
 def test_spec_shape_and_verdict_fields():
+    """Spec shape and verdict fields."""
     y, s = _separable()
     res = build_decision_curve_spec(y, s)
     assert isinstance(res, DecisionCurveResult)

@@ -19,6 +19,7 @@ from mlframe.evaluation.reports import plot_pr_curve
 
 
 def test_plot_pr_curve_logs_classification_report_not_stdout(capsys, caplog):
+    """Plot pr curve logs classification report not stdout."""
     rng = np.random.default_rng(0)
     n = 400
     y = rng.integers(0, 2, size=n)

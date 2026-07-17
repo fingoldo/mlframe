@@ -21,6 +21,7 @@ import pytest
 
 
 def test_sa16_debiased_ece_near_zero_on_perfectly_calibrated():
+    """Sa16 debiased ece near zero on perfectly calibrated."""
     from mlframe.metrics.calibration._calibration_metrics import (
         compute_ece_and_brier_decomposition,
         compute_ece_debiased,
@@ -63,6 +64,7 @@ def test_sa16_fixed_grid_is_comparable_across_score_ranges():
 
 
 def test_sa17_coverage_stable_under_tiny_perturbation():
+    """Sa17 coverage stable under tiny perturbation."""
     from mlframe.metrics.calibration._calibration_metrics import calibration_metrics_from_freqs
 
     nbins = 10
@@ -72,6 +74,7 @@ def test_sa17_coverage_stable_under_tiny_perturbation():
     hits = np.full(nbins, 100, dtype=np.float64)
 
     def cov(fp):
+        """Cov."""
         return calibration_metrics_from_freqs(fp, freqs_true, hits, nbins=nbins)[2]
 
     base = cov(freqs_predicted)
@@ -87,6 +90,7 @@ def test_sa17_coverage_stable_under_tiny_perturbation():
 
 
 def test_sa18_inner_cv_point_within_ci():
+    """Sa18 inner cv point within ci."""
     pytest.importorskip("sklearn")
     from mlframe.calibration.policy import pick_best_calibrator
 
@@ -144,6 +148,7 @@ def _prefix_substitution_band(s, t, *, n_grid, n_boot, random_state):
 
 
 def test_sa19_band_not_narrowed_by_full_sample_substitution():
+    """Sa19 band not narrowed by full sample substitution."""
     pytest.importorskip("sklearn")
     from mlframe.reporting.charts.calibration import (
         _BAND_N_BOOT,
@@ -185,6 +190,7 @@ def test_sa19_band_not_narrowed_by_full_sample_substitution():
 
 
 def test_sa20_delong_ci_avoids_clip_near_auc_one():
+    """Sa20 delong ci avoids clip near auc one."""
     from mlframe.reporting.charts.calibration import delong_auc_ci
 
     rng = np.random.default_rng(11)

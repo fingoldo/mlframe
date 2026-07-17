@@ -27,6 +27,7 @@ def _load_generator():
 
 
 def test_generator_module_importable():
+    """Generator module importable."""
     module = _load_generator()
     assert hasattr(module, "render_markdown")
     assert hasattr(module, "main")

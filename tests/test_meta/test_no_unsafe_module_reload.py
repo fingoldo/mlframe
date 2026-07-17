@@ -147,6 +147,7 @@ def _node_has_restore(node: ast.AST) -> bool:
 
 
 def _iter_func_defs(tree: ast.AST):
+    """Helper that iter func defs."""
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             yield node
@@ -237,6 +238,7 @@ def _collect_unsafe_sites() -> list[tuple[str, int, str, bool]]:
 
 
 def test_no_unpaired_module_reload_in_tests():
+    """No unpaired module reload in tests."""
     sites = _collect_unsafe_sites()
     if sites:
         formatted = "\n  ".join(f"{p}:{l} ({prim})" + ("  [!! reloads a singleton-owning mlframe module]" if sing else "") for p, l, prim, sing in sites[:30])

@@ -45,6 +45,7 @@ def _enumerate_njit_names(path: Path) -> set[str]:
 
 
 def test_no_cross_module_njit_imports():
+    """No cross module njit imports."""
     if not FILTERS_DIR.exists():
         pytest.skip("filters package not present yet")
 

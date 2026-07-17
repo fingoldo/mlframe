@@ -19,6 +19,7 @@ from mlframe.feature_engineering.state_history import last_k_distinct_states_wit
 
 
 def _make_cyclical_states_with_entity_trait(n_entities: int, seed: int):
+    """Helper: Make cyclical states with entity trait."""
     rng = np.random.default_rng(seed)
     seqs, groups = [], []
     for e in range(n_entities):
@@ -35,6 +36,7 @@ def _make_cyclical_states_with_entity_trait(n_entities: int, seed: int):
 
 
 def test_biz_val_state_history_duration_lag_predicts_next_visit_duration():
+    """Biz val state history duration lag predicts next visit duration."""
     states, group_ids = _make_cyclical_states_with_entity_trait(n_entities=400, seed=0)
 
     res = last_k_distinct_states_with_durations(states, group_ids, k=5)
@@ -61,6 +63,7 @@ def test_biz_val_state_history_duration_lag_predicts_next_visit_duration():
 
 def test_state_history_hand_computed_segments():
     # states: A A A B B C C C C D  (single group)
+    """State history hand computed segments."""
     states = np.array([0, 0, 0, 1, 1, 2, 2, 2, 2, 3])
     groups = np.zeros(10, dtype=int)
     res = last_k_distinct_states_with_durations(states, groups, k=3)
@@ -85,6 +88,7 @@ def _make_flickery_two_state_sequence(n_entities: int, seed: int):
     # that spuriously reads as the OTHER state for exactly 1 row before reverting -- a measurement
     # flicker (there-and-back), not a real regime change. min_dwell_duration should recover the
     # noise-free ground-truth transition count by absorbing these excursions back into the stable run.
+    """Helper: Make flickery two state sequence."""
     rng = np.random.default_rng(seed)
     seqs, groups, n_true_transitions = [], [], []
     for e in range(n_entities):
@@ -106,6 +110,7 @@ def _make_flickery_two_state_sequence(n_entities: int, seed: int):
 
 
 def test_biz_val_state_history_min_dwell_duration_recovers_true_transitions_from_flicker_noise():
+    """Biz val state history min dwell duration recovers true transitions from flicker noise."""
     states, group_ids, n_true_transitions = _make_flickery_two_state_sequence(n_entities=200, seed=1)
 
     res_default = last_k_distinct_states_with_durations(states, group_ids, k=20)
@@ -126,6 +131,7 @@ def test_biz_val_state_history_min_dwell_duration_recovers_true_transitions_from
     last_idx = df.groupby("group").tail(1).index.to_numpy()
 
     def _populated_count(res, idx):
+        """Helper: Populated count."""
         return np.array([sum(1 for c in state_lag_cols if res[c][i] != -1) for i in idx])
 
     default_counts = _populated_count(res_default, last_idx)
@@ -141,6 +147,7 @@ def test_biz_val_state_history_min_dwell_duration_recovers_true_transitions_from
 
 
 def test_state_history_respects_group_boundaries():
+    """State history respects group boundaries."""
     states = np.array([0, 0, 1, 1, 0, 0, 1, 1])
     groups = np.array([0, 0, 0, 0, 1, 1, 1, 1])
     res = last_k_distinct_states_with_durations(states, groups, k=2)

@@ -32,6 +32,7 @@ FLAVOURS = ["arithm", "harm", "median", "quad", "qube", "geo", "rrf"]
 
 
 def _make_members(seed=11, n=4000, m=10, k=2, with_outlier=True):
+    """Helper: Make members."""
     rng = np.random.default_rng(seed)
     base = rng.uniform(0.0, 1.0, size=(n, k))
     preds = [np.clip(base + rng.normal(0.0, 0.02, base.shape), 0.0, 1.0).astype(np.float64) for _ in range(m)]
@@ -42,6 +43,7 @@ def _make_members(seed=11, n=4000, m=10, k=2, with_outlier=True):
 
 @pytest.fixture(autouse=True)
 def _clean_cache():
+    """Helper: Clean cache."""
     _clear_gate_cache()
     yield
     _clear_gate_cache()

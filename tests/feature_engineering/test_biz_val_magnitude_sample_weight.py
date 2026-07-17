@@ -19,6 +19,7 @@ from mlframe.feature_engineering.magnitude_sample_weight import magnitude_sample
 
 
 def _make_binarized_multitarget_dataset(n: int, seed: int):
+    """Helper: Make binarized multitarget dataset."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 5))
     true_signal = X[:, 0] + 0.5 * X[:, 1]
@@ -34,6 +35,7 @@ def _make_binarized_multitarget_dataset(n: int, seed: int):
 
 
 def test_biz_val_magnitude_sample_weight_improves_auc_on_high_conviction_subset():
+    """Biz val magnitude sample weight improves auc on high conviction subset."""
     X, y, y_multi, true_signal = _make_binarized_multitarget_dataset(n=2000, seed=0)
     weights = magnitude_sample_weight(y_multi, norm="mean_abs")
 
@@ -55,6 +57,7 @@ def test_biz_val_magnitude_sample_weight_robust_reduces_outlier_weight_mass():
     # A handful of rows have a data-glitch-scale magnitude (e.g. a bad tick / fat-tail event) that would
     # otherwise dominate the total weight mass under a plain unbounded norm, starving the genuinely
     # high-conviction (but merely large, not glitched) rows of training emphasis.
+    """Biz val magnitude sample weight robust reduces outlier weight mass."""
     rng = np.random.default_rng(1)
     n = 2000
     resp1 = rng.normal(scale=1.0, size=n)
@@ -80,6 +83,7 @@ def test_biz_val_magnitude_sample_weight_robust_reduces_outlier_weight_mass():
 
 
 def test_magnitude_sample_weight_robust_default_off_bit_identical():
+    """Magnitude sample weight robust default off bit identical."""
     y_multi = np.array([[3.0, 4.0], [1.0, -1.0], [500.0, -500.0]])
     w_default = magnitude_sample_weight(y_multi, norm="mean_abs")
     w_explicit_off = magnitude_sample_weight(y_multi, norm="mean_abs", robust=False)
@@ -87,12 +91,14 @@ def test_magnitude_sample_weight_robust_default_off_bit_identical():
 
 
 def test_magnitude_sample_weight_single_target_matches_abs():
+    """Magnitude sample weight single target matches abs."""
     y = np.array([-3.0, 1.0, -0.5, 2.0])
     w = magnitude_sample_weight(y, norm="mean_abs")
     np.testing.assert_allclose(w, np.abs(y))
 
 
 def test_magnitude_sample_weight_norms():
+    """Magnitude sample weight norms."""
     y_multi = np.array([[3.0, 4.0], [1.0, -1.0], [0.0, 0.0]])
     mean_abs = magnitude_sample_weight(y_multi, norm="mean_abs")
     max_abs = magnitude_sample_weight(y_multi, norm="max_abs")

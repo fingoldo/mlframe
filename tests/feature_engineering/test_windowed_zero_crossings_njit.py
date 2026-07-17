@@ -19,6 +19,7 @@ from mlframe.feature_engineering.grouped import per_group_sliding_window
 
 
 def _ref(values, window_K, center):
+    """Helper: Ref."""
     out = np.full(values.size, np.nan, dtype=np.float64)
     g = np.zeros(values.size, dtype=np.int64)
     for _si, wins, wi in per_group_sliding_window(values, g, window_K=window_K):
@@ -35,11 +36,13 @@ def _ref(values, window_K, center):
 
 
 def test_kernel_symbol_present_and_routed_on_zero_center():
+    """Kernel symbol present and routed on zero center."""
     assert hasattr(ws, "_zero_crossings_kernel")
     calls = {"n": 0}
     orig = ws._zero_crossings_kernel
 
     def spy(*a, **k):
+        """Spy."""
         calls["n"] += 1
         return orig(*a, **k)
 
@@ -55,10 +58,12 @@ def test_kernel_symbol_present_and_routed_on_zero_center():
 
 @pytest.mark.parametrize("center", ["median", "mean"])
 def test_median_mean_centers_do_not_route_through_kernel(center):
+    """Median mean centers do not route through kernel."""
     calls = {"n": 0}
     orig = ws._zero_crossings_kernel
 
     def spy(*a, **k):
+        """Spy."""
         calls["n"] += 1
         return orig(*a, **k)
 
@@ -76,6 +81,7 @@ def test_median_mean_centers_do_not_route_through_kernel(center):
 @pytest.mark.parametrize("center", ["zero", "median", "mean"])
 @pytest.mark.parametrize("kind", ["continuous", "tied_lowcard", "discrete_int", "with_zeros"])
 def test_matches_numpy_reference_finite(window_K, center, kind):
+    """Matches numpy reference finite."""
     rng = np.random.default_rng(7)
     n = 4000
     if kind == "continuous":
@@ -94,6 +100,7 @@ def test_matches_numpy_reference_finite(window_K, center, kind):
 
 
 def test_nan_segment_falls_back_to_numpy():
+    """Nan segment falls back to numpy."""
     rng = np.random.default_rng(3)
     v = rng.standard_normal(3000)
     v[100] = np.nan

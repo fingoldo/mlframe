@@ -14,6 +14,7 @@ import pytest
 
 
 def _gen_pair(n=200, m=150, seed=0):
+    """Helper that gen pair."""
     rng = np.random.default_rng(seed)
     x = rng.normal(0, 1, n).astype(np.float32)
     y = rng.normal(0, 1, m).astype(np.float32)
@@ -21,7 +22,9 @@ def _gen_pair(n=200, m=150, seed=0):
 
 
 class TestDtwCpuBaseline:
+    """Groups tests covering TestDtwCpuBaseline."""
     def test_dtaidistance_available(self):
+        """Dtaidistance available."""
         pytest.importorskip("dtaidistance")
         from mlframe.signal.dtw import dtw_cpu
 
@@ -48,8 +51,11 @@ class TestDtwCpuBaseline:
 
 
 class TestDtwGpuBackends:
+    """Groups tests covering TestDtwGpuBackends."""
+
     @pytest.mark.parametrize("shape", [(200, 150), (500, 300), (1000, 800)])
     def test_cupy_distance_matches_cpu(self, shape):
+        """Cupy distance matches cpu."""
         pytest.importorskip("cupy")
         pytest.importorskip("dtaidistance")
         from mlframe.signal.dtw import dtw_cpu, dtw_cupy
@@ -72,6 +78,7 @@ class TestDtwGpuBackends:
 
     @pytest.mark.parametrize("shape", [(300, 200), (800, 500)])
     def test_numba_cuda_matches_cupy(self, shape):
+        """Numba cuda matches cupy."""
         pytest.importorskip("numba")
         from numba import cuda
 
@@ -189,6 +196,7 @@ class TestDtwBandedGpuBuffer:
 
 
 class TestDispatcher:
+    """Groups tests covering TestDispatcher."""
     def test_small_n_routes_to_cpu(self, monkeypatch, tmp_path):
         """Below the threshold the FALLBACK routes to CPU. ``set_dtw_dispatch_threshold``
         governs the fallback only -- the dispatch (spec.choose) prefers a tuned cache
@@ -215,6 +223,7 @@ class TestDispatcher:
         _DTW_SPEC._choice_cache.clear()
 
     def test_large_n_routes_to_gpu_when_available(self):
+        """Large n routes to gpu when available."""
         pytest.importorskip("cupy")
         from mlframe.signal.dtw import (
             dtw_dispatch,
@@ -243,6 +252,7 @@ class TestDispatcher:
         assert path_disp == path_cpu
 
     def test_env_var_force_override(self, monkeypatch):
+        """Env var force override."""
         pytest.importorskip("dtaidistance")
         from mlframe.signal.dtw import dtw_dispatch, dtw_cpu
 
@@ -253,6 +263,7 @@ class TestDispatcher:
         assert d_disp == d_cpu
 
     def test_backend_kwarg_force(self):
+        """Backend kwarg force."""
         pytest.importorskip("dtaidistance")
         from mlframe.signal.dtw import dtw_dispatch, dtw_cpu
 
@@ -262,6 +273,7 @@ class TestDispatcher:
         assert d_disp == d_cpu
 
     def test_unknown_backend_raises(self):
+        """Unknown backend raises."""
         from mlframe.signal.dtw import dtw_dispatch
 
         x, y = _gen_pair(n=100, m=80)
@@ -270,6 +282,7 @@ class TestDispatcher:
 
 
 class TestKernelTuningCacheLookup:
+    """Groups tests covering TestKernelTuningCacheLookup."""
     def test_cache_lookup_falls_back_gracefully(self, monkeypatch, tmp_path):
         """On a cache miss (no tuned entry for ``dtw_dispatch``), the dispatch
         falls back gracefully to a valid source-code-default backend without

@@ -15,6 +15,7 @@ from mlframe.feature_engineering.recency_weighted_rolling import recency_weighte
 
 
 def _make_regime_shift_dataset(n_entities: int, rows_per_entity: int, window: int, seed: int):
+    """Helper: Make regime shift dataset."""
     rng = np.random.default_rng(seed)
     entity_ids = np.repeat(np.arange(n_entities), rows_per_entity)
     order = np.tile(np.arange(rows_per_entity), n_entities)
@@ -26,6 +27,7 @@ def _make_regime_shift_dataset(n_entities: int, rows_per_entity: int, window: in
 
 
 def test_biz_val_recency_weighted_rolling_tracks_regime_shift_better_than_uniform():
+    """Biz val recency weighted rolling tracks regime shift better than uniform."""
     window = 10
     df = _make_regime_shift_dataset(n_entities=200, rows_per_entity=30, window=window, seed=0)
 
@@ -48,6 +50,7 @@ def test_biz_val_recency_weighted_rolling_tracks_regime_shift_better_than_unifor
 
 
 def _make_volatility_shift_dataset(n_entities: int, rows_per_entity: int, seed: int):
+    """Helper: Make volatility shift dataset."""
     rng = np.random.default_rng(seed)
     entity_ids = np.repeat(np.arange(n_entities), rows_per_entity)
     order = np.tile(np.arange(rows_per_entity), n_entities)
@@ -59,6 +62,7 @@ def _make_volatility_shift_dataset(n_entities: int, rows_per_entity: int, seed: 
 
 
 def test_biz_val_recency_weighted_rolling_std_tracks_volatility_shift_better_than_uniform():
+    """Biz val recency weighted rolling std tracks volatility shift better than uniform."""
     window = 15
     df = _make_volatility_shift_dataset(n_entities=200, rows_per_entity=30, seed=0)
 
@@ -80,6 +84,7 @@ def test_biz_val_recency_weighted_rolling_std_tracks_volatility_shift_better_tha
 
 
 def test_recency_weighted_rolling_std_identity_param_matches_uniform_rolling():
+    """Recency weighted rolling std identity param matches uniform rolling."""
     window = 5
     df = _make_volatility_shift_dataset(n_entities=20, rows_per_entity=15, seed=1)
 
@@ -92,6 +97,7 @@ def test_recency_weighted_rolling_std_identity_param_matches_uniform_rolling():
 
 
 def test_recency_weighted_rolling_std_rejects_invalid_window():
+    """Recency weighted rolling std rejects invalid window."""
     df = _make_volatility_shift_dataset(n_entities=5, rows_per_entity=10, seed=2)
     import pytest
 
@@ -100,6 +106,7 @@ def test_recency_weighted_rolling_std_rejects_invalid_window():
 
 
 def test_recency_weighted_rolling_std_preserves_original_row_order():
+    """Recency weighted rolling std preserves original row order."""
     df = _make_volatility_shift_dataset(n_entities=10, rows_per_entity=8, seed=3)
     shuffled = df.sample(frac=1.0, random_state=0)
     out_shuffled = recency_weighted_rolling_std(
@@ -115,6 +122,7 @@ def test_recency_weighted_rolling_std_preserves_original_row_order():
 
 
 def test_recency_weighted_rolling_mean_identity_param_matches_uniform_rolling():
+    """Recency weighted rolling mean identity param matches uniform rolling."""
     window = 5
     df = _make_regime_shift_dataset(n_entities=20, rows_per_entity=15, window=window, seed=1)
 
@@ -127,6 +135,7 @@ def test_recency_weighted_rolling_mean_identity_param_matches_uniform_rolling():
 
 
 def test_recency_weighted_rolling_mean_rejects_invalid_window():
+    """Recency weighted rolling mean rejects invalid window."""
     df = _make_regime_shift_dataset(n_entities=5, rows_per_entity=10, window=3, seed=2)
     import pytest
 
@@ -135,6 +144,7 @@ def test_recency_weighted_rolling_mean_rejects_invalid_window():
 
 
 def test_recency_weighted_rolling_mean_preserves_original_row_order():
+    """Recency weighted rolling mean preserves original row order."""
     df = _make_regime_shift_dataset(n_entities=10, rows_per_entity=8, window=4, seed=3)
     shuffled = df.sample(frac=1.0, random_state=0)
     out_shuffled = recency_weighted_rolling_mean(

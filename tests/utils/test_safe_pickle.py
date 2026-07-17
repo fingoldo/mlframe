@@ -16,6 +16,7 @@ from mlframe.utils.safe_pickle import (
 
 
 def _make_pickle(path: str, obj):
+    """Helper that make pickle."""
     with open(path, "wb") as f:
         pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -46,6 +47,7 @@ def test_verify_sidecar_explicit_allow_unverified_overrides_env(tmp_path, monkey
 
 
 def test_verify_sidecar_matching_digest_returns_true(tmp_path):
+    """Verify sidecar matching digest returns true."""
     p = tmp_path / "bundle.pkl"
     _make_pickle(str(p), {"a": 1})
     write_sidecar(str(p))
@@ -66,6 +68,7 @@ def test_verify_sidecar_mismatched_digest_returns_false(tmp_path):
 
 
 def test_safe_load_round_trip_with_sidecar(tmp_path):
+    """Safe load round trip with sidecar."""
     p = tmp_path / "round.pkl"
     safe_dump({"k": [1, 2, 3]}, str(p))
     obj = safe_load(str(p))
@@ -82,6 +85,7 @@ def test_safe_load_missing_sidecar_raises(tmp_path, monkeypatch):
 
 
 def test_safe_load_missing_sidecar_env_opt_in_loads(tmp_path, monkeypatch):
+    """Safe load missing sidecar env opt in loads."""
     monkeypatch.setenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", "1")
     p = tmp_path / "legacy.pkl"
     _make_pickle(str(p), {"x": 9})
@@ -101,6 +105,7 @@ def test_safe_load_corrupt_sidecar_raises(tmp_path, monkeypatch):
 
 
 def test_write_sidecar_is_idempotent(tmp_path):
+    """Write sidecar is idempotent."""
     p = tmp_path / "idem.pkl"
     _make_pickle(str(p), [1, 2, 3])
     write_sidecar(str(p))
@@ -123,6 +128,7 @@ def test_legacy_predict_shim_delegates(tmp_path, monkeypatch):
 
 
 def test_legacy_pipelines_shim_delegates(tmp_path, monkeypatch):
+    """Legacy pipelines shim delegates."""
     monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
     from mlframe.estimators.pipelines import _verify_sidecar
 

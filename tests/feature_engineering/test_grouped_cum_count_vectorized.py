@@ -36,6 +36,7 @@ def _loop_count(group_ids, reverse, output_dtype):
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize("output_dtype", [np.float64, np.float32, np.int64])
 def test_small_groups_vectorized_matches_loop(reverse, output_dtype):
+    """Small groups vectorized matches loop."""
     rng = np.random.default_rng(1)
     n = 50_000
     n_groups = 5_000  # avg 10 rows -> well under the gate -> vectorized path
@@ -49,6 +50,7 @@ def test_small_groups_vectorized_matches_loop(reverse, output_dtype):
 
 @pytest.mark.parametrize("reverse", [False, True])
 def test_large_groups_loop_matches_reference(reverse):
+    """Large groups loop matches reference."""
     rng = np.random.default_rng(2)
     n = 50_000
     n_groups = 3  # avg ~16k rows -> above the gate -> Python loop path
@@ -62,6 +64,7 @@ def test_large_groups_loop_matches_reference(reverse):
 
 @pytest.mark.parametrize("reverse", [False, True])
 def test_negative_and_tied_keys(reverse):
+    """Negative and tied keys."""
     gids = np.array([-3, 5, -3, -3, 5, 0, 0, 0, 0], dtype=np.int64)
     got = per_group_cum_reduce(np.empty(gids.size), gids, "count", reverse=reverse)
     ref = _loop_count(gids, reverse, np.float64)
@@ -69,6 +72,7 @@ def test_negative_and_tied_keys(reverse):
 
 
 def test_single_group_and_empty():
+    """Single group and empty."""
     g1 = np.zeros(7, dtype=np.int64)
     np.testing.assert_array_equal(
         per_group_cum_reduce(np.empty(7), g1, "count"),

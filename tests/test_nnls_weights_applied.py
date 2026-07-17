@@ -36,6 +36,7 @@ from mlframe.models.ensembling import score_ensemble
 
 
 def test_combine_probs_arithm_with_precomputed_weights_matches_expected():
+    """Combine probs arithm with precomputed weights matches expected."""
     rng = np.random.default_rng(0)
     stacked = rng.uniform(0.1, 0.9, size=(3, 50, 2))
     weights = np.array([0.6, 0.3, 0.1])
@@ -45,6 +46,7 @@ def test_combine_probs_arithm_with_precomputed_weights_matches_expected():
 
 
 def test_combine_probs_arithm_uniform_when_no_weights():
+    """Combine probs arithm uniform when no weights."""
     rng = np.random.default_rng(1)
     stacked = rng.uniform(0.1, 0.9, size=(4, 30))
     out = combine_probs(stacked, "arithm", precomputed_weights=None)
@@ -52,6 +54,7 @@ def test_combine_probs_arithm_uniform_when_no_weights():
 
 
 def test_combine_probs_harm_weighted_matches_definition():
+    """Combine probs harm weighted matches definition."""
     stacked = np.array([[0.5, 0.5], [0.25, 0.25], [0.1, 0.1]], dtype=np.float64)
     weights = np.array([0.5, 0.3, 0.2])
     out = combine_probs(stacked, "harm", precomputed_weights=weights)
@@ -60,6 +63,7 @@ def test_combine_probs_harm_weighted_matches_definition():
 
 
 def test_combine_probs_geo_weighted_matches_definition():
+    """Combine probs geo weighted matches definition."""
     stacked = np.array([[0.5, 0.4], [0.3, 0.2], [0.6, 0.1]], dtype=np.float64)
     weights = np.array([0.5, 0.3, 0.2])
     out = combine_probs(stacked, "geo", precomputed_weights=weights)
@@ -68,6 +72,7 @@ def test_combine_probs_geo_weighted_matches_definition():
 
 
 def test_combine_probs_quad_weighted_matches_definition():
+    """Combine probs quad weighted matches definition."""
     stacked = np.array([[0.5, 0.4], [0.3, 0.2], [0.6, 0.1]], dtype=np.float64)
     weights = np.array([0.5, 0.3, 0.2])
     out = combine_probs(stacked, "quad", precomputed_weights=weights)
@@ -76,6 +81,7 @@ def test_combine_probs_quad_weighted_matches_definition():
 
 
 def test_combine_probs_qube_weighted_matches_definition():
+    """Combine probs qube weighted matches definition."""
     stacked = np.array([[0.5, 0.4], [0.3, 0.2], [0.6, 0.1]], dtype=np.float64)
     weights = np.array([0.5, 0.3, 0.2])
     out = combine_probs(stacked, "qube", precomputed_weights=weights)
@@ -84,6 +90,7 @@ def test_combine_probs_qube_weighted_matches_definition():
 
 
 def test_combine_probs_renormalises_off_by_more_than_1e_3(caplog):
+    """Combine probs renormalises off by more than 1e 3."""
     stacked = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=np.float64)
     weights = np.array([0.4, 0.4])  # sums to 0.8, off by 0.2
     with caplog.at_level("WARNING", logger="mlframe.models.ensembling"):
@@ -94,24 +101,28 @@ def test_combine_probs_renormalises_off_by_more_than_1e_3(caplog):
 
 
 def test_combine_probs_rejects_shape_mismatch():
+    """Combine probs rejects shape mismatch."""
     stacked = np.zeros((3, 5))
     with pytest.raises(ValueError, match="precomputed_weights shape"):
         combine_probs(stacked, "arithm", precomputed_weights=np.array([0.5, 0.5]))
 
 
 def test_combine_probs_rejects_negative_weight():
+    """Combine probs rejects negative weight."""
     stacked = np.zeros((2, 5))
     with pytest.raises(ValueError, match="non-negative"):
         combine_probs(stacked, "arithm", precomputed_weights=np.array([-0.1, 1.1]))
 
 
 def test_combine_probs_rejects_nan_weight():
+    """Combine probs rejects nan weight."""
     stacked = np.zeros((2, 5))
     with pytest.raises(ValueError, match="non-finite"):
         combine_probs(stacked, "arithm", precomputed_weights=np.array([np.nan, 1.0]))
 
 
 def test_combine_probs_rejects_zero_sum_weight():
+    """Combine probs rejects zero sum weight."""
     stacked = np.zeros((2, 5))
     with pytest.raises(ValueError, match="sum to zero"):
         combine_probs(stacked, "arithm", precomputed_weights=np.array([0.0, 0.0]))
@@ -123,6 +134,7 @@ def test_combine_probs_rejects_zero_sum_weight():
 
 
 def test_ensemble_probabilistic_predictions_forwards_weights():
+    """Ensemble probabilistic predictions forwards weights."""
     rng = np.random.default_rng(2)
     preds = [rng.uniform(0.1, 0.9, size=(20, 2)) for _ in range(3)]
     weights = np.array([0.6, 0.3, 0.1])

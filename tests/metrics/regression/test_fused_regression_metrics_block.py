@@ -53,6 +53,7 @@ def _ref_block(y_true, y_pred):
     ],
 )
 def test_numerical_equivalence_vs_separate_kernels(n, y_mean, y_std):
+    """Numerical equivalence vs separate kernels."""
     rng = np.random.default_rng(0)
     y_true = rng.normal(y_mean, y_std, n).astype(np.float64)
     y_pred = y_true + rng.normal(0, max(0.01 * y_std, 1e-6), n).astype(np.float64)
@@ -67,6 +68,7 @@ def test_numerical_equivalence_vs_separate_kernels(n, y_mean, y_std):
 
 
 def test_empty_input_returns_zero_dict():
+    """Empty input returns zero dict."""
     out = fast_regression_metrics_block(np.array([], dtype=np.float64), np.array([], dtype=np.float64))
     assert out == {"MAE": 0.0, "RMSE": 0.0, "MaxError": 0.0, "R2": 0.0}
 
@@ -83,6 +85,7 @@ def test_constant_y_true_returns_r2_zero_when_perfect():
 
 
 def test_multidim_input_raises():
+    """Multidim input raises."""
     y_true_2d = np.zeros((100, 2), dtype=np.float64)
     y_pred_2d = np.zeros((100, 2), dtype=np.float64)
     with pytest.raises(ValueError, match="1-D"):

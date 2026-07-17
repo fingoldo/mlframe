@@ -18,6 +18,7 @@ from mlframe.feature_engineering.tfidf_svd_entity_embedding import FittedTfidfSv
 
 
 def _make_rare_category_dataset(n_entities: int, seed: int):
+    """Helper: Make rare category dataset."""
     rng = np.random.default_rng(seed)
     rows = []
     labels = np.zeros(n_entities, dtype=int)
@@ -39,6 +40,7 @@ def _make_rare_category_dataset(n_entities: int, seed: int):
 
 
 def test_biz_val_tfidf_svd_embedding_recovers_rare_category_signal():
+    """Biz val tfidf svd embedding recovers rare category signal."""
     df, labels = _make_rare_category_dataset(n_entities=300, seed=0)
     entities = pd.unique(df["entity"])
     y = labels[entities]
@@ -57,6 +59,7 @@ def test_biz_val_tfidf_svd_embedding_recovers_rare_category_signal():
 
 
 def test_tfidf_svd_entity_embedding_output_shape():
+    """Tfidf svd entity embedding output shape."""
     rng = np.random.default_rng(1)
     df = pd.DataFrame({"entity": rng.integers(0, 20, 200), "category": rng.integers(0, 8, 200).astype(str)})
     out = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=4)  # nosec B106 -- "category" is a column-name kwarg, not a credential
@@ -67,6 +70,7 @@ def test_tfidf_svd_entity_embedding_output_shape():
 def test_tfidf_svd_entity_embedding_default_output_unchanged_by_return_fitted_param():
     # regression test: adding the opt-in `return_fitted` param must not change the default return
     # value/type (bit-identical DataFrame) when the caller doesn't opt in.
+    """Tfidf svd entity embedding default output unchanged by return fitted param."""
     rng = np.random.default_rng(2)
     df = pd.DataFrame({"entity": rng.integers(0, 30, 300), "category": rng.integers(0, 10, 300).astype(str)})
     out_default = tfidf_svd_entity_embedding(df, entity_col="entity", token_col="category", n_components=5)  # nosec B106 -- "category" is a column-name kwarg, not a credential
@@ -85,6 +89,7 @@ def test_biz_val_tfidf_svd_oov_fraction_flags_unreliable_cold_start_entities():
     # categories seen during fit (low OOV, embedding should be meaningful/reliable), others are pure
     # cold-start with categories never seen during fit (high OOV, embedding is a near-meaningless
     # default-vocab-miss vector) -- the OOV-fraction diagnostic must separate the two cleanly.
+    """Biz val tfidf svd oov fraction flags unreliable cold start entities."""
     rng = np.random.default_rng(3)
     known_categories = [f"known{i}" for i in range(20)]
     novel_categories = [f"novel{i}" for i in range(20)]

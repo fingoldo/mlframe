@@ -30,6 +30,7 @@ from mlframe.training.models import create_linear_model
 
 @pytest.fixture(scope="module")
 def regression_data():
+    """Helper that regression data."""
     rng = np.random.default_rng(123)
     n_rows, n_features = 100, 5
     X = rng.standard_normal((n_rows, n_features))
@@ -39,6 +40,7 @@ def regression_data():
 
 @pytest.fixture(scope="module")
 def binary_data():
+    """Helper that binary data."""
     rng = np.random.default_rng(123)
     n_rows, n_features = 100, 5
     X = rng.standard_normal((n_rows, n_features))
@@ -80,6 +82,7 @@ _CLASSIFICATION_TYPES = ("ridge", "sgd")
 
 @pytest.mark.parametrize("model_type", _CLASSIFICATION_TYPES)
 def test_every_linear_classification_type_fits_and_predicts(model_type, binary_data):
+    """Every linear classification type fits and predicts."""
     X, y = binary_data
     cfg_kwargs = {"model_type": model_type, "random_state": 42, "max_iter": 200}
     if model_type == "sgd":

@@ -44,6 +44,7 @@ def _two_gmm_binary_mixture(n: int = 1200, seed: int = 0) -> tuple[np.ndarray, n
     n_neg = n - n_pos
 
     def _draw(centres: np.ndarray, n_draw: int) -> np.ndarray:
+        """Helper: Draw."""
         comps = rng.integers(0, centres.shape[0], size=n_draw)
         return centres[comps] + rng.normal(scale=0.8, size=(n_draw, d))
 
@@ -72,6 +73,7 @@ def _knn_recoverable_regression(n: int = 1500, seed: int = 0) -> tuple[np.ndarra
 
 
 def _cv_auc(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: int = 42) -> float:
+    """Helper: Cv auc."""
     from sklearn.metrics import roc_auc_score
 
     splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
@@ -85,6 +87,7 @@ def _cv_auc(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: i
 
 
 def _cv_r2(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: int = 42) -> float:
+    """Helper: Cv r2."""
     splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
     r2s = []
     for tr, va in splitter.split(X):
@@ -98,12 +101,14 @@ def _cv_r2(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: in
 
 
 def _logreg():
+    """Helper: Logreg."""
     from sklearn.linear_model import LogisticRegression
 
     return LogisticRegression(max_iter=500, solver="lbfgs", C=1.0)
 
 
 def _ridge():
+    """Helper: Ridge."""
     from sklearn.linear_model import Ridge
 
     return Ridge(alpha=1.0)

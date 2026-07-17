@@ -21,6 +21,7 @@ from mlframe.metrics._core_auc_brier import (
 
 
 def _ref(y_true, y_score, idx):
+    """Helper: Ref."""
     return float(fast_roc_auc_unstable(y_true[idx], y_score[idx]))
 
 

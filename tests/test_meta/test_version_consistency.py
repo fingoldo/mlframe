@@ -26,6 +26,7 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 
 def _read_pyproject_version() -> str | None:
+    """Helper that read pyproject version."""
     if not PYPROJECT_PATH.exists():
         return None
     text = PYPROJECT_PATH.read_text(encoding="utf-8")

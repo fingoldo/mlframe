@@ -38,6 +38,7 @@ def _overconfident(n: int = 40000, seed: int = 0):
 
 
 def _true_map(s: np.ndarray, k: float) -> np.ndarray:
+    """Helper: True map."""
     s = np.clip(s, 1e-9, 1 - 1e-9)
     logit = np.log(s / (1 - s))
     return 1.0 / (1.0 + np.exp(-logit / k))
@@ -52,7 +53,9 @@ def _binned_map_at(scores: np.ndarray, fp: np.ndarray, ftr: np.ndarray) -> np.nd
 
 
 class TestSmoothedOverlayUnit:
+    """Groups tests for: TestSmoothedOverlayUnit."""
     def test_overlay_present_when_raw_supplied(self):
+        """Overlay present when raw supplied."""
         y, score, _ = _overconfident(n=5000)
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
         spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y)
@@ -65,12 +68,14 @@ class TestSmoothedOverlayUnit:
         assert np.all(np.diff(gy) >= -1e-9)  # monotone non-decreasing
 
     def test_overlay_absent_when_toggle_off(self):
+        """Overlay absent when toggle off."""
         y, score, _ = _overconfident(n=5000)
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
         spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, reliability_smoothed=False)
         assert spec.panels[0][0].overlay_line is None
 
     def test_overlay_absent_when_no_raw(self):
+        """Overlay absent when no raw."""
         spec = build_calibration_spec(
             np.linspace(0.05, 0.95, 10),
             np.linspace(0.0, 1.0, 10),
@@ -79,18 +84,22 @@ class TestSmoothedOverlayUnit:
         assert spec.panels[0][0].overlay_line is None
 
     def test_degrades_single_class(self):
+        """Degrades single class."""
         s = np.linspace(0.0, 1.0, 200)
         assert smoothed_reliability_curve(s, np.zeros(200)) is None
 
     def test_degrades_all_equal_scores(self):
+        """Degrades all equal scores."""
         rng = np.random.default_rng(0)
         y = (rng.random(200) < 0.5).astype(int)
         assert smoothed_reliability_curve(np.full(200, 0.5), y) is None
 
     def test_degrades_too_few_rows(self):
+        """Degrades too few rows."""
         assert smoothed_reliability_curve(np.array([0.1, 0.9]), np.array([0, 1])) is None
 
     def test_renders_both_backends(self, tmp_path):
+        """Renders both backends."""
         y, score, _ = _overconfident(n=4000)
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
         spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y)
@@ -101,6 +110,7 @@ class TestSmoothedOverlayUnit:
 
 
 class TestSmoothedOverlayBizValue:
+    """Groups tests for: TestSmoothedOverlayBizValue."""
     def test_biz_val_smoothed_tracks_true_map_better_than_binned(self):
         """On overconfident scores with a known true map, compare each estimator's calibration map to the truth via
         the honest population-weighted error: evaluate both maps AT every raw score (where the data actually lives)

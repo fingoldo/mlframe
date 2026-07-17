@@ -28,6 +28,7 @@ def restore_threshold():
     [(99, False), (100, True), (101, True)],
 )
 def test_dispatch_threshold_boundary(n_rows, expect_numba, restore_threshold, monkeypatch):
+    """Dispatch threshold boundary."""
     pytest.importorskip("numba")
     rc = restore_threshold
     rc.set_spearmanr_dispatch_threshold(100)
@@ -36,6 +37,7 @@ def test_dispatch_threshold_boundary(n_rows, expect_numba, restore_threshold, mo
     orig = rc.spearmanr_batched_numba
 
     def spy(X, Y):
+        """Spy."""
         calls["n"] += 1
         return orig(X, Y)
 
@@ -57,6 +59,7 @@ def test_dispatch_threshold_boundary(n_rows, expect_numba, restore_threshold, mo
 
 
 def test_dispatch_1d_input_uses_numpy_path_regardless_of_size(restore_threshold, monkeypatch):
+    """Dispatch 1d input uses numpy path regardless of size."""
     pytest.importorskip("numba")
     rc = restore_threshold
     rc.set_spearmanr_dispatch_threshold(1)  # below any plausible size
@@ -65,6 +68,7 @@ def test_dispatch_1d_input_uses_numpy_path_regardless_of_size(restore_threshold,
     orig = rc.spearmanr_batched_numba
 
     def spy(X, Y):
+        """Spy."""
         calls["n"] += 1
         return orig(X, Y)
 
@@ -77,6 +81,7 @@ def test_dispatch_1d_input_uses_numpy_path_regardless_of_size(restore_threshold,
 
 @pytest.mark.parametrize("n", [0, 1])
 def test_scalar_dispatch_degenerate_length_is_nan(n):
+    """Scalar dispatch degenerate length is nan."""
     from mlframe.metrics.rank_correlation import spearmanr_scalar_dispatch
 
     x = np.arange(float(n))
@@ -92,6 +97,7 @@ def test_scalar_dispatch_degenerate_length_is_nan(n):
     ],
 )
 def test_scalar_dispatch_minimal_length_two(y, expected):
+    """Scalar dispatch minimal length two."""
     from mlframe.metrics.rank_correlation import spearmanr_scalar_dispatch
 
     x = np.array([1.0, 2.0])

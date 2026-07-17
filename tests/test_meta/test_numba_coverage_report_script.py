@@ -76,6 +76,7 @@ def tmp_src_root(tmp_path: Path) -> Path:
 
 
 def test_numba_coverage_report_emits_per_module_delta(tmp_path: Path, tmp_src_root: Path) -> None:
+    """Numba coverage report emits per module delta."""
     nd_xml = tmp_path / "nd.xml"
     bl_xml = tmp_path / "bl.xml"
     out_json = tmp_path / "report.json"
@@ -120,6 +121,7 @@ def test_numba_coverage_report_emits_per_module_delta(tmp_path: Path, tmp_src_ro
 
 
 def test_numba_coverage_report_stdout_when_no_out_arg(tmp_path: Path, tmp_src_root: Path) -> None:
+    """Numba coverage report stdout when no out arg."""
     nd_xml = tmp_path / "nd.xml"
     nd_xml.write_text(_FAKE_COBERTURA_NUMBA_DISABLED, encoding="utf-8")
 

@@ -13,10 +13,12 @@ from mlframe.metrics.scoring import ProbaScoreProxy
 
 
 def _dummy_scorer(y_true, y_score):
+    """Helper: Dummy scorer."""
     return float(np.mean(y_score))
 
 
 def test_proba_score_proxy_1d_probs_raises_clear_error():
+    """Proba score proxy 1d probs raises clear error."""
     y_true = np.array([0, 1, 0])
     y_probs_1d = np.array([0.2, 0.8, 0.4])  # 1-D, should be (N, n_classes)
     with pytest.raises(ValueError, match="2-D"):
@@ -24,6 +26,7 @@ def test_proba_score_proxy_1d_probs_raises_clear_error():
 
 
 def test_proba_score_proxy_out_of_range_class_idx_raises_clear_error():
+    """Proba score proxy out of range class idx raises clear error."""
     y_true = np.array([0, 1, 0])
     y_probs = np.array([[0.8, 0.2], [0.3, 0.7], [0.6, 0.4]])  # 2 classes
     with pytest.raises(ValueError, match="class_idx"):

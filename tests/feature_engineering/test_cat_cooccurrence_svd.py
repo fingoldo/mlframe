@@ -24,6 +24,7 @@ from mlframe.feature_engineering.cat_cooccurrence_svd import (
 
 
 def test_fit_returns_expected_shape_and_recipe():
+    """Fit returns expected shape and recipe."""
     rng = np.random.default_rng(0)
     n = 500
     city = rng.choice(["Moscow", "London", "Paris"], size=n)
@@ -41,6 +42,7 @@ def test_fit_returns_expected_shape_and_recipe():
 
 
 def test_same_category_gets_same_code():
+    """Same category gets same code."""
     X = pd.DataFrame(
         {
             "a": ["x", "x", "y", "y", "z", "z"],
@@ -55,6 +57,7 @@ def test_same_category_gets_same_code():
 
 
 def test_sign_canonicalisation_is_deterministic():
+    """Sign canonicalisation is deterministic."""
     X = pd.DataFrame(
         {
             "a": ["x", "y", "z", "x", "y", "z"] * 20,
@@ -76,6 +79,7 @@ def test_sign_canonicalisation_is_deterministic():
 
 def test_multi_component_capped_at_rank():
     # 3 x 2 contingency -> rank <= 2, so requesting 5 components yields 2.
+    """Multi component capped at rank."""
     X = pd.DataFrame(
         {
             "a": ["x", "y", "z"] * 30,
@@ -93,6 +97,7 @@ def test_multi_component_capped_at_rank():
 
 
 def test_apply_reproduces_fit_on_same_frame():
+    """Apply reproduces fit on same frame."""
     rng = np.random.default_rng(1)
     n = 400
     X = pd.DataFrame(
@@ -110,6 +115,7 @@ def test_apply_reproduces_fit_on_same_frame():
 def test_unseen_category_maps_to_default_zero_vector():
     # Distinct partner profiles per category so the association code is non-zero:
     # x co-occurs only with p, y only with q, z with both.
+    """Unseen category maps to default zero vector."""
     X = pd.DataFrame(
         {
             "a": (["x"] * 10) + (["y"] * 10) + (["z"] * 10),
@@ -127,6 +133,7 @@ def test_unseen_category_maps_to_default_zero_vector():
 
 
 def test_nan_forms_its_own_category():
+    """Nan forms its own category."""
     X = pd.DataFrame(
         {
             "a": ["x", "y", np.nan, "x", np.nan],
@@ -142,6 +149,7 @@ def test_nan_forms_its_own_category():
 def test_int_float_dtype_drift_resolves_same_category():
     # Distinct partner profiles so codes are non-zero (raw normalize also works,
     # but ca with real association is the default path we want to exercise).
+    """Int float dtype drift resolves same category."""
     X_fit = pd.DataFrame(
         {
             "a": [1, 1, 2, 2, 3, 3],
@@ -165,29 +173,34 @@ def test_int_float_dtype_drift_resolves_same_category():
 
 
 def test_fit_empty_raises():
+    """Fit empty raises."""
     with pytest.raises(ValueError, match="empty"):
         cat_cooccurrence_svd_fit(pd.DataFrame({"a": [], "b": []}), "a", "b")
 
 
 def test_fit_missing_column_raises():
+    """Fit missing column raises."""
     X = pd.DataFrame({"a": ["x"], "b": ["p"]})
     with pytest.raises(ValueError, match="missing"):
         cat_cooccurrence_svd_fit(X, "a", "nope")
 
 
 def test_fit_bad_n_components_raises():
+    """Fit bad n components raises."""
     X = pd.DataFrame({"a": ["x", "y"], "b": ["p", "q"]})
     with pytest.raises(ValueError, match="n_components"):
         cat_cooccurrence_svd_fit(X, "a", "b", n_components=0)
 
 
 def test_fit_bad_normalize_raises():
+    """Fit bad normalize raises."""
     X = pd.DataFrame({"a": ["x", "y"], "b": ["p", "q"]})
     with pytest.raises(ValueError, match="normalize"):
         cat_cooccurrence_svd_fit(X, "a", "b", normalize="bogus")
 
 
 def test_raw_normalize_roundtrips():
+    """Raw normalize roundtrips."""
     rng = np.random.default_rng(3)
     n = 300
     X = pd.DataFrame(
@@ -204,12 +217,14 @@ def test_raw_normalize_roundtrips():
 
 
 def test_apply_missing_recipe_key_raises():
+    """Apply missing recipe key raises."""
     X = pd.DataFrame({"a": ["x"]})
     with pytest.raises(KeyError):
         apply_cat_cooccurrence_svd(X, "a", {"lookup": {}})
 
 
 def test_apply_non_dataframe_raises():
+    """Apply non dataframe raises."""
     with pytest.raises(TypeError):
         apply_cat_cooccurrence_svd(
             np.array([1, 2]),
@@ -228,6 +243,7 @@ def test_apply_non_dataframe_raises():
 
 
 def test_with_recipes_appends_and_skips_self_pairs():
+    """With recipes appends and skips self pairs."""
     rng = np.random.default_rng(2)
     n = 300
     X = pd.DataFrame(
@@ -287,6 +303,7 @@ def _latent_group_cooccur_bed(seed_data: int):
 
 
 def _holdout_auc_of_embedding(X, y, normalize, n_components):
+    """Helper: Holdout auc of embedding."""
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import roc_auc_score
     from sklearn.model_selection import train_test_split

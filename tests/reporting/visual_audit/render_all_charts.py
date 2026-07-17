@@ -65,6 +65,7 @@ def _render(out_dir: str, name: str, spec) -> None:
 
 # ---------------------------------------------------------------- 1. calibration
 def audit_calibration(out_dir: str) -> None:
+    """Audit calibration."""
     print("[1/7] calibration (binary)...")
     from mlframe.reporting.charts.calibration import build_calibration_spec
 
@@ -84,6 +85,7 @@ def audit_calibration(out_dir: str) -> None:
 
 # ---------------------------------------------------------------- 2. regression
 def audit_regression(out_dir: str) -> None:
+    """Audit regression."""
     print("[2/7] regression (3-panel)...")
     from mlframe.reporting.charts.regression import build_regression_panel_spec
     from mlframe.training.targets.regression_residual_audit import audit_residuals
@@ -105,6 +107,7 @@ def audit_regression(out_dir: str) -> None:
 
 # ---------------------------------------------------------------- 3. multiclass
 def audit_multiclass(out_dir: str) -> None:
+    """Audit multiclass."""
     print("[3/7] multiclass (6-panel grid)...")
     from mlframe.reporting.charts.multiclass import compose_multiclass_figure
 
@@ -131,6 +134,7 @@ def audit_multiclass(out_dir: str) -> None:
 
 # ---------------------------------------------------------------- 4. multilabel
 def audit_multilabel(out_dir: str) -> None:
+    """Audit multilabel."""
     print("[4/7] multilabel (5-panel grid)...")
     from mlframe.reporting.charts.multilabel import compose_multilabel_figure
 
@@ -151,6 +155,7 @@ def audit_multilabel(out_dir: str) -> None:
 
 # ---------------------------------------------------------------- 5. LTR
 def audit_ltr(out_dir: str) -> None:
+    """Audit ltr."""
     print("[5/7] LTR (5-panel grid)...")
     from mlframe.reporting.charts.ltr import compose_ltr_figure
 
@@ -173,6 +178,7 @@ def audit_ltr(out_dir: str) -> None:
 
 # ---------------------------------------------------------------- 6. quantile
 def audit_quantile(out_dir: str) -> None:
+    """Audit quantile."""
     print("[6/7] quantile regression (5-panel grid)...")
     from mlframe.reporting.charts.quantile import compose_quantile_figure
     from scipy import stats
@@ -202,6 +208,7 @@ def audit_quantile(out_dir: str) -> None:
 
 # ---------------------------------------------------------------- 7. temporal
 def audit_temporal(out_dir: str) -> None:
+    """Audit temporal."""
     print("[7/7] temporal audit (line)...")
     from mlframe.reporting.charts.temporal import build_temporal_audit_spec
 
@@ -236,6 +243,7 @@ def audit_temporal(out_dir: str) -> None:
 
 
 def main(argv: Sequence[str] = ()) -> int:
+    """Main."""
     import tempfile
 
     default_out = os.path.join(tempfile.gettempdir(), "chart_audit")

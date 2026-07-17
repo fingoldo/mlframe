@@ -20,6 +20,7 @@ from mlframe.metrics._fairness_metrics import compute_fairness_metrics, robust_m
 
 
 def _abs_err_metric(y_true, y_pred):
+    """Helper: Abs err metric."""
     return float(np.mean(np.abs(np.asarray(y_true) - np.asarray(y_pred))))
 
 

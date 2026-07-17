@@ -21,6 +21,7 @@ INTERNAL_PREFIX = "mlframe.training.core."
 
 
 def _is_test_adjacent(path: Path) -> bool:
+    """Helper that is test adjacent."""
     parts = path.parts
     rel = path.relative_to(SRC).as_posix() if path.is_relative_to(SRC) else path.as_posix()
     if rel.startswith("training/core/"):
@@ -34,6 +35,7 @@ def _is_test_adjacent(path: Path) -> bool:
 
 
 def _iter_imports(tree: ast.AST):
+    """Helper that iter imports."""
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
             yield node.module
@@ -43,6 +45,7 @@ def _iter_imports(tree: ast.AST):
 
 
 def test_no_production_underscore_imports_into_training_core_internals():
+    """No production underscore imports into training core internals."""
     offenders: list[tuple[str, str]] = []
     for py_path in SRC.rglob("*.py"):
         if _is_test_adjacent(py_path):

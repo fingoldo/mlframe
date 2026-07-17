@@ -74,14 +74,17 @@ def _make_distributions(seed=0):
 
 
 def _ref_mean_var(arr):
+    """Helper: Ref mean var."""
     return float(np.mean(arr)), float(np.var(arr, ddof=0))
 
 
 def _ref_skew_kurt(arr):
+    """Helper: Ref skew kurt."""
     return float(sp_skew(arr, bias=True)), float(sp_kurtosis(arr, fisher=True, bias=True))
 
 
 def _rel_err(actual, ref, eps=1e-15):
+    """Helper: Rel err."""
     if abs(ref) < eps:
         return abs(actual - ref)  # absolute fallback for ref ~ 0
     return abs(actual - ref) / abs(ref)
@@ -93,6 +96,7 @@ def _rel_err(actual, ref, eps=1e-15):
 
 
 def _warmup():
+    """Helper: Warmup."""
     arr = np.array([1.0, 2.0, 3.0, 4.0])
     welford_mean_var_seq(arr)
     welford_moments_seq(arr)

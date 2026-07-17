@@ -66,6 +66,7 @@ def _smooth_local_target(n: int = 1500, seed: int = 0) -> tuple[np.ndarray, np.n
 
 
 def _cv_auc(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: int = 42) -> float:
+    """Helper: Cv auc."""
     from sklearn.metrics import roc_auc_score
 
     splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
@@ -79,6 +80,7 @@ def _cv_auc(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: i
 
 
 def _cv_r2(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: int = 42) -> float:
+    """Helper: Cv r2."""
     splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
     r2s = []
     for tr, va in splitter.split(X):
@@ -92,12 +94,14 @@ def _cv_r2(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: in
 
 
 def _logreg():
+    """Helper: Logreg."""
     from sklearn.linear_model import LogisticRegression
 
     return LogisticRegression(max_iter=500, solver="lbfgs", C=1.0)
 
 
 def _ridge():
+    """Helper: Ridge."""
     from sklearn.linear_model import Ridge
 
     return Ridge(alpha=1.0)

@@ -21,6 +21,7 @@ from mlframe.reporting.charts.shap_per_instance import _render
 
 
 def _open_fig_count() -> int:
+    """Helper: Open fig count."""
     return len(plt.get_fignums())
 
 
@@ -43,7 +44,9 @@ def test_save_figure_closes_on_savefig_failure(tmp_path):
     fig = plt.figure()
 
     class _Boom:
+        """Groups tests for: Boom."""
         def savefig(self, *a, **k):
+            """Savefig."""
             raise RuntimeError("disk full")
 
     # Wrap so close still targets the real figure: monkeypatch savefig on the real fig instead.
@@ -58,6 +61,7 @@ def test_save_figure_closes_on_savefig_failure(tmp_path):
 
 
 def test_save_figure_closes_on_success(tmp_path):
+    """Save figure closes on success."""
     plt.close("all")
     before = _open_fig_count()
     fig = plt.figure()

@@ -44,6 +44,7 @@ def _ref(values, group_ids, window_K, direction):
 
 
 def test_strictly_increasing_signal_full_run():
+    """Strictly increasing signal full run."""
     values = np.arange(50, dtype=np.float64)
     groups = np.zeros(50, dtype=int)
     up = rolling_longest_monotone_run(values, groups, window_K=10, direction="up")
@@ -58,6 +59,7 @@ def test_strictly_increasing_signal_full_run():
 
 @pytest.mark.parametrize("direction", ["up", "down", "any"])
 def test_matches_python_reference_multigroup(direction):
+    """Matches python reference multigroup."""
     rng = np.random.default_rng(123)
     n = 600
     values = rng.normal(size=n).cumsum()  # random walk -> mixed up/down runs
@@ -69,6 +71,7 @@ def test_matches_python_reference_multigroup(direction):
 
 def test_flat_segments_reset_runs():
     # A plateau (zero diffs) must break both up and down runs.
+    """Flat segments reset runs."""
     values = np.array([0, 1, 2, 2, 2, 3, 4, 5, 6, 7], dtype=np.float64)
     groups = np.zeros(values.size, dtype=int)
     got = rolling_longest_monotone_run(values, groups, window_K=10, direction="up")

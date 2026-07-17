@@ -32,11 +32,13 @@ from mlframe.reporting.spec import (
 
 @pytest.fixture
 def rng():
+    """Rng."""
     return np.random.default_rng(42)
 
 
 @pytest.fixture
 def scatter_panel(rng):
+    """Scatter panel."""
     x = rng.standard_normal(100)
     y = x * 1.5 + rng.standard_normal(100) * 0.2
     return ScatterPanelSpec(
@@ -52,6 +54,7 @@ def scatter_panel(rng):
 
 @pytest.fixture
 def histogram_panel(rng):
+    """Histogram panel."""
     return HistogramPanelSpec(
         values=rng.standard_normal(500),
         bins=30,
@@ -63,6 +66,7 @@ def histogram_panel(rng):
 
 @pytest.fixture
 def heatmap_panel():
+    """Heatmap panel."""
     matrix = np.array([[0.9, 0.1], [0.05, 0.95]])
     return HeatmapPanelSpec(
         matrix=matrix,
@@ -77,6 +81,7 @@ def heatmap_panel():
 
 @pytest.fixture
 def bar_panel():
+    """Bar panel."""
     return BarPanelSpec(
         categories=("A", "B", "C"),
         values=np.array([1.0, 2.0, 1.5]),
@@ -88,6 +93,7 @@ def bar_panel():
 
 @pytest.fixture
 def line_panel():
+    """Line panel."""
     x = np.arange(10)
     return LinePanelSpec(
         x=x,
@@ -101,6 +107,7 @@ def line_panel():
 
 @pytest.fixture
 def violin_panel(rng):
+    """Violin panel."""
     return ViolinPanelSpec(
         groups=(rng.standard_normal(50), rng.standard_normal(50) + 1),
         group_labels=("g1", "g2"),
@@ -114,7 +121,9 @@ def violin_panel(rng):
 
 
 class TestMatplotlibRenderer:
+    """Groups tests for: TestMatplotlibRenderer."""
     def test_render_single_scatter(self, scatter_panel):
+        """Render single scatter."""
         renderer = get_renderer("matplotlib")
         spec = FigureSpec(suptitle="t", panels=((scatter_panel,),), figsize=(6, 4))
         fig = renderer.render(spec)
@@ -124,6 +133,7 @@ class TestMatplotlibRenderer:
         assert len(fig.axes) >= 1  # >=1 because legend may add an axis
 
     def test_render_2x2_grid(self, scatter_panel, histogram_panel, heatmap_panel, bar_panel):
+        """Render 2x2 grid."""
         renderer = get_renderer("matplotlib")
         spec = FigureSpec(
             panels=((scatter_panel, histogram_panel), (heatmap_panel, bar_panel)),
@@ -134,6 +144,7 @@ class TestMatplotlibRenderer:
         assert len(fig.axes) >= 4
 
     def test_render_line_panel(self, line_panel):
+        """Render line panel."""
         renderer = get_renderer("matplotlib")
         spec = FigureSpec(panels=((line_panel,),), figsize=(8, 4))
         fig = renderer.render(spec)
@@ -142,6 +153,7 @@ class TestMatplotlibRenderer:
         assert len(ax.lines) >= 2
 
     def test_render_violin(self, violin_panel):
+        """Render violin."""
         renderer = get_renderer("matplotlib")
         spec = FigureSpec(panels=((violin_panel,),), figsize=(8, 4))
         fig = renderer.render(spec)
@@ -149,6 +161,7 @@ class TestMatplotlibRenderer:
         assert len(fig.axes) >= 1
 
     def test_save_png(self, scatter_panel, tmp_path):
+        """Save png."""
         renderer = get_renderer("matplotlib")
         spec = FigureSpec(panels=((scatter_panel,),), figsize=(6, 4))
         fig = renderer.render(spec)
@@ -158,6 +171,7 @@ class TestMatplotlibRenderer:
         assert os.path.getsize(out) > 0
 
     def test_save_pdf(self, scatter_panel, tmp_path):
+        """Save pdf."""
         renderer = get_renderer("matplotlib")
         spec = FigureSpec(panels=((scatter_panel,),), figsize=(6, 4))
         fig = renderer.render(spec)
@@ -166,6 +180,7 @@ class TestMatplotlibRenderer:
         assert os.path.exists(out)
 
     def test_save_unknown_format_raises(self, scatter_panel, tmp_path):
+        """Save unknown format raises."""
         renderer = get_renderer("matplotlib")
         spec = FigureSpec(panels=((scatter_panel,),), figsize=(6, 4))
         fig = renderer.render(spec)
@@ -173,6 +188,7 @@ class TestMatplotlibRenderer:
             renderer.save(fig, str(tmp_path / "x.html"), "html")
 
     def test_empty_panels_raises(self):
+        """Empty panels raises."""
         renderer = get_renderer("matplotlib")
         with pytest.raises(ValueError, match="no panels"):
             renderer.render(FigureSpec(panels=(), figsize=(6, 4)))
@@ -184,7 +200,9 @@ class TestMatplotlibRenderer:
 
 
 class TestPlotlyRenderer:
+    """Groups tests for: TestPlotlyRenderer."""
     def test_render_single_scatter(self, scatter_panel):
+        """Render single scatter."""
         renderer = get_renderer("plotly")
         spec = FigureSpec(suptitle="t", panels=((scatter_panel,),), figsize=(6, 4))
         fig = renderer.render(spec)
@@ -195,6 +213,7 @@ class TestPlotlyRenderer:
         assert len(fig.data) >= 1
 
     def test_render_2x2_grid(self, scatter_panel, histogram_panel, heatmap_panel, bar_panel):
+        """Render 2x2 grid."""
         renderer = get_renderer("plotly")
         spec = FigureSpec(
             panels=((scatter_panel, histogram_panel), (heatmap_panel, bar_panel)),
@@ -205,6 +224,7 @@ class TestPlotlyRenderer:
         assert len(fig.data) >= 4
 
     def test_render_line_panel(self, line_panel):
+        """Render line panel."""
         renderer = get_renderer("plotly")
         spec = FigureSpec(panels=((line_panel,),), figsize=(8, 4))
         fig = renderer.render(spec)
@@ -212,6 +232,7 @@ class TestPlotlyRenderer:
         assert sum(1 for t in fig.data if t.type == "scatter" and t.mode == "lines") == 2
 
     def test_save_html(self, scatter_panel, tmp_path):
+        """Save html."""
         renderer = get_renderer("plotly")
         spec = FigureSpec(panels=((scatter_panel,),), figsize=(6, 4))
         fig = renderer.render(spec)
@@ -224,6 +245,7 @@ class TestPlotlyRenderer:
         assert "plotly" in content.lower()
 
     def test_save_json(self, scatter_panel, tmp_path):
+        """Save json."""
         renderer = get_renderer("plotly")
         spec = FigureSpec(panels=((scatter_panel,),), figsize=(6, 4))
         fig = renderer.render(spec)
@@ -241,6 +263,7 @@ class TestPlotlyRenderer:
         assert "layout" in obj
 
     def test_save_unknown_format_raises(self, scatter_panel, tmp_path):
+        """Save unknown format raises."""
         renderer = get_renderer("plotly")
         spec = FigureSpec(panels=((scatter_panel,),), figsize=(6, 4))
         fig = renderer.render(spec)
@@ -254,17 +277,22 @@ class TestPlotlyRenderer:
 
 
 class TestRendererFactory:
+    """Groups tests for: TestRendererFactory."""
     def test_get_matplotlib(self):
+        """Get matplotlib."""
         r = get_renderer("matplotlib")
         assert r.backend == "matplotlib"
 
     def test_get_plotly(self):
+        """Get plotly."""
         r = get_renderer("plotly")
         assert r.backend == "plotly"
 
     def test_unknown_backend_raises(self):
+        """Unknown backend raises."""
         with pytest.raises(ValueError, match="unknown renderer"):
             get_renderer("bokeh")
 
     def test_case_insensitive(self):
+        """Case insensitive."""
         assert get_renderer("PLOTLY").backend == "plotly"

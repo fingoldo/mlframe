@@ -34,12 +34,14 @@ def _two_community_graph(m=15, p_between=0.02, seed=0):
 
 
 def _one_community_graph(n=30, p=0.5, seed=0):
+    """Helper: One community graph."""
     rng = np.random.default_rng(seed)
     edges = [(i, j) for i in range(n) for j in range(i + 1, n) if rng.random() < p]
     return n, np.array(edges, dtype=np.int64)
 
 
 def _separation_ratio(coords, labels):
+    """Helper: Separation ratio."""
     c0 = coords[labels == 0].mean(axis=0)
     c1 = coords[labels == 1].mean(axis=0)
     between = np.linalg.norm(c0 - c1)
@@ -57,6 +59,7 @@ def _separation_ratio(coords, labels):
 
 
 def test_layout_shape():
+    """Layout shape."""
     n, edges, _ = _two_community_graph()
     coords = spectral_layout(n, edges)
     assert coords.shape == (n, 2)
@@ -64,6 +67,7 @@ def test_layout_shape():
 
 def test_disconnected_graph_no_crash():
     # Two isolated components + fully isolated nodes (no edges to some) -- must not raise.
+    """Disconnected graph no crash."""
     edges = np.array([(0, 1), (1, 2), (5, 6)], dtype=np.int64)
     coords = spectral_layout(8, edges)
     assert coords.shape == (8, 2)
@@ -71,17 +75,20 @@ def test_disconnected_graph_no_crash():
 
 
 def test_edgeless_graph_jittered_not_stacked():
+    """Edgeless graph jittered not stacked."""
     coords = spectral_layout(5, np.empty((0, 2), dtype=np.int64))
     assert coords.shape == (5, 2)
     assert coords.std() > 0  # degenerate layout gets a deterministic jitter so nodes don't stack
 
 
 def test_tiny_graph():
+    """Tiny graph."""
     coords = spectral_layout(1, np.empty((0, 2), dtype=np.int64))
     assert coords.shape == (1, 2)
 
 
 def test_panel_and_figure():
+    """Panel and figure."""
     n, edges, labels = _two_community_graph()
     panel = spectral_embedding_panel(n, edges, node_color=labels)
     assert isinstance(panel, NetworkPanelSpec)

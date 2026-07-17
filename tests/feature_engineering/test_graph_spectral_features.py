@@ -12,16 +12,19 @@ from mlframe.feature_engineering.graph_spectral_features import (
 
 
 def _cycle_edges(n):
+    """Helper: Cycle edges."""
     return np.array([[i, (i + 1) % n] for i in range(n)], dtype=np.int64)
 
 
 def _complete_edges(n):
+    """Helper: Complete edges."""
     return np.array([[i, j] for i in range(n) for j in range(i + 1, n)], dtype=np.int64)
 
 
 # ---------------------------------------------------------------- unit
 def test_triangle_counts_and_edges():
     # a single triangle: 3 nodes, 3 edges, 1 triangle
+    """Triangle counts and edges."""
     f = graph_spectral_features(3, np.array([[0, 1], [1, 2], [0, 2]]), k=3)
     assert f["n_edges"] == 3.0
     assert f["n_triangles"] == 1.0
@@ -30,12 +33,14 @@ def test_triangle_counts_and_edges():
 
 def test_components_of_disconnected_graph():
     # two disjoint edges + one isolated node -> 3 components
+    """Components of disconnected graph."""
     f = graph_spectral_features(5, np.array([[0, 1], [2, 3]]), k=3)
     assert f["n_components"] == 3.0
     assert f["algebraic_connectivity"] == 0.0  # disconnected -> Fiedler value 0
 
 
 def test_algebraic_connectivity_grows_with_connectivity():
+    """Algebraic connectivity grows with connectivity."""
     path = graph_spectral_features(6, np.array([[i, i + 1] for i in range(5)]), k=3)
     comp = graph_spectral_features(6, _complete_edges(6), k=3)
     assert comp["algebraic_connectivity"] > path["algebraic_connectivity"]  # complete graph is far better connected
@@ -43,6 +48,7 @@ def test_algebraic_connectivity_grows_with_connectivity():
 
 def test_spectral_radius_bounded_by_max_degree():
     # star graph: centre degree n-1 -> spectral radius sqrt(n-1) <= max degree
+    """Spectral radius bounded by max degree."""
     n = 6
     edges = np.array([[0, i] for i in range(1, n)])
     f = graph_spectral_features(n, edges, k=3)
@@ -52,6 +58,7 @@ def test_spectral_radius_bounded_by_max_degree():
 
 def test_bipartite_signal_largest_norm_lap_eig():
     # even cycle C4 is bipartite -> largest normalized-Laplacian eigenvalue == 2
+    """Bipartite signal largest norm lap eig."""
     bip = graph_spectral_features(4, _cycle_edges(4), k=3)
     assert abs(bip["largest_norm_lap_eig"] - 2.0) < 1e-6
     # odd cycle C5 is NOT bipartite -> strictly below 2
@@ -60,6 +67,7 @@ def test_bipartite_signal_largest_norm_lap_eig():
 
 
 def test_permutation_invariance_isospectral():
+    """Permutation invariance isospectral."""
     rng = np.random.default_rng(0)
     n = 8
     edges = _complete_edges(n)[rng.permutation(_complete_edges(n).shape[0])[:12]]
@@ -72,6 +80,7 @@ def test_permutation_invariance_isospectral():
 
 
 def test_names_and_length():
+    """Names and length."""
     names = graph_spectral_feature_names(5)
     f = graph_spectral_features(4, _cycle_edges(4), k=5)
     assert set(names) == set(f.keys())
@@ -79,6 +88,7 @@ def test_names_and_length():
 
 
 def test_guards():
+    """Guards."""
     with pytest.raises(ValueError):
         graph_spectral_features(0, np.zeros((0, 2)))
     with pytest.raises(ValueError):

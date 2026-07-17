@@ -19,6 +19,7 @@ from mlframe.feature_engineering.grouped import (
 
 
 def _argsort_segments(group_ids):
+    """Helper: Argsort segments."""
     g = np.ascontiguousarray(group_ids)
     n = g.size
     sort_idx = np.argsort(g, kind="stable")
@@ -40,6 +41,7 @@ def _argsort_segments(group_ids):
     ],
 )
 def test_counting_sort_bit_identical_to_argsort(gids):
+    """Counting sort bit identical to argsort."""
     si, st, en = iter_group_segments(gids)
     bsi, bst, ben = _argsort_segments(gids)
     assert np.array_equal(si, bsi)
@@ -57,6 +59,7 @@ def test_integer_path_skips_argsort(monkeypatch):
     real_argsort = np.argsort
 
     def spy(*a, **k):
+        """Spy."""
         called["n"] += 1
         return real_argsort(*a, **k)
 
@@ -72,6 +75,7 @@ def test_huge_span_falls_back_to_argsort(monkeypatch):
     real_argsort = np.argsort
 
     def spy(*a, **k):
+        """Spy."""
         called["n"] += 1
         return real_argsort(*a, **k)
 
@@ -82,6 +86,7 @@ def test_huge_span_falls_back_to_argsort(monkeypatch):
 
 
 def test_per_group_helpers_identity_via_fast_path():
+    """Per group helpers identity via fast path."""
     rng = np.random.default_rng(1)
     n = 5000
     gids = rng.integers(0, 200, size=n).astype(np.int64)

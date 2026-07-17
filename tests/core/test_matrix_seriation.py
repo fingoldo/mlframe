@@ -27,26 +27,31 @@ def _block_contiguity(labels_ordered):
 
 # ---------------------------------------------------------------- unit
 def test_identity_matrix_is_valid_permutation():
+    """Identity matrix is valid permutation."""
     perm = spectral_seriation(np.eye(5))
     assert sorted(perm.tolist()) == list(range(5))
 
 
 def test_tiny_matrices_return_trivial():
+    """Tiny matrices return trivial."""
     assert spectral_seriation(np.eye(1)).tolist() == [0]
     assert sorted(spectral_seriation(np.eye(2)).tolist()) == [0, 1]
 
 
 def test_non_square_raises():
+    """Non square raises."""
     with pytest.raises(ValueError):
         spectral_seriation(np.ones((3, 4)))
 
 
 def test_invalid_method_raises():
+    """Invalid method raises."""
     with pytest.raises(ValueError):
         spectral_seriation(np.eye(4), method="nope")
 
 
 def test_seriate_returns_reordered_and_perm():
+    """Seriate returns reordered and perm."""
     rng = np.random.default_rng(0)
     M, _ = _block_similarity([4, 4], rng)
     R, perm = seriate(M)
@@ -55,6 +60,7 @@ def test_seriate_returns_reordered_and_perm():
 
 
 def test_seriate_accepts_precomputed_perm():
+    """Seriate accepts precomputed perm."""
     M = np.arange(16.0).reshape(4, 4)
     perm = np.array([3, 1, 2, 0])
     R, p = seriate(M, perm=perm)

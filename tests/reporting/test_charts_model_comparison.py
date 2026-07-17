@@ -25,6 +25,7 @@ from mlframe.reporting.spec import (
 
 
 def _binary_entry(y_true, y_score, **metrics):
+    """Helper: Binary entry."""
     return {"y_true": np.asarray(y_true), "y_score": np.asarray(y_score), "metrics": dict(metrics)}
 
 
@@ -41,6 +42,7 @@ def _good_bad_binary(n, seed):
 
 
 def test_compose_binary_three_panels():
+    """Compose binary three panels."""
     y, sg, sb = _good_bad_binary(4000, 0)
     from sklearn.metrics import roc_auc_score
 
@@ -57,6 +59,7 @@ def test_compose_binary_three_panels():
 
 
 def test_roc_overlay_one_line_per_model_plus_chance():
+    """Roc overlay one line per model plus chance."""
     y, sg, sb = _good_bad_binary(3000, 1)
     per_model = {"A": _binary_entry(y, sg, roc_auc=0.9), "B": _binary_entry(y, sb, roc_auc=0.6)}
     fig = mc.compose_model_comparison_figure(per_model, "binary")
@@ -70,6 +73,7 @@ def test_roc_overlay_one_line_per_model_plus_chance():
 
 
 def test_leaderboard_sorted_and_hline():
+    """Leaderboard sorted and hline."""
     per_model = {
         "A": _binary_entry([0, 1], [0.1, 0.9], roc_auc=0.95),
         "B": _binary_entry([0, 1], [0.4, 0.6], roc_auc=0.70),
@@ -85,6 +89,7 @@ def test_leaderboard_sorted_and_hline():
 
 
 def test_leaderboard_external_baseline_label():
+    """Leaderboard external baseline label."""
     per_model = {"A": _binary_entry([0, 1], [0.2, 0.8], r2=0.6), "B": _binary_entry([0, 1], [0.3, 0.7], r2=0.4)}
     fig = mc.compose_model_comparison_figure(per_model, "regression", metric="r2", baseline=0.5)
     bar = next(p for row in fig.panels for p in row if isinstance(p, BarPanelSpec))
@@ -130,6 +135,7 @@ def test_headline_metric_alphabetical_fallback_is_surfaced_in_title():
 
 
 def test_headline_metric_explicit_is_not_flagged_as_inferred():
+    """Headline metric explicit is not flagged as inferred."""
     per_model = {"A": _binary_entry([0, 1], [0.1, 0.9], roc_auc=0.95), "B": _binary_entry([0, 1], [0.4, 0.6], roc_auc=0.70)}
     fig = mc.compose_model_comparison_figure(per_model, "binary", metric="roc_auc")
     bar = next(p for row in fig.panels for p in row if isinstance(p, BarPanelSpec))
@@ -137,6 +143,7 @@ def test_headline_metric_explicit_is_not_flagged_as_inferred():
 
 
 def test_headline_metric_task_type_default_is_not_flagged_as_inferred():
+    """Headline metric task type default is not flagged as inferred."""
     per_model = {"A": _binary_entry([0, 1], [0.1, 0.9], roc_auc=0.95), "B": _binary_entry([0, 1], [0.4, 0.6], roc_auc=0.70)}
     fig = mc.compose_model_comparison_figure(per_model, "binary")  # roc_auc resolved via task-type default
     bar = next(p for row in fig.panels for p in row if isinstance(p, BarPanelSpec))
@@ -144,6 +151,7 @@ def test_headline_metric_task_type_default_is_not_flagged_as_inferred():
 
 
 def test_non_binary_uses_sorted_prediction_overlay():
+    """Non binary uses sorted prediction overlay."""
     rng = np.random.default_rng(2)
     per_model = {
         "A": {"y_true": rng.normal(size=2000), "y_pred": rng.normal(size=2000), "metrics": {"r2": 0.7}},
@@ -174,11 +182,13 @@ def test_leaderboard_lower_is_better_metric_sorts_best_first():
 
 
 def test_empty_per_model_is_annotation():
+    """Empty per model is annotation."""
     fig = mc.compose_model_comparison_figure({}, "binary")
     assert isinstance(fig.panels[0][0], AnnotationPanelSpec)
 
 
 def test_single_model_correlation_is_annotation():
+    """Single model correlation is annotation."""
     y, sg, _ = _good_bad_binary(1000, 3)
     fig = mc.compose_model_comparison_figure({"A": _binary_entry(y, sg, roc_auc=0.9)}, "binary")
     heat = [p for row in fig.panels for p in row if p is not None]
@@ -186,6 +196,7 @@ def test_single_model_correlation_is_annotation():
 
 
 def test_spearman_matrix_identity_and_anticorrelation():
+    """Spearman matrix identity and anticorrelation."""
     rng = np.random.default_rng(4)
     a = rng.normal(size=5000)
     scores = np.column_stack([a, a.copy(), -a])  # identical, identical, anti

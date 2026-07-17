@@ -46,6 +46,7 @@ from mlframe.metrics.core import (
 
 
 def _rand_binary(N, prevalence=0.3, seed=0):
+    """Helper: Rand binary."""
     rng = np.random.default_rng(seed)
     y = (rng.uniform(size=N) < prevalence).astype(np.int64)
     s = np.clip(0.3 + 0.4 * y + rng.normal(0, 0.1, N), 0.001, 0.999)
@@ -201,10 +202,12 @@ def test_ks_size_gate_routes_to_expected_kernel(monkeypatch):
     orig_ref = ext._ks_statistic_kernel
 
     def spy_fused(order, yt, ys):
+        """Spy fused."""
         calls["fused"] += 1
         return orig_fused(order, yt, ys)
 
     def spy_ref(yt, ys):
+        """Spy ref."""
         calls["ref"] += 1
         return orig_ref(yt, ys)
 
@@ -238,10 +241,12 @@ def test_ks_very_large_n_routes_to_inline_ordered_kernel(monkeypatch, desc):
     orig_ref = ext._ks_statistic_kernel
 
     def spy_fused(order, yt, ys):
+        """Spy fused."""
         calls["fused"] += 1
         return orig_fused(order, yt, ys)
 
     def spy_ref(yt, ys):
+        """Spy ref."""
         calls["ref"] += 1
         return orig_ref(yt, ys)
 
@@ -301,14 +306,17 @@ def test_ks_fused_gate_perf_sentinel():
     )
 
     def ref(yt, ys):
+        """Ref."""
         order = np.argsort(ys, kind="quicksort")
         return float(_ks_statistic_kernel(yt[order], ys[order]))
 
     def fused(yt, ys):
+        """Fused."""
         order = np.argsort(ys, kind="quicksort")
         return float(_ks_statistic_kernel_ordered(order, yt, ys))
 
     def best_block(fn, yt, ys, iters=500, blocks=12):
+        """Best block."""
         fn(yt, ys)  # warm JIT
         return min(_timed_block(fn, yt, ys, iters) for _ in range(blocks))
 
@@ -336,6 +344,7 @@ def test_ks_fused_gate_perf_sentinel():
 
 
 def _timed_block(fn, yt, ys, iters):
+    """Helper: Timed block."""
     import time
 
     t0 = time.perf_counter()
@@ -348,6 +357,7 @@ def _timed_block(fn, yt, ys, iters):
 
 
 def test_mcc_matches_sklearn():
+    """Mcc matches sklearn."""
     from sklearn.metrics import matthews_corrcoef
 
     rng = np.random.default_rng(0)
@@ -361,6 +371,7 @@ def test_mcc_matches_sklearn():
 
 
 def test_mcc_perfect_inverted():
+    """Mcc perfect inverted."""
     y = np.array([0, 1, 0, 1])
     assert matthews_corrcoef_binary(y, 1 - y) == pytest.approx(-1.0)
     assert matthews_corrcoef_binary(y, y) == pytest.approx(1.0)
@@ -408,6 +419,7 @@ def test_shared_confusion_counts_derivations_bit_identical():
 
 
 def test_cohen_kappa_matches_sklearn():
+    """Cohen kappa matches sklearn."""
     from sklearn.metrics import cohen_kappa_score
 
     rng = np.random.default_rng(1)
@@ -424,6 +436,7 @@ def test_cohen_kappa_matches_sklearn():
 
 
 def test_balanced_accuracy_matches_sklearn():
+    """Balanced accuracy matches sklearn."""
     from sklearn.metrics import balanced_accuracy_score
 
     rng = np.random.default_rng(2)
@@ -436,6 +449,7 @@ def test_balanced_accuracy_matches_sklearn():
 
 
 def test_g_mean_in_unit_range():
+    """G mean in unit range."""
     y, s = _rand_binary(500)
     p = (s > 0.5).astype(np.int64)
     assert 0.0 <= g_mean_binary(y, p) <= 1.0
@@ -485,6 +499,7 @@ def test_bss_from_brier_matches_full_kernel():
 
 
 def test_gini_from_auc_relations():
+    """Gini from auc relations."""
     assert gini_from_auc(0.5) == pytest.approx(0.0)
     assert gini_from_auc(1.0) == pytest.approx(1.0)
     assert gini_from_auc(0.0) == pytest.approx(-1.0)
@@ -495,6 +510,7 @@ def test_gini_from_auc_relations():
 
 def test_specificity_npv_matches_manual():
     # 2 TP, 1 FP, 3 TN, 1 FN
+    """Specificity npv matches manual."""
     y = np.array([1, 1, 0, 0, 0, 1, 0])
     p = np.array([1, 1, 0, 0, 1, 0, 0])
     spec, npv, fpr, fnr = specificity_npv_fpr_fnr(y, p)
@@ -509,6 +525,7 @@ def test_specificity_npv_matches_manual():
 
 
 def test_f_beta_reduces_to_f1():
+    """F beta reduces to f1."""
     from sklearn.metrics import f1_score
 
     rng = np.random.default_rng(3)
@@ -582,6 +599,7 @@ def test_lift_at_k_perfect_score():
 
 
 def test_lift_at_k_rejects_bad_k():
+    """Lift at k rejects bad k."""
     y = np.array([0, 1, 0, 1])
     s = np.array([0.1, 0.2, 0.3, 0.4])
     with pytest.raises(ValueError):
@@ -594,6 +612,7 @@ def test_lift_at_k_rejects_bad_k():
 
 
 def test_top_k_accuracy_top1_equals_argmax_accuracy():
+    """Top k accuracy top1 equals argmax accuracy."""
     rng = np.random.default_rng(9)
     N, K = 200, 5
     y = rng.integers(0, K, size=N).astype(np.int64)
@@ -628,6 +647,7 @@ def test_top_k_accuracy_njit_kernel_bit_identical_to_python_loop():
     out-of-range / boundary-tie rows -- pins the perf optimization."""
 
     def _python_top_k_accuracy(y_true, probs_NK, k):
+        """Helper: Python top k accuracy."""
         yt = np.asarray(y_true).astype(np.int64, copy=False)
         p = np.asarray(probs_NK, dtype=np.float64)
         n, K = p.shape
@@ -665,6 +685,7 @@ def test_top_k_accuracy_njit_kernel_bit_identical_to_python_loop():
 
 
 def test_multiclass_mcc_matches_sklearn():
+    """Multiclass mcc matches sklearn."""
     from sklearn.metrics import matthews_corrcoef
 
     rng = np.random.default_rng(11)
@@ -705,6 +726,7 @@ def test_rps_reduces_to_brier_for_K2():
 
 
 def test_binary_confusion_block_matches_individual_metrics():
+    """Binary confusion block matches individual metrics."""
     y, s = _rand_binary(2000, seed=20)
     p = (s > 0.5).astype(np.int64)
     block = fast_binary_confusion_metrics_block(y, p)
@@ -721,6 +743,7 @@ def test_binary_confusion_block_matches_individual_metrics():
 
 
 def test_binary_probability_block_matches_individual_metrics():
+    """Binary probability block matches individual metrics."""
     y, s = _rand_binary(2000, seed=21)
     block = fast_binary_probability_metrics_block(y, s)
     assert block["BSS"] == pytest.approx(brier_skill_score(y, s), abs=1e-10)
@@ -730,6 +753,7 @@ def test_binary_probability_block_matches_individual_metrics():
 
 
 def test_multiclass_confusion_block_matches_individual_metrics():
+    """Multiclass confusion block matches individual metrics."""
     from sklearn.metrics import (
         accuracy_score,
         f1_score,
