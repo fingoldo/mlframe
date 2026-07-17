@@ -22,14 +22,17 @@ from mlframe.feature_selection.filters._target_encoding_fe import _column_to_str
 
 
 def _ref_count(cats, lookup, default):
+    """Ref count."""
     return np.array([int(lookup.get(c, default)) for c in cats], dtype=np.int64)
 
 
 def _ref_freq(cats, lookup, default):
+    """Ref freq."""
     return np.array([float(lookup.get(c, default)) for c in cats], dtype=np.float64)
 
 
 def test_count_encoding_vectorized_bit_identical():
+    """Count encoding vectorized bit identical."""
     lookup = {"a": 5, "b": 3, "__nan__": 1}
     X = pd.DataFrame({"c": ["a", "b", "zzz", "a", np.nan, "b", "a"]})
     recipe = {"lookup": lookup, "default": 0}
@@ -40,6 +43,7 @@ def test_count_encoding_vectorized_bit_identical():
 
 
 def test_frequency_encoding_vectorized_bit_identical():
+    """Frequency encoding vectorized bit identical."""
     lookup = {"a": 0.4, "b": 0.25, "__nan__": 0.05}
     X = pd.DataFrame({"c": ["b", "a", "unseen", "a", np.nan, "b"]})
     recipe = {"lookup": lookup, "default": 0.0}
@@ -50,6 +54,7 @@ def test_frequency_encoding_vectorized_bit_identical():
 
 
 def test_count_freq_empty_and_all_unseen():
+    """Count freq empty and all unseen."""
     rec_c = {"lookup": {"a": 2}, "default": 7}
     rec_f = {"lookup": {"a": 0.9}, "default": -1.0}
     empty = pd.DataFrame({"c": pd.Series([], dtype=object)})
@@ -61,6 +66,7 @@ def test_count_freq_empty_and_all_unseen():
 
 
 def _ref_cat_pair(cats_i, cats_j, mapping, encoding, te_lookup, global_mean, sentinel):
+    """Ref cat pair."""
     out = np.empty(len(cats_i), dtype=np.float64)
     lk = te_lookup or {}
     for r in range(len(cats_i)):
@@ -73,6 +79,7 @@ def _ref_cat_pair(cats_i, cats_j, mapping, encoding, te_lookup, global_mean, sen
 
 
 def test_cat_pair_cross_raw_vectorized_bit_identical():
+    """Cat pair cross raw vectorized bit identical."""
     mapping = {("a", "x"): 0, ("a", "y"): 1, ("b", "x"): 2}
     X = pd.DataFrame(
         {
@@ -88,6 +95,7 @@ def test_cat_pair_cross_raw_vectorized_bit_identical():
 
 
 def test_cat_pair_cross_target_vectorized_bit_identical():
+    """Cat pair cross target vectorized bit identical."""
     mapping = {("a", "x"): 0, ("a", "y"): 1, ("b", "x"): 2}
     te_lookup = {0: 0.8, 1: 0.2}  # code 2 absent -> global_mean
     gm = 0.5
@@ -105,6 +113,7 @@ def test_cat_pair_cross_target_vectorized_bit_identical():
 
 
 def test_cat_pair_cross_empty():
+    """Cat pair cross empty."""
     mapping = {("a", "x"): 0}
     empty = pd.DataFrame({"ci": pd.Series([], dtype=object), "cj": pd.Series([], dtype=object)})
     assert apply_cat_pair_cross(empty, "ci", "cj", mapping, encoding="raw").shape == (0,)
@@ -135,6 +144,7 @@ def test_column_to_str_object_per_unique_canonicalises_not_per_row(monkeypatch):
     real = _internals.canonical_group_token
 
     def spy(v):
+        """Helper that spy."""
         calls["n"] += 1
         return real(v)
 

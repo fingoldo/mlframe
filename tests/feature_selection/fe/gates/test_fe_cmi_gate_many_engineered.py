@@ -51,12 +51,14 @@ _N = 20_000
 
 
 def _bin_y(y):
+    """Bin y."""
     z = discretize_array(np.asarray(y, dtype=np.float64), n_bins=10, method="quantile", dtype=np.int64)
     _, inv = np.unique(z, return_inverse=True)
     return inv.astype(np.int64)
 
 
 def _mk(v, yb):
+    """Quantile-bin v and return (v, CMI-with-yb) for the many-engineered CMI-gate fixture."""
     vb = _quantile_bin(np.asarray(v, dtype=np.float64), nbins=10)
     return (np.asarray(v, dtype=np.float64), float(_cmi_from_binned(vb, yb, None)))
 
@@ -158,6 +160,7 @@ def test_cost_is_bounded_as_K_grows():
     on a shared box -- the point is sub-quadratic, not a tight constant)."""
 
     def _time(n_remaps):
+        """Helper that time."""
         cands, yb, _ = _pool_with_remaps(seed=0, n_remaps=n_remaps)
         t0 = time.perf_counter()
         apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)

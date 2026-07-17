@@ -42,6 +42,7 @@ warnings.filterwarnings("ignore")
 
 @pytest.fixture(scope="module")
 def frames():
+    """Helper that frames."""
     rng = np.random.default_rng(11)
     X = pd.DataFrame(
         {
@@ -74,6 +75,7 @@ def frames():
     ],
 )
 def test_hinge_basis_closed_form_replay_on_heldout(frames, side, fn):
+    """Hinge basis closed form replay on heldout."""
     _X, Xnew = frames
     tau = 0.5
     rec = build_hinge_basis_recipe(name=f"hinge_{side}(a)", src_name="a", tau=tau, side=side)
@@ -99,6 +101,7 @@ def test_hinge_tau_is_frozen_not_refit(frames):
 
 
 def test_wavelet_replay_matches_dyadic_haar(frames):
+    """Wavelet replay matches dyadic haar."""
     X, Xnew = frames
     xf = X["a"].to_numpy(dtype=float)
     lo, hi = float(xf.min()), float(xf.max())
@@ -117,6 +120,7 @@ def test_wavelet_replay_matches_dyadic_haar(frames):
 
 @pytest.mark.parametrize("kind", ["sin", "cos"])
 def test_fourier_replay_matches_closed_form(frames, kind):
+    """Fourier replay matches closed form."""
     X, Xnew = frames
     xf = X["a"].to_numpy(dtype=float)
     lo, hi = float(xf.min()), float(xf.max())
@@ -138,6 +142,7 @@ def test_fourier_replay_matches_closed_form(frames, kind):
 
 
 def test_fourier_quadratic_chirp_axis_requires_mean_std():
+    """Fourier quadratic chirp axis requires mean std."""
     with pytest.raises(ValueError):
         build_orth_fourier_recipe(
             name="bad",
@@ -151,6 +156,7 @@ def test_fourier_quadratic_chirp_axis_requires_mean_std():
 
 
 def test_fourier_quadratic_chirp_replays_leakfree(frames):
+    """Fourier quadratic chirp replays leakfree."""
     X, Xnew = frames
     xf = X["a"].to_numpy(dtype=float)
     mean, std = float(xf.mean()), float(xf.std())
@@ -222,6 +228,7 @@ def test_orth_pair_cross_is_product_of_univariate_legs(frames):
 
 
 def _all_basis_recipes(frames):
+    """All basis recipes."""
     X, _ = frames
     xf = X["a"].to_numpy(dtype=float)
     lo, hi = float(xf.min()), float(xf.max())
@@ -235,6 +242,7 @@ def _all_basis_recipes(frames):
 
 
 def test_basis_replay_invariant_to_y_in_scope(frames):
+    """Basis replay invariant to y in scope."""
     X, _ = frames
     for rec in _all_basis_recipes(frames):
         out_a = apply_recipe(rec, X)
@@ -244,6 +252,7 @@ def test_basis_replay_invariant_to_y_in_scope(frames):
 
 
 def test_basis_replay_column_order_invariant(frames):
+    """Basis replay column order invariant."""
     X, _ = frames
     Xrev = X[["b", "a"]]
     for rec in _all_basis_recipes(frames):
@@ -251,6 +260,7 @@ def test_basis_replay_column_order_invariant(frames):
 
 
 def test_basis_recipe_pickle_roundtrip(frames):
+    """Basis recipe pickle roundtrip."""
     X, _ = frames
     for rec in _all_basis_recipes(frames):
         rec2 = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object

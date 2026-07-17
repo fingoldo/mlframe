@@ -41,6 +41,7 @@ def _capture_gate_seeds(monkeypatch):
     real = _gate_mod.apply_cmi_redundancy_gate
 
     def _spy(*args, **kwargs):
+        """Helper that spy."""
         seen.append(int(kwargs.get("seed", -1)))
         return real(*args, **kwargs)
 

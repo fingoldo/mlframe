@@ -21,6 +21,7 @@ import mlframe.feature_selection.filters._fe_resident_operands as RO
 
 
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -36,6 +37,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 
 
 def _fresh_cache(monkeypatch):
+    """Fresh cache."""
     from collections import OrderedDict
 
     monkeypatch.setattr(RO, "_FE_RESIDENT_OPERANDS", OrderedDict(), raising=False)
@@ -44,6 +46,7 @@ def _fresh_cache(monkeypatch):
 
 
 def test_same_content_different_roles_share_one_device_buffer(monkeypatch):
+    """Same content different roles share one device buffer."""
     _fresh_cache(monkeypatch)
     y = np.arange(5000, dtype=np.int64) % 7  # the label content, as int64 codes
 
@@ -59,6 +62,7 @@ def test_same_content_different_roles_share_one_device_buffer(monkeypatch):
 
 
 def test_different_values_never_alias(monkeypatch):
+    """Different values never alias."""
     _fresh_cache(monkeypatch)
     a = np.arange(5000, dtype=np.int64) % 7
     b = a.copy()
@@ -70,6 +74,7 @@ def test_different_values_never_alias(monkeypatch):
 
 
 def test_dtype_variants_stay_distinct(monkeypatch):
+    """Dtype variants stay distinct."""
     _fresh_cache(monkeypatch)
     v = np.arange(5000) % 7
     gi = RO.resident_operand(v, "role", dtype=np.int64)
@@ -79,6 +84,7 @@ def test_dtype_variants_stay_distinct(monkeypatch):
 
 
 def test_lru_evicts_coldest_not_whole_table(monkeypatch):
+    """Lru evicts coldest not whole table."""
     _fresh_cache(monkeypatch)
     monkeypatch.setattr(RO, "_MAX_ENTRIES", 3, raising=False)
     cols = [np.full(2000, i, dtype=np.int64) for i in range(4)]  # 4 distinct contents, bound 3

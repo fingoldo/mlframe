@@ -22,6 +22,7 @@ from mlframe.feature_selection.filters import _gpu_resident_fe as g
 
 
 def test_default_fraction_matches_legacy_025_math():
+    """Default fraction matches legacy 025 math."""
     fb = 4_000_000_000
     for n in (50_000, 100_000, 300_000):
         legacy = min(len(g._COMBOS), max(1, int(fb * 0.25) // (n * 8 * g._GPU_MI_WORKING_MULTIPLE)))
@@ -30,6 +31,7 @@ def test_default_fraction_matches_legacy_025_math():
 
 
 def test_explicit_wider_fraction_widens_chunk():
+    """Explicit wider fraction widens chunk."""
     fb = 4_000_000_000
     n = 100_000
     narrow = g._gpu_k_chunk(n, free_bytes=fb, vram_fraction=0.25)
@@ -39,6 +41,7 @@ def test_explicit_wider_fraction_widens_chunk():
 
 def test_fraction_resolver_clamps_and_defaults():
     # No/garbage cache entry -> conservative default.
+    """Fraction resolver clamps and defaults."""
     assert g._gpu_k_chunk_vram_fraction(100_000) == g._GPU_K_CHUNK_VRAM_FRACTION_DEFAULT
     # Clamp: a corrupt huge/zero/negative fraction must never zero or blow the budget.
     fb = 4_000_000_000
@@ -49,12 +52,14 @@ def test_fraction_resolver_clamps_and_defaults():
 
 
 def test_tuner_spec_registered():
+    """Tuner spec registered."""
     assert g._GPU_K_CHUNK_SPEC is not None
     # fallback returns the safe default fraction string
     assert g._gpu_k_chunk_fallback_choice(100_000) == f"frac_{g._GPU_K_CHUNK_VRAM_FRACTION_DEFAULT}"
 
 
 def test_candidate_mi_selection_invariant_across_fractions():
+    """Candidate mi selection invariant across fractions."""
     cp = pytest.importorskip("cupy")
     try:
         cp.cuda.runtime.getDeviceCount()

@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters.cat_interactions import (
 
 
 def _build_cache(X: np.ndarray, y: np.ndarray, cached_mi: float) -> dict:
+    """Build cache."""
     sig = _column_signature(X, 2)
     return {
         "target_sig": _target_signature(y),

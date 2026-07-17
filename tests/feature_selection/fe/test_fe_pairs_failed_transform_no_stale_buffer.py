@@ -18,18 +18,21 @@ from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_chunks 
 
 def _stub_discretize_2d_quantile_batch(arr, *, n_bins, dtype, parallel, assume_finite):
     # codes don't matter for this test; just a shape-correct int array
+    """Stub discretize 2d quantile batch."""
     return np.zeros(arr.shape, dtype=dtype)
 
 
 def _stub_batch_mi_kernel(*args, **kwargs):
     # Unused: the real MI dispatch is monkeypatched out below; this is only a placeholder
     # to satisfy the required kwarg.
+    """Stub batch mi kernel."""
     raise AssertionError("placeholder kernel must not be invoked")
 
 
 def test_failed_transform_nulls_slot_and_excludes_candidate(monkeypatch):
     # Replace the heavy njit MI dispatch with a shape-correct stub: this test exercises the
     # numpy-fallback materialise/buffer logic, not the MI kernel.
+    """Failed transform nulls slot and excludes candidate."""
     import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_chunks as _chunks
 
     monkeypatch.setattr(
@@ -55,9 +58,11 @@ def test_failed_transform_nulls_slot_and_excludes_candidate(monkeypatch):
     good_value = np.full(n, 7.0, dtype=np.float32)
 
     def good_op(pa, pb):
+        """Good op."""
         return good_value
 
     def bad_op(pa, pb):
+        """Bad op."""
         raise RuntimeError("simulated transform failure")
 
     # "good" first (col 0, succeeds), "bad" LAST (col 1, raises -> slot 1 never overwritten).

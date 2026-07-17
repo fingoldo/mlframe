@@ -42,6 +42,7 @@ def test_oof_does_not_leak_under_cell_clustered_input():
     # adversarial clustering layout. With positional folds + K=2, cell 0 lands mostly in even-index
     # folds and cell 1 in odd, but with sorted rows each cell still concentrates -> a leaky positional
     # split would reproduce the in-fold mean closely. The shuffle must break that.
+    """Oof does not leak under cell clustered input."""
     n_per = 100
     cell = np.concatenate([np.zeros(n_per, np.int64), np.ones(n_per, np.int64)])  # sorted/clustered
     y = cell.astype(np.int64)  # cell 0 -> y=0, cell 1 -> y=1 (perfectly separable)
@@ -57,6 +58,7 @@ def test_singleton_cell_oof_falls_back_to_global_not_self():
     # A singleton cell: exactly one row carries cell id 7 with an extreme y. Honest OOF must NOT encode
     # that row with its own y (leak) -- with the row held out, its cell has no training rows, so the
     # estimate must fall back to the global mean, never the row's own extreme value.
+    """Singleton cell oof falls back to global not self."""
     n = 200
     rng = np.random.default_rng(1)
     cell = (rng.random(n) * 3).astype(np.int64)  # cells 0..2
@@ -70,6 +72,7 @@ def test_singleton_cell_oof_falls_back_to_global_not_self():
 
 
 def test_fold_shuffle_is_deterministic_in_seed():
+    """Fold shuffle is deterministic in seed."""
     n = 300
     rng = np.random.default_rng(2)
     cell = (rng.random(n) * 5).astype(np.int64)

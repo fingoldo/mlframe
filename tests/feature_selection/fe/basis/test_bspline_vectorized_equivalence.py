@@ -55,6 +55,7 @@ def _bspline_basis_values_ref(z: np.ndarray, knots: np.ndarray, idx: int, degree
 
 
 def test_bspline_vectorized_matches_reference_across_random_configs():
+    """Bspline vectorized matches reference across random configs."""
     rng = np.random.default_rng(0)
     max_abs_diff = 0.0
     n_cases = 0
@@ -79,6 +80,7 @@ def test_bspline_vectorized_matches_reference_across_random_configs():
 
 
 def test_bspline_vectorized_matches_reference_on_constant_column():
+    """Bspline vectorized matches reference on constant column."""
     x_const = np.full(500, 5.0)
     knots, lo, hi = _fit_spline_knots(x_const, 4, degree=3)
     span = max(hi - lo, 1e-12)
@@ -91,6 +93,7 @@ def test_bspline_vectorized_matches_reference_on_constant_column():
 
 
 def test_bspline_vectorized_matches_reference_on_boundary_values():
+    """Bspline vectorized matches reference on boundary values."""
     rng = np.random.default_rng(1)
     knots, _lo, _hi = _fit_spline_knots(rng.normal(size=1000), 5, degree=3)
     z_boundary = np.array([0.0, 1.0, 0.0, 1.0] * 100)

@@ -33,12 +33,14 @@ warnings.filterwarnings("ignore")
 @pytest.fixture(scope="module")
 def pair_setup():
     # Three seen (i, j) cells -> dense codes 0,1,2.
+    """Pair setup."""
     mapping = {("a", "x"): 0, ("a", "y"): 1, ("b", "x"): 2}
     te_lookup = {0: 0.10, 1: 0.90, 2: 0.50}
     return mapping, te_lookup
 
 
 def test_cat_pair_raw_replay_codes(pair_setup):
+    """Cat pair raw replay codes."""
     mapping, _ = pair_setup
     rec = build_cat_pair_cross_recipe(
         name="cross(i,j)",
@@ -53,6 +55,7 @@ def test_cat_pair_raw_replay_codes(pair_setup):
 
 
 def test_cat_pair_raw_unseen_tuple_maps_to_sentinel(pair_setup):
+    """Cat pair raw unseen tuple maps to sentinel."""
     mapping, _ = pair_setup
     rec = build_cat_pair_cross_recipe(
         name="cross(i,j)",
@@ -69,6 +72,7 @@ def test_cat_pair_raw_unseen_tuple_maps_to_sentinel(pair_setup):
 
 
 def test_cat_pair_target_replay_and_unseen_global_mean(pair_setup):
+    """Cat pair target replay and unseen global mean."""
     mapping, te_lookup = pair_setup
     gmean = 0.42
     rec = build_cat_pair_cross_recipe(
@@ -89,6 +93,7 @@ def test_cat_pair_target_replay_and_unseen_global_mean(pair_setup):
 
 
 def test_cat_pair_target_replay_ignores_y_in_scope(pair_setup):
+    """Cat pair target replay ignores y in scope."""
     mapping, te_lookup = pair_setup
     rec = build_cat_pair_cross_recipe(
         name="cross(i,j)",
@@ -107,6 +112,7 @@ def test_cat_pair_target_replay_ignores_y_in_scope(pair_setup):
 
 
 def test_cat_triple_raw_replay_and_sentinel():
+    """Cat triple raw replay and sentinel."""
     mapping = {("a", "x", "p"): 0, ("b", "y", "q"): 1}
     rec = build_cat_triple_cross_recipe(
         name="cross3",
@@ -129,6 +135,7 @@ def test_cat_triple_raw_replay_and_sentinel():
 
 
 def test_cat_cross_pickle_roundtrip_and_frozen_extra(pair_setup):
+    """Cat cross pickle roundtrip and frozen extra."""
     mapping, te_lookup = pair_setup
     rec = build_cat_pair_cross_recipe(
         name="cross(i,j)",
@@ -148,6 +155,7 @@ def test_cat_cross_pickle_roundtrip_and_frozen_extra(pair_setup):
 
 
 def test_cat_pair_column_order_invariant(pair_setup):
+    """Cat pair column order invariant."""
     mapping, _ = pair_setup
     rec = build_cat_pair_cross_recipe(
         name="cross(i,j)",

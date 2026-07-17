@@ -21,6 +21,7 @@ from tests.feature_selection.conftest import is_fast_mode
 
 
 def _fit_usability(n, seed=0):
+    """Fit usability."""
     from mlframe.feature_selection.filters import MRMR
 
     rng = np.random.default_rng(seed)
@@ -42,6 +43,7 @@ def _fit_usability(n, seed=0):
 @pytest.mark.slow
 @pytest.mark.timeout(300)
 def test_usability_lists_drop_training_values_and_replay_survives_pickle():
+    """Usability lists drop training values and replay survives pickle."""
     n = 6000 if is_fast_mode() else 12000
     fs, df = _fit_usability(n)
     lists = (fs.support_linear_ or []) + (fs.support_universal_ or [])

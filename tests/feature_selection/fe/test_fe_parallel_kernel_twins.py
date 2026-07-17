@@ -22,6 +22,7 @@ _ALL_OPS = list(range(9))
 
 
 def _rand_inputs(n_rows, K, n_operands, seed, with_nan=False, with_inf=False):
+    """Rand inputs."""
     rng = np.random.default_rng(seed)
     tv = rng.standard_normal((n_rows, n_operands)).astype(np.float32)
     if with_nan:
@@ -41,6 +42,7 @@ def _rand_inputs(n_rows, K, n_operands, seed, with_nan=False, with_inf=False):
 @pytest.mark.parametrize("with_nan,with_inf", [(False, False), (True, False), (False, True), (True, True)])
 @pytest.mark.parametrize("n_rows,K,n_operands", [(7, 5, 3), (256, 64, 12), (2407, 300, 20)])
 def test_materialise_parallel_eq_serial(n_rows, K, n_operands, with_nan, with_inf):
+    """Materialise parallel eq serial."""
     from mlframe.feature_selection.filters._feature_engineering_pairs import (
         _materialise_chunk_njit,
         _materialise_chunk_njit_parallel,
@@ -88,6 +90,7 @@ def test_materialise_output_always_finite_under_nan_inf_overflow(n_rows, K, n_op
 @pytest.mark.parametrize("dtype_in", [np.float32, np.float64])
 @pytest.mark.parametrize("n_rows,K", [(7, 4), (256, 64), (2407, 300)])
 def test_searchsorted_parallel_eq_serial(n_rows, K, dtype_in):
+    """Searchsorted parallel eq serial."""
     from mlframe.feature_selection.filters.discretization import (
         _searchsorted_2d_right_njit,
         _searchsorted_2d_right_njit_parallel,

@@ -40,6 +40,7 @@ warnings.filterwarnings("ignore")
 
 
 class _Sink:
+    """Groups tests covering Sink."""
     def __init__(self):
         self.records = []
 
@@ -48,6 +49,7 @@ class _Sink:
 
 
 def _assert_floor_records(sink):
+    """Assert floor records."""
     assert sink.records, "expected at least one abs-MAD floor kill to be recorded"
     for rec in sink.records:
         assert rec["gate"] == "marginal_uplift_floor"
@@ -61,6 +63,7 @@ def _assert_floor_records(sink):
 
 
 def _noisy_cat_pool(seed=0, n=600):
+    """Noisy cat pool."""
     rng = np.random.default_rng(seed)
     sig = rng.standard_normal(n)
     y = (sig > 0).astype(np.int64)
@@ -104,6 +107,7 @@ def test_count_freq_gate_helper_records_floor_kill():
 
 
 def _noisy_num_pool(seed=0, n=600):
+    """Noisy num pool."""
     rng = np.random.default_rng(seed)
     sig = rng.standard_normal(n)
     y = (sig > 0).astype(np.int64)
@@ -117,6 +121,7 @@ def _noisy_num_pool(seed=0, n=600):
 
 
 def test_pairwise_ratio_caller_records_floor_kill():
+    """Pairwise ratio caller records floor kill."""
     from mlframe.feature_selection.filters._ratio_delta_fe import (
         pairwise_ratio_with_recipes,
     )
@@ -144,6 +149,7 @@ def test_pairwise_ratio_caller_records_floor_kill():
 
 
 def test_missing_indicator_caller_records_floor_kill():
+    """Missing indicator caller records floor kill."""
     from mlframe.feature_selection.filters._missingness_fe import (
         missing_indicator_with_recipes,
     )
@@ -183,6 +189,7 @@ def test_missing_indicator_caller_records_floor_kill():
 
 
 def test_rare_category_caller_records_floor_kill():
+    """Rare category caller records floor kill."""
     from mlframe.feature_selection.filters._extra_fe_families import (
         hybrid_rare_category_fe,
     )
@@ -227,6 +234,7 @@ def test_rare_category_caller_records_floor_kill():
 
 
 def _end_to_end_fit():
+    """End to end fit."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(7)
@@ -259,6 +267,7 @@ def _end_to_end_fit():
 
 @pytest.mark.timeout(600)
 def test_end_to_end_ledger_fingers_unified_floor_kills_two_families():
+    """End to end ledger fingers unified floor kills two families."""
     fs = _end_to_end_fit()
     led = fs.fe_rejection_ledger_
     assert isinstance(led, pd.DataFrame)

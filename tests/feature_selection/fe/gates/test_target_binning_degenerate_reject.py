@@ -17,6 +17,7 @@ def test_classification_rare_1pct_target_never_degenerates():
     # n=150, 1% positives (the literal decisive-test spec). Integer y -> factorize:
     # the coerced target keeps EXACTLY the genuine classes across every seed; no
     # single-class / degenerate target bin can form on the classification path.
+    """Classification rare 1pct target never degenerates."""
     for seed in range(6):
         rng = np.random.default_rng(seed)
         n = 150
@@ -31,6 +32,7 @@ def test_continuous_tied_target_bins_give_finite_stable_mi():
     # Continuous y whose quantile edges collapse (heavy ties + a 1% extreme tail)
     # produces FEWER than nbins realised bins -- this is documented np.unique(edges)
     # behaviour, not a silent bug -- and the plug-in MI is finite for every feature.
+    """Continuous tied target bins give finite stable mi."""
     rng = np.random.default_rng(1)
     n = 150
     y = np.r_[np.round(rng.normal(0, 0.3, n - 2), 1), [10.0, 11.0]]
@@ -45,5 +47,6 @@ def test_continuous_tied_target_bins_give_finite_stable_mi():
 def test_constant_target_quantile_bin_collapses_to_single_class_without_crash():
     # The genuine single-class case (constant target) collapses to one bin and does
     # not crash -- the existing edge handling, not a missing guard.
+    """Constant target quantile bin collapses to single class without crash."""
     yb = _quantile_bin(np.ones(150), nbins=10)
     assert len(np.unique(yb)) == 1

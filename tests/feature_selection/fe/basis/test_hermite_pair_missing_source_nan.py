@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters.hermite_fe import _DEFAULT_BIN_FUNCS, _PO
 
 
 def _recipe_with_missing_source():
+    """Recipe with missing source."""
     return EngineeredRecipe(
         name="num_present__He1__num_MISSING__He1",
         kind="hermite_pair",
@@ -34,6 +35,7 @@ def _recipe_with_missing_source():
 
 
 def test_hermite_pair_nan_degrades_on_missing_source_pandas():
+    """Hermite pair nan degrades on missing source pandas."""
     X = pd.DataFrame({"num_present": np.arange(20.0)})  # num_MISSING absent
     out = _apply_hermite_pair(_recipe_with_missing_source(), X)
     assert out.shape == (20,)

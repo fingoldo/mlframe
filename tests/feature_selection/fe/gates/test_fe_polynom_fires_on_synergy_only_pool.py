@@ -23,6 +23,7 @@ warnings.filterwarnings("ignore")
 
 
 def _interaction_only_frame(n=3000, seed=42):
+    """Interaction only frame."""
     rng = np.random.default_rng(seed)
     cols = {k: rng.normal(size=n) for k in ["x_a", "x_b", "x_c", "x_d", "x_e", "x_f", "noise1", "noise2"]}
     yc = 1.0 * cols["x_a"] * cols["x_b"] + 0.5 * cols["x_c"] * cols["x_d"] + 0.3 * cols["x_e"] * cols["x_f"] + 0.2 * rng.normal(size=n)
@@ -31,6 +32,7 @@ def _interaction_only_frame(n=3000, seed=42):
 
 
 def test_smart_polynom_fires_when_pool_is_all_synergy():
+    """Smart polynom fires when pool is all synergy."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     df, y = _interaction_only_frame()

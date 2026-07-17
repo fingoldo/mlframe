@@ -32,6 +32,7 @@ warnings.filterwarnings("ignore")
 @pytest.fixture(scope="module")
 def lag_recipe():
     # Train history: entity 'e0' saw values [10, 20] (time-sorted), 'e1' saw [100].
+    """Lag recipe."""
     history = {
         "e0": {"v": [10.0, 20.0]},
         "e1": {"v": [100.0]},
@@ -48,12 +49,14 @@ def lag_recipe():
 
 
 def _frame(rows):
+    """Helper that frame."""
     return pd.DataFrame(rows, columns=["ent", "t", "val"])
 
 
 def test_lag_uses_only_past_values(lag_recipe):
     # Within-test rows for e0 at times 5,6 with values 1,2. lag=1 -> the previous
     # value in the merged (history ++ within-test) time order.
+    """Lag uses only past values."""
     X = _frame(
         [
             ("e0", 5, 1.0),
@@ -69,6 +72,7 @@ def test_lag_uses_only_past_values(lag_recipe):
 
 
 def test_future_test_rows_do_not_change_earlier_outputs(lag_recipe):
+    """Future test rows do not change earlier outputs."""
     X_short = _frame([("e0", 5, 1.0), ("e0", 6, 2.0)])
     X_long = _frame([("e0", 5, 1.0), ("e0", 6, 2.0), ("e0", 7, 9.0), ("e0", 8, 9.9)])
     out_short = apply_recipe(lag_recipe, X_short)
@@ -79,6 +83,7 @@ def test_future_test_rows_do_not_change_earlier_outputs(lag_recipe):
 
 
 def test_lag_invariant_to_input_row_order(lag_recipe):
+    """Lag invariant to input row order."""
     rows = [("e0", 5, 1.0), ("e0", 6, 2.0), ("e0", 7, 3.0)]
     X = _frame(rows)
     out_sorted = apply_recipe(lag_recipe, X)
@@ -92,6 +97,7 @@ def test_lag_invariant_to_input_row_order(lag_recipe):
 
 
 def test_unseen_entity_uses_global_prior(lag_recipe):
+    """Unseen entity uses global prior."""
     X = _frame([("new_entity", 1, 5.0)])
     out = apply_recipe(lag_recipe, X)
     # No history, no predecessor -> frozen global prior.
@@ -100,12 +106,14 @@ def test_unseen_entity_uses_global_prior(lag_recipe):
 
 def test_first_row_of_known_entity_uses_history(lag_recipe):
     # e1 history is [100]; first test row's lag1 predecessor is 100.
+    """First row of known entity uses history."""
     X = _frame([("e1", 3, 7.0)])
     out = apply_recipe(lag_recipe, X)
     assert out[0] == pytest.approx(100.0)
 
 
 def test_replay_invariant_to_y_in_scope(lag_recipe):
+    """Replay invariant to y in scope."""
     X = _frame([("e0", 5, 1.0), ("e0", 6, 2.0)])
     a = apply_recipe(lag_recipe, X)
     _ = np.array([0, 1])  # a y in scope

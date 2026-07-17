@@ -29,6 +29,7 @@ def test_gpu_active_forces_serial_even_with_many_pairs_and_workers():
 
 
 def test_gpu_inactive_with_plenty_of_pairs_uses_threading():
+    """Gpu inactive with plenty of pairs uses threading."""
     assert _should_serialize_fe_pair_check(n_prospective_pairs=5000, gpu_fe_active=False, serial_min_pairs_per_worker=16) is False
 
 
@@ -38,6 +39,7 @@ def test_too_few_pairs_forces_serial_regardless_of_gpu():
 
 
 def test_gpu_active_and_too_few_pairs_still_serial():
+    """Gpu active and too few pairs still serial."""
     assert _should_serialize_fe_pair_check(n_prospective_pairs=1, gpu_fe_active=True, serial_min_pairs_per_worker=4) is True
 
 

@@ -35,6 +35,7 @@ from mlframe.feature_selection.filters.info_theory._class_encoding import merge_
 
 
 def _make_data(n=4000, n_cols=4, n_y=3, seed=7):
+    """Make data."""
     rng = np.random.default_rng(seed)
     # ordinal-encoded factors; column 0 = target carrier.
     nbins = np.array([n_y] + [6] * n_cols, dtype=np.int64)
@@ -100,6 +101,7 @@ def _reference_conditional_confidence(
 
 @pytest.mark.parametrize("n_perms", [50, 200])
 def test_conditional_null_hoist_x1_mi_bit_identical(n_perms):
+    """Conditional null hoist x1 mi bit identical."""
     dtype = np.int32
     factors_data, nbins = _make_data()
     factors_data.shape[0]

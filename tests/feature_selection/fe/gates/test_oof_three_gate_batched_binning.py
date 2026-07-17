@@ -29,6 +29,7 @@ from mlframe.feature_selection.filters._orthogonal_three_gate_mi_fe import (
 
 
 def _make_arr(n, p, seed):
+    """Make arr."""
     rng = np.random.default_rng(seed)
     arr = rng.standard_normal((n, p))
     # Fragile binning cases: a 3-level low-cardinality column, a binary column,
@@ -40,6 +41,7 @@ def _make_arr(n, p, seed):
 
 
 def test_batched_train_edge_binning_bit_identical_to_scalar():
+    """Batched train edge binning bit identical to scalar."""
     arr = _make_arr(800, 12, seed=1)
     rng = np.random.default_rng(0)
     perm = rng.permutation(arr.shape[0])
@@ -64,6 +66,7 @@ def test_batched_train_edge_binning_bit_identical_to_scalar():
 
 
 def test_oof_mi_identical_across_batch_gate(monkeypatch):
+    """Oof mi identical across batch gate."""
     raw = pd.DataFrame(_make_arr(900, 6, seed=2), columns=[f"r{i}" for i in range(6)])
     eng = pd.DataFrame(_make_arr(900, 8, seed=3), columns=[f"r{i}__He2" for i in range(8)])
     y = (raw["r3"].to_numpy() + 0.3 * np.random.default_rng(5).standard_normal(900) > 0).astype(int)

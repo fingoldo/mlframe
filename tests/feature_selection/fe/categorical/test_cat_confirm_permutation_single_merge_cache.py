@@ -30,6 +30,7 @@ from mlframe.feature_selection.filters.info_theory._class_encoding import merge_
 
 
 def _make_data(n=3000, n_cols=5, n_y=3, seed=11):
+    """Make data."""
     rng = np.random.default_rng(seed)
     nbins = np.array([n_y] + [5] * n_cols, dtype=np.int64)
     cols = [rng.integers(0, nbins[c], size=n).astype(np.int32) for c in range(n_cols + 1)]
@@ -112,6 +113,7 @@ def _star_pairs(n_cols=5):
 
 
 def test_single_merge_cache_reduces_merge_vars_call_count(monkeypatch):
+    """Single merge cache reduces merge vars call count."""
     dtype = np.int32
     factors_data, nbins = _make_data()
     classes_y, freqs_y, _ = merge_vars(
@@ -129,6 +131,7 @@ def test_single_merge_cache_reduces_merge_vars_call_count(monkeypatch):
     real_merge_vars = _ccp.merge_vars
 
     def _counting_merge_vars(*args, **kwargs):
+        """Counting merge vars."""
         vi = kwargs.get("vars_indices")
         calls.append(tuple(int(x) for x in vi))
         return real_merge_vars(*args, **kwargs)
@@ -165,6 +168,7 @@ def test_single_merge_cache_reduces_merge_vars_call_count(monkeypatch):
 
 @pytest.mark.parametrize("n_perms", [30, 100])
 def test_single_merge_cache_bit_identical_to_uncached_reference(n_perms):
+    """Single merge cache bit identical to uncached reference."""
     dtype = np.int32
     factors_data, nbins = _make_data()
     classes_y, freqs_y, _ = merge_vars(

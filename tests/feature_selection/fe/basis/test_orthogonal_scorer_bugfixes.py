@@ -47,6 +47,7 @@ def _near_zero_baseline_frames():
 
 
 def test_ksg_near_zero_baseline_uplift_not_exploded(monkeypatch):
+    """Ksg near zero baseline uplift not exploded."""
     raw_X, eng, y = _near_zero_baseline_frames()
     # Force a genuinely near-zero baseline (KSG's noise floor would otherwise
     # estimate a constant source above eps) and a small engineered MI.
@@ -61,11 +62,13 @@ def test_ksg_near_zero_baseline_uplift_not_exploded(monkeypatch):
 
 
 def test_hsic_near_zero_baseline_uplift_not_exploded(monkeypatch):
+    """Hsic near zero baseline uplift not exploded."""
     raw_X, eng, y = _near_zero_baseline_frames()
     calls = {"n": 0}
 
     def _fake_hsic(X, *a, **k):
         # First call = raw baseline (near zero), second = engineered (signal).
+        """Fake hsic."""
         calls["n"] += 1
         return np.full(X.shape[1], 1e-10 if calls["n"] == 1 else 0.5)
 
@@ -77,10 +80,12 @@ def test_hsic_near_zero_baseline_uplift_not_exploded(monkeypatch):
 
 
 def test_lasso_near_zero_baseline_uplift_not_exploded(monkeypatch):
+    """Lasso near zero baseline uplift not exploded."""
     raw_X, eng, y = _near_zero_baseline_frames()
 
     def _fake_coefs(stack_arr, y_arr, **k):
         # raw col baseline ~0, engineered col carries weight.
+        """Fake coefs."""
         return np.array([1e-10, 0.5])
 
     monkeypatch.setattr(lasso, "_fit_lasso_abs_coefs", _fake_coefs)
@@ -93,6 +98,7 @@ def test_lasso_near_zero_baseline_uplift_not_exploded(monkeypatch):
 def test_adaptive_degree_near_zero_baseline_does_not_pass_gate():
     # A constant source column produces an engineered column with no real
     # signal; pre-fix the exploded uplift cleared min_uplift and emitted it.
+    """Adaptive degree near zero baseline does not pass gate."""
     rng = np.random.default_rng(1)
     n = 400
     X = pd.DataFrame({"a": np.ones(n), "b": rng.normal(size=n)})
@@ -125,6 +131,7 @@ def test_adaptive_degree_near_zero_baseline_does_not_pass_gate():
 def test_coerce_y_does_not_truncate_float_labels(coerce):
     # Two distinct float labels inside [0, 1) collapse to class 0 under
     # plain .astype(int64) -- destroying a binary signal entirely.
+    """Coerce y does not truncate float labels."""
     y = np.array([0.2, 0.8, 0.2, 0.8, 0.2, 0.8], dtype=np.float64)
     out = coerce(y)
     assert len(np.unique(out)) == 2, "distinct float labels must survive coercion"
@@ -135,6 +142,7 @@ def test_coerce_y_does_not_truncate_float_labels(coerce):
 def test_coerce_y_continuous_signal_preserved_for_mi():
     # A continuous-y signal correlated with x must remain detectable: pre-fix
     # all y in [0, 1) -> single class 0 -> MI(x; y) == 0.
+    """Coerce y continuous signal preserved for mi."""
     rng = np.random.default_rng(2)
     n = 300
     x = rng.normal(size=n)
@@ -152,6 +160,7 @@ def test_copula_mi_nan_rows_dropped_not_ranked():
     # real signal). Proof: copula_mi on the NaN-injected array must equal
     # copula_mi on the explicitly-dropped subset. Pre-fix the NaN rows are
     # ranked and included, so the two values differ.
+    """Copula mi nan rows dropped not ranked."""
     rng = np.random.default_rng(3)
     n = 500
     x = rng.normal(size=n)
@@ -167,6 +176,7 @@ def test_copula_mi_nan_rows_dropped_not_ranked():
 
 
 def test_copula_batch_nan_masked():
+    """Copula batch nan masked."""
     rng = np.random.default_rng(4)
     n = 400
     x = rng.normal(size=n)
@@ -178,6 +188,7 @@ def test_copula_batch_nan_masked():
 
 
 def test_dcor_nan_guard():
+    """Dcor nan guard."""
     rng = np.random.default_rng(5)
     n = 400
     x = rng.normal(size=n)
@@ -206,6 +217,7 @@ def _overflow_cols():
 
 
 def test_cmim_factorize_pack_overflow_no_silent_collision():
+    """Cmim factorize pack overflow no silent collision."""
     col0, col1 = _overflow_cols()
     codes, k = cmim._factorize_pack(col0, col1)
     # Three distinct (col0, col1) rows -> exactly 3 classes.
@@ -214,6 +226,7 @@ def test_cmim_factorize_pack_overflow_no_silent_collision():
 
 
 def test_tc_factorize_pack_overflow_no_silent_collision():
+    """Tc factorize pack overflow no silent collision."""
     col0, col1 = _overflow_cols()
     codes = tc._factorize_pack(col0, col1)
     assert len(np.unique(codes)) == 3
@@ -222,6 +235,7 @@ def test_tc_factorize_pack_overflow_no_silent_collision():
 def test_factorize_pack_matches_reference_on_small_input():
     # The overflow fallback must produce the same count multiset as the
     # Horner path on a small (non-overflowing) input.
+    """Factorize pack matches reference on small input."""
     a = np.array([0, 1, 0, 1, 2], dtype=np.int64)
     b = np.array([0, 0, 1, 1, 0], dtype=np.int64)
     _codes, k = cmim._factorize_pack(a, b)
@@ -233,6 +247,7 @@ def test_factorize_pack_matches_reference_on_small_input():
 # Bug 5: meta_scorer must not swallow programming errors to 0.0                #
 # --------------------------------------------------------------------------- #
 def test_meta_scorer_propagates_programming_error():
+    """Meta scorer propagates programming error."""
     rng = np.random.default_rng(6)
     n = 200
     X = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n)})
@@ -244,6 +259,7 @@ def test_meta_scorer_propagates_programming_error():
     orig = pd.DataFrame.corr
 
     def _broken_corr(self, *a, **k):
+        """Broken corr."""
         raise AttributeError("simulated programming error in corr")
 
     pd.DataFrame.corr = _broken_corr
@@ -256,6 +272,7 @@ def test_meta_scorer_propagates_programming_error():
 
 def test_meta_scorer_numeric_failure_still_yields_zero(caplog):
     # A numeric failure (legit "no signal") still degrades to 0.0 but logs.
+    """Meta scorer numeric failure still yields zero."""
     rng = np.random.default_rng(7)
     n = 50
     X = pd.DataFrame({"a": rng.normal(size=n)})
@@ -268,6 +285,7 @@ def test_meta_scorer_numeric_failure_still_yields_zero(caplog):
 # Bug 6: elasticnet must surface ConvergenceWarning                            #
 # --------------------------------------------------------------------------- #
 def test_elasticnet_non_convergence_logged(caplog):
+    """Elasticnet non convergence logged."""
     pytest.importorskip("sklearn")
     rng = np.random.default_rng(8)
     # A pathological, heavily collinear design with near-zero regularization

@@ -56,6 +56,7 @@ def _ref(op, a, b):
 
 @pytest.fixture
 def ab():
+    """Shared (a, b) pair of independent normal columns for the materialise-op parity tests."""
     rng = np.random.default_rng(20260622)
     n = 4000
     a = rng.normal(0, 3, n)
@@ -67,6 +68,7 @@ def ab():
 
 
 def test_extval_njit_all_ops_match_numpy(ab):
+    """Extval njit all ops match numpy."""
     a, b = ab
     codes = np.array([_NJIT_BINARY_OP_CODES[o] for o in _OPS], dtype=np.int8)
     out = np.empty((a.shape[0], len(_OPS)), dtype=np.float64)
@@ -84,6 +86,7 @@ def test_extval_njit_all_ops_match_numpy(ab):
 
 
 def test_chunk_njit_all_ops_match_numpy_f32(ab):
+    """Chunk njit all ops match numpy f32."""
     a, b = ab
     tv = np.ascontiguousarray(np.column_stack([a, b]).astype(np.float32))
     a_cols = np.zeros(len(_OPS), dtype=np.int64)  # operand 0 = a

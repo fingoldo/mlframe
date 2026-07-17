@@ -95,7 +95,9 @@ def xor_fixture():
 
 
 class TestResolveDefaults:
+    """Groups tests covering TestResolveDefaults."""
     def test_max_combined_nbins_explicit_value_clamped(self):
+        """Max combined nbins explicit value clamped."""
         cfg = CatFEConfig(max_combined_nbins=10**9)
         assert resolve_max_combined_nbins(cfg, n_samples=1000) == 10**7, "User value > 10**7 must clamp to hard cap (SB10 / F18)"
 
@@ -108,11 +110,13 @@ class TestResolveDefaults:
         assert resolve_max_combined_nbins(cfg, n_samples=10) == 4
 
     def test_min_interaction_information_none_uses_neg3_over_sqrt_n(self):
+        """Min interaction information none uses neg3 over sqrt n."""
         cfg = CatFEConfig(min_interaction_information=None)
         floor = resolve_min_interaction_information(cfg, n_samples=10000)
         assert floor == pytest.approx(-3 / 100.0, rel=1e-6)
 
     def test_min_interaction_information_explicit_passes_through(self):
+        """Min interaction information explicit passes through."""
         cfg = CatFEConfig(min_interaction_information=0.05)
         assert resolve_min_interaction_information(cfg, n_samples=10000) == 0.05
 
@@ -123,7 +127,9 @@ class TestResolveDefaults:
 
 
 class TestValidationGates:
+    """Groups tests covering TestValidationGates."""
     def test_constant_column_dropped(self):
+        """Constant column dropped."""
         nbins = np.array([1, 4, 4], dtype=np.int64)  # col 0 is constant
         cfg = CatFEConfig()
         state = CatFEState()
@@ -139,6 +145,7 @@ class TestValidationGates:
 
     def test_high_cardinality_column_skipped_by_default(self):
         # n=1000 -> high_card_threshold = sqrt(1000)*2 ~ 63.25. Default 'skip' drops the high-card col from cat-FE but does not crash.
+        """High cardinality column skipped by default."""
         nbins = np.array([4, 1000], dtype=np.int64)
         cfg = CatFEConfig()
         state = CatFEState()
@@ -154,6 +161,7 @@ class TestValidationGates:
         assert (1, 1000) in state.high_cardinality_warnings
 
     def test_high_cardinality_column_raises_when_opted_in(self):
+        """High cardinality column raises when opted in."""
         nbins = np.array([4, 1000], dtype=np.int64)
         cfg = CatFEConfig(on_high_cardinality="raise")
         state = CatFEState()
@@ -167,6 +175,7 @@ class TestValidationGates:
             )
 
     def test_orchestrator_below_min_n_returns_input(self):
+        """Orchestrator below min n returns input."""
         cfg = CatFEConfig(enable=True, min_n_samples=200)
         nbins = np.array([2, 2, 2], dtype=np.int64)
         # n_samples=50 -> below min_n
@@ -194,6 +203,7 @@ class TestValidationGates:
         assert state.recipes == []
 
     def test_orchestrator_empty_target_indices_raises(self):
+        """Orchestrator empty target indices raises."""
         cfg = CatFEConfig(enable=True)
         nbins = np.array([2, 2], dtype=np.int64)
         data = np.zeros((300, 2), dtype=np.int32)
@@ -218,6 +228,7 @@ class TestValidationGates:
 
 
 class TestMarginalScreen:
+    """Groups tests covering TestMarginalScreen."""
     def test_marginal_mi_matches_reference(self, xor_fixture):
         """``_marginal_screen_njit`` must produce the same MI per
         column as direct ``compute_mi_from_classes`` calls. XOR
@@ -254,6 +265,7 @@ class TestMarginalScreen:
         np.testing.assert_allclose(out, ref, rtol=1e-6)
 
     def test_xor_marginals_near_zero(self, xor_fixture):
+        """Xor marginals near zero."""
         candidate_idxs = np.array([0, 1], dtype=np.int64)  # x1, x2
         out = _marginal_screen_njit(
             factors_data=xor_fixture["data"],
@@ -274,6 +286,7 @@ class TestMarginalScreen:
 
 
 class TestPairSearchKernel:
+    """Groups tests covering TestPairSearchKernel."""
     def test_xor_pair_has_strong_synergy(self, xor_fixture):
         """The (x1, x2) pair MUST have II > 0.5 (close to ln(2)≈0.693)."""
         # First marginal MI screen
@@ -346,6 +359,7 @@ class TestPairSearchKernel:
 
 
 class TestOrchestratorEndToEnd:
+    """Groups tests covering TestOrchestratorEndToEnd."""
     @pytest.mark.fast
     @pytest.mark.fast
     def test_xor_synergy_pair_recovered(self, xor_fixture):

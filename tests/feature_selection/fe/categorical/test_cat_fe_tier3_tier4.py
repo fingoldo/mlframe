@@ -41,6 +41,7 @@ from mlframe.feature_selection.filters.info_theory import (
 
 
 class TestTargetEncoding:
+    """Groups tests covering TestTargetEncoding."""
     @pytest.mark.fast
     def test_target_encoding_oof_no_leak(self):
         """biz_value: OOF target encoding on a perfect XOR fixture
@@ -85,6 +86,7 @@ class TestTargetEncoding:
         assert cell_means.min() > 0.01
 
     def test_apply_target_encoding_replays_on_test_data(self):
+        """Apply target encoding replays on test data."""
         rng = np.random.default_rng(7)
         n_train = 1000
         n_test = 200
@@ -135,6 +137,7 @@ class TestTargetEncoding:
         assert (out >= 0).all() and (out <= 1).all()
 
     def test_emit_target_encoding_populates_recipes(self):
+        """Emit target encoding populates recipes."""
         rng = np.random.default_rng(13)
         n = 1500
         x1 = rng.integers(0, 2, n).astype(np.int32)
@@ -180,6 +183,7 @@ class TestTargetEncoding:
 
 
 class TestKTSmoothing:
+    """Groups tests covering TestKTSmoothing."""
     @pytest.mark.fast
     def test_kt_smoothing_pulls_high_card_entropy_toward_mm(self):
         """KT smoothing provides a different entropy estimate than
@@ -208,6 +212,7 @@ class TestKTSmoothing:
 
 
 class TestAnalyticalMMGate:
+    """Groups tests covering TestAnalyticalMMGate."""
     def test_analytical_gate_fires_above_threshold(self):
         """At cardinality 10x10x4 = 400 and n=200, bias = 9*9*3 = 243
         exceeds 6*sqrt(200) ≈ 85, so gate fires."""
@@ -235,6 +240,7 @@ class TestAnalyticalMMGate:
 
 
 class TestCoordinateAscent:
+    """Groups tests covering TestCoordinateAscent."""
     def test_refine_passes_zero_is_noop(self):
         """When refine_passes=0, kway_results passes through unchanged."""
         # Dummy kway_results
@@ -265,6 +271,7 @@ class TestCoordinateAscent:
 
 
 class TestSklearnPipelineIntegration:
+    """Groups tests covering TestSklearnPipelineIntegration."""
     @pytest.mark.fast
     def test_mrmr_inside_pipeline_fit_transform(self):
         """MRMR with cat-FE enabled must work inside a sklearn Pipeline."""
@@ -316,7 +323,9 @@ class TestSklearnPipelineIntegration:
 
 
 class TestGroupsCol:
+    """Groups tests covering TestGroupsCol."""
     def test_groups_col_accepted_in_config(self):
+        """Groups col accepted in config."""
         cfg = CatFEConfig(groups_col="user_id")
         assert cfg.groups_col == "user_id"
 
@@ -327,7 +336,9 @@ class TestGroupsCol:
 
 
 class TestStreamingCache:
+    """Groups tests covering TestStreamingCache."""
     def test_streaming_cache_flag_default_off(self):
+        """Streaming cache flag default off."""
         cfg = CatFEConfig()
         assert cfg.enable_streaming_cache is False
 
@@ -338,11 +349,14 @@ class TestStreamingCache:
 
 
 class TestBanditPermBudget:
+    """Groups tests covering TestBanditPermBudget."""
     def test_perm_budget_strategy_bandit_default(self):
+        """Perm budget strategy bandit default."""
         cfg = CatFEConfig()
         assert cfg.perm_budget_strategy == "bandit_ucb1"
 
     def test_perm_budget_strategy_ucb1_accepted(self):
+        """Perm budget strategy ucb1 accepted."""
         cfg = CatFEConfig(perm_budget_strategy="bandit_ucb1")
         assert cfg.perm_budget_strategy == "bandit_ucb1"
 
@@ -353,7 +367,9 @@ class TestBanditPermBudget:
 
 
 class TestFullConditionalPerm:
+    """Groups tests covering TestFullConditionalPerm."""
     def test_enable_full_conditional_perm_flag(self):
+        """Enable full conditional perm flag."""
         cfg = CatFEConfig(enable_full_conditional_perm=True)
         assert cfg.enable_full_conditional_perm is True
 
@@ -365,6 +381,7 @@ class TestFullConditionalPerm:
 
 
 class TestBigGPUKernel:
+    """Groups tests covering TestBigGPUKernel."""
     def test_gpu_kernel_module_imports(self):
         """The GPU dispatch shim imports without CuPy; raises only if
         actually called."""

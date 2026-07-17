@@ -27,6 +27,7 @@ import pytest
 
 
 class TestSafePowEpsilonFloor:
+    """Groups tests covering TestSafePowEpsilonFloor."""
     @pytest.mark.parametrize(
         "preset,name",
         [
@@ -39,6 +40,7 @@ class TestSafePowEpsilonFloor:
         ],
     )
     def test_zero_input_is_finite(self, preset, name):
+        """Zero input is finite."""
         from mlframe.feature_selection.filters.feature_engineering import create_unary_transformations
 
         ut = create_unary_transformations(preset)
@@ -90,6 +92,7 @@ class TestSafePowEpsilonFloor:
         np.testing.assert_array_equal(out, expected)
 
     def test_reciproc_scalar_exact(self):
+        """Reciproc scalar exact."""
         from mlframe.feature_selection.filters.feature_engineering import create_unary_transformations
 
         ut = create_unary_transformations("minimal")
@@ -121,7 +124,9 @@ class TestSafePowEpsilonFloor:
 
 
 class TestRebuildFullSurvivorColErrstate:
+    """Groups tests covering TestRebuildFullSurvivorColErrstate."""
     def test_overflow_binary_no_runtime_warning_and_finite_output(self):
+        """Overflow binary no runtime warning and finite output."""
         from mlframe.feature_selection.filters.feature_engineering import (
             _rebuild_full_survivor_col,
             create_binary_transformations,
@@ -160,7 +165,9 @@ class TestRebuildFullSurvivorColErrstate:
 
 
 class TestApplyUnaryBinaryErrstate:
+    """Groups tests covering TestApplyUnaryBinaryErrstate."""
     def test_general_unary_and_binary_path_no_runtime_warning(self, monkeypatch):
+        """General unary and binary path no runtime warning."""
         monkeypatch.delenv("MLFRAME_FE_GPU_STRICT_RESIDENT", raising=False)
         from mlframe.feature_selection.filters.engineered_recipes._recipe_unary_binary import (
             _apply_unary_binary,
@@ -197,7 +204,9 @@ class TestApplyUnaryBinaryErrstate:
 
 
 class TestPairCrossBasisScrub:
+    """Groups tests covering TestPairCrossBasisScrub."""
     def test_overflowing_basis_product_scrubbed_no_warning(self, monkeypatch):
+        """Overflowing basis product scrubbed no warning."""
         import mlframe.feature_selection.filters._orthogonal_univariate_fe as _orth_pkg
         from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_pair_cross_fe import (
             generate_pair_cross_basis_features,
@@ -206,6 +215,7 @@ class TestPairCrossBasisScrub:
         def _fake_eval(x, basis, deg, **kwargs):
             # Both legs return huge finite values; h_a * h_b overflows via a plain numpy multiply
             # (the same "overflow encountered in multiply" class proven in TestRebuildFullSurvivorColErrstate).
+            """Fake eval."""
             return np.full_like(np.asarray(x, dtype=np.float64), 1e200)
 
         monkeypatch.setattr(_orth_pkg, "_evaluate_basis_column", _fake_eval)
@@ -246,11 +256,14 @@ class TestPairCrossBasisScrub:
 
 
 class TestApplyOrthPairCrossScrub:
+    """Groups tests covering TestApplyOrthPairCrossScrub."""
     def test_overflowing_product_scrubbed_in_final_output(self, monkeypatch):
+        """Overflowing product scrubbed in final output."""
         import mlframe.feature_selection.filters.engineered_recipes._orth_basis_recipes as _obr
         from mlframe.feature_selection.filters.engineered_recipes._recipe_core import EngineeredRecipe
 
         def _fake_eval(vals, basis, degree, *, pre_transform="raw", preprocess_params=None):
+            """Fake eval."""
             return np.full(len(np.asarray(vals)), 1e200)
 
         monkeypatch.setattr(_obr, "_eval_orth_basis_column", _fake_eval)
@@ -278,7 +291,9 @@ class TestApplyOrthPairCrossScrub:
 
 
 class TestFinalizeSurvivorColumn:
+    """Groups tests covering TestFinalizeSurvivorColumn."""
     def test_identical_values_float32_source(self):
+        """Identical values float32 source."""
         from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_emit import (
             _finalize_survivor_column,
         )
@@ -328,7 +343,9 @@ class TestFinalizeSurvivorColumn:
 
 
 class TestApplyHermitePairScrub:
+    """Groups tests covering TestApplyHermitePairScrub."""
     def test_overflowing_eval_dispatch_scrubbed_no_warning(self, monkeypatch):
+        """Overflowing eval dispatch scrubbed no warning."""
         import mlframe.feature_selection.filters.hermite_fe as _hf
         from mlframe.feature_selection.filters.engineered_recipes._recipe_poly_cluster import (
             _apply_hermite_pair,
@@ -336,6 +353,7 @@ class TestApplyHermitePairScrub:
         )
 
         def _fake_eval_dispatch(z, coef):
+            """Fake eval dispatch."""
             return np.full_like(np.asarray(z, dtype=np.float64), 1e200)
 
         monkeypatch.setitem(_hf._POLY_BASES["hermite"], "eval_dispatch", _fake_eval_dispatch)
@@ -369,7 +387,9 @@ class TestApplyHermitePairScrub:
 
 
 class TestApplyOrthFourierScrub:
+    """Groups tests covering TestApplyOrthFourierScrub."""
     def test_power_overflow_scrubbed_no_warning(self):
+        """Power overflow scrubbed no warning."""
         from mlframe.feature_selection.filters.engineered_recipes._orth_basis_recipes import (
             _apply_orth_fourier,
         )
@@ -418,10 +438,13 @@ class TestApplyOrthFourierScrub:
 
 
 class TestTripletQuadrupletBasisProductScrub:
+    """Groups tests covering TestTripletQuadrupletBasisProductScrub."""
     def test_triplet_generator_overflow_scrubbed_no_warning(self, monkeypatch):
+        """Triplet generator overflow scrubbed no warning."""
         import mlframe.feature_selection.filters._orthogonal_triplet_fe as _tri
 
         def _fake_eval(x, basis, deg, **kwargs):
+            """Fake eval."""
             return np.full_like(np.asarray(x, dtype=np.float64), 1e200)
 
         monkeypatch.setattr(_tri, "_evaluate_basis_column", _fake_eval)
@@ -439,12 +462,14 @@ class TestTripletQuadrupletBasisProductScrub:
             assert np.all(np.isfinite(out[col].to_numpy())), f"{col} not scrubbed"
 
     def test_triplet_replay_overflow_scrubbed_in_final_output(self, monkeypatch):
+        """Triplet replay overflow scrubbed in final output."""
         import mlframe.feature_selection.filters.engineered_recipes as _er
         from mlframe.feature_selection.filters._orthogonal_triplet_fe_recipes import (
             _apply_orth_triplet_cross,
         )
 
         def _fake_eval(vals, basis, degree, *, pre_transform="raw", preprocess_params=None):
+            """Fake eval."""
             return np.full(len(np.asarray(vals)), 1e200)
 
         monkeypatch.setattr(_er, "_eval_orth_basis_column", _fake_eval)
@@ -463,9 +488,11 @@ class TestTripletQuadrupletBasisProductScrub:
         assert np.all(np.isfinite(np.asarray(out)))
 
     def test_quadruplet_generator_overflow_scrubbed_no_warning(self, monkeypatch):
+        """Quadruplet generator overflow scrubbed no warning."""
         import mlframe.feature_selection.filters._orthogonal_quadruplet_fe as _quad
 
         def _fake_eval(x, basis, deg, **kwargs):
+            """Fake eval."""
             return np.full_like(np.asarray(x, dtype=np.float64), 1e200)
 
         monkeypatch.setattr(_quad, "_evaluate_basis_column", _fake_eval)
@@ -490,12 +517,14 @@ class TestTripletQuadrupletBasisProductScrub:
             assert np.all(np.isfinite(out[col].to_numpy())), f"{col} not scrubbed"
 
     def test_quadruplet_replay_overflow_scrubbed_in_final_output(self, monkeypatch):
+        """Quadruplet replay overflow scrubbed in final output."""
         import mlframe.feature_selection.filters.engineered_recipes as _er
         from mlframe.feature_selection.filters._orthogonal_quadruplet_fe_recipes import (
             _apply_orth_quadruplet_cross,
         )
 
         def _fake_eval(vals, basis, degree, *, pre_transform="raw", preprocess_params=None):
+            """Fake eval."""
             return np.full(len(np.asarray(vals)), 1e200)
 
         monkeypatch.setattr(_er, "_eval_orth_basis_column", _fake_eval)
@@ -540,7 +569,9 @@ class TestTripletQuadrupletBasisProductScrub:
 
 
 class TestBuildOperandTablePolyErrstate:
+    """Groups tests covering TestBuildOperandTablePolyErrstate."""
     def test_poly_branch_overflow_no_runtime_warning(self):
+        """Poly branch overflow no runtime warning."""
         from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_setup import (
             _build_operand_table,
         )

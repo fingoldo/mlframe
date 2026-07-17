@@ -29,6 +29,7 @@ _ORDER = ("median", "trimmed_mean", "q10", "q90", "iqr", "min", "max")
 
 
 def test_order_stats_are_supported():
+    """Order stats are supported."""
     for s in _ORDER:
         assert s in TE_SUPPORTED_STATS
         assert s in ORDER_STATS
@@ -82,6 +83,7 @@ def test_oof_column_is_out_of_fold_not_full_cell():
 
 
 def test_transform_replay_reproduces_stored_stat():
+    """Transform replay reproduces stored stat."""
     rng = np.random.default_rng(4)
     n = 1200
     cat = rng.integers(0, 6, n).astype(str)
@@ -123,6 +125,7 @@ def test_rare_cell_falls_back_to_global_below_floor():
 
 
 def test_moment_and_order_stats_coexist():
+    """Moment and order stats coexist."""
     rng = np.random.default_rng(6)
     n = 3000
     df = pd.DataFrame({"c": rng.integers(0, 8, n)})

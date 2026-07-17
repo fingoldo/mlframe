@@ -27,9 +27,11 @@ def test_loky_dispatch_failure_falls_back_to_serial(monkeypatch, caplog):
     calls = {"parallel": 0}
 
     def _boom_parallel(*args, **kwargs):
+        """Boom parallel."""
         calls["parallel"] += 1
 
         def _run(_tasks):
+            """Simulate a poisoned-CUDA-context pickling failure so the caller must fall back to the serial path."""
             raise RuntimeError("simulated poisoned-CUDA-context pickling failure")
 
         return _run

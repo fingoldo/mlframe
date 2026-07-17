@@ -64,10 +64,12 @@ RELAXED = dict(
 
 
 def _n_eng(m):
+    """N eng."""
     return len(getattr(m, "_engineered_recipes_", []) or [])
 
 
 def _eng_names(m):
+    """Eng names."""
     return {r.name for r in (getattr(m, "_engineered_recipes_", []) or [])}
 
 
@@ -75,6 +77,7 @@ def _eng_names(m):
 # UNIT
 # ---------------------------------------------------------------------------
 def test_fold_indices_disjoint_and_cover():
+    """Fold indices disjoint and cover."""
     rng = np.random.default_rng(0)
     n, k = 97, 5
     folds = _fold_indices(n, k, rng)
@@ -89,6 +92,7 @@ def test_fold_indices_disjoint_and_cover():
 
 
 def test_per_fold_gate_fires_on_signal_rejects_noise():
+    """Per fold gate fires on signal rejects noise."""
     rng = np.random.default_rng(1)
     n = 1500
     y = (rng.random(n) > 0.5).astype(np.int64)
@@ -188,12 +192,14 @@ def test_alt_acceptance_prewarp_recipe_not_voted_against_marginal_sum():
 
 
 def test_voter_noop_below_two_recipes_or_disabled():
+    """Voter noop below two recipes or disabled."""
     rng = np.random.default_rng(2)
     n = 400
     X = pd.DataFrame(rng.standard_normal((n, 3)), columns=["a", "b", "c"])
     y = (rng.random(n) > 0.5).astype(np.int64)
 
     class _Recipe:
+        """Groups tests covering Recipe."""
         def __init__(self, name, kind, src):
             self.name = name
             self.kind = kind
@@ -244,6 +250,7 @@ def test_voter_noop_below_two_recipes_or_disabled():
 
 
 def test_ctor_knobs_exposed_and_pickle_safe():
+    """Ctor knobs exposed and pickle safe."""
     m = MRMR(fe_stability_vote_enable=True, fe_stability_vote_k=7, fe_stability_vote_quorum=0.7)
     p = m.get_params()
     assert p["fe_stability_vote_enable"] is True
@@ -257,6 +264,7 @@ def test_ctor_knobs_exposed_and_pickle_safe():
 # BIZ_VALUE
 # ---------------------------------------------------------------------------
 def _make_noise(n, p, seed):
+    """Make noise."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.standard_normal((n, p)), columns=[f"n{i}" for i in range(p)])
     y = pd.Series((rng.random(n) > 0.5).astype(int), name="y")
@@ -284,6 +292,7 @@ def test_bizvalue_noise_survivor_reduction():
 
 
 def _make_ratio(n=3000, seed=1):
+    """Make ratio."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(0.5, 3.0, n)
     b = rng.uniform(0.5, 3.0, n)
@@ -295,6 +304,7 @@ def _make_ratio(n=3000, seed=1):
 
 
 def _make_logsin(n=3000, seed=2):
+    """Make logsin."""
     rng = np.random.default_rng(seed)
     c = rng.uniform(0.5, 5.0, n)
     d = rng.uniform(-3.0, 3.0, n)
