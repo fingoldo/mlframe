@@ -121,12 +121,14 @@ def _split(df, y, frac: float = 0.7):
 
 
 def _linear_model(classification: bool):
+    """Linear model."""
     if classification:
         return make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000))
     return make_pipeline(StandardScaler(), Ridge(alpha=1.0))
 
 
 def _select_transform(kwargs, df_tr, y_tr, df_te):
+    """Select transform."""
     fs = MRMR(verbose=0, random_seed=42, **kwargs)
     fs.fit(df_tr, y_tr)
     Xtr = np.nan_to_num(np.asarray(fs.transform(df_tr), float), nan=0.0, posinf=0.0, neginf=0.0)
@@ -146,6 +148,7 @@ def _linear_downstream_delta(df, y, classification: bool):
     assert Xtr_raw.shape[1] > 0, f"raw-only selection empty -> 0 features downstream; names={n_raw}"
 
     def _fit_score(Xtr, Xte):
+        """Fit score."""
         m = _linear_model(classification)
         m.fit(Xtr, y_tr.values)
         if classification:
@@ -158,6 +161,7 @@ def _linear_downstream_delta(df, y, classification: bool):
 
 
 def _has_engineered(names):
+    """Has engineered."""
     return [n for n in names if ("(" in n) or ("__" in n)]
 
 

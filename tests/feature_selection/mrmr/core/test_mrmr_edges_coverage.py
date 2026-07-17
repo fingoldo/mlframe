@@ -12,6 +12,7 @@ from mlframe.feature_selection.filters import MRMR
 
 
 def _make_data(n: int = 200, m: int = 4, seed: int = 0):
+    """Make data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, m))
     y = (X[:, 0] + 0.3 * X[:, 1] > 0).astype(np.int32)
@@ -20,6 +21,7 @@ def _make_data(n: int = 200, m: int = 4, seed: int = 0):
 
 
 def _fast_mrmr(**overrides):
+    """Fast mrmr."""
     base = dict(full_npermutations=3, baseline_npermutations=2, n_jobs=1, verbose=0, random_seed=42)
     base.update(overrides)
     return MRMR(**base)
@@ -40,6 +42,7 @@ def test_init_quantization_nbins_over_1000_raises():
 
 
 def test_init_interactions_max_order_over_5_raises():
+    """Init interactions max order over 5 raises."""
     df, y = _make_data()
     sel = _fast_mrmr(interactions_max_order=6)
     with pytest.raises(ValueError, match="interactions_max_order"):
@@ -47,6 +50,7 @@ def test_init_interactions_max_order_over_5_raises():
 
 
 def test_init_fe_max_steps_over_20_raises():
+    """Init fe max steps over 20 raises."""
     df, y = _make_data()
     sel = _fast_mrmr(fe_max_steps=25)
     with pytest.raises(ValueError, match="fe_max_steps"):
@@ -59,6 +63,7 @@ def test_init_fe_max_steps_over_20_raises():
 
 
 def test_validate_inputs_empty_rows_raises():
+    """Validate inputs empty rows raises."""
     df = pd.DataFrame(np.empty((0, 3)), columns=list("abc"))
     y = np.array([], dtype=np.int32)
     with pytest.raises(ValueError, match="empty"):
@@ -66,6 +71,7 @@ def test_validate_inputs_empty_rows_raises():
 
 
 def test_validate_inputs_single_row_raises():
+    """Validate inputs single row raises."""
     df = pd.DataFrame(np.array([[1.0, 2.0, 3.0]]), columns=list("abc"))
     y = np.array([1], dtype=np.int32)
     with pytest.raises(ValueError, match="single row"):
@@ -78,12 +84,14 @@ def test_validate_inputs_memory_cap_uses_available_ram_not_absolute(monkeypatch)
 
     class _FakeVM:
         # 256 GB available -- half is 128 GB, comfortably larger than any realistic test footprint.
+        """Groups tests covering FakeVM."""
         available = 256 * 1024**3
 
     monkeypatch.setattr(psutil, "virtual_memory", lambda: _FakeVM())
 
     # Build a SHAPE that exceeds the old 1e9 cell ceiling but stays under the new RAM-relative cap. ~5_000_000 rows * 250 cols = 1.25e9 cells -> ~5 GB int32 working set; clearly under 128 GB half-RAM headroom.
     class _FakeFrame:
+        """Groups tests covering FakeFrame."""
         shape = (5_000_000, 250)
 
     sel = _fast_mrmr()
@@ -97,12 +105,14 @@ def test_validate_inputs_memory_cap_rejects_when_footprint_exceeds_half_ram(monk
 
     class _FakeVM:
         # 2 GB available -> 1 GB headroom; any frame above ~250M cells (1 GB int32) gets rejected.
+        """Groups tests covering FakeVM."""
         available = 2 * 1024**3
 
     monkeypatch.setattr(psutil, "virtual_memory", lambda: _FakeVM())
 
     class _FakeFrame:
         # 1_000_000 rows * 500 cols = 5e8 cells -> ~2 GB int32, exceeds half-of-2GB headroom of 1 GB.
+        """Groups tests covering FakeFrame."""
         shape = (1_000_000, 500)
 
     sel = _fast_mrmr()
@@ -111,6 +121,7 @@ def test_validate_inputs_memory_cap_rejects_when_footprint_exceeds_half_ram(monk
 
 
 def test_validate_inputs_duplicate_column_names_raises():
+    """Validate inputs duplicate column names raises."""
     rng = np.random.default_rng(0)
     df = pd.DataFrame(rng.normal(size=(50, 3)).astype(np.float64), columns=["a", "a", "b"])
     y = (rng.standard_normal(50) > 0).astype(int)
@@ -119,6 +130,7 @@ def test_validate_inputs_duplicate_column_names_raises():
 
 
 def test_validate_inputs_constant_y_raises():
+    """Validate inputs constant y raises."""
     df, _ = _make_data(seed=1)
     y = np.zeros(len(df), dtype=np.int32)
     with pytest.raises(ValueError, match="1 unique value"):
@@ -126,6 +138,7 @@ def test_validate_inputs_constant_y_raises():
 
 
 def test_validate_inputs_polars_lazyframe_autocollects():
+    """Validate inputs polars lazyframe autocollects."""
     pl = pytest.importorskip("polars")
     df, y = _make_data(seed=2)
     lazy = pl.from_pandas(df).lazy()
@@ -135,6 +148,7 @@ def test_validate_inputs_polars_lazyframe_autocollects():
 
 
 def test_validate_inputs_polars_struct_column_raises():
+    """Validate inputs polars struct column raises."""
     pl = pytest.importorskip("polars")
     df, y = _make_data(seed=3)
     pldf = pl.from_pandas(df).with_columns(pl.struct(["f0", "f1"]).alias("s"))
@@ -180,6 +194,7 @@ def test_pickle_round_trip_smoke():
 
 
 def test_transform_unfitted_raises_not_fitted_error():
+    """Transform unfitted raises not fitted error."""
     from sklearn.exceptions import NotFittedError
 
     df, _ = _make_data()
@@ -188,6 +203,7 @@ def test_transform_unfitted_raises_not_fitted_error():
 
 
 def test_get_feature_names_out_unfitted_raises():
+    """Get feature names out unfitted raises."""
     from sklearn.exceptions import NotFittedError
 
     with pytest.raises(NotFittedError):
@@ -306,6 +322,7 @@ def test_replay_fitted_state_preserves_constructor_params():
 
 
 def test_target_to_numpy_values_various_inputs():
+    """Target to numpy values various inputs."""
     from mlframe.feature_selection.filters.mrmr import _target_to_numpy_values
 
     arr = np.array([1, 2, 3])
@@ -319,6 +336,7 @@ def test_target_to_numpy_values_various_inputs():
 
 
 def test_content_array_signature_deterministic():
+    """Content array signature deterministic."""
     from mlframe.feature_selection.filters.mrmr import _content_array_signature
 
     arr1 = np.arange(100, dtype=np.float64).reshape(20, 5)
@@ -327,6 +345,7 @@ def test_content_array_signature_deterministic():
 
 
 def test_hashable_params_signature_invariant_to_dict_order():
+    """Hashable params signature invariant to dict order."""
     from mlframe.feature_selection.filters.mrmr import _hashable_params_signature
 
     a = _hashable_params_signature({"x": 1, "y": 2})

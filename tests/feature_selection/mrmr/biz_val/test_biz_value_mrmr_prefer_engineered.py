@@ -54,6 +54,7 @@ def _even_symmetric_fixture(seed: int = 0, n: int = 1500):
 
 
 def _mrmr_hybrid_kw():
+    """Mrmr hybrid kw."""
     return dict(
         verbose=0,
         interactions_max_order=1,

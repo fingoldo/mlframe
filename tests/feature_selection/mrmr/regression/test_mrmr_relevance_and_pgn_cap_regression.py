@@ -42,6 +42,7 @@ _RAW_ONLY = dict(
 
 
 def test_below_null_squared_decoy_not_readded_by_linear_usability():
+    """Below null squared decoy not readded by linear usability."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(7)
@@ -65,6 +66,7 @@ def test_below_null_squared_decoy_not_readded_by_linear_usability():
 
 
 def test_p_ge_n_total_support_capped_at_fp_ceiling():
+    """P ge n total support capped at fp ceiling."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)

@@ -19,6 +19,7 @@ import pytest
 
 
 def _canonical_fixture(seed, n):
+    """Canonical fixture."""
     rng = np.random.default_rng(seed)
     a = rng.random(n)
     b = rng.random(n)
@@ -45,6 +46,7 @@ def _fusion_stride(n, max_rows):
     ],
 )
 def test_fusion_stride_formula(n, max_rows, expect_stride):
+    """Fusion stride formula."""
     st = _fusion_stride(n, max_rows)
     assert st == expect_stride
     if max_rows == 0:
@@ -69,6 +71,7 @@ def test_fusion_scoring_subsample_keeps_output_full_n():
     orig = TWIN.propose_additive_fusions_gpu
 
     def spy(self, **kw):
+        """Helper that spy."""
         res = orig(self, **kw)
         admitted = res[0]
         if admitted:

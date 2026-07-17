@@ -168,6 +168,7 @@ _PROFILES = [
 
 
 def _make(profile: str, n: int, seed: int):
+    """Helper that make."""
     if profile == "scaled_1_5":
         rng = np.random.default_rng(seed)
         ops = {k: rng.uniform(1.0, 5.0, n) for k in ("a", "b", "c")}
@@ -185,10 +186,12 @@ def _make(profile: str, n: int, seed: int):
 
 
 def _cols(nm):
+    """Helper that cols."""
     return set(_ID.findall(nm)) & {"a", "b", "c", "d", "e"}
 
 
 def _classify(names):
+    """Helper that classify."""
     full, frag_ab, frag_cd = [], [], []
     for nm in names:
         cs = _cols(nm)
@@ -204,6 +207,7 @@ def _classify(names):
 
 @pytest.mark.parametrize("profile", _PROFILES)
 def test_f2_one_compound_under_distribution(profile):
+    """F2 one compound under distribution."""
     df, y = _make(profile, n=10_000, seed=42)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

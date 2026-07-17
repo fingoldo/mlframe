@@ -99,9 +99,11 @@ class TestMRMRFitCache:
         # Tests in this class assume a clean cache so the first fit
         # always populates and the second always hits. The cache is
         # process-wide so other tests may have left entries.
+        """Setup method."""
         MRMR._FIT_CACHE.clear()
 
     def teardown_method(self) -> None:
+        """Teardown method."""
         MRMR._FIT_CACHE.clear()
 
     def test_clone_then_fit_hits_cache_and_replays_state(self):
@@ -209,9 +211,11 @@ class TestMRMRPermutationSubsample:
     """
 
     def setup_method(self) -> None:
+        """Setup method."""
         MRMR._FIT_CACHE.clear()
 
     def teardown_method(self) -> None:
+        """Teardown method."""
         MRMR._FIT_CACHE.clear()
 
     def test_subsample_active_when_set_and_n_above_threshold(self):

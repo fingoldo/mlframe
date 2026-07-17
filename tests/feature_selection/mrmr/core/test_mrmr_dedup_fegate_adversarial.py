@@ -26,15 +26,18 @@ _DISCRETE_PREFIXES = ("il_", "pmod_", "argmax_", "gate_", "gate_select__", "gate
 
 
 def _discrete_cols(estimator, X):
+    """Discrete cols."""
     out = estimator.transform(X)
     return [c for c in out.columns if any(str(c).startswith(p) for p in _DISCRETE_PREFIXES)]
 
 
 def _names_out(estimator):
+    """Names out."""
     return [str(c) for c in estimator.get_feature_names_out()]
 
 
 def _mk(**kw):
+    """Build an MRMR from sensible fast-test defaults (n_workers=1, 1-minute budget), overridable via kw."""
     base = dict(n_workers=1, max_runtime_mins=1, verbose=0)
     base.update(kw)
     return MRMR(**base)
@@ -46,6 +49,7 @@ def _mk(**kw):
 
 
 def _gcd_frame(seed=1, n=2000):
+    """Gcd frame."""
     rng = np.random.default_rng(seed)
     a = rng.integers(1, 40, n)
     b = rng.integers(1, 40, n)
@@ -255,6 +259,7 @@ def test_constant_columns_do_not_crash_rescue():
 
 
 def test_polars_struct_column_rejected():
+    """Polars struct column rejected."""
     pl = pytest.importorskip("polars")
     rng = np.random.default_rng(29)
     n = 600
@@ -267,6 +272,7 @@ def test_polars_struct_column_rejected():
 
 
 def test_polars_lazyframe_autocollected_with_warning():
+    """Polars lazyframe autocollected with warning."""
     pl = pytest.importorskip("polars")
     rng = np.random.default_rng(31)
     n = 600

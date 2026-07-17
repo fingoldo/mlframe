@@ -50,6 +50,7 @@ def _make(make_true, n: int = 4000, seed: int = 0, noise: float = 0.1):
 
 
 def _best_corr(fs, df, true):
+    """Best corr."""
     names = list(fs.get_feature_names_out())
     if not names:
         return 0.0, None
@@ -148,6 +149,7 @@ _ROUTING_BASES = ["hermite", "legendre", "chebyshev", "laguerre"]
 
 
 def _basis_best_corr(x, y, basis, degrees=(2, 3, 4)):
+    """Basis best corr."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         _evaluate_basis_column,
     )
@@ -229,6 +231,7 @@ class TestIntAsCatBasisSkip:
     floods the candidate pool and displaces the genuinely-useful grouped aggregates of that key (the fe_auto grouped_agg failure)."""
 
     def test_is_int_as_cat_axis_classifies_correctly(self):
+        """Is int as cat axis classifies correctly."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _is_int_as_cat_axis,
         )
@@ -241,6 +244,7 @@ class TestIntAsCatBasisSkip:
         assert _is_int_as_cat_axis(np.array([1.0, 2.0, 3.0])) is False  # n < 8
 
     def test_basis_expansion_skips_int_as_cat_column(self):
+        """Basis expansion skips int as cat column."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_univariate_basis_features,
         )
@@ -255,6 +259,7 @@ class TestIntAsCatBasisSkip:
         assert any(c.startswith("x__") for c in out.columns), f"basis expansion must still fire on the continuous 'x': {list(out.columns)}"
 
     def test_adaptive_fourier_skips_int_as_cat_column(self):
+        """Adaptive fourier skips int as cat column."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_extra_basis_features,
         )

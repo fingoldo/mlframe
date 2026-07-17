@@ -14,6 +14,7 @@ import pandas as pd
 
 
 def _make_selector(store_dir):
+    """Make selector."""
     from mlframe.feature_selection.filters._oracle_scorer_select import OracleScorerSelector
 
     store_path = os.path.join(store_dir, "oracle_rows_cache_test.parquet")
@@ -21,6 +22,7 @@ def _make_selector(store_dir):
 
 
 def test_cached_read_rows_hits_cache_between_writes():
+    """Cached read rows hits cache between writes."""
     from mlframe.feature_selection.filters._oracle_scorer_select import _cached_read_rows, _ROWS_CACHE
 
     with tempfile.TemporaryDirectory() as d:
@@ -31,6 +33,7 @@ def test_cached_read_rows_hits_cache_between_writes():
         calls = {"n": 0}
 
         def _counting_read_rows():
+            """Counting read rows."""
             calls["n"] += 1
             return real_read_rows()
 

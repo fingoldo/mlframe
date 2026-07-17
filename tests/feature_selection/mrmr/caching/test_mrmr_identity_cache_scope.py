@@ -12,6 +12,7 @@ import pytest
 
 
 def test_config_default_scope_is_ctx():
+    """Config default scope is ctx."""
     from mlframe.training.configs import FeatureSelectionConfig
 
     cfg = FeatureSelectionConfig()
@@ -19,6 +20,7 @@ def test_config_default_scope_is_ctx():
 
 
 def test_config_validator_rejects_unknown_scope():
+    """Config validator rejects unknown scope."""
     from mlframe.training.configs import FeatureSelectionConfig
 
     with pytest.raises(ValueError):

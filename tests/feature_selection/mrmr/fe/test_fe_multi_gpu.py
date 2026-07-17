@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters._fe_gpu_batch._packer import (
 
 
 def _makespan(assign, works, speeds):
+    """Helper that makespan."""
     load = [0.0] * len(speeds)
     for b, d in enumerate(assign):
         load[d] += works[b]
@@ -27,11 +28,13 @@ def _makespan(assign, works, speeds):
 
 
 def test_pack_single_device_trivial():
+    """Pack single device trivial."""
     assert pack_blocks_to_devices([5, 3, 2], [1.0]) == [0, 0, 0]
     assert pack_blocks_to_devices([], [1.0, 2.0]) == []
 
 
 def test_pack_heterogeneous_speed_loads_the_faster_device_more():
+    """Pack heterogeneous speed loads the faster device more."""
     works = [10] * 8
     speeds = [1.0, 3.0]  # device 1 is 3x faster
     assign = pack_blocks_to_devices(works, speeds)
@@ -56,6 +59,7 @@ def test_cpsat_not_worse_than_greedy():
 
 
 def test_device_profile_speed_is_proportional():
+    """Device profile speed is proportional."""
     base = dict(free_vram=1, total_vram=1, shared_per_block=49152, cc_major=6, cc_minor=1)
     slow = DeviceProfile(device=0, sm_count=6, clock_khz=1_000_000, **base)
     fast = DeviceProfile(device=1, sm_count=12, clock_khz=1_500_000, **base)
@@ -66,6 +70,7 @@ def test_device_profile_speed_is_proportional():
 # CUDA: multi-GPU executor == single-GPU, via two injected profiles on device 0.
 # ---------------------------------------------------------------------------
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -75,6 +80,7 @@ def _need_cuda() -> bool:
 
 
 def _fixture(seed=9, n=4000, k=50, nbins=10):
+    """Helper that fixture."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
@@ -112,6 +118,7 @@ def test_multi_gpu_matches_single_gpu():
 @pytest.mark.gpu
 @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_multi_gpu_collapses_to_single_profile():
+    """Multi gpu collapses to single profile."""
     import cupy as cp
     from mlframe.feature_selection.filters._fe_gpu_batch._executor import (
         gpu_fe_batch_mi,

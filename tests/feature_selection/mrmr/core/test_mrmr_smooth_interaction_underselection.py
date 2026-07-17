@@ -76,6 +76,7 @@ def test_smooth_interaction_fallback_not_suppressed_by_dropped_composite():
     import re as _re
 
     def _tokens(_nm):
+        """Helper that tokens."""
         return set(_re.findall(r"[A-Za-z_]\w*", _nm)) & set(df.columns)
 
     captured = set().union(*(_tokens(nm) for nm in support)) if support else set()

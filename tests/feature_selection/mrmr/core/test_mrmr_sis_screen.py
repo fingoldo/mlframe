@@ -74,6 +74,7 @@ def _make_frame(n, p, n_main, n_pairs, L, seed, out=None):
 
 
 def _recall(survivors, planted):
+    """Helper that recall."""
     s = set(int(i) for i in survivors)
     if len(planted) == 0:
         return 1.0
@@ -84,6 +85,7 @@ def _recall(survivors, planted):
 # chunk-vs-full rank equivalence + determinism
 # ----------------------------------------------------------------------------------------------------------
 def test_chunk_vs_full_rank_equivalence_and_determinism():
+    """Chunk vs full rank equivalence and determinism."""
     n, p = 1500, 800
     X, y, _, _ = _make_frame(n, p, n_main=6, n_pairs=4, L=0.2, seed=7)
 
@@ -105,6 +107,7 @@ def test_chunk_vs_full_rank_equivalence_and_determinism():
 
 def test_survivor_count_rule_data_derived():
     # concentrated signal: a few large scores above the MAD knee, rest at noise floor
+    """Survivor count rule data derived."""
     rng = np.random.default_rng(0)
     fused = rng.standard_normal(5000)
     fused[:15] += 12.0  # strong outliers
@@ -122,6 +125,7 @@ def test_survivor_count_rule_data_derived():
 
 
 def test_fuse_keeps_both_signal_classes():
+    """Fuse keeps both signal classes."""
     p = 1000
     mi = np.zeros(p)
     prop = np.zeros(p)
@@ -136,6 +140,7 @@ def test_fuse_keeps_both_signal_classes():
 # biz_value: recall of planted signal >= random baseline at L>=0.1
 # ----------------------------------------------------------------------------------------------------------
 def test_bizvalue_recall_beats_random_baseline():
+    """Bizvalue recall beats random baseline."""
     n, p = 3000, 3000
     n_main, n_pairs, L = 8, 6, 0.15
     X, y, main_idx, op_idx = _make_frame(n, p, n_main, n_pairs, L, seed=11)
@@ -225,6 +230,7 @@ def test_non_numeric_column_does_not_crash_screen():
 # real-scale liveness: memmap, wall budget, survivors << p, planted signal present
 # ----------------------------------------------------------------------------------------------------------
 def test_real_scale_memmap_liveness(tmp_path):
+    """Real scale memmap liveness."""
     n, p = 4000, 20000
     n_main, n_pairs, L = 10, 8, 0.15
     path = os.path.join(str(tmp_path), "X.dat")
@@ -255,6 +261,7 @@ def test_real_scale_memmap_liveness(tmp_path):
 
 @pytest.mark.skipif(os.environ.get("SIS_PROFILE", "") != "1", reason="set SIS_PROFILE=1 to run cProfile")
 def test_cprofile_hotspot(tmp_path):
+    """Cprofile hotspot."""
     import cProfile
     import pstats
     import io
