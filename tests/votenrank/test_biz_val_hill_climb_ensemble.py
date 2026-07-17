@@ -15,10 +15,12 @@ from mlframe.votenrank.hill_climb import hill_climb_ensemble
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Helper that rmse."""
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
 def _make_model_pool(n_samples: int, n_good: int, n_bad: int, seed: int):
+    """Helper that make model pool."""
     rng = np.random.default_rng(seed)
     y_true = rng.standard_normal(n_samples) * 3.0
     good_preds = [y_true + 0.3 * rng.standard_normal(n_samples) for _ in range(n_good)]
@@ -27,6 +29,7 @@ def _make_model_pool(n_samples: int, n_good: int, n_bad: int, seed: int):
 
 
 def test_hill_climb_ensemble_single_model_pool_returns_that_model():
+    """Hill climb ensemble single model pool returns that model."""
     y_true = np.array([1.0, 2.0, 3.0, 4.0])
     preds = [y_true + 0.1]
     result = hill_climb_ensemble(preds, y_true, _rmse, maximize=False, max_iterations=10)
@@ -37,6 +40,7 @@ def test_hill_climb_ensemble_single_model_pool_returns_that_model():
 def test_hill_climb_ensemble_stops_when_no_candidate_improves():
     # two IDENTICAL models -- after the first pick, adding the other changes nothing (averaging an
     # identical array with itself is a no-op), so the search should stop quickly, not loop to max_iterations.
+    """Hill climb ensemble stops when no candidate improves."""
     y_true = np.array([1.0, 2.0, 3.0])
     preds = [y_true + 0.5, y_true + 0.5]
     result = hill_climb_ensemble(preds, y_true, _rmse, maximize=False, max_iterations=50, tol=1e-12)
@@ -44,12 +48,14 @@ def test_hill_climb_ensemble_stops_when_no_candidate_improves():
 
 
 def test_hill_climb_ensemble_weights_sum_to_one():
+    """Hill climb ensemble weights sum to one."""
     y_true, preds = _make_model_pool(200, n_good=3, n_bad=2, seed=0)
     result = hill_climb_ensemble(preds, y_true, _rmse, maximize=False, max_iterations=30)
     assert np.isclose(result["weights"].sum(), 1.0)
 
 
 def test_hill_climb_ensemble_empty_pool_raises():
+    """Hill climb ensemble empty pool raises."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -57,6 +63,7 @@ def test_hill_climb_ensemble_empty_pool_raises():
 
 
 def test_biz_val_hill_climb_beats_equal_weight_average_and_single_best_model():
+    """Hill climb beats equal weight average and single best model."""
     y_true, preds = _make_model_pool(n_samples=3000, n_good=5, n_bad=15, seed=42)
 
     result = hill_climb_ensemble(preds, y_true, _rmse, maximize=False, max_iterations=60, tol=1e-6)
@@ -86,6 +93,7 @@ def test_biz_val_hill_climb_ensemble_bagging_generalizes_better_than_single_path
     # Small, noisy OOF set (n=40) with many candidate models (30) -- greedy hill-climbing on such a small
     # set can chase sampling noise in the OOF metric_fn evaluation itself and pick a path that looks great on
     # THAT small set but doesn't generalize to a genuinely separate held-out set drawn from the same models.
+    """Hill climb ensemble bagging generalizes better than single path."""
     n_oof = 40
     n_holdout = 4000
     n_models = 30
@@ -119,6 +127,7 @@ def test_biz_val_hill_climb_ensemble_bagging_generalizes_better_than_single_path
     )
 
     def _holdout_rmse(weights: np.ndarray) -> float:
+        """Helper that holdout rmse."""
         blended = np.zeros(n_holdout)
         for idx, w in enumerate(weights):
             blended += w * holdout_preds[idx]

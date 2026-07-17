@@ -18,6 +18,7 @@ from mlframe.evaluation.group_leakage_guard import assert_no_group_leakage
 
 
 def _make_nested_table(seed: int):
+    """Helper that make nested table."""
     rng = np.random.default_rng(seed)
     n_entities = 150
     rows_per_entity = 6
@@ -41,6 +42,7 @@ def _make_nested_table(seed: int):
 
 
 def test_biz_val_assert_no_group_leakage_catches_leaky_kfold():
+    """Assert no group leakage catches leaky kfold."""
     X, _y, entity_ids = _make_nested_table(seed=0)
     leaky_splits = list(KFold(n_splits=5, shuffle=True, random_state=0).split(X))
 
@@ -51,15 +53,18 @@ def test_biz_val_assert_no_group_leakage_catches_leaky_kfold():
 
 
 def test_assert_no_group_leakage_passes_for_group_kfold():
+    """Assert no group leakage passes for group kfold."""
     X, y, entity_ids = _make_nested_table(seed=1)
     safe_splits = list(GroupKFold(n_splits=5).split(X, y, groups=entity_ids))
     assert_no_group_leakage(safe_splits, entity_ids)  # must not raise
 
 
 def test_biz_val_leaky_split_actually_inflates_cv_score_vs_group_kfold():
+    """Leaky split actually inflates cv score vs group kfold."""
     X, y, entity_ids = _make_nested_table(seed=2)
 
     def _cv_auc(splits):
+        """Helper that cv auc."""
         scores = []
         for train_idx, test_idx in splits:
             model = RandomForestClassifier(n_estimators=60, max_depth=4, random_state=0, n_jobs=1)

@@ -21,10 +21,12 @@ from mlframe.votenrank.rank_percentile_stacking import rank_percentile_transform
 
 
 def _rmse(y_true, y_pred):
+    """Helper that rmse."""
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
 def test_biz_val_rank_percentile_transform_fixes_linear_stacker_on_skewed_base_learner():
+    """Rank percentile transform fixes linear stacker on skewed base learner."""
     rng = np.random.default_rng(0)
     n = 4000
 
@@ -49,6 +51,7 @@ def test_biz_val_rank_percentile_transform_fixes_linear_stacker_on_skewed_base_l
 
 
 def test_rank_percentile_transform_oof_range_and_monotonicity():
+    """Rank percentile transform oof range and monotonicity."""
     oof = np.array([5.0, 1.0, 3.0, 3.0, 2.0])
     pct, test_pct = rank_percentile_transform(oof)
     assert test_pct is None
@@ -59,6 +62,7 @@ def test_rank_percentile_transform_oof_range_and_monotonicity():
 
 
 def test_rank_percentile_transform_test_pred_matches_oof_scale():
+    """Rank percentile transform test pred matches oof scale."""
     oof = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     test_pred = np.array([0.0, 3.0, 100.0])
     oof_pct, test_pct = rank_percentile_transform(oof, test_pred)
@@ -69,6 +73,7 @@ def test_rank_percentile_transform_test_pred_matches_oof_scale():
 
 
 def test_rank_percentile_transform_empty_raises():
+    """Rank percentile transform empty raises."""
     import pytest
 
     with pytest.raises(ValueError):

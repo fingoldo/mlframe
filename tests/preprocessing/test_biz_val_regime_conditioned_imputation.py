@@ -18,6 +18,7 @@ from mlframe.preprocessing.regime_conditioned_imputation import regime_condition
 
 
 def test_biz_val_regime_conditioned_fill_beats_global_median_fill():
+    """Regime conditioned fill beats global median fill."""
     rng = np.random.default_rng(0)
     n = 4000
 
@@ -53,6 +54,7 @@ def test_biz_val_regime_conditioned_fill_beats_global_median_fill():
 
 
 def test_regime_conditioned_fill_falls_back_to_global_median_for_all_nan_regime():
+    """Regime conditioned fill falls back to global median for all nan regime."""
     df = pd.DataFrame({"regime": [0, 0, 1, 1], "x": [10.0, np.nan, np.nan, np.nan]})
     result = regime_conditioned_median_fill(df, regime_col="regime", feature_cols=["x"])
     assert not result["x"].isna().any()
@@ -60,6 +62,7 @@ def test_regime_conditioned_fill_falls_back_to_global_median_for_all_nan_regime(
 
 
 def test_regime_conditioned_fill_missing_regime_value_falls_back_to_global_median():
+    """Regime conditioned fill missing regime value falls back to global median."""
     df = pd.DataFrame({"regime": [0, 0, np.nan], "x": [10.0, 20.0, np.nan]})
     result = regime_conditioned_median_fill(df, regime_col="regime", feature_cols=["x"])
     assert result["x"].iloc[2] == 15.0  # no regime to condition on -> global median
@@ -69,6 +72,7 @@ def test_biz_val_regime_conditioned_fill_hierarchical_composite_beats_single_col
     # x depends on an A/B INTERACTION (XOR-like 2x3 mean grid): neither A alone nor B alone separates the
     # groups (each marginal averages to ~0), only the joint (A, B) key does -- a genuine composite-regime
     # win that single-column conditioning on A (or B) alone structurally cannot capture.
+    """Regime conditioned fill hierarchical composite beats single column."""
     rng = np.random.default_rng(0)
     n = 6000
 

@@ -22,6 +22,7 @@ from mlframe.calibration.quality import (
 
 
 def test_bin_predictions_single_sample_one_bin():
+    """Bin predictions single sample one bin."""
     y_true = np.array([1.0])
     y_pred = np.array([0.5])
     idx = np.argsort(y_pred)
@@ -36,6 +37,7 @@ def test_bin_predictions_single_sample_one_bin():
 def test_estimate_calibration_quality_binned_nbins_gt_n_caps_and_stays_finite():
     # nbins=50 but only 5 samples: nbins is capped to n so every pocket holds >=1 row and
     # no NaN leaks into the reliability curve or the metrics.
+    """Estimate calibration quality binned nbins gt n caps and stays finite."""
     y_true = np.array([0.0, 1.0, 0.0, 1.0, 1.0])
     y_pred = np.array([0.1, 0.9, 0.2, 0.8, 0.7])
     pockets_pred, pockets_true, _data, metrics = estimate_calibration_quality_binned(y_true, y_pred, nbins=50)
@@ -46,24 +48,28 @@ def test_estimate_calibration_quality_binned_nbins_gt_n_caps_and_stays_finite():
 
 
 def test_estimate_calibration_quality_binned_empty_raises():
+    """Estimate calibration quality binned empty raises."""
     with pytest.raises(ValueError, match="empty y_pred"):
         estimate_calibration_quality_binned(np.array([]), np.array([]))
 
 
 def test_anderson_darling_single_sample_finite():
     # n=1: the (1/n) factor and the single-term accumulation must stay finite (not inf/NaN).
+    """Anderson darling single sample finite."""
     res = anderson_darling_statistic(np.array([0.5]))
     assert np.isfinite(res)
 
 
 def test_anderson_darling_all_tied_finite_and_large():
     # All PIT values identical (far from uniform) -> a large but finite A-D statistic.
+    """Anderson darling all tied finite and large."""
     res = anderson_darling_statistic(np.full(20, 0.3))
     assert np.isfinite(res)
     assert res > 1.0
 
 
 def test_anderson_darling_empty_returns_nan():
+    """Anderson darling empty returns nan."""
     assert np.isnan(anderson_darling_statistic(np.array([])))
 
 
@@ -71,6 +77,7 @@ def test_eci_miller_madow_reduces_bias_vs_plugin():
     # MM adds (k_obs-1)/(2N) to the plug-in entropy, which strictly lowers ECI toward its
     # perfect-calibration floor of 0. On near-uniform (calibrated) PIT values MM must be
     # <= the raw plug-in and closer to 0.
+    """Eci miller madow reduces bias vs plugin."""
     pit = np.clip(np.random.default_rng(0).random(500), 0.0, 1.0)
     eci_mm = entropy_calibration_index(pit, bins=10, miller_madow=True)
     eci_plain = entropy_calibration_index(pit, bins=10, miller_madow=False)
@@ -81,10 +88,12 @@ def test_eci_miller_madow_reduces_bias_vs_plugin():
 
 def test_eci_empty_returns_zero():
     # total==0 short-circuit: no PIT mass -> ECI defined as 0.0 (perfect-calibration floor).
+    """Eci empty returns zero."""
     assert entropy_calibration_index(np.array([]), bins=10) == 0.0
 
 
 def test_msd_empty_is_nan_and_known_value():
+    """Msd empty is nan and known value."""
     assert np.isnan(mean_squared_deviation(np.array([])))
     # deviation of {0.0, 1.0} from the uniform mean 0.5 -> mean(0.25, 0.25) == 0.25
     assert mean_squared_deviation(np.array([0.0, 1.0])) == pytest.approx(0.25)

@@ -20,11 +20,13 @@ from mlframe.evaluation import bootstrap as bs
 
 # ---- (1) LOO: mask-flip must equal np.delete reduction, exactly ----
 def test_cpx24_jackknife_idx_mask_flip_identical_to_delete():
+    """Cpx24 jackknife idx mask flip identical to delete."""
     rng = np.random.default_rng(123)
     n = 600
     data = rng.standard_normal(n)
 
     def metric_idx(idx):
+        """Helper that metric idx."""
         return float(data[idx].mean() + data[idx].std())
 
     # OLD reduction inline (np.delete per iter).
@@ -44,6 +46,7 @@ def test_cpx24_jackknife_idx_mask_flip_identical_to_delete():
 # ---- (3) percentile: single-partition pair == two scalar calls, exactly ----
 @pytest.mark.parametrize("n", [256, 1000, 2137, 5000])
 def test_cpx24_pct_pair_bit_identical(n):
+    """Cpx24 pct pair bit identical."""
     rng = np.random.default_rng(n)
     samples = rng.standard_normal(n)
     for alpha in (0.05, 0.1, 0.2):
@@ -57,11 +60,13 @@ def test_cpx24_pct_pair_bit_identical(n):
 
 # ---- end-to-end: public bootstrap_metric CIs are reproducible + stable ----
 def test_cpx24_bootstrap_metric_ci_reproducible():
+    """Cpx24 bootstrap metric ci reproducible."""
     rng = np.random.default_rng(7)
     y_true = rng.integers(0, 2, size=400)
     y_pred = rng.random(400)
 
     def acc(yt, yp):
+        """Helper that acc."""
         return float(((yp > 0.5).astype(int) == yt).mean())
 
     r1 = bs.bootstrap_metric(y_true, y_pred, acc, n_bootstrap=500, random_state=42, method="bca")
@@ -83,6 +88,7 @@ def test_cpx24_bootstrap_metric_bca_uses_jackknife_idx_path():
     captured = {}
 
     def metric_idx(idx):
+        """Helper that metric idx."""
         return float(full_scores[idx].mean())
 
     jk = bs._jackknife_metric_idx(n, metric_idx)

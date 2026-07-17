@@ -99,6 +99,7 @@ def test_composite_env_signature_drift_warns_when_supplied(caplog, monkeypatch):
     import mlframe.training.composite as _composite
 
     def _fake_live_sig():
+        """Helper that fake live sig."""
         return {"mlframe": "0.99-LIVE", "catboost": "9.9.9"}
 
     monkeypatch.setattr(_composite, "env_signature", _fake_live_sig)

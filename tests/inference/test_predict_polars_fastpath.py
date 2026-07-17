@@ -27,6 +27,7 @@ from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 
 def _build_polars_frame(n: int = 3_000, seed: int = 0) -> pl.DataFrame:
+    """Helper that build polars frame."""
     rng = np.random.default_rng(seed)
     return pl.DataFrame(
         {
@@ -39,6 +40,7 @@ def _build_polars_frame(n: int = 3_000, seed: int = 0) -> pl.DataFrame:
 
 
 def _run_suite(df: pl.DataFrame, models_list: list[str]):
+    """Helper that run suite."""
     fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
     return train_mlframe_models_suite(
         df=df,
@@ -72,6 +74,7 @@ def test_predict_from_models_polars_fastpath_cb_keeps_polars():
     orig_helper = predict_mod.get_pandas_view_of_polars_df
 
     def _spy(_df, *a, **kw):
+        """Helper that spy."""
         call_counter["n"] += 1
         return orig_helper(_df, *a, **kw)
 
@@ -119,6 +122,7 @@ def test_predict_from_models_polars_fastpath_xgb_keeps_polars():
     orig_helper = predict_mod.get_pandas_view_of_polars_df
 
     def _spy(_df, *a, **kw):
+        """Helper that spy."""
         call_counter["n"] += 1
         return orig_helper(_df, *a, **kw)
 

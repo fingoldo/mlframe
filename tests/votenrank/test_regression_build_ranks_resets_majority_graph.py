@@ -8,11 +8,13 @@ from mlframe.votenrank import Leaderboard
 
 
 def _make_table(values):
+    """Helper that make table."""
     return pd.DataFrame(values, index=["A", "B", "C"], columns=["t1", "t2", "t3"])
 
 
 def test_build_ranks_invalidates_stale_majority_graph():
     # First data: A dominates.
+    """Build ranks invalidates stale majority graph."""
     lb = Leaderboard(_make_table([[9, 9, 9], [5, 5, 5], [1, 1, 1]]))
     first = lb.copeland_ranking()  # materialises majority_graph
     assert first.index[0] == "A"

@@ -15,6 +15,7 @@ from mlframe.preprocessing.outlier_detector_zoo import make_outlier_detector, se
 
 
 def _make_known_contamination_dataset(seed: int = 0, n_inliers: int = 950, n_outliers: int = 50):
+    """Helper that make known contamination dataset."""
     rng = np.random.default_rng(seed)
     inliers = rng.normal(loc=0.0, scale=1.0, size=(n_inliers, 5))
     outliers = rng.normal(loc=25.0, scale=1.0, size=(n_outliers, 5))
@@ -25,12 +26,14 @@ def _make_known_contamination_dataset(seed: int = 0, n_inliers: int = 950, n_out
 
 
 def _anomaly_scores(X: np.ndarray) -> np.ndarray:
+    """Helper that anomaly scores."""
     detector = make_outlier_detector("isolation_forest", n_estimators=200, random_state=0)
     detector.fit(X)
     return -detector.decision_function(X)  # negate to higher = more anomalous
 
 
 def test_biz_val_select_outlier_threshold_contamination_recovers_known_rate():
+    """Select outlier threshold contamination recovers known rate."""
     X, y_true = _make_known_contamination_dataset()
     scores = _anomaly_scores(X)
     true_rate = y_true.mean()  # 0.05
@@ -46,6 +49,7 @@ def test_biz_val_select_outlier_threshold_contamination_recovers_known_rate():
 
 
 def test_biz_val_select_outlier_threshold_percentile_matches_contamination_on_clean_split():
+    """Select outlier threshold percentile matches contamination on clean split."""
     X, y_true = _make_known_contamination_dataset()
     scores = _anomaly_scores(X)
 
@@ -60,6 +64,7 @@ def test_biz_val_select_outlier_threshold_iqr_flags_far_fewer_on_gaussian_noise(
     # Pure Gaussian noise, no planted outliers: Tukey's fence (1.5*IQR) should flag only a small tail,
     # far below a naive top-10%-by-contamination cutoff -- proving "iqr" answers a genuinely different
     # question (distribution-driven cutoff) than "contamination" (fixed-rate cutoff).
+    """Select outlier threshold iqr flags far fewer on gaussian noise."""
     rng = np.random.default_rng(1)
     scores = rng.normal(size=5000)
 
@@ -73,6 +78,7 @@ def test_biz_val_select_outlier_threshold_iqr_flags_far_fewer_on_gaussian_noise(
 
 
 def test_select_outlier_threshold_rejects_unknown_method():
+    """Select outlier threshold rejects unknown method."""
     import pytest
 
     with pytest.raises(ValueError):

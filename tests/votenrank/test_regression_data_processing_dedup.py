@@ -11,6 +11,7 @@ from mlframe.votenrank import data_processing as dp
 
 def _make_glue():
     # Two rows share the model name "DupModel" -> must be disambiguated to DupModel_1 / DupModel_2.
+    """Helper that make glue."""
     return pd.DataFrame(
         {
             "Rank": [1, 2, 3],
@@ -29,6 +30,7 @@ def _make_glue():
 def test_preprocess_glue_actually_dedups_model_names():
     # Force Copy-on-Write so the pre-fix chained assignment (glue["Model"].loc[mask] += ...)
     # is a silent no-op (writes land on a throwaway temporary) and the duplicate survives.
+    """Preprocess glue actually dedups model names."""
     with pd.option_context("mode.copy_on_write", True):
         glue, _weights = dp.preprocess_glue(_make_glue())
     # The index is the (now disambiguated) Model column; it must contain no duplicates.
@@ -38,6 +40,7 @@ def test_preprocess_glue_actually_dedups_model_names():
 
 
 def test_preprocess_sglue_uses_np_nan_and_dedups():
+    """Preprocess sglue uses np nan and dedups."""
     sglue = pd.DataFrame(
         {
             "Rank": [1, 2, 3],

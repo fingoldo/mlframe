@@ -12,6 +12,7 @@ import pytest
 
 # --------------------------------------------------------------------------- API15
 def test_api15_pick_best_calibrator_reports_secondary_ece_when_probs_y_given():
+    """Pick best calibrator reports secondary ece when probs y given."""
     from mlframe.calibration.policy import pick_best_calibrator
 
     rng = np.random.default_rng(0)
@@ -36,6 +37,7 @@ def test_api15_pick_best_calibrator_reports_secondary_ece_when_probs_y_given():
 
 
 def test_api15_secondary_ece_none_when_probs_y_omitted():
+    """Secondary ece none when probs y omitted."""
     from mlframe.calibration.policy import pick_best_calibrator
 
     rng = np.random.default_rng(1)
@@ -59,14 +61,17 @@ class _IdentityCalibrator:
     """Minimal calibrator with fit/transform that returns probs unchanged."""
 
     def fit(self, p, y):
+        """Helper that fit."""
         self._fitted = True
         return self
 
     def transform(self, p):
+        """Helper that transform."""
         return np.asarray(p, dtype=np.float64)
 
 
 def test_api31_binary_postcalibrator_sets_sklearn_attrs_and_predict_proba():
+    """Binary postcalibrator sets sklearn attrs and predict proba."""
     from mlframe.calibration.post import BinaryPostCalibrator
 
     cal = BinaryPostCalibrator(calibrator=_IdentityCalibrator())
@@ -89,9 +94,11 @@ def test_api31_binary_postcalibrator_sets_sklearn_attrs_and_predict_proba():
 
 # --------------------------------------------------------------------------- API32
 def test_api32_show_classifier_calibration_propagates_unexpected_error(monkeypatch):
+    """Show classifier calibration propagates unexpected error."""
     import mlframe.calibration.quality as quality
 
     def _boom(*args, **kwargs):
+        """Helper that boom."""
         raise KeyError("unexpected internal bug")
 
     monkeypatch.setattr(quality, "estimate_calibration_quality_binned", _boom)
@@ -105,9 +112,11 @@ def test_api32_show_classifier_calibration_propagates_unexpected_error(monkeypat
 
 
 def test_api32_show_classifier_calibration_swallows_expected_valueerror(monkeypatch):
+    """Show classifier calibration swallows expected valueerror."""
     import mlframe.calibration.quality as quality
 
     def _boom(*args, **kwargs):
+        """Helper that boom."""
         raise ValueError("expected data-shape issue")
 
     monkeypatch.setattr(quality, "estimate_calibration_quality_binned", _boom)

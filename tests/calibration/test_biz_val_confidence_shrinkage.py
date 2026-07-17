@@ -14,6 +14,7 @@ from mlframe.calibration.confidence_shrinkage import apply_confidence_shrinkage,
 
 
 def _top1_accuracy(pred_dict: dict, true_relevant: np.ndarray) -> float:
+    """Helper that top1 accuracy."""
     names = list(pred_dict.keys())
     matrix = np.column_stack([pred_dict[n] for n in names])
     top1_idx = np.argmax(matrix, axis=1)
@@ -22,6 +23,7 @@ def _top1_accuracy(pred_dict: dict, true_relevant: np.ndarray) -> float:
 
 
 def test_biz_val_confidence_shrinkage_improves_top1_ranking_accuracy():
+    """Confidence shrinkage improves top1 ranking accuracy."""
     rng = np.random.default_rng(0)
     n_users = 2000
     true_relevant = rng.choice(["A", "B", "C"], size=n_users)
@@ -50,10 +52,12 @@ def test_biz_val_confidence_shrinkage_improves_top1_ranking_accuracy():
 
 
 def test_compute_oof_confidence_no_positives_returns_neutral():
+    """Compute oof confidence no positives returns neutral."""
     assert compute_oof_confidence(np.array([0.1, 0.2, 0.3]), np.array([0, 0, 0])) == 1.0
 
 
 def test_apply_confidence_shrinkage_zero_span_uses_hard_cutoff():
+    """Apply confidence shrinkage zero span uses hard cutoff."""
     preds = {"a": np.array([0.8, 0.9]), "b": np.array([0.1, 0.2])}
     confidences = {"a": 3.0, "b": 3.0}
     shrunk = apply_confidence_shrinkage(preds, confidences, neutral_value=0.5, min_confidence=1.0)
@@ -125,6 +129,7 @@ def test_biz_val_confidence_shrinkage_per_segment_beats_global_when_reliability_
     )["out"]
 
     def _noisy_segment_variance(shrunk: np.ndarray) -> float:
+        """Helper that noisy segment variance."""
         noisy_mask = segment_ids == "noisy"
         return float(np.var(shrunk[noisy_mask]))
 
@@ -132,6 +137,7 @@ def test_biz_val_confidence_shrinkage_per_segment_beats_global_when_reliability_
         # Brier-style calibration error against the true 0/1 label -- unlike Pearson correlation (invariant
         # to any positive-weight affine shrink), this DOES penalize partial shrinkage: pulling a genuinely
         # informative prediction toward the neutral value moves it away from the true label and raises MSE.
+        """Helper that reliable segment mse."""
         reliable_mask = segment_ids == "reliable"
         return float(np.mean((shrunk[reliable_mask] - oof_label[reliable_mask]) ** 2))
 
@@ -159,6 +165,7 @@ def test_biz_val_confidence_shrinkage_per_segment_beats_global_when_reliability_
 
 
 def test_apply_confidence_shrinkage_segments_omitted_is_bit_identical_to_pre_extension():
+    """Apply confidence shrinkage segments omitted is bit identical to pre extension."""
     preds = {"a": np.array([0.1, 0.5, 0.9, 0.3])}
     confidences = {"a": 2.5}
     with_default = apply_confidence_shrinkage(preds, confidences, neutral_value=0.4, min_confidence=1.0, max_confidence=3.0)

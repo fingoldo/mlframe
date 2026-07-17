@@ -22,10 +22,12 @@ from mlframe.votenrank.correlation_diversity_ablation import diversity_ablation_
 
 
 def _log_loss(y_true, y_pred):
+    """Helper that log loss."""
     return float(log_loss(y_true, np.clip(y_pred, 1e-6, 1 - 1e-6)))
 
 
 def _make_local_structure_dataset(n: int, seed: int):
+    """Helper that make local structure dataset."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 10))
     y = ((np.sin(X[:, 0] * 2) + np.cos(X[:, 1] * 2) + 0.3 * rng.standard_normal(n)) > 0).astype(int)
@@ -36,6 +38,7 @@ def _build_zoo(X, y):
     # rf/et: two mutually-correlated tree learners (same architecture family, different randomization). lr: a
     # correlated-enough linear learner. knn: the diverse-but-mediocre local-neighborhood learner this test is
     # actually about.
+    """Helper that build zoo."""
     rf_oof = cross_val_predict(RandomForestClassifier(n_estimators=200, max_depth=4, random_state=0), X, y, cv=5, method="predict_proba")[:, 1]
     et_oof = cross_val_predict(ExtraTreesClassifier(n_estimators=200, max_depth=4, random_state=1), X, y, cv=5, method="predict_proba")[:, 1]
     lr_oof = cross_val_predict(LogisticRegression(max_iter=500), X, y, cv=5, method="predict_proba")[:, 1]
@@ -44,6 +47,7 @@ def _build_zoo(X, y):
 
 
 def test_biz_val_recommend_diversity_additions_surfaces_knn_top_pick():
+    """Recommend diversity additions surfaces knn top pick."""
     X, y = _make_local_structure_dataset(n=2000, seed=0)
     oof_preds = _build_zoo(X, y)
     individual_scores = {name: -_log_loss(y, pred) for name, pred in oof_preds.items()}
@@ -66,6 +70,7 @@ def test_biz_val_recommend_diversity_additions_surfaces_knn_top_pick():
 
 
 def test_biz_val_recommend_diversity_additions_excludes_non_improving_flagged_candidate():
+    """Recommend diversity additions excludes non improving flagged candidate."""
     rng = np.random.default_rng(3)
     n = 1500
     shared = rng.normal(size=n)
@@ -82,6 +87,7 @@ def test_biz_val_recommend_diversity_additions_excludes_non_improving_flagged_ca
     individual_scores = {"best": -abs(np.mean(best - y_true)), "noise": -abs(np.mean(noise_candidate - y_true)) - 10.0}
 
     def _mae(yt, yp):
+        """Helper that mae."""
         return float(np.mean(np.abs(yt - yp)))
 
     report = diversity_ablation_report(oof_preds, individual_scores, y_true, _mae, correlation_threshold=0.85, higher_score_is_better=True)
@@ -95,6 +101,7 @@ def test_biz_val_recommend_diversity_additions_excludes_non_improving_flagged_ca
 
 
 def test_recommend_diversity_additions_top_k_caps_shortlist():
+    """Recommend diversity additions top k caps shortlist."""
     rng = np.random.default_rng(7)
     n = 2000
     shared = rng.normal(size=n)
@@ -110,6 +117,7 @@ def test_recommend_diversity_additions_top_k_caps_shortlist():
     oof_preds = {"best": best, "c1": c1, "c2": c2, "c3": c3}
 
     def _rmse(yt, yp):
+        """Helper that rmse."""
         return float(np.sqrt(np.mean((yt - yp) ** 2)))
 
     individual_scores = {name: -_rmse(y_true, pred) for name, pred in oof_preds.items()}

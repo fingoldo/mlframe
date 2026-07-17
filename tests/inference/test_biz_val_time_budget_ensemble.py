@@ -29,6 +29,7 @@ class _LatencyModel:
         self._rng = rng
 
     def predict(self, X):
+        """Helper that predict."""
         time.sleep(self.latency_seconds)
         n = len(X)
         return np.full(n, self.true_offset) + self._rng.normal(scale=self.noise_scale, size=n)
@@ -37,10 +38,12 @@ class _LatencyModel:
 def _make_models(rng: np.random.Generator, n_models: int = 6):
     # Priority order: best-first, each contributing independent noise around the true value (0.0) -- more
     # models averaged narrows the ensemble's error toward 0 by the usual sqrt(n) averaging argument.
+    """Helper that make models."""
     return [_LatencyModel(true_offset=0.0, noise_scale=1.0, latency_seconds=0.01, rng=rng) for _ in range(n_models)]
 
 
 def test_biz_val_time_budget_ensemble_beats_conservative_fixed_size_within_budget():
+    """Time budget ensemble beats conservative fixed size within budget."""
     rng = np.random.default_rng(0)
     n_trials = 40
     n_rows = 5
@@ -79,6 +82,7 @@ def test_biz_val_time_budget_ensemble_beats_conservative_fixed_size_within_budge
 
 
 def test_time_budget_ensemble_always_runs_at_least_min_models():
+    """Time budget ensemble always runs at least min models."""
     rng = np.random.default_rng(1)
     slow_models = [_LatencyModel(true_offset=0.0, noise_scale=1.0, latency_seconds=1.0, rng=rng) for _ in range(3)]
     ensemble = TimeBudgetEnsemble(slow_models, time_budget_seconds=0.001, min_models=1)
@@ -100,6 +104,7 @@ def test_biz_val_time_budget_ensemble_value_per_ms_avoids_starving_accurate_mode
     # Cheap-first (naive static priority): several near-worthless fast models ranked ahead of one slow but
     # much more accurate model -- under a tight budget the naive order never reaches the accurate model.
     def _make_cheap_first(rng):
+        """Helper that make cheap first."""
         cheap = [_LatencyModel(true_offset=3.0, noise_scale=1.0, latency_seconds=0.001, rng=rng) for _ in range(4)]
         accurate = _LatencyModel(true_offset=0.0, noise_scale=0.05, latency_seconds=0.01, rng=rng)
         return [*cheap, accurate]
@@ -144,6 +149,7 @@ def test_time_budget_ensemble_value_per_ms_default_none_preserves_caller_order()
 
 
 def test_time_budget_ensemble_uses_more_models_with_larger_budget():
+    """Time budget ensemble uses more models with larger budget."""
     rng = np.random.default_rng(2)
     models = [_LatencyModel(true_offset=0.0, noise_scale=1.0, latency_seconds=0.01, rng=rng) for _ in range(6)]
 
