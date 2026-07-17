@@ -7,13 +7,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # -------------------------------------------------------------------------
 # §1 P1 FS-FALLBACK mrmr.py:436 min_features_fallback default now 1 (was 0)
 # -------------------------------------------------------------------------
 
 
 def test_mrmr_min_features_fallback_default_is_one():
+    """min_features_fallback must default to 1, not 0, to prevent empty support_ crashes."""
     import inspect
     from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -31,6 +31,7 @@ def test_mrmr_min_features_fallback_default_is_one():
 
 
 def test_mrmr_random_seed_default_remains_none():
+    """random_seed must default to None, preserving the random_state-alias resolution path."""
     import inspect
     from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -61,7 +62,7 @@ def test_mrmr_same_shape_skip_distinguishes_y_content():
 
     # First fit signature.
     MRMR._FIT_CACHE.clear()
-    mrmr = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_shape=True, random_seed=0)
+    mrmr = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_content=True, random_seed=0)
     mrmr.fit(X_df, y1)
     sig1 = mrmr.signature
 
@@ -130,11 +131,15 @@ def test_composite_oof_predictions_time_aware_uses_timeseries_split():
     from mlframe.training.composite.ensemble.feature_stacking import composite_oof_predictions
 
     class _Identity:
+        """Stub predictor returning zeros, used only to exercise the CV-split routing."""
+
         def fit(self, X, y):
+            """Record y and return self."""
             self._y = np.asarray(y, dtype=float)
             return self
 
         def predict(self, X):
+            """Return zeros for every row."""
             return np.zeros(len(X), dtype=float)
 
     n = 60

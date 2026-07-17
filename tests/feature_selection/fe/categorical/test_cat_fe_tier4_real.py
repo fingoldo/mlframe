@@ -24,14 +24,16 @@ from mlframe.feature_selection.filters.cat_interactions import (
 )
 from mlframe.feature_selection.filters.info_theory import merge_vars
 
-
 # ============================================================================
 # Tier 4.1: Bandit UCB1 real-impl tests
 # ============================================================================
 
 
 class TestBanditUCB1Real:
+    """Tier 4.1: Bandit UCB1 real-impl tests."""
+
     def _make_xor(self, n=1500, seed=42, n_noise=4):
+        """Build an XOR-categorical fixture with n_noise irrelevant noise columns."""
         rng = np.random.default_rng(seed)
         x1 = rng.integers(0, 2, n).astype(np.int32)
         x2 = rng.integers(0, 2, n).astype(np.int32)
@@ -124,16 +126,21 @@ class TestBanditUCB1Real:
 
 
 class TestStreamingCacheReal:
+    """Tier 4.4: Streaming cache real-impl tests."""
+
     def test_kl_divergence_self_is_zero(self):
+        """KL divergence of a distribution against itself must be ~0."""
         p = np.array([0.25, 0.5, 0.25])
         assert _kl_divergence(p, p) < 1e-6
 
     def test_kl_divergence_positive_for_different(self):
+        """KL divergence between two different distributions must be positive."""
         p = np.array([0.5, 0.5])
         q = np.array([0.9, 0.1])
         assert _kl_divergence(p, q) > 0.1
 
     def test_column_signature_normalises(self):
+        """_column_signature must return the normalised per-bin frequency vector."""
         vals = np.array([0, 0, 1, 1, 1, 2], dtype=np.int32)
         sig = _column_signature(vals, nbins=3)
         np.testing.assert_allclose(sig, [2 / 6, 3 / 6, 1 / 6], rtol=1e-6)
@@ -204,9 +211,9 @@ class TestStreamingCacheReal:
                 enable_streaming_cache=True,
             ),
         )
-        # NOTE: skip_retraining_on_same_shape may short-circuit re-fit
+        # NOTE: skip_retraining_on_same_content may short-circuit re-fit
         # if signature matches; disable that for this test.
-        mrmr.skip_retraining_on_same_shape = False
+        mrmr.skip_retraining_on_same_content = False
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             mrmr.fit(df, y_s)
@@ -224,6 +231,8 @@ class TestStreamingCacheReal:
 
 
 class TestFullConditionalIPF:
+    """Tier 4.8: Full IPF conditional permutation tests."""
+
     def test_ipf_shuffle_preserves_x1_marginals(self):
         """After _full_conditional_shuffle_ipf, the marginal P(X2 | X1)
         within each (X1, Y) stratum should be preserved on average."""

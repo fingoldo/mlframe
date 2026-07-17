@@ -20,6 +20,7 @@ from mlframe.feature_selection.filters import MRMR
 
 
 def _xy(seed=0, n=600, p=6):
+    """Build a small synthetic classification fixture with signal on column f0."""
     rng = np.random.RandomState(seed)
     X = pd.DataFrame({f"f{i}": rng.randn(n) for i in range(p)})
     y = pd.Series((X["f0"] + 0.3 * rng.randn(n) > 0).astype(int), name="t")
@@ -30,6 +31,7 @@ def _xy(seed=0, n=600, p=6):
 
 
 def test_a1_01_strict_groups_raises():
+    """strict_groups=True must raise NotImplementedError when groups is passed without group_aware_mi."""
     X, y = _xy()
     m = MRMR(strict_groups=True, full_npermutations=2, cv=2)
     with pytest.raises(NotImplementedError):
@@ -37,6 +39,7 @@ def test_a1_01_strict_groups_raises():
 
 
 def test_a1_01_warn_only_stamps_groups_ignored_metadata():
+    """strict_groups=False must warn-only and stamp groups_ignored_=True."""
     X, y = _xy()
     m = MRMR(strict_groups=False, full_npermutations=2, cv=2)
     with warnings.catch_warnings():
@@ -46,36 +49,14 @@ def test_a1_01_warn_only_stamps_groups_ignored_metadata():
 
 
 def test_a1_01_no_groups_metadata_false():
+    """groups_ignored_ must be False when no groups were passed."""
     X, y = _xy()
     m = MRMR(full_npermutations=2, cv=2)
     m.fit(X, y)
     assert getattr(m, "groups_ignored_", None) is False
 
 
-# ------------------------------------------------------- A1-04 rename + alias
-
-
-def test_a1_04_alias_maps_to_content():
-    """The deprecated ``skip_retraining_on_same_shape`` alias resolves to ``skip_retraining_on_same_content``
-    LAZILY at fit time, NOT eagerly in __init__: sklearn clone-ability requires __init__ to store the
-    constructor args UNMODIFIED so ``get_params`` round-trips and ``clone`` of a default-constructed estimator
-    does not re-emit the deprecation warning. The pre-fix shape -- eager promotion onto the public attr at
-    construction -- was the stale proxy; the real contract is verbatim storage + the alias driving the
-    fit-time EFFECTIVE skip value, which we prove behaviourally below."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        m = MRMR(skip_retraining_on_same_shape=False)
-    # sklearn purity: __init__ stores both verbatim (no eager promotion of the alias onto the new name), so
-    # the deprecated alias is preserved for the fit-time resolution rather than silently folded away.
-    params = m.get_params()
-    assert params["skip_retraining_on_same_shape"] is False
-    assert params["skip_retraining_on_same_content"] is True  # untouched default
-    assert m.skip_retraining_on_same_shape is False  # the non-None alias is kept for fit-time resolution
-
-
-def test_a1_04_alias_emits_deprecation_warning():
-    with pytest.warns(DeprecationWarning):
-        MRMR(skip_retraining_on_same_shape=True)
+# ------------------------------------------------------- A1-04 rename (legacy shape-based alias REMOVED, code-quality audit finding #15, 2026-07-17)
 
 
 def test_a1_04_same_shape_different_y_does_not_replay_cached_fit():
@@ -101,6 +82,7 @@ def test_a1_04_same_shape_different_y_does_not_replay_cached_fit():
 
 
 def test_a1_06_ycorr_gate_refuses_uncorrelated_target():
+    """An independent target must fall below the identity-cache y-corr gate threshold."""
     from mlframe.feature_selection.filters._mrmr_fingerprints import _mrmr_y_corr, _mrmr_y_corr_sample
 
     rng = np.random.RandomState(2)
@@ -111,6 +93,7 @@ def test_a1_06_ycorr_gate_refuses_uncorrelated_target():
 
 
 def test_a1_06_ycorr_gate_admits_correlated_target():
+    """A correlated target must clear the identity-cache y-corr gate threshold."""
     from mlframe.feature_selection.filters._mrmr_fingerprints import _mrmr_y_corr, _mrmr_y_corr_sample
 
     rng = np.random.RandomState(3)
@@ -122,6 +105,7 @@ def test_a1_06_ycorr_gate_admits_correlated_target():
 
 
 def test_a1_06_default_threshold_is_05():
+    """mrmr_identity_cache_ycorr_threshold must default to 0.5."""
     assert MRMR().mrmr_identity_cache_ycorr_threshold == 0.5
 
 

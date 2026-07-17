@@ -65,7 +65,7 @@ def test_screen_restores_np_random_state_on_exception(monkeypatch):
         n_jobs=1,
         full_npermutations=2,
         baseline_npermutations=2,
-        skip_retraining_on_same_shape=False,
+        skip_retraining_on_same_content=False,
         fe_max_steps=0,
     )
     with pytest.raises(RuntimeError, match="forced failure"):
