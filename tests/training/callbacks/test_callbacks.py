@@ -117,6 +117,7 @@ class TestXGBoostCallbackIsInstance:
         try:
 
             def patched_init(self):
+                """Record every self this monkeypatched TrainingCallback.__init__ is invoked on."""
                 init_calls.append(self)
                 original_init(self)
 
@@ -213,6 +214,7 @@ class TestSetupEarlyStoppingCallbackLegacyFilter:
             """Old-style XGBoost 1.x callback — does not inherit TrainingCallback."""
 
             def after_iteration(self, model, epoch, evals_log):
+                """Never signal stop; only used to probe the legacy-callback filter."""
                 return False
 
         legacy_cb = LegacyCallback()
@@ -243,6 +245,7 @@ class TestSetupEarlyStoppingCallbackLegacyFilter:
 
         class LegacyCallback:
             def after_iteration(self, model, epoch, evals_log):
+                """Never signal stop; only used to probe the legacy-callback filter."""
                 return False
 
         model_obj = XGBClassifier(
@@ -271,6 +274,7 @@ class TestSetupEarlyStoppingCallbackLegacyFilter:
 
         class ValidUserCallback(TrainingCallback):
             def after_iteration(self, model, epoch, evals_log):
+                """Never signal stop; only used to probe the legacy-callback filter."""
                 return False
 
         user_cb = ValidUserCallback()
