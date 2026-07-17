@@ -23,6 +23,7 @@ from tests.feature_selection.conftest import is_fast_mode
 
 
 def _fit_linear_mae(prevalence, df, y, seed=0, *, synergy=None):
+    """Fit MRMR at the given fe_min_pair_mi_prevalence and return the held-out linear-model MAE on its selection."""
     from mlframe.feature_selection.filters import MRMR
     from sklearn.linear_model import LinearRegression
     from sklearn.preprocessing import StandardScaler

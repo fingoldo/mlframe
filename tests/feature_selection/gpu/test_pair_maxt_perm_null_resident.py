@@ -34,6 +34,7 @@ from mlframe.feature_selection.filters.info_theory import batch_pair_mi_prange
 
 
 def _make_pool(n, n_features, nbins_val, n_classes_y, seed, synergy=False):
+    """Build a discrete candidate-feature pool and target, optionally with an XOR-synergy pair, for the pair-maxT permutation-null pins."""
     rng = np.random.default_rng(seed)
     fd = rng.integers(0, nbins_val, size=(n, n_features)).astype(np.int32)
     nb = np.full(n_features, nbins_val, dtype=np.int32)

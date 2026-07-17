@@ -15,6 +15,7 @@ from mlframe.feature_selection.filters._analytic_mi_null import (
 
 
 def test_sparse_high_cardinality_candidate_not_rejected():
+    """On a sparse high-cardinality contingency table (chi-square asymptotic invalid), the noise gate keeps a tiny-but-positive candidate rather than zeroing it."""
     n = 100
     rng = np.random.default_rng(0)
     disc = rng.integers(0, 50, size=(n, 1)).astype(np.int64)  # ~50 occupied x bins (high cardinality)
