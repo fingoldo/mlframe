@@ -75,6 +75,7 @@ def _build_tvt_shape_frame(n_rows: int = 20_000, seed: int = 0):
 
 
 def _run_suite(df: pd.DataFrame, *, tmp):
+    """Trains linear+lgb through the suite with the target-distribution analyzer on, returning metadata for the incident-regression check."""
     from mlframe.training import OutputConfig, ReportingConfig
     from mlframe.training.core.main import train_mlframe_models_suite
 
@@ -100,6 +101,7 @@ def _run_suite(df: pd.DataFrame, *, tmp):
 
 @pytest.mark.timeout(600)
 def test_tvt_2026_05_21_incident_protective_layers_compose(tmp_path):
+    """Regression test for the 2026-05-21 incident: AR(1)/MD-monotonic topology no longer breaks the TVT protective layers when composed."""
     # 6k rows preserves the AR(1)/MD-monotonic topology (strong_AR fires, >=4 numeric features survive) at a fraction of
     # the 20k suite cost, so the two-model suite finishes well inside the timeout even under parallel ``-n`` starvation.
     df = _build_tvt_shape_frame(n_rows=6_000 if is_fast_mode() else 20_000)
