@@ -44,6 +44,7 @@ def _build_pair_signal_data(n=500, seed=0, frame_type="polars"):
 
 
 def _mrmr_kwargs_quick_fe():
+    """Returns MRMR kwargs tuned for a fast FE-enabled fit (minimal presets, few permutations/steps)."""
     return dict(
         verbose=0,
         max_runtime_mins=1,
@@ -86,6 +87,7 @@ def test_mrmr_fe_zero_copy_polars():
     orig = _pl.DataFrame.to_pandas
 
     def _spy(self, *args, **kwargs):
+        """Counts calls to pl.DataFrame.to_pandas, to prove the FE-enabled polars path never copies the full frame."""
         call_count["n"] += 1
         return orig(self, *args, **kwargs)
 
