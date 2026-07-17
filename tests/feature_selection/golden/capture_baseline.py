@@ -37,6 +37,7 @@ GOLDEN_SCENARIOS = [
 
 
 def _build_data(spec: dict, seed: int) -> tuple[pd.DataFrame, np.ndarray]:
+    """Generate a classification or regression fixture from a scenario spec (n, p, informative, task)."""
     if spec["task"] == "clf":
         X, y = make_classification(
             n_samples=spec["n"],
@@ -60,6 +61,7 @@ def _build_data(spec: dict, seed: int) -> tuple[pd.DataFrame, np.ndarray]:
 
 
 def capture_one(spec: dict, tier: str, seed: int = 42) -> dict:
+    """Fit MRMR on one scenario and capture its golden snapshot at the given refactor tier."""
     from mlframe.feature_selection.filters import MRMR  # type: ignore
 
     X, y = _build_data(spec, seed)
@@ -82,6 +84,7 @@ def capture_one(spec: dict, tier: str, seed: int = 42) -> dict:
 
 
 def main() -> int:
+    """CLI entry point: capture golden snapshots for the requested tier/scenarios and write them to disk."""
     p = argparse.ArgumentParser()
     p.add_argument("--tier", choices=("pre_refactor", "intermediate"), required=True)
     p.add_argument("--scenarios", default="all", help="comma-separated names or 'all'")
