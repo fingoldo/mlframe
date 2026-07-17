@@ -22,6 +22,7 @@ from mlframe.training.composite.transforms import _linear_residual_fit
 
 
 class TestPosteriorMeanMatchesOLS:
+    """Groups tests covering posterior mean matches o l s."""
     def test_noiseless_posterior_mean_equals_ols(self) -> None:
         """On noiseless y = alpha * base + beta, posterior mean is exactly OLS."""
         n = 200
@@ -37,6 +38,7 @@ class TestPosteriorMeanMatchesOLS:
         assert post["alpha_ci_high"] - post["alpha_ci_low"] < 1e-9
 
     def test_posterior_mean_close_to_ols_on_clean_data(self) -> None:
+        """Posterior mean close to ols on clean data."""
         rng = np.random.default_rng(0)
         n = 1000
         base = rng.normal(loc=10.0, scale=2.0, size=n)
@@ -50,7 +52,9 @@ class TestPosteriorMeanMatchesOLS:
 
 
 class TestPosteriorStd:
+    """Groups tests covering posterior std."""
     def test_posterior_std_positive_on_noisy_data(self) -> None:
+        """Posterior std positive on noisy data."""
         rng = np.random.default_rng(1)
         n = 300
         base = rng.normal(loc=10.0, scale=2.0, size=n)
@@ -62,10 +66,12 @@ class TestPosteriorStd:
         assert np.isfinite(post["beta_std"])
 
     def test_posterior_std_shrinks_with_n(self) -> None:
+        """Posterior std shrinks with n."""
         rng = np.random.default_rng(2)
         true_alpha = 0.85
 
         def _alpha_std(n: int) -> float:
+            """Alpha std."""
             base = rng.normal(loc=10.0, scale=2.0, size=n)
             y = true_alpha * base + rng.normal(scale=0.5, size=n)
             post = bayesian_alpha_fit(y, base, random_state=42)
@@ -78,6 +84,7 @@ class TestPosteriorStd:
 
 
 class TestCredibleInterval:
+    """Groups tests covering credible interval."""
     def test_ci_contains_true_alpha_on_noisy_data(self) -> None:
         """95% CI should contain the true alpha when the model is well-specified."""
         rng = np.random.default_rng(3)
@@ -89,6 +96,7 @@ class TestCredibleInterval:
         assert post["alpha_ci_low"] < true_alpha < post["alpha_ci_high"]
 
     def test_ci_level_widens_interval(self) -> None:
+        """Ci level widens interval."""
         rng = np.random.default_rng(4)
         n = 200
         base = rng.normal(size=n)
@@ -101,7 +109,9 @@ class TestCredibleInterval:
 
 
 class TestMetadata:
+    """Groups tests covering metadata."""
     def test_posterior_kind_recorded(self) -> None:
+        """Posterior kind recorded."""
         rng = np.random.default_rng(5)
         base = rng.normal(size=100)
         y = base + rng.normal(scale=0.1, size=100)
@@ -111,6 +121,7 @@ class TestMetadata:
         assert post["n_samples"] > 0
 
     def test_legacy_bootstrap_still_works(self) -> None:
+        """Legacy bootstrap still works."""
         rng = np.random.default_rng(6)
         base = rng.normal(size=200)
         y = base + rng.normal(scale=0.1, size=200)
@@ -121,7 +132,9 @@ class TestMetadata:
 
 
 class TestDegenerate:
+    """Groups tests covering degenerate."""
     def test_n_lt_4_returns_point_estimate(self) -> None:
+        """N lt 4 returns point estimate."""
         y = np.array([1.0, 2.0, 3.0])
         base = np.array([1.0, 2.0, 3.0])
         post = bayesian_alpha_fit(y, base)

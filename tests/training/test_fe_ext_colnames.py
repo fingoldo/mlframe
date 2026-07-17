@@ -14,6 +14,7 @@ import pandas as pd
 
 
 def _toy_frame(n=80, p=4, seed=0):
+    """Toy frame."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, p)).astype(np.float32)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)])

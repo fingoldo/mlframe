@@ -109,6 +109,7 @@ def test_passthrough_cols_rewraps_numpy_so_passthrough_cols_survive():
     )
 
     def numpy_returning_transform(sub_df):
+        """Numpy returning transform."""
         return sub_df.to_numpy()
 
     out = _passthrough_cols_fit_transform(numpy_returning_transform, df, passthrough_cols=["text_passthrough"])
@@ -136,6 +137,7 @@ def test_passthrough_cols_pandas_output_keeps_dtypes():
     )
 
     def pandas_returning_transform(sub_df):
+        """Pandas returning transform."""
         return sub_df[["keep1", "cat_selected"]]
 
     out = _passthrough_cols_fit_transform(pandas_returning_transform, df, passthrough_cols=["text_passthrough"])

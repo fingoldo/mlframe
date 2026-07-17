@@ -19,6 +19,7 @@ from mlframe.training.composite import AdditiveDecompositionRegressor
 
 
 def _make_correlated_train(n: int, seed: int):
+    """Make correlated train."""
     rng = np.random.default_rng(seed)
     x1 = rng.uniform(-2, 2, n)
     x2 = x1 + rng.normal(scale=0.05, size=n)  # highly correlated with x1 in TRAIN
@@ -30,6 +31,7 @@ def _make_correlated_train(n: int, seed: int):
 
 
 def _make_decorrelated_test(n: int, seed: int):
+    """Make decorrelated test."""
     rng = np.random.default_rng(seed)
     x1 = rng.uniform(-2, 2, n)
     x2 = rng.uniform(-2, 2, n)  # INDEPENDENT of x1 -- exposes whether the correct split was learned
@@ -46,6 +48,7 @@ def test_biz_val_additive_decomposition_component_supervision_beats_sum_only_ood
     # supervision (measured non-reproducible / direction-flipping across seeds); the LINEAR case matches the
     # analytical argument exactly (infinitely many (alpha, beta) with alpha+beta constant fit the correlated
     # TRAIN sum equally well) and reproducibly shows the effect.
+    """Biz val additive decomposition component supervision beats sum only ood."""
     X_train, y_train, c1_train, c2_train = _make_correlated_train(n=2000, seed=0)
     X_test, y_test = _make_decorrelated_test(n=1000, seed=1)
 
@@ -69,6 +72,7 @@ def test_additive_decomposition_predict_components_recovers_true_split():
     # occasionally converge slower within 1000 epochs (Adam's stochastic path can land closer to the true
     # split at different rates depending on init), so this reuses the confirmed-converging configuration
     # rather than re-probing seed sensitivity here.
+    """Additive decomposition predict components recovers true split."""
     X_train, y_train, c1_train, c2_train = _make_correlated_train(n=2000, seed=0)
     X_test, _ = _make_decorrelated_test(n=500, seed=1)
 
@@ -83,6 +87,7 @@ def test_additive_decomposition_predict_components_recovers_true_split():
 
 
 def test_additive_decomposition_predict_sums_components():
+    """Additive decomposition predict sums components."""
     X_train, y_train, c1_train, _c2_train = _make_correlated_train(n=500, seed=4)
     model = AdditiveDecompositionRegressor(component_names=("c1", "c2"), hidden_sizes=(8,), n_epochs=30, random_state=4)
     model.fit(X_train, y_train, component_targets={"c1": c1_train})
@@ -93,6 +98,7 @@ def test_additive_decomposition_predict_sums_components():
 
 
 def test_additive_decomposition_rejects_unknown_component_name():
+    """Additive decomposition rejects unknown component name."""
     import pytest
 
     X_train, y_train, c1_train, _ = _make_correlated_train(n=50, seed=5)
@@ -102,6 +108,7 @@ def test_additive_decomposition_rejects_unknown_component_name():
 
 
 def test_additive_decomposition_records_decreasing_training_loss():
+    """Additive decomposition records decreasing training loss."""
     X_train, y_train, c1_train, c2_train = _make_correlated_train(n=200, seed=6)
     model = AdditiveDecompositionRegressor(component_names=("c1", "c2"), hidden_sizes=(8,), n_epochs=50, lr=0.05, random_state=6)
     model.fit(X_train, y_train, component_targets={"c1": c1_train, "c2": c2_train})
@@ -113,6 +120,7 @@ def test_additive_decomposition_no_constraints_is_bit_identical_to_pre_constrain
     # Regression test for the ``component_constraints`` feature: with no constraints supplied (the default),
     # predict()/predict_components() must reproduce the pre-existing raw-linear-sum formula EXACTLY -- the
     # constraint machinery must be a strict no-op on this path, not just "close enough".
+    """Additive decomposition no constraints is bit identical to pre constraint behavior."""
     X_train, y_train, c1_train, c2_train = _make_correlated_train(n=300, seed=7)
     X_test, _ = _make_decorrelated_test(n=100, seed=8)
 
@@ -143,6 +151,7 @@ def test_additive_decomposition_no_constraints_is_bit_identical_to_pre_constrain
 
 
 def test_additive_decomposition_rejects_unknown_component_constraints_key():
+    """Additive decomposition rejects unknown component constraints key."""
     import pytest
 
     X_train, y_train, c1_train, _ = _make_correlated_train(n=50, seed=9)
@@ -152,6 +161,7 @@ def test_additive_decomposition_rejects_unknown_component_constraints_key():
 
 
 def test_additive_decomposition_rejects_unsupported_constraint_kind():
+    """Additive decomposition rejects unsupported constraint kind."""
     import pytest
 
     X_train, y_train, c1_train, _ = _make_correlated_train(n=50, seed=10)
@@ -163,6 +173,7 @@ def test_additive_decomposition_rejects_unsupported_constraint_kind():
 def _make_non_negative_component_data(n: int, seed: int):
     # ``c_pos`` is a genuinely non-negative component (|Normal|, truth boundary at 0), ``c_other`` is an
     # unconstrained linear component; total = sum, matching the class's core additive-decomposition contract.
+    """Make non negative component data."""
     rng = np.random.default_rng(seed)
     x_pos = rng.uniform(-2, 2, n)
     x_other = rng.uniform(-2, 2, n)
@@ -195,6 +206,7 @@ def test_biz_val_additive_decomposition_non_negative_constraint_eliminates_sign_
     # unconstrained head predicts a NEGATIVE value for the genuinely-non-negative component on 34-51% of a
     # 1000-row OOD test set every single time, while the non_negative-constrained head predicts a negative
     # value ZERO times, by construction (softplus's range excludes negatives exactly, not merely on average).
+    """Biz val additive decomposition non negative constraint eliminates sign violations."""
     n_negative_unconstrained = []
     for seed in (20, 21, 22, 23, 24):
         X_train, y_train, _c_pos_train, _ = _make_non_negative_component_data(n=2000, seed=seed)

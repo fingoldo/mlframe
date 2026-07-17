@@ -80,10 +80,12 @@ def _build_stratify_key(target_by_type):
 
 
 class _BinaryClass:
+    """Groups tests covering binary class."""
     name = "BINARY_CLASSIFICATION"
 
 
 class _MultiLabel:
+    """Groups tests covering multi label."""
     name = "MULTILABEL_CLASSIFICATION"
 
 
@@ -168,6 +170,7 @@ def test_regression_target_no_stratify():
     """Sanity: regression targets are never stratified."""
 
     class _Reg:
+        """Groups tests covering reg."""
         name = "REGRESSION"
 
     rng = np.random.default_rng(4)

@@ -66,6 +66,7 @@ def test_two_consecutive_suite_calls_produce_distinct_session_tokens():
     def _capture(*args, **kwargs):
         # Capture the current token immediately after the validation-failing call returns; with
         # the fix, each call rotates the token before validation rejects the bogus df.
+        """Capture."""
         with pytest.raises(TypeError):
             core_main.train_mlframe_models_suite(
                 df=999,

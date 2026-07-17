@@ -88,6 +88,7 @@ def test_compute_unsupervised_drops_handles_pandas_nullable_int():
 
 
 class _FSCfg:
+    """Groups tests covering f s cfg."""
     pre_screen_unsupervised = True
     pre_screen_variance_threshold = 0.0
     pre_screen_null_fraction_threshold = 0.99

@@ -28,6 +28,7 @@ from mlframe.training.neural.ranker import _RankerDataset, _ranker_passthrough_c
 
 
 def test_getitem_vs_getitems_equivalence():
+    """Getitem vs getitems equivalence."""
     rng = np.random.default_rng(20260520)
     X = rng.random((1000, 16), dtype=np.float32)
     y = rng.random(1000, dtype=np.float32)
@@ -52,6 +53,7 @@ def test_getitem_vs_getitems_equivalence():
 
 
 def test_passthrough_collate_unwraps_batched_singleton():
+    """Passthrough collate unwraps batched singleton."""
     rng = np.random.default_rng(20260520)
     X = rng.random((100, 8), dtype=np.float32)
     y = rng.random(100, dtype=np.float32)
@@ -96,11 +98,13 @@ def test_biz_value_batched_path_faster_than_per_row():
     batches = [rng.choice(n_rows, 11, replace=False).tolist() for _ in range(50)]
 
     def per_row(batches):
+        """Per row."""
         for indices in batches:
             rows = [ds[i] for i in indices]
             default_collate(rows)
 
     def batched(batches):
+        """Batched."""
         for indices in batches:
             _ranker_passthrough_collate(ds.__getitems__(indices))
 

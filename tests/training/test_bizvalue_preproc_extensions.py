@@ -74,6 +74,7 @@ def _extract_auroc(model_entry) -> float | None:
 
 
 def _run_suite(df, models_list, tmp_path, ext_cfg, iters=80):
+    """Run suite."""
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     data_dir = str(tmp_path)
     models, _metadata = train_mlframe_models_suite(
@@ -104,6 +105,7 @@ def _run_suite(df, models_list, tmp_path, ext_cfg, iters=80):
 
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_pca_dim_reducer_suite_within_5pct_of_baseline(tmp_path, seed):
+    """Pca dim reducer suite within 5pct of baseline."""
     rng = np.random.default_rng(seed)
     n, k_signal, k_redundant, k_noise = 2500, 5, 25, 10  # 40 features total
     X_signal = rng.standard_normal((n, k_signal))
@@ -140,6 +142,7 @@ def test_pca_dim_reducer_suite_within_5pct_of_baseline(tmp_path, seed):
 
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_polynomial_features_lift_on_xor_like_data(tmp_path, seed):
+    """Polynomial features lift on xor like data."""
     rng = np.random.default_rng(seed)
     n = 2000
     x1 = rng.standard_normal(n)
@@ -192,6 +195,7 @@ def test_polynomial_features_lift_on_xor_like_data(tmp_path, seed):
 # on seed=42 -- pure-text signal now reaches the linear model).
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_tfidf_column_path_lifts_auroc(tmp_path, seed):
+    """Tfidf column path lifts auroc."""
     pytest.importorskip("sklearn.feature_extraction.text")
     # Pragmatic fix: the baseline run drops the raw text column manually (linear
     # pipeline cannot consume strings), and the TF-IDF run keeps it and routes

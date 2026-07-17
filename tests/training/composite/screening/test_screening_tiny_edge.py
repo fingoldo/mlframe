@@ -36,6 +36,7 @@ _SEED_STRIDE = 7919  # base_random_state + s_idx * 7919
 
 
 def _raw_dataset(n: int = 600, seed: int = 0):
+    """Raw dataset."""
     rng = np.random.default_rng(seed)
     y = rng.normal(size=n)
     X = rng.normal(size=(n, 4))
@@ -43,6 +44,7 @@ def _raw_dataset(n: int = 600, seed: int = 0):
 
 
 def _linres_dataset(n: int = 600, seed: int = 0):
+    """Linres dataset."""
     rng = np.random.default_rng(seed)
     base = rng.normal(50.0, 10.0, n)
     y = 1.5 * base + rng.normal(0.0, 1.0, n)
@@ -67,6 +69,7 @@ class TestA13FixedLengthPerSeed:
         real = st._tiny_cv_rmse_raw_y
 
         def _patched(*args, **kwargs):
+            """Patched."""
             if kwargs.get("random_state") == fail_rs:
                 return float("nan")
             return real(*args, **kwargs)
@@ -102,6 +105,7 @@ class TestA13FixedLengthPerSeed:
         real = st._tiny_cv_rmse_raw_y
 
         def _patched(*args, **kwargs):
+            """Patched."""
             if kwargs.get("random_state") == fail_rs:
                 return float("nan")
             return real(*args, **kwargs)
@@ -164,6 +168,7 @@ class TestA13FixedLengthPerSeed:
         real = st._tiny_cv_rmse_y_scale
 
         def _patched(*args, **kwargs):
+            """Patched."""
             if kwargs.get("random_state") == fail_rs:
                 return float("nan")
             return real(*args, **kwargs)

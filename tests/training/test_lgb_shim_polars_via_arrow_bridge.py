@@ -28,6 +28,7 @@ from mlframe.training.lgb_shim import (
 
 
 def _make_mixed_polars(n_rows: int, seed: int = 0) -> pl.DataFrame:
+    """Make mixed polars."""
     rng = np.random.default_rng(seed)
     cat_pool = ["alpha", "beta", "gamma", "delta", "epsilon"]
     data = {f"num{i}": rng.normal(size=n_rows).astype(np.float64) for i in range(4)}

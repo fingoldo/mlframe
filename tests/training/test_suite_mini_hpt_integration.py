@@ -17,6 +17,7 @@ from .shared import SimpleFeaturesAndTargetsExtractor
 
 
 def _build_heavy_tail_frame(n: int = 3000, seed: int = 0) -> pd.DataFrame:
+    """Build heavy tail frame."""
     rng = np.random.default_rng(seed)
     X = rng.normal(0, 1, (n, 5)).astype(np.float32)
     y = rng.standard_t(df=3, size=n).astype(np.float32)  # heavy tails
@@ -26,6 +27,7 @@ def _build_heavy_tail_frame(n: int = 3000, seed: int = 0) -> pd.DataFrame:
 
 
 def _run_suite(df: pd.DataFrame, *, tmp, enable_analyzer: bool, hyperparams: dict | None = None, verbose: int = 1):
+    """Run suite."""
     from mlframe.training.core.main import train_mlframe_models_suite
     from mlframe.training import OutputConfig, ReportingConfig
 
@@ -53,7 +55,9 @@ def _run_suite(df: pd.DataFrame, *, tmp, enable_analyzer: bool, hyperparams: dic
 
 
 class TestMiniHPTSuiteWiring:
+    """Groups tests covering mini h p t suite wiring."""
     def test_flag_default_true_stamps_report_into_metadata(self, tmp_path, caplog):
+        """Flag default true stamps report into metadata."""
         df = _build_heavy_tail_frame()
         with caplog.at_level(logging.INFO, logger="mlframe.training.core.main"):
             _models, meta = _run_suite(df, tmp=tmp_path, enable_analyzer=True)
@@ -65,6 +69,7 @@ class TestMiniHPTSuiteWiring:
         assert any("[mini-HPT]" in r.getMessage() for r in caplog.records), "Mini-HPT log line never emitted on a default-on run."
 
     def test_flag_false_skips_analyzer_entirely(self, tmp_path, caplog):
+        """Flag false skips analyzer entirely."""
         df = _build_heavy_tail_frame()
         with caplog.at_level(logging.INFO, logger="mlframe.training.core.main"):
             _models, meta = _run_suite(df, tmp=tmp_path, enable_analyzer=False)

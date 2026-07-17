@@ -29,6 +29,7 @@ _WEIGHTS_N = 200_000  # ~0.8 MB float32
 
 
 class _FakeTrainer:
+    """Groups tests covering fake trainer."""
     __module__ = "lightning.pytorch.trainer.trainer"
 
     def __init__(self):
@@ -36,6 +37,7 @@ class _FakeTrainer:
 
 
 class _FakeDataModule:
+    """Groups tests covering fake data module."""
     __module__ = "lightning.pytorch.core.datamodule"
 
     def __init__(self):
@@ -57,6 +59,7 @@ class _Wrapper:
 
 
 def _dump_size(obj) -> int:
+    """Dump size."""
     with tempfile.TemporaryDirectory() as d:
         fpath = os.path.join(d, "m.dump")
         save_mlframe_model(obj, fpath, lean=True, verbose=0)
@@ -64,6 +67,7 @@ def _dump_size(obj) -> int:
 
 
 def test_lean_save_strips_heavy_lightning_objects_by_type() -> None:
+    """Lean save strips heavy lightning objects by type."""
     w = _Wrapper()
     bloat_bytes = w.some_lightning_trainer.big.nbytes  # ~40 MB
     weights_bytes = w.estimator_.w.nbytes  # ~0.8 MB
@@ -81,11 +85,14 @@ def test_lean_save_strips_heavy_lightning_objects_by_type() -> None:
 
 def test_plain_heavy_object_is_not_stripped() -> None:
     # Only training-bloat TYPES are stripped; a plain heavy attr survives.
+    """Plain heavy object is not stripped."""
     class _Plain:
+        """Groups tests covering plain."""
         def __init__(self):
             self.payload = _RNG.standard_normal(_BLOAT_N)
 
     class _Holder:
+        """Groups tests covering holder."""
         def __init__(self):
             self.keep = _Plain()  # plain -> survives (heavy dump)
             self.trainer = _FakeTrainer()  # canonical name -> stripped

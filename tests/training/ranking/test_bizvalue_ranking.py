@@ -39,6 +39,7 @@ class _RankFTE(FeaturesAndTargetsExtractor):
         super().__init__(group_field="qid")
 
     def build_targets(self, df):
+        """Build targets."""
         relevance = df["relevance"]
         if hasattr(relevance, "to_numpy"):
             relevance = relevance.to_numpy()
@@ -71,6 +72,7 @@ class TestLTREndToEndSuite:
     """Full ``train_mlframe_models_suite`` LTR run with all three rankers."""
 
     def test_individual_models_beat_strong_baseline(self, synthetic_search_data, tmp_path):
+        """Individual models beat strong baseline."""
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             models, meta = train_mlframe_models_suite(
@@ -89,6 +91,7 @@ class TestLTREndToEndSuite:
             assert ndcg >= 0.75, f"{flavor} test NDCG@10={ndcg:.4f} below 0.75 baseline; ranker is not learning the planted signal — plumbing broken?"
 
     def test_ensemble_not_worse_than_best_individual_minus_2pp(self, synthetic_search_data):
+        """Ensemble not worse than best individual minus 2pp."""
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             models, _ = train_mlframe_models_suite(
@@ -113,6 +116,7 @@ class TestLTREndToEndSuite:
         )
 
     def test_ensemble_method_borda_runs_through_suite(self, synthetic_search_data):
+        """Ensemble method borda runs through suite."""
         cfg = LearningToRankConfig(ensemble_method="borda")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -133,6 +137,7 @@ class TestLTREndToEndSuite:
         assert models["ensemble"]["test_metrics"]["ndcg@10"] >= 0.70
 
     def test_save_load_roundtrip_predictions_preserved(self, synthetic_search_data, tmp_path):
+        """Save load roundtrip predictions preserved."""
         save_dir = str(tmp_path / "ltr_models")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -170,11 +175,14 @@ class TestLTRSuiteValidation:
     """Suite-level validation: missing group_field raises, bad models filtered."""
 
     def test_missing_group_field_raises_actionable_error(self, synthetic_search_data):
+        """Missing group field raises actionable error."""
         class _BadFTE(FeaturesAndTargetsExtractor):
+            """Groups tests covering bad f t e."""
             def __init__(self):
                 super().__init__(group_field=None)  # MISSING
 
             def build_targets(self, df):
+                """Build targets."""
                 relevance = df["relevance"]
                 if hasattr(relevance, "to_numpy"):
                     relevance = relevance.to_numpy()

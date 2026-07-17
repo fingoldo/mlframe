@@ -58,6 +58,7 @@ def build_frame_for_combo(combo: FuzzCombo):  # noqa: C901 -- fuzz frame synthes
     # pathological values that historically broke auto-detection, TF-IDF,
     # or encoder dispatch.
     def _apply_weird(pool: list[str], kind: "str | None") -> list[str]:
+        """Apply weird."""
         if not kind:
             return pool
         pool = list(pool)

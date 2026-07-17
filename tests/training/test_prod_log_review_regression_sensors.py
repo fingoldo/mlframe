@@ -223,6 +223,7 @@ class TestDefaultWeightingSchemas:
     ``recency``-only attribution gap."""
 
     def test_timeseries_default_is_uniform_plus_recency(self):
+        """Timeseries default is uniform plus recency."""
         from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
         extractor = SimpleFeaturesAndTargetsExtractor(regression_targets=["price"])
@@ -237,6 +238,7 @@ class TestDefaultWeightingSchemas:
         assert set(weights.keys()) == {"uniform", "recency"}
 
     def test_non_timeseries_default_is_uniform_only(self):
+        """Non timeseries default is uniform only."""
         from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
         extractor = SimpleFeaturesAndTargetsExtractor(regression_targets=["price"])
@@ -286,11 +288,13 @@ class TestCatBoostFastpathStickyFlag:
 
         class _FakeCB:
             # Trick the isinstance-in-list check via class name
+            """Groups tests covering fake c b."""
             pass
 
         _FakeCB.__name__ = "CatBoostClassifier"
 
         def _fake_predict_proba(X):
+            """Fake predict proba."""
             calls.append(type(X).__module__ + "." + type(X).__name__)
             return np.array([[0.3, 0.7]] * len(X))
 
@@ -325,11 +329,13 @@ class TestCatBoostFastpathStickyFlag:
         calls: list = []
 
         class _FakeCB:
+            """Groups tests covering fake c b."""
             pass
 
         _FakeCB.__name__ = "CatBoostClassifier"
 
         def _fake_predict_proba(X):
+            """Fake predict proba."""
             calls.append(type(X).__module__ + "." + type(X).__name__)
             # Works on whatever we get — we're verifying call order, not
             # fastpath success.
@@ -440,6 +446,7 @@ class TestPipelineCacheKindIsolation:
         assert xgb_strat.feature_tier() == lgb_strat.feature_tier()
 
         def _build_key(strat):
+            """Build key."""
             tier_suffix = f"_tier{strat.feature_tier()}"
             kind_suffix = f"_kind{'pl' if strat.supports_polars else 'pd'}"
             return f"{strat.cache_key}{tier_suffix}{kind_suffix}"
@@ -464,6 +471,7 @@ class TestPipelineCacheKindIsolation:
         # Minimal fake LGB-like model (class name-gated: the trainer uses
         # ``model_type_name.startswith(...)`` for allow-listing).
         class _FakeLGBM:
+            """Groups tests covering fake l g b m."""
             pass
 
         _FakeLGBM.__name__ = "LGBMClassifier"
@@ -563,10 +571,12 @@ class TestEnsembleNameAnnotations:
         from types import SimpleNamespace
 
         class _Fake:
+            """Groups tests covering fake."""
             def __init__(self, cls_name):
                 self.__class__ = type(cls_name, (), {})
 
         def _short_tag(ns):
+            """Short tag."""
             cls_name = type(getattr(ns, "model", ns)).__name__
             if cls_name.startswith("CatBoost"):
                 return "cb"
@@ -614,6 +624,7 @@ class TestConfEnsembleDegenerateMarker:
     threshold is ``degenerate_class_ratio`` (default 0.01 = 1:100 imbalance)."""
 
     def _make_conf_target(self, n_pos: int, n_neg: int) -> np.ndarray:
+        """Make conf target."""
         return np.concatenate([np.ones(n_pos, dtype=np.int8), np.zeros(n_neg, dtype=np.int8)])
 
     def test_degenerate_marker_fires_when_class_balance_collapses(self):
@@ -839,6 +850,7 @@ class TestLazyConversionDefenseInDepth:
         observed_kinds = []
 
         def _wrapped_build(base_dfs, strategy, *args, **kwargs):
+            """Wrapped build."""
             for k in ("train_df", "val_df", "test_df"):
                 v = base_dfs.get(k)
                 if v is not None:
@@ -973,6 +985,7 @@ class TestEnsureNoInfinityPlAllCategorical:
     multi-target-regression fuzz combo on an all-text polars_nullable frame."""
 
     def test_all_categorical_polars_frame_does_not_raise(self):
+        """All categorical polars frame does not raise."""
         from mlframe.core.helpers import ensure_no_infinity_pl
 
         df = pl.DataFrame({"cat_a": ["x", "y", "z"], "text_b": ["foo", "bar", "baz"]})
@@ -981,6 +994,7 @@ class TestEnsureNoInfinityPlAllCategorical:
         assert out["cat_a"].to_list() == ["x", "y", "z"]
 
     def test_inf_still_sanitised_when_numeric_present(self):
+        """Inf still sanitised when numeric present."""
         from mlframe.core.helpers import ensure_no_infinity_pl
 
         df = pl.DataFrame({"num": [1.0, float("inf"), 3.0], "cat": ["a", "b", "c"]})
@@ -1035,7 +1049,9 @@ class TestPolarsReleaseBeforeNonNativeStrategy:
         records = []
 
         class _CaptureHandler(_logging.Handler):
+            """Groups tests covering capture handler."""
             def emit(self, record):
+                """Emit."""
                 records.append((record.created, record.getMessage()))
 
         handler = _CaptureHandler(level=_logging.INFO)
@@ -1175,11 +1191,13 @@ class TestCatBoostStickyFlagDefensiveAtLoad:
         calls = []
 
         class _FakeReloadedCB:
+            """Groups tests covering fake reloaded c b."""
             pass
 
         _FakeReloadedCB.__name__ = "CatBoostClassifier"
 
         def _proba(X):
+            """Proba."""
             calls.append(type(X).__name__)
             return np.array([[0.4, 0.6]] * len(X))
 
@@ -1468,11 +1486,13 @@ class TestCatBoostStickyFlagDefensiveAtCreation:
         calls = []
 
         class _FakeFreshCB:
+            """Groups tests covering fake fresh c b."""
             pass
 
         _FakeFreshCB.__name__ = "CatBoostClassifier"
 
         def _proba(X):
+            """Proba."""
             calls.append(type(X).__name__)
             return np.array([[0.4, 0.6]] * len(X))
 
@@ -1547,6 +1567,7 @@ class TestCBValPoolCacheContentFallback:
         # Manually populate the cache with a fake Pool keyed by id(df_a)
         # carrying the dtypes signature ``df_a`` has.
         class _FakePool:
+            """Groups tests covering fake pool."""
             pass
 
         fake_pool = _FakePool()
@@ -1567,11 +1588,13 @@ class TestCBValPoolCacheContentFallback:
         calls = []
 
         class _FakeCB:
+            """Groups tests covering fake c b."""
             pass
 
         _FakeCB.__name__ = "CatBoostClassifier"
 
         def _fake_predict_proba(X):
+            """Fake predict proba."""
             calls.append(type(X).__name__)
             return np.array([[0.4, 0.6]] * 3)
 
@@ -1665,11 +1688,13 @@ class TestCBSinglePoolBuildOnTestPredict:
         kinds = []
 
         class _FakeCB:
+            """Groups tests covering fake c b."""
             pass
 
         _FakeCB.__name__ = "CatBoostClassifier"
 
         def _proba(X):
+            """Proba."""
             kinds.append(type(X).__name__)
             return np.array([[0.4, 0.6]] * len(X))
 

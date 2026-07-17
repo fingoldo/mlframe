@@ -23,6 +23,7 @@ from mlframe.training.core._phase_train_one_target import _maybe_run_feature_han
 
 
 def _make_synth_frames(n: int = 64):
+    """Make synth frames."""
     rng = np.random.RandomState(0)
     text_choices = [
         "great product fast shipping recommended",
@@ -60,6 +61,7 @@ def _make_ctx(*, fhc, sorted_models=("xgb",)):
 
 
 def test_default_off_no_apply_call(monkeypatch):
+    """Default off no apply call."""
     train_df = _make_synth_frames()
     target = np.zeros(len(train_df), dtype=np.int32)
     ctx = _make_ctx(fhc=None)
@@ -89,6 +91,7 @@ def test_default_off_no_apply_call(monkeypatch):
 
 
 def test_wired_on_apply_invoked_and_stashed():
+    """Wired on apply invoked and stashed."""
     from mlframe.training.feature_handling import tfidf_only
 
     train_df = _make_synth_frames()
@@ -204,6 +207,7 @@ def test_malformed_config_reraises_with_clear_kwarg_name(monkeypatch):
     ctx = _make_ctx(fhc=fhc, sorted_models=("xgb",))
 
     def _raise(**_kw):
+        """Raise."""
         raise ValueError("synthetic: handler chain incompatible with xgb")
 
     monkeypatch.setattr(

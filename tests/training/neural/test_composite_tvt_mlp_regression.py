@@ -112,6 +112,7 @@ class TestTVTPureLagSurvivesDefaults:
         assert cfg.per_bin_n_bins == 0
 
     def test_defaults_yield_pure_lag_composite(self) -> None:
+        """Defaults yield pure lag composite."""
         df, tgt, feats, train_idx = _tvt_like_synthetic()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,

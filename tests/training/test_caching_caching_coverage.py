@@ -35,6 +35,7 @@ def test_reset_session_yields_distinct_session_ids():
     seen_lock = threading.Lock()
 
     def _suite_worker():
+        """Suite worker."""
         tok = reset_session()
         with seen_lock:
             seen.append(tok.session_id)
@@ -106,19 +107,24 @@ def test_discovery_config_signature_changes_when_catboost_minor_bumps(monkeypatc
     from mlframe.training.core import _phase_composite_discovery as mod
 
     class _DummyCfg:
+        """Groups tests covering dummy cfg."""
         def __init__(self):
             self.x = 1
 
     _real_imp = __import__
 
     class _FakeCb1:
+        """Groups tests covering fake cb1."""
         __version__ = "1.2.5"
 
     class _FakeCb2:
+        """Groups tests covering fake cb2."""
         __version__ = "1.3.0"
 
     def _factory(replacement):
+        """Factory."""
         def _fake(name, *args, **kwargs):
+            """Fake."""
             if name == "catboost":
                 return replacement
             return _real_imp(name, *args, **kwargs)
@@ -137,19 +143,24 @@ def test_discovery_config_signature_changes_when_lightgbm_minor_bumps(monkeypatc
     from mlframe.training.core import _phase_composite_discovery as mod
 
     class _DummyCfg:
+        """Groups tests covering dummy cfg."""
         def __init__(self):
             self.x = 1
 
     _real_imp = __import__
 
     class _FakeLgb1:
+        """Groups tests covering fake lgb1."""
         __version__ = "4.1.0"
 
     class _FakeLgb2:
+        """Groups tests covering fake lgb2."""
         __version__ = "4.5.0"
 
     def _factory(replacement):
+        """Factory."""
         def _fake(name, *args, **kwargs):
+            """Fake."""
             if name == "lightgbm":
                 return replacement
             return _real_imp(name, *args, **kwargs)
@@ -210,6 +221,7 @@ def test_feature_cache_ram_max_gb_evicts_oldest_lru_when_over_cap():
     cache = FeatureCache(cfg)
 
     def _make_key(i):
+        """Make key."""
         return InMemoryKey(
             session_id="s",
             df_token=1,

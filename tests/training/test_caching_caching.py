@@ -23,10 +23,12 @@ pl = pytest.importorskip("polars")
 
 
 def _need_xxhash():
+    """Need xxhash."""
     pytest.importorskip("xxhash")
 
 
 def _need_filelock():
+    """Need filelock."""
     pytest.importorskip("filelock")
 
 
@@ -36,6 +38,7 @@ def _need_filelock():
 
 
 def test_precompute_dummy_baselines_raises_notimplementederror():
+    """Precompute dummy baselines raises notimplementederror."""
     from mlframe.training.helpers import precompute_dummy_baselines
 
     with pytest.raises(NotImplementedError, match="precompute_dummy_baselines"):
@@ -43,6 +46,7 @@ def test_precompute_dummy_baselines_raises_notimplementederror():
 
 
 def test_precompute_composite_target_specs_raises_notimplementederror():
+    """Precompute composite target specs raises notimplementederror."""
     from mlframe.training.helpers import precompute_composite_target_specs
 
     with pytest.raises(NotImplementedError, match="precompute_composite_target_specs"):
@@ -67,6 +71,7 @@ def test_precompute_all_only_fills_stats_slot():
 
 
 def test_feature_cache_purge_by_df_token_drops_matching_entries():
+    """Feature cache purge by df token drops matching entries."""
     from mlframe.training.feature_handling.cache import FeatureCache
     from mlframe.training.feature_handling.fingerprint import InMemoryKey
     from mlframe.training.feature_handling.config import CacheConfig
@@ -103,6 +108,7 @@ def test_feature_cache_purge_by_df_token_drops_matching_entries():
 
 
 def test_fingerprint_df_memo_returns_same_object():
+    """Fingerprint df memo returns same object."""
     from mlframe.training.feature_handling.fingerprint import (
         fingerprint_df,
         reset_session,
@@ -117,6 +123,7 @@ def test_fingerprint_df_memo_returns_same_object():
 
 
 def test_fingerprint_df_changes_when_content_changes():
+    """Fingerprint df changes when content changes."""
     from mlframe.training.feature_handling.fingerprint import (
         fingerprint_df,
         reset_session,
@@ -131,6 +138,7 @@ def test_fingerprint_df_changes_when_content_changes():
 
 
 def test_fingerprint_df_reset_session_clears_memo():
+    """Fingerprint df reset session clears memo."""
     from mlframe.training.feature_handling.fingerprint import (
         _fingerprint_cache,
         fingerprint_df,
@@ -180,19 +188,24 @@ def test_discovery_config_signature_clips_patch_versions(monkeypatch):
     from mlframe.training.core import _phase_composite_discovery as mod
 
     class _DummyCfg:
+        """Groups tests covering dummy cfg."""
         def __init__(self):
             self.x = 1
 
     _real_imp = __builtins__["__import__"] if isinstance(__builtins__, dict) else __import__
 
     class _FakeMod:
+        """Groups tests covering fake mod."""
         __version__ = "1.18.1"
 
     class _FakeMod2:
+        """Groups tests covering fake mod2."""
         __version__ = "1.18.7"
 
     def _fake_import_factory(version_mod):
+        """Fake import factory."""
         def _fake_import(name, *args, **kwargs):
+            """Fake import."""
             if name == "polars":
                 return version_mod
             return _real_imp(name, *args, **kwargs)
@@ -212,6 +225,7 @@ def test_discovery_config_signature_clips_patch_versions(monkeypatch):
 
 
 def test_discovery_cache_touch_lru_uses_filelock_when_available(tmp_path):
+    """Discovery cache touch lru uses filelock when available."""
     _need_filelock()
     from mlframe.training.composite.cache import DiscoveryCache
 
@@ -220,6 +234,7 @@ def test_discovery_cache_touch_lru_uses_filelock_when_available(tmp_path):
     # Drive _touch_lru in parallel from two threads; without the lock the JSON file would
     # occasionally land in a half-written state. With the lock the final dict has BOTH keys.
     def _writer(tag):
+        """Writer."""
         for i in range(20):
             cache._touch_lru(f"{tag}_{i}")
 

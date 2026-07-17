@@ -18,6 +18,7 @@ from mlframe.training.composite import SegmentedModelFactory
 
 
 def _make_airport_dataset(n_per_segment: int, seed: int):
+    """Make airport dataset."""
     rng = np.random.default_rng(seed)
     weights = {"JFK": np.array([3.0, 1.0]), "LAX": np.array([-2.0, 0.5]), "ORD": np.array([1.0, -3.0])}
     rows = []
@@ -31,6 +32,7 @@ def _make_airport_dataset(n_per_segment: int, seed: int):
 
 
 def test_biz_val_segmented_model_factory_beats_global_one_hot_model_mse():
+    """Biz val segmented model factory beats global one hot model mse."""
     df = _make_airport_dataset(300, seed=0)
     rng = np.random.default_rng(1)
     perm = rng.permutation(len(df))
@@ -53,6 +55,7 @@ def test_biz_val_segmented_model_factory_beats_global_one_hot_model_mse():
 
 
 def test_segmented_model_factory_add_segment_does_not_disturb_other_segments():
+    """Segmented model factory add segment does not disturb other segments."""
     df = _make_airport_dataset(50, seed=2)
     factory = SegmentedModelFactory(estimator_factory=lambda: LinearRegression(), segment_keys=["airport"])
     factory.fit(df[["airport", "x1", "x2"]], df["y"])
@@ -102,12 +105,14 @@ def _make_regional_mixed_size_dataset(n_large: int, n_tiny: int, n_tiny_per_regi
 
 
 def test_biz_val_segmented_model_factory_hierarchical_shrinkage_beats_raw_and_global_fallback_mse():
+    """Biz val segmented model factory hierarchical shrinkage beats raw and global fallback mse."""
     train_df = _make_regional_mixed_size_dataset(n_large=300, n_tiny=3, n_tiny_per_region=2, seed=10)
     test_df = _make_regional_mixed_size_dataset(
         n_large=50, n_tiny=100, n_tiny_per_region=2, seed=11
     )  # more held-out rows per tiny segment to score it reliably
 
     def _fit_predict(**kwargs):
+        """Fit predict."""
         kwargs.setdefault("min_segment_rows", 2)
         factory = SegmentedModelFactory(estimator_factory=lambda: LinearRegression(), segment_keys=["region", "airport"], **kwargs)
         factory.fit(train_df[["region", "airport", "x1", "x2"]], train_df["y"])
@@ -128,6 +133,7 @@ def test_biz_val_segmented_model_factory_hierarchical_shrinkage_beats_raw_and_gl
 
 
 def test_segmented_model_factory_shrinkage_disabled_by_default_is_bit_identical():
+    """Segmented model factory shrinkage disabled by default is bit identical."""
     df = _make_airport_dataset(150, seed=5)
     factory_default = SegmentedModelFactory(estimator_factory=lambda: LinearRegression(), segment_keys=["airport"])
     factory_default.fit(df[["airport", "x1", "x2"]], df["y"])
@@ -143,6 +149,7 @@ def test_segmented_model_factory_shrinkage_disabled_by_default_is_bit_identical(
 
 
 def test_segmented_model_factory_unseen_segment_falls_back_to_global_model():
+    """Segmented model factory unseen segment falls back to global model."""
     df = _make_airport_dataset(50, seed=4)
     train_df = df[df["airport"] != "ORD"].reset_index(drop=True)
     factory = SegmentedModelFactory(estimator_factory=lambda: LinearRegression(), segment_keys=["airport"])

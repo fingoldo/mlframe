@@ -21,6 +21,7 @@ from mlframe.training.composite.discovery._interaction_bases import (
 
 
 def _pure_interaction(seed, n=4000):
+    """Pure interaction."""
     rng = np.random.default_rng(seed)
     a = rng.standard_normal(n)
     b = rng.standard_normal(n)
@@ -30,6 +31,7 @@ def _pure_interaction(seed, n=4000):
 
 
 def _ridge_oos_rmse(f_tr, y_tr, f_oos, y_oos, lam=1e-3):
+    """Ridge oos rmse."""
     X = np.column_stack([np.ones_like(f_tr), f_tr])
     coef = np.linalg.solve(X.T @ X + lam * np.eye(2), X.T @ y_tr)
     pred = coef[0] + coef[1] * f_oos
@@ -40,7 +42,9 @@ def _ridge_oos_rmse(f_tr, y_tr, f_oos, y_oos, lam=1e-3):
 
 
 class TestScoreInteractionPairs:
+    """Groups tests covering score interaction pairs."""
     def test_detects_pure_interaction_pair_top(self):
+        """Detects pure interaction pair top."""
         cand, y = _pure_interaction(0)
         scored = score_interaction_pairs(cand, y, ops=("mul",), top_k=3)
         assert scored, "expected scored pairs"
@@ -60,6 +64,7 @@ class TestScoreInteractionPairs:
         # mi_z/add_mi is small. The scorer's job is to surface a usable
         # interaction base, and the synergy RATIO cleanly separates the two
         # regimes (the gate flags both, but ranks pure interaction far higher).
+        """Synergy ratio far higher for pure than additive."""
         rng = np.random.default_rng(1)
         n = 4000
         a = rng.standard_normal(n)
@@ -77,12 +82,14 @@ class TestScoreInteractionPairs:
         assert pure_ratio > 2.0 * add_ratio
 
     def test_single_candidate_returns_empty(self):
+        """Single candidate returns empty."""
         cand = {"a": np.arange(100.0)}
         assert score_interaction_pairs(cand, np.arange(100.0)) == []
 
     def test_constant_column_skipped(self):
         # A constant base makes a*const constant -> generate_interaction_bases
         # marks it constant and the scorer drops it.
+        """Constant column skipped."""
         rng = np.random.default_rng(2)
         n = 2000
         a = rng.standard_normal(n)
@@ -97,7 +104,9 @@ class TestScoreInteractionPairs:
 
 
 class TestDiscoverInteractionBases:
+    """Groups tests covering discover interaction bases."""
     def test_surfaces_synthetic_for_pure_interaction(self):
+        """Surfaces synthetic for pure interaction."""
         cand, y = _pure_interaction(3)
         synth, recs = discover_interaction_bases(
             cand,
@@ -114,6 +123,7 @@ class TestDiscoverInteractionBases:
 
     def test_no_synergy_returns_empty(self):
         # Pure noise target -> no pair clears the gate.
+        """No synergy returns empty."""
         rng = np.random.default_rng(4)
         n = 2000
         cand = {k: rng.standard_normal(n) for k in ("a", "b", "c")}
@@ -123,6 +133,7 @@ class TestDiscoverInteractionBases:
         assert recs == []
 
     def test_commutative_op_dedup(self):
+        """Commutative op dedup."""
         cand, y = _pure_interaction(5)
         synth, _ = discover_interaction_bases(
             cand,
@@ -140,6 +151,7 @@ class TestDiscoverInteractionBases:
 
 
 class TestBizValInteractionBaseDiscovery:
+    """Groups tests covering biz val interaction base discovery."""
     def test_biz_val_interaction_beats_single_base_oos_rmse(self):
         """On y=a*b, the interaction base must beat the best single base on
         held-out OOS RMSE by >=50% (measured ~90%), majority of 5 seeds."""

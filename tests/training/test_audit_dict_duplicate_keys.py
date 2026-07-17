@@ -46,6 +46,7 @@ MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
+    """Read."""
     return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
 
 
@@ -55,6 +56,7 @@ def _read(rel: str) -> str:
 
 
 def test_boruta_shap_rejects_dup_columns() -> None:
+    """Boruta shap rejects dup columns."""
     src = _read("feature_selection/boruta_shap/__init__.py")
     assert "duplicate column name" in src
     assert "deduplicate before fit() to avoid silently dropping shadow indices" in src
@@ -72,16 +74,19 @@ def test_phase_helpers_rejects_dup_columns_in_train_df() -> None:
 
 
 def test_misc_helpers_rejects_dup_columns_in_predict_df() -> None:
+    """Misc helpers rejects dup columns in predict df."""
     src = _read("training/core/_misc_helpers.py")
     assert "deduplicate before predict() to keep schema-hash honest" in src
 
 
 def test_general_mi_rejects_dup_target_columns() -> None:
+    """General mi rejects dup target columns."""
     src = _read("feature_selection/general.py")
     assert "deduplicate to avoid silently dropping MI rows" in src
 
 
 def test_bruteforce_renames_handle_collisions() -> None:
+    """Bruteforce renames handle collisions."""
     src = _read("feature_engineering/bruteforce.py")
     # The fix introduces the suffix-collision loop.
     assert "_renamed = [col.replace" in src

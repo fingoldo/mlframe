@@ -11,10 +11,12 @@ from mlframe.training.grid import run_grid
 
 def _record_suite(**kwargs):
     # Returns a shallow snapshot of what the suite saw.
+    """Record suite."""
     return {"seen": dict(kwargs)}
 
 
 def test_run_grid_dict_entries_use_auto_labels():
+    """Run grid dict entries use auto labels."""
     base = {"a": 1, "b": 2}
     grid = [{"a": 10}, {"b": 20}]
     out = run_grid(base, grid, suite_fn=_record_suite)
@@ -24,6 +26,7 @@ def test_run_grid_dict_entries_use_auto_labels():
 
 
 def test_run_grid_tuple_entries_use_explicit_labels():
+    """Run grid tuple entries use explicit labels."""
     out = run_grid(
         {"a": 0},
         [("fast", {"a": 1}), ("slow", {"a": 2})],
@@ -35,12 +38,15 @@ def test_run_grid_tuple_entries_use_explicit_labels():
 
 
 def test_run_grid_duplicate_labels_raise():
+    """Run grid duplicate labels raise."""
     with pytest.raises(ValueError, match="duplicate"):
         run_grid({}, [("x", {}), ("x", {})], suite_fn=_record_suite)
 
 
 def test_run_grid_continues_past_errors_by_default(caplog):
+    """Run grid continues past errors by default."""
     def suite(**kwargs):
+        """Suite."""
         if kwargs.get("bad"):
             raise RuntimeError("boom")
         return {"ok": True}
@@ -57,7 +63,9 @@ def test_run_grid_continues_past_errors_by_default(caplog):
 
 
 def test_run_grid_stop_on_error_propagates():
+    """Run grid stop on error propagates."""
     def suite(**kwargs):
+        """Suite."""
         raise RuntimeError("kaboom")
 
     with pytest.raises(RuntimeError, match="kaboom"):
@@ -65,6 +73,7 @@ def test_run_grid_stop_on_error_propagates():
 
 
 def test_run_grid_rejects_invalid_entry_shape():
+    """Run grid rejects invalid entry shape."""
     with pytest.raises(TypeError):
         run_grid({}, [("onlylabel",)], suite_fn=_record_suite)
     with pytest.raises(TypeError):

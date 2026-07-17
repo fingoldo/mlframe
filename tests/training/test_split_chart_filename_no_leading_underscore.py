@@ -14,6 +14,7 @@ from mlframe.training.core._setup_helpers import _setup_model_directories
 
 
 def test_split_plot_file_basename_has_no_leading_underscore(tmp_path):
+    """Split plot file basename has no leading underscore."""
     plot_file, _ = _setup_model_directories(
         target_name="t",
         model_name="m",

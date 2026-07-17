@@ -133,6 +133,7 @@ def _common_init_params():
 
 
 def _config_for_model(model_name: str, iterations: int = 5) -> dict:
+    """Config for model."""
     cfg = {"iterations": iterations}
     if model_name == "lgb":
         cfg["lgb_kwargs"] = {"device_type": "cpu", "verbose": -1}
@@ -459,7 +460,9 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
     weight_schemas = {"uniform": w_uniform, "recency": w_recency}
 
     class _ExtractorWithWeights(SimpleFeaturesAndTargetsExtractor):
+        """Groups tests covering extractor with weights."""
         def build_targets(self, df_):
+            """Build targets."""
             base = super().build_targets(df_)
             # Attach weights if the base extractor output supports it
             try:
@@ -506,6 +509,7 @@ class _MultiTargetExtractor:
         self.target_specs = target_specs
 
     def transform(self, df):
+        """Transform."""
         target_by_type = {}
         drop_cols = []
         for name, ttype, values_fn in self.target_specs:

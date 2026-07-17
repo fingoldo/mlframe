@@ -21,6 +21,7 @@ from mlframe.training.configs import TargetTypes
 
 
 def _member(name, oof_preds, rmse):
+    """Member."""
     return SimpleNamespace(
         oof_preds=oof_preds,
         oof_target=None,  # set by caller (shared across members)
@@ -74,6 +75,7 @@ def test_default_off_when_flag_false():
 
 
 def test_none_when_fewer_than_two_members():
+    """None when fewer than two members."""
     members = _regression_pool(n_models=1)
     behavior_config = SimpleNamespace(recommend_diversity_additions_in_leaderboard=True)
     assert compute_diversity_recommendations(ens_models=members, target_type=TargetTypes.REGRESSION, behavior_config=behavior_config) is None
@@ -88,6 +90,7 @@ def test_none_when_any_member_missing_oof_target():
 
 
 def test_none_when_any_member_missing_oof_preds():
+    """None when any member missing oof preds."""
     members = _regression_pool()
     members[0].oof_preds = None
     behavior_config = SimpleNamespace(recommend_diversity_additions_in_leaderboard=True)

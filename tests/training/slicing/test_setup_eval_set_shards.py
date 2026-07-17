@@ -36,6 +36,7 @@ def val_data() -> tuple[pd.DataFrame, np.ndarray, list[SliceEvalSet]]:
 
 
 def test_default_no_shards_bit_identical(val_data) -> None:
+    """Default no shards bit identical."""
     X, y, _ = val_data
     fit_params: dict = {}
     _setup_eval_set("XGBClassifier", fit_params, X, y, model_category="xgb")
@@ -46,6 +47,7 @@ def test_default_no_shards_bit_identical(val_data) -> None:
 
 
 def test_xgb_with_shards_appends_parallel_arrays(val_data) -> None:
+    """Xgb with shards appends parallel arrays."""
     X, y, shards = val_data
     fit_params: dict = {}
     _setup_eval_set(
@@ -73,6 +75,7 @@ def test_xgb_with_shards_appends_parallel_arrays(val_data) -> None:
 
 
 def test_lgb_with_shards_uses_list_format(val_data) -> None:
+    """Lgb with shards uses list format."""
     X, y, shards = val_data
     fit_params: dict = {}
     _setup_eval_set("LGBMClassifier", fit_params, X, y, model_category="lgb", extra_eval_sets=shards)
@@ -82,6 +85,7 @@ def test_lgb_with_shards_uses_list_format(val_data) -> None:
 
 
 def test_cb_with_shards_propagates_sample_weight(val_data) -> None:
+    """Cb with shards propagates sample weight."""
     X, y, shards = val_data
     fit_params: dict = {}
     _setup_eval_set("CatBoostClassifier", fit_params, X, y, model_category="cb", extra_eval_sets=shards, sample_weight_val=np.full(100, 0.9))
@@ -92,6 +96,7 @@ def test_cb_with_shards_propagates_sample_weight(val_data) -> None:
 
 
 def test_xgb_qid_propagation(val_data) -> None:
+    """Xgb qid propagation."""
     X, y, _ = val_data
     # Build qid-aware shards (10 queries of 10 docs each, shard by query).
     qid = np.repeat(np.arange(10), 10)
@@ -113,6 +118,7 @@ def test_xgb_qid_propagation(val_data) -> None:
 
 
 def test_lgb_eval_group_converts_qid_to_sizes(val_data) -> None:
+    """Lgb eval group converts qid to sizes."""
     X, y, _ = val_data
     qid = np.repeat(np.arange(10), 10)
     shards = [
@@ -135,16 +141,19 @@ def test_lgb_eval_group_converts_qid_to_sizes(val_data) -> None:
 
 
 def test_groupids_to_sizes_basic() -> None:
+    """Groupids to sizes basic."""
     qid = np.array([1, 1, 1, 2, 2, 3, 3, 3, 3], dtype=np.int64)
     sizes = _groupids_to_sizes(qid)
     assert np.array_equal(sizes, np.array([3, 2, 4], dtype=np.int64))
 
 
 def test_groupids_to_sizes_none() -> None:
+    """Groupids to sizes none."""
     assert _groupids_to_sizes(None) is None
 
 
 def test_multioutput_skip_preserved(val_data) -> None:
+    """Multioutput skip preserved."""
     X, y, shards = val_data
     fit_params: dict = {}
     _setup_eval_set("MultiOutputClassifier", fit_params, X, y, model_category="cb", extra_eval_sets=shards)

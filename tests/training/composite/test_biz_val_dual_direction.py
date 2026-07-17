@@ -20,6 +20,7 @@ from mlframe.training.composite.dual_direction import DualDirectionCompositeEsti
 
 
 def _make_shape_scale_dataset(n: int, seed: int, scale_noise: float = 0.0):
+    """Make shape scale dataset."""
     rng = np.random.default_rng(seed)
     x1 = rng.uniform(0, 1, n)
     x2 = rng.uniform(0, 1, n)
@@ -35,6 +36,7 @@ def _make_shape_scale_dataset(n: int, seed: int, scale_noise: float = 0.0):
 
 
 def test_biz_val_dual_direction_beats_single_linear_model_on_multiplicative_target():
+    """Biz val dual direction beats single linear model on multiplicative target."""
     df, y, scale = _make_shape_scale_dataset(n=3000, seed=0)
     df_train, df_test, y_train, y_test, scale_train, _ = train_test_split(df, y, scale, test_size=0.3, random_state=0)
 
@@ -51,6 +53,7 @@ def test_biz_val_dual_direction_beats_single_linear_model_on_multiplicative_targ
 
 
 def test_dual_direction_predict_scale_returns_reasonable_scale_estimate():
+    """Dual direction predict scale returns reasonable scale estimate."""
     df, y, scale = _make_shape_scale_dataset(n=2000, seed=1)
     df_train, df_test, y_train, _, scale_train, scale_test = train_test_split(df, y, scale, test_size=0.3, random_state=1)
 
@@ -63,6 +66,7 @@ def test_dual_direction_predict_scale_returns_reasonable_scale_estimate():
 
 
 def test_dual_direction_predict_before_fit_raises():
+    """Dual direction predict before fit raises."""
     import pytest
 
     df, _, _ = _make_shape_scale_dataset(n=10, seed=2)
@@ -105,6 +109,7 @@ def test_biz_val_dual_direction_oof_scale_score_diagnoses_weak_vs_strong_scale_r
 
 
 def test_dual_direction_rejects_misaligned_inputs():
+    """Dual direction rejects misaligned inputs."""
     import pytest
 
     df, y, scale = _make_shape_scale_dataset(n=50, seed=3)

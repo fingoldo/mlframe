@@ -22,25 +22,31 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 class TestIsCausalBaseName:
+    """Groups tests covering is causal base name."""
     def test_marker_matches(self):
+        """Marker matches."""
         assert is_causal_base_name("TVT__gcausal_lag1")
         assert is_causal_base_name("TVT__gcausal_expmean", "TVT")
 
     def test_named_lag_matches_with_target(self):
+        """Named lag matches with target."""
         assert is_causal_base_name("TVT_prev", "TVT")
         assert is_causal_base_name("TVT_lag_1", "TVT")
 
     def test_named_lag_requires_target(self):
         # Without target_col, a stray *_prev is NOT silently exempted (only the unambiguous engineered marker matches).
+        """Named lag requires target."""
         assert not is_causal_base_name("TVT_prev", None)
         assert not is_causal_base_name("something_prev", "TVT")
 
     def test_plain_near_copy_not_matched(self):
+        """Plain near copy not matched."""
         assert not is_causal_base_name("y_shadow", "y")
         assert not is_causal_base_name("", "y")
 
 
 def _spec(name, base_column, transform_name="diff"):
+    """Spec."""
     return CompositeSpec(
         name=name,
         target_col="y",
@@ -73,6 +79,7 @@ def _level_frame(n_groups=30, per=60, seed=0):
 
 
 def _disc(groups, exempt):
+    """Disc."""
     cfg = CompositeTargetDiscoveryConfig(enabled=True, random_state=0, causal_base_gate_exempt=exempt)
     disc = CompositeTargetDiscovery(cfg)
     disc._group_ids_for_rerank = groups
@@ -82,13 +89,16 @@ def _disc(groups, exempt):
 
 @pytest.fixture(autouse=True)
 def _silence():
+    """Silence."""
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
         yield
 
 
 class TestStructuralFragilityExemption:
+    """Groups tests covering structural fragility exemption."""
     def test_biz_val_causal_base_survives_structural_gate_when_exempt(self):
+        """Biz val causal base survives structural gate when exempt."""
         df, groups, y = _level_frame()
         train_idx = np.arange(groups.size)
         causal = _spec("y-diff-gcausal", "y__gcausal_lag1")
@@ -100,6 +110,7 @@ class TestStructuralFragilityExemption:
         assert "y-diff-level" not in names, "the identical NON-causal per-group-level base must still be dropped as fragile"
 
     def test_biz_val_causal_base_dropped_when_exemption_off(self):
+        """Biz val causal base dropped when exemption off."""
         df, groups, y = _level_frame()
         train_idx = np.arange(groups.size)
         causal = _spec("y-diff-gcausal", "y__gcausal_lag1")
@@ -130,7 +141,9 @@ def _strong_ar_frame(n_groups=25, per=80, seed=1, step=0.4):
 
 
 class TestNearCopyExemptionEndToEnd:
+    """Groups tests covering near copy exemption end to end."""
     def test_biz_val_strong_ar_lag_base_retained_when_exempt_excluded_when_off(self):
+        """Biz val strong ar lag base retained when exempt excluded when off."""
         df, groups, _y = _strong_ar_frame()
         n = groups.size
         # Sanity: y_prev really is a near-copy of y (the gate would fire).

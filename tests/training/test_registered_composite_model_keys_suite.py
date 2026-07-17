@@ -16,6 +16,7 @@ import pytest
 
 
 def _zero_inflated_frame(seed=7, n=1500):
+    """Zero inflated frame."""
     import polars as pl
 
     rng = np.random.default_rng(seed)
@@ -29,6 +30,7 @@ def _zero_inflated_frame(seed=7, n=1500):
 
 
 def _train_suite(model_name, tmp_path, *, run_tag):
+    """Train suite."""
     pytest.importorskip("lightgbm")
 
     from mlframe.training.core import train_mlframe_models_suite
@@ -65,11 +67,13 @@ def _train_suite(model_name, tmp_path, *, run_tag):
 
 
 def _trained_entries(models):
+    """Trained entries."""
     trained = [e for per_target in models.values() for entries in per_target.values() for e in entries]
     return [e[0] if isinstance(e, tuple) and e else e for e in trained]
 
 
 def test_gated_outlier_string_key_dispatches_and_fits(tmp_path):
+    """Gated outlier string key dispatches and fits."""
     from mlframe.training.composite import GatedOutlierEstimator
 
     models, _metadata = _train_suite("gated_outlier", tmp_path, run_tag="gated_outlier_run")

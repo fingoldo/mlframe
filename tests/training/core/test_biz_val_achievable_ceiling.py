@@ -44,6 +44,7 @@ _VERDICT_KEYS = {
 
 @pytest.fixture(autouse=True)
 def _silence_lgbm_feature_name_warning():
+    """Silence lgbm feature name warning."""
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="X does not have valid feature names")
         warnings.filterwarnings("ignore", message=".*Grid size.*")
@@ -88,6 +89,7 @@ def _composable_frame(n_groups: int = 30, per: int = 300, seed: int = 2):
 
 
 def _random_frame(n: int = 4000, seed: int = 3, n_groups: int = 20):
+    """Random frame."""
     rng = np.random.default_rng(seed)
     df = pd.DataFrame(rng.standard_normal((n, 4)), columns=["a", "b", "c", "d"])
     y = rng.standard_normal(n)
@@ -96,7 +98,9 @@ def _random_frame(n: int = 4000, seed: int = 3, n_groups: int = 20):
 
 
 class TestAchievableCeilingUnit:
+    """Groups tests covering achievable ceiling unit."""
     def test_verdict_schema_well_formed(self):
+        """Verdict schema well formed."""
         df, g, y = _ar_frame()
         v = measure_achievable_ceiling(df=df, target_col="y", feature_cols=["x1", "y_prev"], y_train=y, group_ids_train=g)
         assert _VERDICT_KEYS.issubset(v.keys()), f"verdict missing keys: {_VERDICT_KEYS - set(v.keys())}"
@@ -105,6 +109,7 @@ class TestAchievableCeilingUnit:
         assert isinstance(v["reason"], str) and v["reason"]
 
     def test_measurement_returns_finite_rmses(self):
+        """Measurement returns finite rmses."""
         df, g, y = _ar_frame()
         v = measure_achievable_ceiling(df=df, target_col="y", feature_cols=["x1", "y_prev"], y_train=y, group_ids_train=g)
         assert np.isfinite(v["raw_rmse"]), "raw baseline RMSE must be finite on a well-posed frame"
@@ -112,35 +117,41 @@ class TestAchievableCeilingUnit:
         assert np.isfinite(v["best_composite_rmse"]), "optimistic composite RMSE must be finite here"
 
     def test_skip_when_composite_cannot_beat_floor(self):
+        """Skip when composite cannot beat floor."""
         df, g, y = _ar_frame()
         v = measure_achievable_ceiling(df=df, target_col="y", feature_cols=["x1", "y_prev"], y_train=y, group_ids_train=g)
         assert v["decision"] == "skip", v["reason"]
 
     def test_proceed_when_composite_clearly_wins(self):
+        """Proceed when composite clearly wins."""
         df, g, y = _composable_frame()
         v = measure_achievable_ceiling(df=df, target_col="y", feature_cols=["x1", "base", "y_prev"], y_train=y, group_ids_train=g)
         assert v["decision"] == "proceed", v["reason"]
         assert v["best_composite_rmse"] < v["floor_rmse"], "composite must beat the floor on a composable target"
 
     def test_degenerate_no_lag_column_proceeds_with_nan_lag(self):
+        """Degenerate no lag column proceeds with nan lag."""
         df, g, y = _random_frame()
         v = measure_achievable_ceiling(df=df, target_col="y", feature_cols=["a", "b", "c", "d"], y_train=y, group_ids_train=g)
         assert np.isnan(v["lag_rmse"]), "no causal-lag column -> lag RMSE is NaN"
         assert v["decision"] == "proceed", "a weak/random floor must never trigger a low-confidence skip"
 
     def test_degenerate_no_groups_uses_random_split(self):
+        """Degenerate no groups uses random split."""
         df, _, y = _random_frame()
         v = measure_achievable_ceiling(df=df, target_col="y", feature_cols=["a", "b", "c", "d"], y_train=y, group_ids_train=None)
         assert np.isfinite(v["raw_rmse"])
         assert v["decision"] == "proceed"
 
     def test_degenerate_tiny_n_proceeds(self):
+        """Degenerate tiny n proceeds."""
         df, g, y = _random_frame(n=150, n_groups=5)
         v = measure_achievable_ceiling(df=df, target_col="y", feature_cols=["a", "b", "c", "d"], y_train=y, group_ids_train=g)
         assert v["decision"] == "proceed"
         assert "insufficient" in v["reason"].lower()
 
     def test_helpers_ols_and_corr(self):
+        """Helpers ols and corr."""
         rng = np.random.default_rng(0)
         base = rng.normal(size=500)
         y = 3.0 * base + 7.0 + rng.normal(0.0, 1e-6, 500)
@@ -151,6 +162,7 @@ class TestAchievableCeilingUnit:
 
 
 class TestAchievableCeilingBizValue:
+    """Groups tests covering achievable ceiling biz value."""
     def test_biz_val_strong_ar_skips_with_quantified_headroom(self):
         """Strong-AR: raw+lag near-perfect, the optimistic composite cannot beat them -> SKIP. Quantified: the lag is
         near-perfect vs a large target spread, and the composite gets no material headroom over the floor."""
@@ -190,7 +202,9 @@ class TestAchievableCeilingBizValue:
 
 
 class TestAchievableCeilingConfigWiring:
+    """Groups tests covering achievable ceiling config wiring."""
     def test_precheck_disabled_returns_none(self):
+        """Precheck disabled returns none."""
         df, g, y = _ar_frame()
         cfg = CompositeTargetDiscoveryConfig(enabled=True, random_state=0, composite_achievable_ceiling_precheck=False)
         v = run_achievable_ceiling_precheck(
@@ -229,6 +243,7 @@ class TestAchievableCeilingPhaseIntegration:
     skip discovery, and add ZERO composite specs on the strong-AR target -- even with ``extreme_ar_group_aware_skip=False``."""
 
     def _run_phase(self, cfg, df, groups, y):
+        """Run phase."""
         target_by_type = {TargetTypes.REGRESSION: {"y": y}}
         metadata: dict = {}
         n = len(df)
@@ -255,6 +270,7 @@ class TestAchievableCeilingPhaseIntegration:
         return metadata
 
     def test_biz_val_phase_skips_strong_ar_with_flag_off(self):
+        """Biz val phase skips strong ar with flag off."""
         df, groups, y = _ar_frame()
         cfg = CompositeTargetDiscoveryConfig(enabled=True, random_state=0, extreme_ar_group_aware_skip=False)
         metadata = self._run_phase(cfg, df, groups, y)
@@ -266,6 +282,7 @@ class TestAchievableCeilingPhaseIntegration:
         assert not specs, f"no composite specs must be added when the ceiling precheck skips; got {specs}"
 
     def test_biz_val_phase_proceeds_on_composable_target(self):
+        """Biz val phase proceeds on composable target."""
         df, groups, y = _composable_frame()
         cfg = CompositeTargetDiscoveryConfig(enabled=True, random_state=0, extreme_ar_group_aware_skip=False)
         metadata = self._run_phase(cfg, df, groups, y)

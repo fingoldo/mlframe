@@ -16,6 +16,7 @@ import numpy as np
 
 
 def _regression_frame(seed=5, n=600):
+    """Regression frame."""
     import polars as pl
 
     rng = np.random.default_rng(seed)
@@ -26,6 +27,7 @@ def _regression_frame(seed=5, n=600):
 
 
 def _run_suite(tmp_path, oof_n_splits):
+    """Run suite."""
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import (
         PreprocessingBackendConfig,
@@ -60,6 +62,7 @@ def _run_suite(tmp_path, oof_n_splits):
 
 
 def _trained_entries(models):
+    """Trained entries."""
     trained = [e for per_target in models.values() for entries in per_target.values() for e in entries]
     return [e[0] if isinstance(e, tuple) and e else e for e in trained]
 

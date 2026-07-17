@@ -38,11 +38,13 @@ def _old_radius(residuals, alpha):
 
 
 def _eq(a, b):
+    """Eq."""
     return (a == b) or (math.isinf(a) and math.isinf(b) and (a > 0) == (b > 0))
 
 
 @pytest.mark.parametrize("buffer_n", [50, 500, 2000])
 def test_cpx27_sorted_buffer_radius_bit_identical(buffer_n):
+    """Cpx27 sorted buffer radius bit identical."""
     rng = np.random.default_rng(20260623)
     steps = 8000
     # Heavy-tailed magnitudes + duplicate-prone small ints to stress the
@@ -76,7 +78,9 @@ def test_cpx27_sorted_buffer_radius_bit_identical(buffer_n):
 
 
 def test_cpx27_warmup_seeds_sorted_mirror():
+    """Cpx27 warmup seeds sorted mirror."""
     class _Wrap:
+        """Groups tests covering wrap."""
         pass
 
     w = _Wrap()

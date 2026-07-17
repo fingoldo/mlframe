@@ -40,6 +40,7 @@ N_FEATURES = 4  # cols: base, f1, f2, f3
 
 
 def _make_X(rng: np.random.Generator) -> pd.DataFrame:
+    """Make x."""
     return pd.DataFrame(
         {
             "base": rng.normal(size=N),
@@ -51,16 +52,19 @@ def _make_X(rng: np.random.Generator) -> pd.DataFrame:
 
 
 def _make_y(X: pd.DataFrame, rng: np.random.Generator) -> np.ndarray:
+    """Make y."""
     return (1.5 * X["base"] + 0.5 * X["f1"] - 0.3 * X["f2"]).to_numpy() + rng.normal(scale=0.1, size=N)
 
 
 # Each case: (id, factory, fit_callable(est, X, y), predict_callable(est, X), expected_n_features_in_).
 # Most estimators report the full X column count (4); panel drops the entity column from the inner matrix, so it reports 3.
 def _fit_xy(est, X, y):
+    """Fit xy."""
     est.fit(X, y)
 
 
 def _predict(est, X):
+    """Predict."""
     est.predict(X)
 
 
@@ -167,6 +171,7 @@ def _simplex_target(y: np.ndarray) -> np.ndarray:
 
 
 def _positive(y: np.ndarray) -> np.ndarray:
+    """Positive."""
     return np.abs(y) + 1.0
 
 

@@ -12,6 +12,7 @@ import pytest
 
 
 def _has_pl_array():
+    """Has pl array."""
     return hasattr(pl, "Array")
 
 

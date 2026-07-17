@@ -126,6 +126,7 @@ def test_full_target_content_hash_bit_identical_to_tobytes_reference():
     from mlframe.training.pipeline._pipeline_cache import _full_target_content_hash
 
     def _reference(np_arr: np.ndarray) -> str:
+        """Reference."""
         h = hashlib.blake2b(np.ascontiguousarray(np_arr).tobytes(), digest_size=16)
         h.update(str(np_arr.shape).encode())
         h.update(str(np_arr.dtype).encode())

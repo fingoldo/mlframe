@@ -27,14 +27,17 @@ class _ConstQuantileInner(BaseEstimator, RegressorMixin):
         self.t_value = t_value
 
     def fit(self, X, y, **kw):
+        """Fit."""
         self.n_features_in_ = X.shape[1]
         self._mean_t = float(np.mean(np.asarray(y, dtype=np.float64)))
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.full(X.shape[0], self._mean_t, dtype=np.float64)
 
     def predict_quantile(self, X, alpha=0.5):
+        """Predict quantile."""
         n = X.shape[0]
         if np.isscalar(alpha):
             return np.full(n, self._mean_t, dtype=np.float64)
@@ -51,13 +54,16 @@ class _BlowupQuantileInner(BaseEstimator, RegressorMixin):
         self.blow = blow
 
     def fit(self, X, y, **kw):
+        """Fit."""
         self.n_features_in_ = X.shape[1]
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.full(X.shape[0], self.blow, dtype=np.float64)
 
     def predict_quantile(self, X, alpha=0.5):
+        """Predict quantile."""
         n = X.shape[0]
         if np.isscalar(alpha):
             return np.full(n, self.blow, dtype=np.float64)
@@ -65,6 +71,7 @@ class _BlowupQuantileInner(BaseEstimator, RegressorMixin):
 
 
 def _diff_frame(n: int = 300, seed: int = 0):
+    """Diff frame."""
     rng = np.random.default_rng(seed)
     b = rng.normal(10.0, 2.0, size=n)
     feat = rng.normal(0.0, 1.0, size=n)
@@ -79,6 +86,7 @@ class TestE14QuantileDomainFallback:
 
     @pytest.mark.parametrize("alpha", [0.5, [0.1, 0.5, 0.9]])
     def test_nan_base_routes_to_fallback_not_nan(self, alpha) -> None:
+        """Nan base routes to fallback not nan."""
         X, y = _diff_frame()
         est = CompositeTargetEstimator(
             base_estimator=_ConstQuantileInner(),
@@ -121,6 +129,7 @@ class TestE14QuantileTClip:
 
     @pytest.mark.parametrize("alpha", [0.5, [0.1, 0.9]])
     def test_blown_quantile_is_t_clipped_before_inverse(self, alpha) -> None:
+        """Blown quantile is t clipped before inverse."""
         X, y = _diff_frame()
         est = CompositeTargetEstimator(
             base_estimator=_BlowupQuantileInner(blow=1.0e6),
@@ -142,6 +151,7 @@ class TestE17TClipCountsObservable:
     """T-clip hit counts surface in runtime_stats_ / the callback (E17)."""
 
     def test_point_predict_records_t_clip_hits(self) -> None:
+        """Point predict records t clip hits."""
         X, y = _diff_frame()
         payloads: list[dict] = []
         est = CompositeTargetEstimator(
@@ -161,6 +171,7 @@ class TestE17TClipCountsObservable:
         assert last["cumulative_t_clip_high_hits"] == len(X)
 
     def test_quantile_predict_records_t_clip_hits_in_stats_and_callback(self) -> None:
+        """Quantile predict records t clip hits in stats and callback."""
         X, y = _diff_frame()
         payloads: list[dict] = []
         est = CompositeTargetEstimator(
@@ -181,6 +192,7 @@ class TestE17TClipCountsObservable:
         assert last["cumulative_t_clip_high_hits"] == rs["t_clip_high_hits"]
 
     def test_quantile_predict_records_domain_violations(self) -> None:
+        """Quantile predict records domain violations."""
         X, y = _diff_frame()
         est = CompositeTargetEstimator(
             base_estimator=_ConstQuantileInner(),

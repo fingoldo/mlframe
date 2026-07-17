@@ -101,6 +101,7 @@ def test_binary_train_split_no_append():
 
 
 def test_regression_val_appends_MTV():
+    """Regression val appends m t v."""
     val_target = np.array([1.0, 2.0, 3.0])  # mean 2.0
     out = _append_split_rate_suffix(
         "cb_run MTTR=1.5000",
@@ -114,6 +115,7 @@ def test_regression_val_appends_MTV():
 
 
 def test_regression_test_appends_MTTS():
+    """Regression test appends m t t s."""
     test_target = np.array([10.0, 20.0])  # mean 15.0
     out = _append_split_rate_suffix(
         "cb_run MTTR=12.5000",
@@ -147,6 +149,7 @@ def test_multilabel_val_appends_MLV():
 
 
 def test_multilabel_test_appends_MLTS():
+    """Multilabel test appends m l t s."""
     test_target = np.array(
         [
             [1, 1, 0],
@@ -191,6 +194,7 @@ def test_no_recognized_tag_passthrough():
 
 
 def test_target_none_returns_unchanged():
+    """Target none returns unchanged."""
     out = _append_split_rate_suffix(
         "cb_run BTTR=74%",
         split_name="val",
@@ -200,6 +204,7 @@ def test_target_none_returns_unchanged():
 
 
 def test_empty_target_returns_unchanged():
+    """Empty target returns unchanged."""
     out = _append_split_rate_suffix(
         "cb_run BTTR=74%",
         split_name="val",
@@ -209,6 +214,7 @@ def test_empty_target_returns_unchanged():
 
 
 def test_pandas_series_input():
+    """Pandas series input."""
     val_target = pd.Series([1, 1, 1, 0])  # 75%
     out = _append_split_rate_suffix(
         "cb_run BTTR=70%",
@@ -219,6 +225,7 @@ def test_pandas_series_input():
 
 
 def test_polars_series_input():
+    """Polars series input."""
     pl = pytest.importorskip("polars")
     val_target = pl.Series([1, 1, 1, 0])
     out = _append_split_rate_suffix(
@@ -230,6 +237,7 @@ def test_polars_series_input():
 
 
 def test_invalid_split_name_returns_unchanged():
+    """Invalid split name returns unchanged."""
     out = _append_split_rate_suffix(
         "cb_run BTTR=74%",
         split_name="oof",

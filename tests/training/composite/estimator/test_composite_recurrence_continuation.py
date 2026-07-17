@@ -16,6 +16,7 @@ from mlframe.training.composite import CompositeTargetEstimator
 
 
 def _trending(n=2000, seed=0):
+    """Trending."""
     t = np.arange(n)
     base = 0.01 * t + np.sin(t / 20.0)
     y = base + 0.5 * np.random.default_rng(seed).normal(0, 0.2, n)
@@ -24,11 +25,13 @@ def _trending(n=2000, seed=0):
 
 @pytest.mark.parametrize("transform", ["ewma_residual", "frac_diff"])
 def test_continuation_reduces_cold_start_bias(transform) -> None:
+    """Continuation reduces cold start bias."""
     X, y = _trending()
     Xtr, Xte, ytr, yte = X.iloc[:1500], X.iloc[1500:], y[:1500], y[1500:]
     k = 12
 
     def first_k_rmse(flag):
+        """First k rmse."""
         est = CompositeTargetEstimator(
             base_estimator=LinearRegression(),
             transform_name=transform,
@@ -43,6 +46,7 @@ def test_continuation_reduces_cold_start_bias(transform) -> None:
 
 @pytest.mark.parametrize("transform", ["ewma_residual", "frac_diff"])
 def test_default_off_is_bit_identical(transform) -> None:
+    """Default off is bit identical."""
     X, y = _trending(seed=1)
     Xtr, Xte = X.iloc[:1500], X.iloc[1500:]
     base = CompositeTargetEstimator(
@@ -62,6 +66,7 @@ def test_default_off_is_bit_identical(transform) -> None:
 
 
 def test_clone_preserves_flag() -> None:
+    """Clone preserves flag."""
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
         transform_name="ewma_residual",
@@ -72,6 +77,7 @@ def test_clone_preserves_flag() -> None:
 
 
 def test_tail_anchor_stored_in_fit() -> None:
+    """Tail anchor stored in fit."""
     X, y = _trending(seed=2)
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),

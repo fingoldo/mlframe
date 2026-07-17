@@ -15,6 +15,7 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 @pytest.mark.parametrize("inject_inf_nan", [True, False])
 def test_mlp_only_trains_with_inject_inf_nan(inject_inf_nan):
+    """Mlp only trains with inject inf nan."""
     combo = FuzzCombo(
         models=("mlp",),
         input_type="pandas",

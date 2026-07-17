@@ -36,6 +36,7 @@ from mlframe.training.core._setup_helpers import get_decision_threshold
 
 @pytest.fixture
 def _xy():
+    """Xy."""
     rng = np.random.RandomState(0)
     X = rng.randn(200, 5)
     y = (X[:, 0] + 0.5 * rng.randn(200) > 0).astype(int)
@@ -43,6 +44,7 @@ def _xy():
 
 
 def test_binary_calibrated_threshold_roundtrip_bit_identical(_xy, tmp_path):
+    """Binary calibrated threshold roundtrip bit identical."""
     X, y = _xy
     base = RandomForestClassifier(n_estimators=10, random_state=0).fit(X, y)
     raw = base.predict_proba(X)
@@ -82,6 +84,7 @@ def test_binary_calibrated_threshold_roundtrip_bit_identical(_xy, tmp_path):
 
 
 def test_multiclass_perclass_calibrator_roundtrip_bit_identical(_xy, tmp_path):
+    """Multiclass perclass calibrator roundtrip bit identical."""
     X, _ = _xy
     y3 = (X[:, 0] > 0).astype(int) + (X[:, 1] > 0).astype(int)  # labels 0,1,2
     base = RandomForestClassifier(n_estimators=10, random_state=0).fit(X, y3)

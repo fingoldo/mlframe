@@ -14,6 +14,7 @@ from mlframe.training.reporting._reporting_probabilistic import _resolve_class_l
 
 
 class _Enc:
+    """Groups tests covering enc."""
     def __init__(self, classes):
         self.classes_ = np.asarray(classes)
 
@@ -21,6 +22,7 @@ class _Enc:
 def test_non_zero_based_integer_labels_resolve_by_position():
     # Two classes whose RAW labels are 7 and 9 (non-0-based). classes_ holds the
     # original string labels in positional order.
+    """Non zero based integer labels resolve by position."""
     enc = _Enc(["cat", "dog"])
     # class_id=0 -> "cat", class_id=1 -> "dog". The numeric class_name (7, 9) is the
     # report's stand-in and must NOT be used as the index.
@@ -31,6 +33,7 @@ def test_non_zero_based_integer_labels_resolve_by_position():
 def test_value_indexing_would_have_raised_indexerror():
     # Demonstrates the pre-fix failure mode: indexing classes_ by the label VALUE 9
     # is out of range for a 2-element classes_ array.
+    """Value indexing would have raised indexerror."""
     enc = _Enc(["cat", "dog"])
     with pytest.raises(IndexError):
         _ = enc.classes_[9]
@@ -39,6 +42,7 @@ def test_value_indexing_would_have_raised_indexerror():
 
 
 def test_non_numeric_class_name_passthrough():
+    """Non numeric class name passthrough."""
     assert _resolve_class_label(0, "alpha", _Enc(["x"])) == "alpha"
     # No encoder -> stringify the class_name as-is.
     assert _resolve_class_label(0, 5, None) == "5"

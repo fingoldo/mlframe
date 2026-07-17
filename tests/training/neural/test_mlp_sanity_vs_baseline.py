@@ -60,6 +60,7 @@ def linear_regression_data_scaled():
 
 @pytest.fixture
 def binary_classification_data():
+    """Binary classification data."""
     X, y = make_classification(
         n_samples=400,
         n_features=6,
@@ -79,6 +80,7 @@ def binary_classification_data():
 
 @pytest.fixture
 def regressor_params():
+    """Regressor params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-2},
@@ -111,6 +113,7 @@ def regressor_params():
 
 @pytest.fixture
 def classifier_params():
+    """Classifier params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.CrossEntropyLoss(), "learning_rate": 1e-2},

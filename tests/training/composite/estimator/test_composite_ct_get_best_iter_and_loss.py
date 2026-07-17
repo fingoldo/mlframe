@@ -29,13 +29,17 @@ import pytest
 
 
 class TestGetModelBestIterUnwrapsCTE:
+    """Groups tests covering get model best iter unwraps c t e."""
     def test_unwraps_composite_target_estimator(self) -> None:
+        """Unwraps composite target estimator."""
         from mlframe.core.helpers import get_model_best_iter
 
         class _InnerWithBestIter:
+            """Groups tests covering inner with best iter."""
             best_iteration_ = 137
 
         class _FakeCTE:
+            """Groups tests covering fake c t e."""
             estimator_ = _InnerWithBestIter()
 
         assert get_model_best_iter(_FakeCTE()) == 137
@@ -50,10 +54,12 @@ class TestGetModelBestIterUnwrapsCTE:
         from mlframe.core.helpers import get_model_best_iter
 
         class _InnerWithBestEpoch:
+            """Groups tests covering inner with best epoch."""
             best_epoch = 42
 
         class _TTRLike:
             # mimic sklearn TransformedTargetRegressor surface
+            """Groups tests covering t t r like."""
             regressor_ = _InnerWithBestEpoch()
             # NOTE: no estimator_, no best_iteration_, no best_epoch on self
 
@@ -65,6 +71,7 @@ class TestGetModelBestIterUnwrapsCTE:
         from mlframe.core.helpers import get_model_best_iter
 
         class _ZeroIter:
+            """Groups tests covering zero iter."""
             best_iteration_ = 0
 
         assert get_model_best_iter(_ZeroIter()) == 0
@@ -75,36 +82,44 @@ class TestGetModelBestIterUnwrapsCTE:
         from mlframe.core.helpers import get_model_best_iter
 
         class _NoESCatBoost:
+            """Groups tests covering no e s cat boost."""
             tree_count_ = 250
 
         assert get_model_best_iter(_NoESCatBoost()) == 250
 
     def test_prefers_best_iteration_underscore_first(self) -> None:
+        """Prefers best iteration underscore first."""
         from mlframe.core.helpers import get_model_best_iter
 
         class _BothAttrs:
+            """Groups tests covering both attrs."""
             best_iteration = 999
             best_iteration_ = 42
 
         assert get_model_best_iter(_BothAttrs()) == 42
 
     def test_returns_None_when_nothing_exposed(self) -> None:
+        """Returns none when nothing exposed."""
         from mlframe.core.helpers import get_model_best_iter
 
         class _NoIter:
+            """Groups tests covering no iter."""
             pass
 
         assert get_model_best_iter(_NoIter()) is None
 
 
 class TestUpdateModelNameShowsIterZero:
+    """Groups tests covering update model name shows iter zero."""
     def test_iter_zero_appears_in_name(self) -> None:
+        """Iter zero appears in name."""
         from mlframe.training._data_helpers import _update_model_name_after_training
 
         name = _update_model_name_after_training("M", 100, "", best_iter=0)
         assert "@iter=0" in name
 
     def test_iter_None_suppresses_label(self) -> None:
+        """Iter none suppresses label."""
         from mlframe.training._data_helpers import _update_model_name_after_training
 
         name = _update_model_name_after_training("M", 100, "", best_iter=None)
@@ -112,7 +127,9 @@ class TestUpdateModelNameShowsIterZero:
 
 
 class TestXgbHuberSlopeMadCalibrated:
+    """Groups tests covering xgb huber slope mad calibrated."""
     def test_huber_slope_scaled_by_mad(self) -> None:
+        """Huber slope scaled by mad."""
         from mlframe.training.loss_recommendation import (
             recommend_boosting_regression_loss,
         )
@@ -133,6 +150,7 @@ class TestXgbHuberSlopeMadCalibrated:
         assert "mad" in rec
 
     def test_no_huber_extra_params_for_gaussian(self) -> None:
+        """No huber extra params for gaussian."""
         from mlframe.training.loss_recommendation import (
             recommend_boosting_regression_loss,
         )
@@ -145,7 +163,9 @@ class TestXgbHuberSlopeMadCalibrated:
 
 
 class TestCbHuberEvalMatchesLoss:
+    """Groups tests covering cb huber eval matches loss."""
     def test_cb_eval_metric_matches_huber_loss(self) -> None:
+        """Cb eval metric matches huber loss."""
         from mlframe.training.loss_recommendation import (
             recommend_boosting_regression_loss,
         )
@@ -182,6 +202,7 @@ class TestCbHuberEvalMatchesLoss:
 
 
 class TestApplyLossRecommendationWiresExtras:
+    """Groups tests covering apply loss recommendation wires extras."""
     def test_xgb_extra_params_threaded_into_set_params(self) -> None:
         """Sensor: the apply path must propagate ``xgb_extra_params`` /
         ``cb_extra_params`` into the model's set_params() call."""
@@ -195,6 +216,7 @@ class TestApplyLossRecommendationWiresExtras:
 
 
 class TestCompositeTargetEstimatorTClip:
+    """Groups tests covering composite target estimator t clip."""
     def _make_fitted_estimator(self, y_scale: float = 13.0):
         """Build a synthetic CompositeTargetEstimator with diff transform
         and a constant-blowup inner. Uses from_fitted_inner to bypass
@@ -204,13 +226,16 @@ class TestCompositeTargetEstimatorTClip:
         )
 
         class _BlowupInner:
+            """Groups tests covering blowup inner."""
             def __init__(self, blowup_value: float):
                 self.blowup_value = blowup_value
 
             def fit(self, X, y, **kw):
+                """Fit."""
                 return self
 
             def predict(self, X) -> np.ndarray:
+                """Predict."""
                 n = len(X) if hasattr(X, "__len__") else X.shape[0]
                 return np.full(n, self.blowup_value, dtype=np.float64)
 
@@ -234,6 +259,7 @@ class TestCompositeTargetEstimatorTClip:
         return wrapper, full_X, base, y_scale
 
     def test_t_clip_bounds_stored_after_fit(self) -> None:
+        """T clip bounds stored after fit."""
         wrapper, _X, _base, _ = self._make_fitted_estimator()
         params = wrapper.fitted_params_
         assert "t_clip_low" in params
@@ -243,6 +269,7 @@ class TestCompositeTargetEstimatorTClip:
         assert params["t_clip_low"] < params["t_clip_high"]
 
     def test_blowup_inner_predictions_get_clipped(self) -> None:
+        """Blowup inner predictions get clipped."""
         wrapper, X, _base, y_scale = self._make_fitted_estimator()
         y_hat = wrapper.predict(X)
         # Without T-clip: y_hat = T_blow + base where T_blow = 30 * y_scale.

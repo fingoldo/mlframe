@@ -15,6 +15,7 @@ import pytest
 
 
 def _big_passthrough_frame(n=64):
+    """Big passthrough frame."""
     return pd.DataFrame(
         {
             "num_a": np.arange(n, dtype="float64"),
@@ -25,13 +26,17 @@ def _big_passthrough_frame(n=64):
 
 
 def test_numeric_only_transformer_does_not_deep_copy_passthrough():
+    """Numeric only transformer does not deep copy passthrough."""
     from mlframe.training.strategies.base import _NumericOnlyTransformer
 
     class _DoubleNumeric:
+        """Groups tests covering double numeric."""
         def fit(self, X, y=None):
+            """Fit."""
             return self
 
         def transform(self, X):
+            """Transform."""
             return X * 2.0
 
     X = _big_passthrough_frame()
@@ -49,6 +54,7 @@ def test_numeric_only_transformer_does_not_deep_copy_passthrough():
 
 
 def test_preprocess_dataframe_stringdtype_normalise_no_deep_copy():
+    """Preprocess dataframe stringdtype normalise no deep copy."""
     from mlframe.training.preprocessing import preprocess_dataframe
     from mlframe.training.configs import PreprocessingConfig
 
@@ -74,6 +80,7 @@ def test_preprocess_dataframe_stringdtype_normalise_no_deep_copy():
 
 
 def test_decategorise_float_cat_no_deep_copy():
+    """Decategorise float cat no deep copy."""
     from mlframe.training._eval_helpers import _decategorise_float_cat_columns
 
     n = 64

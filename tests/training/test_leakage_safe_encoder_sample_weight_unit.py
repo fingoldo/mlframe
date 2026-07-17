@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore")
 
 
 def _toy_categorical(n=200, k=4, seed=0):
+    """Toy categorical."""
     rng = np.random.default_rng(seed)
     cats = rng.choice([f"c{i}" for i in range(k)], size=n)
     # y depends on category index.
@@ -24,6 +25,7 @@ def _toy_categorical(n=200, k=4, seed=0):
 
 
 def test_fit_sample_weight_none_matches_omitted():
+    """Fit sample weight none matches omitted."""
     from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
 
     cats, y = _toy_categorical()
@@ -35,6 +37,7 @@ def test_fit_sample_weight_none_matches_omitted():
 
 
 def test_fit_uniform_sample_weight_matches_unweighted():
+    """Fit uniform sample weight matches unweighted."""
     from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
 
     cats, y = _toy_categorical()
@@ -45,6 +48,7 @@ def test_fit_uniform_sample_weight_matches_unweighted():
 
 
 def test_fit_nonuniform_sample_weight_changes_per_category_means():
+    """Fit nonuniform sample weight changes per category means."""
     from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
 
     cats, y = _toy_categorical()
@@ -58,6 +62,7 @@ def test_fit_nonuniform_sample_weight_changes_per_category_means():
 
 
 def test_fit_validates_sample_weight():
+    """Fit validates sample weight."""
     from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
 
     cats, y = _toy_categorical()

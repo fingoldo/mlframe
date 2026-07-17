@@ -55,6 +55,7 @@ def test_tc30_sequential_aging_empty_val_raises():
 
 
 def test_tc30_empty_test_raises():
+    """Tc30 empty test raises."""
     n = 20
     df = pd.DataFrame({"a": range(n)})
     ts = pd.Series(pd.date_range("2024-01-01", periods=n, freq="h"))

@@ -74,6 +74,7 @@ def _xgb_polars_cat_cast(input_for_model, cat_features):
 
 
 def test_pandas_object_cat_col_is_cast_to_categorical():
+    """Pandas object cat col is cast to categorical."""
     df = pd.DataFrame(
         {
             "num0": [1.0, 2.0, 3.0],
@@ -86,12 +87,14 @@ def test_pandas_object_cat_col_is_cast_to_categorical():
 
 
 def test_pandas_already_category_is_a_noop():
+    """Pandas already category is a noop."""
     df = pd.DataFrame({"cat": pd.Categorical(["A", "B"])})
     out = _xgb_pandas_cat_cast(df, ["cat"])
     assert out["cat"].dtype.name == "category"
 
 
 def test_pandas_unknown_cat_col_name_is_skipped():
+    """Pandas unknown cat col name is skipped."""
     df = pd.DataFrame({"x": [1.0]})
     out = _xgb_pandas_cat_cast(df, ["cat_low_missing"])
     assert "cat_low_missing" not in out.columns
@@ -100,6 +103,7 @@ def test_pandas_unknown_cat_col_name_is_skipped():
 
 @pytest.mark.skipif(pl is None, reason="polars not installed")
 def test_polars_string_cat_col_is_cast_to_categorical():
+    """Polars string cat col is cast to categorical."""
     df = pl.DataFrame(
         {
             "num0": [1.0, 2.0, 3.0],
@@ -113,6 +117,7 @@ def test_polars_string_cat_col_is_cast_to_categorical():
 
 @pytest.mark.skipif(pl is None, reason="polars not installed")
 def test_polars_already_categorical_is_a_noop():
+    """Polars already categorical is a noop."""
     df = pl.DataFrame(
         {
             "cat_low": pl.Series(["A", "B"], dtype=pl.Categorical),

@@ -88,6 +88,7 @@ def _regression_xy(n: int = 700, seed: int = 11):
 
 
 def _has_lightgbm() -> bool:
+    """Has lightgbm."""
     try:
         import lightgbm  # noqa: F401
 
@@ -101,7 +102,9 @@ def _has_lightgbm() -> bool:
 #     calibrate_conformal -> predict_interval.
 # ----------------------------------------------------------------------
 class TestHighLevelDiscoverAndWrapFlow:
+    """Groups tests covering high level discover and wrap flow."""
     def test_suggest_config_steers_on_skewed_temporal_frame(self) -> None:
+        """Suggest config steers on skewed temporal frame."""
         df, _tr, _ho = _temporal_skewed_frame()
         cfg, rationale = suggest_discovery_config(df, "y", ["lag", "f1", "f2"])
         # The suggestion must produce an enabled config and a rationale map.
@@ -111,6 +114,7 @@ class TestHighLevelDiscoverAndWrapFlow:
         assert "mi_sample_n" in rationale
 
     def test_discover_predict_calibrate_interval_end_to_end(self) -> None:
+        """Discover predict calibrate interval end to end."""
         df, tr, ho = _temporal_skewed_frame()
         res = discover_and_wrap(
             df,
@@ -144,6 +148,7 @@ class TestHighLevelDiscoverAndWrapFlow:
     def test_discover_and_wrap_no_spec_returns_graceful_none(self) -> None:
         # Pure-noise target with no usable base -> discovery yields no spec; the
         # helper must return estimator/spec=None and a non-empty report, not crash.
+        """Discover and wrap no spec returns graceful none."""
         rng = np.random.default_rng(0)
         n = 400
         df = pd.DataFrame(
@@ -169,7 +174,9 @@ class TestHighLevelDiscoverAndWrapFlow:
 # (2) Quantile estimator: non-crossing + coverage.
 # ----------------------------------------------------------------------
 class TestCompositeQuantileEstimator:
+    """Groups tests covering composite quantile estimator."""
     def test_non_crossing_and_central_coverage(self) -> None:
+        """Non crossing and central coverage."""
         pytest.importorskip("lightgbm")
         from lightgbm import LGBMRegressor
 
@@ -191,6 +198,7 @@ class TestCompositeQuantileEstimator:
         assert cov >= 0.70, f"central-band coverage {cov:.3f} < 0.70"
 
     def test_unfitted_predict_quantile_raises(self) -> None:
+        """Unfitted predict quantile raises."""
         pytest.importorskip("lightgbm")
         from lightgbm import LGBMRegressor
         from sklearn.exceptions import NotFittedError
@@ -207,7 +215,9 @@ class TestCompositeQuantileEstimator:
 # (3) Classification estimator: multiclass + calibration_report.
 # ----------------------------------------------------------------------
 class TestCompositeClassificationEstimator:
+    """Groups tests covering composite classification estimator."""
     def test_multiclass_proba_and_calibration_report(self) -> None:
+        """Multiclass proba and calibration report."""
         pytest.importorskip("lightgbm")
         from lightgbm import LGBMClassifier
 
@@ -236,7 +246,9 @@ class TestCompositeClassificationEstimator:
 # (4) GLM estimator: Poisson non-negative + finite.
 # ----------------------------------------------------------------------
 class TestCompositeGLMEstimator:
+    """Groups tests covering composite g l m estimator."""
     def test_poisson_predictions_nonnegative_finite(self) -> None:
+        """Poisson predictions nonnegative finite."""
         pytest.importorskip("lightgbm")
         from lightgbm import LGBMRegressor
 
@@ -256,6 +268,7 @@ class TestCompositeGLMEstimator:
         assert (pred >= 0.0).all(), "Poisson log-link mean must be non-negative"
 
     def test_negative_target_rejected(self) -> None:
+        """Negative target rejected."""
         pytest.importorskip("lightgbm")
         from lightgbm import LGBMRegressor
 
@@ -272,7 +285,9 @@ class TestCompositeGLMEstimator:
 # (5) Multi-output estimator: (n, K) shape.
 # ----------------------------------------------------------------------
 class TestCompositeMultiOutputEstimator:
+    """Groups tests covering composite multi output estimator."""
     def test_vector_target_shape_and_finiteness(self) -> None:
+        """Vector target shape and finiteness."""
         X, y, base = _regression_xy(n=600, seed=51)
         rng = np.random.default_rng(52)
         Y = np.column_stack([y, 0.8 * X["lag"].to_numpy() + rng.normal(0.0, 1.0, len(X))])
@@ -368,12 +383,15 @@ def test_property_every_transform_fit_predict_finite_in_envelope(transform_name)
 # (7) pandas / polars parity on the high-level point path.
 # ----------------------------------------------------------------------
 class TestPandasPolarsParity:
+    """Groups tests covering pandas polars parity."""
     def test_point_predictions_bit_identical_across_flavours(self) -> None:
+        """Point predictions bit identical across flavours."""
         pl = pytest.importorskip("polars")
         X, y, base = _regression_xy(n=500, seed=61)
         X_pl = pl.from_pandas(X)
 
         def _fit_predict(X_train, X_pred):
+            """Fit predict."""
             est = CompositeTargetEstimator(
                 base_estimator=HistGradientBoostingRegressor(max_iter=40, random_state=0),
                 transform_name="linear_residual",
@@ -459,12 +477,14 @@ def _families_for_roundtrip():
 @pytest.mark.parametrize("name,est,X,y", _families_for_roundtrip(), ids=lambda v: v if isinstance(v, str) else "")
 def test_pickle_and_clone_roundtrip(name, est, X, y) -> None:
     # Unfitted clone must reproduce the constructor params without error.
+    """Pickle and clone roundtrip."""
     cloned = clone(est)
     assert type(cloned) is type(est)
 
     est.fit(X, y)
 
     def _predict(e):
+        """Predict."""
         if hasattr(e, "predict_proba"):
             return e.predict_proba(X)
         return np.asarray(e.predict(X), dtype=np.float64)

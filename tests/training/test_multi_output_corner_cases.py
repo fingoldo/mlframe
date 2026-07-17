@@ -202,6 +202,7 @@ def test_iterstrat_import_error_has_install_hint():
         real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
 
         def fake_import(name, *args, **kwargs):
+            """Fake import."""
             if name.startswith("iterstrat"):
                 raise ImportError(f"No module named {name!r}")
             return real_import(name, *args, **kwargs)

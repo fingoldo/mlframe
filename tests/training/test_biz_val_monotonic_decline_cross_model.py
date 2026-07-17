@@ -37,6 +37,7 @@ def _overfit_prone_split():
     w = rng.normal(size=d)
 
     def make(n, noise):
+        """Make."""
         X = rng.normal(size=(n, d))
         logit = X @ w + rng.normal(size=n) * noise
         return X.astype(np.float32), (logit > 0).astype(int)
@@ -51,6 +52,7 @@ def _overfit_prone_split():
 
 
 def test_biz_val_lgb_monotonic_stops_earlier_no_test_regression():
+    """Biz val lgb monotonic stops earlier no test regression."""
     pytest.importorskip("lightgbm")
     from mlframe.training.lgb_shim import LGBMClassifierWithDatasetReuse
 
@@ -77,6 +79,7 @@ def test_biz_val_lgb_monotonic_stops_earlier_no_test_regression():
 
 
 def test_biz_val_xgb_monotonic_stops_earlier_no_test_regression():
+    """Biz val xgb monotonic stops earlier no test regression."""
     pytest.importorskip("xgboost")
     from mlframe.training.xgb_shim import XGBClassifierWithDMatrixReuse
 
@@ -103,6 +106,7 @@ def test_biz_val_xgb_monotonic_stops_earlier_no_test_regression():
 
 
 def test_biz_val_cb_monotonic_stops_earlier_no_test_regression():
+    """Biz val cb monotonic stops earlier no test regression."""
     catboost = pytest.importorskip("catboost")
     from mlframe.training.callbacks.monotonic_decline import (
         CBMonotonicDeclineStop,
@@ -150,6 +154,7 @@ def test_biz_val_mlp_monotonic_stops_earlier_no_test_regression():
     best_epoch_idx = val_loss.index(min(val_loss))
 
     def epochs_until_stop(patience):
+        """Epochs until stop."""
         s = MonotonicDeclineStopper(patience, mode="min")
         for epoch, v in enumerate(val_loss, start=1):
             if s.update(v):

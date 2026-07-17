@@ -45,7 +45,9 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 class TestMiPairBin:
+    """Groups tests covering mi pair bin."""
     def test_independent_inputs_near_zero(self) -> None:
+        """Independent inputs near zero."""
         rng = np.random.default_rng(0)
         n = 2000
         x = rng.normal(size=n)
@@ -55,6 +57,7 @@ class TestMiPairBin:
         assert mi < 0.1  # near zero for independent gaussians
 
     def test_correlated_inputs_substantial(self) -> None:
+        """Correlated inputs substantial."""
         rng = np.random.default_rng(1)
         n = 2000
         x = rng.normal(size=n)
@@ -64,11 +67,13 @@ class TestMiPairBin:
 
     def test_tiny_input_returns_zero(self) -> None:
         # n < 5 * nbins -> too few rows for stable estimate.
+        """Tiny input returns zero."""
         x = np.linspace(0, 1, 10)
         y = x.copy()
         assert _mi_pair_bin(x, y, nbins=16) == 0.0
 
     def test_non_finite_inputs_filtered(self) -> None:
+        """Non finite inputs filtered."""
         rng = np.random.default_rng(2)
         n = 2000
         x = rng.normal(size=n)
@@ -81,6 +86,7 @@ class TestMiPairBin:
         assert mi > 0.5
 
     def test_constant_input_gives_zero(self) -> None:
+        """Constant input gives zero."""
         x = np.full(2000, 7.0)  # constant
         y = np.random.default_rng(3).normal(size=2000)
         mi = _mi_pair_bin(x, y, nbins=16)
@@ -95,8 +101,10 @@ class TestMiPairBin:
 
 
 class TestMiToTarget:
+    """Groups tests covering mi to target."""
     @pytest.fixture
     def fixture(self):
+        """Fixture."""
         rng = np.random.default_rng(4)
         n = 2000
         # Three features with different strengths against the same target.
@@ -108,6 +116,7 @@ class TestMiToTarget:
         return X, target
 
     def test_bin_and_knn_both_positive(self, fixture) -> None:
+        """Bin and knn both positive."""
         X, y = fixture
         mi_bin = _mi_to_target(X, y, n_neighbors=3, random_state=0, estimator="bin", nbins=16)
         mi_knn = _mi_to_target(X, y, n_neighbors=3, random_state=0, estimator="knn")
@@ -117,6 +126,7 @@ class TestMiToTarget:
     def test_bin_estimator_faster_than_knn(self, fixture) -> None:
         # Sanity timing: bin should beat knn on the same data. We only
         # assert the speedup direction, not a specific factor (CI-safe).
+        """Bin estimator faster than knn."""
         import time
 
         X, y = fixture
@@ -139,11 +149,14 @@ class TestMiToTarget:
 
 
 class TestConfigValidators:
+    """Groups tests covering config validators."""
     def test_mi_estimator_normalised(self) -> None:
+        """Mi estimator normalised."""
         cfg = CompositeTargetDiscoveryConfig(mi_estimator="BIN")
         assert cfg.mi_estimator == "bin"
 
     def test_mi_estimator_invalid_raises(self) -> None:
+        """Mi estimator invalid raises."""
         with pytest.raises(ValueError, match="mi_estimator must be one of"):
             CompositeTargetDiscoveryConfig(mi_estimator="entropy_kraskov")
 
@@ -154,6 +167,7 @@ class TestConfigValidators:
 
 
 def _tvt_data(n: int = 1500, seed: int = 0) -> pd.DataFrame:
+    """Tvt data."""
     rng = np.random.default_rng(seed)
     base = rng.normal(loc=10.0, scale=3.0, size=n)
     x = rng.normal(size=(n, 4))
@@ -172,6 +186,7 @@ class TestDeterministicScreeningModels:
     GPU run required)."""
 
     def test_lightgbm_deterministic_kwargs(self) -> None:
+        """Lightgbm deterministic kwargs."""
         from mlframe.training.composite import _build_tiny_model
 
         m = _build_tiny_model(
@@ -188,6 +203,7 @@ class TestDeterministicScreeningModels:
         assert params.get("force_col_wise") is False, "LightGBM force_col_wise must be off when force_row_wise is on"
 
     def test_lightgbm_non_deterministic_default(self) -> None:
+        """Lightgbm non deterministic default."""
         from mlframe.training.composite import _build_tiny_model
 
         m = _build_tiny_model(
@@ -205,6 +221,7 @@ class TestDeterministicScreeningModels:
         assert params.get("force_col_wise") is True
 
     def test_xgboost_deterministic_uses_hist(self) -> None:
+        """Xgboost deterministic uses hist."""
         pytest.importorskip("xgboost")
         from mlframe.training.composite import _build_tiny_model
 
@@ -220,6 +237,7 @@ class TestDeterministicScreeningModels:
         assert params.get("tree_method") == "hist"
 
     def test_catboost_deterministic_uses_plain(self) -> None:
+        """Catboost deterministic uses plain."""
         pytest.importorskip("catboost")
         from mlframe.training.composite import _build_tiny_model
 
@@ -236,6 +254,7 @@ class TestDeterministicScreeningModels:
         assert params.get("boosting_type") == "Plain"
 
     def test_linear_unaffected(self) -> None:
+        """Linear unaffected."""
         from mlframe.training.composite import _build_tiny_model
 
         m_det = _build_tiny_model(
@@ -325,7 +344,9 @@ class TestDeterministicScreeningModels:
 
 
 class TestDiscoveryBinEstimator:
+    """Groups tests covering discovery bin estimator."""
     def test_bin_estimator_finds_dominant_base(self) -> None:
+        """Bin estimator finds dominant base."""
         df = _tvt_data()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -347,6 +368,7 @@ class TestDiscoveryBinEstimator:
         assert disc.specs_[0].base_column == "TVT_prev"
 
     def test_parallel_cv_folds_run_without_crash(self) -> None:
+        """Parallel cv folds run without crash."""
         df = _tvt_data()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
@@ -370,6 +392,7 @@ class TestDiscoveryBinEstimator:
         assert disc.specs_
 
     def test_bin_and_knn_pick_same_top_base(self) -> None:
+        """Bin and knn pick same top base."""
         df = _tvt_data()
         common = dict(
             enabled=True,

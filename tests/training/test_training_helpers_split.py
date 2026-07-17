@@ -9,6 +9,7 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
+    """Parent module."""
     from mlframe.training import helpers
 
     return helpers
@@ -16,16 +17,19 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def sibling():
+    """Sibling."""
     from mlframe.training import _helpers_training_configs
 
     return _helpers_training_configs
 
 
 def test_get_training_configs_identity(parent_module, sibling):
+    """Get training configs identity."""
     assert parent_module.get_training_configs is sibling.get_training_configs
 
 
 def test_facade_loc_budget(parent_module):
+    """Facade loc budget."""
     path = Path(parent_module.__file__)
     n_lines = len(path.read_text(encoding="utf-8").splitlines())
     assert n_lines <= 400, f"helpers.py facade is {n_lines} LOC, expected <= 400"
@@ -33,6 +37,7 @@ def test_facade_loc_budget(parent_module):
 
 def test_smoke_compute_cb_text_processing(parent_module):
     # Small training set -> non-None scaled config returned.
+    """Smoke compute cb text processing."""
     cfg = parent_module.compute_cb_text_processing(n_train_rows=200)
     assert cfg is not None
     assert "dictionaries" in cfg
@@ -41,6 +46,7 @@ def test_smoke_compute_cb_text_processing(parent_module):
 
 
 def test_smoke_parse_catboost_devices_explicit():
+    """Smoke parse catboost devices explicit."""
     from mlframe.training.helpers import parse_catboost_devices
 
     fake_gpus = [{"index": 0, "name": "g0"}, {"index": 1, "name": "g1"}, {"index": 2, "name": "g2"}]

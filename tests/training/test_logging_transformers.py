@@ -25,20 +25,26 @@ class _Dummy:
         self.fitted_ = False
 
     def fit(self, X, y=None):
+        """Fit."""
         self.fitted_ = True
         return self
 
     def transform(self, X):
+        """Transform."""
         return np.asarray(X) * self.factor
 
     def get_params(self, deep: bool = True):
+        """Get params."""
         return {"factor": self.factor}
 
 
 def test_log_resources_emits_structured_record(caplog):
+    """Log resources emits structured record."""
     class C:
+        """Groups tests covering c."""
         @log_resources()
         def fit(self, X):
+            """Fit."""
             return len(X)
 
     with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
@@ -55,12 +61,16 @@ def test_log_resources_emits_structured_record(caplog):
 
 
 def test_log_resources_custom_stage_and_extra_factory(caplog):
+    """Log resources custom stage and extra factory."""
     def factory(self, X, y=None):
+        """Factory."""
         return {"n_samples": len(X), "custom": "yes"}
 
     class C:
+        """Groups tests covering c."""
         @log_resources(stage="custom_stage", extra_factory=factory)
         def fit(self, X, y=None):
+            """Fit."""
             return self
 
     with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
@@ -73,8 +83,10 @@ def test_log_resources_custom_stage_and_extra_factory(caplog):
 
 
 def test_log_methods_stamps_fit_and_transform(caplog):
+    """Log methods stamps fit and transform."""
     @log_methods("fit", "transform", stage_prefix="dummy")
     class Logged(_Dummy):
+        """Groups tests covering logged."""
         pass
 
     with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
@@ -90,8 +102,10 @@ def test_log_methods_stamps_fit_and_transform(caplog):
 
 def test_log_methods_skips_missing_methods():
     # Should not raise even though _Dummy lacks 'fit_transform'.
+    """Log methods skips missing methods."""
     @log_methods("fit", "transform", "fit_transform")
     class Logged(_Dummy):
+        """Groups tests covering logged."""
         pass
 
     obj = Logged()
@@ -99,6 +113,7 @@ def test_log_methods_skips_missing_methods():
 
 
 def test_wrap_with_logging_on_standard_scaler(caplog):
+    """Wrap with logging on standard scaler."""
     X = np.array([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]])
     raw = StandardScaler()
     wrapped = wrap_with_logging(raw, stage="scaler")
@@ -116,6 +131,7 @@ def test_wrap_with_logging_on_standard_scaler(caplog):
 
 
 def test_wrap_with_logging_proxy_delegates_get_params():
+    """Wrap with logging proxy delegates get params."""
     raw = StandardScaler(with_mean=False)
     wrapped = wrap_with_logging(raw)
     params = wrapped.get_params()
@@ -123,6 +139,7 @@ def test_wrap_with_logging_proxy_delegates_get_params():
 
 
 def test_wrap_with_logging_forwards_arbitrary_attributes():
+    """Wrap with logging forwards arbitrary attributes."""
     obj = _Dummy(factor=7.0)
     wrapped = wrap_with_logging(obj, methods=("fit", "transform"))
     assert wrapped.factor == 7.0
@@ -132,6 +149,7 @@ def test_wrap_with_logging_forwards_arbitrary_attributes():
 
 def test_wrap_with_logging_skips_missing_methods():
     # _Dummy has no fit_transform, should silently skip.
+    """Wrap with logging skips missing methods."""
     wrapped = wrap_with_logging(_Dummy(), methods=("fit", "transform", "fit_transform"))
     # fit_transform shouldn't exist as an instrumented method on the proxy class,
     # but attribute access falls through __getattr__ to the inner object, which

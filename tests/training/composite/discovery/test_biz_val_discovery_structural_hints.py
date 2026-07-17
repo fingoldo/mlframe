@@ -56,6 +56,7 @@ warnings.filterwarnings("ignore")
 
 
 def test_residual_variance_ratio_collapses_on_affine() -> None:
+    """Residual variance ratio collapses on affine."""
     rng = np.random.default_rng(0)
     x = rng.standard_normal(2000)
     y = 3.0 * x + 1.0 + rng.standard_normal(2000) * 0.05  # near-affine
@@ -64,6 +65,7 @@ def test_residual_variance_ratio_collapses_on_affine() -> None:
 
 
 def test_residual_variance_ratio_full_on_noise() -> None:
+    """Residual variance ratio full on noise."""
     rng = np.random.default_rng(1)
     x = rng.standard_normal(2000)
     y = rng.standard_normal(2000)  # independent
@@ -72,37 +74,44 @@ def test_residual_variance_ratio_full_on_noise() -> None:
 
 
 def test_residual_variance_ratio_constant_x_is_one() -> None:
+    """Residual variance ratio constant x is one."""
     y = np.arange(100, dtype=np.float64)
     x = np.full(100, 7.0)
     assert _residual_variance_ratio(y, x) == 1.0
 
 
 def test_is_low_card_integer_true_on_grouping() -> None:
+    """Is low card integer true on grouping."""
     rng = np.random.default_rng(2)
     col = rng.integers(0, 8, size=2000).astype(np.float64)  # 8 levels
     assert _is_low_card_integer(col)
 
 
 def test_is_low_card_integer_false_on_continuous() -> None:
+    """Is low card integer false on continuous."""
     rng = np.random.default_rng(3)
     assert not _is_low_card_integer(rng.standard_normal(2000))
 
 
 def test_is_low_card_integer_false_on_id_column() -> None:
     # One level per row -> id, not a grouping.
+    """Is low card integer false on id column."""
     assert not _is_low_card_integer(np.arange(2000, dtype=np.float64))
 
 
 def test_monotone_fraction_one_on_strictly_increasing() -> None:
+    """Monotone fraction one on strictly increasing."""
     assert _monotone_fraction(np.arange(500, dtype=np.float64)) == 1.0
 
 
 def test_monotone_fraction_low_on_noise() -> None:
+    """Monotone fraction low on noise."""
     rng = np.random.default_rng(4)
     assert _monotone_fraction(rng.standard_normal(2000)) < 0.7
 
 
 def test_structural_scores_tag_each_kind() -> None:
+    """Structural scores tag each kind."""
     rng = np.random.default_rng(5)
     n = 2000
     y = rng.standard_normal(n)
@@ -124,6 +133,7 @@ def test_structural_scores_tag_each_kind() -> None:
 
 
 def test_boost_zero_when_no_structure() -> None:
+    """Boost zero when no structure."""
     rng = np.random.default_rng(6)
     n = 2000
     y = rng.standard_normal(n)
@@ -139,6 +149,7 @@ def test_boost_zero_when_no_structure() -> None:
 
 
 def _make_discovery(**overrides) -> CompositeTargetDiscovery:
+    """Make discovery."""
     params = dict(
         enabled=True,
         base_candidates="auto",

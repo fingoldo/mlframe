@@ -13,10 +13,12 @@ from mlframe.training.strategies import get_strategy
 
 
 def _strats(models):
+    """Strats."""
     return [get_strategy(m) for m in models]
 
 
 def test_cb_instance_detected_same_as_cb_alias():
+    """Cb instance detected same as cb alias."""
     cb = pytest.importorskip("catboost")
     inst = cb.CatBoostClassifier()
 
@@ -30,6 +32,7 @@ def test_cb_instance_detected_same_as_cb_alias():
 
 
 def test_mixed_cb_instance_plus_linear_is_not_all_native():
+    """Mixed cb instance plus linear is not all native."""
     cb = pytest.importorskip("catboost")
     has_cb, all_native = _detect_native_cat_models(_strats([cb.CatBoostClassifier(), "linear"]))
     assert has_cb is True
@@ -37,4 +40,5 @@ def test_mixed_cb_instance_plus_linear_is_not_all_native():
 
 
 def test_empty_models_detects_nothing():
+    """Empty models detects nothing."""
     assert _detect_native_cat_models([]) == (False, False)

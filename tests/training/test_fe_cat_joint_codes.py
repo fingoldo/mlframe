@@ -43,6 +43,7 @@ def test_cat_codes_consistent_across_train_val_test():
 
     # Same string -> same code across frames.
     def code_for(df, value):
+        """Code for."""
         idx = (df["x"] == value).idxmax()
         return int(df["x"].cat.codes.iloc[idx])
 

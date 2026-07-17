@@ -19,6 +19,7 @@ from mlframe.training._training_loop import _train_model_with_fallback
 
 
 def test_train_model_with_fallback_skips_zero_feature_catboost():
+    """Train model with fallback skips zero feature catboost."""
     cb = pytest.importorskip("catboost")
     model = cb.CatBoostRegressor(iterations=5, verbose=0)
     train_df = pd.DataFrame(index=range(40))  # 40 rows, 0 columns

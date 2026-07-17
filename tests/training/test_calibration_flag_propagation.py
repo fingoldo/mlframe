@@ -36,11 +36,13 @@ from tests.conftest import fast_subset
 
 
 def _identity(x):
+    """Identity."""
     return x
 
 
 @pytest.fixture(scope="module")
 def real_configs():
+    """Real configs."""
     cpu = get_training_configs(iterations=10, has_gpu=False)
     return cpu, cpu
 
@@ -57,6 +59,7 @@ def _classifier_eval_metric(model):
 
 
 def test_xgb_classifier_eval_metric_differs_with_flag(real_configs):
+    """Xgb classifier eval metric differs with flag."""
     cpu, gpu = real_configs
     kwargs = dict(
         configs=gpu,
@@ -76,6 +79,7 @@ def test_xgb_classifier_eval_metric_differs_with_flag(real_configs):
 
 
 def test_lgb_classifier_fit_params_eval_metric_only_when_calibrated(real_configs):
+    """Lgb classifier fit params eval metric only when calibrated."""
     cpu, gpu = real_configs
     kwargs = dict(
         configs=gpu,

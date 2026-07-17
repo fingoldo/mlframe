@@ -20,9 +20,11 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def _make_self(config, X: np.ndarray, feature_names: list[str], target_col: str | None = None):
+    """Make self."""
     name_to_col = {n: i for i, n in enumerate(feature_names)}
 
     def _build_feature_matrix(df, cols, idx):
+        """Build feature matrix."""
         if not cols:
             return np.zeros((idx.size, 0), dtype=np.float64)
         return np.column_stack([X[idx, name_to_col[c]] for c in cols])
@@ -36,6 +38,7 @@ def _make_self(config, X: np.ndarray, feature_names: list[str], target_col: str 
 
 
 def _cfg(**overrides):
+    """Cfg."""
     cfg = CompositeTargetDiscoveryConfig(
         enabled=True,
         auto_base_top_k=10,
@@ -60,6 +63,7 @@ def _dominant_base(n, rng, scale=5.0):
 
 
 def test_near_copy_with_learnable_residual_is_exempted():
+    """Near copy with learnable residual is exempted."""
     rng = np.random.default_rng(0)
     n = 5000
     base = _dominant_base(n, rng)
@@ -73,6 +77,7 @@ def test_near_copy_with_learnable_residual_is_exempted():
 
 
 def test_near_copy_with_noise_residual_is_dropped():
+    """Near copy with noise residual is dropped."""
     rng = np.random.default_rng(1)
     n = 5000
     base = _dominant_base(n, rng)
@@ -85,6 +90,7 @@ def test_near_copy_with_noise_residual_is_dropped():
 
 
 def test_precheck_off_drops_all_near_copies():
+    """Precheck off drops all near copies."""
     rng = np.random.default_rng(0)
     n = 5000
     base = _dominant_base(n, rng)
@@ -98,6 +104,7 @@ def test_precheck_off_drops_all_near_copies():
 
 
 def test_causal_provenance_near_copy_stays_exempt_regardless():
+    """Causal provenance near copy stays exempt regardless."""
     rng = np.random.default_rng(2)
     n = 5000
     base = _dominant_base(n, rng)
@@ -110,6 +117,7 @@ def test_causal_provenance_near_copy_stays_exempt_regardless():
 
 
 def test_degenerate_no_other_features_drops_near_copy():
+    """Degenerate no other features drops near copy."""
     rng = np.random.default_rng(3)
     n = 300  # tiny n + only the base column present -> nothing to learn the residual from
     base = _dominant_base(n, rng)

@@ -35,51 +35,61 @@ MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
+    """Read."""
     return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
 
 
 def test_active_virtual_uncertainty_uses_lexsort() -> None:
+    """Active virtual uncertainty uses lexsort."""
     src = _read("feature_engineering/transformer/active_virtual.py")
     assert src.count("np.lexsort((np.arange(len(uncertainty)), -uncertainty))") >= 2
 
 
 def test_pseudo_smote_topk_uses_lexsort() -> None:
+    """Pseudo smote topk uses lexsort."""
     src = _read("feature_engineering/transformer/pseudo_smote.py")
     assert "np.lexsort((np.arange(len(proba)), -proba))" in src
     assert "np.lexsort((np.arange(len(pred)), -pred))" in src
 
 
 def test_tree_path_boolean_uses_lexsort() -> None:
+    """Tree path boolean uses lexsort."""
     src = _read("feature_engineering/transformer/tree_path_boolean.py")
     assert "np.lexsort((np.arange(len(_scores_arr)), -_scores_arr))[:top_k]" in src
 
 
 def test_apriori_itemsets_uses_lexsort() -> None:
+    """Apriori itemsets uses lexsort."""
     src = _read("feature_engineering/transformer/apriori_itemsets.py")
     assert "np.lexsort((np.arange(len(_lifts_arr)), -_lifts_arr))[:top_k]" in src
 
 
 def test_multi_threshold_ordinal_uses_lexsort() -> None:
+    """Multi threshold ordinal uses lexsort."""
     src = _read("feature_engineering/transformer/multi_threshold_ordinal.py")
     assert "np.lexsort((-np.arange(len(_imp)), _imp))[-3:]" in src
 
 
 def test_multi_baseline_hard_row_uses_lexsort() -> None:
+    """Multi baseline hard row uses lexsort."""
     src = _read("feature_engineering/transformer/multi_baseline_hard_row.py")
     assert "np.lexsort((np.arange(len(sub_values)), -sub_values))[:k_eff]" in src
 
 
 def test_class_balanced_hard_row_uses_lexsort() -> None:
+    """Class balanced hard row uses lexsort."""
     src = _read("feature_engineering/transformer/class_balanced_hard_row.py")
     assert "np.lexsort((np.arange(len(sub_values)), -sub_values))[:k_eff]" in src
 
 
 def test_multi_temp_cbhr_uses_lexsort() -> None:
+    """Multi temp cbhr uses lexsort."""
     src = _read("feature_engineering/transformer/multi_temp_cbhr.py")
     assert "np.lexsort((np.arange(len(sub_values)), -sub_values))[:k_eff]" in src
 
 
 def test_hard_row_attention_uses_lexsort_replaces_argpartition() -> None:
+    """Hard row attention uses lexsort replaces argpartition."""
     src = _read("feature_engineering/transformer/hard_row_attention.py")
     assert "np.lexsort((np.arange(len(abs_residuals)), -abs_residuals))[:k_eff]" in src
     assert "np.lexsort((np.arange(len(abs_residuals)), -abs_residuals))[:n_hard]" in src

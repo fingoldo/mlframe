@@ -28,6 +28,7 @@ from mlframe.training.phases import (
 def _isolate_registry():
     # Snapshot+restore semantics: clear before each test, clear after so
     # parallel test files do not see leaked phase rows.
+    """Isolate registry."""
     reset_phase_registry()
     yield
     reset_phase_registry()
@@ -45,6 +46,7 @@ def fake_phase_timer(monkeypatch):
     counter = {"t": 0.0}
 
     def _tick() -> float:
+        """Tick."""
         counter["t"] += 1.0
         return counter["t"]
 
@@ -53,6 +55,7 @@ def fake_phase_timer(monkeypatch):
 
 
 def test_reset_phase_registry_clears_state():
+    """Reset phase registry clears state."""
     record_phase("p1", 0.5)
     record_phase("p2", 1.0)
     assert len(phase_snapshot()) == 2
@@ -61,6 +64,7 @@ def test_reset_phase_registry_clears_state():
 
 
 def test_record_phase_aggregates_by_name():
+    """Record phase aggregates by name."""
     record_phase("io", 0.5)
     record_phase("io", 1.5)
     record_phase("io", 2.0)
@@ -73,6 +77,7 @@ def test_record_phase_aggregates_by_name():
 
 
 def test_phase_snapshot_sorted_by_total_desc():
+    """Phase snapshot sorted by total desc."""
     record_phase("short", 0.1)
     record_phase("long", 10.0)
     record_phase("medium", 2.0)
@@ -84,6 +89,7 @@ def test_phase_snapshot_sorted_by_total_desc():
 
 
 def test_record_phase_with_ram_delta_accumulates():
+    """Record phase with ram delta accumulates."""
     record_phase("alloc", 0.1, ram_delta_gb=0.5)
     record_phase("alloc", 0.1, ram_delta_gb=0.7)
     record_phase("noalloc", 0.1, ram_delta_gb=0.0)
@@ -95,6 +101,7 @@ def test_record_phase_with_ram_delta_accumulates():
 
 
 def test_phase_ram_snapshot_sorted_by_abs_magnitude():
+    """Phase ram snapshot sorted by abs magnitude."""
     record_phase("a", 0.1, ram_delta_gb=-2.0)
     record_phase("b", 0.1, ram_delta_gb=0.5)
     record_phase("c", 0.1, ram_delta_gb=3.0)
@@ -105,11 +112,13 @@ def test_phase_ram_snapshot_sorted_by_abs_magnitude():
 
 
 def test_format_phase_summary_empty_registry():
+    """Format phase summary empty registry."""
     out = format_phase_summary()
     assert "no timings recorded" in out
 
 
 def test_format_phase_summary_truncates_to_top_n():
+    """Format phase summary truncates to top n."""
     for i in range(20):
         record_phase(f"phase_{i:02d}", float(i + 1))
     out = format_phase_summary(top=5)
@@ -120,6 +129,7 @@ def test_format_phase_summary_truncates_to_top_n():
 
 
 def test_format_phase_summary_renders_phase_names_and_totals():
+    """Format phase summary renders phase names and totals."""
     record_phase("fit_cb", 12.34, ram_delta_gb=0.0)
     record_phase("predict", 5.67, ram_delta_gb=0.0)
     out = format_phase_summary()
@@ -130,6 +140,7 @@ def test_format_phase_summary_renders_phase_names_and_totals():
 
 
 def test_phase_contextmanager_records_duration(fake_phase_timer):
+    """Phase contextmanager records duration."""
     with phase("ctx_test"):
         pass
     snap = phase_snapshot()
@@ -143,6 +154,7 @@ def test_phase_contextmanager_records_duration(fake_phase_timer):
 def test_phase_contextmanager_records_on_exception(fake_phase_timer):
     # On an in-block exception, the phase must STILL be recorded with a
     # finite duration so the operator can see which phase crashed.
+    """Phase contextmanager records on exception."""
     with pytest.raises(ValueError):
         with phase("crash_test"):
             raise ValueError("boom")
@@ -154,6 +166,7 @@ def test_phase_contextmanager_records_on_exception(fake_phase_timer):
 
 
 def test_phase_nested_context_managers_record_separately(fake_phase_timer):
+    """Phase nested context managers record separately."""
     with phase("outer"):
         with phase("inner"):
             pass
@@ -168,6 +181,7 @@ def test_phase_nested_context_managers_record_separately(fake_phase_timer):
 
 def test_phase_emits_start_and_done_log_lines(caplog):
     # Logs at DEBUG by default; set caplog to capture both START and DONE.
+    """Phase emits start and done log lines."""
     with caplog.at_level(logging.DEBUG, logger="mlframe.training.phases"):
         with phase("logged", model="cb"):
             pass
@@ -179,6 +193,7 @@ def test_phase_emits_start_and_done_log_lines(caplog):
 
 
 def test_phase_emits_warning_on_exception(caplog):
+    """Phase emits warning on exception."""
     with caplog.at_level(logging.DEBUG, logger="mlframe.training.phases"):
         with pytest.raises(RuntimeError):
             with phase("warn_test"):
@@ -191,7 +206,9 @@ def test_phase_emits_warning_on_exception(caplog):
 
 def test_phase_registry_thread_safety():
     # Two threads both writing distinct phases must not lose rows.
+    """Phase registry thread safety."""
     def worker(thread_id: int):
+        """Worker."""
         for i in range(50):
             record_phase(f"t{thread_id}_p{i}", 0.001)
 
@@ -208,7 +225,9 @@ def test_phase_registry_thread_safety():
 def test_phase_registry_thread_safety_same_name():
     # 4 threads all writing the SAME name must accumulate without lost
     # increments (lock around totals + counts).
+    """Phase registry thread safety same name."""
     def worker():
+        """Worker."""
         for _ in range(100):
             record_phase("shared", 0.001)
 

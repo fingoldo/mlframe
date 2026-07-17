@@ -16,12 +16,14 @@ pl = pytest.importorskip("polars")
 
 
 class _FSCfg:
+    """Groups tests covering f s cfg."""
     pre_screen_unsupervised = True
     pre_screen_variance_threshold = 0.0
     pre_screen_null_fraction_threshold = 0.99
 
 
 def _make_ctx(df):
+    """Make ctx."""
     return types.SimpleNamespace(
         feature_selection_config=_FSCfg(),
         _pre_screen_done=False,
@@ -49,6 +51,7 @@ def _make_ctx(df):
 
 
 def test_pre_screen_runs_on_polars_only_frame_and_drops_constant_col():
+    """Pre screen runs on polars only frame and drops constant col."""
     from mlframe.training.core._phase_train_one_target_pre_screen import _maybe_run_unsupervised_pre_screen
 
     df = pl.DataFrame(

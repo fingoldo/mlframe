@@ -37,6 +37,7 @@ from mlframe.training.helpers import (
 
 
 def _make_multilabel(N=300, K=3, seed=0):
+    """Make multilabel."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((N, 5)).astype(np.float64)
     logit0 = X[:, 0] - 0.3 * X[:, 1]

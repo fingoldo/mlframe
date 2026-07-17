@@ -8,6 +8,7 @@ from mlframe.training._tta import tta_predict, tta_predict_spread, tta_point_mea
 
 
 def test_tta_noop_when_sigma_zero_or_single_sample():
+    """Tta noop when sigma zero or single sample."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((100, 3))
 
@@ -19,6 +20,7 @@ def test_tta_noop_when_sigma_zero_or_single_sample():
 
 
 def test_tta_mean_unbiased_for_linear_model():
+    """Tta mean unbiased for linear model."""
     rng = np.random.default_rng(1)
     X = rng.standard_normal((2000, 4))
     w = np.array([1.0, -2.0, 0.5, 0.0])
@@ -32,10 +34,12 @@ def test_tta_mean_unbiased_for_linear_model():
 
 
 def test_tta_probabilities_stay_simplex():
+    """Tta probabilities stay simplex."""
     rng = np.random.default_rng(2)
     X = rng.standard_normal((500, 3))
 
     def proba(Z):
+        """Proba."""
         s = Z[:, 0]
         p1 = 1.0 / (1.0 + np.exp(-s))
         return np.column_stack([1 - p1, p1])
@@ -46,15 +50,18 @@ def test_tta_probabilities_stay_simplex():
 
 
 def test_tta_spread_zero_for_constant_model_positive_otherwise():
+    """Tta spread zero for constant model positive otherwise."""
     rng = np.random.default_rng(3)
     X = rng.standard_normal((300, 3))
 
     def const(Z):
+        """Const."""
         return np.ones(Z.shape[0])
 
     assert np.allclose(tta_predict_spread(const, X, n=16, sigma_scale=0.1), 0.0)
 
     def sens(Z):
+        """Sens."""
         return Z[:, 0] * 5.0
 
     sp = tta_predict_spread(sens, X, n=16, sigma_scale=0.1, seed=1)
@@ -74,6 +81,7 @@ def test_biz_val_tta_improves_noisy_regression_rmse():
 
     def jittery(Z):
         # prediction = signal + a noise term that depends on the (perturbed) input -> averaging cancels it
+        """Jittery."""
         return Z[:, 0] * 1.5 - Z[:, 1] + 0.8 * np.sin(13.0 * Z[:, 2])
 
     rmse_clean = np.sqrt(np.mean((jittery(X) - true) ** 2))
@@ -83,6 +91,7 @@ def test_biz_val_tta_improves_noisy_regression_rmse():
 
 
 def _identity_stack(Z):
+    """Identity stack."""
     return Z.copy()
 
 
@@ -114,6 +123,7 @@ def test_tta_passes_are_mutually_diverse():
     X = rng.standard_normal((40, 3))
 
     def sens(Z):
+        """Sens."""
         return Z[:, 0] * 3.0 + Z[:, 1]
 
     sp = tta_predict_spread(sens, X, n=12, sigma_scale=0.2, seed=9)

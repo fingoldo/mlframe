@@ -18,10 +18,12 @@ _LOGGER = "mlframe.training.core._phase_helpers_fit_split"
 
 
 def _df():
+    """Df."""
     return pd.DataFrame({"t": np.arange(10), "x": np.arange(10)})
 
 
 def test_time_column_with_random_strategy_warns(caplog):
+    """Time column with random strategy warns."""
     cfg = TrainingSplitConfig(time_column="t", cv_strategy="random")
     with caplog.at_level(logging.WARNING, logger=_LOGGER):
         out = _resolve_timeseries_timestamps(None, cfg, _df())
@@ -33,6 +35,7 @@ def test_time_column_with_random_strategy_warns(caplog):
 
 
 def test_no_time_column_does_not_warn(caplog):
+    """No time column does not warn."""
     cfg = TrainingSplitConfig(cv_strategy="random")  # no time_column
     with caplog.at_level(logging.WARNING, logger=_LOGGER):
         _resolve_timeseries_timestamps(None, cfg, _df())
@@ -41,6 +44,7 @@ def test_no_time_column_does_not_warn(caplog):
 
 @pytest.mark.parametrize("strategy", ["timeseries", "purged"])
 def test_time_column_with_temporal_strategy_does_not_warn(caplog, strategy):
+    """Time column with temporal strategy does not warn."""
     cfg = TrainingSplitConfig(time_column="t", cv_strategy=strategy)
     with caplog.at_level(logging.WARNING, logger=_LOGGER):
         out = _resolve_timeseries_timestamps(None, cfg, _df())

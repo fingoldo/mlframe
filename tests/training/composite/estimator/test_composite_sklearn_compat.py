@@ -30,6 +30,7 @@ from mlframe.training.composite.sklearn_compat import (
 
 
 def test_module_smoke_import():
+    """Module smoke import."""
     import importlib
 
     m = importlib.import_module("mlframe.training.composite.sklearn_compat")
@@ -42,6 +43,7 @@ def test_module_smoke_import():
 
 
 def _synth(n: int = 400, seed: int = 0):
+    """Synth."""
     rng = np.random.default_rng(seed)
     base = rng.normal(5.0, 1.0, n)
     f1 = rng.normal(size=n)
@@ -55,6 +57,7 @@ def _synth(n: int = 400, seed: int = 0):
 
 
 def test_make_composite_regressor_returns_estimator():
+    """Make composite regressor returns estimator."""
     reg = make_composite_regressor(LinearRegression(), "diff", "base")
     assert isinstance(reg, CompositeTargetEstimator)
     assert reg.transform_name == "diff"
@@ -62,6 +65,7 @@ def test_make_composite_regressor_returns_estimator():
 
 
 def test_make_composite_regressor_eager_validates_unknown_transform():
+    """Make composite regressor eager validates unknown transform."""
     from mlframe.training.composite.transforms import UnknownTransformError
 
     with pytest.raises(UnknownTransformError):
@@ -69,16 +73,19 @@ def test_make_composite_regressor_eager_validates_unknown_transform():
 
 
 def test_make_composite_regressor_requires_base_for_base_transform():
+    """Make composite regressor requires base for base transform."""
     with pytest.raises(ValueError, match="requires a base"):
         make_composite_regressor(LinearRegression(), "diff", "")
 
 
 def test_make_composite_regressor_unary_no_base_ok():
+    """Make composite regressor unary no base ok."""
     reg = make_composite_regressor(LinearRegression(), "cbrt_y", "")
     assert isinstance(reg, CompositeTargetEstimator)
 
 
 def test_make_composite_regressor_passes_through_kwargs():
+    """Make composite regressor passes through kwargs."""
     reg = make_composite_regressor(LinearRegression(), "diff", "base", fallback_predict="nan", drop_invalid_rows=False)
     assert reg.fallback_predict == "nan"
     assert reg.drop_invalid_rows is False
@@ -88,6 +95,7 @@ def test_pipeline_with_composite_regressor_fits_and_predicts():
     # Scaler over feature columns, composite regressor as final step. The base
     # column survives the scaler (StandardScaler keeps column names off; we use
     # a frame-preserving setup so the wrapper can pull 'base' at predict).
+    """Pipeline with composite regressor fits and predicts."""
     X, y = _synth()
     pipe = Pipeline(
         steps=[
@@ -103,6 +111,7 @@ def test_pipeline_with_composite_regressor_fits_and_predicts():
 
 
 def test_make_composite_regressor_clone_roundtrips():
+    """Make composite regressor clone roundtrips."""
     reg = make_composite_regressor(LinearRegression(), "diff", "base")
     cloned = clone(reg)
     assert isinstance(cloned, CompositeTargetEstimator)
@@ -118,6 +127,7 @@ def test_make_composite_regressor_clone_roundtrips():
 
 
 def test_transformer_forward_inverse_roundtrip_base():
+    """Transformer forward inverse roundtrip base."""
     X, y = _synth()
     tr = CompositeTargetTransformer("diff", "base")
     tr.fit(y, X)
@@ -127,6 +137,7 @@ def test_transformer_forward_inverse_roundtrip_base():
 
 
 def test_transformer_forward_inverse_roundtrip_unary():
+    """Transformer forward inverse roundtrip unary."""
     _, y = _synth()
     y_pos = np.abs(y) + 1.0
     tr = CompositeTargetTransformer("cbrt_y")
@@ -137,6 +148,7 @@ def test_transformer_forward_inverse_roundtrip_unary():
 
 
 def test_transformer_func_inverse_func_are_bound_methods():
+    """Transformer func inverse func are bound methods."""
     tr = CompositeTargetTransformer("diff", "base")
     # property returns the bound methods (picklable, no closure)
     assert tr.func == tr.transform
@@ -144,6 +156,7 @@ def test_transformer_func_inverse_func_are_bound_methods():
 
 
 def test_ttr_base_transform_via_func_inverse_func():
+    """Ttr base transform via func inverse func."""
     X, y = _synth()
     Xf = X.drop(columns=["base"])
     tr = CompositeTargetTransformer("diff", "base")
@@ -164,6 +177,7 @@ def test_ttr_base_transform_via_func_inverse_func():
 
 
 def test_ttr_unary_transform_via_transformer_instance():
+    """Ttr unary transform via transformer instance."""
     X, y = _synth()
     Xf = X.drop(columns=["base"])
     y_pos = np.abs(y) + 1.0
@@ -181,6 +195,7 @@ def test_ttr_unary_transform_via_transformer_instance():
 
 
 def test_transformer_clone_roundtrips():
+    """Transformer clone roundtrips."""
     tr = CompositeTargetTransformer("diff", "base", feature_names_out=["z"])
     cloned = clone(tr)
     assert isinstance(cloned, CompositeTargetTransformer)
@@ -190,6 +205,7 @@ def test_transformer_clone_roundtrips():
 
 
 def test_transformer_pickle_roundtrips():
+    """Transformer pickle roundtrips."""
     import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
     X, y = _synth()
@@ -200,24 +216,28 @@ def test_transformer_pickle_roundtrips():
 
 
 def test_get_feature_names_out_configured():
+    """Get feature names out configured."""
     tr = CompositeTargetTransformer("diff", "base", feature_names_out=["a", "b"])
     out = tr.get_feature_names_out()
     assert list(out) == ["a", "b"]
 
 
 def test_get_feature_names_out_echoes_input():
+    """Get feature names out echoes input."""
     tr = CompositeTargetTransformer("diff", "base")
     out = tr.get_feature_names_out(["c1", "c2", "c3"])
     assert list(out) == ["c1", "c2", "c3"]
 
 
 def test_get_feature_names_out_default_synthetic():
+    """Get feature names out default synthetic."""
     tr = CompositeTargetTransformer("diff", "base")
     out = tr.get_feature_names_out()
     assert list(out) == ["diff_target"]
 
 
 def test_transformer_base_array_path():
+    """Transformer base array path."""
     X, y = _synth()
     base = X["base"].to_numpy()
     tr = CompositeTargetTransformer("diff", base=base)
@@ -227,6 +247,7 @@ def test_transformer_base_array_path():
 
 
 def test_transformer_base_length_mismatch_raises():
+    """Transformer base length mismatch raises."""
     _, y = _synth(n=100)
     tr = CompositeTargetTransformer("diff", base=np.arange(50, dtype=float))
     with pytest.raises(ValueError, match="base length"):
@@ -234,6 +255,7 @@ def test_transformer_base_length_mismatch_raises():
 
 
 def test_transformer_missing_base_raises():
+    """Transformer missing base raises."""
     _, y = _synth()
     tr = CompositeTargetTransformer("diff")  # base transform, no base anywhere
     with pytest.raises(ValueError, match="requires a base"):
@@ -241,6 +263,7 @@ def test_transformer_missing_base_raises():
 
 
 def test_transformer_replay_row_count_mismatch_raises():
+    """Transformer replay row count mismatch raises."""
     X, y = _synth(n=200)
     tr = CompositeTargetTransformer("diff", "base")
     tr.fit(y, X)

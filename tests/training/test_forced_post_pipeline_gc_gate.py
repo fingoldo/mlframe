@@ -11,18 +11,21 @@ from mlframe.training.core import _phase_helpers as ph
 
 
 def test_forced_gc_skipped_on_small_frame():
+    """Forced gc skipped on small frame."""
     assert ph._should_force_post_pipeline_gc(10.0) is False
     assert ph._should_force_post_pipeline_gc(None) is False
     assert ph._should_force_post_pipeline_gc(0) is False
 
 
 def test_forced_gc_fires_on_large_frame():
+    """Forced gc fires on large frame."""
     assert ph._should_force_post_pipeline_gc(ph._FORCED_GC_MIN_DF_MB) is True
     assert ph._should_force_post_pipeline_gc(ph._FORCED_GC_MIN_DF_MB + 1) is True
     assert ph._should_force_post_pipeline_gc(50_000.0) is True
 
 
 def test_forced_gc_threshold_zero_restores_legacy_always_force(monkeypatch):
+    """Forced gc threshold zero restores legacy always force."""
     monkeypatch.setattr(ph, "_FORCED_GC_MIN_DF_MB", 0.0)
     assert ph._should_force_post_pipeline_gc(1.0) is True
     assert ph._should_force_post_pipeline_gc(0) is True

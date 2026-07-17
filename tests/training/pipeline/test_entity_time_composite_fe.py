@@ -20,6 +20,7 @@ from mlframe.training.pipeline._entity_time_composite_fe import apply_entity_tim
 
 
 def _entity_frame(n=300, seed=0):
+    """Entity frame."""
     rng = np.random.default_rng(seed)
     group_ids = rng.integers(0, 20, n)
     ts = np.arange(n).astype(np.float64)
@@ -30,6 +31,7 @@ def _entity_frame(n=300, seed=0):
 
 
 def test_apply_entity_time_composite_fe_noop_when_group_ids_none():
+    """Apply entity time composite fe noop when group ids none."""
     df, _, ts = _entity_frame()
     cfg = PreprocessingExtensionsConfig(state_duration_columns=["state_col"], recency_aggregation_columns=["val_col"])
     train, _val, _test = apply_entity_time_composite_fe(
@@ -48,6 +50,7 @@ def test_apply_entity_time_composite_fe_noop_when_group_ids_none():
 
 
 def test_apply_entity_time_composite_fe_noop_when_no_columns_declared():
+    """Apply entity time composite fe noop when no columns declared."""
     df, group_ids, ts = _entity_frame()
     cfg = PreprocessingExtensionsConfig()
     train, _, _ = apply_entity_time_composite_fe(df, None, None, cfg, group_ids, ts, np.arange(len(df)), None, None, verbose=0)
@@ -55,6 +58,7 @@ def test_apply_entity_time_composite_fe_noop_when_no_columns_declared():
 
 
 def test_apply_entity_time_composite_fe_schema_aligned_across_splits():
+    """Apply entity time composite fe schema aligned across splits."""
     df, group_ids, ts = _entity_frame()
     cfg = PreprocessingExtensionsConfig(state_duration_columns=["state_col"], recency_aggregation_columns=["val_col"])
     train_idx, val_idx, test_idx = np.arange(0, 200), np.arange(200, 250), np.arange(250, 300)
@@ -80,6 +84,7 @@ def test_apply_entity_time_composite_fe_schema_aligned_across_splits():
 
 
 def test_apply_entity_time_composite_fe_polars_roundtrip():
+    """Apply entity time composite fe polars roundtrip."""
     n = 200
     rng = np.random.default_rng(2)
     group_ids = rng.integers(0, 10, n)
@@ -92,6 +97,7 @@ def test_apply_entity_time_composite_fe_polars_roundtrip():
 
 
 def test_replay_entity_time_composite_fe_matches_fit_time_columns():
+    """Replay entity time composite fe matches fit time columns."""
     df, group_ids, ts = _entity_frame()
     cfg = PreprocessingExtensionsConfig(state_duration_columns=["state_col"], recency_aggregation_columns=["val_col"])
     metadata: dict = {}
@@ -104,6 +110,7 @@ def test_replay_entity_time_composite_fe_matches_fit_time_columns():
 
 
 def test_replay_entity_time_composite_fe_noop_without_group_ids():
+    """Replay entity time composite fe noop without group ids."""
     df, _, _ = _entity_frame(n=20)
     out = replay_entity_time_composite_fe(df, {"state_duration_columns": ["state_col"]}, None, None, verbose=0)
     assert list(out.columns) == list(df.columns)

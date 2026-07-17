@@ -35,6 +35,7 @@ _QUANTILES = (0.1, 0.25, 0.5, 0.75, 0.9)
 
 
 def _heteroscedastic_data(n=5000, seed=0):
+    """Heteroscedastic data."""
     rng = np.random.default_rng(seed)
     base = rng.normal(0.0, 1.0, n)
     x1 = rng.normal(0.0, 1.0, n)
@@ -46,10 +47,12 @@ def _heteroscedastic_data(n=5000, seed=0):
 
 
 def _inner():
+    """Inner."""
     return lgb.LGBMRegressor(n_estimators=150, num_leaves=15, verbose=-1)
 
 
 def _fit_predict(transform_name, base_column, X_tr, y_tr, X_te):
+    """Fit predict."""
     est = CompositeQuantileEstimator(
         base_estimator=_inner(),
         transform_name=transform_name,
@@ -61,6 +64,7 @@ def _fit_predict(transform_name, base_column, X_tr, y_tr, X_te):
 
 
 def test_biz_val_quantile_per_quantile_coverage_near_nominal():
+    """Biz val quantile per quantile coverage near nominal."""
     X, y = _heteroscedastic_data()
     tr, te = slice(0, 3500), slice(3500, len(y))
     _, Q = _fit_predict("linear_residual", "base", X.iloc[tr], y[tr], X.iloc[te])
@@ -85,6 +89,7 @@ def test_biz_val_quantile_intervals_adapt_to_heteroscedasticity():
 
 
 def test_biz_val_quantile_non_crossing_holds():
+    """Biz val quantile non crossing holds."""
     X, y = _heteroscedastic_data()
     tr, te = slice(0, 3500), slice(3500, len(y))
     _, Q = _fit_predict("linear_residual", "base", X.iloc[tr], y[tr], X.iloc[te])

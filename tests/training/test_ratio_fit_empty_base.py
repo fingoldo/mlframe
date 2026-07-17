@@ -17,6 +17,7 @@ from mlframe.training.composite.transforms.simple import _ratio_fit
 
 
 def test_all_zero_base_does_not_raise_or_warn():
+    """All zero base does not raise or warn."""
     y = np.array([1.0, 2.0, 3.0, 4.0])
     base = np.zeros(4, dtype=np.float64)
     with warnings.catch_warnings():
@@ -26,6 +27,7 @@ def test_all_zero_base_does_not_raise_or_warn():
 
 
 def test_all_nonfinite_base_falls_to_eps_floor():
+    """All nonfinite base falls to eps floor."""
     y = np.array([1.0, 2.0, 3.0])
     base = np.array([np.nan, np.inf, -np.inf])
     with warnings.catch_warnings():
@@ -35,6 +37,7 @@ def test_all_nonfinite_base_falls_to_eps_floor():
 
 
 def test_finite_mask_explicit_all_excluded():
+    """Finite mask explicit all excluded."""
     y = np.array([1.0, 2.0])
     base = np.array([10.0, 20.0])
     finite_mask_none = np.zeros(2, dtype=bool)
@@ -45,6 +48,7 @@ def test_finite_mask_explicit_all_excluded():
 
 
 def test_normal_base_unchanged():
+    """Normal base unchanged."""
     y = np.array([1.0, 2.0, 3.0, 4.0])
     base = np.array([2.0, 4.0, 6.0, 8.0])
     params = _ratio_fit(y, base)

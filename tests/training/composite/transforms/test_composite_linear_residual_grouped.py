@@ -37,7 +37,9 @@ from mlframe.training.composite import (
 
 
 class TestFit:
+    """Groups tests covering fit."""
     def test_requires_groups_argument(self) -> None:
+        """Requires groups argument."""
         rng = np.random.default_rng(0)
         y = rng.normal(size=100)
         base = rng.normal(size=100)
@@ -88,6 +90,7 @@ class TestFit:
         assert params["group_sizes"]["tiny"] == n_tiny
 
     def test_round_trip_y_to_T_to_y(self) -> None:
+        """Round trip y to t to y."""
         rng = np.random.default_rng(11)
         n_per_group = 200
         groups_list = []
@@ -138,6 +141,7 @@ class TestFit:
 
 
 class TestShrinkage:
+    """Groups tests covering shrinkage."""
     def test_less_than_four_groups_returns_zero(self) -> None:
         """JS only applies for K >= 4 (the classic threshold)."""
         for k in (1, 2, 3):
@@ -188,16 +192,20 @@ class TestShrinkage:
 
 
 class TestRegistry:
+    """Groups tests covering registry."""
     def test_registered_with_requires_groups_flag(self) -> None:
+        """Registered with requires groups flag."""
         t = get_transform("linear_residual_grouped")
         assert t.requires_groups is True
 
     def test_other_transforms_do_not_require_groups(self) -> None:
+        """Other transforms do not require groups."""
         for name in ("diff", "ratio", "logratio", "linear_residual", "linear_residual_multi"):
             t = get_transform(name)
             assert t.requires_groups is False, f"transform '{name}' should not require groups"
 
     def test_domain_check_delegates_to_linear_residual(self) -> None:
+        """Domain check delegates to linear residual."""
         y = np.array([1.0, 2.0, np.nan])
         base = np.array([1.0, 2.0, 3.0])
         np.testing.assert_array_equal(
@@ -221,6 +229,7 @@ class TestBizValueGroupedBeatsSingle:
     """
 
     def _make_per_well_dgp(self, n_per_well: int = 500, seed: int = 0):
+        """Make per well dgp."""
         rng = np.random.default_rng(seed)
         alphas = {"A": 0.95, "B": 0.55, "C": 1.05}
         ys = []
@@ -235,6 +244,7 @@ class TestBizValueGroupedBeatsSingle:
         return (np.concatenate(ys), np.concatenate(bases), np.asarray(groups))
 
     def test_grouped_residual_variance_strictly_lower(self) -> None:
+        """Grouped residual variance strictly lower."""
         y, base, groups = self._make_per_well_dgp()
         single = get_transform("linear_residual")
         grouped = get_transform("linear_residual_grouped")
@@ -250,6 +260,7 @@ class TestBizValueGroupedBeatsSingle:
         assert var_grouped < var_single * 0.5, f"grouped residual variance must be << single's; single={var_single:.4f}, grouped={var_grouped:.4f}"
 
     def test_round_trip_preserves_y_on_per_well_dgp(self) -> None:
+        """Round trip preserves y on per well dgp."""
         y, base, groups = self._make_per_well_dgp()
         grouped = get_transform("linear_residual_grouped")
         p = grouped.fit(y, base, groups=groups)
@@ -398,7 +409,9 @@ lgb = pytest.importorskip("lightgbm")
 
 
 class TestCompositeTargetEstimatorGrouped:
+    """Groups tests covering composite target estimator grouped."""
     def _make_per_well_df(self, n_per_well: int = 300, seed: int = 0):
+        """Make per well df."""
         rng = np.random.default_rng(seed)
         rows = []
         for well_id, alpha in (("A", 0.95), ("B", 0.55), ("C", 1.05)):
@@ -411,6 +424,7 @@ class TestCompositeTargetEstimatorGrouped:
         return df.drop(columns="y"), df["y"].to_numpy()
 
     def test_fit_predict_round_trip(self) -> None:
+        """Fit predict round trip."""
         from mlframe.training.composite import CompositeTargetEstimator
 
         X, y = self._make_per_well_df(n_per_well=200)
@@ -461,6 +475,7 @@ class TestCompositeTargetEstimatorGrouped:
         test_y = y[1000:]
 
         def _rmse(transform_name, group_column):
+            """Rmse."""
             inner = lgb.LGBMRegressor(
                 n_estimators=60,
                 num_leaves=15,

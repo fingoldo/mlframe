@@ -16,6 +16,7 @@ from mlframe.training._feature_importances import get_model_feature_importances
 
 
 def test_multiclass_coef_aggregates_across_classes():
+    """Multiclass coef aggregates across classes."""
     LogisticRegression = pytest.importorskip("sklearn.linear_model").LogisticRegression
     rng = np.random.default_rng(0)
     n = 400
@@ -43,6 +44,7 @@ def test_multiclass_coef_aggregates_across_classes():
 
 
 def test_binary_coef_keeps_single_signed_row():
+    """Binary coef keeps single signed row."""
     LogisticRegression = pytest.importorskip("sklearn.linear_model").LogisticRegression
     rng = np.random.default_rng(1)
     X = rng.normal(size=(200, 3))
@@ -55,6 +57,7 @@ def test_binary_coef_keeps_single_signed_row():
 
 
 def test_multitarget_ridge_coef_aggregates():
+    """Multitarget ridge coef aggregates."""
     Ridge = pytest.importorskip("sklearn.linear_model").Ridge
     rng = np.random.default_rng(2)
     X = rng.normal(size=(150, 3))

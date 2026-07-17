@@ -39,6 +39,7 @@ def _run(cat_features, cat_features_polars):
 
 
 def test_cat_features_preserves_first_seen_input_order():
+    """Cat features preserves first seen input order."""
     cat = ["zzz", "mmm", "aaa", "qqq", "bbb"]
     cat_polars = ["aaa", "kkk", "ccc", "zzz", "ttt"]  # overlaps + new names
     expected = ["zzz", "mmm", "aaa", "qqq", "bbb", "kkk", "ccc", "ttt"]
@@ -48,6 +49,7 @@ def test_cat_features_preserves_first_seen_input_order():
 
 
 def test_cat_features_order_stable_across_runs():
+    """Cat features order stable across runs."""
     cat = ["ttt", "ddd", "www", "mmm", "ccc"]
     cat_polars = ["kkk", "aaa", "ttt", "bbb"]
     first, _ = _run(cat, cat_polars)

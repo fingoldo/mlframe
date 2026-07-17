@@ -80,6 +80,7 @@ def _read(rel: str) -> str:
 
 
 def test_ranker_fit_no_global_torch_or_np_seed() -> None:
+    """Ranker fit no global torch or np seed."""
     src = _read("training/neural/ranker.py")
     # The pre-fix two-liner is gone; the local generators referenced in comments still exist.
     assert "torch.manual_seed(self.seed)\n        np.random.seed(self.seed)" not in src
@@ -88,6 +89,7 @@ def test_ranker_fit_no_global_torch_or_np_seed() -> None:
 
 
 def test_screen_predictors_restores_numba_and_cupy() -> None:
+    """Screen predictors restores numba and cupy."""
     src = _read("feature_selection/filters/screen.py")
     # Both restoration variables must be initialised + used.
     assert "_numba_restore_seed = None" in src
@@ -98,6 +100,7 @@ def test_screen_predictors_restores_numba_and_cupy() -> None:
 
 
 def test_preserve_global_numpy_rng_state_restores_numba_cupy() -> None:
+    """Preserve global numpy rng state restores numba cupy."""
     src = _read("feature_selection/filters/screen.py")
     # The context-manager helper closes the same leak.
     assert "_cp_module = None" in src
@@ -105,6 +108,7 @@ def test_preserve_global_numpy_rng_state_restores_numba_cupy() -> None:
 
 
 def test_set_random_seed_documents_top_of_script_contract() -> None:
+    """Set random seed documents top of script contract."""
     src = _read("utils/misc.py")
     # docstring wraps "process-global RNG state" across two lines; check the
     # unique phrases that survive intact.
@@ -117,6 +121,7 @@ def test_cat_interactions_uses_local_cupy_rng() -> None:
     # ``_count_nfailed_joint_indep_cupy`` (the cupy permutation kernel)
     # was moved to the ``_cat_confirm_permutation.py`` sibling when
     # ``cat_interactions.py`` was split below 1k LOC.
+    """Cat interactions uses local cupy rng."""
     src = _read("feature_selection/filters/_cat_confirm_permutation.py")
     # The fix replaces cp.random.seed + cp.random.permutation with local RandomState.
     assert "cp.random.seed(base_seed + p)\n        y_perm = cp.random.permutation(classes_y_g)" not in src
@@ -125,6 +130,7 @@ def test_cat_interactions_uses_local_cupy_rng() -> None:
 
 
 def test_mps_generate_market_price_uses_local_rng() -> None:
+    """Mps generate market price uses local rng."""
     src = _read("feature_engineering/mps.py")
     # The pre-fix np.random.seed must be gone.
     assert "np.random.seed(random_seed)\n\n    # Create date range" not in src
@@ -138,6 +144,7 @@ def test_mps_generate_market_price_uses_local_rng() -> None:
 
 
 def test_votenrank_iia_uses_local_rng() -> None:
+    """Votenrank iia uses local rng."""
     src = _read("votenrank/iia_exp.py")
     assert "np.random.seed(i)\n        np.random.shuffle(models_order)" not in src
     assert "rng = np.random.default_rng(i)" in src
@@ -180,6 +187,7 @@ def test_compute_iia_does_not_mutate_global_np_rng() -> None:
     pre = np.random.get_state()
 
     def _mean_method(table, weights):
+        """Mean method."""
         return np.average(table.values, weights=weights, axis=1)
 
     try:

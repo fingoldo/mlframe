@@ -20,6 +20,7 @@ from mlframe.training.neural.feature_prep import DEFAULT_TEXT_MODEL, NeuralEmbed
 
 @pytest.fixture(scope="module")
 def hf_provider():
+    """Hf provider."""
     pytest.importorskip("transformers")
     from mlframe.training.feature_handling.hf_provider import build_provider
     from mlframe.training.feature_handling.providers import EmbeddingProvider
@@ -33,6 +34,7 @@ def hf_provider():
 
 
 def _is_all_numeric(df: pd.DataFrame) -> bool:
+    """Is all numeric."""
     return all(dt.kind in ("f", "i", "u", "b") for dt in df.dtypes)
 
 
@@ -40,6 +42,7 @@ def _is_all_numeric(df: pd.DataFrame) -> bool:
 
 
 def test_embedding_column_expands_to_numeric_components():
+    """Embedding column expands to numeric components."""
     n, d = 30, 4
     rng = np.random.default_rng(0)
     X = pd.DataFrame(
@@ -56,6 +59,7 @@ def test_embedding_column_expands_to_numeric_components():
 
 
 def test_missing_and_none_embedding_rows_zero_filled():
+    """Missing and none embedding rows zero filled."""
     n, d = 12, 3
     rng = np.random.default_rng(1)
     embs = [rng.normal(size=d).astype(np.float32) for _ in range(n)]
@@ -67,6 +71,7 @@ def test_missing_and_none_embedding_rows_zero_filled():
 
 
 def test_transform_on_unseen_frame_keeps_fixed_width():
+    """Transform on unseen frame keeps fixed width."""
     n, d = 20, 5
     rng = np.random.default_rng(2)
     X = pd.DataFrame({"emb_0": [rng.normal(size=d).astype(np.float32) for _ in range(n)]})
@@ -79,12 +84,14 @@ def test_transform_on_unseen_frame_keeps_fixed_width():
 
 
 def _encoder_with(provider, **kw):
+    """Encoder with."""
     enc = NeuralEmbeddingTextEncoder(**kw)
     enc._provider = provider  # share the single loaded model; _get_provider returns the cached instance
     return enc
 
 
 def test_text_column_hf_embeds_to_numeric(hf_provider):
+    """Text column hf embeds to numeric."""
     texts = ["red car fast", "blue car slow", "red bike", "green bike fast"] * 8
     X = pd.DataFrame({"num_0": np.arange(len(texts), dtype=np.float32), "text_0": texts})
     enc = _encoder_with(hf_provider, text_features=["text_0"])
@@ -98,6 +105,7 @@ def test_text_column_hf_embeds_to_numeric(hf_provider):
 
 
 def test_no_object_columns_remain_mixed(hf_provider):
+    """No object columns remain mixed."""
     n, d = 16, 2
     rng = np.random.default_rng(3)
     X = pd.DataFrame(
@@ -113,6 +121,7 @@ def test_no_object_columns_remain_mixed(hf_provider):
 
 
 def test_provider_excluded_from_pickle(hf_provider):
+    """Provider excluded from pickle."""
     enc = _encoder_with(hf_provider, text_features=["text_0"])
     enc.fit(pd.DataFrame({"text_0": ["a", "bb", "ccc"]}))
     restored = pickle.loads(pickle.dumps(enc))  # must not try to pickle the live HF model  # nosec B301 -- round-trip of a locally-created, trusted object

@@ -37,28 +37,34 @@ from mlframe.training.composite import (
 
 
 class TestDeriveSeeds:
+    """Groups tests covering derive seeds."""
     def test_deterministic_for_same_input(self) -> None:
+        """Deterministic for same input."""
         a = derive_seeds(42, ["mi", "tiny", "stack"])
         b = derive_seeds(42, ["mi", "tiny", "stack"])
         assert a == b
 
     def test_master_seed_changes_subseeds(self) -> None:
+        """Master seed changes subseeds."""
         a = derive_seeds(42, ["mi"])
         b = derive_seeds(43, ["mi"])
         assert a["mi"] != b["mi"]
 
     def test_component_name_changes_subseed(self) -> None:
+        """Component name changes subseed."""
         a = derive_seeds(42, ["mi"])
         b = derive_seeds(42, ["tiny"])
         assert a["mi"] != b["tiny"]
 
     def test_returns_32bit_unsigned(self) -> None:
+        """Returns 32bit unsigned."""
         seeds = derive_seeds(42, ["a", "b", "c"])
         for v in seeds.values():
             assert isinstance(v, int)
             assert 0 <= v < 2**32
 
     def test_empty_components(self) -> None:
+        """Empty components."""
         assert derive_seeds(42, []) == {}
 
 
@@ -68,7 +74,9 @@ class TestDeriveSeeds:
 
 
 class TestEnvSignature:
+    """Groups tests covering env signature."""
     def test_returns_dict_with_required_keys(self) -> None:
+        """Returns dict with required keys."""
         sig = env_signature()
         assert isinstance(sig, dict)
         # numpy is a hard dep of mlframe, must be present.
@@ -86,12 +94,15 @@ class TestEnvSignature:
 
 
 class TestDetectGpuInUse:
+    """Groups tests covering detect gpu in use."""
     def test_empty_models_returns_empty(self) -> None:
+        """Empty models returns empty."""
         assert detect_gpu_in_use([]) == []
 
     def test_no_gpu_libraries_skipped(self) -> None:
         # 'linear' family does not use GPU; the result should not
         # claim catboost / xgboost / lightgbm GPU.
+        """No gpu libraries skipped."""
         result = detect_gpu_in_use(["linear", "ridge"])
         assert result == []
 
@@ -102,16 +113,20 @@ class TestDetectGpuInUse:
 
 
 class _StubModel:
+    """Groups tests covering stub model."""
     def __init__(self, value: float = 0.0) -> None:
         self.value = value
 
     def predict(self, X) -> np.ndarray:
+        """Predict."""
         n = len(X) if hasattr(X, "__len__") else 1
         return np.full(n, self.value, dtype=np.float64)
 
 
 class TestCapInferenceComponents:
+    """Groups tests covering cap inference components."""
     def test_keeps_top_n_by_abs_weight(self) -> None:
+        """Keeps top n by abs weight."""
         ens = CompositeCrossTargetEnsemble(
             component_models=[_StubModel(i) for i in range(5)],
             component_names=["a", "b", "c", "d", "e"],
@@ -126,6 +141,7 @@ class TestCapInferenceComponents:
         assert "dropped_components" in capped.notes
 
     def test_no_op_when_n_ge_k(self) -> None:
+        """No op when n ge k."""
         ens = CompositeCrossTargetEnsemble(
             component_models=[_StubModel(i) for i in range(3)],
             component_names=["a", "b", "c"],
@@ -136,6 +152,7 @@ class TestCapInferenceComponents:
         assert len(capped.component_names) == 3
 
     def test_no_op_when_n_le_zero(self) -> None:
+        """No op when n le zero."""
         ens = CompositeCrossTargetEnsemble(
             component_models=[_StubModel(i) for i in range(3)],
             component_names=["a", "b", "c"],
@@ -146,6 +163,7 @@ class TestCapInferenceComponents:
         assert len(ens.cap_inference_components(-1).component_names) == 3
 
     def test_preserves_linear_stack_intercept(self) -> None:
+        """Preserves linear stack intercept."""
         ens = CompositeCrossTargetEnsemble(
             component_models=[_StubModel(i) for i in range(3)],
             component_names=["a", "b", "c"],
@@ -158,6 +176,7 @@ class TestCapInferenceComponents:
         assert capped._linear_stack_intercept == 7.5
 
     def test_capped_predict_works(self) -> None:
+        """Capped predict works."""
         ens = CompositeCrossTargetEnsemble(
             component_models=[_StubModel(1.0), _StubModel(2.0), _StubModel(3.0)],
             component_names=["a", "b", "c"],

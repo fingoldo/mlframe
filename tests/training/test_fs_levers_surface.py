@@ -12,18 +12,21 @@ from mlframe.training.configs import FeatureSelectionConfig
 
 
 def test_unset_levers_are_byte_identical():
+    """Unset levers are byte identical."""
     cfg = FeatureSelectionConfig()
     assert cfg.mrmr_kwargs is None
     assert cfg.rfecv_kwargs is None
 
 
 def test_mrmr_lever_folds_into_kwargs():
+    """Mrmr lever folds into kwargs."""
     cfg = FeatureSelectionConfig(use_mrmr_fs=True, mrmr_mi_normalization="su", mrmr_redundancy_aggregator="jmim")
     assert cfg.mrmr_kwargs["mi_normalization"] == "su"
     assert cfg.mrmr_kwargs["redundancy_aggregator"] == "jmim"
 
 
 def test_rfecv_enable_flags_fold_into_kwargs():
+    """Rfecv enable flags fold into kwargs."""
     cfg = FeatureSelectionConfig(
         rfecv_models=["lgb"],
         rfecv_enable_permutation_importance=True,
@@ -36,6 +39,7 @@ def test_rfecv_enable_flags_fold_into_kwargs():
 
 
 def test_rfecv_must_include_exclude_groups_fold():
+    """Rfecv must include exclude groups fold."""
     cfg = FeatureSelectionConfig(
         rfecv_models=["lgb"],
         rfecv_must_include=["a", "b"],
@@ -48,6 +52,7 @@ def test_rfecv_must_include_exclude_groups_fold():
 
 
 def test_conflict_between_lever_and_explicit_kwarg_raises():
+    """Conflict between lever and explicit kwarg raises."""
     with pytest.raises(ValueError, match="mi_normalization"):
         FeatureSelectionConfig(
             use_mrmr_fs=True,
@@ -57,6 +62,7 @@ def test_conflict_between_lever_and_explicit_kwarg_raises():
 
 
 def test_lever_preserves_other_explicit_kwargs():
+    """Lever preserves other explicit kwargs."""
     cfg = FeatureSelectionConfig(
         rfecv_models=["lgb"],
         rfecv_swap_top_k=3,
@@ -68,5 +74,6 @@ def test_lever_preserves_other_explicit_kwargs():
 
 def test_mrmr_lever_without_master_flag_raises():
     # An MRMR lever folds into mrmr_kwargs, which is ignored unless use_mrmr_fs=True -> loud error.
+    """Mrmr lever without master flag raises."""
     with pytest.raises(ValueError, match="use_mrmr_fs"):
         FeatureSelectionConfig(mrmr_mi_normalization="su")

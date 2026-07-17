@@ -23,6 +23,7 @@ from mlframe.training.targets._target_distribution_analyzer import analyze_featu
 
 
 def test_strong_leakage_is_detected():
+    """Strong leakage is detected."""
     rng = np.random.default_rng(0)
     n = 1000
     y = rng.standard_normal(n)
@@ -54,6 +55,7 @@ def test_leakage_survives_10pct_nan_in_feature():
 
 
 def test_leakage_survives_20pct_nan_in_y():
+    """Leakage survives 20pct nan in y."""
     rng = np.random.default_rng(0)
     n = 1000
     y = rng.standard_normal(n)
@@ -88,6 +90,7 @@ def test_constant_feature_does_not_crash_or_flag_leakage():
 
 
 def test_no_y_skips_leakage_detection_entirely():
+    """No y skips leakage detection entirely."""
     rng = np.random.default_rng(0)
     n = 500
     X = pd.DataFrame(

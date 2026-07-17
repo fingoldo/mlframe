@@ -32,6 +32,7 @@ def _confounded_frame(n, seed):
 
 
 def test_biz_val_orthogonal_debiases_base_coef_under_confounding():
+    """Biz val orthogonal debiases base coef under confounding."""
     Xtr, ytr = _confounded_frame(4000, seed=11)
     Xte, yte = _confounded_frame(4000, seed=22)
 

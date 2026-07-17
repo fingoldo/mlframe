@@ -21,6 +21,7 @@ import polars as pl
 
 
 def _make_nan_frame(n_rows: int = 600, seed: int = 191) -> pl.DataFrame:
+    """Make nan frame."""
     rng = np.random.default_rng(seed)
     x0 = rng.normal(size=n_rows).astype(np.float32)
     x1 = rng.normal(size=n_rows).astype(np.float32)

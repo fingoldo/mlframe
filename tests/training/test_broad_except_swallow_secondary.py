@@ -49,6 +49,7 @@ import numpy as np
 # Source-pattern sensors that grep the parent file must also read every
 # sibling so they still match relocated code.
 def _read_phase_train_one_target_combined():
+    """Read phase train one target combined."""
     import pathlib
     import mlframe as _mlframe
 
@@ -76,6 +77,7 @@ def test_multilabel_log_loss_failed_class_warns_and_uses_nanmean(caplog):
 
     def _ll_mock(y, p, labels):
         # Fail on class index 1, succeed otherwise.
+        """Ll mock."""
         if y.shape[0] > 0 and y[0] == -1:
             raise ValueError("synthetic class-1 failure")
         return float(y.shape[0])
@@ -135,6 +137,7 @@ def test_has_any_infinity_returns_true_on_detection_failure(caplog, monkeypatch)
     from mlframe.training import preprocessing as pp
 
     def _boom(_d):
+        """Boom."""
         raise RuntimeError("synthetic detection failure")
 
     monkeypatch.setattr(pp, "_pandas_float_like_columns", _boom)
@@ -155,9 +158,11 @@ def test_has_any_infinity_true_on_numpy_conversion_failure(caplog, monkeypatch):
     df = pd.DataFrame({"f0": [1.0, 2.0, 3.0]})
 
     class _BadNum:
+        """Groups tests covering bad num."""
         shape = (3, 1)
 
         def to_numpy(self, *a, **k):
+            """To numpy."""
             raise ValueError("synthetic numpy conversion failure")
 
     monkeypatch.setattr(pp, "_pandas_float_like_columns", lambda d: ["f0"])
@@ -183,6 +188,7 @@ def test_detect_group_column_candidates_logs_per_skip(caplog):
     from mlframe.training.composite.discovery import auto_detect as cad
 
     class _BadGet(pd.DataFrame):
+        """Groups tests covering bad get."""
         def __getitem__(self, key):
             if key == "boom":
                 raise RuntimeError("synthetic get_col failure")
@@ -267,10 +273,13 @@ def test_multilabel_cb_stack_failure_warns(caplog):
     set_calls = []
 
     class CatBoostClassifier:  # name drives the type-name gate in prod
+        """Groups tests covering cat boost classifier."""
         def get_param(self):
+            """Get param."""
             return {"loss_function": None}
 
         def set_params(self, **kw):
+            """Set params."""
             set_calls.append(kw)
 
     # Ragged rows -> np.array(obj.tolist()) raises -> stack-failure branch.
@@ -294,10 +303,13 @@ def test_multilabel_cb_stack_success_sets_multilogloss(caplog):
     set_calls = []
 
     class CatBoostClassifier:
+        """Groups tests covering cat boost classifier."""
         def get_param(self):
+            """Get param."""
             return {"loss_function": None}
 
         def set_params(self, **kw):
+            """Set params."""
             set_calls.append(kw)
 
     target = np.array([[1, 0], [0, 1], [1, 1]])

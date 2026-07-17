@@ -64,6 +64,7 @@ def _partial_domain_dataset(
 
 
 class TestA5BaselinePopulationParity:
+    """Groups tests covering a5 baseline population parity."""
     def test_invalid_rows_are_scored_not_dropped(self) -> None:
         """A5: domain-invalid finite-y val rows now contribute to the RMSE via the
         production median fallback. With extreme invalid-row y, including them
@@ -133,6 +134,7 @@ class TestA5BaselinePopulationParity:
         real_per_bin = stp._per_bin_rmse
 
         def _spy_per_bin(y_true, y_hat, bin_var, n_bins=5):
+            """Spy per bin."""
             seen_val_sizes.append(int(np.asarray(y_true).shape[0]))
             return real_per_bin(y_true, y_hat, bin_var, n_bins=n_bins)
 
@@ -201,6 +203,7 @@ class TestA5BaselinePopulationParity:
 
 
 class TestA12EarlyStopThreadedThroughMultiseed:
+    """Groups tests covering a12 early stop threaded through multiseed."""
     def test_multiseed_forwards_early_stop_threshold(self, monkeypatch) -> None:
         """A12/P11: ``early_stop_threshold`` must reach the underlying single-seed
         call through the multiseed wrapper (the conduit the rerank caller relies
@@ -210,6 +213,7 @@ class TestA12EarlyStopThreadedThroughMultiseed:
         real = st._tiny_cv_rmse_y_scale
 
         def _spy(*args, **kwargs):
+            """Spy."""
             seen_thresholds.append(kwargs.get("early_stop_threshold", float("inf")))
             return real(*args, **kwargs)
 

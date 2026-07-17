@@ -16,6 +16,7 @@ from mlframe.training.neural import _muon_triton_kernel as mtk
 
 
 def test_env_force_parsing():
+    """Env force parsing."""
     try:
         for v in ("0", "off", "false", "no", "OFF"):
             os.environ[mtk._TRITON_ENV_VAR] = v
@@ -31,6 +32,7 @@ def test_env_force_parsing():
 
 
 def test_size_bucket_is_power_of_two_ceiling():
+    """Size bucket is power of two ceiling."""
     assert mtk._size_bucket(256) == 256
     assert mtk._size_bucket(257) == 512
     assert mtk._size_bucket(1000) == 1024
@@ -39,6 +41,7 @@ def test_size_bucket_is_power_of_two_ceiling():
 
 def test_cpu_tensor_never_uses_triton():
     # No CUDA tensor -> always eager, regardless of host.
+    """Cpu tensor never uses triton."""
     assert mtk.maybe_newton_schulz_triton(torch.randn(512, 512), steps=2) is None
 
 
@@ -48,6 +51,7 @@ _TRITON_EXEC_PROBE: list = []
 
 
 def _triton_can_execute() -> tuple[bool, str]:
+    """Triton can execute."""
     if _TRITON_EXEC_PROBE:
         return _TRITON_EXEC_PROBE[0]
     fn = mtk.get_triton_ns_fn()
@@ -64,6 +68,7 @@ def _triton_can_execute() -> tuple[bool, str]:
 
 
 def _require_ampere_gpu():
+    """Require ampere gpu."""
     if not torch.cuda.is_available():
         pytest.skip("needs a CUDA GPU")
     if torch.cuda.get_device_capability() < mtk._MIN_COMPUTE_CAPABILITY:
@@ -81,6 +86,7 @@ def _require_ampere_gpu():
 
 @pytest.mark.gpu
 def test_gate_picks_eager_when_calibration_shows_loss(monkeypatch):
+    """Gate picks eager when calibration shows loss."""
     _require_ampere_gpu()
     mtk._TRITON_VERDICT.clear()
     monkeypatch.delenv(mtk._TRITON_ENV_VAR, raising=False)
@@ -94,6 +100,7 @@ def test_gate_picks_eager_when_calibration_shows_loss(monkeypatch):
 
 @pytest.mark.gpu
 def test_gate_picks_triton_when_calibration_shows_win(monkeypatch):
+    """Gate picks triton when calibration shows win."""
     _require_ampere_gpu()
     mtk._TRITON_VERDICT.clear()
     monkeypatch.delenv(mtk._TRITON_ENV_VAR, raising=False)
@@ -106,6 +113,7 @@ def test_gate_picks_triton_when_calibration_shows_win(monkeypatch):
 
 @pytest.mark.gpu
 def test_env_force_off_skips_triton_without_calibrating(monkeypatch):
+    """Env force off skips triton without calibrating."""
     if not torch.cuda.is_available():
         pytest.skip("needs a CUDA GPU")
     monkeypatch.setenv(mtk._TRITON_ENV_VAR, "0")
@@ -119,6 +127,7 @@ def test_env_force_off_skips_triton_without_calibrating(monkeypatch):
 
 def test_dispatch_matches_eager_on_cpu():
     # On CPU the gate returns None, so the dispatcher must be byte-for-byte the eager reference.
+    """Dispatch matches eager on cpu."""
     torch.manual_seed(0)
     G = torch.randn(64, 32)
     assert torch.equal(mopt._newton_schulz_dispatch(G, steps=5), mopt._zeropower_via_newtonschulz5(G, steps=5))
@@ -126,10 +135,12 @@ def test_dispatch_matches_eager_on_cpu():
 
 def test_muon_step_routes_through_triton_gate(monkeypatch):
     # Pins the wiring: Muon.step must go through the Triton gate, not call the eager reference directly.
+    """Muon step routes through triton gate."""
     hits = {"n": 0}
     real = mopt.maybe_newton_schulz_triton
 
     def spy(G, steps=4):
+        """Spy."""
         hits["n"] += 1
         return real(G, steps=steps)  # None on CPU -> eager fallback inside the dispatcher
 

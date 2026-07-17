@@ -20,10 +20,12 @@ from mlframe.training.core._volatility_lag_router import (
 
 
 class _Const:
+    """Groups tests covering const."""
     def __init__(self, vec):
         self._v = np.asarray(vec, dtype=np.float64)
 
     def predict(self, _frame):
+        """Predict."""
         return self._v
 
 
@@ -31,17 +33,21 @@ class _LagCol:
     """Lag component: returns the ``lag`` column of the passed frame (mirrors _LagPredictDeployableModel reading X)."""
 
     def predict(self, frame):
+        """Predict."""
         return np.asarray(frame["lag"].to_numpy(), dtype=np.float64)
 
 
 class _Cfg:
+    """Groups tests covering cfg."""
     def __init__(self, on=True):
         self.volatility_lag_routing_enabled = on
 
 
 class TestGroupLocalVolatility:
+    """Groups tests covering group local volatility."""
     def test_forward_diff_within_group_by_order_key(self):
         # group A rows shuffled in row order; MD gives the true order. lag = [10, 12, 15] at MD [1,2,3] -> steps |2|,|3|,nan.
+        """Forward diff within group by order key."""
         g = np.array(["A", "A", "A"])
         lag = np.array([15.0, 10.0, 12.0])  # rows in MD order 3,1,2
         md = np.array([3.0, 1.0, 2.0])
@@ -52,6 +58,7 @@ class TestGroupLocalVolatility:
         assert vol[1] == 2.0 and vol[2] == 3.0
 
     def test_groups_isolated(self):
+        """Groups isolated."""
         g = np.array(["A", "B", "A", "B"])
         lag = np.array([1.0, 100.0, 2.0, 130.0])
         md = np.array([1.0, 1.0, 2.0, 2.0])
@@ -62,12 +69,15 @@ class TestGroupLocalVolatility:
 
 
 def _frame(well, md, lag):
+    """Frame."""
     return pd.DataFrame({"well": well, "MD": md, "lag": lag})
 
 
 class TestRouterPredict:
+    """Groups tests covering router predict."""
     def test_routes_low_vol_rows_to_lag(self):
         # 2 rows smooth (vol ~0 -> route to lag), the third is last-in-group (nan vol -> keep raw).
+        """Routes low vol rows to lag."""
         X = _frame(["A", "A", "A"], [1.0, 2.0, 3.0], [10.0, 10.1, 10.2])
         r = VolatilityLagRouter(_Const([1.0, 2.0, 3.0]), _LagCol(), "well", "MD", threshold=0.5)
         out = r.predict(X)
@@ -75,13 +85,16 @@ class TestRouterPredict:
         assert out[2] == 3.0  # last-in-group (nan vol) -> raw
 
     def test_no_op_when_order_column_missing(self):
+        """No op when order column missing."""
         X = pd.DataFrame({"well": ["A", "A"], "lag": [1.0, 1.0]})  # no MD
         r = VolatilityLagRouter(_Const([9.0, 9.0]), _LagCol(), "well", "MD", threshold=1.0)
         assert list(r.predict(X)) == [9.0, 9.0]  # cannot order -> plain trained
 
 
 class TestBuilderValGate:
+    """Groups tests covering builder val gate."""
     def test_builder_no_op_without_order_column(self):
+        """Builder no op without order column."""
         X = pd.DataFrame({"well": ["A"] * 200, "lag": np.zeros(200)})  # no MD
         raw = _Const(np.zeros(200))
         assert build_volatility_lag_router(raw, _LagCol(), None, X, np.zeros(200), "well", "MD", _Cfg()) is raw

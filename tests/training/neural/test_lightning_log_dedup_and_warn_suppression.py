@@ -61,6 +61,7 @@ def test_early_stopping_constructed_silently(monkeypatch):
     _orig_init = _es.EarlyStopping.__init__
 
     def _spy_init(self, *args, **kwargs):
+        """Spy init."""
         instantiations.append(kwargs)
         return _orig_init(self, *args, **kwargs)
 

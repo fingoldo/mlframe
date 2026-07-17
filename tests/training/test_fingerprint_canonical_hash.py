@@ -18,6 +18,7 @@ from mlframe.training.feature_handling.fingerprint import canonical_params_hash
 
 
 def test_canonical_hash_stable_under_dict_key_reordering():
+    """Canonical hash stable under dict key reordering."""
     a = {"b": 1, "a": 2, "c": 3}
     b = {"c": 3, "a": 2, "b": 1}
     assert canonical_params_hash(a) == canonical_params_hash(b)
@@ -35,6 +36,7 @@ def test_canonical_hash_stable_for_ordered_dict_with_distinct_insertion_orders()
 
 
 def test_canonical_hash_stable_for_nested_dicts():
+    """Canonical hash stable for nested dicts."""
     a = {"outer": {"b": 1, "a": 2}, "x": [1, 2, 3]}
     b = {"x": [1, 2, 3], "outer": {"a": 2, "b": 1}}
     assert canonical_params_hash(a) == canonical_params_hash(b)
@@ -46,6 +48,7 @@ def test_canonical_hash_handles_non_native_value_via_default_str():
     """
 
     class Custom:
+        """Groups tests covering custom."""
         def __str__(self) -> str:
             return "custom_repr"
 

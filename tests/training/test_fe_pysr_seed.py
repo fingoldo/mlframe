@@ -21,6 +21,7 @@ import pytest
 
 
 def _make_toy(n=120, seed=0):
+    """Make toy."""
     rng = np.random.default_rng(seed)
     x1 = rng.normal(size=n).astype(np.float32)
     x2 = rng.normal(size=n).astype(np.float32)
@@ -46,6 +47,7 @@ class _SpyModel:
         # Output depends on seed so different seeds produce different
         # first-row values - lets the test distinguish "seed plumbed"
         # vs "seed dropped".
+        """Predict."""
         return np.asarray(df["x1"].values, dtype=np.float32) + float(self.random_state or 0)
 
 
@@ -53,6 +55,7 @@ _SEEN_RANDOM_STATES: list = []
 
 
 def _spy_run_pysr_feature_engineering(*args, **kwargs):
+    """Spy run pysr feature engineering."""
     rs = kwargs.get("random_state")
     _SEEN_RANDOM_STATES.append(rs)
     return _SpyModel(random_state=rs)

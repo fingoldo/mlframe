@@ -81,6 +81,7 @@ def _cases():
 
 @pytest.mark.parametrize("name", list(_cases().keys()))
 def test_multibase_fit_bit_identical_to_legacy_svd_cond(name):
+    """Multibase fit bit identical to legacy svd cond."""
     y, base = _cases()[name]
     old = _legacy_fit(y, base)
     new = _linear_residual_multi_fit(y, base)
@@ -102,6 +103,7 @@ def test_multibase_fit_uses_gram_eigvalsh_for_cond(monkeypatch):
     real_eigvalsh = np.linalg.eigvalsh
 
     def spy(a, *args, **kwargs):
+        """Spy."""
         calls["eigvalsh"] += 1
         return real_eigvalsh(a, *args, **kwargs)
 

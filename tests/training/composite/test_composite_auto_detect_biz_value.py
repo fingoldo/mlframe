@@ -33,6 +33,7 @@ from mlframe.training.composite.discovery.auto_detect import (
 
 
 def test_time_detect_picks_datetime_column():
+    """Time detect picks datetime column."""
     df = pd.DataFrame(
         {
             "ts": pd.date_range("2024-01-01", periods=100, freq="D"),
@@ -49,6 +50,7 @@ def test_time_detect_picks_datetime_column():
 
 
 def test_time_detect_picks_monotonic_numeric():
+    """Time detect picks monotonic numeric."""
     df = pd.DataFrame(
         {
             "row_id": np.arange(50, dtype=np.int64),  # strictly monotonic asc
@@ -64,6 +66,7 @@ def test_time_detect_picks_monotonic_numeric():
 
 
 def test_time_detect_picks_monotonic_descending():
+    """Time detect picks monotonic descending."""
     df = pd.DataFrame({"row_id": np.arange(50, 0, -1, dtype=np.int64)})
     out = detect_time_column_candidates(df)
     info = dict(out)["row_id"]
@@ -90,11 +93,13 @@ def test_time_detect_polars_parity():
 
 
 def test_time_detect_unsupported_raises():
+    """Time detect unsupported raises."""
     with pytest.raises(TypeError, match="unsupported df type"):
         detect_time_column_candidates([1, 2, 3])
 
 
 def test_sort_df_by_time_pandas():
+    """Sort df by time pandas."""
     df = pd.DataFrame({"ts": [3, 1, 2], "v": [30, 10, 20]})
     sorted_df = sort_df_by_time_column(df, "ts")
     assert sorted_df["ts"].tolist() == [1, 2, 3]
@@ -102,6 +107,7 @@ def test_sort_df_by_time_pandas():
 
 
 def test_sort_df_by_time_polars():
+    """Sort df by time polars."""
     df = pl.DataFrame({"ts": [3, 1, 2], "v": [30, 10, 20]})
     sorted_df = sort_df_by_time_column(df, "ts")
     assert sorted_df["ts"].to_list() == [1, 2, 3]
@@ -109,6 +115,7 @@ def test_sort_df_by_time_polars():
 
 
 def test_sort_df_by_time_unsupported_raises():
+    """Sort df by time unsupported raises."""
     with pytest.raises(TypeError, match="unsupported df type"):
         sort_df_by_time_column({"ts": [1]}, "ts")
 
@@ -181,12 +188,14 @@ def test_group_detect_rejects_tiny_smallest_group():
 
 
 def test_group_detect_empty_df():
+    """Group detect empty df."""
     df = pd.DataFrame({"col": pd.array([], dtype="Int64")})
     out = detect_group_column_candidates(df)
     assert out == [], f"empty df must return []; got {out!r}"
 
 
 def test_group_detect_all_null_column():
+    """Group detect all null column."""
     n = 100
     df = pd.DataFrame({"all_null": pd.array([None] * n, dtype="Int64")})
     out = detect_group_column_candidates(df)
@@ -195,6 +204,7 @@ def test_group_detect_all_null_column():
 
 
 def test_group_detect_single_value_column():
+    """Group detect single value column."""
     n = 100
     df = pd.DataFrame({"const": np.zeros(n, dtype=np.int64)})
     out = detect_group_column_candidates(df)
@@ -217,6 +227,7 @@ def test_group_detect_polars_pandas_parity_explicit_candidates():
 
 
 def test_group_detect_unsupported_raises():
+    """Group detect unsupported raises."""
     with pytest.raises(TypeError, match="unsupported df type"):
         detect_group_column_candidates({"gid": [1, 2, 3]})
 
@@ -256,12 +267,14 @@ def test_cat_detect_binary_indicator_passes():
 
 
 def test_cat_detect_empty_df():
+    """Cat detect empty df."""
     df = pd.DataFrame({"col": pd.array([], dtype="string")})
     out = detect_cat_columns(df)
     assert out == [], f"empty df must return []; got {out!r}"
 
 
 def test_cat_detect_unsupported_raises():
+    """Cat detect unsupported raises."""
     with pytest.raises(TypeError, match="unsupported df type"):
         detect_cat_columns(42)
 
@@ -285,6 +298,7 @@ def _build_equal_coverage_cat_columns(n_total: int = 200_000):
     """
 
     def realise(n_tail_levels: int, hot_frac: float = 0.60):
+        """Realise."""
         hot_rows = round(n_total * hot_frac)
         tail_rows = n_total - hot_rows
         counts = [hot_rows // 10] * 10 + [tail_rows // n_tail_levels] * n_tail_levels
@@ -344,6 +358,7 @@ def test_cat_detect_regression_pre_fix_monotone_bonus_inverts_ranking():
     clean, idlike = out["clean_cat"], out["id_like"]
 
     def _old_monotone_bonus(n_unique: int) -> float:
+        """Old monotone bonus."""
         return float(n_unique) / float(np.log1p(n_unique) + 1.0)
 
     old_clean = clean["coverage_top10"] * _old_monotone_bonus(clean["n_unique"])
@@ -372,6 +387,7 @@ def test_cat_detect_sweet_spot_peak_is_tunable():
 
 
 def _df_with_embedding_column(n: int = 200) -> pd.DataFrame:
+    """Df with embedding column."""
     rng = np.random.default_rng(0)
     return pd.DataFrame(
         {

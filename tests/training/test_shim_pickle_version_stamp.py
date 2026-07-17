@@ -26,6 +26,7 @@ import pytest
 
 
 def test_lgb_shim_stamps_lgb_version_on_pickle():
+    """Lgb shim stamps lgb version on pickle."""
     pytest.importorskip("lightgbm")
     from mlframe.training.lgb_shim import LGBMClassifierWithDatasetReuse
 
@@ -38,6 +39,7 @@ def test_lgb_shim_stamps_lgb_version_on_pickle():
 
 
 def test_lgb_shim_warns_on_version_drift(caplog):
+    """Lgb shim warns on version drift."""
     pytest.importorskip("lightgbm")
     from mlframe.training.lgb_shim import LGBMClassifierWithDatasetReuse
 
@@ -64,6 +66,7 @@ def test_lgb_shim_warns_on_version_drift(caplog):
 
 
 def test_xgb_shim_stamps_xgb_version_on_pickle():
+    """Xgb shim stamps xgb version on pickle."""
     pytest.importorskip("xgboost")
     from mlframe.training.xgb_shim import XGBClassifierWithDMatrixReuse
 
@@ -74,6 +77,7 @@ def test_xgb_shim_stamps_xgb_version_on_pickle():
 
 
 def test_xgb_shim_warns_on_version_drift(caplog):
+    """Xgb shim warns on version drift."""
     pytest.importorskip("xgboost")
     from mlframe.training.xgb_shim import XGBClassifierWithDMatrixReuse
 

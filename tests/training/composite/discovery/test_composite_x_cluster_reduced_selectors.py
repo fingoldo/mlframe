@@ -44,6 +44,7 @@ class TestRegistryClusterReducedSelectorsEndToEnd:
     reduces on the correlated cluster, and feeds composite discovery cleanly."""
 
     def _assert_wrapped_and_consistent(self, sel, X):
+        """Assert wrapped and consistent."""
         from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
 
         assert isinstance(sel, GroupAwareMRMR), "registry must default to the cluster-reduced wrap"
@@ -58,6 +59,7 @@ class TestRegistryClusterReducedSelectorsEndToEnd:
         return names
 
     def test_registry_rfecv_wrap_then_composite_regression(self):
+        """Registry rfecv wrap then composite regression."""
         from sklearn.ensemble import RandomForestRegressor
         from mlframe.feature_selection import registry
 
@@ -95,6 +97,7 @@ class TestRegistryClusterReducedSelectorsEndToEnd:
         assert disc.specs_[0].base_column in names
 
     def test_registry_borutashap_wrap_then_composite_binary(self):
+        """Registry borutashap wrap then composite binary."""
         from mlframe.feature_selection import registry
 
         df, target_col, feature_cols = _corr_cluster_frame(binary=True)

@@ -47,6 +47,7 @@ def _identity_sampler(X, y):
 
 
 def _make_dfs():
+    """Make dfs."""
     rng = np.random.default_rng(0)
     train_df = pd.DataFrame(rng.normal(size=(100, 3)), columns=list("abc"))
     val_df = pd.DataFrame(rng.normal(size=(40, 3)), columns=list("abc"))

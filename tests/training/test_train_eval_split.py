@@ -9,6 +9,7 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
+    """Parent module."""
     from mlframe.training import train_eval
 
     return train_eval
@@ -16,22 +17,26 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def sibling():
+    """Sibling."""
     from mlframe.training.targets import _train_eval_select_target
 
     return _train_eval_select_target
 
 
 def test_select_target_identity(parent_module, sibling):
+    """Select target identity."""
     assert parent_module.select_target is sibling.select_target
 
 
 def test_facade_loc_budget(parent_module):
+    """Facade loc budget."""
     path = Path(parent_module.__file__)
     n_lines = len(path.read_text(encoding="utf-8").splitlines())
     assert n_lines <= 700, f"train_eval.py facade is {n_lines} LOC, expected <= 700"
 
 
 def test_smoke_select_target_callable(parent_module):
+    """Smoke select target callable."""
     import inspect
 
     sig = inspect.signature(parent_module.select_target)
@@ -43,6 +48,7 @@ def test_smoke_select_target_callable(parent_module):
 
 
 def test_n_classes_from_target_in_sibling(sibling):
+    """N classes from target in sibling."""
     import numpy as np
     from mlframe.training.configs import TargetTypes
 

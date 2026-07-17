@@ -31,6 +31,7 @@ def _per_row_collated(ds, indices):
 
 
 def test_sample_mode_getitems_matches_per_row_features_only():
+    """Sample mode getitems matches per row features only."""
     rng = np.random.default_rng(20260520)
     X = rng.random((200, 10), dtype=np.float32)
     ds = TorchDataset(features=X, batch_size=0)
@@ -46,6 +47,7 @@ def test_sample_mode_getitems_matches_per_row_features_only():
 
 
 def test_sample_mode_getitems_matches_per_row_with_labels():
+    """Sample mode getitems matches per row with labels."""
     rng = np.random.default_rng(20260520)
     X = rng.random((200, 10), dtype=np.float32)
     y = rng.integers(0, 3, 200).astype(np.int64)
@@ -63,6 +65,7 @@ def test_sample_mode_getitems_matches_per_row_with_labels():
 
 
 def test_sample_mode_getitems_matches_per_row_with_sample_weight():
+    """Sample mode getitems matches per row with sample weight."""
     rng = np.random.default_rng(20260520)
     X = rng.random((200, 10), dtype=np.float32)
     y = rng.random(200, dtype=np.float32)

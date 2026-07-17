@@ -49,11 +49,13 @@ def _make_dataset(n: int = 600, seed: int = 17) -> tuple[pd.DataFrame, np.ndarra
 
 
 def _y_scale_mae(wrapper: CompositeTargetEstimator, X: pd.DataFrame, y: np.ndarray) -> float:
+    """Y scale mae."""
     preds = np.asarray(wrapper.predict(X), dtype=np.float64).reshape(-1)
     return float(np.mean(np.abs(preds - y.astype(np.float64))))
 
 
 def _t_scale_mae(inner, X: pd.DataFrame, y_T: np.ndarray) -> float:
+    """T scale mae."""
     preds_T = np.asarray(inner.predict(X), dtype=np.float64).reshape(-1)
     return float(np.mean(np.abs(preds_T - y_T.astype(np.float64))))
 
@@ -62,6 +64,7 @@ class TestCompositeYscaleInvariant:
     """y-scale error after wrap must equal T-scale error before wrap (linear_residual is additive + invertible)."""
 
     def test_plain_linear_inner(self) -> None:
+        """Plain linear inner."""
         X, base, y = _make_dataset()
         params = _fit_linear_residual_params(y, base)
         transform = get_transform("linear_residual")

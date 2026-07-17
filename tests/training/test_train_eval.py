@@ -19,6 +19,7 @@ class TestOptimizeModelForStorageClassification:
     """Tests for classification path (preds nulled, probs kept)."""
 
     def test_classification_nulls_all_preds(self):
+        """Classification nulls all preds."""
         model = SimpleNamespace(
             train_preds=np.array([0, 1, 1]),
             val_preds=np.array([1, 0]),
@@ -32,6 +33,7 @@ class TestOptimizeModelForStorageClassification:
         assert model.test_preds is None
 
     def test_classification_preserves_probs(self):
+        """Classification preserves probs."""
         probs = np.array([[0.8, 0.2], [0.1, 0.9]])
         model = SimpleNamespace(
             train_preds=np.array([0, 1]),
@@ -44,6 +46,7 @@ class TestOptimizeModelForStorageClassification:
         assert model.train_probs is probs
 
     def test_classification_columns_removed_when_matching_metadata(self):
+        """Classification columns removed when matching metadata."""
         cols = ["feat1", "feat2", "feat3"]
         model = SimpleNamespace(
             train_preds=np.array([1]),
@@ -55,6 +58,7 @@ class TestOptimizeModelForStorageClassification:
         assert model.columns is None
 
     def test_classification_columns_kept_when_different_from_metadata(self):
+        """Classification columns kept when different from metadata."""
         model = SimpleNamespace(
             train_preds=np.array([1]),
             val_preds=np.array([0]),
@@ -69,6 +73,7 @@ class TestOptimizeModelForStorageRegression:
     """Tests for regression path (preds untouched)."""
 
     def test_regression_keeps_preds(self):
+        """Regression keeps preds."""
         train_p = np.array([1.0, 2.0])
         val_p = np.array([3.0])
         test_p = np.array([4.0, 5.0])
@@ -84,12 +89,14 @@ class TestOptimizeModelForStorageRegression:
         assert model.test_preds is test_p
 
     def test_regression_columns_removed_when_matching(self):
+        """Regression columns removed when matching."""
         cols = ["x", "y"]
         model = SimpleNamespace(train_preds=np.array([1.0]), columns=list(cols))
         optimize_model_for_storage(model, TargetTypes.REGRESSION, metadata_columns=cols)
         assert model.columns is None
 
     def test_regression_columns_kept_when_no_metadata(self):
+        """Regression columns kept when no metadata."""
         model = SimpleNamespace(train_preds=np.array([1.0]), columns=["x", "y"])
         optimize_model_for_storage(model, TargetTypes.REGRESSION, metadata_columns=None)
         assert model.columns == ["x", "y"]
@@ -99,6 +106,7 @@ class TestOptimizeModelColumnsEdgeCases:
     """Edge cases for the metadata_columns dedup logic."""
 
     def test_columns_as_numpy_array_matched_against_list(self):
+        """Columns as numpy array matched against list."""
         cols = ["a", "b", "c"]
         model = SimpleNamespace(
             train_preds=np.array([1.0]),
@@ -109,6 +117,7 @@ class TestOptimizeModelColumnsEdgeCases:
         assert model.columns is None
 
     def test_no_columns_attribute_does_not_raise(self):
+        """No columns attribute does not raise."""
         model = SimpleNamespace(train_preds=np.array([1.0]))
         # model has no .columns at all; should not raise
         optimize_model_for_storage(model, TargetTypes.REGRESSION, metadata_columns=["a"])
@@ -130,6 +139,7 @@ class TestSelectTarget:
     @patch("mlframe.training.trainer.configure_training_params")
     @patch("mlframe.training.train_eval.configure_training_params")
     def test_regression_appends_mean_to_model_name(self, mock_configure, mock_trainer):
+        """Regression appends mean to model name."""
         mock_configure.return_value = ({}, {}, None, None, None, {}, {})
         mock_trainer.return_value = ({}, {}, None, None, None, {}, {})
         target = np.array([2.0, 4.0, 6.0])

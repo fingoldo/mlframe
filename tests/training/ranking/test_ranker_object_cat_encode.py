@@ -29,6 +29,7 @@ import pytest
 
 
 def _make_object_cat_frame(n: int = 30, seed: int = 0):
+    """Make object cat frame."""
     rng = np.random.default_rng(seed)
     num = rng.standard_normal(n).astype(np.float64)
     cat0 = np.array([f"a{i % 3}" for i in range(n)], dtype=object)
@@ -129,6 +130,7 @@ def test_lgb_ranker_smoke_with_object_cats() -> None:
     from mlframe.training.configs import TargetTypes
 
     class _FTE:
+        """Groups tests covering f t e."""
         target_column = "rel"
         target_type = None
         regression = False
@@ -138,6 +140,7 @@ def test_lgb_ranker_smoke_with_object_cats() -> None:
         target_carrier = "numpy"
 
         def transform(self, frame):
+            """Transform."""
             features = frame.drop(columns=["rel"]) if "rel" in frame.columns else frame
             features = features.drop(columns=["qid"]) if "qid" in features.columns else features
             target = np.asarray(frame["rel"]) if "rel" in frame.columns else None

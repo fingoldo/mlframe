@@ -15,6 +15,7 @@ from mlframe.training.strategies import PipelineCache
 
 
 def test_pipeline_cache_counts_hits_and_misses():
+    """Pipeline cache counts hits and misses."""
     cache = PipelineCache()
     df = pd.DataFrame({"a": [1, 2, 3]})
 
@@ -33,6 +34,7 @@ def test_pipeline_cache_counts_hits_and_misses():
 
 
 def test_pipeline_cache_repr_renders_counters():
+    """Pipeline cache repr renders counters."""
     cache = PipelineCache()
     cache.set("only_key", None, None, None)
     cache.get("only_key")
@@ -45,6 +47,7 @@ def test_pipeline_cache_repr_renders_counters():
 
 
 def test_pipeline_cache_size_bytes_grows_when_keys_added():
+    """Pipeline cache size bytes grows when keys added."""
     cache = PipelineCache()
     base = cache.cache_size_bytes()
     cache.set("k", pd.DataFrame({"x": list(range(1000))}), None, None)

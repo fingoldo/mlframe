@@ -24,6 +24,7 @@ class _Const:
         self._v = np.asarray(vec, dtype=np.float64)
 
     def predict(self, _frame):
+        """Predict."""
         return self._v
 
 
@@ -31,18 +32,22 @@ class _Lag:
     """Lag component: predict returns the lag column of the passed frame (a plain ndarray here)."""
 
     def predict(self, frame):
+        """Predict."""
         return np.asarray(frame, dtype=np.float64)
 
 
 class _Cfg:
+    """Groups tests covering cfg."""
     def __init__(self, on=True, margin=0.0):
         self.ood_lag_routing_enabled = on
         self.ood_lag_router_margin_frac = margin
 
 
 class TestOODLagRouterUnit:
+    """Groups tests covering o o d lag router unit."""
     def test_routes_ood_rows_to_lag_keeps_raw_in_range(self):
         # lag values: [5, 50, 200]; train range [0,100] -> row 2 (lag=200) is OOD -> gets lag; others keep raw.
+        """Routes ood rows to lag keeps raw in range."""
         raw = _Const([1.0, 2.0, 3.0])
         lag = _Lag()
         r = OODLagRouter(raw, lag, lo=0.0, hi=100.0)
@@ -50,17 +55,20 @@ class TestOODLagRouterUnit:
         assert list(out) == [1.0, 2.0, 200.0]
 
     def test_nonfinite_lag_never_overwrites_raw(self):
+        """Nonfinite lag never overwrites raw."""
         raw = _Const([1.0, 2.0])
         r = OODLagRouter(raw, _Lag(), lo=0.0, hi=100.0)
         out = r.predict(np.array([np.nan, 500.0]))
         assert out[0] == 1.0 and out[1] == 500.0
 
     def test_builder_returns_trained_when_disabled(self):
+        """Builder returns trained when disabled."""
         raw = _Const([1.0] * 100)
         assert build_ood_lag_router(raw, _Lag(), np.zeros(100), np.zeros(100), np.zeros(100), _Cfg(on=False)) is raw
 
     def test_builder_returns_trained_when_no_ood_rows(self):
         # All val lag values inside train range -> no routing.
+        """Builder returns trained when no ood rows."""
         raw = _Const(np.full(200, 5.0))
         y_train = np.linspace(0.0, 100.0, 500)
         val_lag = np.full(200, 50.0)  # all in range
@@ -70,6 +78,7 @@ class TestOODLagRouterUnit:
 
     def test_builder_returns_trained_when_routing_does_not_help(self):
         # OOD rows exist but the trained model is ALREADY good there -> routing to lag would not improve val -> keep raw.
+        """Builder returns trained when routing does not help."""
         n = 400
         y_val = np.concatenate([np.full(n // 2, 50.0), np.full(n // 2, 500.0)])  # half in-range, half OOD-level
         val_lag = y_val.copy()  # lag == truth everywhere (so lag is perfect, but...)
@@ -80,6 +89,7 @@ class TestOODLagRouterUnit:
 
 
 class TestOODLagRouterBizValue:
+    """Groups tests covering o o d lag router biz value."""
     def test_biz_val_router_beats_both_all_raw_and_all_lag(self):
         """Held-out val: in-range groups where the trained model is accurate and lag is noisy, PLUS out-of-range groups
         where the trained model extrapolates badly and lag is exact. The router (raw in-range, lag out-of-range) must

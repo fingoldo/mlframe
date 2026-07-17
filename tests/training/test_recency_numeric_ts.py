@@ -85,6 +85,7 @@ def test_recency_weights_routed_through_fused_kernel() -> None:
     orig = mod._recency_weights_fused
 
     def _spy(*args, **kwargs):
+        """Spy."""
         called["n"] += 1
         return orig(*args, **kwargs)
 

@@ -19,15 +19,18 @@ from mlframe.training._direct_horizon_bucket_forecaster import DirectHorizonBuck
 
 
 def _rmse(y_true, y_pred):
+    """Rmse."""
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
 def _true_y(day_idx: np.ndarray) -> np.ndarray:
+    """True y."""
     weekday_effect = np.array([0, 1, 2, 1, 0, -1, -2])[day_idx % 7]
     return 10 + 0.05 * day_idx + weekday_effect
 
 
 def test_biz_val_direct_horizon_bucket_forecaster_beats_recursive_forecasting():
+    """Biz val direct horizon bucket forecaster beats recursive forecasting."""
     rng = np.random.default_rng(0)
     n_days_hist = 200
     horizon = 28
@@ -83,6 +86,7 @@ def test_biz_val_direct_horizon_bucket_forecaster_beats_recursive_forecasting():
 
 
 def test_direct_horizon_bucket_forecaster_no_buckets_raises():
+    """Direct horizon bucket forecaster no buckets raises."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -90,6 +94,7 @@ def test_direct_horizon_bucket_forecaster_no_buckets_raises():
 
 
 def test_direct_horizon_bucket_forecaster_no_group_col_pools_all_entities():
+    """Direct horizon bucket forecaster no group col pools all entities."""
     rng = np.random.default_rng(1)
     n = 200
     X = pd.DataFrame({"x": rng.normal(0, 1, n)})

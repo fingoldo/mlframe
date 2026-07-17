@@ -24,6 +24,7 @@ from mlframe.training.core._phase_composite_post_xt_ensemble import (
 
 
 def _grouped(n=30_000, n_groups=20, seed=0):
+    """Grouped."""
     rng = np.random.default_rng(seed)
     levels = rng.uniform(-3.0, 3.0, n_groups)
     groups = rng.integers(0, n_groups, size=n).astype(np.int64)
@@ -36,6 +37,7 @@ def _grouped(n=30_000, n_groups=20, seed=0):
 
 
 def _oof(X, y, groups, kfold=5):
+    """Oof."""
     models = [Ridge(alpha=a).fit(X, y) for a in (0.1, 1.0, 10.0, 100.0)]
     names = [f"c{i}" for i in range(len(models))]
     t0 = time.perf_counter()
@@ -55,6 +57,7 @@ def _oof(X, y, groups, kfold=5):
 
 
 def _nnls_w(oof, y):
+    """Nnls w."""
     fin = np.isfinite(oof).all(axis=1) & np.isfinite(y)
     w, _ = nnls(oof[fin], y[fin])
     s = w.sum()
@@ -62,6 +65,7 @@ def _nnls_w(oof, y):
 
 
 def test_biz_val_oof_subsample_keeps_whole_groups():
+    """Biz val oof subsample keeps whole groups."""
     _X, _y, groups = _grouped()
     pos = _oof_subsample_positions(groups.size, groups, cap=6_000, seed=42)
     assert pos is not None and 0 < pos.size < groups.size
@@ -72,6 +76,7 @@ def test_biz_val_oof_subsample_keeps_whole_groups():
 
 
 def test_biz_val_oof_subsample_weights_match_full():
+    """Biz val oof subsample weights match full."""
     X, y, groups = _grouped()
     oof_full, _wall_full = _oof(X, y, groups)
     w_full = _nnls_w(oof_full, y)
@@ -92,6 +97,7 @@ def test_biz_val_oof_subsample_weights_match_full():
 
 
 def test_biz_val_oof_subsample_disabled_returns_none():
+    """Biz val oof subsample disabled returns none."""
     _X, _y, groups = _grouped(n=5_000)
     assert _oof_subsample_positions(groups.size, groups, cap=0, seed=42) is None  # disabled
     assert _oof_subsample_positions(groups.size, groups, cap=10_000, seed=42) is None  # n <= cap

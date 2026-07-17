@@ -129,6 +129,7 @@ def _predict_proba_pos(results):
 
 
 def _predict_labels(results):
+    """Predict labels."""
     preds = next(iter(results["predictions"].values()))
     return np.asarray(preds).astype(int)
 
@@ -228,6 +229,7 @@ def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, se
     # as a bonus (not required) and assert the absence in run A in either case.
     def _has_populated_fairness(meta):
         # Walk top-level keys looking for a non-empty fairness payload.
+        """Has populated fairness."""
         for key, val in meta.items():
             if "fairness" in key.lower():
                 if val is None:

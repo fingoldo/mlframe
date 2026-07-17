@@ -13,6 +13,7 @@ from mlframe.training.composite import (
 
 
 class TestDetectGroupColumn:
+    """Groups tests covering detect group column."""
     def test_well_id_pattern(self) -> None:
         """The canonical TVT pattern: well_id with ~600 unique values, balanced group sizes -> high score."""
         rng = np.random.default_rng(0)

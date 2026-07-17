@@ -53,6 +53,7 @@ class _TfidfConfig:
 
 
 def _call_apply_extensions(train, val, test, tfidf_columns, caplog):
+    """Call apply extensions."""
     from mlframe.training.pipeline import apply_preprocessing_extensions
 
     cfg = _TfidfConfig(tfidf_columns=tfidf_columns)
@@ -62,6 +63,7 @@ def _call_apply_extensions(train, val, test, tfidf_columns, caplog):
 
 
 class TestTfidfSplitColumnParity:
+    """Groups tests covering tfidf split column parity."""
     def test_column_parity_after_tfidf_all_splits(self, caplog):
         """Happy path: text col present in all three splits → TF-IDF
         expands all three symmetrically, no WARN, column counts match.
@@ -108,7 +110,9 @@ class TestTfidfSplitColumnParity:
 
 
 class TestIsPolarsCategoricalEnum:
+    """Groups tests covering is polars categorical enum."""
     def test_categorical_dtype_detected(self):
+        """Categorical dtype detected."""
         from mlframe.training.strategies import is_polars_categorical
 
         assert is_polars_categorical(pl.Categorical)
@@ -135,6 +139,7 @@ class TestIsPolarsCategoricalEnum:
         assert not is_polars_categorical(pl.Boolean)
 
     def test_get_polars_cat_columns_includes_enum(self):
+        """Get polars cat columns includes enum."""
         from mlframe.training.strategies import get_polars_cat_columns
 
         enum_dt = pl.Enum(["red", "green"])
@@ -157,6 +162,7 @@ class TestIsPolarsCategoricalEnum:
 
 
 class TestBuildPipelineEncoderMissingWarn:
+    """Groups tests covering build pipeline encoder missing warn."""
     def test_warn_when_encoder_none_and_cats_present(self, caplog):
         """Strategy that requires encoding + user passes cat_features
         but forgets to pass a category_encoder. Pre-fix: step silently
@@ -180,6 +186,7 @@ class TestBuildPipelineEncoderMissingWarn:
         assert any("HGBStrategy" in m for m in warns), warns
 
     def test_no_warn_when_encoder_provided(self, caplog):
+        """No warn when encoder provided."""
         from mlframe.training.strategies import HGBStrategy
         from sklearn.preprocessing import OrdinalEncoder
 

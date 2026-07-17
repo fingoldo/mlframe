@@ -16,6 +16,7 @@ from mlframe.training._easy_ensemble import easy_ensemble_fit_predict
 
 
 def _make_imbalanced_data(seed: int):
+    """Make imbalanced data."""
     rng = np.random.default_rng(seed)
     n_pos, n_neg = 60, 6000
     pos_x = rng.normal(1.5, 1.0, size=(n_pos, 3))
@@ -30,6 +31,7 @@ def _make_imbalanced_data(seed: int):
 
 
 def test_biz_val_easy_ensemble_beats_single_model_on_extreme_imbalance():
+    """Biz val easy ensemble beats single model on extreme imbalance."""
     X_train, y_train, X_test, y_test = _make_imbalanced_data(seed=0)
 
     result = easy_ensemble_fit_predict(
@@ -47,6 +49,7 @@ def test_biz_val_easy_ensemble_beats_single_model_on_extreme_imbalance():
 
 
 def test_easy_ensemble_missing_class_raises():
+    """Easy ensemble missing class raises."""
     import pytest
 
     X = np.zeros((10, 2))
@@ -56,6 +59,7 @@ def test_easy_ensemble_missing_class_raises():
 
 
 def test_easy_ensemble_negative_ratio_controls_bag_size():
+    """Easy ensemble negative ratio controls bag size."""
     rng = np.random.default_rng(1)
     n_pos, n_neg = 20, 2000
     X = np.vstack([rng.normal(1, 1, (n_pos, 2)), rng.normal(-1, 1, (n_neg, 2))])

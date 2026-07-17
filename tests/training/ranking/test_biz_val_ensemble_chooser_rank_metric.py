@@ -19,11 +19,13 @@ from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 
 
 class _FakeEns:
+    """Groups tests covering fake ens."""
     def __init__(self, metrics):
         self.metrics = metrics
 
 
 def _two_col(p):
+    """Two col."""
     p = np.clip(p, 1e-6, 1 - 1e-6)
     return np.column_stack([1.0 - p, p])
 
@@ -53,6 +55,7 @@ def _build_ensembles_from_members(members, y_oof, oof_i, y_test, test_i):
 
 
 def _mixed_skill_cell(seed=1):
+    """Mixed skill cell."""
     rng = np.random.default_rng(1000 + seed)
     n = 5000
     y = (rng.random(n) < 0.25).astype(int)

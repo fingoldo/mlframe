@@ -35,6 +35,7 @@ _BASE_KW = dict(
 
 
 def test_different_targets_with_named_pre_pipeline_get_different_keys():
+    """Different targets with named pre pipeline get different keys."""
     target_a = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
     target_b = np.array([9.0, 8.0, 7.0, 6.0, 5.0])
     k_a = _compute_pipeline_cache_key(
@@ -53,6 +54,7 @@ def test_different_targets_with_named_pre_pipeline_get_different_keys():
 
 
 def test_same_target_content_and_name_is_stable():
+    """Same target content and name is stable."""
     target = np.array([1.0, 2.0, 3.0])
     k1 = _compute_pipeline_cache_key(**_BASE_KW, pre_pipeline_name="mrmr", target_name="t", train_target=target)
     k2 = _compute_pipeline_cache_key(**_BASE_KW, pre_pipeline_name="mrmr", target_name="t", train_target=target)
@@ -62,6 +64,7 @@ def test_same_target_content_and_name_is_stable():
 def test_no_pre_pipeline_stays_target_independent():
     # Pure imp/scale/encode preprocessing has no target-dependent selection, so different targets
     # must still share the cache slot -- this is the legitimate cross-target win the fix must not break.
+    """No pre pipeline stays target independent."""
     target_a = np.array([0.0, 1.0, 2.0])
     target_b = np.array([9.0, 8.0, 7.0])
     k_a = _compute_pipeline_cache_key(**_BASE_KW, pre_pipeline_name=None, target_name="target_a", train_target=target_a)

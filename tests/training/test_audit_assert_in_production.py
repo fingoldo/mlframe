@@ -25,6 +25,7 @@ import pytest
 
 
 def test_get_tukey_fences_quantile_zero_raises_value_error():
+    """Get tukey fences quantile zero raises value error."""
     from mlframe.core.stats import get_tukey_fences_multiplier_for_quantile
 
     with pytest.raises(ValueError, match="quantile must be in"):
@@ -32,6 +33,7 @@ def test_get_tukey_fences_quantile_zero_raises_value_error():
 
 
 def test_get_tukey_fences_quantile_one_raises_value_error():
+    """Get tukey fences quantile one raises value error."""
     from mlframe.core.stats import get_tukey_fences_multiplier_for_quantile
 
     with pytest.raises(ValueError, match="quantile must be in"):
@@ -39,6 +41,7 @@ def test_get_tukey_fences_quantile_one_raises_value_error():
 
 
 def test_get_tukey_fences_valid_quantile_returns_float():
+    """Get tukey fences valid quantile returns float."""
     from mlframe.core.stats import get_tukey_fences_multiplier_for_quantile
 
     out = get_tukey_fences_multiplier_for_quantile(quantile=0.25, sd_sigma=2.7)
@@ -49,6 +52,7 @@ def test_get_tukey_fences_valid_quantile_returns_float():
 
 
 def test_soft_winsorize_bad_distribution_raises_value_error():
+    """Soft winsorize bad distribution raises value error."""
     from mlframe.estimators.custom import soft_winsorize
 
     with pytest.raises(ValueError, match="distribution must be"):
@@ -63,6 +67,7 @@ def test_soft_winsorize_bad_distribution_raises_value_error():
 
 
 def test_clip_to_quantiles_bad_method_raises_value_error():
+    """Clip to quantiles bad method raises value error."""
     from mlframe.estimators.custom import clip_to_quantiles
 
     with pytest.raises(ValueError, match="method must be"):
@@ -70,6 +75,7 @@ def test_clip_to_quantiles_bad_method_raises_value_error():
 
 
 def test_clip_to_quantiles_bad_quantile_raises_value_error():
+    """Clip to quantiles bad quantile raises value error."""
     from mlframe.estimators.custom import clip_to_quantiles
 
     with pytest.raises(ValueError, match="quantile must be in"):
@@ -77,6 +83,7 @@ def test_clip_to_quantiles_bad_quantile_raises_value_error():
 
 
 def test_identity_estimator_no_features_raises_value_error():
+    """Identity estimator no features raises value error."""
     from mlframe.estimators.custom import IdentityEstimator
     import pandas as pd
 
@@ -90,6 +97,7 @@ def test_identity_estimator_no_features_raises_value_error():
 
 
 def test_is_variable_truly_continuous_none_inputs_raises():
+    """Is variable truly continuous none inputs raises."""
     from mlframe.preprocessing.cleaning import is_variable_truly_continuous
 
     with pytest.raises(ValueError, match="must be provided"):
@@ -147,6 +155,7 @@ def test_mbh_optimizer_params_checks_raise_value_error():
 
 
 def test_ensembling_unknown_method_raises_value_error():
+    """Ensembling unknown method raises value error."""
     from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
     rng = np.random.default_rng(0)

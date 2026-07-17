@@ -12,6 +12,7 @@ from mlframe.training.composite import (
 
 
 class TestDetectTimeColumn:
+    """Groups tests covering detect time column."""
     def test_datetime_column_top(self) -> None:
         """Datetime-dtype column wins over any numeric monotonic column."""
         df = pd.DataFrame(
@@ -54,11 +55,13 @@ class TestDetectTimeColumn:
         assert all(name != "random" for name, _ in results)
 
     def test_empty_df_returns_empty(self) -> None:
+        """Empty df returns empty."""
         df = pd.DataFrame()
         results = detect_time_column_candidates(df)
         assert results == []
 
     def test_explicit_candidate_columns(self) -> None:
+        """Explicit candidate columns."""
         df = pd.DataFrame(
             {
                 "a": pd.date_range("2024-01-01", periods=10, freq="h"),
@@ -86,7 +89,9 @@ class TestDetectTimeColumn:
 
 
 class TestSortDfByTime:
+    """Groups tests covering sort df by time."""
     def test_pandas_sort_ascending(self) -> None:
+        """Pandas sort ascending."""
         df = pd.DataFrame(
             {
                 "ts": [3, 1, 4, 1, 5, 9, 2],
@@ -99,6 +104,7 @@ class TestSortDfByTime:
         assert list(df["ts"]) == [3, 1, 4, 1, 5, 9, 2]
 
     def test_pandas_sort_descending(self) -> None:
+        """Pandas sort descending."""
         df = pd.DataFrame({"ts": [1, 5, 2, 4, 3]})
         sorted_df = sort_df_by_time_column(df, "ts", ascending=False)
         assert list(sorted_df["ts"]) == [5, 4, 3, 2, 1]

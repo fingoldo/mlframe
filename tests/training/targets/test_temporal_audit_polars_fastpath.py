@@ -33,6 +33,7 @@ def _audit_call_recorder(monkeypatch):
     seen = {"df_type": None, "df_dtypes": None, "n_targets": 0}
 
     def _fake_audit(df, *, timestamp_col, targets, granularity="auto", **_kw):
+        """Fake audit."""
         seen["df_type"] = type(df).__module__ + "." + type(df).__name__
         if hasattr(df, "schema"):
             seen["df_dtypes"] = {c: str(t) for c, t in dict(df.schema).items()}
@@ -53,10 +54,12 @@ def _make_minimal_behavior_and_fte():
     needs without dragging in the full configs / FTE machinery."""
 
     class _Cfg:
+        """Groups tests covering cfg."""
         target_temporal_audit_column = None  # fall through to FTE.ts_field
         target_temporal_audit_granularity = "auto"
 
     class _Fte:
+        """Groups tests covering fte."""
         ts_field = "ts"
 
     return _Cfg(), _Fte()

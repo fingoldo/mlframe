@@ -73,6 +73,7 @@ def _make_baseline_pandas(
     with_all_null: bool = False,
     regression: bool = False,
 ):
+    """Make baseline pandas."""
     rng = np.random.default_rng(seed)
     data: dict = {
         "num_0": rng.standard_normal(n).astype("float32"),
@@ -95,6 +96,7 @@ def _make_baseline_pandas(
 
 
 def _make_baseline_polars_utf8(n: int = 600, seed: int = 0, regression: bool = False):
+    """Make baseline polars utf8."""
     rng = np.random.default_rng(seed)
     data: dict = {
         "num_0": rng.standard_normal(n).astype("float32"),
@@ -120,6 +122,7 @@ def _train_once(
     feature_types_config: Optional[FeatureTypesConfig] = None,
     extra_kwargs: Optional[dict] = None,
 ):
+    """Train once."""
     from mlframe.training.core import train_mlframe_models_suite
 
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=regression)
@@ -242,6 +245,7 @@ class _WeightedExtractor(SimpleFeaturesAndTargetsExtractor):
         self._schema_name = schema_name
 
     def transform(self, df):
+        """Transform."""
         len(df)
         if isinstance(df, pd.DataFrame):
             target_values = df[self.target_column].values
@@ -888,6 +892,7 @@ class _MultiTargetExtractor(SimpleFeaturesAndTargetsExtractor):
         self._targets = list(target_columns)
 
     def transform(self, df):
+        """Transform."""
         from mlframe.training.configs import TargetTypes
 
         if isinstance(df, pd.DataFrame):
@@ -1064,10 +1069,12 @@ def test_prepare_polars_called_once_per_model_per_pipeline(tmp_path, monkeypatch
     orig_xgb = _strat.XGBoostStrategy.prepare_polars_dataframe
 
     def _wrap_cb(self, *a, **kw):
+        """Wrap cb."""
         call_counter["cb"] += 1
         return orig_cb(self, *a, **kw)
 
     def _wrap_xgb(self, *a, **kw):
+        """Wrap xgb."""
         call_counter["xgb"] += 1
         return orig_xgb(self, *a, **kw)
 
@@ -1225,6 +1232,7 @@ def test_continue_on_model_failure_skips_crashed_model(tmp_path, monkeypatch):
     _sentinel = RuntimeError("sentinel-fit-crash-for-test")
 
     def _boom(self, *a, **kw):
+        """Boom."""
         raise _sentinel
 
     monkeypatch.setattr(cb.CatBoostClassifier, "fit", _boom)
@@ -2017,6 +2025,7 @@ def test_cb_gpu_and_cpu_predictions_match_within_tolerance(tmp_path):
     serving = df.head(50).drop(columns=["target"])
 
     def _train_with(task_type):
+        """Train with."""
         _train_once(
             df,
             tmp_path / task_type,

@@ -61,6 +61,7 @@ def _read(rel: str) -> str:
 
 
 def test_codep14_run_temporal_audit_batch_has_no_df_param():
+    """Codep14 run temporal audit batch has no df param."""
     from mlframe.training.core._phase_temporal_audit import run_temporal_audit_batch
 
     sig = inspect.signature(run_temporal_audit_batch)
@@ -68,6 +69,7 @@ def test_codep14_run_temporal_audit_batch_has_no_df_param():
 
 
 def test_codep14_main_does_not_pass_df_to_temporal_audit():
+    """Codep14 main does not pass df to temporal audit."""
     src = _read("training/core/main.py")
     # The call site must not pass df=...
     assert "run_temporal_audit_batch(" in src
@@ -82,12 +84,14 @@ def test_codep14_main_does_not_pass_df_to_temporal_audit():
 
 
 def test_codep17_prep_polars_df_lives_in_misc_helpers():
+    """Codep17 prep polars df lives in misc helpers."""
     from mlframe.training.core import _misc_helpers as mh
 
     assert hasattr(mh, "_prep_polars_df"), "CODE-P1-7 regression: _prep_polars_df missing from _misc_helpers"
 
 
 def test_codep17_no_local_main_import_in_train_one_target():
+    """Codep17 no local main import in train one target."""
     src = _read("training/core/_phase_train_one_target.py")
     assert "from .main import _prep_polars_df" not in src, "CODE-P1-7 regression: _train_one_target hot loop still locally imports _prep_polars_df from .main"
 
@@ -96,6 +100,7 @@ def test_codep17_no_local_main_import_in_train_one_target():
 
 
 def test_codep110_fingerprint_cache_attr_on_ctx():
+    """Codep110 fingerprint cache attr on ctx."""
     from mlframe.training.core._training_context import TrainingContext
 
     ctx = TrainingContext()
@@ -140,6 +145,7 @@ def test_codep18_phase_runners_namespace_present():
 
 
 def test_codep18_main_uses_phase_runner_namespace():
+    """Codep18 main uses phase runner namespace."""
     src = _read("training/core/main.py")
     # The consolidated import must be present.
     assert "from . import _phase_runners as pr" in src
@@ -164,6 +170,7 @@ def test_codep18_main_uses_phase_runner_namespace():
 
 
 def test_codep112_train_recurrent_models_reads_from_ctx():
+    """Codep112 train recurrent models reads from ctx."""
     src = _read("training/core/main.py")
     # The call to train_recurrent_models must pass recurrent_models from ctx.recurrent_models
     # not from the closed-over function param. After the fix the call uses ctx.recurrent_models.
@@ -216,6 +223,7 @@ def test_codelow2_no_redundant_slug_assignment():
 
 
 def test_codelow3_models_dir_read_once():
+    """Codelow3 models dir read once."""
     src = _read("training/core/_phase_train_one_target.py")
     # `models_dir = ctx.models_dir` must appear exactly once at the top of _train_one_target.
     count = src.count("models_dir = ctx.models_dir")
@@ -243,6 +251,7 @@ def test_codelow7_dataset_reuse_helper_supports_bidirectional_transfer():
     from mlframe.training.core import _phase_train_one_target as pt
 
     class _Bag:
+        """Groups tests covering bag."""
         pass
 
     src = _Bag()
@@ -271,6 +280,7 @@ def test_codelow7_dataset_reuse_helper_supports_bidirectional_transfer():
 
 
 def test_convmed5_pandas_view_cache_attr_on_ctx():
+    """Convmed5 pandas view cache attr on ctx."""
     from mlframe.training.core._training_context import TrainingContext
 
     ctx = TrainingContext()
@@ -289,6 +299,7 @@ def test_convmed5_cache_used_in_train_one_target():
 
 
 def test_convlow15_preprocessing_uses_native_is_infinite():
+    """Convlow15 preprocessing uses native is infinite."""
     src = _read("training/preprocessing.py")
     # CONV-LOW-15: the polars _frame_contains_inf branch must use the native expression-side
     # ``df[name].is_infinite().any()`` rather than going through ``np.isinf(series.to_numpy())``.

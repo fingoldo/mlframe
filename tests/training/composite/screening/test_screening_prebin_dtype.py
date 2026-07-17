@@ -56,6 +56,7 @@ def _ref_prebin_int64(fm: np.ndarray, nbins: int) -> np.ndarray:
 
 
 def _make_matrix(n: int = 4000, k: int = 6, *, with_nan: bool, seed: int = 7):
+    """Make matrix."""
     rng = np.random.default_rng(seed)
     fm = rng.standard_normal((n, k)).astype(np.float32)
     if with_nan:

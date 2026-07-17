@@ -55,6 +55,7 @@ def _make_multi_base_data(n=1500, k_outputs=3, seed=0):
 
 
 def _rmse(a, b):
+    """Rmse."""
     return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
 
@@ -64,6 +65,7 @@ def _rmse(a, b):
 
 
 def test_predict_shape_is_n_by_k():
+    """Predict shape is n by k."""
     X, Y = _make_multi_base_data(n=400, k_outputs=3)
     specs = make_per_column_specs(
         3,
@@ -101,6 +103,7 @@ def test_per_column_clone_independence():
 
 
 def test_one_d_y_becomes_single_column():
+    """One d y becomes single column."""
     X, Y = _make_multi_base_data(n=300, k_outputs=3)
     y1 = Y[:, 0]
     est = CompositeMultiOutputEstimator(
@@ -156,6 +159,7 @@ def test_partial_nan_column_uses_finite_median_fallback():
 
 
 def test_skip_failed_false_reraises():
+    """Skip failed false reraises."""
     X, Y = _make_multi_base_data(n=200, k_outputs=2)
     est = CompositeMultiOutputEstimator(
         base_estimator=LinearRegression(),
@@ -170,6 +174,7 @@ def test_skip_failed_false_reraises():
 
 
 def test_predict_before_fit_raises():
+    """Predict before fit raises."""
     from sklearn.exceptions import NotFittedError
 
     est = CompositeMultiOutputEstimator(base_estimator=LinearRegression())
@@ -179,6 +184,7 @@ def test_predict_before_fit_raises():
 
 
 def test_column_specs_length_mismatch_raises():
+    """Column specs length mismatch raises."""
     X, Y = _make_multi_base_data(n=100, k_outputs=3)
     est = CompositeMultiOutputEstimator(
         base_estimator=LinearRegression(),
@@ -189,6 +195,7 @@ def test_column_specs_length_mismatch_raises():
 
 
 def test_make_per_column_specs_override_and_basemap():
+    """Make per column specs override and basemap."""
     specs = make_per_column_specs(
         3,
         shared_spec={"transform_name": "diff", "drop_invalid_rows": True},
@@ -204,6 +211,7 @@ def test_make_per_column_specs_override_and_basemap():
 
 
 def test_n_features_in_matches_columns():
+    """N features in matches columns."""
     X, Y = _make_multi_base_data(n=200, k_outputs=2)
     est = CompositeMultiOutputEstimator(
         base_estimator=LinearRegression(),
@@ -215,6 +223,7 @@ def test_n_features_in_matches_columns():
 
 
 def test_sklearn_clone_is_unfitted_and_independent():
+    """Sklearn clone is unfitted and independent."""
     from sklearn.base import clone
 
     est = CompositeMultiOutputEstimator(

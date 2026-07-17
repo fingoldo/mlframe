@@ -43,7 +43,9 @@ def _fit_basic_wrapper(online: bool = False, **kwargs) -> CompositeTargetEstimat
 
 
 class TestDefaultDisabled:
+    """Groups tests covering default disabled."""
     def test_update_raises_when_online_disabled(self) -> None:
+        """Update raises when online disabled."""
         wrap = _fit_basic_wrapper(online=False)
         with pytest.raises(RuntimeError, match="online_refit_enabled is False"):
             wrap.update(y_recent=np.array([1.0, 2.0]), base_recent=np.array([1.0, 2.0]))
@@ -55,7 +57,9 @@ class TestDefaultDisabled:
 
 
 class TestUnsupportedTransform:
+    """Groups tests covering unsupported transform."""
     def test_update_raises_for_non_linear_residual(self) -> None:
+        """Update raises for non linear residual."""
         rng = np.random.default_rng(0)
         df = pd.DataFrame({"b1": rng.uniform(1, 10, size=300)})
         y = df["b1"].values + rng.normal(scale=0.1, size=300)
@@ -77,7 +81,9 @@ class TestUnsupportedTransform:
 
 
 class TestBuffer:
+    """Groups tests covering buffer."""
     def test_buffer_grows_across_updates(self) -> None:
+        """Buffer grows across updates."""
         wrap = _fit_basic_wrapper(online=True, online_refit_min_buffer_n=500, online_refit_buffer_n=1000)
         # Empty buffer initially.
         state = wrap.get_buffer_state()
@@ -93,6 +99,7 @@ class TestBuffer:
         assert state["buffer_n"] == 500
 
     def test_buffer_evicts_oldest_at_capacity(self) -> None:
+        """Buffer evicts oldest at capacity."""
         wrap = _fit_basic_wrapper(online=True, online_refit_buffer_n=100)
         rng = np.random.default_rng(2)
         # Append 250 rows -> should cap at 100.
@@ -108,6 +115,7 @@ class TestBuffer:
         assert state["buffer_n"] == 100  # FIFO eviction worked
 
     def test_length_mismatch_raises(self) -> None:
+        """Length mismatch raises."""
         wrap = _fit_basic_wrapper(online=True)
         with pytest.raises(ValueError, match="equal length"):
             wrap.update(y_recent=np.array([1.0, 2.0]), base_recent=np.array([1.0]))
@@ -119,6 +127,7 @@ class TestBuffer:
 
 
 class TestDriftTrigger:
+    """Groups tests covering drift trigger."""
     def test_no_drift_keeps_alpha_unchanged(self) -> None:
         """Same-distribution updates -> no drift -> fitted_params not modified."""
         wrap = _fit_basic_wrapper(online=True, online_refit_min_buffer_n=200)
@@ -155,6 +164,7 @@ class TestDriftTrigger:
         assert abs(alpha_after - alpha_before) > 0.5
 
     def test_returned_info_has_buffer_n_total(self) -> None:
+        """Returned info has buffer n total."""
         wrap = _fit_basic_wrapper(online=True)
         rng = np.random.default_rng(5)
         info = wrap.update(
@@ -171,6 +181,7 @@ class TestDriftTrigger:
 
 
 class TestSklearnCloneSafety:
+    """Groups tests covering sklearn clone safety."""
     def test_clone_starts_with_empty_buffer(self) -> None:
         """sklearn.clone() must produce a wrapper with empty rolling buffer (no shared state with original)."""
         wrap = _fit_basic_wrapper(online=True)

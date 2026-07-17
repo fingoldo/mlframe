@@ -19,11 +19,13 @@ from mlframe.training.pipeline import apply_preprocessing_extensions
 
 
 def _make_df(n_rows: int = 10_000, n_cols: int = 20) -> pd.DataFrame:
+    """Make df."""
     rng = np.random.default_rng(42)
     return pd.DataFrame(rng.standard_normal((n_rows, n_cols)), columns=[f"f{i}" for i in range(n_cols)])
 
 
 def test_fastpath_returns_inputs_unchanged():
+    """Fastpath returns inputs unchanged."""
     train, val, test = _make_df(), _make_df(500), _make_df(500)
     out_train, out_val, out_test, pipe = apply_preprocessing_extensions(train, val, test, config=None, verbose=0)
     assert out_train is train
@@ -33,6 +35,7 @@ def test_fastpath_returns_inputs_unchanged():
 
 
 def test_fastpath_polars_inputs_unchanged():
+    """Fastpath polars inputs unchanged."""
     train = pl.DataFrame({"a": np.arange(1000), "b": np.arange(1000).astype(float)})
     val = pl.DataFrame({"a": np.arange(100), "b": np.arange(100).astype(float)})
     test = pl.DataFrame({"a": np.arange(100), "b": np.arange(100).astype(float)})

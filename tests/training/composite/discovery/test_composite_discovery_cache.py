@@ -19,7 +19,9 @@ from mlframe.training.composite import (
 
 
 class TestDataSignature:
+    """Groups tests covering data signature."""
     def test_same_df_same_signature(self) -> None:
+        """Same df same signature."""
         rng = np.random.default_rng(0)
         df = pd.DataFrame(
             {
@@ -33,6 +35,7 @@ class TestDataSignature:
         assert s1 == s2
 
     def test_different_target_different_signature(self) -> None:
+        """Different target different signature."""
         rng = np.random.default_rng(1)
         df = pd.DataFrame({"a": rng.normal(size=1000), "b": rng.normal(size=1000)})
         s1 = data_signature(df, "a", ["b"], sample_n=500, random_state=0)
@@ -40,6 +43,7 @@ class TestDataSignature:
         assert s1 != s2
 
     def test_different_features_different_signature(self) -> None:
+        """Different features different signature."""
         rng = np.random.default_rng(2)
         df = pd.DataFrame(
             {
@@ -54,6 +58,7 @@ class TestDataSignature:
         assert s_ab != s_ac
 
     def test_modified_data_changes_signature(self) -> None:
+        """Modified data changes signature."""
         rng = np.random.default_rng(3)
         df1 = pd.DataFrame({"a": rng.normal(size=1000), "y": rng.normal(size=1000)})
         df2 = df1.copy()
@@ -63,6 +68,7 @@ class TestDataSignature:
         assert s1 != s2
 
     def test_empty_df_returns_stable_signature(self) -> None:
+        """Empty df returns stable signature."""
         df = pd.DataFrame({"a": [], "y": []})
         s = data_signature(df, "y", ["a"])
         assert isinstance(s, str)
@@ -70,12 +76,15 @@ class TestDataSignature:
 
 
 class TestCacheKey:
+    """Groups tests covering cache key."""
     def test_reproducible(self) -> None:
+        """Reproducible."""
         k1 = make_discovery_cache_key("abc", "target", "config_sig", 42)
         k2 = make_discovery_cache_key("abc", "target", "config_sig", 42)
         assert k1 == k2
 
     def test_different_inputs_different_keys(self) -> None:
+        """Different inputs different keys."""
         k1 = make_discovery_cache_key("abc", "target", "config_sig", 42)
         k2 = make_discovery_cache_key("xyz", "target", "config_sig", 42)
         k3 = make_discovery_cache_key("abc", "different", "config_sig", 42)
@@ -85,7 +94,9 @@ class TestCacheKey:
 
 
 class TestDiscoveryCache:
+    """Groups tests covering discovery cache."""
     def test_set_and_get(self, tmp_path) -> None:
+        """Set and get."""
         tmp = str(tmp_path)
         cache = DiscoveryCache(tmp)
         cache.set("abc123", {"specs": [{"name": "spec1", "mi_gain": 0.5}]})
@@ -93,6 +104,7 @@ class TestDiscoveryCache:
         assert out == {"specs": [{"name": "spec1", "mi_gain": 0.5}]}
 
     def test_contains(self, tmp_path) -> None:
+        """Contains."""
         tmp = str(tmp_path)
         cache = DiscoveryCache(tmp)
         assert "abc" not in cache
@@ -100,12 +112,14 @@ class TestDiscoveryCache:
         assert "abc" in cache
 
     def test_get_default_when_missing(self, tmp_path) -> None:
+        """Get default when missing."""
         tmp = str(tmp_path)
         cache = DiscoveryCache(tmp)
         assert cache.get("missing") is None
         assert cache.get("missing", default="fallback") == "fallback"
 
     def test_invalidate(self, tmp_path) -> None:
+        """Invalidate."""
         tmp = str(tmp_path)
         cache = DiscoveryCache(tmp)
         cache.set("abc", "value")
@@ -114,6 +128,7 @@ class TestDiscoveryCache:
         assert "abc" not in cache
 
     def test_clear(self, tmp_path) -> None:
+        """Clear."""
         tmp = str(tmp_path)
         cache = DiscoveryCache(tmp)
         for i in range(5):
@@ -129,6 +144,7 @@ class TestDiscoveryCache:
         # sanitiser collapsed abc-def and abcdef to the same filename).
         # Path-traversal protection is preserved by construction --
         # the hashed filename never contains "/" or "..".
+        """Unsafe key sanitised or rejected."""
         tmp = str(tmp_path)
         cache = DiscoveryCache(tmp)
         # Empty key -> ValueError.
@@ -166,6 +182,7 @@ class TestDiscoveryCache:
 
 
 class TestEndToEndScenario:
+    """Groups tests covering end to end scenario."""
     def test_cache_hit_skips_recomputation(self, tmp_path) -> None:
         """The full R&D workflow: hash data + config, look up cache, fall back to expensive computation on miss, store result, second call hits."""
         tmp = str(tmp_path)

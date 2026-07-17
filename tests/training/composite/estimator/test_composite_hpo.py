@@ -31,10 +31,12 @@ def _make_diff_data(n: int = 1500, seed: int = 0):
 
 
 def _inner_factory():
+    """Inner factory."""
     return DecisionTreeRegressor(random_state=0)
 
 
 def _spaces():
+    """Spaces."""
     return {"max_depth": HPOSpace("int", low=1, high=6)}
 
 
@@ -44,6 +46,7 @@ def _spaces():
 
 
 def test_returns_fitted_estimator_random():
+    """Returns fitted estimator random."""
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
         X,
@@ -65,6 +68,7 @@ def test_returns_fitted_estimator_random():
 
 
 def test_random_fallback_works_without_optuna():
+    """Random fallback works without optuna."""
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
         X,
@@ -82,6 +86,7 @@ def test_random_fallback_works_without_optuna():
 
 
 def test_n_trials_respected():
+    """N trials respected."""
     X, y = _make_diff_data(n=500)
     for nt in (4, 9):
         res = optimize_composite(
@@ -133,6 +138,7 @@ def test_best_score_le_fixed_baseline():
 
 
 def test_invalid_n_trials_raises():
+    """Invalid n trials raises."""
     X, y = _make_diff_data(n=200)
     with pytest.raises(ValueError):
         optimize_composite(
@@ -147,6 +153,7 @@ def test_invalid_n_trials_raises():
 
 
 def test_time_ordering_uses_purged_cv():
+    """Time ordering uses purged cv."""
     X, y = _make_diff_data(n=900)
     order = np.arange(len(y))
     res = optimize_composite(

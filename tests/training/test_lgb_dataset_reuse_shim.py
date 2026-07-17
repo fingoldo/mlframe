@@ -82,6 +82,7 @@ def small_classification_data():
 
 @pytest.fixture
 def small_regression_data():
+    """Small regression data."""
     rng = np.random.default_rng(0)
     n = 500
     X = pd.DataFrame({f"f{i}": rng.standard_normal(n).astype(np.float32) for i in range(5)})
@@ -103,12 +104,14 @@ class TestLGBClassifierShimAPIParity:
     feature importance, predict, predict_proba, etc."""
 
     def test_subclass_of_LGBMClassifier(self):
+        """Subclass of l g b m classifier."""
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         assert isinstance(m, LGBMClassifier), (
             "shim must subclass LGBMClassifier so isinstance checks downstream (sklearn pipelines, mlframe strategy) keep passing"
         )
 
     def test_get_params_includes_lgb_params(self):
+        """Get params includes lgb params."""
         m = LGBMClassifierWithDatasetReuse(
             n_estimators=7,
             max_depth=4,
@@ -121,12 +124,14 @@ class TestLGBClassifierShimAPIParity:
         assert params["learning_rate"] == 0.1
 
     def test_set_params_works(self):
+        """Set params works."""
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         m.set_params(n_estimators=11, max_depth=5)
         assert m.n_estimators == 11
         assert m.max_depth == 5
 
     def test_sklearn_clone_round_trip(self):
+        """Sklearn clone round trip."""
         from sklearn.base import clone
 
         m = LGBMClassifierWithDatasetReuse(n_estimators=7, max_depth=4, **_QUIET_LGB)
@@ -138,6 +143,7 @@ class TestLGBClassifierShimAPIParity:
         assert getattr(c, "_cached_train_dataset", None) is None
 
     def test_fit_predict_predict_proba_run(self, small_classification_data):
+        """Fit predict predict proba run."""
         X, y = small_classification_data
         m = LGBMClassifierWithDatasetReuse(
             n_estimators=5,
@@ -154,6 +160,7 @@ class TestLGBClassifierShimAPIParity:
         np.testing.assert_allclose(proba.sum(axis=1), 1.0, atol=1e-5)
 
     def test_feature_importances_available_after_fit(self, small_classification_data):
+        """Feature importances available after fit."""
         X, y = small_classification_data
         m = LGBMClassifierWithDatasetReuse(n_estimators=5, **_QUIET_LGB)
         m.fit(X, y)
@@ -162,6 +169,7 @@ class TestLGBClassifierShimAPIParity:
         assert fi.sum() > 0  # something was actually used
 
     def test_n_features_in_set_after_fit(self, small_classification_data):
+        """N features in set after fit."""
         X, y = small_classification_data
         m = LGBMClassifierWithDatasetReuse(n_estimators=5, **_QUIET_LGB)
         m.fit(X, y)
@@ -184,6 +192,7 @@ class TestLGBClassifierShimPredictParity:
 
     @pytest.mark.parametrize("seed", [0, 1, 42])
     def test_proba_matches_vanilla_lgbmclassifier(self, small_classification_data, seed):
+        """Proba matches vanilla lgbmclassifier."""
         X, y = small_classification_data
         params = dict(
             n_estimators=10,
@@ -218,6 +227,7 @@ class TestLGBDatasetReuse:
     Cache is per-instance (cleared by sklearn.clone)."""
 
     def test_first_fit_builds_dataset_and_caches(self, small_classification_data):
+        """First fit builds dataset and caches."""
         X, y = small_classification_data
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         assert m._cached_train_dataset is None
@@ -227,6 +237,7 @@ class TestLGBDatasetReuse:
         assert m._cached_train_dataset.num_data() == len(y)
 
     def test_second_fit_same_data_reuses_dataset(self, small_classification_data):
+        """Second fit same data reuses dataset."""
         X, y = small_classification_data
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         m.fit(X, y)
@@ -239,6 +250,7 @@ class TestLGBDatasetReuse:
         assert first_id == second_id, "Dataset was rebuilt on second fit with same X -- cache miss"
 
     def test_second_fit_different_data_misses_cache(self, small_classification_data):
+        """Second fit different data misses cache."""
         X, y = small_classification_data
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         m.fit(X, y)
@@ -252,6 +264,7 @@ class TestLGBDatasetReuse:
         assert first_id != second_id, "Dataset was reused for a different-shape X -- cache key bug"
 
     def test_clone_resets_cache(self, small_classification_data):
+        """Clone resets cache."""
         from sklearn.base import clone
 
         X, y = small_classification_data
@@ -263,6 +276,7 @@ class TestLGBDatasetReuse:
         assert c._cached_train_dataset is None, "cloned shim still carries the original's Dataset cache -- sklearn.clone() must produce a fresh instance"
 
     def test_eval_set_dataset_also_cached(self, small_classification_data):
+        """Eval set dataset also cached."""
         X, y = small_classification_data
         X_val = X.iloc[:100].copy()
         y_val = y[:100]
@@ -298,6 +312,7 @@ class TestLGBShimSetLabelSetWeight:
     Dataset instance identity stays the same."""
 
     def test_set_weight_mutates_in_place(self, small_classification_data):
+        """Set weight mutates in place."""
         X, y = small_classification_data
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         m.fit(X, y)
@@ -314,6 +329,7 @@ class TestLGBShimSetLabelSetWeight:
         )
 
     def test_set_label_mutates_in_place(self, small_classification_data):
+        """Set label mutates in place."""
         X, y = small_classification_data
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         m.fit(X, y)
@@ -330,6 +346,7 @@ class TestLGBShimSetLabelSetWeight:
         )
 
     def test_set_weight_before_fit_raises(self):
+        """Set weight before fit raises."""
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         with pytest.raises(RuntimeError, match="Dataset"):
             m.set_weight(np.ones(10))
@@ -363,7 +380,9 @@ class TestLGBShimSetLabelSetWeight:
 
 
 class TestLGBReuseCapability:
+    """Groups tests covering l g b reuse capability."""
     def test_capability_check_returns_bool(self):
+        """Capability check returns bool."""
         result = lgb_dataset_reuse_capable()
         assert isinstance(result, bool)
 
@@ -371,6 +390,7 @@ class TestLGBReuseCapability:
         # lightgbm >= 3.x has set_label/set_weight on Dataset --
         # the test environment installs a modern version, so this
         # should be True.
+        """Capability true on modern lightgbm."""
         assert lgb_dataset_reuse_capable() is True
 
 
@@ -380,11 +400,14 @@ class TestLGBReuseCapability:
 
 
 class TestLGBRegressorShim:
+    """Groups tests covering l g b regressor shim."""
     def test_subclass_of_LGBMRegressor(self):
+        """Subclass of l g b m regressor."""
         m = LGBMRegressorWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         assert isinstance(m, LGBMRegressor)
 
     def test_predict_parity_with_vanilla(self, small_regression_data):
+        """Predict parity with vanilla."""
         X, y = small_regression_data
         params = dict(
             n_estimators=10,
@@ -409,6 +432,7 @@ class TestLGBRegressorShim:
         )
 
     def test_dataset_reuse_works_for_regressor(self, small_regression_data):
+        """Dataset reuse works for regressor."""
         X, y = small_regression_data
         m = LGBMRegressorWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         m.fit(X, y)
@@ -423,7 +447,9 @@ class TestLGBRegressorShim:
 
 
 class TestLGBShimEdgeCases:
+    """Groups tests covering l g b shim edge cases."""
     def test_eval_set_changing_X_misses_val_cache(self, small_classification_data):
+        """Eval set changing x misses val cache."""
         X, y = small_classification_data
         X_val_a = X.iloc[:100].copy()
         y_val_a = y[:100]
@@ -438,6 +464,7 @@ class TestLGBShimEdgeCases:
         assert first_val_id != second_val_id, "val Dataset was reused for a different X_val -- cache key bug"
 
     def test_sample_weight_round_trip_on_first_fit(self, small_classification_data):
+        """Sample weight round trip on first fit."""
         X, y = small_classification_data
         sw = np.linspace(0.5, 1.5, len(y)).astype(np.float32)
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
@@ -603,18 +630,22 @@ class TestLGBShimCacheHandoffInCoreLoop:
         calls = {"classifier": 0, "regressor": 0}
 
         class _StubClassifier:
+            """Groups tests covering stub classifier."""
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
 
         class _StubRegressor:
+            """Groups tests covering stub regressor."""
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
 
         def fake_clf_factory():
+            """Fake clf factory."""
             calls["classifier"] += 1
             return _StubClassifier
 
         def fake_reg_factory():
+            """Fake reg factory."""
             calls["regressor"] += 1
             return _StubRegressor
 
@@ -834,6 +865,7 @@ class TestCoreAutoClearsLGBShimCacheAtStrategyEnd:
         helper's ``callable`` check skips it harmlessly."""
 
         def _probe(est):
+            """Probe."""
             fn = getattr(est, "clear_cache", None)
             if callable(fn):
                 try:

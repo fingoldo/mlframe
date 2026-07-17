@@ -39,6 +39,7 @@ from mlframe.training.configs import PreprocessingExtensionsConfig
 
 
 def _make_frames(n=200, p=4, seed=42):
+    """Make frames."""
     rng = np.random.default_rng(seed)
     X_train = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"x{i}" for i in range(p)])
     X_val = pd.DataFrame(rng.normal(size=(n // 2, p)), columns=[f"x{i}" for i in range(p)])
@@ -112,6 +113,7 @@ def test_pysr_enabled_with_y_train_calls_pysr():
     def fake_run_pysr(df, target_col, sample_size, encode_categoricals, verbose, pysr_params_override, **kwargs):
         # Accept arbitrary kwargs (notably ``random_state``) so the stub
         # tolerates additions to ``_apply_pysr_fe``'s call signature.
+        """Fake run pysr."""
         call_log.append(
             {
                 "n_rows": len(df),
@@ -123,6 +125,7 @@ def test_pysr_enabled_with_y_train_calls_pysr():
 
         # Wire predict() to match the split it's called on.
         def _pred(_df, index=0):
+            """Pred."""
             return np.zeros(len(_df))
 
         fake_model.predict.side_effect = _pred
@@ -152,6 +155,7 @@ def test_pysr_enabled_with_y_train_calls_pysr():
 
 
 def test_pysr_disabled_is_silent(caplog):
+    """Pysr disabled is silent."""
     X_train, X_val, X_test, _ = _make_frames()
     config = PreprocessingExtensionsConfig(pysr_enabled=False)
     with caplog.at_level(logging.WARNING):

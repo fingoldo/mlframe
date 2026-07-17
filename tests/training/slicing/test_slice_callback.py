@@ -74,12 +74,14 @@ def test_default_no_slice_path_bit_identical() -> None:
 
 
 def test_patience_auto_bumped_when_slice_active() -> None:
+    """Patience auto bumped when slice active."""
     cb = _build_cb(patience=10, slice_k=5)
     # 1 + 1/sqrt(4) = 1.5 -> ceil(10*1.5) = 15
     assert cb.patience == 15
 
 
 def test_patience_not_bumped_when_slice_inactive() -> None:
+    """Patience not bumped when slice inactive."""
     cb = _build_cb(patience=10, slice_k=0)
     assert cb.patience == 10
 
@@ -146,6 +148,7 @@ def test_slice_quantile_aggregator() -> None:
 
 
 def test_slice_history_persisted_when_flag_set() -> None:
+    """Slice history persisted when flag set."""
     cb = _build_cb(patience=3, slice_k=3)
     for offset in (0.0, -0.1, +0.1):
         _push_iter(cb, {"valid_0": 1.0 + offset, "valid_1": 1.0 + offset, "valid_2": 1.0 + offset, "valid_3": 1.0 + offset})
@@ -214,6 +217,7 @@ def test_slice_diagnostic_only_skips_patience_bump_and_aggregator_drive() -> Non
 
 
 def test_disable_native_es_for_slice_stable_strips_keys() -> None:
+    """Disable native es for slice stable strips keys."""
     configs = SimpleNamespace(
         CB_GENERAL_PARAMS={"early_stopping_rounds": 50, "iterations": 1000},
         CB_REGR={"early_stopping_rounds": 50},

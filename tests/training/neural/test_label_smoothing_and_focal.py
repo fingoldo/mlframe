@@ -22,6 +22,7 @@ from mlframe.training.neural import (
 
 
 def _params(label_smoothing=0.0, focal_loss_gamma=None, focal_loss_alpha=0.25, random_state=0):
+    """Params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {
@@ -61,6 +62,7 @@ def _params(label_smoothing=0.0, focal_loss_gamma=None, focal_loss_alpha=0.25, r
 
 @pytest.fixture
 def imbalanced_binary():
+    """Imbalanced binary."""
     X, y = make_classification(
         n_samples=600,
         n_features=6,
@@ -82,6 +84,7 @@ def imbalanced_binary():
 
 @pytest.fixture
 def multiclass3():
+    """Multiclass3."""
     X, y = make_classification(
         n_samples=300,
         n_features=6,

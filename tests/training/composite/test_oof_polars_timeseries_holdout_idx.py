@@ -20,10 +20,12 @@ from mlframe.training.composite.ensemble import compute_oof_holdout_predictions
 
 
 def _fitted_linear(X, y):
+    """Fitted linear."""
     return LinearRegression().fit(np.asarray(X, dtype=np.float64), y)
 
 
 def test_polars_timeseries_oof_keeps_components_and_matches_pandas():
+    """Polars timeseries oof keeps components and matches pandas."""
     rng = np.random.default_rng(0)
     n = 60
     X = rng.normal(size=(n, 3))

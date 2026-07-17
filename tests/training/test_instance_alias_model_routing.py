@@ -20,6 +20,7 @@ if str(_SRC) not in sys.path:
 
 
 def test_is_catboost_model_alias_and_instance_parity():
+    """Is catboost model alias and instance parity."""
     from mlframe.training.strategies import is_catboost_model
 
     cb = pytest.importorskip("catboost")
@@ -37,6 +38,7 @@ def test_is_catboost_model_alias_and_instance_parity():
 
 
 def test_is_neural_model_alias_and_instance_parity():
+    """Is neural model alias and instance parity."""
     from mlframe.training.strategies import (
         get_strategy,
         is_neural_model,

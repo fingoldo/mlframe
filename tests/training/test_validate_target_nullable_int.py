@@ -43,12 +43,14 @@ def test_pandas_nullable_int64_with_na_detected_post_fix():
 
 
 def test_pandas_nullable_int32_with_na_detected_post_fix():
+    """Pandas nullable int32 with na detected post fix."""
     t = pd.Series([1, pd.NA, 3], dtype="Int32")
     with pytest.raises(ValueError, match="NaN"):
         _validate_target_values(t, subset_name="train")
 
 
 def test_pandas_nullable_float64_with_na_detected():
+    """Pandas nullable float64 with na detected."""
     t = pd.Series([1.0, pd.NA, 2.0], dtype=pd.Float64Dtype())
     with pytest.raises(ValueError, match="NaN"):
         _validate_target_values(t, subset_name="train")
@@ -62,6 +64,7 @@ def test_pandas_nullable_int_without_na_passes():
 
 
 def test_pandas_float_with_inf_detected():
+    """Pandas float with inf detected."""
     t = pd.Series([1.0, np.inf, 2.0])
     with pytest.raises(ValueError, match="infinity"):
         _validate_target_values(t, subset_name="train")
@@ -79,6 +82,7 @@ def test_polars_int64_with_null_detected_post_fix():
 
 
 def test_polars_int32_with_null_detected():
+    """Polars int32 with null detected."""
     t = pl.Series([1, None, 3], dtype=pl.Int32)
     with pytest.raises(ValueError, match="NaN"):
         _validate_target_values(t, subset_name="train")
@@ -93,11 +97,13 @@ def test_polars_float_with_nan_detected():
 
 
 def test_polars_int_without_null_passes():
+    """Polars int without null passes."""
     t = pl.Series([1, 2, 3], dtype=pl.Int64)
     _validate_target_values(t, subset_name="train", is_classification=True)
 
 
 def test_polars_clean_target_passes():
+    """Polars clean target passes."""
     t = pl.Series([0, 1, 0, 1], dtype=pl.Int8)
     _validate_target_values(t, subset_name="train", is_classification=True)
 
@@ -106,12 +112,14 @@ def test_polars_clean_target_passes():
 
 
 def test_single_class_target_raises_classification_error():
+    """Single class target raises classification error."""
     t = pd.Series([1, 1, 1, 1], dtype=np.int8)
     with pytest.raises(ValueError, match="one unique value"):
         _validate_target_values(t, subset_name="train", is_classification=True)
 
 
 def test_polars_single_class_target_raises_classification_error():
+    """Polars single class target raises classification error."""
     t = pl.Series([1, 1, 1], dtype=pl.Int8)
     with pytest.raises(ValueError, match="one unique value"):
         _validate_target_values(t, subset_name="train", is_classification=True)

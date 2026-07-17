@@ -22,12 +22,14 @@ from mlframe.training.composite.discovery._leakage import detect_base_target_lea
 
 
 def _frame(y, t=None):
+    """Frame."""
     n = len(y)
     t = np.arange(n) if t is None else np.asarray(t)
     return pl.DataFrame({"y": np.asarray(y, dtype=np.float64), "t": t})
 
 
 def test_causal_lag_shift_correctness():
+    """Causal lag shift correctness."""
     y = np.arange(10.0)
     bases = engineer_temporal_bases(_frame(y), "y", "t", lags=(1, 2), ops=("lag",))
     lag1 = bases["y_lag1"]
@@ -39,6 +41,7 @@ def test_causal_lag_shift_correctness():
 
 
 def test_rolling_window_is_causal_excludes_current_row():
+    """Rolling window is causal excludes current row."""
     y = np.arange(1.0, 9.0)  # 1..8
     bases = engineer_temporal_bases(_frame(y), "y", "t", rolling_windows=(3,), ops=("rolling_mean",))
     rm = bases["y_rollmean3"]
@@ -52,6 +55,7 @@ def test_rolling_window_is_causal_excludes_current_row():
 
 
 def test_rolling_median_causal():
+    """Rolling median causal."""
     y = np.array([10.0, 1.0, 2.0, 100.0, 3.0])
     bases = engineer_temporal_bases(_frame(y), "y", "t", rolling_windows=(3,), ops=("rolling_median",))
     rmed = bases["y_rollmedian3"]
@@ -61,6 +65,7 @@ def test_rolling_median_causal():
 
 
 def test_diff_is_lagged_not_same_time():
+    """Diff is lagged not same time."""
     y = np.array([0.0, 1.0, 3.0, 6.0, 10.0])
     bases = engineer_temporal_bases(_frame(y), "y", "t", ops=("diff",))
     d = bases["y_diff1"]
@@ -72,6 +77,7 @@ def test_diff_is_lagged_not_same_time():
 
 
 def test_nan_head_handling():
+    """Nan head handling."""
     y = np.arange(6.0)
     bases = engineer_temporal_bases(
         _frame(y),
@@ -117,6 +123,7 @@ def test_no_future_leak_perturbation():
 
 def test_remaps_to_original_row_order():
     # Shuffle time so frame order != time order; engineered bases must align to frame rows.
+    """Remaps to original row order."""
     rng = np.random.default_rng(0)
     n = 30
     t = rng.permutation(n)
@@ -136,6 +143,7 @@ def test_remaps_to_original_row_order():
 
 
 def test_invalid_args():
+    """Invalid args."""
     f = _frame(np.arange(5.0))
     with pytest.raises(ValueError):
         engineer_temporal_bases(f, "y", "t", lags=(0,), ops=("lag",))
@@ -146,6 +154,7 @@ def test_invalid_args():
 
 
 def test_add_to_pool_merges_without_clobbering():
+    """Add to pool merges without clobbering."""
     y = np.arange(8.0)
     existing = {"my_base": np.ones(8)}
     merged = add_engineered_bases_to_pool(existing, _frame(y), "y", "t", lags=(1,), ops=("lag",))

@@ -27,6 +27,7 @@ from mlframe.training.strategies import (
 
 @pytest.fixture
 def reg_data():
+    """Reg data."""
     rng = np.random.default_rng(0)
     n = 500
     X = rng.standard_normal((n, 3))
@@ -35,30 +36,38 @@ def reg_data():
 
 
 def _native_strategies():
+    """Native strategies."""
     return [CatBoostStrategy(), XGBoostStrategy()]
 
 
 def _wrapper_strategies():
+    """Wrapper strategies."""
     return [TreeModelStrategy(), HGBStrategy(), LinearModelStrategy()]
 
 
 class TestNativeFlag:
+    """Groups tests covering native flag."""
     @pytest.mark.parametrize("strat", _native_strategies(), ids=lambda s: type(s).__name__)
     def test_native_flag_true(self, strat):
+        """Native flag true."""
         assert strat.supports_native_quantile is True
 
     @pytest.mark.parametrize("strat", _wrapper_strategies(), ids=lambda s: type(s).__name__)
     def test_wrapper_flag_false(self, strat):
+        """Wrapper flag false."""
         assert strat.supports_native_quantile is False
 
 
 class TestObjectiveKwargs:
+    """Groups tests covering objective kwargs."""
     def test_cb_emits_multiquantile(self):
+        """Cb emits multiquantile."""
         qr = QuantileRegressionConfig(alphas=(0.1, 0.5, 0.9))
         kw = CatBoostStrategy().get_quantile_objective_kwargs(qr)
         assert kw == {"loss_function": "MultiQuantile:alpha=0.1,0.5,0.9"}
 
     def test_xgb_emits_quantile_alpha_list(self):
+        """Xgb emits quantile alpha list."""
         qr = QuantileRegressionConfig(alphas=(0.1, 0.5, 0.9))
         kw = XGBoostStrategy().get_quantile_objective_kwargs(qr)
         assert kw == {
@@ -67,17 +76,22 @@ class TestObjectiveKwargs:
         }
 
     def test_wrapper_strategies_return_empty(self):
+        """Wrapper strategies return empty."""
         qr = QuantileRegressionConfig()
         for strat in _wrapper_strategies():
             assert strat.get_quantile_objective_kwargs(qr) == {}
 
 
 class TestWrapDispatch:
+    """Groups tests covering wrap dispatch."""
     def test_native_passes_through(self):
+        """Native passes through."""
         qr = QuantileRegressionConfig()
 
         class _Stub:
+            """Groups tests covering stub."""
             def get_params(self, deep=False):
+                """Get params."""
                 return {"alpha": 0.5}
 
         stub = _Stub()
@@ -85,10 +99,13 @@ class TestWrapDispatch:
             assert strat.wrap_quantile(stub, qr) is stub
 
     def test_non_native_wraps(self):
+        """Non native wraps."""
         qr = QuantileRegressionConfig()
 
         class _Stub:
+            """Groups tests covering stub."""
             def get_params(self, deep=False):
+                """Get params."""
                 return {"alpha": 0.5}
 
         stub = _Stub()
@@ -99,7 +116,9 @@ class TestWrapDispatch:
 
 
 class TestNativeFit:
+    """Groups tests covering native fit."""
     def test_cb_native_fit(self, reg_data):
+        """Cb native fit."""
         from catboost import CatBoostRegressor
 
         X, y = reg_data
@@ -115,6 +134,7 @@ class TestNativeFit:
         assert cov >= 0.6
 
     def test_xgb_native_fit(self, reg_data):
+        """Xgb native fit."""
         from xgboost import XGBRegressor
 
         X, y = reg_data
@@ -129,7 +149,9 @@ class TestNativeFit:
 
 
 class TestWrapperFit:
+    """Groups tests covering wrapper fit."""
     def test_lgb_wrapper_fit(self, reg_data):
+        """Lgb wrapper fit."""
         from lightgbm import LGBMRegressor
 
         X, y = reg_data
@@ -151,6 +173,7 @@ class TestWrapperFit:
         assert np.all(np.diff(preds, axis=1) >= -1e-9)
 
     def test_hgb_wrapper_fit(self, reg_data):
+        """Hgb wrapper fit."""
         from sklearn.ensemble import HistGradientBoostingRegressor
 
         X, y = reg_data
@@ -169,6 +192,7 @@ class TestWrapperFit:
         assert preds.shape == (len(y), 3)
 
     def test_linear_wrapper_fit(self, reg_data):
+        """Linear wrapper fit."""
         from sklearn.linear_model import QuantileRegressor
 
         X, y = reg_data
@@ -192,7 +216,9 @@ class TestWrapperFit:
 
 
 class TestWrapperContract:
+    """Groups tests covering wrapper contract."""
     def test_unknown_alpha_param_rejects(self, reg_data):
+        """Unknown alpha param rejects."""
         from sklearn.linear_model import LinearRegression  # no alpha param
 
         X, y = reg_data
@@ -205,6 +231,7 @@ class TestWrapperContract:
             wrapped.fit(X, y)
 
     def test_2d_y_rejects(self, reg_data):
+        """2d y rejects."""
         from sklearn.linear_model import QuantileRegressor
 
         X, _ = reg_data
@@ -218,6 +245,7 @@ class TestWrapperContract:
             wrapped.fit(X, y2d)
 
     def test_predict_before_fit_rejects(self, reg_data):
+        """Predict before fit rejects."""
         from sklearn.exceptions import NotFittedError
         from sklearn.linear_model import QuantileRegressor
 

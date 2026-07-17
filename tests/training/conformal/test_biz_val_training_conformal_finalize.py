@@ -20,6 +20,7 @@ from mlframe.training._conformal_finalize import (
 
 
 def test_infer_split_structure_mapping():
+    """Infer split structure mapping."""
     assert infer_split_structure() == "iid"
     assert infer_split_structure(time_column="ts") == "temporal"
     assert infer_split_structure(cv_strategy="purged") == "temporal"
@@ -30,6 +31,7 @@ def test_infer_split_structure_mapping():
 
 
 def test_conformal_supports_split_guarantee_only_iid_and_stratified():
+    """Conformal supports split guarantee only iid and stratified."""
     assert conformal_supports_split_guarantee("iid")
     assert conformal_supports_split_guarantee("stratified")
     assert not conformal_supports_split_guarantee("temporal")
@@ -38,6 +40,7 @@ def test_conformal_supports_split_guarantee_only_iid_and_stratified():
 
 
 def test_split_conformal_absolute_marginal_coverage_iid():
+    """Split conformal absolute marginal coverage iid."""
     rng = np.random.default_rng(0)
     n = 4000
     res_cal = rng.standard_normal(n)  # homoscedastic
@@ -49,6 +52,7 @@ def test_split_conformal_absolute_marginal_coverage_iid():
 
 
 def test_cv_plus_label_and_validity():
+    """Cv plus label and validity."""
     rng = np.random.default_rng(1)
     oof = rng.standard_normal(3000)
     out = conformal_regression_report(
@@ -64,6 +68,7 @@ def test_cv_plus_label_and_validity():
 
 
 def test_report_split_path_labels_and_structure_flag():
+    """Report split path labels and structure flag."""
     rng = np.random.default_rng(2)
     n = 2000
     out = conformal_regression_report(
@@ -82,6 +87,7 @@ def test_report_split_path_labels_and_structure_flag():
 
 
 def test_report_requires_some_calibration_source():
+    """Report requires some calibration source."""
     with pytest.raises(ValueError):
         conformal_regression_report(
             y_pred_test=np.zeros(10),

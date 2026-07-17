@@ -21,6 +21,7 @@ from mlframe.training.neural import (
 
 
 def _params(use_ema=False, ema_params=None, use_swa=False):
+    """Params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-2},
@@ -57,6 +58,7 @@ def _params(use_ema=False, ema_params=None, use_swa=False):
 
 @pytest.fixture
 def reg_data():
+    """Reg data."""
     X, y = make_regression(n_samples=160, n_features=5, random_state=0)
     X_tr, X_te, y_tr, _ = train_test_split(
         X.astype(np.float32),

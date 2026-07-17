@@ -19,6 +19,7 @@ from mlframe.training.baselines._dummy_baseline_classification import (
 
 
 def _cfg():
+    """Cfg."""
     return SimpleNamespace(
         random_state=0,
         stratified_n_repeats=3,
@@ -30,6 +31,7 @@ def _cfg():
 
 def test_prior_uses_train_marginal_not_eval_marginal():
     # Deliberate label shift: train is 80/20, val is 25/75, test is 50/50.
+    """Prior uses train marginal not eval marginal."""
     train_y = np.array([0, 0, 0, 0, 0, 0, 0, 0, 1, 1])
     val_y = np.array([0, 1, 1, 1])
     test_y = np.array([1, 1, 0, 0])
@@ -63,6 +65,7 @@ def test_prior_uses_train_marginal_not_eval_marginal():
 
 
 def test_oracle_prior_exposes_eval_marginal_under_distinct_name():
+    """Oracle prior exposes eval marginal under distinct name."""
     train_y = np.array([0, 0, 0, 0, 0, 0, 0, 0, 1, 1])
     val_y = np.array([0, 1, 1, 1])
     test_y = np.array([1, 1, 0, 0])

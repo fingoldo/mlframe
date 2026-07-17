@@ -33,6 +33,7 @@ def _old_monolithic(diff, n_boot, alpha, rng):
 @pytest.mark.parametrize("seed", [0, 7, 123])
 @pytest.mark.parametrize("n,n_boot", [(500, 200), (10_000, 1000), (33_333, 257)])
 def test_chunked_bootstrap_ci_bit_identical(seed, n, n_boot):
+    """Chunked bootstrap ci bit identical."""
     rng_d = np.random.default_rng(seed + 1000)
     diff = rng_d.standard_normal(n) * 0.1 + 0.005
     alpha = 0.05
@@ -76,10 +77,12 @@ def test_compare_models_end_to_end_bootstrap_unchanged():
     y = rng.standard_normal(n)
 
     class _P:
+        """Groups tests covering p."""
         def __init__(self, err):
             self.err = err
 
         def predict(self, X):
+            """Predict."""
             return X + self.err
 
     champ = _P(rng.standard_normal(n) * 0.5)

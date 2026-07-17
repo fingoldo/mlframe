@@ -27,7 +27,9 @@ from mlframe.training.targets._target_distribution_analyzer import (
 
 
 class TestCleanFeatures:
+    """Groups tests covering clean features."""
     def test_iid_gaussians_no_pathologies(self):
+        """Iid gaussians no pathologies."""
         rng = np.random.default_rng(0)
         X = rng.standard_normal((500, 10)).astype(np.float64)
         rep = analyze_feature_distribution(X)
@@ -106,6 +108,7 @@ class TestCleanFeatures:
         assert not any("high_cardinality_categorical(n=25" in p for p in rep.pathologies), rep.pathologies
 
     def test_insufficient_samples_short_circuits(self):
+        """Insufficient samples short circuits."""
         rng = np.random.default_rng(1)
         X = rng.standard_normal((20, 5))
         rep = analyze_feature_distribution(X)
@@ -118,7 +121,9 @@ class TestCleanFeatures:
 
 
 class TestLowVariance:
+    """Groups tests covering low variance."""
     def test_constant_feature_flagged_and_recommended_to_drop(self):
+        """Constant feature flagged and recommended to drop."""
         rng = np.random.default_rng(10)
         X = rng.standard_normal((500, 5)).astype(np.float64)
         # Make f0 constant
@@ -132,6 +137,7 @@ class TestLowVariance:
             assert f"f{j}" not in rep.drop_candidates
 
     def test_low_variance_relative_to_mean(self):
+        """Low variance relative to mean."""
         rng = np.random.default_rng(11)
         X = rng.standard_normal((500, 3)).astype(np.float64)
         # Make f1 mean=1000, std=0.5 -> rel_std=5e-4 < 1e-3 threshold
@@ -141,7 +147,9 @@ class TestLowVariance:
 
 
 class TestNanHeavy:
+    """Groups tests covering nan heavy."""
     def test_50_percent_nan_feature_flagged(self):
+        """50 percent nan feature flagged."""
         rng = np.random.default_rng(20)
         X = rng.standard_normal((500, 4))
         # Make f2 60% NaN
@@ -154,6 +162,7 @@ class TestNanHeavy:
         assert rep.knob_overrides.get("preprocessing_config", {}).get("review_nan_strategy") is True
 
     def test_low_nan_fraction_not_flagged(self):
+        """Low nan fraction not flagged."""
         rng = np.random.default_rng(21)
         X = rng.standard_normal((500, 4))
         # Make f1 only 5% NaN -- random missingness, NOT a structural issue.
@@ -170,7 +179,9 @@ class TestNanHeavy:
 
 
 class TestHighCardinalityCategorical:
+    """Groups tests covering high cardinality categorical."""
     def test_string_feature_with_many_levels_flagged(self):
+        """String feature with many levels flagged."""
         rng = np.random.default_rng(30)
         n = 500
         df = pd.DataFrame(
@@ -195,7 +206,9 @@ class TestHighCardinalityCategorical:
 
 
 class TestRedundantPairs:
+    """Groups tests covering redundant pairs."""
     def test_two_redundant_features_paired(self):
+        """Two redundant features paired."""
         rng = np.random.default_rng(40)
         X = rng.standard_normal((500, 5))
         # Make f4 a copy of f0 with tiny noise -> corr ~ 1.0
@@ -210,6 +223,7 @@ class TestRedundantPairs:
         assert any((p["a"] == "f0" and p["b"] == "f4") or (p["a"] == "f4" and p["b"] == "f0") for p in pairs)
 
     def test_diagonal_self_correlation_does_not_self_pair(self):
+        """Diagonal self correlation does not self pair."""
         rng = np.random.default_rng(41)
         X = rng.standard_normal((500, 4))
         rep = analyze_feature_distribution(X)
@@ -217,6 +231,7 @@ class TestRedundantPairs:
         assert rep.diagnostics.get("redundant_feature_pairs", []) == [] or not any(p["a"] == p["b"] for p in rep.diagnostics.get("redundant_feature_pairs", []))
 
     def test_redundancy_skipped_when_feature_count_too_high(self):
+        """Redundancy skipped when feature count too high."""
         rng = np.random.default_rng(42)
         # 600 features > 500 cap -> the O(n^2) corrcoef pass is skipped with a diagnostic.
         X = rng.standard_normal((100, 600))
@@ -231,7 +246,9 @@ class TestRedundantPairs:
 
 
 class TestTargetLeakage:
+    """Groups tests covering target leakage."""
     def test_feature_equal_to_target_flagged(self):
+        """Feature equal to target flagged."""
         rng = np.random.default_rng(50)
         n = 500
         y = rng.standard_normal(n)
@@ -243,6 +260,7 @@ class TestTargetLeakage:
         assert any("suspected_target_leakage" in p for p in rep.pathologies)
 
     def test_no_leakage_when_features_uncorrelated_with_target(self):
+        """No leakage when features uncorrelated with target."""
         rng = np.random.default_rng(51)
         n = 500
         y = rng.standard_normal(n)
@@ -251,6 +269,7 @@ class TestTargetLeakage:
         assert rep.leakage_candidates == []
 
     def test_leakage_skipped_when_y_is_none(self):
+        """Leakage skipped when y is none."""
         rng = np.random.default_rng(52)
         X = rng.standard_normal((500, 4))
         rep = analyze_feature_distribution(X)  # no y
@@ -265,6 +284,7 @@ class TestTargetLeakage:
 
 
 class TestEmbeddingColumn:
+    """Groups tests covering embedding column."""
     def test_embedding_column_high_cardinality_check_does_not_crash(self):
         """An embedding column (object dtype, one ndarray per row) is neither numeric nor bool, so
         _normalise_X classifies it as "categorical" -- but its values are themselves unhashable, so

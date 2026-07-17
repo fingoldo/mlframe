@@ -11,10 +11,12 @@ from mlframe.training.composite.transforms import _linear_residual_robust_fit
 
 
 class TestLinresRobustRedundancyFlag:
+    """Groups tests covering linres robust redundancy flag."""
     def test_uniform_residuals_all_within_3_MAD_marks_redundant(self) -> None:
         # Uniform[-c, +c] residuals: MAD ~ c/2, sigma_MAD ~ 0.74c, 3*sigma_MAD ~ 2.22c.
         # All residuals are within [-c, +c] which is strictly inside [-2.22c, +2.22c]
         # so the keep mask covers every row -- the n_kept==n redundancy branch fires.
+        """Uniform residuals all within 3 m a d marks redundant."""
         rng = np.random.default_rng(0)
         n = 500
         base = rng.normal(size=n).astype(np.float64)
@@ -24,6 +26,7 @@ class TestLinresRobustRedundancyFlag:
         assert result.get("is_redundant_with_linres") is True
 
     def test_real_outliers_do_NOT_mark_redundant(self) -> None:
+        """Real outliers do n o t mark redundant."""
         rng = np.random.default_rng(1)
         n = 1000
         base = rng.normal(size=n).astype(np.float64)
@@ -37,6 +40,7 @@ class TestLinresRobustRedundancyFlag:
         )
 
     def test_degenerate_constant_residual_marks_redundant(self) -> None:
+        """Degenerate constant residual marks redundant."""
         rng = np.random.default_rng(2)
         base = rng.normal(size=300).astype(np.float64)
         y = 2.0 * base + 1.0  # exact linear -> resid identically 0 -> sigma_MAD=0 -> redundant
@@ -44,6 +48,7 @@ class TestLinresRobustRedundancyFlag:
         assert result.get("is_redundant_with_linres") is True
 
     def test_too_few_samples_marks_redundant(self) -> None:
+        """Too few samples marks redundant."""
         result = _linear_residual_robust_fit(
             np.array([1.0], dtype=np.float64),
             np.array([0.5], dtype=np.float64),

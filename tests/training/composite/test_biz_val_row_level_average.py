@@ -22,6 +22,7 @@ from mlframe.training.composite import compute_row_level_then_average_prediction
 
 
 def _make_interaction_panel_dataset(n_entities: int, k_rows: int, seed: int):
+    """Make interaction panel dataset."""
     rng = np.random.default_rng(seed)
     x1_rows, x2_rows, entity_ids_list = [], [], []
     y_entity = np.zeros(n_entities)
@@ -39,6 +40,7 @@ def _make_interaction_panel_dataset(n_entities: int, k_rows: int, seed: int):
 
 
 def test_biz_val_row_level_then_average_beats_mean_aggregation_baseline_auc():
+    """Biz val row level then average beats mean aggregation baseline auc."""
     X_rows, y_entity, entity_ids = _make_interaction_panel_dataset(n_entities=600, k_rows=10, seed=0)
     y_row_broadcast = y_entity[entity_ids]
     n_entities = y_entity.shape[0]
@@ -73,6 +75,7 @@ def test_biz_val_row_level_then_average_beats_mean_aggregation_baseline_auc():
 
 
 def test_row_level_then_average_mode_b_external_query():
+    """Row level then average mode b external query."""
     X_rows, y_entity, entity_ids = _make_interaction_panel_dataset(n_entities=200, k_rows=5, seed=1)
     y_row_broadcast = y_entity[entity_ids]
     X_query, _y_query_entity, query_entity_ids = _make_interaction_panel_dataset(n_entities=50, k_rows=5, seed=2)
@@ -293,6 +296,7 @@ def test_row_level_then_average_default_return_shape_unaffected_by_importance_pa
 
 
 def test_row_level_then_average_entity_order_matches_first_seen():
+    """Row level then average entity order matches first seen."""
     X_rows = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0]})
     entity_ids = np.array([5, 5, 2, 2])
     y_row_broadcast = np.array([1.0, 1.0, 0.0, 0.0])

@@ -31,6 +31,7 @@ from mlframe.metrics.core import fast_mean_absolute_error, fast_root_mean_square
 
 
 def _make_inputs(n: int = 200, n_bins: int = 4):
+    """Make inputs."""
     rng = np.random.default_rng(0)
     y_true = rng.standard_normal(n).astype(np.float64)
     y_pred = y_true + rng.standard_normal(n).astype(np.float64) * 0.1

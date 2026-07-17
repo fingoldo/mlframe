@@ -49,6 +49,7 @@ class TestAutoDetectFeatureTypesRobustness:
 
     @given(df=adversarial_frame(n_rows=(50, 150)))
     def test_never_raises_and_returns_lists(self, df: pl.DataFrame):
+        """Never raises and returns lists."""
         cfg = FeatureTypesConfig(
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
@@ -130,8 +131,10 @@ class TestAutoDetectFeatureTypesRobustness:
 
 
 class TestPolarsStrategyPrepareRobustness:
+    """Groups tests covering polars strategy prepare robustness."""
     @given(df=adversarial_frame(n_rows=(50, 150)))
     def test_xgb_strategy_prepare_survives(self, df: pl.DataFrame):
+        """Xgb strategy prepare survives."""
         from mlframe.training.strategies import XGBoostStrategy
 
         strategy = XGBoostStrategy()
@@ -174,6 +177,7 @@ class TestCreateSplitDataframesRobustness:
         df=adversarial_frame(n_rows=(50, 150), include_null_in_cat=True, include_inf_in_float=True, include_constant_col=False, include_sparse_null_col=False)
     )
     def test_3way_partition_preserves_all_rows(self, df: pl.DataFrame):
+        """3way partition preserves all rows."""
         import numpy as np
         from mlframe.training.preprocessing import create_split_dataframes
 
@@ -249,6 +253,7 @@ class TestFastCalibrationBinningRobustness:
         )
     )
     def test_binning_on_normal_floats_returns_valid_shapes(self, df: pl.DataFrame):
+        """Binning on normal floats returns valid shapes."""
         import numpy as np
         from mlframe.metrics.core import fast_calibration_binning
 
@@ -335,6 +340,7 @@ class TestTrainSuiteRobustness:
         suppress_health_check=list(HealthCheck),
     )
     def test_xgb_only_suite_completes(self, df: pl.DataFrame, tmp_path):
+        """Xgb only suite completes."""
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training import (
             ModelHyperparamsConfig,
@@ -463,6 +469,7 @@ class TestTrainSuiteRobustness:
 
 
 class TestAutoDetectIgnoresNumericPathology:
+    """Groups tests covering auto detect ignores numeric pathology."""
     @given(
         df=adversarial_frame(
             n_rows=(50, 150),

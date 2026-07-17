@@ -22,6 +22,7 @@ from mlframe.training.pipeline._target_encoding_composite_fe import apply_target
 
 
 def _entity_target_frame(n=400, n_entities=30, seed=0):
+    """Entity target frame."""
     rng = np.random.default_rng(seed)
     group_ids = rng.integers(0, n_entities, n)
     ts = np.arange(n).astype(np.float64)
@@ -33,6 +34,7 @@ def _entity_target_frame(n=400, n_entities=30, seed=0):
 
 
 def test_apply_target_encoding_composite_fe_noop_when_columns_unset():
+    """Apply target encoding composite fe noop when columns unset."""
     df, group_ids, ts, y, _ = _entity_target_frame()
     cfg = PreprocessingExtensionsConfig()
     train, _val, _test = apply_target_encoding_composite_fe(
@@ -52,6 +54,7 @@ def test_apply_target_encoding_composite_fe_noop_when_columns_unset():
 
 
 def test_apply_target_encoding_composite_fe_noop_without_group_ids_or_y():
+    """Apply target encoding composite fe noop without group ids or y."""
     df, _, ts, y, _ = _entity_target_frame()
     cfg = PreprocessingExtensionsConfig(two_step_target_encode_columns=["cat_col"])
     train, _, _ = apply_target_encoding_composite_fe(df, None, None, cfg, None, ts, y, np.arange(len(df)), None, None, verbose=0)
@@ -61,6 +64,7 @@ def test_apply_target_encoding_composite_fe_noop_without_group_ids_or_y():
 
 
 def test_apply_target_encoding_composite_fe_builds_entity_lookup():
+    """Apply target encoding composite fe builds entity lookup."""
     df, group_ids, ts, y, _ = _entity_target_frame()
     train_idx, val_idx, test_idx = np.arange(0, 300), np.arange(300, 350), np.arange(350, 400)
     cfg = PreprocessingExtensionsConfig(two_step_target_encode_columns=["cat_col"], two_step_target_encode_decay_half_life=20.0)
@@ -86,6 +90,7 @@ def test_apply_target_encoding_composite_fe_builds_entity_lookup():
 
 
 def test_apply_target_encoding_composite_fe_polars_roundtrip():
+    """Apply target encoding composite fe polars roundtrip."""
     df, group_ids, ts, y, _ = _entity_target_frame(n=200, n_entities=15, seed=1)
     pl_df = pl.DataFrame({"cat_col": df["cat_col"].to_numpy()})
     cfg = PreprocessingExtensionsConfig(two_step_target_encode_columns=["cat_col"])
@@ -123,6 +128,7 @@ def test_replay_target_encoding_composite_fe_uses_train_only_lookup_no_target_ne
 
 
 def test_replay_target_encoding_composite_fe_unseen_entity_falls_back_to_global_prior():
+    """Replay target encoding composite fe unseen entity falls back to global prior."""
     df, group_ids, ts, y, _ = _entity_target_frame(n=200, n_entities=10, seed=2)
     train_idx = np.arange(0, 200)
     cfg = PreprocessingExtensionsConfig(two_step_target_encode_columns=["cat_col"])

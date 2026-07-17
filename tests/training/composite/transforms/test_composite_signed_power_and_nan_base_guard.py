@@ -32,6 +32,7 @@ from mlframe.training.composite.transforms.unary import (
 
 
 class TestSignedPowerYUnit:
+    """Groups tests covering signed power y unit."""
     @pytest.mark.parametrize(
         "y",
         [
@@ -41,27 +42,32 @@ class TestSignedPowerYUnit:
         ],
     )
     def test_round_trip(self, y: np.ndarray) -> None:
+        """Round trip."""
         params = signed_power_y_fit(y)
         t = signed_power_y_forward(y, params)
         y_back = signed_power_y_inverse(t, params)
         np.testing.assert_allclose(y_back, y, rtol=1e-9, atol=1e-7)
 
     def test_fitted_p_in_grid_range(self) -> None:
+        """Fitted p in grid range."""
         y = np.exp(np.random.default_rng(0).standard_normal(2000))
         p = float(signed_power_y_fit(y)["p"])
         assert 0.1 <= p <= 0.9
 
     def test_fewer_than_three_finite_rows_falls_back_to_identity(self) -> None:
         # All-NaN and too-short inputs must not crash; p=1 (identity) is the safe fallback.
+        """Fewer than three finite rows falls back to identity."""
         assert signed_power_y_fit(np.array([np.nan, np.nan]))["p"] == 1.0
         assert signed_power_y_fit(np.array([5.0]))["p"] == 1.0
 
     def test_preserves_sign(self) -> None:
+        """Preserves sign."""
         y = np.array([-9.0, -1.0, 0.0, 1.0, 9.0])
         t = signed_power_y_forward(y, {"p": 0.3})
         np.testing.assert_array_equal(np.sign(t), np.sign(y))
 
     def test_domain_rejects_non_finite(self) -> None:
+        """Domain rejects non finite."""
         y = np.array([1.0, np.nan, np.inf, -np.inf, 2.0])
         mask = signed_power_y_domain(y)
         np.testing.assert_array_equal(mask, [True, False, False, False, True])
@@ -81,6 +87,7 @@ def _downstream_rmse(y_train, y_test, x_train, x_test, transform_fns):
 
 
 class TestSignedPowerYBizValue:
+    """Groups tests covering signed power y biz value."""
     def test_biz_val_signed_power_y_symmetrises_and_improves_rmse(self) -> None:
         """A right-skewed lognormal target becomes markedly more symmetric under signed_power_y (skew drops >=50%) AND a downstream linear model's RMSE improves vs raw y.
 
@@ -135,6 +142,7 @@ _GROUPS = (np.arange(_N) // 75).astype(np.int64)
 # checked BEFORE the ``not requires_base`` shortcut, otherwise the grouped fit is
 # called without its mandatory ``groups`` kwarg and raises.
 def _call_fit(t, y, base):
+    """Call fit."""
     if t.requires_groups:
         return t.fit(y, base if t.requires_base else None, groups=_GROUPS[: len(y)])
     if not t.requires_base:
@@ -143,6 +151,7 @@ def _call_fit(t, y, base):
 
 
 def _call_forward(t, y, base, params):
+    """Call forward."""
     if t.requires_groups:
         return t.forward(y, base if t.requires_base else None, params, groups=_GROUPS[: len(y)])
     if not t.requires_base:
@@ -151,6 +160,7 @@ def _call_forward(t, y, base, params):
 
 
 def _call_inverse(t, t_hat, base, params):
+    """Call inverse."""
     if t.requires_groups:
         return t.inverse(t_hat, base if t.requires_base else None, params, groups=_GROUPS[: len(t_hat)])
     if not t.requires_base:

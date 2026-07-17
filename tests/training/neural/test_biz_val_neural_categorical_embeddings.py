@@ -34,6 +34,7 @@ EPOCHS = 40
 
 
 def _common():
+    """Common."""
     return dict(
         model_class=MLPTorchModel,
         model_params={"loss_fn": torch.nn.MSELoss(), "learning_rate": 5e-3},
@@ -61,6 +62,7 @@ def _common():
 
 
 def _build(seed=0):
+    """Build."""
     rng = np.random.default_rng(seed)
     cats = rng.integers(0, N_CAT, size=N)
     # Non-monotone per-category target value: a random lookup with no ordinal structure.
@@ -74,6 +76,7 @@ def _build(seed=0):
 
 
 def test_biz_val_mlp_learnable_cat_embeddings_beat_ordinal_baseline():
+    """Biz val mlp learnable cat embeddings beat ordinal baseline."""
     cats, labels, y, tr, te = _build(seed=0)
 
     # Learnable embeddings: raw string cat column, factorized + embedded end-to-end inside the estimator.

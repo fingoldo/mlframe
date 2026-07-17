@@ -52,10 +52,12 @@ class _FakeCatBoost:
         self._cat_indices = list(cat_feature_indices)
 
     def _get_cat_feature_indices(self):
+        """Get cat feature indices."""
         return list(self._cat_indices)
 
 
 def _wrap(model):
+    """Wrap."""
     return SimpleNamespace(model=model, pre_pipeline=None)
 
 
@@ -65,15 +67,19 @@ def _wrap(model):
 
 
 class TestExtractPolarsCatColumns:
+    """Groups tests covering extract polars cat columns."""
     def test_none_df_returns_empty(self):
+        """None df returns empty."""
         assert _extract_polars_cat_columns(None) == []
 
     def test_pandas_df_returns_empty(self):
         # Pandas DF has no pl.Categorical concept — validator should return []
+        """Pandas df returns empty."""
         df = pd.DataFrame({"a": [1, 2, 3]}).astype({"a": "category"})
         assert _extract_polars_cat_columns(df) == []
 
     def test_polars_categorical_detected(self):
+        """Polars categorical detected."""
         df = pl.DataFrame(
             {
                 "num": pl.Series("num", [1, 2, 3], dtype=pl.Int32),
@@ -83,6 +89,7 @@ class TestExtractPolarsCatColumns:
         assert _extract_polars_cat_columns(df) == ["cat"]
 
     def test_polars_enum_detected(self):
+        """Polars enum detected."""
         enum_t = pl.Enum(["a", "b"])
         df = pl.DataFrame(
             {
@@ -99,24 +106,29 @@ class TestExtractPolarsCatColumns:
 
 
 class TestFeatureNamesCheck:
+    """Groups tests covering feature names check."""
     def test_none_model_returns_none(self):
         # Loaded model wrapper where the inner `model` is None: validator has
         # nothing to check → returns None (no mismatch).
+        """None model returns none."""
         wrap = SimpleNamespace(model=None)
         assert _validate_cached_model_schema(wrap, pl.DataFrame({"a": [1]})) is None
 
     def test_model_without_feature_names_returns_none(self):
         # Plain object with no feature_names_*: validator cannot conclude
         # mismatch, returns None rather than false-positive invalidation.
+        """Model without feature names returns none."""
         wrap = SimpleNamespace(model=object(), pre_pipeline=None)
         assert _validate_cached_model_schema(wrap, pl.DataFrame({"a": [1]})) is None
 
     def test_exact_match_returns_none(self):
+        """Exact match returns none."""
         m = _FakeSklearnModel(["a", "b", "c"])
         df = pd.DataFrame({"a": [1], "b": [2], "c": [3]})
         assert _validate_cached_model_schema(_wrap(m), df) is None
 
     def test_different_columns_returns_reason(self):
+        """Different columns returns reason."""
         m = _FakeSklearnModel(["a", "b", "c"])
         df = pd.DataFrame({"a": [1], "b": [2], "d": [3]})  # `c` → `d`
         reason = _validate_cached_model_schema(_wrap(m), df)
@@ -124,6 +136,7 @@ class TestFeatureNamesCheck:
         assert "feature-name mismatch" in reason
 
     def test_reordered_columns_returns_reason(self):
+        """Reordered columns returns reason."""
         m = _FakeSklearnModel(["a", "b", "c"])
         df = pd.DataFrame({"b": [1], "a": [2], "c": [3]})  # same set, different order
         reason = _validate_cached_model_schema(_wrap(m), df)
@@ -131,6 +144,7 @@ class TestFeatureNamesCheck:
         assert "order" in reason
 
     def test_extra_column_in_current_df(self):
+        """Extra column in current df."""
         m = _FakeSklearnModel(["a", "b"])
         df = pd.DataFrame({"a": [1], "b": [2], "c": [3]})
         reason = _validate_cached_model_schema(_wrap(m), df)
@@ -150,6 +164,7 @@ class TestCatBoostCatFeaturesCheck:
 
     def test_matching_cat_features_returns_none(self):
         # Saved model: cat_features = ['b'] at index 1.
+        """Matching cat features returns none."""
         m = _FakeCatBoost(feature_names=["a", "b", "c"], cat_feature_indices=[1])
         df = pl.DataFrame(
             {
@@ -163,6 +178,7 @@ class TestCatBoostCatFeaturesCheck:
     def test_new_categorical_not_in_saved_model(self):
         # Saved model had cat_features=['b'] only. Now column 'c' is also
         # Polars Categorical — CatBoost would crash at predict_proba.
+        """New categorical not in saved model."""
         m = _FakeCatBoost(feature_names=["a", "b", "c"], cat_feature_indices=[1])
         df = pl.DataFrame(
             {
@@ -183,6 +199,7 @@ class TestCatBoostCatFeaturesCheck:
         # catches this scenario if columns differ, and if the columns match
         # but dtype narrowed, the backend can still handle it (numeric
         # where cat was expected tends to be tolerated more gracefully).
+        """Saved cat features dropped from current."""
         m = _FakeCatBoost(feature_names=["a", "b"], cat_feature_indices=[1])
         df = pl.DataFrame(
             {
@@ -201,6 +218,7 @@ class TestCatBoostCatFeaturesCheck:
         # to "saved model has no cat_features". Since the current df DOES
         # have a Polars Categorical column, predict would still crash,
         # so the validator correctly flags mismatch.
+        """Cat indices out of range flags mismatch."""
         m = _FakeCatBoost(feature_names=["a", "b"], cat_feature_indices=[99])
         df = pl.DataFrame(
             {
@@ -216,6 +234,7 @@ class TestCatBoostCatFeaturesCheck:
     def test_saved_model_without_cat_features_and_no_polars_cats(self):
         # Saved model has no cat_features AND current df has no Polars
         # Categoricals — perfectly compatible, no mismatch.
+        """Saved model without cat features and no polars cats."""
         m = _FakeCatBoost(feature_names=["a", "b"], cat_feature_indices=[])
         df = pl.DataFrame(
             {
@@ -229,6 +248,7 @@ class TestCatBoostCatFeaturesCheck:
         # Current df is pandas with a category-dtype column. CatBoost's
         # Polars fastpath is not engaged for pandas dfs, so the validator
         # must not flag this as a mismatch based on Polars Categoricals.
+        """Pandas df does not false positive."""
         m = _FakeCatBoost(feature_names=["a", "b"], cat_feature_indices=[1])
         df = pd.DataFrame({"a": [1.0], "b": pd.Categorical(["x"])})
         assert _validate_cached_model_schema(_wrap(m), df) is None

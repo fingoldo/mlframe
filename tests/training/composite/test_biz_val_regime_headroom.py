@@ -19,6 +19,7 @@ from mlframe.training.composite import (
 
 
 def _rmse(pred, y, w=None):
+    """Rmse."""
     e = (pred - y) ** 2
     if w is None:
         return float(np.sqrt(e.mean()))
@@ -31,11 +32,13 @@ def _rmse(pred, y, w=None):
 
 
 def test_facade_reexports_same_object():
+    """Facade reexports same object."""
     assert facade_map is regime_headroom_map
     assert facade_render is render_regime_headroom_map
 
 
 def test_per_bin_rmse_and_headroom_correct():
+    """Per bin rmse and headroom correct."""
     rng = np.random.default_rng(0)
     n = 4000
     axis = rng.uniform(0, 1, n)
@@ -65,6 +68,7 @@ def test_per_bin_rmse_and_headroom_correct():
 
 
 def test_bins_sorted_ascending_by_axis():
+    """Bins sorted ascending by axis."""
     rng = np.random.default_rng(1)
     n = 2000
     axis = rng.uniform(-5, 5, n)
@@ -78,6 +82,7 @@ def test_bins_sorted_ascending_by_axis():
 
 
 def test_no_lag_failsafe_is_raw():
+    """No lag failsafe is raw."""
     rng = np.random.default_rng(2)
     n = 1500
     axis = rng.uniform(0, 1, n)
@@ -92,6 +97,7 @@ def test_no_lag_failsafe_is_raw():
 
 
 def test_json_round_trip_sorted_keys_no_nan():
+    """Json round trip sorted keys no nan."""
     rng = np.random.default_rng(3)
     n = 1000
     axis = rng.uniform(0, 1, n)
@@ -105,6 +111,7 @@ def test_json_round_trip_sorted_keys_no_nan():
 
 
 def test_render_is_ascii_only():
+    """Render is ascii only."""
     rng = np.random.default_rng(4)
     n = 800
     axis = rng.uniform(0, 1, n)
@@ -116,6 +123,7 @@ def test_render_is_ascii_only():
 
 
 def test_constant_axis_single_bin():
+    """Constant axis single bin."""
     n = 500
     axis = np.full(n, 3.0)
     rng = np.random.default_rng(5)
@@ -126,6 +134,7 @@ def test_constant_axis_single_bin():
 
 
 def test_all_nan_returns_empty():
+    """All nan returns empty."""
     n = 100
     y = np.full(n, np.nan)
     rep = regime_headroom_map(y, y, y, axis_values=np.arange(n, dtype=float), n_bins=5)
@@ -135,6 +144,7 @@ def test_all_nan_returns_empty():
 
 
 def test_n_less_than_n_bins_collapses():
+    """N less than n bins collapses."""
     axis = np.array([1.0, 2.0, 3.0])
     y = np.array([0.0, 1.0, 2.0])
     rep = regime_headroom_map(y, y + 1.0, y + 0.5, axis_values=axis, n_bins=10)
@@ -143,6 +153,7 @@ def test_n_less_than_n_bins_collapses():
 
 
 def test_non_finite_rows_dropped_matched():
+    """Non finite rows dropped matched."""
     n = 200
     rng = np.random.default_rng(6)
     axis = rng.uniform(0, 1, n)
@@ -155,6 +166,7 @@ def test_non_finite_rows_dropped_matched():
 
 
 def test_group_ids_counts_distinct_per_bin():
+    """Group ids counts distinct per bin."""
     n = 1000
     rng = np.random.default_rng(7)
     axis = rng.uniform(0, 1, n)
@@ -167,6 +179,7 @@ def test_group_ids_counts_distinct_per_bin():
 
 
 def test_invalid_args_raise():
+    """Invalid args raise."""
     y = np.arange(10, dtype=float)
     with pytest.raises(ValueError):
         regime_headroom_map(y, y, y, axis_values=None, n_bins=5)
@@ -177,6 +190,7 @@ def test_invalid_args_raise():
 
 
 def test_sample_weight_affects_rmse():
+    """Sample weight affects rmse."""
     n = 600
     rng = np.random.default_rng(8)
     axis = rng.uniform(0, 1, n)

@@ -12,6 +12,7 @@ import pytest
 
 
 def _regression_frame(seed: int = 17, n: int = 1600):
+    """Regression frame."""
     import polars as pl
 
     rng = np.random.default_rng(seed)
@@ -23,6 +24,7 @@ def _regression_frame(seed: int = 17, n: int = 1600):
 
 
 def _run_regression_suite(tmp_path, calib_size, seed=17, conformal_config=None, regression_calibration_config=None):
+    """Run regression suite."""
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import (
         PreprocessingBackendConfig,
@@ -81,6 +83,7 @@ def test_e2e_conformal_config_threads_alphas(tmp_path):
 
 
 def _first_entry(models):
+    """First entry."""
     for _by_name in models.values():
         for _entries in _by_name.values():
             if isinstance(_entries, list) and _entries:
@@ -89,6 +92,7 @@ def _first_entry(models):
 
 
 def test_e2e_calib_size_stamps_regression_conformal_intervals(tmp_path):
+    """E2e calib size stamps regression conformal intervals."""
     pytest.importorskip("xgboost")
     models, metadata = _run_regression_suite(tmp_path / "with_calib", calib_size=0.2)
 
@@ -110,6 +114,7 @@ def test_e2e_calib_size_stamps_regression_conformal_intervals(tmp_path):
 
 
 def test_e2e_calib_size_zero_no_conformal(tmp_path):
+    """E2e calib size zero no conformal."""
     pytest.importorskip("xgboost")
     models, metadata = _run_regression_suite(tmp_path, calib_size=0.0)
     entry = _first_entry(models)

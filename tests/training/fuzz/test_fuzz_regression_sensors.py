@@ -36,6 +36,7 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 @pytest.fixture(autouse=True)
 def _sensor_cleanup():
+    """Sensor cleanup."""
     yield
     try:
         import matplotlib.pyplot as plt
@@ -57,12 +58,14 @@ def _sensor_cleanup():
 
 
 def _skip_if_deps_missing(*models):
+    """Skip if deps missing."""
     pkg = {"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm", "hgb": "sklearn", "linear": "sklearn"}
     for m in models:
         pytest.importorskip(pkg[m])
 
 
 def _run_sensor_combo(combo: FuzzCombo, tmp_path):
+    """Run sensor combo."""
     from mlframe.training.core import train_mlframe_models_suite
 
     df, target_col, _ = build_frame_for_combo(combo)
@@ -283,6 +286,7 @@ def test_sensor_mrmr_native_polars_no_full_to_pandas():
     orig = pl.DataFrame.to_pandas
 
     def _spy(self, *args, **kwargs):
+        """Spy."""
         call_count["n"] += 1
         return orig(self, *args, **kwargs)
 

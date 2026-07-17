@@ -22,6 +22,7 @@ from mlframe.training.pipeline import _pipeline_fit_transform
 
 
 def _src_root() -> pathlib.Path:
+    """Src root."""
     return pathlib.Path(mlframe.__file__).resolve().parent
 
 
@@ -42,10 +43,12 @@ def _force_no_polarsds(monkeypatch):
 
 
 def _toy_polars_frame() -> pl.DataFrame:
+    """Toy polars frame."""
     return pl.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "b": [10.0, 20.0, 30.0, 40.0]})
 
 
 def test_fallback_engages_when_true_and_backend_unavailable(monkeypatch):
+    """Fallback engages when true and backend unavailable."""
     _force_no_polarsds(monkeypatch)
     cfg = PreprocessingBackendConfig(prefer_polarsds=True, fallback_to_sklearn=True, scaler_name=None, imputer_strategy=None, categorical_encoding=None)
     train, _, _, _, _ = _pipeline_fit_transform.fit_and_transform_pipeline(
@@ -61,6 +64,7 @@ def test_fallback_engages_when_true_and_backend_unavailable(monkeypatch):
 
 
 def test_no_fallback_when_false_keeps_polars(monkeypatch):
+    """No fallback when false keeps polars."""
     _force_no_polarsds(monkeypatch)
     cfg = PreprocessingBackendConfig(prefer_polarsds=True, fallback_to_sklearn=False, scaler_name=None, imputer_strategy=None, categorical_encoding=None)
     train, _, _, _, _ = _pipeline_fit_transform.fit_and_transform_pipeline(

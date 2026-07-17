@@ -34,6 +34,7 @@ def _run(p_strongest, p_runner, y, n_resamples=200, seed=42):
 
 
 def test_clean_sweep_win_fraction_below_one():
+    """Clean sweep win fraction below one."""
     rng = np.random.default_rng(0)
     n = 400
     y = rng.normal(size=n)
@@ -52,6 +53,7 @@ def test_clean_sweep_win_fraction_below_one():
 
 
 def test_reverse_sweep_win_fraction_above_zero():
+    """Reverse sweep win fraction above zero."""
     rng = np.random.default_rng(1)
     n = 400
     y = rng.normal(size=n)
@@ -67,6 +69,7 @@ def test_reverse_sweep_win_fraction_above_zero():
 
 
 def test_win_fraction_matches_add_one_formula():
+    """Win fraction matches add one formula."""
     rng = np.random.default_rng(7)
     n = 300
     y = rng.normal(size=n)

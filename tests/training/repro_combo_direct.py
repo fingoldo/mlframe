@@ -33,15 +33,19 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 
 class _FakeNode:
+    """Groups tests covering fake node."""
     def add_marker(self, *a, **kw):
+        """Add marker."""
         pass
 
 
 class _FakeRequest:
+    """Groups tests covering fake request."""
     node = _FakeNode()
 
 
 def _load_combo(short_id: str):
+    """Load combo."""
     from tests.training._fuzz_combo import FuzzCombo
 
     with open("tests/training/_fuzz_results.jsonl", encoding="utf-8") as f:
@@ -69,6 +73,7 @@ def _load_combo(short_id: str):
 
 
 def main() -> None:
+    """Main."""
     short_id = sys.argv[1]
     combo = _load_combo(short_id)
     print("Reconstructed combo short_id:", combo.short_id())

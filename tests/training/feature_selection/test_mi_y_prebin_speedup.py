@@ -38,6 +38,7 @@ from mlframe.training.composite.discovery.screening import (
 
 
 def _build_inputs(n: int, k: int, *, seed: int = 0):
+    """Build inputs."""
     rng = np.random.default_rng(seed)
     x = rng.standard_normal((n, k)).astype(np.float64)
     # y depends on a few features so MI signal is non-trivial.
@@ -46,6 +47,7 @@ def _build_inputs(n: int, k: int, *, seed: int = 0):
 
 
 def _naive_loop(x: np.ndarray, y: np.ndarray, *, nbins: int) -> np.ndarray:
+    """Naive loop."""
     return np.array([_mi_pair_bin(x[:, j], y, nbins=nbins) for j in range(x.shape[1])])
 
 
@@ -109,6 +111,7 @@ def test_y_fixed_speedup_gate() -> None:
 
     # Median of 3 runs each.
     def _time(fn):
+        """Time."""
         t = []
         for _ in range(3):
             s = time.perf_counter()

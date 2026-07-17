@@ -15,6 +15,7 @@ from pathlib import Path
 
 
 def _read_phase_body() -> str:
+    """Read phase body."""
     p = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core" / "_phase_train_one_target_body.py"
     return p.read_text(encoding="utf-8")
 

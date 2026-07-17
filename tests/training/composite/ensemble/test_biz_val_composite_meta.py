@@ -17,6 +17,7 @@ from mlframe.training.composite.meta import CompositeOrRawStacker
 
 
 def _split(X, y, n_tr):
+    """Split."""
     return X.iloc[:n_tr], X.iloc[n_tr:], y[:n_tr], y[n_tr:]
 
 

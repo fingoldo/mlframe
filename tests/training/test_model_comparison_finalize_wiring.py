@@ -16,11 +16,13 @@ from mlframe.training.core._phase_finalize import _render_model_comparison_leade
 
 
 def _entry(name, y, score):
+    """Entry."""
     auc_proxy = float(np.clip(np.mean(score[y == 1]) - np.mean(score[y == 0]) + 0.5, 0.0, 1.0))
     return SimpleNamespace(model_name=name, test_target=y, test_probs=score, metrics={"test": {"roc_auc": auc_proxy}})
 
 
 def _ctx(tmp_path, models):
+    """Ctx."""
     return SimpleNamespace(
         data_dir=str(tmp_path),
         save_charts=True,
@@ -35,10 +37,12 @@ def _ctx(tmp_path, models):
 
 
 def _saved_files(tmp_path):
+    """Saved files."""
     return [p for p in glob.glob(os.path.join(str(tmp_path), "charts", "**", "*"), recursive=True) if os.path.isfile(p)]
 
 
 def test_leaderboard_fires_for_two_models(tmp_path):
+    """Leaderboard fires for two models."""
     rng = np.random.default_rng(0)
     n = 2000
     y = (rng.uniform(size=n) < 0.4).astype(int)
@@ -49,6 +53,7 @@ def test_leaderboard_fires_for_two_models(tmp_path):
 
 
 def test_leaderboard_skips_single_model(tmp_path):
+    """Leaderboard skips single model."""
     rng = np.random.default_rng(1)
     n = 500
     y = (rng.uniform(size=n) < 0.5).astype(int)
@@ -57,6 +62,7 @@ def test_leaderboard_skips_single_model(tmp_path):
 
 
 def test_leaderboard_skips_when_no_data_dir(tmp_path):
+    """Leaderboard skips when no data dir."""
     rng = np.random.default_rng(2)
     n = 400
     y = (rng.uniform(size=n) < 0.5).astype(int)

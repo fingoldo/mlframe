@@ -18,6 +18,7 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 def _make_config(**overrides):
+    """Make config."""
     defaults = dict(
         enabled=True,
         base_candidates=["base"],
@@ -45,6 +46,7 @@ def _linear_residual_dataset(seed: int = 0, n: int = 2000):
 
 
 def _fit(df, config):
+    """Fit."""
     n = len(df)
     train_idx = np.arange(0, int(0.8 * n))
     val_idx = np.arange(int(0.8 * n), n)
@@ -54,6 +56,7 @@ def _fit(df, config):
 
 
 def test_waic_scores_populated_only_when_flag_enabled():
+    """Waic scores populated only when flag enabled."""
     df = _linear_residual_dataset()
     on = _fit(df, _make_config(transform_waic_validation_enabled=True))
     off = _fit(df, _make_config(transform_waic_validation_enabled=False))

@@ -23,6 +23,7 @@ class _FakeFittedInner:
         self.n_predict = 0
 
     def predict(self, X):
+        """Predict."""
         self.n_predict += 1
         n = len(X)
         # deterministic so equality checks below are stable
@@ -36,6 +37,7 @@ class _FakeShim:
         self.model = model
 
     def predict(self, X):
+        """Predict."""
         return self.model.predict(X)
 
 
@@ -102,6 +104,7 @@ def test_S48_lookup_peels_one_shim_and_keys_on_frame_for_unwrapped_and_wrapped()
     """
 
     def lookup_key(comp, frame_key):
+        """Lookup key."""
         inner = getattr(comp, "model", comp)
         return (id(inner), *frame_key)
 

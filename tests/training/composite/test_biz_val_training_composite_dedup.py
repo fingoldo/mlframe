@@ -21,6 +21,7 @@ from mlframe.training._composite_target_discovery_config import CompositeTargetD
 
 
 def _make_pool(seed: int, n: int = 4000, n_dup: int = 4, jitter: float = 0.02):
+    """Make pool."""
     rng = np.random.default_rng(seed)
     x = rng.normal(size=n)
     z = rng.normal(size=n)
@@ -33,16 +34,19 @@ def _make_pool(seed: int, n: int = 4000, n_dup: int = 4, jitter: float = 0.02):
 
 
 def _split(M, y, frac=0.5):
+    """Split."""
     cut = int(M.shape[0] * frac)
     return M[:cut], y[:cut], M[cut:], y[cut:]
 
 
 def _nnls_rmse(oof, y_oof, test, y_test):
+    """Nnls rmse."""
     w, _ = nnls(oof, y_oof)
     return float(np.sqrt(np.mean((test @ w - y_test) ** 2)))
 
 
 def _mean_rmse(test, y_test):
+    """Mean rmse."""
     return float(np.sqrt(np.mean((test.mean(axis=1) - y_test) ** 2)))
 
 

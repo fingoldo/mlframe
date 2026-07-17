@@ -40,6 +40,7 @@ class _StubModel:
         self.raises = raises
 
     def predict(self, X) -> np.ndarray:
+        """Predict."""
         if self.raises:
             raise RuntimeError("stub-failure")
         n = len(X) if hasattr(X, "__len__") else 1
@@ -52,7 +53,9 @@ class _StubModel:
 
 
 class TestConstructor:
+    """Groups tests covering constructor."""
     def test_empty_components_raises(self) -> None:
+        """Empty components raises."""
         with pytest.raises(ValueError, match="empty"):
             CompositeCrossTargetEnsemble(
                 component_models=[],
@@ -62,6 +65,7 @@ class TestConstructor:
             )
 
     def test_length_mismatch_raises(self) -> None:
+        """Length mismatch raises."""
         with pytest.raises(ValueError, match="same length"):
             CompositeCrossTargetEnsemble(
                 component_models=[_StubModel(1.0)],
@@ -71,6 +75,7 @@ class TestConstructor:
             )
 
     def test_zero_sum_weights_raises(self) -> None:
+        """Zero sum weights raises."""
         with pytest.raises(ValueError, match="positive finite"):
             CompositeCrossTargetEnsemble(
                 component_models=[_StubModel(1.0)],
@@ -80,6 +85,7 @@ class TestConstructor:
             )
 
     def test_normalises_weights(self) -> None:
+        """Normalises weights."""
         ens = CompositeCrossTargetEnsemble(
             component_models=[_StubModel(1.0), _StubModel(2.0)],
             component_names=["a", "b"],
@@ -95,7 +101,9 @@ class TestConstructor:
 
 
 class TestUniformWeights:
+    """Groups tests covering uniform weights."""
     def test_equal_weights(self) -> None:
+        """Equal weights."""
         ens = CompositeCrossTargetEnsemble.from_uniform_weights(
             component_models=[_StubModel(1.0), _StubModel(3.0), _StubModel(5.0)],
             component_names=["a", "b", "c"],
@@ -104,6 +112,7 @@ class TestUniformWeights:
         assert ens.strategy == "mean"
 
     def test_predict_averages(self) -> None:
+        """Predict averages."""
         ens = CompositeCrossTargetEnsemble.from_uniform_weights(
             component_models=[_StubModel(2.0), _StubModel(4.0)],
             component_names=["a", "b"],
@@ -119,9 +128,11 @@ class TestUniformWeights:
 
 
 class TestTrainMetricsWeights:
+    """Groups tests covering train metrics weights."""
     def test_gain_weighted_strategy(self) -> None:
         # Three models with RMSE 1.0, 0.5, 0.2 against baseline 1.5.
         # Gains: 0.5, 1.0, 1.3 -> sum 2.8 -> weights ~0.179, 0.357, 0.464.
+        """Gain weighted strategy."""
         ens = CompositeCrossTargetEnsemble.from_train_metrics(
             component_models=[_StubModel(1.0), _StubModel(2.0), _StubModel(3.0)],
             component_names=["worst", "mid", "best"],
@@ -135,6 +146,7 @@ class TestTrainMetricsWeights:
 
     def test_validation_gate_no_component_beats_baseline(self) -> None:
         # All components worse than baseline -> single best returned.
+        """Validation gate no component beats baseline."""
         worst = _StubModel(1.0)
         mid = _StubModel(2.0)
         result = CompositeCrossTargetEnsemble.from_train_metrics(
@@ -148,6 +160,7 @@ class TestTrainMetricsWeights:
 
     def test_single_component_returns_ensemble(self) -> None:
         # K=1 path: validation gate is skipped, ensemble of 1 is fine.
+        """Single component returns ensemble."""
         only = _StubModel(1.0)
         ens = CompositeCrossTargetEnsemble.from_train_metrics(
             component_models=[only],
@@ -163,6 +176,7 @@ class TestTrainMetricsWeights:
         # fallback silently zeroed half of the candidates -- a hidden contract surprise. With max
         # as the baseline every component except the worst gets a positive weight; the best one
         # still dominates because gain (baseline - rmse) is largest for it.
+        """Baseline default uses max rmse."""
         ens = CompositeCrossTargetEnsemble.from_train_metrics(
             component_models=[_StubModel(0), _StubModel(1), _StubModel(2)],
             component_names=["a", "b", "c"],
@@ -174,6 +188,7 @@ class TestTrainMetricsWeights:
         assert ens.weights[2] == 0.0
 
     def test_nan_rmse_raises(self) -> None:
+        """Nan rmse raises."""
         with pytest.raises(ValueError, match="non-finite"):
             CompositeCrossTargetEnsemble.from_train_metrics(
                 component_models=[_StubModel(0)],
@@ -253,7 +268,9 @@ class TestTrainMetricsWeights:
 
 
 class TestPredictRobustness:
+    """Groups tests covering predict robustness."""
     def test_failing_component_skipped_and_renormalised(self) -> None:
+        """Failing component skipped and renormalised."""
         good = _StubModel(2.0)
         broken = _StubModel(0.0, raises=True)
         ens = CompositeCrossTargetEnsemble(
@@ -268,6 +285,7 @@ class TestPredictRobustness:
         np.testing.assert_allclose(pred, np.full(5, 2.0))
 
     def test_all_components_fail_raises(self) -> None:
+        """All components fail raises."""
         a = _StubModel(0.0, raises=True)
         b = _StubModel(0.0, raises=True)
         ens = CompositeCrossTargetEnsemble(
@@ -286,8 +304,10 @@ class TestPredictRobustness:
 
 
 class TestLinearStack:
+    """Groups tests covering linear stack."""
     def test_basic_construction(self) -> None:
         # 3 components produce predictions; y is mostly the second.
+        """Basic construction."""
         rng = np.random.default_rng(0)
         n = 100
         y = rng.normal(size=n)
@@ -310,6 +330,7 @@ class TestLinearStack:
         assert ens.weights[1] > ens.weights[0] and ens.weights[1] > ens.weights[2]
 
     def test_too_few_rows_falls_back_to_mean(self) -> None:
+        """Too few rows falls back to mean."""
         ens = CompositeCrossTargetEnsemble.from_linear_stack(
             component_models=[_StubModel(0), _StubModel(0), _StubModel(0)],
             component_names=["a", "b", "c"],
@@ -319,6 +340,7 @@ class TestLinearStack:
         assert ens.strategy == "mean"
 
     def test_predict_uses_intercept(self) -> None:
+        """Predict uses intercept."""
         rng = np.random.default_rng(0)
         n = 100
         y = rng.normal(size=n) + 5.0
@@ -337,7 +359,9 @@ class TestLinearStack:
 
 
 class TestNnlsStack:
+    """Groups tests covering nnls stack."""
     def test_basic_construction(self) -> None:
+        """Basic construction."""
         rng = np.random.default_rng(1)
         n = 100
         y = np.abs(rng.normal(size=n)) + 1.0
@@ -362,6 +386,7 @@ class TestNnlsStack:
         assert ens.is_convex is False
 
     def test_too_few_rows_falls_back_to_mean(self) -> None:
+        """Too few rows falls back to mean."""
         ens = CompositeCrossTargetEnsemble.from_nnls_stack(
             component_models=[_StubModel(0), _StubModel(0), _StubModel(0)],
             component_names=["a", "b", "c"],
@@ -372,7 +397,9 @@ class TestNnlsStack:
 
 
 class TestExportMetadata:
+    """Groups tests covering export metadata."""
     def test_exports_strategy_names_weights(self) -> None:
+        """Exports strategy names weights."""
         ens = CompositeCrossTargetEnsemble.from_uniform_weights(
             component_models=[_StubModel(1.0), _StubModel(2.0)],
             component_names=["a", "b"],

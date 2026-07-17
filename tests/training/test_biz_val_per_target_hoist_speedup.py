@@ -31,6 +31,7 @@ NOISE_PCT_FLOOR = 25.0  # Post-fix wall-time may not exceed pre-fix by >25%.
 
 
 class _MultiTargetExtractor:
+    """Groups tests covering multi target extractor."""
     def __init__(self, target_columns, target_type):
         self.target_columns = tuple(target_columns)
         self.target_type = target_type
@@ -40,6 +41,7 @@ class _MultiTargetExtractor:
         self.target_carrier = "numpy"
 
     def transform(self, df):
+        """Transform."""
         target_by_type = {self.target_type: {}}
         for col in self.target_columns:
             if isinstance(df, pd.DataFrame):
@@ -51,6 +53,7 @@ class _MultiTargetExtractor:
 
 
 def _make_panel(n_rows: int, n_features: int, n_targets: int, seed: int = 2026) -> pd.DataFrame:
+    """Make panel."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n_rows, n_features)).astype(np.float32)
     df = pd.DataFrame(X, columns=[f"f{i}" for i in range(n_features)])
@@ -61,6 +64,7 @@ def _make_panel(n_rows: int, n_features: int, n_targets: int, seed: int = 2026) 
 
 
 def _time_suite(df: pd.DataFrame, n_targets: int, *, force_clear: bool) -> float:
+    """Time suite."""
     from mlframe.training import train_mlframe_models_suite, TargetTypes
     from mlframe.training.configs import BaselineDiagnosticsConfig, DummyBaselinesConfig
     import mlframe.training.core._phase_train_one_target as pt
@@ -73,6 +77,7 @@ def _time_suite(df: pd.DataFrame, n_targets: int, *, force_clear: bool) -> float
     _orig = pt._train_one_target
 
     def _wrapped(ctx, target_type, targets, cur_target_name, cur_target_values):
+        """Wrapped."""
         if force_clear:
             arts = ctx.artifacts or {}
             arts.pop("feature_side_cache", None)

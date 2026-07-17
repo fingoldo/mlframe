@@ -179,6 +179,7 @@ def test_frac_diff_inv_batched_matches_per_spec_v1(K, N):
 
 
 def test_frac_diff_inv_default_dispatcher_thresholds():
+    """Frac diff inv default dispatcher thresholds."""
     from mlframe.training.composite.transforms.nonlinear import _lookup_frac_diff_inv_backend
 
     assert _lookup_frac_diff_inv_backend(1, 100_000) == "njit"
@@ -187,6 +188,7 @@ def test_frac_diff_inv_default_dispatcher_thresholds():
 
 
 def test_frac_diff_inv_env_force_override(monkeypatch):
+    """Frac diff inv env force override."""
     from mlframe.training.composite.transforms.nonlinear import _lookup_frac_diff_inv_backend
 
     monkeypatch.setenv("MLFRAME_FRAC_DIFF_INV_BACKEND", "njit_par")
@@ -215,6 +217,7 @@ def test_frac_diff_inv_force_par_numerical_identity(monkeypatch):
 
 
 def test_frac_diff_inv_compute_batched_force_backend_identity(monkeypatch):
+    """Frac diff inv compute batched force backend identity."""
     from mlframe.training.composite.transforms.nonlinear import (
         _frac_diff_inverse_compute_batched,
         _frac_diff_inverse_kernel,
@@ -276,6 +279,7 @@ def test_ewma_residual_forward_inverse_roundtrip_unchanged():
 
 
 def test_frac_diff_forward_inverse_roundtrip_unchanged():
+    """Frac diff forward inverse roundtrip unchanged."""
     from mlframe.training.composite.transforms import get_transform
 
     rng = np.random.default_rng(100)

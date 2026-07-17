@@ -33,11 +33,13 @@ class _StubQuantileInner(BaseEstimator, RegressorMixin):
         self.sigma = sigma
 
     def fit(self, X, y, sample_weight=None):
+        """Fit."""
         self._mean_ = float(np.mean(np.asarray(y, dtype=np.float64)))
         self.n_features_in_ = X.shape[1] if hasattr(X, "shape") else len(X.columns)
         return self
 
     def predict(self, X):
+        """Predict."""
         from scipy.stats import norm
 
         n = X.shape[0] if hasattr(X, "shape") else len(X)
@@ -46,6 +48,7 @@ class _StubQuantileInner(BaseEstimator, RegressorMixin):
 
 
 def _make_xy(n: int = 300, seed: int = 0):
+    """Make xy."""
     rng = np.random.default_rng(seed)
     base = rng.normal(0.0, 1.0, n)
     x1 = rng.normal(0.0, 1.0, n)
@@ -54,6 +57,7 @@ def _make_xy(n: int = 300, seed: int = 0):
 
 
 def _fit(quantiles=None, sigma=1.0):
+    """Fit."""
     X, y = _make_xy()
     est = CompositeDistributionEstimator(
         base_estimator=_StubQuantileInner(sigma=sigma),
@@ -69,17 +73,20 @@ def _fit(quantiles=None, sigma=1.0):
 # Fit / config
 # ----------------------------------------------------------------------
 def test_default_dense_grid_is_19_levels():
+    """Default dense grid is 19 levels."""
     assert len(_DEFAULT_DENSE_QUANTILES) == 19
     assert _DEFAULT_DENSE_QUANTILES[0] == pytest.approx(0.05)
     assert _DEFAULT_DENSE_QUANTILES[-1] == pytest.approx(0.95)
 
 
 def test_fit_uses_dense_grid_by_default():
+    """Fit uses dense grid by default."""
     est, _, _ = _fit()
     assert est.quantiles_.shape[0] == 19
 
 
 def test_fit_requires_base_estimator():
+    """Fit requires base estimator."""
     with pytest.raises(ValueError, match="base_estimator must not be None"):
         CompositeDistributionEstimator(base_estimator=None, base_column="base").fit(*_make_xy())
 
@@ -88,6 +95,7 @@ def test_fit_requires_base_estimator():
 # Non-crossing
 # ----------------------------------------------------------------------
 def test_underlying_quantile_matrix_non_crossing():
+    """Underlying quantile matrix non crossing."""
     est, X, _ = _fit()
     qmat = est.predict_quantile(X)
     diffs = np.diff(qmat, axis=1)
@@ -98,6 +106,7 @@ def test_underlying_quantile_matrix_non_crossing():
 # CDF monotone
 # ----------------------------------------------------------------------
 def test_predict_cdf_shape_and_range():
+    """Predict cdf shape and range."""
     est, X, _ = _fit()
     grid = np.linspace(-6.0, 6.0, 25)
     cdf = est.predict_cdf(X, grid)
@@ -106,6 +115,7 @@ def test_predict_cdf_shape_and_range():
 
 
 def test_predict_cdf_monotone_non_decreasing():
+    """Predict cdf monotone non decreasing."""
     est, X, _ = _fit()
     grid = np.linspace(-6.0, 6.0, 40)
     cdf = est.predict_cdf(X, grid)
@@ -117,6 +127,7 @@ def test_predict_cdf_monotone_non_decreasing():
 # Sampling
 # ----------------------------------------------------------------------
 def test_sample_shape():
+    """Sample shape."""
     est, X, _ = _fit()
     draws = est.sample(X, n=50, random_state=0)
     assert draws.shape == (X.shape[0], 50)
@@ -124,6 +135,7 @@ def test_sample_shape():
 
 
 def test_sample_within_quantile_envelope():
+    """Sample within quantile envelope."""
     est, X, _ = _fit()
     qmat = est.predict_quantile(X)
     lo, hi = qmat.min(axis=1), qmat.max(axis=1)
@@ -137,6 +149,7 @@ def test_sample_matches_per_row_np_interp_reference():
     # The njit shared-x interpolation kernel must reproduce the per-row
     # np.interp PIT inversion it replaced, to FP round-off (~1e-15). Rebuild
     # the exact reference from the same seeded uniforms.
+    """Sample matches per row np interp reference."""
     est, X, _ = _fit()
     qmat = est.predict_quantile(X)
     levels = est.quantiles_
@@ -158,6 +171,7 @@ def test_sample_matches_per_row_np_interp_reference():
 
 
 def test_sample_rejects_non_positive_n():
+    """Sample rejects non positive n."""
     est, X, _ = _fit()
     with pytest.raises(ValueError, match="n must be > 0"):
         est.sample(X, n=0)
@@ -167,12 +181,14 @@ def test_sample_rejects_non_positive_n():
 # CRPS
 # ----------------------------------------------------------------------
 def test_crps_finite_and_scalar():
+    """Crps finite and scalar."""
     est, X, y = _fit()
     val = est.crps(X, y)
     assert np.isfinite(val) and val >= 0.0
 
 
 def test_crps_per_row_shape():
+    """Crps per row shape."""
     est, X, y = _fit()
     per_row = est.crps(X, y, reduce="none")
     assert per_row.shape == (X.shape[0],)
@@ -180,12 +196,14 @@ def test_crps_per_row_shape():
 
 
 def test_crps_rejects_length_mismatch():
+    """Crps rejects length mismatch."""
     est, X, y = _fit()
     with pytest.raises(ValueError, match="!= n_samples"):
         est.crps(X, y[:-3])
 
 
 def test_crps_rejects_bad_reduce():
+    """Crps rejects bad reduce."""
     est, X, y = _fit()
     with pytest.raises(ValueError, match="reduce must be"):
         est.crps(X, y, reduce="sum")
@@ -211,6 +229,7 @@ def test_crps_lower_for_perfect_than_noisy_predictor():
 # Unfitted guard
 # ----------------------------------------------------------------------
 def test_unfitted_methods_raise():
+    """Unfitted methods raise."""
     est = CompositeDistributionEstimator(
         base_estimator=_StubQuantileInner(),
         base_column="base",

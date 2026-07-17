@@ -20,6 +20,7 @@ from mlframe.training.preprocessing import create_split_dataframes
 
 
 def test_estimate_pandas_nonneg():
+    """Estimate pandas nonneg."""
     df = pd.DataFrame({"a": np.arange(1000), "b": np.random.default_rng(0).standard_normal(1000)})
     size = estimate_df_size_mb(df)
     assert isinstance(size, float)
@@ -28,16 +29,19 @@ def test_estimate_pandas_nonneg():
 
 
 def test_estimate_polars_nonneg():
+    """Estimate polars nonneg."""
     df = pl.DataFrame({"a": list(range(1000))})
     assert estimate_df_size_mb(df) >= 0.0
 
 
 def test_estimate_unsupported_inf():
+    """Estimate unsupported inf."""
     arr = np.zeros((10, 3))
     assert estimate_df_size_mb(arr) == float("inf")
 
 
 def test_estimate_empty_pandas():
+    """Estimate empty pandas."""
     df = pd.DataFrame()
     assert estimate_df_size_mb(df) >= 0.0
 
@@ -46,6 +50,7 @@ def test_estimate_empty_pandas():
 
 
 def test_create_split_pandas():
+    """Create split pandas."""
     df = pd.DataFrame({"x": np.arange(100), "y": np.arange(100, 200)})
     tr_idx = np.arange(0, 60)
     va_idx = np.arange(60, 80)
@@ -57,12 +62,14 @@ def test_create_split_pandas():
 
 
 def test_create_split_polars():
+    """Create split polars."""
     df = pl.DataFrame({"x": list(range(50))})
     tr, va, te = create_split_dataframes(df, np.arange(0, 30), np.arange(30, 40), np.arange(40, 50))
     assert tr.height == 30 and va.height == 10 and te.height == 10
 
 
 def test_create_split_empty_val_test_pandas():
+    """Create split empty val test pandas."""
     df = pd.DataFrame({"x": np.arange(10)})
     tr, va, te = create_split_dataframes(df, np.arange(10), np.array([], dtype=int), np.array([], dtype=int))
     assert len(tr) == 10
@@ -71,6 +78,7 @@ def test_create_split_empty_val_test_pandas():
 
 
 def test_create_split_empty_val_test_polars():
+    """Create split empty val test polars."""
     df = pl.DataFrame({"x": list(range(10))})
     tr, va, _te = create_split_dataframes(df, np.arange(10), np.array([], dtype=int), np.array([], dtype=int))
     assert tr.height == 10
@@ -81,12 +89,14 @@ def test_create_split_empty_val_test_polars():
 
 
 def test_drop_cols_pandas_both_args():
+    """Drop cols pandas both args."""
     df = pd.DataFrame({"a": [1], "b": [2], "c": [3], "d": [4]})
     out = drop_columns_from_dataframe(df, additional_columns_to_drop=["a"], config_drop_columns=["b"], verbose=0)
     assert set(out.columns) == {"c", "d"}
 
 
 def test_drop_cols_polars():
+    """Drop cols polars."""
     df = pl.DataFrame({"a": [1], "b": [2], "c": [3]})
     out = drop_columns_from_dataframe(df, additional_columns_to_drop=["a", "nonexistent"], config_drop_columns=None, verbose=0)
     # polars drop(strict=False) handles missing
@@ -95,6 +105,7 @@ def test_drop_cols_polars():
 
 
 def test_drop_cols_pandas_nonexistent_silently_skipped():
+    """Drop cols pandas nonexistent silently skipped."""
     df = pd.DataFrame({"a": [1], "b": [2]})
     out = drop_columns_from_dataframe(df, additional_columns_to_drop=["nope"], config_drop_columns=None, verbose=0)
     # nonexistent col silently skipped — code uses intersection
@@ -102,12 +113,14 @@ def test_drop_cols_pandas_nonexistent_silently_skipped():
 
 
 def test_drop_cols_both_none_returns_df_unchanged():
+    """Drop cols both none returns df unchanged."""
     df = pd.DataFrame({"a": [1]})
     out = drop_columns_from_dataframe(df, additional_columns_to_drop=None, config_drop_columns=None, verbose=0)
     assert out is df
 
 
 def test_drop_cols_duplicate_names_deduped():
+    """Drop cols duplicate names deduped."""
     df = pd.DataFrame({"a": [1], "b": [2]})
     out = drop_columns_from_dataframe(df, additional_columns_to_drop=["a", "a"], config_drop_columns=["a"], verbose=0)
     assert list(out.columns) == ["b"]

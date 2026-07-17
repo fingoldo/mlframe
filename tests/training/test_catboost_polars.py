@@ -43,6 +43,7 @@ def _make_data(n: int, rng: np.random.Generator) -> pl.DataFrame:
 
 @pytest.fixture()
 def data():
+    """Data."""
     rng = np.random.default_rng(RANDOM_SEED)
     train = _make_data(N_TRAIN, rng)
     val = _make_data(N_VAL, rng)
@@ -50,6 +51,7 @@ def data():
 
 
 def _make_pool(df: pl.DataFrame, target_col: str) -> Pool:
+    """Make pool."""
     return Pool(
         data=df.select(FEATURE_COLS),
         label=df[target_col].to_numpy(),
@@ -63,6 +65,7 @@ class TestCatBoostPolarsClassification:
     """CatBoostClassifier trained on Polars DataFrames."""
 
     def test_train_with_early_stopping(self, data):
+        """Train with early stopping."""
         train_df, val_df = data
         train_pool = _make_pool(train_df, "target_cls")
         val_pool = _make_pool(val_df, "target_cls")
@@ -79,6 +82,7 @@ class TestCatBoostPolarsClassification:
         assert model.tree_count_ <= ITERATIONS
 
     def test_predict_returns_correct_shape(self, data):
+        """Predict returns correct shape."""
         train_df, val_df = data
         train_pool = _make_pool(train_df, "target_cls")
         val_pool = _make_pool(val_df, "target_cls")
@@ -98,6 +102,7 @@ class TestCatBoostPolarsClassification:
         assert probas.shape == (N_VAL, 2)
 
     def test_feature_importance_available(self, data):
+        """Feature importance available."""
         train_df, val_df = data
         train_pool = _make_pool(train_df, "target_cls")
         val_pool = _make_pool(val_df, "target_cls")
@@ -118,6 +123,7 @@ class TestCatBoostPolarsRegression:
     """CatBoostRegressor trained on Polars DataFrames."""
 
     def test_train_with_early_stopping(self, data):
+        """Train with early stopping."""
         train_df, val_df = data
         train_pool = _make_pool(train_df, "target_reg")
         val_pool = _make_pool(val_df, "target_reg")
@@ -134,6 +140,7 @@ class TestCatBoostPolarsRegression:
         assert model.tree_count_ <= ITERATIONS
 
     def test_predict_returns_correct_shape(self, data):
+        """Predict returns correct shape."""
         train_df, val_df = data
         train_pool = _make_pool(train_df, "target_reg")
         val_pool = _make_pool(val_df, "target_reg")
@@ -171,6 +178,7 @@ class TestCatBoostPolarsGPUClassification:
     """CatBoostClassifier on GPU with Polars DataFrames."""
 
     def test_train_gpu_classification(self, data):
+        """Train gpu classification."""
         train_df, val_df = data
         train_pool = _make_pool(train_df, "target_cls")
         val_pool = _make_pool(val_df, "target_cls")
@@ -196,6 +204,7 @@ class TestCatBoostPolarsGPURegression:
     """CatBoostRegressor on GPU with Polars DataFrames."""
 
     def test_train_gpu_regression(self, data):
+        """Train gpu regression."""
         train_df, val_df = data
         train_pool = _make_pool(train_df, "target_reg")
         val_pool = _make_pool(val_df, "target_reg")
@@ -220,6 +229,7 @@ class TestPolarsPoolCreation:
     """Verify Pool accepts Polars DataFrames directly (no pandas conversion)."""
 
     def test_pool_from_polars_no_conversion(self, data):
+        """Pool from polars no conversion."""
         train_df, _ = data
         features = train_df.select(FEATURE_COLS)
         assert isinstance(features, pl.DataFrame)
@@ -235,6 +245,7 @@ class TestPolarsPoolCreation:
         assert pool.num_col() == len(FEATURE_COLS)
 
     def test_pool_shape_matches_input(self, data):
+        """Pool shape matches input."""
         train_df, val_df = data
         train_pool = _make_pool(train_df, "target_reg")
         val_pool = _make_pool(val_df, "target_reg")
@@ -266,6 +277,7 @@ HGB_FEATURE_COLS = ["num_a", "num_b", "num_c"]
 
 @pytest.fixture()
 def numeric_data():
+    """Numeric data."""
     rng = np.random.default_rng(RANDOM_SEED)
     train = _make_numeric_data(N_TRAIN, rng)
     val = _make_numeric_data(N_VAL, rng)
@@ -276,6 +288,7 @@ class TestHGBPolarsClassification:
     """HistGradientBoostingClassifier trained on Polars DataFrames (numeric only)."""
 
     def test_train_with_early_stopping(self, numeric_data):
+        """Train with early stopping."""
         train_df, val_df = numeric_data
         X_train = train_df.select(HGB_FEATURE_COLS)
         y_train = train_df["target_cls"].to_numpy()
@@ -295,6 +308,7 @@ class TestHGBPolarsClassification:
         assert model.n_iter_ <= ITERATIONS
 
     def test_predict_returns_correct_shape(self, numeric_data):
+        """Predict returns correct shape."""
         train_df, val_df = numeric_data
         X_train = train_df.select(HGB_FEATURE_COLS)
         y_train = train_df["target_cls"].to_numpy()
@@ -316,6 +330,7 @@ class TestXGBoostStrategyPreparePolars:
         # Asserts ``pl.Enum`` since 2026-04-28 — the strategy now emits
         # per-Series Enums (not the global-cache-backed pl.Categorical)
         # to avoid leakage across consecutive fits in polars 1.x.
+        """String to categorical."""
         from mlframe.training.strategies import XGBoostStrategy
 
         strategy = XGBoostStrategy()
@@ -338,6 +353,7 @@ class TestXGBoostStrategyPreparePolars:
         # An input pl.Categorical column is recast to a fresh pl.Enum
         # so the column no longer carries codes from the polars 1.x
         # global string cache.
+        """Already categorical recast to enum."""
         from mlframe.training.strategies import XGBoostStrategy
 
         strategy = XGBoostStrategy()
@@ -350,6 +366,7 @@ class TestXGBoostStrategyPreparePolars:
         assert result["cat"].dtype in (pl.Categorical,) or isinstance(result["cat"].dtype, pl.Enum)
 
     def test_category_map_produces_consistent_enum(self):
+        """Category map produces consistent enum."""
         from mlframe.training.strategies import XGBoostStrategy
 
         strategy = XGBoostStrategy()
@@ -366,6 +383,7 @@ class TestXGBoostStrategyPreparePolars:
 
     def test_build_enum_map_excludes_test(self):
         # Test data must NOT widen the Enum (would leak label-time info).
+        """Build enum map excludes test."""
         from mlframe.training.strategies import XGBoostStrategy
 
         strategy = XGBoostStrategy()
@@ -378,6 +396,7 @@ class TestXGBoostStrategyPreparePolars:
         assert "z" not in levels
 
     def test_numeric_passthrough(self):
+        """Numeric passthrough."""
         from mlframe.training.strategies import XGBoostStrategy
 
         strategy = XGBoostStrategy()
@@ -390,6 +409,7 @@ class TestXGBoostPolarsClassification:
     """XGBoost trained on Polars DataFrames with categorical features."""
 
     def test_train_with_categorical(self):
+        """Train with categorical."""
         from xgboost import XGBClassifier
         from mlframe.training.strategies import XGBoostStrategy
 
@@ -431,6 +451,7 @@ class TestHGBStrategyPreparePolars:
         # 2026-04-28: HGBStrategy now emits ``pl.Enum`` (not ``pl.Categorical``)
         # to avoid polars 1.x global-string-cache code drift; the rest of
         # the cardinality-split logic is unchanged.
+        """String to enum low cardinality."""
         from mlframe.training.strategies import HGBStrategy
 
         strategy = HGBStrategy()
@@ -439,6 +460,7 @@ class TestHGBStrategyPreparePolars:
         assert isinstance(result["cat"].dtype, pl.Enum)
 
     def test_string_to_ordinal_high_cardinality(self):
+        """String to ordinal high cardinality."""
         from mlframe.training.strategies import HGBStrategy
 
         strategy = HGBStrategy()
@@ -449,6 +471,7 @@ class TestHGBStrategyPreparePolars:
         assert result["cat"].dtype == pl.UInt32
 
     def test_already_categorical_low_cardinality_recast_to_enum(self):
+        """Already categorical low cardinality recast to enum."""
         from mlframe.training.strategies import HGBStrategy
 
         strategy = HGBStrategy()
@@ -457,6 +480,7 @@ class TestHGBStrategyPreparePolars:
         assert isinstance(result["cat"].dtype, pl.Enum)
 
     def test_already_categorical_high_cardinality_ordinal(self):
+        """Already categorical high cardinality ordinal."""
         from mlframe.training.strategies import HGBStrategy
 
         strategy = HGBStrategy()
@@ -466,6 +490,7 @@ class TestHGBStrategyPreparePolars:
         assert result["cat"].dtype == pl.UInt32
 
     def test_no_cat_features_passthrough(self):
+        """No cat features passthrough."""
         from mlframe.training.strategies import HGBStrategy
 
         strategy = HGBStrategy()
@@ -474,6 +499,7 @@ class TestHGBStrategyPreparePolars:
         assert result.equals(df)
 
     def test_missing_cat_column_ignored(self):
+        """Missing cat column ignored."""
         from mlframe.training.strategies import HGBStrategy
 
         strategy = HGBStrategy()
@@ -482,6 +508,7 @@ class TestHGBStrategyPreparePolars:
         assert result.equals(df)
 
     def test_boundary_255_categories(self):
+        """Boundary 255 categories."""
         from mlframe.training.strategies import HGBStrategy
 
         strategy = HGBStrategy()
@@ -491,6 +518,7 @@ class TestHGBStrategyPreparePolars:
         assert isinstance(result["cat"].dtype, pl.Enum)  # exactly 255 = OK, fits in Enum
 
     def test_boundary_256_categories(self):
+        """Boundary 256 categories."""
         from mlframe.training.strategies import HGBStrategy
 
         strategy = HGBStrategy()
@@ -504,6 +532,7 @@ class TestHGBPolarsRegression:
     """HistGradientBoostingRegressor trained on Polars DataFrames (numeric only)."""
 
     def test_train_with_early_stopping(self, numeric_data):
+        """Train with early stopping."""
         train_df, val_df = numeric_data
         X_train = train_df.select(HGB_FEATURE_COLS)
         y_train = train_df["target_reg"].to_numpy()
@@ -523,6 +552,7 @@ class TestHGBPolarsRegression:
         assert model.n_iter_ <= ITERATIONS
 
     def test_predict_returns_correct_shape(self, numeric_data):
+        """Predict returns correct shape."""
         train_df, val_df = numeric_data
         X_train = train_df.select(HGB_FEATURE_COLS)
         y_train = train_df["target_reg"].to_numpy()

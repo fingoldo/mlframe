@@ -42,6 +42,7 @@ def _make_fitted_estimator(seed: int = 0, n: int = 2000):
 
 
 def _stationary_batch(seed: int, n: int = 1000):
+    """Stationary batch."""
     rng = np.random.default_rng(seed)
     base = rng.normal(0.0, 1.0, n)
     feat = rng.normal(0.0, 1.0, n)
@@ -55,6 +56,7 @@ def _stationary_batch(seed: int, n: int = 1000):
 
 
 def test_psi_zero_on_identical_distribution() -> None:
+    """Psi zero on identical distribution."""
     rng = np.random.default_rng(1)
     v = rng.normal(size=5000)
     knots = _quantile_knots(v, 10)
@@ -63,6 +65,7 @@ def test_psi_zero_on_identical_distribution() -> None:
 
 
 def test_psi_large_on_shifted_distribution() -> None:
+    """Psi large on shifted distribution."""
     rng = np.random.default_rng(2)
     ref = rng.normal(0.0, 1.0, 5000)
     new = rng.normal(4.0, 1.0, 5000)
@@ -72,6 +75,7 @@ def test_psi_large_on_shifted_distribution() -> None:
 
 
 def test_ks_zero_on_same_sample_large() -> None:
+    """Ks zero on same sample large."""
     rng = np.random.default_rng(3)
     ref = rng.normal(size=20000)
     knots = _quantile_knots(ref, 10)
@@ -88,6 +92,7 @@ def test_ks_zero_on_same_sample_large() -> None:
 
 
 def test_no_drift_quiet() -> None:
+    """No drift quiet."""
     est, X_tr, y_tr = _make_fitted_estimator(seed=0)
     mon = CompositeDriftMonitor(est)
     mon.ensure_sketch(reference=X_tr, y_reference=y_tr)
@@ -99,6 +104,7 @@ def test_no_drift_quiet() -> None:
 
 
 def test_base_shift_alert() -> None:
+    """Base shift alert."""
     est, X_tr, y_tr = _make_fitted_estimator(seed=0)
     mon = CompositeDriftMonitor(est)
     mon.ensure_sketch(reference=X_tr, y_reference=y_tr)
@@ -116,6 +122,7 @@ def test_base_shift_alert() -> None:
 
 
 def test_residual_shift_alert() -> None:
+    """Residual shift alert."""
     est, X_tr, y_tr = _make_fitted_estimator(seed=0)
     mon = CompositeDriftMonitor(est)
     mon.ensure_sketch(reference=X_tr, y_reference=y_tr)
@@ -129,6 +136,7 @@ def test_residual_shift_alert() -> None:
 
 
 def test_residual_scale_shift_alert() -> None:
+    """Residual scale shift alert."""
     est, X_tr, y_tr = _make_fitted_estimator(seed=0)
     mon = CompositeDriftMonitor(est)
     mon.ensure_sketch(reference=X_tr, y_reference=y_tr)
@@ -141,6 +149,7 @@ def test_residual_scale_shift_alert() -> None:
 
 
 def test_missing_sketch_requires_reference() -> None:
+    """Missing sketch requires reference."""
     est, _X_tr, _y_tr = _make_fitted_estimator(seed=0)
     mon = CompositeDriftMonitor(est)
     X_new, _ = _stationary_batch(seed=1)
@@ -149,6 +158,7 @@ def test_missing_sketch_requires_reference() -> None:
 
 
 def test_sketch_memoised_on_estimator() -> None:
+    """Sketch memoised on estimator."""
     est, X_tr, y_tr = _make_fitted_estimator(seed=0)
     mon = CompositeDriftMonitor(est)
     mon.ensure_sketch(reference=X_tr, y_reference=y_tr)
@@ -161,6 +171,7 @@ def test_sketch_memoised_on_estimator() -> None:
 
 
 def test_rolling_rmse_tracks_history() -> None:
+    """Rolling rmse tracks history."""
     est, X_tr, y_tr = _make_fitted_estimator(seed=0)
     mon = CompositeDriftMonitor(est, rolling_rmse_window=3)
     mon.ensure_sketch(reference=X_tr, y_reference=y_tr)
@@ -171,6 +182,7 @@ def test_rolling_rmse_tracks_history() -> None:
 
 
 def test_unfitted_estimator_rejected() -> None:
+    """Unfitted estimator rejected."""
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
         transform_name="diff",

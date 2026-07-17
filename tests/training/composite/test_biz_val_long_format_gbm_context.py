@@ -19,6 +19,7 @@ from mlframe.training.composite import melt_to_long_gbm_features
 
 
 def test_biz_val_melt_to_long_gbm_features_context_columns_recovers_additive_signal():
+    """Biz val melt to long gbm features context columns recovers additive signal."""
     rng = np.random.default_rng(0)
     n, d = 3_000, 10
     X = pd.DataFrame(rng.normal(size=(n, d)), columns=[f"f{j}" for j in range(d)])

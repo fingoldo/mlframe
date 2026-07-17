@@ -17,6 +17,7 @@ import pandas as pd
 
 
 def _make_binary_entry(n: int = 400, seed: int = 5):
+    """Make binary entry."""
     rng = np.random.default_rng(seed)
     raw = rng.uniform(0, 1, size=n)
     true_p = 1.0 / (1.0 + np.exp(-4.0 * (raw - 0.5)))
@@ -36,6 +37,7 @@ def _make_binary_entry(n: int = 400, seed: int = 5):
 
 
 def _make_df(n: int, seed: int = 11) -> pd.DataFrame:
+    """Make df."""
     rng = np.random.default_rng(seed)
     return pd.DataFrame(
         {
@@ -47,6 +49,7 @@ def _make_df(n: int, seed: int = 11) -> pd.DataFrame:
 
 
 def test_run_honest_diagnostics_populates_all_four_blocks():
+    """Run honest diagnostics populates all four blocks."""
     from mlframe.training.honest_diagnostics import run_honest_diagnostics
 
     entry, _y = _make_binary_entry(n=500, seed=3)
@@ -86,6 +89,7 @@ def test_run_honest_diagnostics_populates_all_four_blocks():
 
 
 def test_run_honest_diagnostics_calibration_block_emits_plot_when_reports_dir_present():
+    """Run honest diagnostics calibration block emits plot when reports dir present."""
     from mlframe.training.honest_diagnostics import run_honest_diagnostics
 
     entry, _y = _make_binary_entry(n=600, seed=9)
@@ -115,6 +119,7 @@ def test_run_honest_diagnostics_calibration_block_emits_plot_when_reports_dir_pr
 
 
 def test_reporting_config_default_honest_diagnostics_on():
+    """Reporting config default honest diagnostics on."""
     from mlframe.training._reporting_configs import ReportingConfig
 
     rc = ReportingConfig()
@@ -122,6 +127,7 @@ def test_reporting_config_default_honest_diagnostics_on():
 
 
 def test_run_honest_diagnostics_handles_missing_test_probs():
+    """Run honest diagnostics handles missing test probs."""
     from mlframe.training.honest_diagnostics import run_honest_diagnostics
 
     entry = types.SimpleNamespace(

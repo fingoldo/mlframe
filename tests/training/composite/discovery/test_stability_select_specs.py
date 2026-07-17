@@ -12,6 +12,7 @@ from mlframe.training.composite.discovery._stability import (
 
 
 class _Spec:
+    """Groups tests covering spec."""
     def __init__(self, name: str) -> None:
         self.name = name
 
@@ -25,6 +26,7 @@ class _FakeDiscovery:
         self.specs_ = []
 
     def fit(self, df, target, feature_cols, train_idx):
+        """Fit."""
         names = ["genuine"]
         # Noise inclusion keyed on a property of the subsample -> varies across
         # replicates but is deterministic given the subsample. The subsample
@@ -41,6 +43,7 @@ class _FakeDiscovery:
 
 
 def _df_and_idx(n: int = 200):
+    """Df and idx."""
     import pandas as pd
 
     rng = np.random.default_rng(0)
@@ -54,6 +57,7 @@ def _df_and_idx(n: int = 200):
 
 
 def test_frequencies_in_unit_interval_and_genuine_is_one():
+    """Frequencies in unit interval and genuine is one."""
     df, idx = _df_and_idx()
     res = stability_select_specs(
         _FakeDiscovery,
@@ -74,6 +78,7 @@ def test_frequencies_in_unit_interval_and_genuine_is_one():
 
 
 def test_stable_subset_is_high_frequency_only():
+    """Stable subset is high frequency only."""
     df, idx = _df_and_idx()
     res = stability_select_specs(
         _FakeDiscovery,
@@ -94,6 +99,7 @@ def test_stable_subset_is_high_frequency_only():
 
 
 def test_deterministic_with_fixed_seed():
+    """Deterministic with fixed seed."""
     df, idx = _df_and_idx()
     kw = dict(n_replicates=6, subsample_frac=0.5, freq_threshold=0.6, random_state=42)
     r1 = stability_select_specs(_FakeDiscovery, df, "y", ["x"], idx, **kw)
@@ -103,6 +109,7 @@ def test_deterministic_with_fixed_seed():
 
 
 def test_different_seed_changes_subsamples_not_genuine():
+    """Different seed changes subsamples not genuine."""
     df, idx = _df_and_idx()
     r1 = stability_select_specs(_FakeDiscovery, df, "y", ["x"], idx, random_state=1)
     r2 = stability_select_specs(_FakeDiscovery, df, "y", ["x"], idx, random_state=2)
@@ -111,6 +118,7 @@ def test_different_seed_changes_subsamples_not_genuine():
 
 
 def test_n_replicates_respected():
+    """N replicates respected."""
     df, idx = _df_and_idx()
     res = stability_select_specs(
         _FakeDiscovery,
@@ -128,10 +136,13 @@ def test_n_replicates_respected():
 
 
 def test_failed_replicate_excluded_from_denominator():
+    """Failed replicate excluded from denominator."""
     class _Flaky:
+        """Groups tests covering flaky."""
         calls = {"n": 0}
 
         def fit(self, df, target, feature_cols, train_idx):
+            """Fit."""
             _Flaky.calls["n"] += 1
             if _Flaky.calls["n"] == 1:
                 raise ValueError("boom")
@@ -146,8 +157,11 @@ def test_failed_replicate_excluded_from_denominator():
 
 
 def test_duplicate_spec_within_run_counted_once():
+    """Duplicate spec within run counted once."""
     class _Dup:
+        """Groups tests covering dup."""
         def fit(self, df, target, feature_cols, train_idx):
+            """Fit."""
             self.specs_ = [_Spec("g"), _Spec("g")]
             return self
 
@@ -157,10 +171,13 @@ def test_duplicate_spec_within_run_counted_once():
 
 
 def test_subsample_is_index_subset_no_frame_copy():
+    """Subsample is index subset no frame copy."""
     seen = {}
 
     class _Spy:
+        """Groups tests covering spy."""
         def fit(self, df, target, feature_cols, train_idx):
+            """Fit."""
             seen["idx"] = np.asarray(train_idx)
             seen["df_is"] = df
             self.specs_ = [_Spec("g")]
@@ -206,6 +223,7 @@ def test_biz_val_stability_keeps_genuine_drops_noise():
     train_idx = np.arange(n)
 
     def factory():
+        """Factory."""
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True,
             screening="mi",

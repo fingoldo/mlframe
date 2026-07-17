@@ -29,6 +29,7 @@ NEG_TEST = ["atrocious", "abysmal", "disappointing", "poor", "miserable", "deplo
 
 
 def _make_split(pos_words, neg_words, n, seed):
+    """Make split."""
     rng = np.random.default_rng(seed)
     rows, ys = [], []
     for _ in range(n):
@@ -40,6 +41,7 @@ def _make_split(pos_words, neg_words, n, seed):
 
 
 def _fit_score(train_X, ytr, test_X, yte):
+    """Fit score."""
     from sklearn.linear_model import LogisticRegression
 
     clf = LogisticRegression(max_iter=1000).fit(train_X, ytr)
@@ -47,6 +49,7 @@ def _fit_score(train_X, ytr, test_X, yte):
 
 
 def test_biz_val_neural_feature_prep_hf_text_beats_tfidf_on_synonym_generalization():
+    """Biz val neural feature prep hf text beats tfidf on synonym generalization."""
     Xtr, ytr = _make_split(POS_TRAIN, NEG_TRAIN, 220, seed=0)
     Xte, yte = _make_split(POS_TEST, NEG_TEST, 120, seed=1)  # DISJOINT synonyms from train
 

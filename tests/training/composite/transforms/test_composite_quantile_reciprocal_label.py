@@ -25,6 +25,7 @@ from mlframe.training.composite.quantile import _transform_inverse_decreasing
 
 
 def _make_reciprocal_data(n: int = 4000, seed: int = 3):
+    """Make reciprocal data."""
     rng = np.random.default_rng(seed)
     base = rng.uniform(2.0, 5.0, size=n)
     inv_y = 1.0 / base + rng.normal(scale=0.05, size=n)
@@ -35,12 +36,14 @@ def _make_reciprocal_data(n: int = 4000, seed: int = 3):
 
 
 def _inner():
+    """Inner."""
     from sklearn.ensemble import GradientBoostingRegressor
 
     return GradientBoostingRegressor(n_estimators=80, max_depth=2, random_state=0)
 
 
 def test_reciprocal_inverse_detected_decreasing():
+    """Reciprocal inverse detected decreasing."""
     assert _transform_inverse_decreasing("reciprocal_residual") is True
     # Increasing / additive inverses must NOT be flagged (no false-positive flip).
     for name in ("linear_residual", "diff", "logratio"):

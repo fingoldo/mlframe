@@ -24,6 +24,7 @@ class _Stub:
         self._y_pred = np.asarray(y_pred, dtype=np.float64)
 
     def predict(self, X):
+        """Predict."""
         return self._y_pred
 
 
@@ -47,6 +48,7 @@ def _old_mondrian(residuals, g, alphas):
 
 
 def _assert_dicts_identical(old, new):
+    """Assert dicts identical."""
     assert set(old.keys()) == set(new.keys())
     for k in old:
         o, n = old[k], new[k]
@@ -64,6 +66,7 @@ def _assert_dicts_identical(old, new):
     [(20_000, 50, 0), (50_000, 500, 1), (5_000, 7, 2)],
 )
 def test_mondrian_block_slicing_matches_masked_sweep(n, n_groups, seed):
+    """Mondrian block slicing matches masked sweep."""
     rng = np.random.default_rng(seed)
     y_true = rng.normal(size=n)
     y_pred = y_true + rng.normal(scale=1.0 + rng.random(n), size=n)

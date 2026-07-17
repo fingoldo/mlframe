@@ -46,6 +46,7 @@ def _build_dict_frame(n: int = 100_000) -> pl.DataFrame:
 
 
 def test_dict_cast_round_trip_preserves_values_and_dtype():
+    """Dict cast round trip preserves values and dtype."""
     from mlframe.training.utils import get_pandas_view_of_polars_df
 
     df = _build_dict_frame(50_000)
@@ -120,6 +121,7 @@ def test_biz_value_whole_array_cast_faster_than_per_chunk():
     tbl = df.to_arrow()
 
     def old(tbl):
+        """Old."""
         fixed = []
         for col in tbl.columns:
             if pa.types.is_dictionary(col.type):
@@ -132,6 +134,7 @@ def test_biz_value_whole_array_cast_faster_than_per_chunk():
         return pa.table(fixed, names=tbl.column_names)
 
     def new(tbl):
+        """New."""
         fixed = []
         for col in tbl.columns:
             if pa.types.is_dictionary(col.type) and col.type.index_type != pa.int32():

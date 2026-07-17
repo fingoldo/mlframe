@@ -35,6 +35,7 @@ def _clear_mrmr_cache():
 
 
 class TestMRMRIdentityCache:
+    """Groups tests covering m r m r identity cache."""
     def test_fingerprint_matches_polars_pandas_on_same_dtypes(self) -> None:
         """Production TVT log: MRMR was called once on polars X then on pandas X for a composite target. The fingerprint MUST match across backends so the cache works."""
         pl = pytest.importorskip("polars")
@@ -154,6 +155,7 @@ class TestMRMRIdentityCache:
 
 
 class TestMonresAutoKnotTuning:
+    """Groups tests covering monres auto knot tuning."""
     def test_low_cardinality_base_gets_few_knots(self) -> None:
         """Distinctness cap: a base with only 5 unique values can place at most 5 distinct quantile knots, so n_knots is capped at n_unique (floor 3). The default 12 would collapse to ties and produce a wobbly / degenerate spline."""
         rng = np.random.default_rng(0)
@@ -273,6 +275,7 @@ class TestIdentityCacheThreadSafe:
 
     def test_lock_exists(self) -> None:
         # Lock instance is a threading.Lock object; cannot easily assert its identity / type without import.
+        """Lock exists."""
         import threading
 
         assert isinstance(_MRMR_IDENTITY_FP_LOCK, type(threading.Lock()))
@@ -285,6 +288,7 @@ class TestIdentityCacheThreadSafe:
         keys = [f"fp_{i:04d}" for i in range(50)]
 
         def _writer(start_idx: int) -> None:
+            """Writer."""
             for k in keys[start_idx : start_idx + 25]:
                 with _MRMR_IDENTITY_FP_LOCK:
                     _MRMR_IDENTITY_FP_CACHE[k] = True
@@ -315,6 +319,7 @@ class TestIdentityCacheThreadSafe:
         _MRMR_IDENTITY_FP_CACHE[shared_key] = 0
 
         def _increment_under_lock() -> None:
+            """Increment under lock."""
             for _ in range(1000):
                 with _MRMR_IDENTITY_FP_LOCK:
                     val = _MRMR_IDENTITY_FP_CACHE[shared_key]

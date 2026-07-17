@@ -127,6 +127,7 @@ def test_recurrent_skipped_gracefully_when_predict_fails(monkeypatch, tmp_path):
     def _nan_predict(*, model, sequences, features, is_classification, **_extra):
         # **_extra absorbs newly-added kwargs (ctx, split) so this patch keeps
         # working when the production helper grows signature parameters.
+        """Nan predict."""
         return None  # mimic predict-failure path
 
     monkeypatch.setattr(_pr, "_safe_predict_recurrent", _nan_predict)

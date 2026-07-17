@@ -39,13 +39,17 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 
 class TestMLPStrategyFlags:
+    """Groups tests covering m l p strategy flags."""
     def test_supports_native_multiclass(self):
+        """Supports native multiclass."""
         assert NeuralNetStrategy().supports_native_multiclass is True
 
     def test_supports_native_multilabel(self):
+        """Supports native multilabel."""
         assert NeuralNetStrategy().supports_native_multilabel is True
 
     def test_supports_native_ranking(self):
+        """Supports native ranking."""
         assert NeuralNetStrategy().supports_native_ranking is True
 
 
@@ -53,6 +57,7 @@ class TestMLPGetClassifObjectiveKwargs:
     """``get_classif_objective_kwargs`` returns library-correct kwargs."""
 
     def test_binary_returns_empty(self):
+        """Binary returns empty."""
         out = NeuralNetStrategy().get_classif_objective_kwargs(
             TargetTypes.BINARY_CLASSIFICATION,
             n_classes=2,
@@ -60,6 +65,7 @@ class TestMLPGetClassifObjectiveKwargs:
         assert out == {}  # default cross_entropy + int64 already correct
 
     def test_multiclass_returns_cross_entropy_int64(self):
+        """Multiclass returns cross entropy int64."""
         out = NeuralNetStrategy().get_classif_objective_kwargs(
             TargetTypes.MULTICLASS_CLASSIFICATION,
             n_classes=3,
@@ -69,6 +75,7 @@ class TestMLPGetClassifObjectiveKwargs:
         assert "task_type" not in out  # softmax default; no override needed
 
     def test_multilabel_returns_bce_with_logits_float32_task_type(self):
+        """Multilabel returns bce with logits float32 task type."""
         out = NeuralNetStrategy().get_classif_objective_kwargs(
             TargetTypes.MULTILABEL_CLASSIFICATION,
             n_classes=3,
@@ -78,6 +85,7 @@ class TestMLPGetClassifObjectiveKwargs:
         assert out["task_type"] == "multilabel"
 
     def test_none_target_type_returns_empty(self):
+        """None target type returns empty."""
         out = NeuralNetStrategy().get_classif_objective_kwargs(None, n_classes=2)
         assert out == {}
 
@@ -104,6 +112,7 @@ class TestMLPMulticlassEndToEnd:
     """``train_mlframe_models_suite(target_type=MULTICLASS)`` with mlp."""
 
     def test_smoke_fits_predicts_returns_3_class_probs(self, synthetic_3class_data):
+        """Smoke fits predicts returns 3 class probs."""
         from tests.conftest import is_fast_mode
 
         df, _y = synthetic_3class_data
@@ -187,6 +196,7 @@ class TestMLPMultilabelEndToEnd:
     """``train_mlframe_models_suite(target_type=MULTILABEL)`` with mlp."""
 
     def test_smoke_fits_with_2d_y(self, synthetic_3label_data):
+        """Smoke fits with 2d y."""
         pdf, _Y = synthetic_3label_data
         fte = SimpleFeaturesAndTargetsExtractor(
             target_column="target",
@@ -246,6 +256,7 @@ class TestTorchDataModule2DLabels:
     targets to 1-D (bug fixed 2026-05-07)."""
 
     def test_2d_labels_preserved(self):
+        """2d labels preserved."""
         from mlframe.training.neural.data import TorchDataset
 
         X = np.random.default_rng(0).standard_normal((10, 4)).astype(np.float32)

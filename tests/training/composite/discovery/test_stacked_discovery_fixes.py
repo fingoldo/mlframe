@@ -33,6 +33,7 @@ from mlframe.training.composite.spec import CompositeSpec
 
 
 def _spec(name: str, base_column: str, extra: tuple[str, ...] = ()) -> CompositeSpec:
+    """Spec."""
     return CompositeSpec(
         name=name,
         target_col="y",
@@ -52,7 +53,9 @@ def _spec(name: str, base_column: str, extra: tuple[str, ...] = ()) -> Composite
 # A6: _warn_unrebuildable_oof_specs
 # ---------------------------------------------------------------------------
 class TestA6UnrebuildableOofWarner:
+    """Groups tests covering a6 unrebuildable oof warner."""
     def test_flags_oof_base_spec(self, caplog) -> None:
+        """Flags oof base spec."""
         from mlframe.training.composite.discovery import _stacked
 
         pass2 = [
@@ -65,6 +68,7 @@ class TestA6UnrebuildableOofWarner:
         assert any("ephemeral OOF feature" in r.message for r in caplog.records)
 
     def test_flags_oof_in_extra_base_columns(self) -> None:
+        """Flags oof in extra base columns."""
         from mlframe.training.composite.discovery import _stacked
 
         pass2 = [_spec("multi", "x_a", extra=("_oof_x_b",))]
@@ -72,6 +76,7 @@ class TestA6UnrebuildableOofWarner:
         assert bad == ["multi"]
 
     def test_clean_specs_do_not_warn(self, caplog) -> None:
+        """Clean specs do not warn."""
         from mlframe.training.composite.discovery import _stacked
 
         pass2 = [_spec("y-linres-x_a", "x_a"), _spec("y-log-x_b", "x_b")]
@@ -97,6 +102,7 @@ class TestA6UnrebuildableOofWarner:
 # so we patch the source symbol and capture every call's kwargs.
 # ---------------------------------------------------------------------------
 class _OofRecorder:
+    """Groups tests covering oof recorder."""
     def __init__(self, n_train: int) -> None:
         self.calls: list[dict] = []
         self._n = n_train
@@ -108,6 +114,7 @@ class _OofRecorder:
 
 
 def _tiny_discovery(monkeypatch, recorder):
+    """Tiny discovery."""
     import mlframe.training.composite.ensemble.feature_stacking as fs
 
     monkeypatch.setattr(fs, "composite_oof_predictions", recorder)
@@ -115,6 +122,7 @@ def _tiny_discovery(monkeypatch, recorder):
 
 
 def _make_frame(n: int, seed: int = 3):
+    """Make frame."""
     rng = np.random.default_rng(seed)
     x_a = rng.normal(10.0, 3.0, n)
     x_b = rng.normal(0.0, 2.0, n)
@@ -131,7 +139,9 @@ def _make_frame(n: int, seed: int = 3):
 
 
 class TestA17TimeAwareForwarded:
+    """Groups tests covering a17 time aware forwarded."""
     def test_fit_stacked_forwards_time_aware(self, monkeypatch) -> None:
+        """Fit stacked forwards time aware."""
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
@@ -157,6 +167,7 @@ class TestA17TimeAwareForwarded:
         assert all(c.get("time_aware") is True for c in rec.calls)
 
     def test_fit_stacked_default_is_not_time_aware(self, monkeypatch) -> None:
+        """Fit stacked default is not time aware."""
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
@@ -181,6 +192,7 @@ class TestA17TimeAwareForwarded:
         assert all(c.get("time_aware") is False for c in rec.calls)
 
     def test_residual_forwards_time_aware(self, monkeypatch) -> None:
+        """Residual forwards time aware."""
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
@@ -207,6 +219,7 @@ class TestA17TimeAwareForwarded:
 
 
 class TestA18AggregateCap:
+    """Groups tests covering a18 aggregate cap."""
     def test_cap_limits_aggregated_specs(self, monkeypatch) -> None:
         """With cap=1 only the single best pass-1 spec feeds the OOF aggregate."""
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
@@ -267,6 +280,7 @@ class TestA18AggregateCap:
         assert len(rec.calls) >= 2, f"uncapped aggregate must use >=2 OOF calls, got {len(rec.calls)}"
 
     def test_config_field_present_and_wired(self) -> None:
+        """Config field present and wired."""
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         cfg = CompositeTargetDiscoveryConfig()
@@ -277,7 +291,9 @@ class TestA18AggregateCap:
 # A7: residual-spec WARNING + discovered_on_residual stamp
 # ---------------------------------------------------------------------------
 class TestA7ResidualSpecWarning:
+    """Groups tests covering a7 residual spec warning."""
     def test_residual_specs_warned_and_stamped(self, monkeypatch, caplog) -> None:
+        """Residual specs warned and stamped."""
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 

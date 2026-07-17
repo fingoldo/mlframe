@@ -22,17 +22,22 @@ from mlframe.training.composite.ensemble import (
 
 
 class TestMonotoneDetection:
+    """Groups tests covering monotone detection."""
     def test_monotone_int_array(self) -> None:
+        """Monotone int array."""
         assert _is_monotone_nondecreasing(np.arange(100))
         assert _is_monotone_nondecreasing(np.array([1.0, 1.0, 2.0, 3.0]))
 
     def test_non_monotone(self) -> None:
+        """Non monotone."""
         assert not _is_monotone_nondecreasing(np.array([1.0, 3.0, 2.0]))
 
     def test_with_nan(self) -> None:
+        """With nan."""
         assert not _is_monotone_nondecreasing(np.array([1.0, np.nan, 3.0]))
 
     def test_short(self) -> None:
+        """Short."""
         assert not _is_monotone_nondecreasing(np.array([1.0]))
 
 
@@ -44,21 +49,26 @@ class _DummyRegressor:
         self._mean: float | None = None
 
     def fit(self, X, y):
+        """Fit."""
         self._mean = float(np.mean(y))
         return self
 
     def predict(self, X):
+        """Predict."""
         n = len(X)
         return np.full(n, self._mean if self._mean is not None else 0.0)
 
     def get_params(self, deep: bool = True) -> dict:
+        """Get params."""
         return {}
 
     def set_params(self, **kw):
+        """Set params."""
         return self
 
 
 def test_time_ordering_signal_produces_contiguous_future_holdout() -> None:
+    """Time ordering signal produces contiguous future holdout."""
     rng = np.random.default_rng(0)
     n = 500
     df = pd.DataFrame(

@@ -24,6 +24,7 @@ from mlframe.training.neural._mixup import mixup_batch
 
 
 def test_mixup_rejects_zero_alpha():
+    """Mixup rejects zero alpha."""
     x = torch.randn(8, 4)
     y = torch.randn(8)
     with pytest.raises(ValueError, match="alpha must be > 0"):
@@ -31,6 +32,7 @@ def test_mixup_rejects_zero_alpha():
 
 
 def test_mixup_rejects_mismatched_batch_dims():
+    """Mixup rejects mismatched batch dims."""
     x = torch.randn(8, 4)
     y = torch.randn(7)
     with pytest.raises(ValueError, match="batch dim"):
@@ -69,6 +71,7 @@ def test_mixup_x_is_convex_combination():
 
 
 def test_mixup_preserves_dtypes():
+    """Mixup preserves dtypes."""
     x = torch.randn(8, 4, dtype=torch.float32)
     y = torch.randn(8, dtype=torch.float32)
     x_mixed, y_a, y_b, _ = mixup_batch(x, y, alpha=0.2)
@@ -128,6 +131,7 @@ def test_mixup_sequence_batch_mixes_aux_with_same_idx_and_lam():
 
 
 def test_mixup_sequence_batch_rejects_zero_alpha():
+    """Mixup sequence batch rejects zero alpha."""
     from mlframe.training.neural._mixup import mixup_sequence_batch
 
     seqs = torch.randn(8, 5, 4)
@@ -138,6 +142,7 @@ def test_mixup_sequence_batch_rejects_zero_alpha():
 
 
 def test_mixup_sequence_batch_rejects_batch_dim_mismatch():
+    """Mixup sequence batch rejects batch dim mismatch."""
     from mlframe.training.neural._mixup import mixup_sequence_batch
 
     seqs = torch.randn(8, 5, 4)
@@ -281,6 +286,7 @@ def test_mlp_mixup_does_not_catastrophically_regress_regression():
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=0)
 
     def fit_score(use_mixup: bool) -> float:
+        """Fit score."""
         torch.manual_seed(0)
         np.random.seed(0)
         reg = PytorchLightningRegressor(

@@ -29,7 +29,9 @@ from mlframe.training.composite.conformal import (
 # Pure-function unit tests of the weighted quantile.
 # --------------------------------------------------------------------------- #
 class TestWeightedQuantileUnit:
+    """Groups tests covering weighted quantile unit."""
     def test_uniform_weights_equal_unweighted(self) -> None:
+        """Uniform weights equal unweighted."""
         rng = np.random.default_rng(0)
         r = rng.normal(size=500)
         w = np.ones(500)
@@ -39,6 +41,7 @@ class TestWeightedQuantileUnit:
     def test_scaling_weights_is_invariant(self) -> None:
         # Importance weights are used only after normalisation; a global scale
         # must not change the radius.
+        """Scaling weights is invariant."""
         rng = np.random.default_rng(1)
         r = rng.normal(size=300)
         w = rng.uniform(0.1, 2.0, size=300)
@@ -48,6 +51,7 @@ class TestWeightedQuantileUnit:
     def test_upweighting_large_residuals_widens_band(self) -> None:
         # Putting more test-law mass on the high-residual rows must not shrink
         # the band below the uniform one.
+        """Upweighting large residuals widens band."""
         r = np.array([0.1, 0.2, 0.3, 5.0, 6.0, 7.0])
         uni = weighted_conformal_quantile(r, np.ones(6), 0.1)
         heavy = weighted_conformal_quantile(
@@ -59,6 +63,7 @@ class TestWeightedQuantileUnit:
 
     def test_degenerate_single_dominating_weight(self) -> None:
         # One point carries essentially all the mass; no crash, finite-or-inf.
+        """Degenerate single dominating weight."""
         r = np.array([0.5, 1.0, 2.0, 3.0])
         w = np.array([1e6, 1e-6, 1e-6, 1e-6])
         out = weighted_conformal_quantile(r, w, 0.1)
@@ -66,11 +71,13 @@ class TestWeightedQuantileUnit:
 
     @pytest.mark.parametrize("n", [0, 1, 2])
     def test_tiny_n_returns_inf(self, n: int) -> None:
+        """Tiny n returns inf."""
         r = np.arange(float(n))
         w = np.ones(n)
         assert weighted_conformal_quantile(r, w, 0.1) == float("inf")
 
     def test_all_zero_weights_is_inf(self) -> None:
+        """All zero weights is inf."""
         assert weighted_conformal_quantile(
             np.array([1.0, 2.0, 3.0]),
             np.zeros(3),
@@ -78,14 +85,17 @@ class TestWeightedQuantileUnit:
         ) == float("inf")
 
     def test_negative_weight_raises(self) -> None:
+        """Negative weight raises."""
         with pytest.raises(ValueError, match=">= 0"):
             weighted_conformal_quantile(np.array([1.0, 2.0]), np.array([1.0, -1.0]), 0.1)
 
     def test_length_mismatch_raises(self) -> None:
+        """Length mismatch raises."""
         with pytest.raises(ValueError, match="weights"):
             weighted_conformal_quantile(np.array([1.0, 2.0, 3.0]), np.array([1.0]), 0.1)
 
     def test_nonfinite_residuals_dropped(self) -> None:
+        """Nonfinite residuals dropped."""
         r = np.array([1.0, np.nan, 2.0, np.inf, 3.0])
         w = np.ones(5)
         # Drops the 2 non-finite -> 3 finite residuals, no crash.
@@ -97,6 +107,7 @@ class TestWeightedQuantileUnit:
 # Estimator-bound calibrate / predict.
 # --------------------------------------------------------------------------- #
 def _fit(seed: int, n: int = 600):
+    """Fit."""
     rng = np.random.default_rng(seed)
     b = rng.normal(0.0, 1.0, n)
     f = rng.normal(0.0, 1.0, n)
@@ -111,7 +122,9 @@ def _fit(seed: int, n: int = 600):
 
 
 class TestWeightedBound:
+    """Groups tests covering weighted bound."""
     def test_uniform_weights_match_unweighted_band(self) -> None:
+        """Uniform weights match unweighted band."""
         est = _fit(0)
         rng = np.random.default_rng(5)
         Xc = pd.DataFrame({"b": rng.normal(size=400), "feat": rng.normal(size=400)})
@@ -127,6 +140,7 @@ class TestWeightedBound:
         np.testing.assert_allclose(hi_u, hi_w)
 
     def test_callable_density_ratio_estimator(self) -> None:
+        """Callable density ratio estimator."""
         est = _fit(1)
         rng = np.random.default_rng(6)
         Xc = pd.DataFrame({"b": rng.normal(size=400), "feat": rng.normal(size=400)})
@@ -143,6 +157,7 @@ class TestWeightedBound:
         assert lo.shape == (3,) and hi.shape == (3,) and np.all(hi >= lo)
 
     def test_predict_without_calibration_raises(self) -> None:
+        """Predict without calibration raises."""
         est = _fit(0)
         with pytest.raises(RuntimeError, match="no weighted conformal radius"):
             est.predict_interval_weighted(
@@ -151,6 +166,7 @@ class TestWeightedBound:
             )
 
     def test_calibrate_before_fit_raises(self) -> None:
+        """Calibrate before fit raises."""
         from sklearn.exceptions import NotFittedError
 
         est = CompositeTargetEstimator(
@@ -163,6 +179,7 @@ class TestWeightedBound:
             est.calibrate_conformal_weighted(X, np.array([1.0, 2.0]), 0.1, weights=None)
 
     def test_single_cal_row_no_crash(self) -> None:
+        """Single cal row no crash."""
         est = _fit(0)
         Xc = pd.DataFrame({"b": [0.3], "feat": [0.1]})
         est.calibrate_conformal_weighted(Xc, np.array([0.5]), 0.1, weights=np.array([1.0]))
@@ -171,6 +188,7 @@ class TestWeightedBound:
         assert lo.shape == (1,) and hi.shape == (1,) and hi[0] >= lo[0]
 
     def test_weight_length_mismatch_raises(self) -> None:
+        """Weight length mismatch raises."""
         est = _fit(0)
         Xc = pd.DataFrame({"b": [0.3, 0.4], "feat": [0.1, 0.2]})
         with pytest.raises(ValueError, match="entries but"):
@@ -199,6 +217,7 @@ def _shifted_synthetic(seed: int):
     mu_cal, mu_test, sd = -1.2, 1.2, 1.0
 
     def gen(n, mu):
+        """Gen."""
         b = rng.normal(mu, sd, n)
         f = rng.normal(0.0, 1.0, n)
         # residual scale rises MONOTONICALLY with b (not |b|): low-b calibration
@@ -217,6 +236,7 @@ def _shifted_synthetic(seed: int):
 
 
 class TestWeightedBizValue:
+    """Groups tests covering weighted biz value."""
     def test_biz_weighted_coverage_closer_under_shift(self) -> None:
         """Across seeds, the weighted band's marginal coverage on the shifted
         test set must be CLOSER to 1-alpha than the unweighted band, AND the

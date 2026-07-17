@@ -41,6 +41,7 @@ class TestBasic:
         assert set(provenance.keys()) == set(synthetics.keys())
 
     def test_custom_ops(self) -> None:
+        """Custom ops."""
         rng = np.random.default_rng(1)
         candidates = {
             "b1": rng.normal(size=50),
@@ -52,12 +53,14 @@ class TestBasic:
         assert all("__add__" in name for name in synthetics)
 
     def test_top_k_below_2_returns_empty(self) -> None:
+        """Top k below 2 returns empty."""
         candidates = {"only": np.array([1.0, 2.0, 3.0])}
         synthetics, provenance = generate_interaction_bases(candidates, top_k=1)
         assert synthetics == {}
         assert provenance == {}
 
     def test_self_pairs_skipped_by_default(self) -> None:
+        """Self pairs skipped by default."""
         rng = np.random.default_rng(2)
         candidates = {"b1": rng.normal(size=100), "b2": rng.normal(size=100)}
         synthetics, _ = generate_interaction_bases(candidates, ops=("mul",), top_k=2)
@@ -67,6 +70,7 @@ class TestBasic:
         assert not any("b1__mul__b1" in name or "b2__mul__b2" in name for name in synthetics)
 
     def test_self_pairs_kept_when_requested(self) -> None:
+        """Self pairs kept when requested."""
         rng = np.random.default_rng(3)
         candidates = {"b1": rng.normal(size=100), "b2": rng.normal(size=100)}
         synthetics, _ = generate_interaction_bases(
@@ -81,12 +85,14 @@ class TestBasic:
         assert "b2__mul__b2" in synthetics
 
     def test_invalid_op_raises(self) -> None:
+        """Invalid op raises."""
         candidates = {"a": np.array([1.0, 2.0]), "b": np.array([3.0, 4.0])}
         with pytest.raises(ValueError, match="unsupported op"):
             generate_interaction_bases(candidates, ops=("nonsense",), top_k=2)
 
 
 class TestSafety:
+    """Groups tests covering safety."""
     def test_div_eps_floor_avoids_inf(self) -> None:
         """Near-zero divisor gets floored so the synthetic is finite."""
         candidates = {
@@ -119,6 +125,7 @@ class TestSafety:
         assert provenance["b__add__a"]["constant"] is True
 
     def test_provenance_carries_parents_and_op(self) -> None:
+        """Provenance carries parents and op."""
         rng = np.random.default_rng(4)
         candidates = {"x": rng.normal(size=50), "y": rng.normal(size=50)}
         _, provenance = generate_interaction_bases(candidates, ops=("mul",), top_k=2)
@@ -137,6 +144,7 @@ class TestBizValueMultiplicativeDGP:
     """On a multiplicative interaction DGP ``y = b1 * b2 + eps``, the synthetic ``b1__mul__b2`` should have HIGHER correlation with y than either parent alone."""
 
     def test_mul_synthetic_correlates_strongly_with_y(self) -> None:
+        """Mul synthetic correlates strongly with y."""
         rng = np.random.default_rng(0)
         n = 2000
         b1 = rng.uniform(low=1.0, high=5.0, size=n)

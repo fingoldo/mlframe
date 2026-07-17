@@ -52,6 +52,7 @@ def _make_multi_target_data(n=240, d=5, k=3, seed=0):
 
 
 def _regressor_params():
+    """Regressor params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 5e-3},

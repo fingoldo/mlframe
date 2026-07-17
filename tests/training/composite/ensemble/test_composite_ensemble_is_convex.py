@@ -20,6 +20,7 @@ from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
 
 def _components(n_train: int = 200, n_components: int = 3, seed: int = 0):
+    """Components."""
     rng = np.random.default_rng(seed)
     y = rng.normal(loc=5.0, scale=2.0, size=n_train)
     preds = np.column_stack([y + rng.normal(scale=0.5, size=n_train) for _ in range(n_components)])
@@ -29,6 +30,7 @@ def _components(n_train: int = 200, n_components: int = 3, seed: int = 0):
 
 
 def test_from_uniform_weights_is_convex_true():
+    """From uniform weights is convex true."""
     models, names, _, _ = _components()
     ens = CompositeCrossTargetEnsemble.from_uniform_weights(models, names)
     assert ens.is_convex is True
@@ -36,6 +38,7 @@ def test_from_uniform_weights_is_convex_true():
 
 
 def test_from_linear_stack_is_convex_false():
+    """From linear stack is convex false."""
     models, names, preds, y = _components()
     ens = CompositeCrossTargetEnsemble.from_linear_stack(
         component_models=models,
@@ -50,6 +53,7 @@ def test_from_linear_stack_is_convex_false():
 
 
 def test_from_nnls_stack_is_convex_false():
+    """From nnls stack is convex false."""
     models, names, preds, y = _components()
     ens = CompositeCrossTargetEnsemble.from_nnls_stack(
         component_models=models,
@@ -88,6 +92,7 @@ def test_from_nnls_stack_weights_not_post_normalised():
 
 def test_constructor_is_convex_false_skips_renormalisation():
     # Bypass factories -- direct constructor invocation with raw weights.
+    """Constructor is convex false skips renormalisation."""
     models, names, _, _ = _components(n_components=3)
     weights = np.array([2.0, 5.0, -1.0])  # negative + non-sum-1
     ens = CompositeCrossTargetEnsemble(
@@ -102,6 +107,7 @@ def test_constructor_is_convex_false_skips_renormalisation():
 
 
 def test_constructor_is_convex_true_normalises():
+    """Constructor is convex true normalises."""
     models, names, _, _ = _components(n_components=3)
     weights = np.array([1.0, 1.0, 2.0])
     ens = CompositeCrossTargetEnsemble(

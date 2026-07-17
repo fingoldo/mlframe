@@ -13,10 +13,12 @@ from mlframe.training._tta import tta_predict, tta_predict_spread, tta_point_mea
 
 
 def _model():
+    """Model."""
     w = np.array([1.3, -0.7, 0.5, 2.0, -1.1])
     calls = {"n": 0}
 
     def predict(Z):
+        """Predict."""
         calls["n"] += 1
         return Z[:, :5] @ w + 0.4 * np.sin(7.0 * Z[:, 6])
 
@@ -24,6 +26,7 @@ def _model():
 
 
 def test_fused_matches_legacy_and_uses_n_calls():
+    """Fused matches legacy and uses n calls."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((4000, 8))
     n, sigma = 16, 0.03
@@ -44,6 +47,7 @@ def test_fused_matches_legacy_and_uses_n_calls():
 
 
 def test_fused_noop_when_sigma_zero_or_single_sample():
+    """Fused noop when sigma zero or single sample."""
     rng = np.random.default_rng(1)
     X = rng.standard_normal((200, 4))
 
@@ -58,10 +62,12 @@ def test_fused_noop_when_sigma_zero_or_single_sample():
 
 
 def test_fused_spread_zero_for_constant_model():
+    """Fused spread zero for constant model."""
     rng = np.random.default_rng(2)
     X = rng.standard_normal((300, 3))
 
     def const(Z):
+        """Const."""
         return np.ones(Z.shape[0])
 
     _, _, spread = tta_point_mean_spread(const, X, n=16, sigma_scale=0.1, seed=1)

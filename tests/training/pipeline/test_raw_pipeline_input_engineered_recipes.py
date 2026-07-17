@@ -30,6 +30,7 @@ class _FakeSelector:
 def test_already_transformed_frame_with_engineered_recipes_is_not_misjudged_as_raw():
     # 2 base columns selected out of 4 input features, plus 4 engineered recipe columns appended --
     # matching the exact fuzz c0018 shapes (support_ len 2, engineered 4, actual output width 6).
+    """Already transformed frame with engineered recipes is not misjudged as raw."""
     selector = _FakeSelector(
         feature_names_in_=["a", "b", "c", "d"],
         support_=[True, False, True, False],
@@ -42,6 +43,7 @@ def test_already_transformed_frame_with_engineered_recipes_is_not_misjudged_as_r
 
 
 def test_genuinely_raw_frame_wider_than_full_output_is_still_flagged_raw():
+    """Genuinely raw frame wider than full output is still flagged raw."""
     selector = _FakeSelector(
         feature_names_in_=["a", "b", "c", "d"],
         support_=[True, False, True, False],
@@ -54,6 +56,7 @@ def test_genuinely_raw_frame_wider_than_full_output_is_still_flagged_raw():
 
 def test_no_engineered_recipes_falls_back_to_support_only_width():
     # A selector with zero FE recipes must behave exactly as before (support_-only width).
+    """No engineered recipes falls back to support only width."""
     selector = _FakeSelector(
         feature_names_in_=["a", "b", "c", "d"],
         support_=[True, False, True, False],

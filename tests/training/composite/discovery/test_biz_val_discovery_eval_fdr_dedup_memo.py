@@ -78,6 +78,7 @@ def _entry(name: str, p_value: float, mi_gain: float = 0.01) -> dict:
     """A minimal candidate-entry stub shaped like ``eval_one_transform`` output."""
 
     class _Spec:
+        """Groups tests covering spec."""
         def __init__(self, nm: str, g: float) -> None:
             self.name = nm
             self.mi_gain = g
@@ -221,6 +222,7 @@ def test_biz_val_dedup_removes_mi_baseline_inflation() -> None:
 
 
 def _make_config(**overrides):
+    """Make config."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     defaults = dict(
@@ -373,6 +375,7 @@ def test_p18_memo_present_on_base_contexts_and_used() -> None:
     x_prebinned = _prebin_feature_columns(x_remaining, nbins=16)
 
     class _Cfg:
+        """Groups tests covering cfg."""
         mi_n_neighbors = 3
         random_state = 42
         mi_estimator = "bin"
@@ -381,9 +384,11 @@ def test_p18_memo_present_on_base_contexts_and_used() -> None:
         mi_gain_bootstrap_random_state = 12345
 
     class _Disc:
+        """Groups tests covering disc."""
         config = _Cfg()
 
         def _reject(self, *a, **k):
+            """Reject."""
             return {"spec": None, "kept": False, "reason": k.get("reason", "rej")}
 
     memo: dict = {}

@@ -43,6 +43,7 @@ def _make_noisy_fold_curves(n_folds: int, n_rounds: int, true_best_round: int, s
 
 
 def test_select_best_iteration_by_aggregate_cv_basic_shape_and_keys():
+    """Select best iteration by aggregate cv basic shape and keys."""
     curves = _make_noisy_fold_curves(5, 50, true_best_round=25, seed=0)
     result = select_best_iteration_by_aggregate_cv(curves)
     for key in ("best_round", "aggregate_curve", "best_aggregate_metric", "per_fold_best_rounds"):
@@ -53,6 +54,7 @@ def test_select_best_iteration_by_aggregate_cv_basic_shape_and_keys():
 
 def test_select_best_iteration_by_aggregate_cv_minimize_mode():
     # a simple V-shaped loss curve (minimum at round 10), identical across folds, no noise.
+    """Select best iteration by aggregate cv minimize mode."""
     rounds = np.arange(20, dtype=np.float64)
     curve = (rounds - 10.0) ** 2
     curves = np.tile(curve, (4, 1))
@@ -61,6 +63,7 @@ def test_select_best_iteration_by_aggregate_cv_minimize_mode():
 
 
 def test_select_best_iteration_by_aggregate_cv_invalid_shape_raises():
+    """Select best iteration by aggregate cv invalid shape raises."""
     import pytest
 
     with pytest.raises(ValueError):

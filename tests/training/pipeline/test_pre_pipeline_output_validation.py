@@ -26,13 +26,16 @@ class _DropColumn(BaseEstimator, TransformerMixin):
         self.drop = drop
 
     def fit(self, X, y=None):
+        """Fit."""
         return self
 
     def transform(self, X):
+        """Transform."""
         return X.drop(columns=[self.drop])
 
 
 def _make_fitted_model(cols):
+    """Make fitted model."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(80, len(cols))), columns=cols)
     y = (X[cols[0]] > 0).astype(int)
@@ -40,6 +43,7 @@ def _make_fitted_model(cols):
 
 
 def test_pre_pipeline_dropping_expected_column_raises_named_error():
+    """Pre pipeline dropping expected column raises named error."""
     from mlframe.training.pipeline._pipeline_helpers import _apply_pre_pipeline_transforms
 
     cols = [f"f{i}" for i in range(4)]

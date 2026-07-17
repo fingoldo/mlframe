@@ -20,6 +20,7 @@ from mlframe.metrics.iteration_metrics import _BINARY_METRIC_KEYS
 
 @pytest.fixture
 def binary_split():
+    """Binary split."""
     rng = np.random.default_rng(7)
     n = 3000
     X = rng.normal(0, 1, (n, 8)).astype(np.float32)
@@ -30,12 +31,14 @@ def binary_split():
 
 
 def _lgb(n_estimators, **kw):
+    """Lgb."""
     from mlframe.training.lgb_shim import LGBMClassifierWithDatasetReuse
 
     return LGBMClassifierWithDatasetReuse(n_estimators=n_estimators, verbose=-1, n_jobs=1, **kw)
 
 
 def test_biz_val_lgb_iteration_metrics_populated_and_bit_identical(binary_split):
+    """Biz val lgb iteration metrics populated and bit identical."""
     d = binary_split
     stride = 4
     n_est = 40
@@ -62,6 +65,7 @@ def test_biz_val_lgb_iteration_metrics_populated_and_bit_identical(binary_split)
 
 
 def test_biz_val_lgb_capture_off_by_default(binary_split):
+    """Biz val lgb capture off by default."""
     d = binary_split
     m = _lgb(20)
     m.fit(d["Xtr"], d["ytr"], eval_set=[(d["Xva"], d["yva"])])  # no capture flag -> OFF
@@ -97,6 +101,7 @@ def test_biz_val_early_iteration_predicts_final_holdout(binary_split):
 
 
 def test_biz_val_mlp_iteration_metrics_populated():
+    """Biz val mlp iteration metrics populated."""
     import torch
 
     from mlframe.training.neural import (

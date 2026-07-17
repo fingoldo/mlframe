@@ -52,6 +52,7 @@ def _reseed_shared_rng():
 
 
 def _fake_df(n: int, n_features: int = 4) -> pd.DataFrame:
+    """Fake df."""
     return pd.DataFrame(
         _RNG.standard_normal((n, n_features)),
         columns=[f"x{i}" for i in range(n_features)],
@@ -75,6 +76,7 @@ def _bucket_fractions(bins: np.ndarray, idx_train, idx_val, idx_test):
     """Per-split per-bucket fraction; used to assert proportions match."""
 
     def _frac(idx):
+        """Frac."""
         if len(idx) == 0:
             return None
         b = bins[idx]
@@ -92,7 +94,9 @@ def _bucket_fractions(bins: np.ndarray, idx_train, idx_val, idx_test):
 
 
 class TestRegressionBucketStratifyWithGroups:
+    """Groups tests covering regression bucket stratify with groups."""
     def _make_task(self, n=5000, n_groups=200):
+        """Make task."""
         df = _fake_df(n)
         # Group ids drawn uniformly so groups have ~25 rows each on
         # average. Target has heavy right tail so naive group-shuffle
@@ -105,6 +109,7 @@ class TestRegressionBucketStratifyWithGroups:
         return df, y, groups, bins
 
     def test_both_invariants_honoured(self):
+        """Both invariants honoured."""
         df, _y, groups, bins = self._make_task()
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
             df,
@@ -170,7 +175,9 @@ class TestRegressionBucketStratifyWithGroups:
 
 
 class TestBinaryClassificationWithGroups:
+    """Groups tests covering binary classification with groups."""
     def test_class_balance_preserved_under_group_constraint(self):
+        """Class balance preserved under group constraint."""
         n = 4000
         df = _fake_df(n)
         groups = _RNG.integers(0, 100, size=n)
@@ -209,7 +216,9 @@ class TestBinaryClassificationWithGroups:
 
 
 class TestMulticlassWithGroups:
+    """Groups tests covering multiclass with groups."""
     def test_per_class_proportions_preserved(self):
+        """Per class proportions preserved."""
         n = 6000
         df = _fake_df(n)
         groups = _RNG.integers(0, 150, size=n)
@@ -226,6 +235,7 @@ class TestMulticlassWithGroups:
 
         # Compare per-class fractions across splits.
         def _class_fractions(idx):
+            """Class fractions."""
             out = np.zeros(4)
             u, c = np.unique(y[idx], return_counts=True)
             out[u] = c / c.sum()
@@ -255,6 +265,7 @@ class TestMulticlassWithGroups:
 
 
 class TestBackCompat:
+    """Groups tests covering back compat."""
     def test_no_stratify_no_groups(self):
         """Plain shuffled split still works."""
         df = _fake_df(500)

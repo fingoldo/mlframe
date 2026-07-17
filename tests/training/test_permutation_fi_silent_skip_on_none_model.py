@@ -47,10 +47,13 @@ def test_permutation_fi_still_warns_on_genuine_failure(caplog) -> None:
     class _BrokenEstimator:
         # Has fit + predict so sklearn passes the surface check, but
         # predict raises so permutation_importance fails internally.
+        """Groups tests covering broken estimator."""
         def fit(self, X, y):
+            """Fit."""
             return self
 
         def predict(self, X):
+            """Predict."""
             raise RuntimeError("synthetic predict failure")
 
     X = np.random.default_rng(2).standard_normal((50, 3))

@@ -27,20 +27,24 @@ class _FakeLGB:
 
 
 class _FakeXGB:
+    """Groups tests covering fake x g b."""
     def __init__(self, evals, best_iter):
         self._evals = evals
         self.best_iteration = best_iter
 
     def evals_result(self):
+        """Evals result."""
         return self._evals
 
 
 class _FakeCatBoost:
+    """Groups tests covering fake cat boost."""
     def __init__(self, evals, best_iter):
         self._evals = evals
         self.best_iteration_ = best_iter
 
     def get_evals_result(self):
+        """Get evals result."""
         return self._evals
 
 
@@ -51,6 +55,7 @@ class _Wrapper:
 
 def _synthetic_evals(n=80, es=55):
     # Train keeps falling; val turns up after the ES point (overfitting signal).
+    """Synthetic evals."""
     it = np.arange(n)
     train = 1.0 / (1.0 + it)
     val = 1.0 / (1.0 + it) + np.maximum(0.0, (it - es)) * 0.002
@@ -59,6 +64,7 @@ def _synthetic_evals(n=80, es=55):
 
 
 def test_extract_lgb_history_canonicalises_positional_splits():
+    """Extract lgb history canonicalises positional splits."""
     evals, es = _synthetic_evals()
     hist, es_iter = _extract_training_history(_FakeLGB(evals, es))
     assert hist is not None
@@ -69,6 +75,7 @@ def test_extract_lgb_history_canonicalises_positional_splits():
 
 
 def test_extract_xgb_history():
+    """Extract xgb history."""
     evals, es = _synthetic_evals()
     hist, es_iter = _extract_training_history(_FakeXGB(evals, es))
     assert hist is not None and "l2" in hist
@@ -76,6 +83,7 @@ def test_extract_xgb_history():
 
 
 def test_extract_catboost_history():
+    """Extract catboost history."""
     evals, es = _synthetic_evals()
     hist, es_iter = _extract_training_history(_FakeCatBoost(evals, es))
     assert hist is not None and "l2" in hist
@@ -83,6 +91,7 @@ def test_extract_catboost_history():
 
 
 def test_extract_unwraps_wrapper():
+    """Extract unwraps wrapper."""
     evals, es = _synthetic_evals()
     wrapped = _Wrapper(_FakeLGB(evals, es))
     assert _unwrap_booster(wrapped) is wrapped.base_estimator
@@ -91,7 +100,9 @@ def test_extract_unwraps_wrapper():
 
 
 def test_extract_returns_none_for_non_booster():
+    """Extract returns none for non booster."""
     class _Plain:
+        """Groups tests covering plain."""
         pass
 
     hist, es_iter = _extract_training_history(_Plain())
@@ -99,6 +110,7 @@ def test_extract_returns_none_for_non_booster():
 
 
 def test_extract_returns_none_for_empty_history():
+    """Extract returns none for empty history."""
     hist, _es_iter = _extract_training_history(_FakeLGB({}, 0))
     assert hist is None
 
@@ -118,10 +130,12 @@ def test_es_marker_sits_at_val_argmin_biz_value():
 
 
 def test_render_training_curves_writes_file(tmp_path):
+    """Render training curves writes file."""
     evals, es = _synthetic_evals()
     base = os.path.join(str(tmp_path), "model_x")
 
     class _Cfg:
+        """Groups tests covering cfg."""
         training_curves = True
 
     metrics: dict = {}
@@ -185,9 +199,11 @@ def test_keep_figure_handles_populates_figure_specs(tmp_path):
 
 
 def test_render_training_curves_noop_when_disabled(tmp_path):
+    """Render training curves noop when disabled."""
     evals, es = _synthetic_evals()
 
     class _Cfg:
+        """Groups tests covering cfg."""
         training_curves = False
 
     metrics: dict = {}
@@ -205,9 +221,11 @@ def test_render_training_curves_noop_when_disabled(tmp_path):
 
 
 def test_render_training_curves_noop_without_plot_outputs(tmp_path):
+    """Render training curves noop without plot outputs."""
     evals, es = _synthetic_evals()
 
     class _Cfg:
+        """Groups tests covering cfg."""
         training_curves = True
 
     metrics: dict = {}
@@ -224,6 +242,7 @@ def test_render_training_curves_noop_without_plot_outputs(tmp_path):
 
 
 def test_real_lgb_fit_produces_curves(tmp_path):
+    """Real lgb fit produces curves."""
     lgb = pytest.importorskip("lightgbm")
     rng = np.random.default_rng(0)
     n, d = 2000, 6

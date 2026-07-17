@@ -32,6 +32,7 @@ from mlframe.training.io import (
 
 def test_clean_strips_documented_inference_irrelevant_fields():
     # Build a namespace with every documented strip-field populated.
+    """Clean strips documented inference irrelevant fields."""
     model = SimpleNamespace()
     for field in _LEAN_STRIP_FIELDS:
         setattr(model, field, np.zeros(10, dtype=np.float32))
@@ -51,6 +52,7 @@ def test_clean_strips_documented_inference_irrelevant_fields():
 
 def test_clean_is_safe_when_no_strip_fields_present():
     # A namespace that never had any strip-field returns unchanged.
+    """Clean is safe when no strip fields present."""
     model = SimpleNamespace(feature_names=["x"], threshold=0.5)
     cleaned = clean_mlframe_model(model)
     assert cleaned.feature_names == ["x"]
@@ -58,6 +60,7 @@ def test_clean_is_safe_when_no_strip_fields_present():
 
 
 def test_clean_modifies_in_place_returns_same_object():
+    """Clean modifies in place returns same object."""
     model = SimpleNamespace(test_preds=np.zeros(5))
     cleaned = clean_mlframe_model(model)
     # Returned namespace is the same instance (in-place mutation).
@@ -67,6 +70,7 @@ def test_clean_modifies_in_place_returns_same_object():
 
 def test_clean_partial_strip_subset():
     # Only some strip-fields populated; clean removes those, leaves the rest absent.
+    """Clean partial strip subset."""
     model = SimpleNamespace(test_preds=np.zeros(2), val_preds=np.zeros(2))
     clean_mlframe_model(model)
     assert not hasattr(model, "test_preds")
@@ -79,6 +83,7 @@ def test_clean_partial_strip_subset():
 
 
 def _write_sidecar(bundle_path: str, payload: dict) -> str:
+    """Write sidecar."""
     sidecar = _meta_sidecar_path(bundle_path)
     data = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
     atomic_write_bytes(sidecar, lambda f: f.write(data), fsync=False)
@@ -87,12 +92,14 @@ def _write_sidecar(bundle_path: str, payload: dict) -> str:
 
 def test_validate_load_meta_sidecar_missing_returns_none(tmp_path):
     # No sidecar -> None, no warning, no raise.
+    """Validate load meta sidecar missing returns none."""
     bundle_path = str(tmp_path / "model.bundle")
     result = validate_load_meta_sidecar(bundle_path)
     assert result is None
 
 
 def test_validate_load_meta_sidecar_corrupt_json_returns_none(tmp_path, caplog):
+    """Validate load meta sidecar corrupt json returns none."""
     bundle_path = str(tmp_path / "model.bundle")
     sidecar = _meta_sidecar_path(bundle_path)
     # Half-written / invalid JSON.
@@ -106,6 +113,7 @@ def test_validate_load_meta_sidecar_corrupt_json_returns_none(tmp_path, caplog):
 
 def test_validate_load_meta_sidecar_non_object_returns_none(tmp_path, caplog):
     # JSON that parses but isn't a dict (e.g. a JSON list) -> None, WARN.
+    """Validate load meta sidecar non object returns none."""
     bundle_path = str(tmp_path / "model.bundle")
     sidecar = _meta_sidecar_path(bundle_path)
     atomic_write_bytes(sidecar, lambda f: f.write(b"[1, 2, 3]"), fsync=False)
@@ -116,6 +124,7 @@ def test_validate_load_meta_sidecar_non_object_returns_none(tmp_path, caplog):
 
 
 def test_validate_load_meta_sidecar_matching_versions_returns_payload(tmp_path, caplog):
+    """Validate load meta sidecar matching versions returns payload."""
     bundle_path = str(tmp_path / "model.bundle")
     # Use a library that's guaranteed installed and matches its live version.
     import numpy
@@ -136,6 +145,7 @@ def test_validate_load_meta_sidecar_matching_versions_returns_payload(tmp_path, 
 
 
 def test_validate_load_meta_sidecar_drift_warns_by_default(tmp_path, caplog):
+    """Validate load meta sidecar drift warns by default."""
     bundle_path = str(tmp_path / "model.bundle")
     payload = {
         "sidecar_version": 1,
@@ -152,6 +162,7 @@ def test_validate_load_meta_sidecar_drift_warns_by_default(tmp_path, caplog):
 
 
 def test_validate_load_meta_sidecar_strict_raises_on_drift(tmp_path):
+    """Validate load meta sidecar strict raises on drift."""
     bundle_path = str(tmp_path / "model.bundle")
     payload = {
         "sidecar_version": 1,
@@ -164,6 +175,7 @@ def test_validate_load_meta_sidecar_strict_raises_on_drift(tmp_path):
 
 
 def test_validate_load_meta_sidecar_missing_live_library_flagged(tmp_path, caplog):
+    """Validate load meta sidecar missing live library flagged."""
     bundle_path = str(tmp_path / "model.bundle")
     payload = {
         "sidecar_version": 1,
@@ -183,6 +195,7 @@ def test_validate_load_meta_sidecar_missing_live_library_flagged(tmp_path, caplo
 
 
 def test_load_save_meta_sidecar_returns_dict_when_present(tmp_path):
+    """Load save meta sidecar returns dict when present."""
     bundle_path = str(tmp_path / "m.bundle")
     payload = {"sidecar_version": 1, "lib_versions": {"numpy": "1.0.0"}}
     _write_sidecar(bundle_path, payload)
@@ -191,5 +204,6 @@ def test_load_save_meta_sidecar_returns_dict_when_present(tmp_path):
 
 
 def test_load_save_meta_sidecar_returns_none_when_missing(tmp_path):
+    """Load save meta sidecar returns none when missing."""
     bundle_path = str(tmp_path / "missing.bundle")
     assert load_save_meta_sidecar(bundle_path) is None

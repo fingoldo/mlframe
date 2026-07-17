@@ -20,10 +20,12 @@ from mlframe.training.composite.discovery._calibration_gate import (
 
 
 def test_default_flag_is_no_harm_off():
+    """Default flag is no harm off."""
     assert CALIBRATION_GATE_DEFAULT_ENABLED is False
 
 
 def test_well_calibrated_spec_near_zero_penalty():
+    """Well calibrated spec near zero penalty."""
     rng = np.random.default_rng(0)
     infold = rng.normal(0.0, 1.0, size=4000)
     oof = rng.normal(0.0, 1.0, size=4000)  # unbiased + same spread
@@ -34,6 +36,7 @@ def test_well_calibrated_spec_near_zero_penalty():
 
 
 def test_penalty_detects_bias():
+    """Penalty detects bias."""
     rng = np.random.default_rng(1)
     infold = rng.normal(0.0, 1.0, size=4000)
     unbiased = rng.normal(0.0, 1.0, size=4000)
@@ -45,6 +48,7 @@ def test_penalty_detects_bias():
 
 
 def test_penalty_detects_variance_miscalibration():
+    """Penalty detects variance miscalibration."""
     rng = np.random.default_rng(2)
     infold = rng.normal(0.0, 1.0, size=4000)  # tight in-fold (overfit)
     oof_wide = rng.normal(0.0, 4.0, size=4000)  # inflated OOF spread
@@ -59,6 +63,7 @@ def test_penalty_detects_variance_miscalibration():
 
 
 def test_empty_residuals_pass_gain_through_no_harm():
+    """Empty residuals pass gain through no harm."""
     res = calibration_adjusted_score(0.7, np.array([np.nan, np.nan]))
     assert isinstance(res, CalibrationScore)
     assert res.adjusted_score == 0.7
@@ -66,6 +71,7 @@ def test_empty_residuals_pass_gain_through_no_harm():
 
 
 def test_var_miscal_skipped_without_infold():
+    """Var miscal skipped without infold."""
     rng = np.random.default_rng(3)
     oof = rng.normal(0.0, 1.0, size=2000)
     penalty, bias, var_miscal = calibration_penalty(oof, None)
@@ -111,6 +117,7 @@ def test_biz_val_calibration_ranks_calibrated_above_overfit():
 
 
 def test_smoke_import_dotted_module():
+    """Smoke import dotted module."""
     import importlib
 
     mod = importlib.import_module("mlframe.training.composite.discovery._calibration_gate")

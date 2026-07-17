@@ -17,6 +17,7 @@ import pandas as pd
 
 
 def test_d1_p2_10_temporal_layout_info_fires_on_default_forward_placement(caplog):
+    """D1 p2 10 temporal layout info fires on default forward placement."""
     from mlframe.training.splitting import make_train_test_split
 
     n = 200
@@ -38,6 +39,7 @@ def test_d1_p2_10_temporal_layout_info_fires_on_default_forward_placement(caplog
 
 
 def test_d1_p2_10_temporal_layout_not_emitted_when_no_timestamps(caplog):
+    """D1 p2 10 temporal layout not emitted when no timestamps."""
     from mlframe.training.splitting import make_train_test_split
 
     n = 200
@@ -56,6 +58,7 @@ def test_d1_p2_10_temporal_layout_not_emitted_when_no_timestamps(caplog):
 
 
 def test_d1_p2_10_temporal_layout_not_emitted_on_backward_placement(caplog):
+    """D1 p2 10 temporal layout not emitted on backward placement."""
     from mlframe.training.splitting import make_train_test_split
 
     n = 200

@@ -18,11 +18,13 @@ from mlframe.training._conformal_split import (
 
 
 def _disjoint(fit, calib, conf):
+    """Disjoint."""
     s_fit, s_cal, s_conf = set(fit.tolist()), set(calib.tolist()), set(conf.tolist())
     return not (s_fit & s_cal) and not (s_fit & s_conf) and not (s_cal & s_conf)
 
 
 def test_iid_carve_disjoint_and_sized():
+    """Iid carve disjoint and sized."""
     train_idx = np.arange(1000)
     fit, calib, conf = carve_calib_conformal_iid(train_idx, 0.1, 0.1, seed=0)
     assert _disjoint(fit, calib, conf)
@@ -32,6 +34,7 @@ def test_iid_carve_disjoint_and_sized():
 
 def test_temporal_carve_forward_order_and_purge():
     # train_idx not chronological; time_values give the order. Conformal must be the most-recent block.
+    """Temporal carve forward order and purge."""
     n = 1000
     rng = np.random.default_rng(0)
     perm = rng.permutation(n)
@@ -48,6 +51,7 @@ def test_temporal_carve_forward_order_and_purge():
 
 
 def test_grouped_carve_no_group_straddles():
+    """Grouped carve no group straddles."""
     n = 1200
     groups = np.repeat(np.arange(120), 10)  # 120 groups of 10 rows
     train_idx = np.arange(n)
@@ -60,6 +64,7 @@ def test_grouped_carve_no_group_straddles():
 
 
 def test_dispatch_routes_by_structure():
+    """Dispatch routes by structure."""
     train_idx = np.arange(600)
     groups = np.repeat(np.arange(60), 10)
     f1, c1, k1 = carve_calib_conformal(train_idx, 0.1, 0.1, structure="iid", seed=0)
@@ -86,10 +91,12 @@ def test_dispatch_routes_by_structure():
 
 
 def test_grouped_requires_group_values():
+    """Grouped requires group values."""
     with pytest.raises(ValueError):
         carve_calib_conformal(np.arange(100), 0.1, 0.1, structure="grouped")
 
 
 def test_carve_raises_when_no_fit_rows_left():
+    """Carve raises when no fit rows left."""
     with pytest.raises(ValueError):
         carve_calib_conformal_iid(np.arange(100), 0.6, 0.6, seed=0)

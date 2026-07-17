@@ -20,6 +20,7 @@ from mlframe.training.composite import SegmentRoutedEstimator
 
 
 def _make_sparse_segment_dataset(n: int, seed: int):
+    """Make sparse segment dataset."""
     rng = np.random.default_rng(seed)
     n_reliable = 2
     n_noise = 30
@@ -38,10 +39,12 @@ def _make_sparse_segment_dataset(n: int, seed: int):
 
 
 def _segment_predicate(X: np.ndarray) -> np.ndarray:
+    """Segment predicate."""
     return X[:, -1] <= 2
 
 
 def test_biz_val_segment_routed_estimator_beats_global_model_within_sparse_segment():
+    """Biz val segment routed estimator beats global model within sparse segment."""
     X, y, is_sparse = _make_sparse_segment_dataset(n=5000, seed=0)
 
     est = SegmentRoutedEstimator(
@@ -149,6 +152,7 @@ def test_biz_val_segment_routed_estimator_auto_segment_discovers_sparse_segment_
 
 
 def test_segment_routed_estimator_rejects_both_predicate_and_auto_column():
+    """Segment routed estimator rejects both predicate and auto column."""
     est = SegmentRoutedEstimator(
         main_estimator=Ridge(alpha=1.0),
         specialist_estimator=Ridge(alpha=1.0),
@@ -162,6 +166,7 @@ def test_segment_routed_estimator_rejects_both_predicate_and_auto_column():
 
 
 def test_segment_routed_estimator_no_sparse_rows_falls_back_to_main_model():
+    """Segment routed estimator no sparse rows falls back to main model."""
     X, y, _ = _make_sparse_segment_dataset(n=200, seed=2)
     est = SegmentRoutedEstimator(
         main_estimator=Ridge(alpha=1.0),

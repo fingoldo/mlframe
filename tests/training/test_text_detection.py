@@ -40,9 +40,11 @@ from mlframe.training.feature_handling import (
 
 
 class TestTriggerDefiniteLong:
+    """Groups tests covering trigger definite long."""
     def test_long_text_classified_as_text(self):
         # Each row >100 chars to fire the "definite_long" trigger (vs
         # the "medium_with_tokens" trigger which catches shorter text).
+        """Long text classified as text."""
         df = pl.DataFrame(
             {
                 "long_col": [
@@ -65,7 +67,9 @@ class TestTriggerDefiniteLong:
 
 
 class TestTriggerMediumWithTokens:
+    """Groups tests covering trigger medium with tokens."""
     def test_short_review_classified_as_text(self):
+        """Short review classified as text."""
         df = pl.DataFrame(
             {
                 "review": [
@@ -87,7 +91,9 @@ class TestTriggerMediumWithTokens:
 
 
 class TestTriggerHighCardinality:
+    """Groups tests covering trigger high cardinality."""
     def test_high_cardinality_with_substance_is_text(self):
+        """High cardinality with substance is text."""
         n = 400
         df = pl.DataFrame(
             {
@@ -104,6 +110,7 @@ class TestTriggerHighCardinality:
 
 
 class TestAntiUuidGuard:
+    """Groups tests covering anti uuid guard."""
     def test_uuid_column_rejected_by_entropy(self):
         """UUID-v4 entropy is ~4.04 < 4.5 threshold."""
         df = pl.DataFrame(
@@ -154,7 +161,9 @@ class TestAntiUuidGuard:
 
 
 class TestUserOverrides:
+    """Groups tests covering user overrides."""
     def test_explicit_text_columns_bypass_heuristic(self):
+        """Explicit text columns bypass heuristic."""
         df = pl.DataFrame(
             {
                 "short_col": ["a", "b", "c"] * 30,  # short, low entropy -> normally cat
@@ -167,6 +176,7 @@ class TestUserOverrides:
         assert d.rule_name == "explicit_text"
 
     def test_explicit_categorical_columns_bypass_heuristic(self):
+        """Explicit categorical columns bypass heuristic."""
         df = pl.DataFrame(
             {
                 "long_col": ["a quick brown fox " * 20] * 50,  # long -> normally text
@@ -179,6 +189,7 @@ class TestUserOverrides:
         assert d.rule_name == "explicit_categorical"
 
     def test_skip_columns_excludes_from_analysis(self):
+        """Skip columns excludes from analysis."""
         df = pl.DataFrame(
             {
                 "ignore_me": ["this would normally be very long text " * 5] * 50,
@@ -197,6 +208,7 @@ class TestUserOverrides:
 
 
 class TestCategoricalDtypeRespect:
+    """Groups tests covering categorical dtype respect."""
     def test_explicit_categorical_dtype_polars(self):
         """A polars Categorical column gets cat-flag; high cardinality
         + substance won't override that user signal."""
@@ -213,6 +225,7 @@ class TestCategoricalDtypeRespect:
         assert "skills" not in text_cols
 
     def test_explicit_categorical_dtype_pandas(self):
+        """Explicit categorical dtype pandas."""
         df = pd.DataFrame(
             {
                 "skills": pd.Series([f"skill_{i}_lots_of_descriptive_text" for i in range(400)], dtype="category"),
@@ -223,6 +236,7 @@ class TestCategoricalDtypeRespect:
         assert d.rule_name == "explicit_categorical_dtype"
 
     def test_respect_disabled_via_config(self):
+        """Respect disabled via config."""
         df = pl.DataFrame(
             {
                 "skills": [f"skill_{i}_lots_of_descriptive_text" for i in range(400)],
@@ -243,7 +257,9 @@ class TestCategoricalDtypeRespect:
 
 
 class TestNonStringDtype:
+    """Groups tests covering non string dtype."""
     def test_numeric_column_rejected(self):
+        """Numeric column rejected."""
         df = pl.DataFrame({"x": [1.0, 2.0, 3.0] * 100})
         text_cols, decisions = detect_text_columns(df)
         assert "x" not in text_cols
@@ -251,6 +267,7 @@ class TestNonStringDtype:
         assert d.rule_name == "non_string_dtype"
 
     def test_boolean_column_rejected(self):
+        """Boolean column rejected."""
         df = pl.DataFrame({"flag": [True, False, True] * 100})
         text_cols, decisions = detect_text_columns(df)
         assert "flag" not in text_cols
@@ -264,7 +281,9 @@ class TestNonStringDtype:
 
 
 class TestCornerCases:
+    """Groups tests covering corner cases."""
     def test_url_only_column_anti_uuid_filtered(self):
+        """Url only column anti uuid filtered."""
         df = pl.DataFrame(
             {
                 "url": [f"http://example.com/path/{i}" for i in range(150)],
@@ -275,12 +294,14 @@ class TestCornerCases:
         # URLs typically have low alphabet entropy + few tokens.
 
     def test_single_char_column_not_text(self):
+        """Single char column not text."""
         df = pl.DataFrame({"flag": ["A", "B", "C", "D"] * 50})
         text_cols, _ = detect_text_columns(df)
         assert "flag" not in text_cols
 
     def test_pandas_polars_consistency(self):
         # Same data via both backends -> same decisions.
+        """Pandas polars consistency."""
         n = 100
         text_data = [f"row {i} of medium length text content" for i in range(n)]
         df_pl = pl.DataFrame({"col": text_data})
@@ -290,6 +311,7 @@ class TestCornerCases:
         assert ("col" in cols_pl) == ("col" in cols_pd)
 
     def test_empty_column_handled(self):
+        """Empty column handled."""
         df = pl.DataFrame({"empty": [None] * 50}, schema={"empty": pl.Utf8})
         text_cols, _decisions = detect_text_columns(df)
         # Empty column has 0 non-null -> should fall through to anti-uuid
@@ -303,7 +325,9 @@ class TestCornerCases:
 
 
 class TestDecisionsTrace:
+    """Groups tests covering decisions trace."""
     def test_one_decision_per_candidate_column(self):
+        """One decision per candidate column."""
         df = pl.DataFrame(
             {
                 "a": ["x"] * 50,
@@ -317,6 +341,7 @@ class TestDecisionsTrace:
         assert cols_seen == {"a", "b", "c"}
 
     def test_stats_attached_to_decision(self):
+        """Stats attached to decision."""
         df = pl.DataFrame(
             {
                 "review": ["a long enough review with multiple tokens " * 3] * 50,

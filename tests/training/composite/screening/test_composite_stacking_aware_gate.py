@@ -21,7 +21,9 @@ from mlframe.training.composite import (
 
 
 class TestResidualCorrelationMatrix:
+    """Groups tests covering residual correlation matrix."""
     def test_shape_and_diagonal(self) -> None:
+        """Shape and diagonal."""
         rng = np.random.default_rng(0)
         n = 200
         residuals = {f"t{i}": rng.normal(size=n) for i in range(3)}
@@ -31,6 +33,7 @@ class TestResidualCorrelationMatrix:
         assert names == ["t0", "t1", "t2"]
 
     def test_perfectly_correlated_residuals(self) -> None:
+        """Perfectly correlated residuals."""
         rng = np.random.default_rng(1)
         n = 200
         r = rng.normal(size=n)
@@ -43,6 +46,7 @@ class TestResidualCorrelationMatrix:
         assert corr[0, 1] == pytest.approx(1.0, abs=1e-9)
 
     def test_max_off_diag_helper(self) -> None:
+        """Max off diag helper."""
         rng = np.random.default_rng(2)
         n = 200
         r = rng.normal(size=n)
@@ -57,6 +61,7 @@ class TestResidualCorrelationMatrix:
         assert max_off > 0.99
 
     def test_orthogonal_residuals_low_off_diag(self) -> None:
+        """Orthogonal residuals low off diag."""
         rng = np.random.default_rng(3)
         n = 500
         residuals = {
@@ -70,11 +75,13 @@ class TestResidualCorrelationMatrix:
         assert max_off < 0.2
 
     def test_length_mismatch_raises(self) -> None:
+        """Length mismatch raises."""
         residuals = {"a": np.array([1.0, 2.0]), "b": np.array([1.0])}
         with pytest.raises(ValueError, match="same length"):
             residual_correlation_matrix(residuals)
 
     def test_empty_input(self) -> None:
+        """Empty input."""
         corr, names = residual_correlation_matrix({})
         assert corr.shape == (0, 0)
         assert names == []
@@ -88,7 +95,9 @@ class TestResidualCorrelationMatrix:
 
 
 class TestStackingAwareGate:
+    """Groups tests covering stacking aware gate."""
     def _make_orthogonal_predictions(self, n: int = 500, seed: int = 0) -> tuple:
+        """Make orthogonal predictions."""
         rng = np.random.default_rng(seed)
         # Three independent predictors that each capture part of y.
         f1 = rng.normal(size=n)
@@ -106,6 +115,7 @@ class TestStackingAwareGate:
         return preds, y
 
     def test_orthogonal_predictors_all_kept(self) -> None:
+        """Orthogonal predictors all kept."""
         preds, y = self._make_orthogonal_predictions()
         survivors, _weights = stacking_aware_gate(preds, y, min_weight=0.05)
         # f1, f2, f3 all carry independent signal -> all survive.
@@ -114,6 +124,7 @@ class TestStackingAwareGate:
         assert "f3_only" in survivors
 
     def test_garbage_predictor_dropped(self) -> None:
+        """Garbage predictor dropped."""
         preds, y = self._make_orthogonal_predictions()
         survivors, weights = stacking_aware_gate(preds, y, min_weight=0.05)
         # Pure noise predictor should have weight ~0 -> dropped.
@@ -121,12 +132,14 @@ class TestStackingAwareGate:
         assert weights["garbage"] < 0.05
 
     def test_survivor_weights_sum_to_one(self) -> None:
+        """Survivor weights sum to one."""
         preds, y = self._make_orthogonal_predictions()
         survivors, weights = stacking_aware_gate(preds, y)
         s = sum(weights[n] for n in survivors)
         assert s == pytest.approx(1.0, abs=1e-6)
 
     def test_low_min_weight_keeps_more(self) -> None:
+        """Low min weight keeps more."""
         preds, y = self._make_orthogonal_predictions()
         few, _ = stacking_aware_gate(preds, y, min_weight=0.30)
         many, _ = stacking_aware_gate(preds, y, min_weight=0.001)
@@ -145,6 +158,7 @@ class TestStackingAwareGate:
         assert all(weights[n] == pytest.approx(0.2) for n in preds)
 
     def test_length_mismatch_raises(self) -> None:
+        """Length mismatch raises."""
         preds = {"a": np.array([1.0, 2.0]), "b": np.array([1.0, 2.0, 3.0])}
         y = np.array([1.0, 2.0])
         with pytest.raises(ValueError, match="match y_train"):

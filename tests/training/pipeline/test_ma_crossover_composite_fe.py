@@ -20,6 +20,7 @@ from mlframe.training.pipeline._ma_crossover_composite_fe import apply_ma_crosso
 
 
 def _series_frame(n=300, n_groups=10, seed=0):
+    """Series frame."""
     rng = np.random.default_rng(seed)
     group_ids = rng.integers(0, n_groups, n)
     ts = np.arange(n).astype(np.float64)
@@ -29,6 +30,7 @@ def _series_frame(n=300, n_groups=10, seed=0):
 
 
 def test_apply_ma_crossover_composite_fe_noop_when_columns_unset():
+    """Apply ma crossover composite fe noop when columns unset."""
     df, group_ids, ts = _series_frame()
     cfg = PreprocessingExtensionsConfig()
     train, _val, _test = apply_ma_crossover_composite_fe(
@@ -38,6 +40,7 @@ def test_apply_ma_crossover_composite_fe_noop_when_columns_unset():
 
 
 def test_apply_ma_crossover_composite_fe_noop_with_single_window():
+    """Apply ma crossover composite fe noop with single window."""
     df, group_ids, ts = _series_frame()
     cfg = PreprocessingExtensionsConfig(ma_crossover_columns=["val_col"], ma_crossover_windows=[5])
     train, _, _ = apply_ma_crossover_composite_fe(df, None, None, cfg, group_ids, ts, np.arange(len(df)), None, None, verbose=0)
@@ -45,6 +48,7 @@ def test_apply_ma_crossover_composite_fe_noop_with_single_window():
 
 
 def test_apply_ma_crossover_composite_fe_schema_aligned_across_splits():
+    """Apply ma crossover composite fe schema aligned across splits."""
     df, group_ids, ts = _series_frame()
     train_idx, val_idx, test_idx = np.arange(0, 200), np.arange(200, 250), np.arange(250, 300)
     cfg = PreprocessingExtensionsConfig(ma_crossover_columns=["val_col"], ma_crossover_windows=[3, 5, 10])
@@ -68,6 +72,7 @@ def test_apply_ma_crossover_composite_fe_schema_aligned_across_splits():
 
 
 def test_apply_ma_crossover_composite_fe_works_without_group_ids():
+    """Apply ma crossover composite fe works without group ids."""
     df, _, ts = _series_frame()
     cfg = PreprocessingExtensionsConfig(ma_crossover_columns=["val_col"], ma_crossover_windows=[3, 5])
     train, _, _ = apply_ma_crossover_composite_fe(df, None, None, cfg, None, ts, np.arange(len(df)), None, None, verbose=0)
@@ -75,6 +80,7 @@ def test_apply_ma_crossover_composite_fe_works_without_group_ids():
 
 
 def test_apply_ma_crossover_composite_fe_polars_roundtrip():
+    """Apply ma crossover composite fe polars roundtrip."""
     n = 200
     rng = np.random.default_rng(2)
     df = pl.DataFrame({"val_col": rng.normal(size=n).astype(np.float32).cumsum()})
@@ -85,6 +91,7 @@ def test_apply_ma_crossover_composite_fe_polars_roundtrip():
 
 
 def test_replay_ma_crossover_composite_fe_matches_fit_time_columns():
+    """Replay ma crossover composite fe matches fit time columns."""
     df, group_ids, ts = _series_frame()
     cfg = PreprocessingExtensionsConfig(ma_crossover_columns=["val_col"], ma_crossover_windows=[3, 5])
     metadata: dict = {}
@@ -97,6 +104,7 @@ def test_replay_ma_crossover_composite_fe_matches_fit_time_columns():
 
 
 def test_replay_ma_crossover_composite_fe_noop_without_persisted_metadata():
+    """Replay ma crossover composite fe noop without persisted metadata."""
     df, _, _ = _series_frame(n=20)
     out = replay_ma_crossover_composite_fe(df, {}, None, None, verbose=0)
     assert list(out.columns) == list(df.columns)
@@ -124,6 +132,7 @@ def test_biz_val_ma_crossover_composite_wiring_detects_trend_reversal():
     out_df, _, _ = apply_ma_crossover_composite_fe(df, None, None, cfg, group_ids, within_pos.astype(np.float64), np.arange(n), None, None, verbose=0)
 
     def _auc(cols):
+        """Auc."""
         clf = LogisticRegression(max_iter=1000)
         clf.fit(out_df[cols], y)
         return roc_auc_score(y, clf.predict_proba(out_df[cols])[:, 1])

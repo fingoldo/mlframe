@@ -18,6 +18,7 @@ from mlframe.training.neural import MLPTorchModel, PytorchLightningRegressor, To
 
 
 def _regressor_params():
+    """Regressor params."""
     return dict(
         model_class=MLPTorchModel,
         model_params={"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-3},
@@ -43,6 +44,7 @@ def _regressor_params():
 
 
 def test_mlp_fits_and_predicts_with_embedding_column():
+    """Mlp fits and predicts with embedding column."""
     n, d = 64, 4
     rng = np.random.default_rng(0)
     embs = [rng.normal(size=d).astype(np.float32) for _ in range(n)]
@@ -58,6 +60,7 @@ def test_mlp_fits_and_predicts_with_embedding_column():
 
 
 def test_mlp_fits_and_predicts_with_text_column_real_hf():
+    """Mlp fits and predicts with text column real hf."""
     pytest.importorskip("transformers")
     n = 48
     rng = np.random.default_rng(1)

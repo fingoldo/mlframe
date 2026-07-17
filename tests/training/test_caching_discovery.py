@@ -32,10 +32,12 @@ class _FakeConfig:
         self._fields = dict(kwargs)
 
     def model_dump(self, mode: str = "python") -> dict[str, Any]:
+        """Model dump."""
         return dict(self._fields)
 
 
 def _fake_df(seed: int = 0, n: int = 64) -> pd.DataFrame:
+    """Fake df."""
     rng = np.random.default_rng(seed)
     return pd.DataFrame(
         {
@@ -48,6 +50,7 @@ def _fake_df(seed: int = 0, n: int = 64) -> pd.DataFrame:
 
 
 def test_discovery_config_signature_is_deterministic():
+    """Discovery config signature is deterministic."""
     cfg = _FakeConfig(enabled=True, top_k=3, random_state=42)
     s1 = _discovery_config_signature(cfg)
     s2 = _discovery_config_signature(cfg)
