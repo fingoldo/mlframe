@@ -75,7 +75,9 @@ def _univariate_topN(D, y, nbins, N):
 
 
 class TestBatchTripleMIKernel:
+    """Groups tests covering TestBatchTripleMIKernel."""
     def test_matches_merge_vars_reference(self):
+        """Matches merge vars reference."""
         rng = np.random.default_rng(0)
         n, p = 1200, 6
         X = rng.standard_normal((n, p))
@@ -100,6 +102,7 @@ class TestBatchTripleMIKernel:
         assert got[0] > 1.5 * max(got[1:]), f"needle joint MI should dominate: {got}"
 
     def test_empty_matrix_returns_zeros(self):
+        """Empty matrix returns zeros."""
         D = np.zeros((0, 4), dtype=np.int32)
         nbins = np.array([3, 3, 3, 3], dtype=np.int64)
         out = batch_triple_mi_prange(
@@ -120,7 +123,9 @@ class TestBatchTripleMIKernel:
 
 
 class TestOrder3MaxTFloor:
+    """Groups tests covering TestOrder3MaxTFloor."""
     def test_pure_noise_pool_admits_nothing(self):
+        """Pure noise pool admits nothing."""
         from itertools import combinations
 
         rng = np.random.default_rng(1)
@@ -140,6 +145,7 @@ class TestOrder3MaxTFloor:
         assert n_survive == 0, f"order-3 floor admitted {n_survive} pure-noise triples (floor={floor})"
 
     def test_genuine_needle_clears_floor_alone(self):
+        """Genuine needle clears floor alone."""
         from itertools import combinations
 
         rng = np.random.default_rng(2)
@@ -160,6 +166,7 @@ class TestOrder3MaxTFloor:
         assert len(survivors) <= 2, f"too many triples cleared the floor: {survivors}"
 
     def test_disabled_floor_is_zero_noop(self):
+        """Disabled floor is zero noop."""
         rng = np.random.default_rng(3)
         n, p = 500, 6
         X = rng.standard_normal((n, p))
@@ -183,7 +190,9 @@ class TestOrder3MaxTFloor:
 
 
 class TestGBMSeederNeedleRecall:
+    """Groups tests covering TestGBMSeederNeedleRecall."""
     def _frame(self, kind, seed=42, n=4000, p=200):
+        """Helper that frame."""
         rng = np.random.default_rng(seed)
         X = rng.standard_normal((n, p))
         if kind == "3way":
@@ -205,6 +214,7 @@ class TestGBMSeederNeedleRecall:
         # needle clears while noise triples do not. We force-emit (lenient gate) to test the
         # co-occurrence + floor, the actual binding pair.
 
+        """3way needle co occurrence ranks it and clears order3 floor."""
         X, y, needle = self._frame("3way")
         D, nbins = _discretize(X, nb=10)
         # CURRENT: univariate seed_count top-8 misses every needle operand.
@@ -230,6 +240,7 @@ class TestGBMSeederNeedleRecall:
     def test_2way_needle_recovered_univariate_misses(self):
         # The 2-way needle is the SELF-GATE + co-occurrence win: its OOF is FAR above chance
         # (z huge), so the self-gate passes AND it is the top co-occurrence pair.
+        """2way needle recovered univariate misses."""
         X, y, needle = self._frame("2way")
         D, nbins = _discretize(X, nb=10)
         uni_top, _mis = _univariate_topN(D, y, nbins, N=8)
@@ -245,6 +256,7 @@ class TestGBMSeederNeedleRecall:
         #   (1) the OOF PAIR self-gate rejects pair emission (noise OOF ~ permuted null) -- so
         #       NO seeded noise pairs ever reach the order-2 floor in the real pipeline.
         #   (2) the order-3 maxT floor strongly CURBS the always-emitted noise triples.
+        """Pure noise pair gate blocks pairs and floor curbs triples."""
         X, y, _ = self._frame("noise")
         D, nbins = _discretize(X, nb=10)
         # DEFAULT gate (no force-emit): the pair self-gate must NOT pass on pure noise -> 0 pairs.
@@ -273,6 +285,7 @@ class TestGBMSeederNeedleRecall:
 
     def test_degenerate_pool_no_seeds(self):
         # < 2 candidates -> empty, no LightGBM fit.
+        """Degenerate pool no seeds."""
         D = np.zeros((100, 3), dtype=np.int32)
         pairs, triples, info = surrogate_gbm_interaction_seeds(D, np.zeros(100, dtype=np.int64), [0], is_classification=True)
         assert pairs == [] and triples == [] and not info["gated"]

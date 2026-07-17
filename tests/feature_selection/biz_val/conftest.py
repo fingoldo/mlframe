@@ -17,6 +17,7 @@ import pytest
 
 
 def _cuda_available() -> bool:
+    """Cuda available."""
     try:
         from mlframe.feature_selection.filters._fe_gpu_strict import _cuda_usable
 
@@ -26,6 +27,7 @@ def _cuda_available() -> bool:
 
 
 def _strict_both_enabled() -> bool:
+    """Strict both enabled."""
     return os.environ.get("MLFRAME_TEST_STRICT_BOTH", "").strip().lower() in ("1", "true", "on", "yes")
 
 
@@ -34,6 +36,7 @@ _STRICT_PARAMS = ["0", "1"] if (_strict_both_enabled() and _cuda_available()) el
 
 
 def pytest_configure(config):
+    """Pytest configure."""
     config.addinivalue_line(
         "markers",
         "strict_cpu_only: run this biz_val test only on the CPU FE path -- it asserts CPU-estimator MI magnitudes "
@@ -43,6 +46,7 @@ def pytest_configure(config):
 
 @pytest.fixture(params=_STRICT_PARAMS, ids=lambda m: "default" if m is None else f"strict={m}", autouse=True)
 def _biz_val_strict_both_paths(request, monkeypatch):
+    """Biz val strict both paths."""
     mode = request.param
     if mode is None:
         return  # flag off: single unparametrized run, env untouched (AUTO default -> CPU at these small n)

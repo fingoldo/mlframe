@@ -60,6 +60,7 @@ class _Stub:
 
 
 def test_recorder_fingers_each_gate_with_correct_margin():
+    """Recorder fingers each gate with correct margin."""
     s = _Stub()
     # One synthetic rejected candidate per real (non-synthetic) gate type, each with a
     # KNOWN observed/threshold so the margin is deterministic.
@@ -103,6 +104,7 @@ def test_recorder_fingers_each_gate_with_correct_margin():
 
 
 def test_recorder_default_margin_is_observed_minus_threshold():
+    """Recorder default margin is observed minus threshold."""
     s = _Stub()
     record_fe_rejection(s, gate="cmi_redundancy", candidate="c", observed=0.3, threshold=0.5)
     led = compute_fe_rejection_ledger(s)
@@ -243,6 +245,7 @@ def test_real_stability_vote_diagnostics_map_to_ledger():
 
 
 def _canonical_fixture(seed: int, n: int):
+    """Canonical fixture."""
     rng = np.random.default_rng(seed)
     a = rng.random(n)
     b = rng.random(n)
@@ -307,6 +310,7 @@ def test_ledger_fingers_floors_on_canonical_fixture():
 
 
 def test_default_on_and_pickle_roundtrip():
+    """Default on and pickle roundtrip."""
     from sklearn.base import clone
     from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -334,6 +338,7 @@ def test_default_on_and_pickle_roundtrip():
 
 
 def test_empty_report_message():
+    """Empty report message."""
     s = _Stub()
     assert "is empty" in get_fe_rejection_report(s)
     populate_fe_rejection_ledger(s)
@@ -394,6 +399,7 @@ def test_recorder_wall_cost_is_negligible():
 
 
 def test_memory_cap_records_marker_and_stops():
+    """Memory cap records marker and stops."""
     s = _Stub()
     # Push past the cap; only CAP+1 records should land (CAP real + 1 marker).
     for i in range(FE_REJECTION_LEDGER_CAP + 25):

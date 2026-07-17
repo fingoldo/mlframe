@@ -90,6 +90,7 @@ def _recovered_and_total(sel, signal):
 
 
 def _fit(spec, n, p, seed):
+    """Helper that fit."""
     sel = spec.make("binary")
     X, y, signal = make_p_gt_n(n, p, seed=seed)
     with warnings.catch_warnings():
@@ -105,6 +106,7 @@ def _fit(spec, n, p, seed):
 
 
 def _spec_param(name):
+    """Spec param."""
     spec = SELECTOR_SPECS[name]
     marks = [pytest.mark.slow] if spec.slow else []
     return pytest.param(name, marks=marks, id=name)

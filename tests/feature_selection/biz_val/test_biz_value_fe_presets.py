@@ -31,6 +31,7 @@ PRESETS = ["minimal", "medium", "maximal"]
 
 @pytest.mark.parametrize("preset", PRESETS)
 def test_every_preset_has_more_than_one_member(preset):
+    """Every preset has more than one member."""
     u = create_unary_transformations(preset)
     b = create_binary_transformations(preset)
     assert len(u) > 1, f"unary[{preset}] has {len(u)} member(s); must be > 1"
@@ -38,6 +39,7 @@ def test_every_preset_has_more_than_one_member(preset):
 
 
 def test_unary_tiers_monotonically_grow():
+    """Unary tiers monotonically grow."""
     mn = set(create_unary_transformations("minimal"))
     md = set(create_unary_transformations("medium"))
     mx = set(create_unary_transformations("maximal"))
@@ -48,6 +50,7 @@ def test_unary_tiers_monotonically_grow():
 
 
 def test_binary_tiers_monotonically_grow():
+    """Binary tiers monotonically grow."""
     mn = set(create_binary_transformations("minimal"))
     md = set(create_binary_transformations("medium"))
     mx = set(create_binary_transformations("maximal"))
@@ -59,12 +62,14 @@ def test_binary_tiers_monotonically_grow():
 def test_unary_minimal_has_sqr():
     # ``sqr`` (the x**2 op, renamed from ``squared`` 2026-06-01) is the building
     # block for a**2/b targets and MUST be in the minimal unary preset.
+    """Unary minimal has sqr."""
     u = create_unary_transformations("minimal")
     assert "sqr" in u, "unary minimal missing 'sqr'"
     assert "squared" not in u, "unary preset still exposes legacy 'squared' name"
 
 
 def test_binary_minimal_has_sub_and_div():
+    """Binary minimal has sub and div."""
     b = create_binary_transformations("minimal")
     assert "sub" in b, "binary minimal missing 'sub'"
     assert "div" in b, "binary minimal missing 'div'"
@@ -74,6 +79,7 @@ def test_binary_minimal_has_sub_and_div():
 
 
 def test_div_handles_divide_by_zero():
+    """Div handles divide by zero."""
     b = create_binary_transformations("minimal")
     div = b["div"]
     num = np.array([1.0, 2.0, -3.0, 0.0], dtype=np.float32)
@@ -83,6 +89,7 @@ def test_div_handles_divide_by_zero():
 
 
 def test_preset_aliases_and_unknown():
+    """Preset aliases and unknown."""
     assert _resolve_preset("rich") == "maximal"
     assert _resolve_preset("full") == "maximal"
     assert _resolve_preset("MINIMAL") == "minimal"  # case-insensitive
@@ -97,6 +104,7 @@ def test_preset_aliases_and_unknown():
 @pytest.mark.parametrize("preset", PRESETS)
 def test_every_transform_callable_without_crash(preset):
     # Sample arrays in a benign domain (positive for sqrt/log; finite for trig).
+    """Every transform callable without crash."""
     x = np.linspace(0.5, 4.0, 64).astype(np.float32)
     yv = np.linspace(0.6, 5.0, 64).astype(np.float32)
 

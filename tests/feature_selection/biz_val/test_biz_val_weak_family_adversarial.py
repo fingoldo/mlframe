@@ -127,6 +127,7 @@ def _make_high_card_noise(seed: int = 0, n: int = 1500):
 
 
 def _fit_boruta(X, y, *, seed: int = 0, n_trials: int = 30):
+    """Fit boruta."""
     pytest.importorskip("shap")
     from mlframe.feature_selection.boruta_shap import BorutaShap
     from sklearn.ensemble import RandomForestClassifier
@@ -142,6 +143,7 @@ def _fit_boruta(X, y, *, seed: int = 0, n_trials: int = 30):
 
 
 def _fit_shap_proxied(X, y, *, seed: int = 0):
+    """Fit shap proxied."""
     pytest.importorskip("shap")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
     from sklearn.ensemble import RandomForestClassifier
@@ -163,6 +165,7 @@ def _fit_shap_proxied(X, y, *, seed: int = 0):
 
 
 def _run_hetero(X, y, *, seed: int = 0, n_shadow_trials: int = 3, vote_threshold: float = 0.5):
+    """Run hetero."""
     pytest.importorskip("sklearn")
     from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
 
@@ -170,6 +173,7 @@ def _run_hetero(X, y, *, seed: int = 0, n_shadow_trials: int = 3, vote_threshold
 
 
 def _fit_hybrid(X, y, *, seed: int = 0):
+    """Fit hybrid."""
     pytest.importorskip("shap")
     from mlframe.feature_selection.hybrid_selector import HybridSelector
 
@@ -180,6 +184,7 @@ def _fit_hybrid(X, y, *, seed: int = 0):
 
 # A selector is credited with a "win" only on the MAJORITY of seeds (single-seed wins are high-variance noise).
 def _majority(flags) -> bool:
+    """Helper that majority."""
     flags = list(flags)
     return sum(bool(f) for f in flags) > len(flags) / 2.0
 
@@ -199,6 +204,7 @@ def _seeds(full):
 
 @pytest.mark.slow
 def test_biz_val_boruta_heavy_tail_label_noise_recall_and_bounded_noise():
+    """Biz val boruta heavy tail label noise recall and bounded noise."""
     seeds = _seeds((0, 1))
     rec_ok, noise_ok = [], []
     for seed in seeds:
@@ -212,6 +218,7 @@ def test_biz_val_boruta_heavy_tail_label_noise_recall_and_bounded_noise():
 
 @pytest.mark.slow
 def test_biz_val_shap_proxied_heavy_tail_label_noise_recall_and_bounded_noise():
+    """Biz val shap proxied heavy tail label noise recall and bounded noise."""
     seeds = _seeds((0, 1))
     rec_ok, noise_ok = [], []
     for seed in seeds:
@@ -225,6 +232,7 @@ def test_biz_val_shap_proxied_heavy_tail_label_noise_recall_and_bounded_noise():
 
 @pytest.mark.slow
 def test_biz_val_hetero_vote_heavy_tail_label_noise_recall_and_bounded_noise():
+    """Biz val hetero vote heavy tail label noise recall and bounded noise."""
     seeds = _seeds((0, 1))
     rec_ok, noise_ok = [], []
     for seed in seeds:
@@ -246,6 +254,7 @@ def test_biz_val_hetero_vote_heavy_tail_label_noise_recall_and_bounded_noise():
 
 
 def _informative_noise_names(feature_names):
+    """Informative noise names."""
     informative = [c for c in feature_names if str(c).startswith("informative_")]
     noise = [c for c in feature_names if str(c).startswith("noise_")]
     return informative, noise
@@ -253,6 +262,7 @@ def _informative_noise_names(feature_names):
 
 @pytest.mark.slow
 def test_biz_val_boruta_n_much_less_than_p_completes_bounded(high_dimensional_data):
+    """Biz val boruta n much less than p completes bounded."""
     X, y, _ = high_dimensional_data
     informative, noise = _informative_noise_names(X.columns)
     sel = set(_fit_boruta(X, y, seed=0, n_trials=20))
@@ -266,6 +276,7 @@ def test_biz_val_boruta_n_much_less_than_p_completes_bounded(high_dimensional_da
 
 @pytest.mark.slow
 def test_biz_val_hetero_vote_n_much_less_than_p_well_formed(high_dimensional_data):
+    """Biz val hetero vote n much less than p well formed."""
     X, y, _ = high_dimensional_data
     _informative, noise = _informative_noise_names(X.columns)
     accepted, info = _run_hetero(X, y, seed=0)
@@ -280,6 +291,7 @@ def test_biz_val_hetero_vote_n_much_less_than_p_well_formed(high_dimensional_dat
 
 @pytest.mark.slow
 def test_biz_val_hybrid_n_much_less_than_p_completes_bounded(high_dimensional_data):
+    """Biz val hybrid n much less than p completes bounded."""
     X, y, _ = high_dimensional_data
     informative, _noise = _informative_noise_names(X.columns)
     sel = set(_fit_hybrid(X, y, seed=0))
@@ -292,6 +304,7 @@ def test_biz_val_hybrid_n_much_less_than_p_completes_bounded(high_dimensional_da
 # Fast representative: cheap n<<p (n=50) runs through BorutaShap (the heaviest family) AND HybridSelector so
 # MLFRAME_FAST=1 keeps a real path through the heavy selectors when the slow battery is skipped.
 def test_biz_val_weak_family_n_much_less_than_p_fast_smoke(high_dimensional_data):
+    """Biz val weak family n much less than p fast smoke."""
     if not is_fast_mode():
         pytest.skip("fast representative; the slow per-family scenario tests cover these paths in the full run")
     X, y, _ = high_dimensional_data
@@ -312,6 +325,7 @@ def test_biz_val_weak_family_n_much_less_than_p_fast_smoke(high_dimensional_data
 
 @pytest.mark.slow
 def test_biz_val_boruta_mnar_accepted_mcar_rejected():
+    """Biz val boruta mnar accepted mcar rejected."""
     seeds = _seeds((0, 1, 2))
     mnar_in, mcar_out = [], []
     for seed in seeds:
@@ -333,6 +347,7 @@ def test_biz_val_boruta_mnar_accepted_mcar_rejected():
 
 @pytest.mark.slow
 def test_biz_val_hybrid_redundancy_chain_keeps_both_signal_paths():
+    """Biz val hybrid redundancy chain keeps both signal paths."""
     seeds = _seeds((0, 1, 2))
     ac_ok = []
     for seed in seeds:
@@ -349,6 +364,7 @@ def test_biz_val_hybrid_redundancy_chain_keeps_both_signal_paths():
     strict=False,
 )
 def test_biz_val_hybrid_redundancy_chain_drops_redundant_bridge():
+    """Biz val hybrid redundancy chain drops redundant bridge."""
     seeds = _seeds((0, 1, 2))
     b_dropped = []
     for seed in seeds:
@@ -369,6 +385,7 @@ def test_biz_val_hybrid_redundancy_chain_drops_redundant_bridge():
 
 @pytest.mark.slow
 def test_biz_val_boruta_high_card_keeps_informative_rejects_noise():
+    """Biz val boruta high card keeps informative rejects noise."""
     seeds = _seeds((0, 1, 2, 3, 4))
     inf_ok, cat_out, id_out = [], [], []
     for seed in seeds:

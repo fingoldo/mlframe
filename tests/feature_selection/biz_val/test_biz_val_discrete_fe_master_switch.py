@@ -20,6 +20,7 @@ _DISCRETE_PREFIXES = ("il_", "pmod_", "argmax_", "gate_")
 
 
 def _gcd_frame(seed: int = 1, n: int = 2000):
+    """Gcd frame."""
     rng = np.random.default_rng(seed)
     a = rng.integers(1, 40, n)
     b = rng.integers(1, 40, n)
@@ -29,15 +30,18 @@ def _gcd_frame(seed: int = 1, n: int = 2000):
 
 
 def _discrete_cols(estimator, X):
+    """Discrete cols."""
     out = estimator.transform(X)
     return [c for c in out.columns if any(str(c).startswith(p) for p in _DISCRETE_PREFIXES)]
 
 
 def test_master_switch_defaults_on():
+    """Master switch defaults on."""
     assert MRMR(n_workers=1).fe_discrete_structural_operators_enable is True
 
 
 def test_master_on_emits_discrete_operator_feature():
+    """Master on emits discrete operator feature."""
     X, y = _gcd_frame()
     sel = MRMR(n_workers=1, max_runtime_mins=1, quantization_nbins=8, verbose=0, fe_discrete_structural_operators_enable=True)
     sel.fit(X, y)
@@ -45,6 +49,7 @@ def test_master_on_emits_discrete_operator_feature():
 
 
 def test_master_off_suppresses_all_four_operators():
+    """Master off suppresses all four operators."""
     X, y = _gcd_frame()
     sel = MRMR(n_workers=1, max_runtime_mins=1, quantization_nbins=8, verbose=0, fe_discrete_structural_operators_enable=False)
     sel.fit(X, y)

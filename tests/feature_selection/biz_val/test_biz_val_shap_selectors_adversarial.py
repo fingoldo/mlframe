@@ -61,6 +61,7 @@ def _make(seed, n, task, n_inf=3, n_noise=9):
 
 
 def _spfs(classification, metric):
+    """Helper that spfs."""
     return get("ShapProxiedFS").instantiate(
         classification=classification,
         metric=metric,
@@ -76,6 +77,7 @@ def _spfs(classification, metric):
 
 
 def _boruta(classification, n_trials=20):
+    """Helper that boruta."""
     return get("BorutaShap").instantiate(
         importance_measure="gini",
         classification=classification,
@@ -109,6 +111,7 @@ def test_spfs_graded_target_raises_under_default_classification_true():
 @pytest.mark.slow
 @pytest.mark.parametrize("seed", SEEDS)
 def test_biz_val_spfs_binary_excludes_noise_keeps_signal(seed):
+    """Biz val spfs binary excludes noise keeps signal."""
     X, y = _make(seed, 1500, "binary")
     sel = _spfs(classification=True, metric="brier")
     sel.fit(X, pd.Series(y))
@@ -123,6 +126,7 @@ def test_biz_val_spfs_binary_excludes_noise_keeps_signal(seed):
 @pytest.mark.slow
 @pytest.mark.parametrize("seed", SEEDS)
 def test_biz_val_spfs_regression_excludes_noise_keeps_signal(seed):
+    """Biz val spfs regression excludes noise keeps signal."""
     X, y = _make(seed, 1500, "reg")
     sel = _spfs(classification=False, metric="rmse")
     sel.fit(X, pd.Series(y))
@@ -171,6 +175,7 @@ def test_biz_val_spfs_noise_exclusion_at_medium_n(task, classification, metric):
 @pytest.mark.slow
 @pytest.mark.parametrize("seed", SEEDS)
 def test_biz_val_boruta_binary_keeps_signal_rejects_noise(seed):
+    """Biz val boruta binary keeps signal rejects noise."""
     X, y = _make(seed, 1500, "binary")
     b = _boruta(classification=True)
     b.fit(X, pd.Series(y))
@@ -185,6 +190,7 @@ def test_biz_val_boruta_binary_keeps_signal_rejects_noise(seed):
 @pytest.mark.slow
 @pytest.mark.parametrize("seed", SEEDS)
 def test_biz_val_boruta_regression_keeps_signal_rejects_noise(seed):
+    """Biz val boruta regression keeps signal rejects noise."""
     X, y = _make(seed, 1500, "reg")
     b = _boruta(classification=False)
     b.fit(X, pd.Series(y))

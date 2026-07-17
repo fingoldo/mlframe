@@ -124,6 +124,7 @@ def _sel_auc(kw, df, y):
 
 
 def _has_engineered(names) -> bool:
+    """Has engineered."""
     return any(("(" in n) or ("__" in n) for n in names)
 
 
@@ -177,6 +178,7 @@ _SYNTH_FAMILIES = [
 
 
 def _build_synth(family, score_fn, thr):
+    """Build synth."""
     if family == "CONDITIONAL":
         # y = (x0 if x2>0 else x1) > 0.  Neither x0 nor x1 alone is usable; the
         # gating by x3>0 is what a conditional generator must recover.
@@ -264,6 +266,7 @@ def test_synthesis_xor3_recovered_by_triplet_synthesizer():
 #     awareness the raw filter does not have -> documented GAP.
 # ===========================================================================
 def _drop_dataset(decoy, *, seed: int = 7):
+    """Drop dataset."""
     rng = np.random.default_rng(seed)
     x_real = rng.normal(size=_N)
     y = pd.Series((x_real + 0.2 * rng.normal(size=_N) > 0).astype(int), name="y")
@@ -404,6 +407,7 @@ def test_rfecv_id_like_sequence_guard():
     from mlframe.feature_selection.wrappers import RFECV
 
     def _tree_rfecv(**kw):
+        """Tree rfecv."""
         return RFECV(
             estimator=RandomForestClassifier(n_estimators=30, random_state=0),
             cv=3,
@@ -470,6 +474,7 @@ def test_rfecv_near_dup_corr_guard():
     from mlframe.feature_selection.wrappers import RFECV
 
     def _rfecv(**kw):
+        """Helper that rfecv."""
         return RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3,
