@@ -69,21 +69,21 @@ def test_mi_correction_knob_activates_and_resets_thread_local(monkeypatch):
     and the finally resets it. Captures the state during fit by spying on the setter, so this FAILS on pre-fix code where set_mi_miller_madow was never called.
     """
     from mlframe.feature_selection.filters import MRMR
-    from mlframe.feature_selection.filters.info_theory import _state_and_dispatch as sd
+    from mlframe.feature_selection.filters.mrmr import _mrmr_class as mc
     from mlframe.feature_selection.filters.info_theory import use_mi_miller_madow
 
     seen = []
-    real_set = sd.set_mi_miller_madow
+    real_set = mc.set_mi_miller_madow
 
     def _spy(active):
+        """Record every activation call, then delegate to the real setter."""
         seen.append(bool(active))
         return real_set(active)
 
-    monkeypatch.setattr(sd, "set_mi_miller_madow", _spy)
-    # MRMR.fit imports the setter lazily from the facade, which re-exports the SAME function object; patch both the dispatch module and the facade binding.
-    import mlframe.feature_selection.filters.info_theory as it
-
-    monkeypatch.setattr(it, "set_mi_miller_madow", _spy)
+    # ``_mrmr_class.py`` does ``from ..info_theory import set_mi_miller_madow`` at module scope,
+    # binding the name INTO its own namespace -- patching the dispatch module or the facade
+    # re-export doesn't touch that local binding, so the spy must patch it directly here.
+    monkeypatch.setattr(mc, "set_mi_miller_madow", _spy)
 
     rng = np.random.default_rng(7)
     n = 500

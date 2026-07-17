@@ -66,11 +66,11 @@ class TestMRMREdgeCases:
     # test_selectors_shared.py::TestSharedInputTypes::test_numpy_array_input.
 
     def test_skip_retraining_parameter_exists(self, simple_classification_data):
-        """Test skip_retraining_on_same_shape parameter can be set."""
+        """Test skip_retraining_on_same_content parameter can be set."""
         X, y, _ = simple_classification_data
 
         # Just test that the parameter can be set without error
-        mrmr = MRMR(full_npermutations=3, baseline_npermutations=3, skip_retraining_on_same_shape=True, verbose=0, n_jobs=1)
+        mrmr = MRMR(full_npermutations=3, baseline_npermutations=3, skip_retraining_on_same_content=True, verbose=0, n_jobs=1)
 
         mrmr.fit(X, y)
         assert hasattr(mrmr, "n_features_")

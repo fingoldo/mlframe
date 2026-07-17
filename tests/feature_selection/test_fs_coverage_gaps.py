@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # §8.1 P1: _rfecv.py:530 polars TimeSeriesSplit auto-detect
 # ---------------------------------------------------------------------------
@@ -67,11 +66,11 @@ def test_mrmr_fit_cache_distinguishes_distinct_y_in_same_process():
     y_b = (X_df["f3"] > 0).astype(int).to_numpy()  # different target -> different signal column
 
     MRMR.clear_fit_cache()
-    a = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_shape=True, random_seed=0)
+    a = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_content=True, random_seed=0)
     a.fit(X_df, y_a)
     sig_a = a.signature
 
-    b = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_shape=True, random_seed=0)
+    b = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_content=True, random_seed=0)
     b.fit(X_df, y_b)
     sig_b = b.signature
     assert sig_a != sig_b, "MRMR fit-cache must distinguish suites with different y content (shape collision should not trigger a cross-suite cache hit)."
@@ -160,10 +159,12 @@ def test_custom_pre_pipelines_falls_back_to_deepcopy_when_clone_fails():
             self.state = []
 
         def fit(self, X, y=None):
+            """Record that fit was called and return self."""
             self.state.append("fit")
             return self
 
         def transform(self, X):
+            """Return X unchanged (identity transform)."""
             return X
 
     bad = _NotASklearnEstimator()

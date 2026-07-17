@@ -1,10 +1,10 @@
-from mlframe.training import FeatureSelectionConfig, OutputConfig
-
 """
 Integration tests for feature selection components.
 
 Tests MRMR, RFECV, and combined pipeline functionality.
 """
+
+from mlframe.training import FeatureSelectionConfig, OutputConfig
 
 import pytest
 import numpy as np
@@ -118,7 +118,7 @@ class TestMRMRFeatureSelection:
             verbose=0,
             max_runtime_mins=1,
             quantization_nbins=5,
-            skip_retraining_on_same_shape=True,
+            skip_retraining_on_same_content=True,
             n_workers=1,
         )
 

@@ -18,12 +18,14 @@ import os
 import psutil
 import warnings
 from collections import OrderedDict
-from typing import Any, Optional, Sequence, cast
+from typing import Any, Callable, ClassVar, Iterable, Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
 
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.feature_selection import SelectorMixin
+from sklearn.model_selection import BaseCrossValidator
 
 # Top-level helpers (histogram + fingerprint/hash + replay + chunker) live in
 # ``_mrmr_fingerprints.py``; re-imported below so the parent module and
@@ -82,9 +84,6 @@ from ..screen import _preserve_global_numpy_rng_state
 # environment. ``import polars as _pl`` at the polars-Struct-column check stays local: it is
 # genuinely conditional on an optional dependency (a caller who never passes polars input
 # should never pay for -- or require -- a polars import).
-from ..info_theory._cmi_cuda import reset_cmi_gpu_circuit_breaker
-from ..permutation import reset_mi_direct_gpu_circuit_breaker
-from .._permutation_null_pair_resident import reset_pair_maxt_gpu_circuit_breaker
 from .._param_accuracy_warnings import warn_accuracy_suboptimal_params
 from .._mrmr_degenerate import audit_degenerate_columns
 from .._meta_fe_recommender import recommend_fe_flags_by_rules
@@ -104,7 +103,6 @@ from ..info_theory import (
     use_su_normalization, use_jmim_aggregator, get_bur_lambda, use_mi_miller_madow,
     get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop, get_cpt_test,
 )
-from mlframe.training.utils import get_pandas_view_of_polars_df
 from mlframe.training.provenance import record_provenance as _record_provenance
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -127,15 +125,37 @@ def _mrmr_y_is_multioutput(y) -> bool:
     return arr.ndim >= 2 and arr.shape[-1] >= 2
 
 
+def _safe_restore(action: Callable[[], Any], description: str) -> None:
+    """Run a single ``fit()``-finally restore action, swallowing any exception it raises into a debug
+    log line instead of letting a failed restore mask the fit's real outcome (success or a genuine
+    error) or abort the remaining restores. Replaces 11 near-identical
+    ``try: ... except Exception as e: logger.debug("suppressed in _mrmr_class.py:<N>: %s", e)`` blocks
+    that each hardcoded their own source line number -- numbers which drifted out of sync with the
+    actual line on every subsequent edit, silently giving false diagnostics forever once stale.
+    ``description`` is a short human-readable label instead, which cannot go stale the same way."""
+    try:
+        action()
+    except Exception as exc:  # nosec B110 - a restore-step failure must never break/mask the fit's real outcome
+        logger.debug("mrmr: fit()-finally restore failed (%s): %r", description, exc, exc_info=True)
+
+
 from ._mrmr_class_shared import _mrmr_y_columns  # noqa: F401 -- re-exported for callers importing from here
 
 from ._mrmr_class_config import _MRMRConfigMixin
 from ._mrmr_class_transform import _MRMRTransformMixin
 from ._mrmr_class_fit_helpers import _MRMRFitHelpersMixin
 
-# TransformerMixin (not SelectorMixin): MRMR's transform can add engineered features (_engineered_features_, FE pair-composites),
-# so it is not a pure mask-based selector and SelectorMixin's mask-only contract would be wrong here.
-class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixin, _MRMRFitHelpersMixin):
+# SelectorMixin ADDED (finding #19, 2026-07-17) purely for the isinstance(x, SelectorMixin) contract and its
+# ``inverse_transform``/``get_feature_names_out`` conveniences -- MRMR's OWN ``transform()`` (defined directly on
+# this class body, see its own docstring below) always wins regardless of MRO since an own-class-body method
+# beats any inherited one, so ``transform()`` still returns the FE-engineered columns (not SelectorMixin's
+# mask-only slice). ``get_feature_names_out``/``get_support`` (on ``_MRMRTransformMixin``) still win over
+# SelectorMixin's versions via MRO ordering below.
+# MRO ordering is load-bearing: SelectorMixin itself subclasses TransformerMixin, so (a) SelectorMixin MUST precede
+# TransformerMixin in this tuple (else C3 linearization raises TypeError at class-definition time), and (b)
+# ``_MRMRTransformMixin`` MUST precede SelectorMixin so its get_feature_names_out()/get_support() resolve first
+# via MRO -- confirmed by test_mrmr_selectormixin_mro.py pinning both facts.
+class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, _MRMRConfigMixin, _MRMRFitHelpersMixin):
     """Finds subset of features having highest impact on target and least redundancy.
 
     Parameters
@@ -198,7 +218,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
     # do not leak; ``MRMR._FIT_CACHE.clear()`` between suites still drains the lot. Cache hit: replay all
     # fitted attributes onto ``self`` and return early; constructor params are NEVER overwritten (the key
     # already includes the params signature, so a hit guarantees matching state).
-    _FIT_CACHE: "OrderedDict[tuple, MRMR]" = OrderedDict()  # noqa: RUF012 -- intentional shared class-level LRU cache, not a per-instance mutable-default bug
+    _FIT_CACHE: "ClassVar[OrderedDict[tuple, MRMR]]" = OrderedDict()  # noqa: RUF012 -- intentional shared class-level LRU cache, not a per-instance mutable-default bug
 
     # Fast-search sub-knob overrides applied for the duration of a fit when ``fe_fast_search=True``.
     # Each entry is (attr, fast_value). The override is applied ONLY when the current attr value still
@@ -354,11 +374,12 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         additional_rfecv_kwargs: dict | None = None,
         # performance
         extra_x_shuffling: bool = True,
-        dtype=np.int32,
-        # ``None`` (legacy default) triggers process-stable but seedable random_state derivation
-        # downstream (see ``_resolve_target_prefix``: uses pid ^ id(self) instead of touching the
-        # numpy global RNG). For bit-exact reproducibility across runs / mlflow hash stability, pass
-        # an explicit integer seed.
+        dtype: type = np.int32,
+        # DEPRECATED alias for ``random_state`` (finding #17) -- kept for backward compatibility only;
+        # prefer ``random_state``. ``None`` (legacy default) triggers process-stable but seedable
+        # random_state derivation downstream (see ``_resolve_target_prefix``: uses pid ^ id(self)
+        # instead of touching the numpy global RNG). For bit-exact reproducibility across runs / mlflow
+        # hash stability, pass an explicit integer seed via ``random_state``.
         random_seed: int | None = None,
         use_gpu: bool = False,
         # Candidate-MI evaluation parallelism for the screen_predictors greedy loop (joblib
@@ -1063,9 +1084,11 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         ndigits: int = 5,
         parallel_kwargs: dict | None = None,
         # CV
-        cv: object | int | None = 3,
+        cv: int | BaseCrossValidator | Iterable | None = 3,
         cv_shuffle: bool = False,
         # service
+        # Canonical seed parameter (sklearn's name, finding #17). See ``random_seed`` above for the
+        # deprecated alias and ``_effective_random_seed`` for the resolution order.
         random_state: int | None = None,
         # sklearn-familiar auto-resolving parallelism knob (``-1`` -> physical cpu_count, see
         # ``__init__``'s resolution below). Drives CPU sub-helpers ONLY (permutation-null MI batches,
@@ -1079,8 +1102,6 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # attribute assignment alike; params are re-read at every fit call) -- so it never replays a stale fit for a changed
         # target or changed settings. Both layers honour this: the in-object identity skip and the process-wide _FIT_CACHE.
         skip_retraining_on_same_content: bool = True,
-        # Deprecated alias for ``skip_retraining_on_same_content`` (the old name implied shape-only keying, which was always a misnomer). Pass ``None`` to defer to the new name; a non-None value overrides it with a DeprecationWarning.
-        skip_retraining_on_same_shape: bool | None = None,
         # Cardinality cutoff for the confirmation step. ``None`` (default) computes
         # ``quantization_nbins ** interactions_max_order * 2`` (20 for the defaults). Pin to 50 for legacy behaviour.
         # Conservative default skips high-cardinality conditioning sets where permutation-based confirmation does not
@@ -1158,10 +1179,11 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # correlation floor that admits composite/residual targets (highly correlated with raw y) while refusing
         # an unrelated target on the same X. The threshold is benched in _benchmarks/bench_identity_cache_ycorr.py.
         mrmr_identity_cache_ycorr_threshold: float = 0.5,
-        # When True, ``fit(groups=...)`` raises ``NotImplementedError`` instead of emitting the warn-only "MRMR does not consume groups" UserWarning. Use this in production pipelines where silently
-        # ignoring groups would mask a real correctness gap (cross-group leakage in MI estimation on panel / user-session / sliding-window data). Default False keeps the legacy warn behaviour for
+        # When True (the default, finding #20), ``fit(groups=...)`` raises ``NotImplementedError`` instead of emitting the warn-only "MRMR does not consume groups" UserWarning -- matching
+        # ``sample_weight``, which is ALWAYS consumed rather than silently dropped; passing ``groups=`` without ``group_aware_mi=True`` is equally a correctness gap (cross-group leakage in MI
+        # estimation on panel / user-session / sliding-window data) and should not silently degrade. Set ``strict_groups=False`` to opt back into the legacy warn-only group-naive fallback for
         # ad-hoc callers who already know the limitation and want MI computed per-row anyway.
-        strict_groups: bool = False,
+        strict_groups: bool = True,
         # Group-aware relevance MI. When True and ``fit(groups=...)`` is supplied, MRMR ranks features by the per-group estimator
         # ``I(X;Y|G) = Σ_g w_g·MM(I_g(X;Y))`` instead of the global ``MI(X;Y)``, so a feature predictive only through
         # between-group LEVEL differences (high global MI, ~0 within-group -- leakage that will not generalise to unseen groups)
@@ -2860,24 +2882,25 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # assert isinstance(estimator, (BaseEstimator,))
 
         # sklearn contract: ``__init__`` MUST store every constructor argument UNMODIFIED so ``get_params``
-        # round-trips and ``clone`` is a true copy. ``random_state``/``random_seed`` reconciliation and the
-        # deprecated ``skip_retraining_on_same_shape`` alias are therefore resolved LAZILY at fit time
-        # (``_effective_random_seed`` + the fit-entry save/restore of ``skip_retraining_on_same_content``),
-        # NOT here -- mutating the locals before ``store_params_in_object`` made ``get_params`` echo the
-        # promoted value (``random_seed`` showing ``random_state``) and re-emit the deprecation warning on
-        # every ``clone`` of even a default-constructed estimator. The only thing done at construction time
+        # round-trips and ``clone`` is a true copy. ``random_state``/``random_seed`` reconciliation is
+        # therefore resolved LAZILY at fit time (``_effective_random_seed``), NOT here -- mutating the
+        # locals before ``store_params_in_object`` made ``get_params`` echo the promoted value
+        # (``random_state`` showing ``random_seed``) and re-emit the deprecation warning on every
+        # ``clone`` of even a default-constructed estimator. The only thing done at construction time
         # is to WARN when the user actually passed a conflicting / deprecated argument.
+        # ``random_state`` (sklearn's name) is canonical; ``random_seed`` is a deprecated alias kept
+        # for backward compatibility (finding #17) -- see ``_effective_random_seed``.
         if random_state is not None and random_seed is not None and random_seed != random_state:
             warnings.warn(
-                "MRMR: both random_seed and random_state were set to different values; "
-                f"using random_seed={random_seed} and ignoring random_state={random_state}.",
+                "MRMR: both random_seed (deprecated) and random_state were set to different "
+                f"values; using random_state={random_state} and ignoring random_seed={random_seed}. "
+                "Prefer random_state.",
                 DeprecationWarning,
                 stacklevel=2,
             )
-        if skip_retraining_on_same_shape is not None:
+        elif random_seed is not None and random_state is None:
             warnings.warn(
-                "MRMR: skip_retraining_on_same_shape is deprecated and misnamed (the fit cache keys on "
-                "CONTENT, not shape); use skip_retraining_on_same_content instead.",
+                "MRMR: random_seed is deprecated, use random_state instead (sklearn's naming).",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -2891,12 +2914,12 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # repr because it equals its default, while ``n_jobs`` shows RESOLVED (-1 -> cpu_count) and is easily misread as
         # "MI runs on n_jobs threads". n_jobs only drives CPU sub-helpers (permutation-null MI, wide-frame nbins edges),
         # each self-gated (pair-search forces serial under GPU-strict). Surface n_workers so the parallelism is unambiguous.
-        r = super().__repr__(N_CHAR_MAX=N_CHAR_MAX)
+        r: str = super().__repr__(N_CHAR_MAX=N_CHAR_MAX)
         if "n_workers=" not in r and r.endswith(")"):
             _inner = r[:-1]
             _sep = "" if _inner.endswith("(") else ", "
             r = f"{_inner}{_sep}n_workers={getattr(self, 'n_workers', 1)})"
-        return str(r)
+        return r
 
     # Constructor-param validation allow-lists. Carved VERBATIM into the leaf module
     # ``_mrmr_param_constants.py`` (no class refs -> no cycle) and re-bound here as class
@@ -2987,7 +3010,14 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         self.__dict__.update(state)
 
     @hygienic_fit
-    def fit(self, X: pd.DataFrame | np.ndarray | Any, y: pd.DataFrame | pd.Series | np.ndarray | Any, groups: pd.Series | np.ndarray = None, sample_weight: np.ndarray | pd.Series | None = None, **fit_params):
+    def fit(
+        self,
+        X: pd.DataFrame | np.ndarray | Any,
+        y: pd.DataFrame | pd.Series | np.ndarray | Any,
+        groups: pd.Series | np.ndarray | None = None,
+        sample_weight: np.ndarray | pd.Series | None = None,
+        **fit_params,
+    ):
         """Public ``fit`` wrapper. The body (``_fit_impl``) is run inside a try / finally so the
         temporary target columns injected into a caller-supplied pandas frame are always dropped,
         even if screening / cat-FE / discretization raises. Pre-fix code dropped only on success,
@@ -3010,100 +3040,14 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         Wrapper / _fit_impl forwarding asymmetry: ``sample_weight`` is CONSUMED at this wrapper level (via ``_maybe_resample_for_sample_weight`` before the ``_fit_impl`` call); ``groups`` is FORWARDED into ``_fit_impl`` which then silently drops them. A future refactor moving ``groups`` consumption into ``_fit_impl`` must also remove or downgrade the wrapper-level warning, otherwise the two ends would emit duplicate / contradictory messages.
 
         Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
-        # GPU circuit-breaker re-arm (2026-07-09 fix, MRMR audit finding #31): the CMI / mi_direct /
-        # pair-maxT GPU breakers are process-global and, once tripped by one launch fault, permanently
-        # disable GPU for the rest of the process -- silently degrading every LATER fit in a long-lived
-        # worker (notebook, service), not just the one that hit the transient fault. Re-arming at the
-        # start of each fit() bounds the cost of a genuinely-broken GPU to one extra failed attempt per
-        # fit (the breaker still protects WITHIN a fit from thousands of repeated attempts), while a
-        # transient fault (contention, a momentary driver hiccup) no longer sticks forever.
-        try:
-            reset_cmi_gpu_circuit_breaker()
-        except Exception:  # nosec B110 - optional GPU module; re-arm is a resilience nicety, not a hard dependency
-            pass
-        try:
-            reset_mi_direct_gpu_circuit_breaker()
-        except Exception:  # nosec B110 - see above
-            pass
-        try:
-            reset_pair_maxt_gpu_circuit_breaker()
-        except Exception:  # nosec B110 - see above
-            pass
-        self.groups_ignored_ = False
-        if groups is not None and not getattr(self, "group_aware_mi", False):
-            if getattr(self, "strict_groups", False):
-                raise NotImplementedError(
-                    "MRMR.fit received groups but group_aware_mi=False and strict_groups=True. Set "
-                    "group_aware_mi=True to consume groups via per-group I(X;Y|G) MI, set "
-                    "strict_groups=False to accept the warn-only group-naive fallback, or pass groups=None."
-                )
-            # Surfaced into fit metadata (groups_ignored_) so a downstream report can flag that MI was
-            # estimated group-naively despite a group-aware split.
-            self.groups_ignored_ = True
-            warnings.warn(
-                "MRMR.fit received groups but the current implementation does NOT consume them; "
-                "MI is estimated per-row. For grouped MI estimation, wrap MRMR with a per-group "
-                "selector and aggregate manually. Pass groups=None to silence this warning, or set "
-                "strict_groups=True to raise instead.",
-                UserWarning,
-                stacklevel=2,
-            )
+        # finding #2 decomposition: GPU-breaker re-arm, groups contract check, and polars
+        # validate+bridge each moved verbatim to a named helper on _MRMRFitHelpersMixin (see their
+        # docstrings for the original rationale) -- zero behavior change, pure extraction.
+        self._rearm_gpu_circuit_breakers()
+        self._check_groups_contract(groups)
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
-
-        # ---- polars input-validation contract ----------------------------------------------------
-        # Independent of the FE bridge below (which only fires when FE is enabled): a polars LazyFrame
-        # is auto-collected (with a warning, since that materialises the frame the user kept lazy), and
-        # a polars Struct column is rejected up front (it has no scalar MI interpretation; flattening is
-        # the caller's decision, not a silent one). Runs for ALL polars inputs regardless of fe_max_steps.
-        if str(type(X).__module__).startswith("polars"):
-            if type(X).__name__ == "LazyFrame":
-                warnings.warn(
-                    "MRMR.fit received a polars LazyFrame; auto-collecting it to a DataFrame before "
-                    "fitting (this materialises the lazy plan in memory). Collect explicitly to control "
-                    "when/where materialisation happens.",
-                    UserWarning, stacklevel=2,
-                )
-                X = X.collect()  # type: ignore[union-attr]
-            if type(X).__name__ == "DataFrame":
-                try:
-                    import polars as _pl
-                    _struct_cols = [c for c, dt in zip(X.columns, X.dtypes) if dt == _pl.Struct]  # type: ignore[union-attr]
-                except Exception as exc:
-                    logger.debug("mrmr: polars Struct-column detection failed; assuming none: %r", exc, exc_info=True)
-                    _struct_cols = []
-                if _struct_cols:
-                    raise ValueError(
-                        f"MRMR.fit: polars Struct column(s) {_struct_cols} are not supported -- a Struct "
-                        f"has no scalar value for MI estimation. Unnest/flatten them before fitting."
-                    )
-
-        # ---- polars FE bridge (the OPTIMAL path for polars FE -- do NOT "optimise away") -------------
-        # The FE families' decision bodies are pandas-native. This bridges a polars input to an Arrow-backed
-        # ZERO-COPY pandas VIEW (get_pandas_view_of_polars_df -- numeric/bool/string columns share the Arrow
-        # buffers; only categoricals get a small codes rebuild), so FE runs with NO whole-frame copy at any size.
-        # This is already optimal: a measured bench (feature_selection/_benchmarks/bench_fe_seam_view_vs_plane.py)
-        # showed one contiguous plane feeding the batched MI kernel beats per-column views 8.65x at equal memory,
-        # and the Arrow view IS that single materialisation, not an extra copy on top. Per-family native handling
-        # (the format-agnostic seam in _fit_impl_core / _fe_frame_ops) exists as a fallback / eventual native path,
-        # but the bridge is the fast path and stays the default -- there is nothing to gain by removing it.
-        # Fires whenever ANY FE stage will run (fe_max_steps>=1 OR any fe_*_enable flag), so the edge where an
-        # orth-FE family is enabled with fe_max_steps=0 is covered too; with ALL FE off the native-polars
-        # screening path is preserved (no view built). polars stays the user's primary format.
-        _fe_will_run = int(getattr(self, "fe_max_steps", 0) or 0) >= 1 or any(getattr(self, _k, False) for _k in type(self)._fe_enable_attr_names())
-        if _fe_will_run and str(type(X).__module__).startswith("polars"):
-            if type(X).__name__ in ("DataFrame", "LazyFrame"):
-                try:
-                    _src = X.collect() if type(X).__name__ == "LazyFrame" else X  # type: ignore[union-attr]
-                    X = get_pandas_view_of_polars_df(_src)  # type: ignore[arg-type]
-                    if str(type(y).__module__).startswith("polars"):
-                        y = y.to_pandas()  # type: ignore[union-attr]
-                except Exception as _pl_exc:  # fall through to the native path on any bridge failure
-                    warnings.warn(
-                        f"MRMR.fit: polars->pandas FE bridge failed ({_pl_exc!r}); proceeding on the "
-                        f"native path -- feature engineering may be skipped for this polars input.",
-                        UserWarning, stacklevel=2,
-                    )
+        X, y = self._validate_and_bridge_polars_input(X, y)
 
         # ACCURACY-CAVEAT WARNING. Surface (once) any parameter value that is valid but KNOWN to degrade
         # selection accuracy (an explicit opt-out of an on-by-default accuracy mechanism, or a numeric
@@ -3372,7 +3316,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             try:
                 _Xarr = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
                 _yarr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
-                _jmim_on, _syn_info = detect_synergy(_Xarr, _yarr, random_seed=int(getattr(self, "random_seed", 0) or 0))
+                _jmim_on, _syn_info = detect_synergy(_Xarr, _yarr, random_seed=int(self._effective_random_seed() or 0))
                 self._synergy_auto_decision_ = {"jmim_engaged": bool(_jmim_on), "detector_failed": False, **_syn_info}
                 logger.info("[MRMR] redundancy_aggregator='auto' -> synergy detector: %s", self._synergy_auto_decision_)
             except Exception as _exc:
@@ -3478,18 +3422,22 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 logger.debug("mrmr: fast-search profile application failed; using unmodified knobs: %r", exc, exc_info=True)
                 _fast_search_saved = {}
         # LAZY ctor-alias reconciliation (sklearn ``get_params`` stays byte-identical to what the user
-        # passed). The constructor no longer promotes ``random_state`` -> ``random_seed`` nor folds the
-        # deprecated ``skip_retraining_on_same_shape`` into ``skip_retraining_on_same_content``; that is
+        # passed). The constructor no longer promotes ``random_state`` -> ``random_seed``; that is
         # resolved HERE and the EFFECTIVE value is written onto the public attr for the fit duration so
         # every reader (this module + _fit_impl_core's skip check + the cross-file ``self.random_seed``
         # uses) sees it, then the original stored value is restored in ``finally`` (saved == _UNSET means
-        # "not overridden, leave alone"). ``skip_retraining_on_same_shape`` non-None wins (explicit legacy
-        # intent), mirroring the pre-fix folding.
+        # "not overridden, leave alone").
         _eff_seed = self._effective_random_seed()
         _orig_random_seed = _UNSET
         if _eff_seed != getattr(self, "random_seed", None):
             _orig_random_seed = getattr(self, "random_seed", None)
             self.random_seed = _eff_seed
+        # PICKLE-ONLY migration (NOT a ctor alias -- the ctor no longer accepts
+        # ``skip_retraining_on_same_shape`` at all, see finding #15): an already-pickled MRMR predating
+        # the content/shape rename can still carry the old attribute verbatim in its ``__dict__``
+        # (``__setstate__`` never removes it), so a genuinely-legacy saved model's explicit
+        # True/False choice is still honoured here rather than silently reset to the current default.
+        # A freshly-constructed instance never has this attribute, so this is a no-op for it.
         _orig_skip_content = _UNSET
         _skip_shape = getattr(self, "skip_retraining_on_same_shape", None)
         if _skip_shape is not None:
@@ -3521,24 +3469,15 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 int(_fit_shape[1]) if _fit_shape is not None and len(_fit_shape) > 1 else None,
             )
             try:
-                with _preserve_global_numpy_rng_state(getattr(self, "random_seed", None)):
+                with _preserve_global_numpy_rng_state(self._effective_random_seed()):
                     result = self._fit_impl(X, y, groups, **fit_params)
             finally:
                 _clear_auto_fit_n()
             try:
                 _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
-                # 1 fix (loop iter 6): read ``random_seed``
-                # (the documented public API) instead of ``random_state``. The
-                # ctor at mrmr.py:641 promotes ``random_state -> random_seed``
-                # but NOT the reverse, so when the user passed the documented
-                # ``random_seed=42`` API directly, ``self.random_state`` stayed
-                # at its default ``None`` and the provenance trail recorded
-                # ``seed=None`` even though the actual kernel seed was 42.
-                # Reading ``random_seed`` works for both APIs because the ctor
-                # promotion guarantees it's populated from either source.
-                _seed_resolved = getattr(self, "random_seed", None)
-                if _seed_resolved is None:
-                    _seed_resolved = getattr(self, "random_state", None)
+                # ``_effective_random_seed`` resolves both the canonical ``random_state`` and the
+                # deprecated ``random_seed`` alias, whichever is set (see finding #17).
+                _seed_resolved = self._effective_random_seed()
                 _seed_for_provenance = int(_seed_resolved) if _seed_resolved is not None else None
                 _record_provenance(
                     getattr(self, "_provenance_sink_", None),
@@ -3603,108 +3542,89 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             # hardcoded literals: an inner fit must leave an outer fit's toggles intact. Mirrors the
             # _prev_* restore in _evaluation_driver.py's worker path.
             _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0 = _toggles_snapshot
-            try:
-                set_su_normalization(_su0)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3574: %s", e)
-                pass
-            try:
-                set_jmim_aggregator(_jmim0)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3578: %s", e)
-                pass
-            try:
-                set_bur_lambda(_bur0)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3582: %s", e)
-                pass
-            try:
-                set_mi_miller_madow(_mm0)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3586: %s", e)
-                pass
-            try:
-                _set_group_mi(None)
-            except Exception:  # nosec B110 - optional dependency import guard
-                pass
-            try:
+
+            def _restore_synergy_bonuses() -> None:
+                """Restore RelaxMRMR/PID/CMI-perm/CPT thread-locals to their fit-entry snapshot."""
                 set_relaxmrmr_alpha(_relax0)
                 set_pid_synergy_bonus(_pid0)
                 set_cmi_perm_stop(_cmi0[0], _cmi0[1], _cmi0[2])
                 set_cpt_test(_cpt0[0], _cpt0[1])
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3597: %s", e)
-                pass
-            # reset DCD thread-local and restore
-            # cluster_aggregate_enable to its constructor value (Critic2 fix:
-            # missing reset in v1 plan).
-            try:
-                _set_dcd_active(False)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3604: %s", e)
-                pass
-            try:
-                self.cluster_aggregate_enable = _orig_cluster_aggregate_enable
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3608: %s", e)
-                pass
+
+            _safe_restore(lambda: set_su_normalization(_su0), "SU normalization thread-local")
+            _safe_restore(lambda: set_jmim_aggregator(_jmim0), "JMIM aggregator thread-local")
+            _safe_restore(lambda: set_bur_lambda(_bur0), "BUR lambda thread-local")
+            _safe_restore(lambda: set_mi_miller_madow(_mm0), "Miller-Madow thread-local")
+            _safe_restore(lambda: _set_group_mi(None), "group-aware MI thread-local")
+            _safe_restore(_restore_synergy_bonuses, "RelaxMRMR/PID/CMI-perm/CPT synergy thread-locals")
+            # reset DCD thread-local and restore cluster_aggregate_enable to its constructor value
+            # (Critic2 fix: missing reset in v1 plan).
+            _safe_restore(lambda: _set_dcd_active(False), "DCD active thread-local")
+            _safe_restore(lambda: setattr(self, "cluster_aggregate_enable", _orig_cluster_aggregate_enable), "cluster_aggregate_enable")
             # Restore the lazily-reconciled ctor aliases so ``get_params`` / ``clone`` see the unmodified
             # user-supplied values (sklearn round-trip contract). ``_UNSET`` => never overridden.
             if _orig_random_seed is not _UNSET:
-                self.random_seed = _orig_random_seed
+                # cast: narrowed by the is-not-_UNSET sentinel check above; mypy can't track object-identity narrowing.
+                self.random_seed = cast(Optional[int], _orig_random_seed)
             if _orig_skip_content is not _UNSET:
-                self.skip_retraining_on_same_content = _orig_skip_content  # type: ignore[assignment]  # narrowed by the is-not-_UNSET sentinel check above; mypy can't track object-identity narrowing
+                self.skip_retraining_on_same_content = cast(bool, _orig_skip_content)
             # restore the fast-search profile overrides (constructor-arg stability).
             # Restore the default screen-subsample knobs to their pre-fit (constructor) values so
             # clone / pickle / repeated-fit see unchanged constructor-arg semantics.
             if _default_screen_saved:
+
+                def _make_default_screen_restorer(_k: str, _v: Any) -> Callable[[], None]:
+                    """Bind (_k, _v) into a niladic restorer so the loop variables are captured by value, not by reference."""
+                    return lambda: setattr(self, _k, _v)
+
                 for _k, _v in _default_screen_saved.items():
-                    try:
-                        setattr(self, _k, _v)
-                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                        logger.debug("suppressed in _mrmr_class.py:3623: %s", e)
-                        pass
+                    _safe_restore(_make_default_screen_restorer(_k, _v), f"default-screen-subsample knob {_k!r}")
             if _fast_search_saved:
-                for _k, _v in _fast_search_saved.items():
-                    try:
-                        if _k == "__fdcap__":
-                            if _v is None:
-                                clear_fourier_detect_cap()
-                            else:
-                                set_fourier_detect_cap(_v)
-                        elif _k.startswith("__env__"):
-                            _envk = _k[len("__env__") :]
-                            if _v is None:
-                                os.environ.pop(_envk, None)
-                            else:
-                                os.environ[_envk] = _v
+
+                def _restore_fast_search_knob(_k: str, _v: Any) -> None:
+                    """Restore one saved fast-search knob (plain attr, Fourier-detect cap, or an os.environ entry)."""
+                    if _k == "__fdcap__":
+                        if _v is None:
+                            clear_fourier_detect_cap()
                         else:
-                            setattr(self, _k, _v)
-                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                        logger.debug("suppressed in _mrmr_class.py:3643: %s", e)
-                        pass
-            # restore any fe_*_enable flags fe_auto flipped ON, so the
-            # constructor-arg semantics are stable across fits / clone / pickle.
-            try:
+                            set_fourier_detect_cap(_v)
+                    elif _k.startswith("__env__"):
+                        _envk = _k[len("__env__") :]
+                        if _v is None:
+                            os.environ.pop(_envk, None)
+                        else:
+                            os.environ[_envk] = _v
+                    else:
+                        setattr(self, _k, _v)
+
+                def _make_fast_search_restorer(_k: str, _v: Any) -> Callable[[], None]:
+                    """Bind (_k, _v) into a niladic restorer so the loop variables are captured by value, not by reference."""
+                    return lambda: _restore_fast_search_knob(_k, _v)
+
+                for _k, _v in _fast_search_saved.items():
+                    _safe_restore(_make_fast_search_restorer(_k, _v), f"fast-search knob {_k!r}")
+
+            def _restore_fe_auto_flags() -> None:
+                """Restore every fe_*_enable flag fe_auto flipped ON back to its pre-fit value."""
                 for _flag, _orig in _fe_auto_restore.items():
                     setattr(self, _flag, _orig)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _mrmr_class.py:3650: %s", e)
-                pass
+
+            # restore any fe_*_enable flags fe_auto flipped ON, so the
+            # constructor-arg semantics are stable across fits / clone / pickle.
+            _safe_restore(_restore_fe_auto_flags, "fe_auto-flipped fe_*_enable flags")
             frame = getattr(self, "_pandas_frame_for_target_cleanup", None)
             names = getattr(self, "_target_names_for_cleanup", None)
             if frame is not None and names:
                 # Drop only columns that actually exist (success path already removed them).
                 present = [c for c in names if c in frame.columns]
                 if present:
-                    try:
-                        # Restore the caller's frame in place (it stored this exact object for cleanup); option_context
-                        # silences the conservative SettingWithCopy heuristic on a possibly-viewed frame, no copy.
+                    # Restore the caller's frame in place (it stored this exact object for cleanup); option_context
+                    # silences the conservative SettingWithCopy heuristic on a possibly-viewed frame, no copy.
+                    def _drop_target_cleanup_columns() -> None:
+                        """Drop the temporary targ_* columns this fit injected into the caller's own frame."""
                         with pd.option_context("mode.chained_assignment", None):
                             frame.drop(columns=present, inplace=True)
-                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                        logger.debug("suppressed in _mrmr_class.py:3663: %s", e)
-                        pass
+
+                    _safe_restore(_drop_target_cleanup_columns, "target-cleanup column drop on caller frame")
             self._pandas_frame_for_target_cleanup = None
             self._target_names_for_cleanup = None
 
