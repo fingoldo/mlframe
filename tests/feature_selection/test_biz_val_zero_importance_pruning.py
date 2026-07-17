@@ -21,6 +21,7 @@ from mlframe.feature_selection.zero_importance_pruning import iterative_zero_imp
 
 
 def _make_overparameterized_regression(n: int, n_signal: int, n_noise: int, seed: int):
+    """Make overparameterized regression."""
     rng = np.random.default_rng(seed)
     X_signal = rng.normal(size=(n, n_signal))
     beta = rng.normal(size=n_signal) * 3.0
@@ -32,6 +33,7 @@ def _make_overparameterized_regression(n: int, n_signal: int, n_noise: int, seed
 
 
 def test_biz_val_zero_importance_pruning_shrinks_features_and_improves_r2():
+    """Biz val zero importance pruning shrinks features and improves r2."""
     X, y = _make_overparameterized_regression(n=150, n_signal=3, n_noise=40, seed=1)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=0)
     cv = KFold(n_splits=4, shuffle=True, random_state=0)
@@ -50,6 +52,7 @@ def test_biz_val_zero_importance_pruning_shrinks_features_and_improves_r2():
 
 
 def test_zero_importance_pruning_never_returns_empty_feature_set():
+    """Zero importance pruning never returns empty feature set."""
     X, y = _make_overparameterized_regression(n=100, n_signal=2, n_noise=10, seed=2)
     cv = KFold(n_splits=3, shuffle=True, random_state=0)
     estimator = RandomForestRegressor(n_estimators=50, random_state=0)
@@ -58,6 +61,7 @@ def test_zero_importance_pruning_never_returns_empty_feature_set():
 
 
 def test_zero_importance_pruning_keeps_all_when_nothing_is_zero_importance():
+    """Zero importance pruning keeps all when nothing is zero importance."""
     rng = np.random.default_rng(3)
     n = 200
     X = pd.DataFrame(rng.normal(size=(n, 3)), columns=["a", "b", "c"])
@@ -101,6 +105,7 @@ def _held_out_permutation_importance_fn(Xval: pd.DataFrame, yval: np.ndarray):
     training-set overfit artifact that also inflates permutation importance for high-cardinality noise)."""
 
     def _importance_fn(fitted_estimator, X_round: pd.DataFrame, y_round: np.ndarray) -> np.ndarray:
+        """Importance fn."""
         result = permutation_importance(fitted_estimator, Xval[X_round.columns], yval, n_repeats=30, random_state=0)
         return np.asarray(result.importances_mean)
 
@@ -108,6 +113,7 @@ def _held_out_permutation_importance_fn(Xval: pd.DataFrame, yval: np.ndarray):
 
 
 def test_biz_val_zero_importance_pruning_permutation_importance_fn_beats_native_on_high_cardinality_noise():
+    """Biz val zero importance pruning permutation importance fn beats native on high cardinality noise."""
     X, y = _make_cardinality_bias_regression(n=300, seed=7)
     Xtr, Xval, ytr, yval = train_test_split(X, y, test_size=0.3, random_state=0)
     cv = KFold(n_splits=3, shuffle=True, random_state=0)

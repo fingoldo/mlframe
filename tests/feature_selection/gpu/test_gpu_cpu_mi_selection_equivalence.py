@@ -37,6 +37,7 @@ cp = pytest.importorskip("cupy")
 
 
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -49,6 +50,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 
 
 def _free_gpu() -> None:
+    """Free gpu."""
     try:
         cp.get_default_memory_pool().free_all_blocks()
         cp.get_default_pinned_memory_pool().free_all_blocks()
@@ -126,6 +128,7 @@ def test_compute_mi_from_classes_cuda_matches_cpu(nbins_x, nbins_y):
 # Layer 2: end-to-end MRMR selection identity, forced-CPU vs forced-GPU.
 # ---------------------------------------------------------------------------
 def _fx_reg_ratio(seed, n):
+    """Fx reg ratio."""
     rng = np.random.default_rng(seed)
     a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
     y = 0.30 * (a**2) / b + 0.01 * e
@@ -133,6 +136,7 @@ def _fx_reg_ratio(seed, n):
 
 
 def _fx_reg_two_pairs(seed, n):
+    """Fx reg two pairs."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
@@ -144,6 +148,7 @@ def _fx_reg_two_pairs(seed, n):
 
 
 def _fx_reg_mixed(seed, n):
+    """Fx reg mixed."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     b = rng.uniform(1, 5, n)
@@ -157,6 +162,7 @@ def _fx_reg_mixed(seed, n):
 
 
 def _fx_clf_binary(seed, n):
+    """Fx clf binary."""
     rng = np.random.default_rng(seed)
     a, b, c, e = (rng.uniform(0, 1, n) for _ in range(4))
     logit = 2.0 * a - 1.5 * b + 0.8 * (a * c)
@@ -334,6 +340,7 @@ def test_hw_aware_fallback_probes_capability_once(monkeypatch):
     real_summary = gd.gpu_capability_summary
 
     def _counting_summary(device_id=0):
+        """Counting summary."""
         calls["n"] += 1
         return real_summary(device_id)
 

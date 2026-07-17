@@ -17,6 +17,7 @@ from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_res
 
 
 def _gpu_available() -> bool:
+    """Gpu available."""
     try:
         return cp.cuda.runtime.getDeviceCount() >= 1
     except Exception:  # pragma: no cover - no driver / no GPU
@@ -32,6 +33,7 @@ from mlframe.feature_selection.filters._fe_gpu_batch._executor import gpu_fe_bat
 
 @pytest.fixture(autouse=True)
 def _clear_resident_cache():
+    """Clear resident cache."""
     clear_fe_resident_operands()
     cp.get_default_memory_pool().free_all_blocks()
     yield
@@ -40,6 +42,7 @@ def _clear_resident_cache():
 
 
 def _make_two_candidate_batches(n=4000, k=20, nbins=10, seed=1):
+    """Make two candidate batches."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1, 5, n)
     y = np.searchsorted(np.quantile(a, np.linspace(0, 1, nbins + 1))[1:-1], a).astype(np.int64)
@@ -49,11 +52,13 @@ def _make_two_candidate_batches(n=4000, k=20, nbins=10, seed=1):
 
 
 def _count_asarray_calls_matching(monkeypatch, target_values):
+    """Count asarray calls matching."""
     calls = {"n": 0}
     orig = cp.asarray
     target = np.ascontiguousarray(target_values)
 
     def spy(a, *args, **kw):
+        """Helper that spy."""
         if isinstance(a, np.ndarray) and a.shape == target.shape and a.dtype == target.dtype and np.array_equal(a, target):
             calls["n"] += 1
         return orig(a, *args, **kw)
@@ -64,6 +69,7 @@ def _count_asarray_calls_matching(monkeypatch, target_values):
 
 @pytest.mark.gpu
 def test_y_uploaded_once_across_two_candidate_batches(monkeypatch):
+    """Y uploaded once across two candidate batches."""
     X1, X2, y, nbins = _make_two_candidate_batches(seed=2)
     y_i64 = np.ascontiguousarray(y, dtype=np.int64)
     y_calls = _count_asarray_calls_matching(monkeypatch, y_i64)
@@ -79,6 +85,7 @@ def test_y_uploaded_once_across_two_candidate_batches(monkeypatch):
 
 @pytest.mark.gpu
 def test_resident_y_matches_cpu_reference_and_is_bit_identical_to_disabled_cache(monkeypatch):
+    """Resident y matches cpu reference and is bit identical to disabled cache."""
     X1, X2, y, nbins = _make_two_candidate_batches(seed=6, n=3000, k=12)
 
     clear_fe_resident_operands()

@@ -27,6 +27,7 @@ NB = 10
 
 
 def _binned(n, signal, seed):
+    """Helper that binned."""
     rng = np.random.default_rng(seed)
     x = rng.integers(0, NB, n).astype(np.int32)
     if signal > 0:
@@ -37,6 +38,7 @@ def _binned(n, signal, seed):
 
 
 def _md(data, nbins, **kw):
+    """Call mi_direct on column pair (0,1) of data with the given nbins/kwargs, for the analytic-null gate tests."""
     return mi_direct(
         data,
         x=(0,),
@@ -103,6 +105,7 @@ def test_occupancy_safe_condition():
 
 def test_analytic_formula_miller_madow():
     # null_mean = (Bx-1)(By-1)/(2N); p in [0,1]; df<=0 / mi<=0 -> non-significant.
+    """Analytic formula miller madow."""
     nm, p = analytic_mi_null(0.01, 100_000, 10, 10)
     assert nm == pytest.approx((9 * 9) / (2 * 100_000))
     assert 0.0 <= p <= 1.0
@@ -112,6 +115,7 @@ def test_analytic_formula_miller_madow():
 
 @pytest.mark.parametrize("signal", [0.0, 0.05])
 def test_analytic_matches_permutation_large_n(monkeypatch, signal):
+    """Analytic matches permutation large n."""
     n = max(int(analytic_null_min_n()), 60_000)
     data, nbins = _binned(n, signal, seed=11)
 
@@ -132,6 +136,7 @@ def test_analytic_matches_permutation_large_n(monkeypatch, signal):
 
 def test_below_threshold_is_dormant(monkeypatch):
     # n < threshold: toggling the analytic flag must NOT change the result (permutation path both).
+    """Below threshold is dormant."""
     n = max(1, int(analytic_null_min_n()) // 10)
     data, nbins = _binned(n, 0.05, seed=7)
     monkeypatch.setenv("MLFRAME_MI_ANALYTIC_NULL", "1")
@@ -142,6 +147,7 @@ def test_below_threshold_is_dormant(monkeypatch):
 
 
 def test_analytic_is_faster_large_n(monkeypatch):
+    """Analytic is faster large n."""
     n = max(int(analytic_null_min_n()), 120_000)
     data, nbins = _binned(n, 0.05, seed=5)
     monkeypatch.setenv("MLFRAME_MI_ANALYTIC_NULL", "1")
@@ -161,6 +167,7 @@ def test_analytic_is_faster_large_n(monkeypatch):
 
 
 def _mi_nats(x, y, n, nb):
+    """Mi nats."""
     j = np.zeros((nb, nb))
     np.add.at(j, (x, y), 1)
     j /= n
@@ -215,6 +222,7 @@ def test_analytic_batch_noise_gate_vectorised_matches_scalar_loop():
     )
 
     def _scalar_gate(observed, by, n_rows, min_conf, bx_per_col):
+        """Scalar gate."""
         fe = np.asarray(observed, dtype=np.float64).copy()
         alpha = 1.0 - float(min_conf)
         for k in range(fe.shape[0]):
@@ -247,6 +255,7 @@ def test_analytic_batch_noise_gate_vectorised_matches_scalar_loop():
 def test_occupied_bins_per_col_rowchunk_parallel_matches_np_unique():
     # The row-chunk parallel _occupied_bins_per_col must equal the per-column np.unique count
     # (non-negative codes only) bit-for-bit across shapes, including masked (negative) sentinels.
+    """Occupied bins per col rowchunk parallel matches np unique."""
     import numpy as np
     from mlframe.feature_selection.filters._analytic_mi_null import _occupied_bins_per_col
 

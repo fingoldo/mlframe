@@ -37,6 +37,7 @@ from mlframe.feature_selection.filters.cat_interactions import (
 
 
 def _seed_inputs(n: int = 50_000, k_y: int = 3):
+    """Seed inputs."""
     rng = np.random.default_rng(20260520)
     classes_pair = rng.integers(0, 10, n).astype(np.int32)
     classes_x1 = rng.integers(0, 5, n).astype(np.int32)

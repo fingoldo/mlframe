@@ -76,6 +76,7 @@ def _build(n: int = 4000, seed: int = 42, nb: int = _NB, **mlr):
 
 
 def _discover(data, cols, nbins, X, target_indices, **over):
+    """Helper that discover."""
     kw = dict(
         data=data,
         cols=cols,
@@ -129,6 +130,7 @@ def _run(data, cols, nbins, X, target_indices, nb, methods=("mean_z", "pca_pc1",
 
 
 def _member_names(clusters, cols):
+    """Member names."""
     return [sorted(cols[m] for m in c["members"]) for c in clusters]
 
 

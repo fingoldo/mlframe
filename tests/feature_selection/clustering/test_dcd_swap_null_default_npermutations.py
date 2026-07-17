@@ -60,7 +60,9 @@ def _three_dups_plus_strong_frame(n: int = 1500, seed: int = 0):
 
 
 class TestSwapNullKnobExists:
+    """Groups tests covering TestSwapNullKnobExists."""
     def test_dcd_swap_npermutations_in_signature_default_199(self):
+        """Dcd swap npermutations in signature default 199."""
         import inspect
 
         from mlframe.feature_selection.filters.mrmr import MRMR
@@ -74,6 +76,7 @@ class TestSwapNullKnobExists:
         assert int(MRMR().dcd_swap_npermutations) == 199
 
     def test_clone_round_trips_the_knob(self):
+        """Clone round trips the knob."""
         from sklearn.base import clone
 
         from mlframe.feature_selection.filters.mrmr import MRMR
@@ -83,6 +86,7 @@ class TestSwapNullKnobExists:
 
 
 class TestSwapFiresAtDefaultNpermutations:
+    """Groups tests covering TestSwapFiresAtDefaultNpermutations."""
     def test_swap_fires_at_default_full_npermutations(self):
         """The headline regression: with DEFAULT full_npermutations (=3) and
         the opt-in dcd_cluster_size_threshold=2, a swap must fire on the

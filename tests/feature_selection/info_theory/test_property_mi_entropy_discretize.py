@@ -106,6 +106,7 @@ def _entropy_arr(x: np.ndarray) -> float:
 @given(_PAIRED_INT_ARRAYS)
 @_SETTINGS
 def test_property_mi_symmetry(pair):
+    """Property mi symmetry."""
     x, y = pair
     assert abs(_mi_arrs(x, y) - _mi_arrs(y, x)) < 1e-9
 
@@ -116,6 +117,7 @@ def test_property_mi_symmetry(pair):
 @given(_INT_ARRAY)
 @_SETTINGS
 def test_property_mi_self_equals_entropy(x):
+    """Property mi self equals entropy."""
     assert abs(_mi_arrs(x, x) - _entropy_arr(x)) < 1e-9
 
 
@@ -125,6 +127,7 @@ def test_property_mi_self_equals_entropy(x):
 @given(_INT_ARRAY)
 @_SETTINGS
 def test_property_mi_with_constant_is_zero(x):
+    """Property mi with constant is zero."""
     const = np.zeros_like(x, dtype=np.int32)
     assert _mi_arrs(x, const) < 1e-12
 
@@ -135,6 +138,7 @@ def test_property_mi_with_constant_is_zero(x):
 @given(_PAIRED_INT_ARRAYS)
 @_SETTINGS
 def test_property_mi_non_negative(pair):
+    """Property mi non negative."""
     x, y = pair
     assert _mi_arrs(x, y) >= -1e-12
 
@@ -145,6 +149,7 @@ def test_property_mi_non_negative(pair):
 @given(_INT_ARRAY)
 @_SETTINGS
 def test_property_entropy_non_negative(x):
+    """Property entropy non negative."""
     assert _entropy_arr(x) >= 0.0
 
 
@@ -154,6 +159,7 @@ def test_property_entropy_non_negative(x):
 @given(_INT_ARRAY)
 @_SETTINGS
 def test_property_entropy_bounded_by_log_k(x):
+    """Property entropy bounded by log k."""
     k = int(np.unique(x).size)
     if k <= 1:
         # log(1) = 0 ; entropy is exactly 0 here, trivially bounded.
@@ -168,6 +174,7 @@ def test_property_entropy_bounded_by_log_k(x):
 @given(st.integers(min_value=2, max_value=8), st.integers(min_value=0, max_value=2**32 - 1))
 @_SETTINGS
 def test_property_entropy_uniform_max(k, seed):
+    """Property entropy uniform max."""
     n = 1000
     rng = np.random.default_rng(seed)
     # Build a balanced sample then shuffle, so the empirical distribution is
@@ -184,6 +191,7 @@ def test_property_entropy_uniform_max(k, seed):
 @given(_FLOAT_ARRAY, _NBINS)
 @_SETTINGS
 def test_property_discretize_array_in_range(x, nbins):
+    """Property discretize array in range."""
     out = discretize_array(x, n_bins=nbins)
     assert out.min() >= 0
     assert out.max() < nbins
@@ -195,6 +203,7 @@ def test_property_discretize_array_in_range(x, nbins):
 @given(_FLOAT_ARRAY, _NBINS)
 @_SETTINGS
 def test_property_discretize_length_preserved(x, nbins):
+    """Property discretize length preserved."""
     assert len(discretize_array(x, n_bins=nbins)) == len(x)
 
 
@@ -204,6 +213,7 @@ def test_property_discretize_length_preserved(x, nbins):
 @given(_FLOAT_ARRAY, _NBINS)
 @_SETTINGS
 def test_property_discretize_quantile_monotone(x, nbins):
+    """Property discretize quantile monotone."""
     xs = np.sort(x)
     out = discretize_array(xs, n_bins=nbins, method="quantile")
     # Cast to int64 so np.diff on int8 codes cannot overflow.

@@ -55,6 +55,7 @@ def test_compute_drops_all_null_column_pandas():
 
 
 def test_compute_drops_all_null_column_polars():
+    """Compute drops all null column polars."""
     n = 100
     df = pl.DataFrame({"all_null": pl.Series([None] * n, dtype=pl.Float64), "ok": np.arange(n).astype(float)})
     drops = compute_unsupervised_drops(df)
@@ -85,6 +86,7 @@ def test_compute_drops_categorical_dtype_does_not_crash():
 
 
 def test_compute_drops_string_dtype_does_not_crash():
+    """Compute drops string dtype does not crash."""
     df = pd.DataFrame(
         {
             "s": pd.array(["a", "b", "a", "c"] * 25, dtype="string"),
@@ -161,22 +163,26 @@ def test_compute_drops_sparse_column_with_nan_fill_value_kept():
 
 
 def test_apply_drops_none_input_returns_none():
+    """Apply drops none input returns none."""
     assert apply_drops(None, ["x"]) is None
 
 
 def test_apply_drops_no_overlap_returns_input_unchanged():
+    """Apply drops no overlap returns input unchanged."""
     df = pd.DataFrame({"a": [1, 2, 3]})
     out = apply_drops(df, ["nonexistent"])
     assert out is df, "no-overlap drop list must return input unchanged (identity)"
 
 
 def test_apply_drops_empty_drop_list_returns_input():
+    """Apply drops empty drop list returns input."""
     df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
     out = apply_drops(df, [])
     assert out is df, "empty drop list must return input unchanged"
 
 
 def test_apply_drops_polars_preserves_schema_for_remaining_cols():
+    """Apply drops polars preserves schema for remaining cols."""
     df = pl.DataFrame(
         {
             "x": [1, 2, 3],
@@ -191,6 +197,7 @@ def test_apply_drops_polars_preserves_schema_for_remaining_cols():
 
 
 def test_apply_drops_pandas_preserves_remaining_dtypes():
+    """Apply drops pandas preserves remaining dtypes."""
     df = pd.DataFrame(
         {
             "x": pd.array([1, 2, 3], dtype="Int64"),
@@ -229,6 +236,7 @@ def test_biz_value_compute_then_apply_returns_clean_frame_pandas():
 
 
 def test_biz_value_compute_then_apply_returns_clean_frame_polars():
+    """Biz value compute then apply returns clean frame polars."""
     n = 300
     rng = np.random.default_rng(11)
     df = pl.DataFrame(

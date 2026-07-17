@@ -41,6 +41,7 @@ from mlframe.feature_selection.filters.info_theory import symmetric_uncertainty
 
 @pytest.fixture
 def synth_factors():
+    """Synth factors."""
     rng = np.random.default_rng(20260530)
     n, n_feats, n_bins = 5_000, 8, 5
     factors_data = rng.integers(0, n_bins, size=(n, n_feats)).astype(np.int32)
@@ -49,6 +50,7 @@ def synth_factors():
 
 
 def test_dcd_state_exposes_column_entropy_cache():
+    """Dcd state exposes column entropy cache."""
     state = DCDState()
     assert hasattr(state, "column_entropy_cache")
     assert isinstance(state.column_entropy_cache, dict)

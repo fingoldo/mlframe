@@ -18,6 +18,7 @@ _SHORTCUT = "_mrmr_identity_shortcut"
 
 
 def _xy(n=300, seed=0):
+    """Build a 4-column frame with signal on 'a', for the identity-cache unconfirmed-y refusal tests."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n), "c": rng.normal(size=n), "d": rng.normal(size=n)})
     y = ((X["a"].to_numpy() + 0.1 * rng.normal(size=n)) > 0).astype(int)
@@ -25,6 +26,7 @@ def _xy(n=300, seed=0):
 
 
 def _fit_with_cache(cache, thr, X, y):
+    """Fit with cache."""
     m = MRMR(mrmr_skip_when_prior_was_identity=True, mrmr_identity_cache_include_y=False, mrmr_identity_cache_ycorr_threshold=thr, max_runtime_mins=1.0)
     m._mlframe_identity_cache_override_ = cache
     m.fit(X, y)

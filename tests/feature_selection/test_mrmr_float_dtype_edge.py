@@ -21,6 +21,7 @@ def _forms_gate(y, x0, x1, dtype, *, min_corr=0.6, margin=1.05):
     _x1 = np.asarray(x1, dtype=dtype).ravel()
 
     def sd(n, d):
+        """Safe divide n/d, mapping near-zero denominators to NaN instead of inf."""
         return n / np.where(np.abs(d) < eps, np.nan, d)
 
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):

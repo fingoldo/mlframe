@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters import _mi_greedy_cmi_fe as m
 
 
 def _ref_joint_entropy(a, b):
+    """Ref joint entropy."""
     j, _ = m._renumber_joint(np.asarray(a, np.int64), np.asarray(b, np.int64))
     return m._entropy_from_classes(j)
 
@@ -23,6 +24,7 @@ def _ref_joint_entropy(a, b):
 @pytest.mark.parametrize("n", [100, 1000, 50_000])
 @pytest.mark.parametrize("ca,cb", [(3, 4), (10, 10), (50, 500), (2, 300)])
 def test_joint_entropy_two_matches_renumber_plus_entropy(n, ca, cb):
+    """Joint entropy two matches renumber plus entropy."""
     rng = np.random.default_rng(n + ca + cb)
     a = rng.integers(0, ca, n).astype(np.int64)
     b = rng.integers(0, cb, n).astype(np.int64)
@@ -35,6 +37,7 @@ def test_joint_entropy_two_matches_renumber_plus_entropy(n, ca, cb):
 def test_joint_entropy_two_fallback_on_over_cap_span():
     # Cartesian span (max_a+1)*(max_b+1) over the array cap -> njit returns k=-1 sentinel and the wrapper
     # falls back to generic renumber+entropy. Result must still match the reference exactly.
+    """Joint entropy two fallback on over cap span."""
     n = 20_000
     rng = np.random.default_rng(7)
     a = rng.integers(0, 5000, n).astype(np.int64)
@@ -46,12 +49,14 @@ def test_joint_entropy_two_fallback_on_over_cap_span():
 
 
 def test_joint_entropy_two_empty():
+    """Joint entropy two empty."""
     H, k = m._joint_entropy_two(np.empty(0, np.int64), np.empty(0, np.int64))
     assert (H, k) == (0.0, 0)
 
 
 @pytest.mark.parametrize("n", [2000, 30_000])
 def test_cmi_fixed_yz_reuse_path_bit_identical(n):
+    """Cmi fixed yz reuse path bit identical."""
     rng = np.random.default_rng(n)
     x = rng.integers(0, 8, n).astype(np.int64)
     y = rng.integers(0, 4, n).astype(np.int64)
@@ -68,6 +73,7 @@ def test_cmi_fixed_yz_reuse_path_bit_identical(n):
 def test_cmi_from_binned_conditional_matches_marginal_reduction():
     # Signal case: z carries x=>y so CMI should collapse. Sanity that the fused conditional path is sane
     # and non-negative (Miller-Madow clamped), plus marginal MI on independent data ~0.
+    """Cmi from binned conditional matches marginal reduction."""
     rng = np.random.default_rng(3)
     n = 20_000
     x = rng.integers(0, 6, n).astype(np.int64)
@@ -81,6 +87,7 @@ def test_precompute_cmi_yz_terms_hyz_matches_renumber_plus_entropy(n):
     # Fix 3: precompute_cmi_yz_terms now fuses H(Y,Z) via _joint_entropy_two instead of
     # _renumber_joint + _entropy_from_classes (which allocated the length-n relabel array only to
     # discard it). The returned (h_yz, k_yz) must stay bit-identical to the reference renumber+entropy.
+    """Precompute cmi yz terms hyz matches renumber plus entropy."""
     rng = np.random.default_rng(n)
     y = rng.integers(0, 5, n).astype(np.int64)
     z = rng.integers(0, 25, n).astype(np.int64)
@@ -101,6 +108,7 @@ def test_greedy_construct_no_redundant_cmi_from_binned_calls():
     # block. AFTER the hoist both callers route through ``marginal_mi_binned_fixed_y`` /
     # ``cmi_from_binned_fixed_yz`` (invariant block computed once per step), so ``_cmi_from_binned`` is no
     # longer called from the greedy loop at all. This asserts the redundant-call path is gone.
+    """Greedy construct no redundant cmi from binned calls."""
     import os as _os
 
     import pandas as pd
@@ -120,6 +128,7 @@ def test_greedy_construct_no_redundant_cmi_from_binned_calls():
     orig = m._cmi_from_binned
 
     def _counting(*args, **kwargs):
+        """Helper that counting."""
         calls["n"] += 1
         return orig(*args, **kwargs)
 

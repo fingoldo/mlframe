@@ -22,6 +22,7 @@ from mlframe.feature_selection.filters.info_theory._entropy_kernels import condi
 
 
 def _cache():
+    """Helper that cache."""
     return NumbaDict.empty(key_type=types.unicode_type, value_type=types.float64)
 
 
@@ -39,6 +40,7 @@ def _observed_gain(data, nbins):
 
 
 def _true_null(n, seed):
+    """True null."""
     rng = np.random.default_rng(seed)
     x0 = rng.integers(0, 2, n).astype(np.int32)
     x1 = rng.integers(0, 3, n).astype(np.int32)
@@ -48,6 +50,7 @@ def _true_null(n, seed):
 
 
 def test_early_break_implies_rejected_so_full_budget_is_selection_inert():
+    """Early break implies rejected so full budget is selection inert."""
     npermutations, min_conf = 64, 0.5
     max_failed = max(1, int(npermutations * (1 - min_conf)))
     y_arr = np.asarray((3,), dtype=np.int64)
@@ -86,5 +89,6 @@ def test_early_break_implies_rejected_so_full_budget_is_selection_inert():
 
 def test_full_budget_only_changes_p_when_denominator_grows():
     # full_budget lowers the p only when full_budget > nchecked (the early-break case); on a full run it is a no-op.
+    """Full budget only changes p when denominator grows."""
     assert _perm_pvalue(5, 8, full_budget=100) < _perm_pvalue(5, 8, full_budget=None)
     assert _perm_pvalue(5, 100, full_budget=100) == _perm_pvalue(5, 100, full_budget=None)

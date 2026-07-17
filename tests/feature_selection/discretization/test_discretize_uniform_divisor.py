@@ -130,6 +130,7 @@ def test_discretize_array_uniform_large_n_routes_to_parallel_twin_bit_identical(
     real_par = D.discretize_uniform_parallel
 
     def _spy(*a, **k):
+        """Helper that spy."""
         calls["par"] += 1
         return real_par(*a, **k)
 

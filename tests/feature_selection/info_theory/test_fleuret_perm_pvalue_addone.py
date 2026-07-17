@@ -23,6 +23,7 @@ from mlframe.feature_selection.filters.permutation import _perm_pvalue
 
 
 def _build_uncorrelated_factors(n: int = 2000, seed: int = 7):
+    """Build uncorrelated factors."""
     rng = np.random.default_rng(seed)
     cols = [rng.integers(0, 2, size=n).astype(np.int32) for _ in range(4)]
     factors_data = np.column_stack(cols).astype(np.int32)

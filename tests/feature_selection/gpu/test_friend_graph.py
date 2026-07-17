@@ -47,6 +47,7 @@ def _redundant_hub_dataset(n=8000, seed=11):
 
 
 def test_classifies_redundant_hub_red_and_predictors_green():
+    """Classifies redundant hub red and predictors green."""
     data, nbins, tgt, names, sel, hub = _redundant_hub_dataset()
     g = build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1)
 
@@ -71,6 +72,7 @@ def test_classifies_redundant_hub_red_and_predictors_green():
 
 
 def test_edge_weights_match_plugin_mi():
+    """Edge weights match plugin mi."""
     data, nbins, tgt, names, sel, _ = _redundant_hub_dataset(n=6000, seed=3)
     g = build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1)
     assert g.edges
@@ -82,6 +84,7 @@ def test_edge_weights_match_plugin_mi():
 def test_adc_arrow_points_to_more_explained_node():
     # B is a deterministic low-entropy function of high-entropy A, so A explains B
     # almost fully (I/H(B) ~ 1) while B explains little of A: the arrow is A -> B.
+    """Adc arrow points to more explained node."""
     rng = np.random.default_rng(0)
     n = 4000
     a = rng.integers(0, 8, n).astype(np.int32)  # nbins 8 (high entropy)
@@ -95,6 +98,7 @@ def test_adc_arrow_points_to_more_explained_node():
 
 
 def test_layout_positions_cover_all_nodes():
+    """Layout positions cover all nodes."""
     data, nbins, tgt, names, sel, _ = _redundant_hub_dataset(n=3000, seed=5)
     g = build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1)
     assert set(g.pos) == {n.idx for n in g.nodes}
@@ -103,6 +107,7 @@ def test_layout_positions_cover_all_nodes():
 
 
 def test_max_nodes_guard_skips_edges():
+    """Max nodes guard skips edges."""
     data, nbins, tgt, names, sel, _ = _redundant_hub_dataset(n=2000, seed=9)
     g = build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1, max_nodes=2)
     assert g.edges == []
@@ -110,6 +115,7 @@ def test_max_nodes_guard_skips_edges():
 
 
 def test_biz_value_prune_removes_hub_keeps_predictors():
+    """Biz value prune removes hub keeps predictors."""
     data, nbins, tgt, names, sel, hub = _redundant_hub_dataset(seed=11)
     g = build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1)
 
@@ -128,6 +134,7 @@ def test_biz_value_prune_removes_hub_keeps_predictors():
 
 def test_biz_value_no_prune_when_no_red_nodes():
     # Two independent informative predictors, no hub: nothing should be pruned.
+    """Biz value no prune when no red nodes."""
     rng = np.random.default_rng(1)
     n = 5000
     x1 = rng.integers(0, 2, n)
@@ -142,6 +149,7 @@ def test_biz_value_no_prune_when_no_red_nodes():
 
 
 def test_to_meta_is_json_serializable_and_summarizes():
+    """To meta is json serializable and summarizes."""
     import orjson
 
     data, nbins, tgt, names, sel, _ = _redundant_hub_dataset(seed=11)
@@ -157,6 +165,7 @@ def test_to_meta_is_json_serializable_and_summarizes():
 
 
 def test_cprofile_edge_pass_dominated_by_info_theory(capsys):
+    """Cprofile edge pass dominated by info theory."""
     import cProfile
     import pstats
 
@@ -190,6 +199,7 @@ def test_cprofile_edge_pass_dominated_by_info_theory(capsys):
 
 @pytest.mark.parametrize("dsl", ["matplotlib[png]", "plotly[html]"])
 def test_render_smoke_both_backends(tmp_path, dsl):
+    """Render smoke both backends."""
     backend = dsl.split("[")[0]
     pytest.importorskip(backend)
     from mlframe.reporting.output import parse_plot_output_dsl

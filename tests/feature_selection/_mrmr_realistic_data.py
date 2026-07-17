@@ -46,6 +46,7 @@ import pandas as pd
 # 1:1 to the ``distribution`` axis the fuzzer parametrises over.
 # ---------------------------------------------------------------------------
 def _draw(rng: np.random.Generator, kind: str, n: int) -> np.ndarray:
+    """Helper that draw."""
     if kind == "uniform":
         return rng.uniform(0.2, 1.2, n)  # strictly positive -> log/div safe
     if kind == "uniform_signed":
@@ -68,6 +69,7 @@ def _positive(x: np.ndarray) -> np.ndarray:
 
 @dataclass
 class CaseMeta:
+    """Groups tests covering CaseMeta."""
     task: str  # "regression" | "classification"
     feature_names: list  # columns of X, in order
     confounder_name: str  # hidden var in y, NOT a column
@@ -210,6 +212,7 @@ def make_realistic_case(
 # can be fit ISOLATED in its own subprocess within the RAM/time budget, yet wide
 # enough to vary every axis the four bugs lived on.
 def default_fuzz_grid() -> list[dict]:
+    """Default fuzz grid."""
     grid = []
     base_seeds = [101, 202, 303]
     distros = ["uniform", "normal", "lognormal", "heavytail"]

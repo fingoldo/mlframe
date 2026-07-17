@@ -25,6 +25,7 @@ def test_con7_prebuilt_operand_table_does_not_clobber_across_two_host_arrays():
     b = np.zeros((10, 3), dtype=np.float32)
 
     class _FakeDev:
+        """Groups tests covering FakeDev."""
         def __init__(self, arr):
             self.shape = arr.shape
 
@@ -44,6 +45,7 @@ def test_con7_prebuilt_operand_table_bounded():
     grs._PREBUILT_OPERAND_TABLE.clear()
 
     class _FakeDev:
+        """Groups tests covering FakeDev."""
         shape = (4, 2)
 
     held = []
@@ -64,6 +66,7 @@ def test_con7_prebuilt_shape_mismatch_rejected():
     a = np.zeros((10, 3), dtype=np.float32)
 
     class _FakeDev:
+        """Groups tests covering FakeDev."""
         shape = (10, 5)  # wrong width
 
     grs.register_prebuilt_operand_table(a, _FakeDev())
@@ -84,6 +87,7 @@ def test_con6_pinned_buffer_is_thread_local():
     seen = {}
 
     def _worker():
+        """Helper that worker."""
         seen["child"] = getattr(grs._PINNED_D2H_TLS, "buf", None)
         grs._PINNED_D2H_TLS.buf = "child-marker"
 
@@ -118,6 +122,7 @@ def test_con8_dy_device_cache_co_validates_weakref_on_id_recycle():
 
 
 def test_con8_dy_device_cache_bounded():
+    """Con8 dy device cache bounded."""
     from mlframe.feature_selection.filters import batch_mi_noise_gate_gpu as bg
     import weakref
 
@@ -154,6 +159,7 @@ def test_con9_resident_codes_handoff_does_not_clobber_across_arrays():
 
 
 def test_con9_take_resident_codes_shape_dtype_guarded():
+    """Con9 take resident codes shape dtype guarded."""
     from mlframe.feature_selection.filters import _gpu_resident_fe as fe
 
     fe.clear_resident_codes_handoff()
@@ -206,6 +212,7 @@ def test_con20_topk_deterministic_tiebreak_on_equal_fi():
     cap = 3
 
     def _select(rest):
+        """Helper that select."""
         return sorted(rest, key=lambda c: (-fi.get(c, 0.0), c))[:cap]
 
     sel1 = _select(["d", "a", "c", "b", "e"])

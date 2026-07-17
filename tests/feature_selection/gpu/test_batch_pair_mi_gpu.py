@@ -32,6 +32,7 @@ pytestmark = pytest.mark.gpu
 
 
 def _build_factor_data(n_samples: int, nbins_per_col, seed: int):
+    """Build factor data."""
     rng = np.random.default_rng(seed)
     cols = [rng.integers(0, nb, size=n_samples) for nb in nbins_per_col]
     data = np.column_stack(cols).astype(np.int32)
@@ -39,6 +40,7 @@ def _build_factor_data(n_samples: int, nbins_per_col, seed: int):
 
 
 def _build_pair_inputs(n_samples, nbins_per_col, n_classes_y, seed):
+    """Build pair inputs."""
     data, nbins = _build_factor_data(n_samples, nbins_per_col, seed)
     rng = np.random.default_rng(seed + 100)
     y_raw = rng.integers(0, n_classes_y, size=n_samples).astype(np.int32)
@@ -61,6 +63,7 @@ PARAM_MATRIX = [
 @pytest.mark.skipif(not _CUDA_AVAIL, reason="numba.cuda not available on this host")
 @pytest.mark.parametrize("n_samples,nbins_per_col,n_classes_y,seed", PARAM_MATRIX)
 def test_batch_pair_mi_cuda_matches_cpu(n_samples, nbins_per_col, n_classes_y, seed):
+    """Batch pair mi cuda matches cpu."""
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(
         n_samples,
         nbins_per_col,
@@ -85,6 +88,7 @@ def test_batch_pair_mi_cuda_matches_cpu(n_samples, nbins_per_col, n_classes_y, s
 @pytest.mark.skipif(not _CUPY_AVAIL, reason="cupy not available on this host")
 @pytest.mark.parametrize("n_samples,nbins_per_col,n_classes_y,seed", PARAM_MATRIX)
 def test_batch_pair_mi_cupy_matches_cpu(n_samples, nbins_per_col, n_classes_y, seed):
+    """Batch pair mi cupy matches cpu."""
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(
         n_samples,
         nbins_per_col,
@@ -116,6 +120,7 @@ def test_dispatch_falls_back_to_cpu_below_thresholds():
 
 
 def test_dispatch_force_backend_njit():
+    """Dispatch force backend njit."""
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(500, [4, 4, 4, 4], 2, 1)
     _mi, backend = dispatch_batch_pair_mi(
         data,
@@ -131,6 +136,7 @@ def test_dispatch_force_backend_njit():
 
 @pytest.mark.skipif(not _CUDA_AVAIL, reason="numba.cuda not available on this host")
 def test_dispatch_force_backend_cuda_matches_cpu():
+    """Dispatch force backend cuda matches cpu."""
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(2000, [5, 5, 5, 5, 5, 5], 4, 3)
     mi_cpu = batch_pair_mi_njit_prange(data, pa, pb, nbins, y, freqs_y)
     mi_force, backend = dispatch_batch_pair_mi(
@@ -148,6 +154,7 @@ def test_dispatch_force_backend_cuda_matches_cpu():
 
 @pytest.mark.skipif(not _CUPY_AVAIL, reason="cupy not available on this host")
 def test_dispatch_force_backend_cupy_matches_cpu():
+    """Dispatch force backend cupy matches cpu."""
     data, nbins, y, freqs_y, pa, pb = _build_pair_inputs(2000, [5, 5, 5, 5, 5, 5], 4, 3)
     mi_cpu = batch_pair_mi_njit_prange(data, pa, pb, nbins, y, freqs_y)
     mi_force, backend = dispatch_batch_pair_mi(

@@ -32,13 +32,16 @@ class _FakeDev:
 
     @property
     def size(self):
+        """Helper that size."""
         return self._h.size
 
     def max(self):
+        """Helper that max."""
         return int(self._h.max())
 
 
 def test_cached_card_never_stale_undersize_on_fingerprint_collision(monkeypatch):
+    """Cached card never stale undersize on fingerprint collision."""
     monkeypatch.setattr(mgc, "_CARD_MAX_CACHE", {}, raising=False)
 
     # Reproduce the GC-id-reuse collision DETERMINISTICALLY: present operand ``buf`` (card 20), then MUTATE the

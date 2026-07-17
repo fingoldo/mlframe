@@ -14,6 +14,7 @@ import pytest
 
 
 def _data(n: int = 300, p: int = 12, seed: int = 0):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"f{i}" for i in range(p)])
     y = ((1.5 * X["f0"] - 0.8 * X["f1"] + rng.normal(scale=0.5, size=n)) > 0).astype(int)
@@ -21,6 +22,7 @@ def _data(n: int = 300, p: int = 12, seed: int = 0):
 
 
 def test_boruta_shap_stop_file_aborts_with_valid_selection(tmp_path):
+    """Boruta shap stop file aborts with valid selection."""
     lgb = pytest.importorskip("lightgbm")
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -41,6 +43,7 @@ def test_boruta_shap_stop_file_aborts_with_valid_selection(tmp_path):
 
 
 def test_boruta_shap_runtime_budget_aborts(tmp_path):
+    """Boruta shap runtime budget aborts."""
     lgb = pytest.importorskip("lightgbm")
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -58,6 +61,7 @@ def test_boruta_shap_runtime_budget_aborts(tmp_path):
 
 
 def test_shap_proxied_fs_stop_file_skips_revalidation(tmp_path):
+    """Shap proxied fs stop file skips revalidation."""
     pytest.importorskip("shap")
     lgb = pytest.importorskip("lightgbm")
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS

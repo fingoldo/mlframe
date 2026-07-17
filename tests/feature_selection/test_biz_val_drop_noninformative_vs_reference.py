@@ -20,6 +20,7 @@ from mlframe.feature_selection.drop_noninformative_vs_reference import drop_noni
 
 
 def _make_control_treated_dataset(n: int, n_signal: int, n_noise: int, seed: int):
+    """Make control treated dataset."""
     rng = np.random.default_rng(seed)
     is_treated = rng.integers(0, 2, n).astype(bool)
 
@@ -38,6 +39,7 @@ def _make_control_treated_dataset(n: int, n_signal: int, n_noise: int, seed: int
 
 
 def test_biz_val_drop_noninformative_vs_reference_correctly_identifies_noise_columns():
+    """Biz val drop noninformative vs reference correctly identifies noise columns."""
     df, reference_mask, _y = _make_control_treated_dataset(n=2000, n_signal=5, n_noise=15, seed=0)
 
     kept = drop_noninformative_vs_reference(df, reference_mask, alpha=0.1)
@@ -51,6 +53,7 @@ def test_biz_val_drop_noninformative_vs_reference_correctly_identifies_noise_col
 
 
 def test_biz_val_dropping_noninformative_columns_preserves_downstream_auc():
+    """Biz val dropping noninformative columns preserves downstream auc."""
     df, reference_mask, y = _make_control_treated_dataset(n=2000, n_signal=5, n_noise=15, seed=1)
     drop_candidates = drop_noninformative_vs_reference(df, reference_mask, alpha=0.1)
     kept_cols = [c for c in df.columns if c not in drop_candidates]

@@ -48,6 +48,7 @@ _MRMR_KW = dict(
 
 
 def test_derive_weights_shapes_and_normalization():
+    """Derive weights shapes and normalization."""
     from mlframe.feature_selection.filters._cluster_aggregate import _derive_weights, _standardize_align
 
     rng = np.random.default_rng(1)
@@ -63,6 +64,7 @@ def test_derive_weights_shapes_and_normalization():
 
 
 def test_sign_alignment_flips_anticorrelated_member():
+    """Sign alignment flips anticorrelated member."""
     from mlframe.feature_selection.filters._cluster_aggregate import _standardize_align
 
     rng = np.random.default_rng(2)
@@ -121,6 +123,7 @@ def test_sign_alignment_matches_corrcoef_reference_incl_constant_column():
 
 @pytest.mark.parametrize("method", ["mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score"])
 def test_recipe_roundtrip_and_parity(method):
+    """Recipe roundtrip and parity."""
     from mlframe.feature_selection.filters._cluster_aggregate import _standardize_align, _derive_weights
     from mlframe.feature_selection.filters.engineered_recipes import build_cluster_aggregate_recipe, apply_recipe
 
@@ -146,6 +149,7 @@ def test_recipe_roundtrip_and_parity(method):
 
 
 def test_recipe_extra_pickle_eq_roundtrip():
+    """Recipe extra pickle eq roundtrip."""
     import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     from mlframe.feature_selection.filters.engineered_recipes import build_cluster_aggregate_recipe
 
@@ -275,6 +279,7 @@ def test_fit_binned_column_matches_binned_apply_recipe_replay():
 
 
 def test_mrmr_augment_selects_aggregate_and_transforms():
+    """Mrmr augment selects aggregate and transforms."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y, _z = _reflection_frame(seed=5)
@@ -287,6 +292,7 @@ def test_mrmr_augment_selects_aggregate_and_transforms():
 
 
 def test_mrmr_replace_substitutes_members():
+    """Mrmr replace substitutes members."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y, _z = _reflection_frame(seed=6)
@@ -322,6 +328,7 @@ def test_replace_members_not_resurrected_by_raw_retention():
 
 
 def test_explicit_disable_adds_no_aggregate():
+    """Explicit disable adds no aggregate."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y, _z = _reflection_frame(seed=7)
@@ -344,6 +351,7 @@ def test_enabled_by_default():
 
 
 def test_fit_does_not_mutate_caller_X():
+    """Fit does not mutate caller X."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y, _z = _reflection_frame(seed=8)
@@ -388,6 +396,7 @@ def test_cluster_aggregate_feeds_further_fe_step(monkeypatch):
     orig = MRMR._run_fe_step
 
     def _spy(self, **kw):
+        """Helper that spy."""
         calls.append({"cols": list(kw["cols"]), "selected_vars": [int(v) for v in kw["selected_vars"]]})
         return orig(self, **kw)
 
@@ -428,6 +437,7 @@ def test_cluster_aggregate_surfaces_in_meta_info():
 
 
 def test_param_plumbing_clone():
+    """Param plumbing clone."""
     from sklearn.base import clone
     from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -438,6 +448,7 @@ def test_param_plumbing_clone():
 
 
 def test_invalid_mode_and_method_raise():
+    """Invalid mode and method raise."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y, _z = _reflection_frame(n=400, seed=9)

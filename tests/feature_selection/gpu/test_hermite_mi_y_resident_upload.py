@@ -30,12 +30,14 @@ from mlframe.feature_selection.filters.hermite_fe import (
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Clear cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
 
 
 def _inputs(n=4000, k=6, n_classes=4, seed=0):
+    """Helper that inputs."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, k))
     y = rng.integers(0, n_classes, size=n).astype(np.int64)
@@ -55,6 +57,7 @@ def test_plugin_mi_classif_batch_cuda_uploads_y_once_across_calls():
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
+        """Counting asarray."""
         if getattr(arr, "shape", None) == y.shape and getattr(arr, "dtype", None) == np.int64:
             upload_calls["n"] += 1
         return orig_asarray(arr, *a, **kw)

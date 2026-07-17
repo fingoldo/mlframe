@@ -24,6 +24,7 @@ from mlframe.feature_selection.filters._wavelet_basis_fe import _binned_mi, _bin
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Clear cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
@@ -51,6 +52,7 @@ def _prefix_binned_mi_cupy(feat, y, nbins, y_codes, discrete=False):
         return float(max(float(binned_mi_from_codes_gpu(fb[:, None], yb)[0]), 0.0))
 
     def _interior_edges(v):
+        """Interior edges."""
         try:
             if fe_gpu_radix_edges_enabled():
                 e = _radix_select_interior_edges(v.reshape(-1, 1), nbins)
@@ -81,6 +83,7 @@ def _prefix_binned_mi_cupy(feat, y, nbins, y_codes, discrete=False):
 
 
 def _joint_and_y(n=3000, seed=0, n_classes=4):
+    """Joint and y."""
     rng = np.random.default_rng(seed)
     joint = rng.integers(0, 30, size=n).astype(np.float64)  # mimics xc*3+legcode joint codes
     y = rng.integers(0, n_classes, size=n).astype(np.int64)
@@ -91,6 +94,7 @@ class TestDiscreteYGivenBranch:
     """discrete=True, y_codes=None -- the actually-reachable production path (_heldout_incremental_mi_from_prep)."""
 
     def test_uploads_y_once_across_legs(self):
+        """Uploads y once across legs."""
         import cupy as cp
 
         joint1, y = _joint_and_y(seed=1)
@@ -101,6 +105,7 @@ class TestDiscreteYGivenBranch:
         orig_asarray = cp.asarray
 
         def _counting(arr, *a, **kw):
+            """Helper that counting."""
             if getattr(arr, "dtype", None) == np.int64 and getattr(arr, "shape", None) == y.shape:
                 upload_calls["n"] += 1
             return orig_asarray(arr, *a, **kw)
@@ -116,6 +121,7 @@ class TestDiscreteYGivenBranch:
         assert mi1 >= 0.0 and mi2 >= 0.0
 
     def test_bit_identical_to_prefix_raw_path(self):
+        """Bit identical to prefix raw path."""
         joint, y = _joint_and_y(seed=3)
         new_mi = _binned_mi_cupy(joint, y, 30, None, discrete=True)
         clear_fe_resident_operands()
@@ -127,6 +133,7 @@ class TestDiscreteYCodesGivenBranch:
     """discrete=True, y_codes given -- exercised for coverage of all four upload sites."""
 
     def test_bit_identical_to_prefix_raw_path(self):
+        """Bit identical to prefix raw path."""
         joint, y = _joint_and_y(seed=4)
         y_codes = y.copy()
         new_mi = _binned_mi_cupy(joint, y, 30, y_codes, discrete=True)
@@ -139,6 +146,7 @@ class TestNonDiscreteYCodesGivenBranch:
     """discrete=False, y_codes given -- the actually-reachable production path (_select_wavelet_legs)."""
 
     def test_uploads_y_codes_once_across_legs(self):
+        """Uploads y codes once across legs."""
         import cupy as cp
 
         rng = np.random.default_rng(5)
@@ -152,6 +160,7 @@ class TestNonDiscreteYCodesGivenBranch:
         orig_asarray = cp.asarray
 
         def _counting(arr, *a, **kw):
+            """Helper that counting."""
             if getattr(arr, "dtype", None) == np.int64 and getattr(arr, "shape", None) == y_codes.shape:
                 upload_calls["n"] += 1
             return orig_asarray(arr, *a, **kw)
@@ -167,6 +176,7 @@ class TestNonDiscreteYCodesGivenBranch:
         assert mi1 >= 0.0 and mi2 >= 0.0
 
     def test_bit_identical_to_prefix_raw_path(self):
+        """Bit identical to prefix raw path."""
         rng = np.random.default_rng(6)
         n = 3000
         leg = rng.choice([-1.0, 0.0, 1.0], size=n)
@@ -181,6 +191,7 @@ class TestNonDiscreteYGivenBranch:
     """discrete=False, y given (no y_codes) -- exercised for coverage of all four upload sites."""
 
     def test_bit_identical_to_prefix_raw_path(self):
+        """Bit identical to prefix raw path."""
         rng = np.random.default_rng(7)
         n = 2500
         leg = rng.choice([-1.0, 0.0, 1.0], size=n)

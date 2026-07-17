@@ -17,12 +17,14 @@ from mlframe.feature_selection.filters import _missingness_fe as mf
 
 
 def _numpy_reference_signature(arr: np.ndarray) -> np.ndarray:
+    """Numpy reference signature."""
     _n, k = arr.shape
     weights = 1 << np.arange(k, dtype=np.int64)
     return (arr.astype(np.int64) * weights[None, :]).sum(axis=1)
 
 
 def _frame(n: int = 6000, k: int = 9, seed: int = 11) -> tuple[pd.DataFrame, list[str]]:
+    """Helper that frame."""
     rng = np.random.default_rng(seed)
     data = {f"c{j}": np.where(rng.random(n) < 0.3, np.nan, rng.random(n)) for j in range(k)}
     X = pd.DataFrame(data)
@@ -30,18 +32,21 @@ def _frame(n: int = 6000, k: int = 9, seed: int = 11) -> tuple[pd.DataFrame, lis
 
 
 def test_signature_bit_identical_to_numpy_reference():
+    """Signature bit identical to numpy reference."""
     X, _ = _frame()
     block = X.isna().to_numpy()
     assert np.array_equal(mf._row_pattern_signature(block), _numpy_reference_signature(block))
 
 
 def test_signature_routes_through_njit_kernel(monkeypatch):
+    """Signature routes through njit kernel."""
     X, _ = _frame()
     block = X.isna().to_numpy()
     called = {"n": 0}
     real = mf._bitpack_rows_njit
 
     def spy(arr):
+        """Helper that spy."""
         called["n"] += 1
         return real(arr)
 
@@ -51,6 +56,7 @@ def test_signature_routes_through_njit_kernel(monkeypatch):
 
 
 def test_fit_apply_labels_identical_and_vectorised():
+    """Fit apply labels identical and vectorised."""
     X, cols = _frame()
     labels, recipe = mf.missingness_pattern_fit(X, cols, top_k=5)
     applied = mf.apply_missingness_pattern(X, recipe)
@@ -60,6 +66,7 @@ def test_fit_apply_labels_identical_and_vectorised():
 
 
 def test_apply_unseen_pattern_maps_to_other():
+    """Apply unseen pattern maps to other."""
     X, cols = _frame()
     _, recipe = mf.missingness_pattern_fit(X, cols, top_k=2)
     applied = mf.apply_missingness_pattern(X, recipe)

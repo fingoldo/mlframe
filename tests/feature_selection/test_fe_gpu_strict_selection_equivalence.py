@@ -22,6 +22,7 @@ pytestmark = [
 
 
 def _make(n, seed):
+    """Helper that make."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(22)})
     xi = (rng.standard_normal(n) * 3).astype(int)
@@ -32,6 +33,7 @@ def _make(n, seed):
 
 
 def _select(X, y, strict, seed):
+    """Helper that select."""
     os.environ["MLFRAME_FE_GPU_STRICT"] = strict
     try:
         MRMR._FIT_CACHE.clear()
@@ -45,6 +47,7 @@ def _select(X, y, strict, seed):
 
 
 def test_strict_matches_cpu_selection_at_production_n(monkeypatch):
+    """Strict matches cpu selection at production n."""
     X, y = _make(50_000, 7000)
     cpu = _select(X, y, "0", 7000)
     strict = _select(X, y, "1", 7000)

@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_ex
 
 
 def _build_numpy(z, freqs):
+    """Build numpy."""
     out = []
     for f in freqs:
         ang = 2.0 * np.pi * float(f) * z
@@ -30,6 +31,7 @@ def _build_numpy(z, freqs):
 @pytest.mark.parametrize("n", [533, 1667, 5000])
 @pytest.mark.parametrize("nfreq", [16, 48])
 def test_coarse_basis_njit_matches_numpy_to_single_ulp(n, nfreq):
+    """Coarse basis njit matches numpy to single ulp."""
     rng = np.random.default_rng(n + nfreq)
     z = np.ascontiguousarray(np.sort(rng.uniform(-1.0, 1.0, n)))
     freqs = np.array([0.5 * k for k in range(1, nfreq + 1)], dtype=np.float64)
@@ -44,6 +46,7 @@ def test_coarse_basis_njit_matches_numpy_to_single_ulp(n, nfreq):
 
 
 def test_detector_fast_path_byte_identical_to_exact(monkeypatch):
+    """Detector fast path byte identical to exact."""
     rng = np.random.default_rng(7)
     n = 4000
     x = np.sort(rng.uniform(-1.0, 1.0, n))

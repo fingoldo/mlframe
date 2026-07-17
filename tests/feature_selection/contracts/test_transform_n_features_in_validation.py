@@ -26,6 +26,7 @@ import pytest
 
 
 def _fit():
+    """Helper that fit."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)

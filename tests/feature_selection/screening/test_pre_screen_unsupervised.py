@@ -15,6 +15,7 @@ from mlframe.feature_selection.pre_screen import apply_drops, compute_unsupervis
 
 
 def _build_pandas_train_df(n=200):
+    """Build pandas train df."""
     rng = np.random.default_rng(42)
     return pd.DataFrame(
         {
@@ -28,6 +29,7 @@ def _build_pandas_train_df(n=200):
 
 
 def _build_polars_train_df(n=200):
+    """Build polars train df."""
     rng = np.random.default_rng(7)
     return pl.DataFrame(
         {
@@ -41,6 +43,7 @@ def _build_polars_train_df(n=200):
 
 
 def test_pandas_drops_variance_zero_and_mostly_null():
+    """Pandas drops variance zero and mostly null."""
     df = _build_pandas_train_df()
     drops = compute_unsupervised_drops(df, protected_columns={"target"})
     assert "const_zero_var" in drops
@@ -51,6 +54,7 @@ def test_pandas_drops_variance_zero_and_mostly_null():
 
 
 def test_polars_drops_variance_zero_and_mostly_null():
+    """Polars drops variance zero and mostly null."""
     df = _build_polars_train_df()
     drops = compute_unsupervised_drops(df, protected_columns={"target"})
     assert "const_zero_var" in drops
@@ -61,12 +65,14 @@ def test_polars_drops_variance_zero_and_mostly_null():
 
 
 def test_apply_drops_idempotent_when_no_drops():
+    """Apply drops idempotent when no drops."""
     df = _build_pandas_train_df()
     out = apply_drops(df, [])
     assert out is df
 
 
 def test_apply_drops_removes_listed_columns_pandas():
+    """Apply drops removes listed columns pandas."""
     df = _build_pandas_train_df()
     out = apply_drops(df, ["const_zero_var", "mostly_null", "nonexistent"])
     assert "const_zero_var" not in out.columns
@@ -75,6 +81,7 @@ def test_apply_drops_removes_listed_columns_pandas():
 
 
 def test_apply_drops_removes_listed_columns_polars():
+    """Apply drops removes listed columns polars."""
     df = _build_polars_train_df()
     out = apply_drops(df, ["const_zero_var", "mostly_null", "nonexistent"])
     assert "const_zero_var" not in out.columns
@@ -83,6 +90,7 @@ def test_apply_drops_removes_listed_columns_polars():
 
 
 def test_empty_frame_returns_empty_drops():
+    """Empty frame returns empty drops."""
     df = pd.DataFrame({"a": []})
     drops = compute_unsupervised_drops(df)
     assert drops == []
@@ -148,6 +156,7 @@ def _reference_drops_via_isna(df):
 
 
 def test_fast_null_count_matches_isna_across_dtypes():
+    """Fast null count matches isna across dtypes."""
     rng = np.random.default_rng(11)
     n = 2000
     df = pd.DataFrame(

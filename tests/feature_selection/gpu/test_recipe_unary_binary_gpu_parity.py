@@ -30,6 +30,7 @@ from mlframe.feature_selection.filters.engineered_recipes._recipe_unary_binary_g
 
 
 def _need_cuda():
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -89,6 +90,7 @@ _BINARY = [
 
 
 def _frame(seed=7, n=4000):
+    """Helper that frame."""
     rng = np.random.default_rng(seed)
     # Mixed-sign, includes zeros and small positives so div / log / reciprocal
     # guards are exercised exactly as the numpy registry handles them.
@@ -100,6 +102,7 @@ def _frame(seed=7, n=4000):
 
 
 def _recipe(u_a, u_b, binary, preset="maximal"):
+    """Helper that recipe."""
     return build_unary_binary_recipe(
         name=f"{binary}({u_a}(a),{u_b}(b))",
         src_a_name="a",
@@ -117,6 +120,7 @@ def _recipe(u_a, u_b, binary, preset="maximal"):
 
 @pytest.mark.parametrize("u", _UNARY)
 def test_each_unary_gpu_matches_numpy(u, monkeypatch):
+    """Each unary gpu matches numpy."""
     monkeypatch.delenv("MLFRAME_FE_VRAM_F32", raising=False)  # f64 -> tight tol
     X = _frame()
     rec = _recipe(u, "identity", "add")
@@ -129,6 +133,7 @@ def test_each_unary_gpu_matches_numpy(u, monkeypatch):
 
 @pytest.mark.parametrize("binary", _BINARY)
 def test_each_binary_gpu_matches_numpy(binary, monkeypatch):
+    """Each binary gpu matches numpy."""
     monkeypatch.delenv("MLFRAME_FE_VRAM_F32", raising=False)
     X = _frame()
     rec = _recipe("identity", "identity", binary)

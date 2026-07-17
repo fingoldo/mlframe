@@ -38,6 +38,7 @@ import pandas as pd
 
 
 def _build_recipe(with_edges: bool, train: pd.DataFrame):
+    """Build recipe."""
     from mlframe.feature_selection.filters.engineered_recipes import (
         build_unary_binary_recipe,
     )
@@ -60,6 +61,7 @@ def _build_recipe(with_edges: bool, train: pd.DataFrame):
 
 
 def _frames():
+    """Helper that frames."""
     rng = np.random.default_rng(0)
     n = 200
     train = pd.DataFrame(

@@ -15,6 +15,7 @@ import numpy as np
 
 
 def test_chi2_symbol_is_exported_with_ppf():
+    """Chi2 symbol is exported with ppf."""
     from mlframe.feature_selection.filters._analytic_mi_null import _HAVE_CHI2, _chi2
 
     assert _HAVE_CHI2 is True, "scipy present -> analytic null must be enabled"
@@ -46,6 +47,7 @@ def test_dense_conditional_null_takes_analytic_not_perm(monkeypatch):
     orig = PG.conditional_perm_null_gpu
 
     def spy(*a, **k):
+        """Helper that spy."""
         perm_hits["n"] += 1
         return orig(*a, **k)
 

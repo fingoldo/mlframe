@@ -19,6 +19,7 @@ _CLUSTER_KWARGS = {"cluster_reduce": True, "cluster_corr_threshold": 0.85, "clus
 
 
 def test_boruta_shap_kwargs_accepts_cluster_reduce_keys():
+    """Boruta shap kwargs accepts cluster reduce keys."""
     cfg = FeatureSelectionConfig(use_boruta_shap=True, boruta_shap_kwargs=dict(_CLUSTER_KWARGS))
     assert cfg.boruta_shap_kwargs["cluster_reduce"] is True
     assert cfg.boruta_shap_kwargs["cluster_corr_threshold"] == 0.85

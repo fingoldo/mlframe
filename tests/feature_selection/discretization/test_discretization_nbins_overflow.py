@@ -21,12 +21,14 @@ from mlframe.feature_selection.filters.discretization import (
 
 
 def _monotonic(codes):
+    """Helper that monotonic."""
     return bool(np.all(np.diff(codes.astype(np.int64)) >= 0))
 
 
 @pytest.mark.parametrize("method", ["quantile", "uniform"])
 def test_discretize_array_nbins_over_int8_no_wrap(method):
     # Sorted high-magnitude ramp: codes MUST be non-decreasing and span the full range.
+    """Discretize array nbins over int8 no wrap."""
     arr = np.linspace(1000.0, 2000.0, 1000)
     out = discretize_array(arr, n_bins=200, method=method)
     assert out.min() >= 0, f"{method}: negative code -> int8 wraparound regressed"
@@ -36,6 +38,7 @@ def test_discretize_array_nbins_over_int8_no_wrap(method):
 
 
 def test_discretize_2d_array_nbins_over_int8_no_wrap():
+    """Discretize 2d array nbins over int8 no wrap."""
     arr = np.linspace(0.0, 1000.0, 800)
     a2 = np.column_stack([arr, arr])
     out = discretize_2d_array(a2, n_bins=200, method="quantile", prefer_gpu=False)
@@ -45,6 +48,7 @@ def test_discretize_2d_array_nbins_over_int8_no_wrap():
 
 
 def test_discretize_2d_quantile_batch_nbins_over_int8_no_wrap():
+    """Discretize 2d quantile batch nbins over int8 no wrap."""
     arr = np.linspace(0.0, 1000.0, 800).astype(np.float32)
     a2 = np.column_stack([arr, arr])
     out = discretize_2d_quantile_batch(a2, n_bins=200)
@@ -55,6 +59,7 @@ def test_discretize_2d_quantile_batch_nbins_over_int8_no_wrap():
 
 def test_default_nbins_path_unchanged_int8():
     # The common n_bins=10 path must stay int8 and bit-identical to the numpy reference.
+    """Default nbins path unchanged int8."""
     arr = np.linspace(0.0, 1000.0, 1000)
     ref = np.searchsorted(np.nanpercentile(arr, np.linspace(0, 100, 11))[1:-1], arr, side="right").astype(np.int8)
     out = discretize_array(arr, n_bins=10, method="quantile")

@@ -18,6 +18,7 @@ from mlframe.feature_selection import cascade_select, cascade_select_stable
 
 
 def _make_borderline_dataset(n: int, seed: int):
+    """Make borderline dataset."""
     rng = np.random.default_rng(seed)
     X_strong = rng.normal(size=(n, 3))  # clearly informative, large coefficients
     X_borderline = rng.normal(size=(n, 4))  # weak signal, close to the noise floor
@@ -33,9 +34,11 @@ def _make_borderline_dataset(n: int, seed: int):
 
 
 def test_biz_val_cascade_select_stable_reduces_selection_variance_vs_single_run():
+    """Biz val cascade select stable reduces selection variance vs single run."""
     X, y = _make_borderline_dataset(n=200, seed=7)
 
     def make_estimator():
+        """Make estimator."""
         return RandomForestRegressor(n_estimators=12, random_state=0)
 
     cascade_kwargs = dict(n_boruta_iterations=6, cv=3, scoring="neg_mean_squared_error", forward_max_features=8)

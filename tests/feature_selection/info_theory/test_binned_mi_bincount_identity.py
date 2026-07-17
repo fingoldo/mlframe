@@ -51,6 +51,7 @@ def _binned_mi_legacy(feat, y, nbins: int = 10) -> float:
 
 
 def _edge_cases():
+    """Edge cases."""
     rng = np.random.default_rng(1)
     return [
         ("single_unique_feat", np.ones(50), rng.integers(0, 3, 50)),
@@ -65,10 +66,12 @@ def _edge_cases():
 
 @pytest.mark.parametrize("name,feat,y", _edge_cases(), ids=[c[0] for c in _edge_cases()])
 def test_binned_mi_bincount_bit_identical_edge(name, feat, y):
+    """Binned mi bincount bit identical edge."""
     assert _binned_mi(feat, y) == _binned_mi_legacy(feat, y), f"{name}: bincount _binned_mi diverged from legacy"
 
 
 def test_binned_mi_bincount_bit_identical_random_battery():
+    """Binned mi bincount bit identical random battery."""
     rng = np.random.default_rng(0)
     max_abs = 0.0
     for _ in range(300):

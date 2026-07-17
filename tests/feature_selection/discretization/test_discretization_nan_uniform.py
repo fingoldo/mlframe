@@ -45,6 +45,7 @@ def _uniform_codes_via_clip_astype(arr: np.ndarray, n_bins: int, dtype=np.int8) 
 
 
 def test_b1_uniform_nan_routes_to_dedicated_bin_no_warning():
+    """B1 uniform nan routes to dedicated bin no warning."""
     n_bins = 10
     arr = np.array([1.0, 2.0, 3.0, np.nan, 100.0, 50.0], dtype=np.float64)
     with warnings.catch_warnings():
@@ -75,6 +76,7 @@ def test_b1_uniform_finite_rows_binned_identically_to_all_finite_case():
 
 
 def test_b1_uniform_serial_and_parallel_agree_on_nan():
+    """B1 uniform serial and parallel agree on nan."""
     n_bins = 10
     arr = np.array([1.0, 2.0, 3.0, np.nan, 100.0, 50.0], dtype=np.float64)
     mn, mx = arrayMinMax(arr)
@@ -85,6 +87,7 @@ def test_b1_uniform_serial_and_parallel_agree_on_nan():
 
 
 def test_b1_uniform_all_nan_column():
+    """B1 uniform all nan column."""
     n_bins = 10
     arr = np.array([np.nan, np.nan, np.nan], dtype=np.float64)
     with warnings.catch_warnings():
@@ -99,16 +102,19 @@ def test_b1_uniform_all_nan_column():
 
 
 def test_b2_arrayminmax_leading_nan():
+    """B2 arrayminmax leading nan."""
     mn, mx = arrayMinMax(np.array([np.nan, 1.0, 2.0, 3.0, 100.0], dtype=np.float64))
     assert mn == 1.0 and mx == 100.0, "finite min/max must ignore a leading NaN"
 
 
 def test_b2_arrayminmax_non_leading_and_trailing_nan():
+    """B2 arrayminmax non leading and trailing nan."""
     assert arrayMinMax(np.array([1.0, 2.0, np.nan, 3.0, 100.0])) == (1.0, 100.0)
     assert arrayMinMax(np.array([1.0, 2.0, 3.0, np.nan])) == (1.0, 3.0)
 
 
 def test_b2_arrayminmax_all_nan_returns_sentinel():
+    """B2 arrayminmax all nan returns sentinel."""
     mn, mx = arrayMinMax(np.array([np.nan, np.nan], dtype=np.float64))
     assert np.isnan(mn) and np.isnan(mx), "all-NaN range returns NaN sentinels for the _rng guard"
 
@@ -134,6 +140,7 @@ def test_b2_uniform_leading_nan_column_not_all_nan():
 
 
 def test_bit_identity_uniform_finite_matches_clip_astype_reference():
+    """Bit identity uniform finite matches clip astype reference."""
     rng = np.random.default_rng(7)
     for _ in range(200):
         n = int(rng.integers(1, 500))
@@ -152,6 +159,7 @@ def test_bit_identity_uniform_captured_reference_vector():
 
 
 def test_bit_identity_uniform_constant_column():
+    """Bit identity uniform constant column."""
     out = discretize_uniform(arr=np.array([5.0] * 8, dtype=np.float64), n_bins=10, dtype=np.int8)
     np.testing.assert_array_equal(out, np.zeros(8, dtype=np.int8))
 

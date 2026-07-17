@@ -31,6 +31,7 @@ from mlframe.feature_selection.filters._dcd_pair_su_batch import (
 
 @pytest.fixture
 def synth():
+    """Helper that synth."""
     rng = np.random.default_rng(20260707)
     n, p, nb = 4000, 16, 10
     fd = rng.integers(0, nb, size=(n, p)).astype(np.int32)

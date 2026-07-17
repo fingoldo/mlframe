@@ -18,9 +18,11 @@ def _parse(argv):
     # Build the same parser main() builds, but stop before dispatch so we just inspect the namespace.
 
     # Reuse main() via a patched dispatch that returns the parsed args.
+    """Helper that parse."""
     captured = {}
 
     def _fake_dispatch(args):
+        """Fake dispatch."""
         captured["args"] = args
         return 0
 
@@ -50,10 +52,13 @@ def _parse(argv):
 
 
 class TestForceFlagDefault:
+    """Groups tests covering TestForceFlagDefault."""
     def test_refresh_all_defaults_force_false(self):
+        """Refresh all defaults force false."""
         assert _parse(["refresh-all"]).force is False
 
     def test_refresh_all_force_true_with_flag(self):
+        """Refresh all force true with flag."""
         assert _parse(["refresh-all", "--force"]).force is True
 
     @pytest.mark.parametrize(
@@ -67,10 +72,12 @@ class TestForceFlagDefault:
         ],
     )
     def test_each_refresh_defaults_force_false(self, cmd):
+        """Each refresh defaults force false."""
         assert _parse([cmd]).force is False
 
     @pytest.mark.parametrize("cmd", ["refresh", "refresh-mi", "refresh-batch-pair-mi"])
     def test_each_refresh_force_flag(self, cmd):
+        """Each refresh force flag."""
         assert _parse([cmd, "--force"]).force is True
 
 
@@ -79,9 +86,11 @@ class TestRefreshGenericSkipsCache:
     ensure_* returns cached regions WITHOUT re-sweeping)."""
 
     def test_force_false_forwarded(self):
+        """Force false forwarded."""
         seen = {}
 
         def _ensure(force):
+            """Helper that ensure."""
             seen["force"] = force
             return [{"region": 1}]
 
@@ -89,9 +98,11 @@ class TestRefreshGenericSkipsCache:
         assert rc == 0 and seen["force"] is False
 
     def test_force_true_forwarded(self):
+        """Force true forwarded."""
         seen = {}
 
         def _ensure(force):
+            """Helper that ensure."""
             seen["force"] = force
             return [{"region": 1}]
 
@@ -103,9 +114,11 @@ class TestRefreshViaRegistrySkipExisting:
     """_refresh_via_new_registry must call tune_spec with skip_existing=True and the operator's force."""
 
     def test_skip_existing_and_force_forwarded(self):
+        """Skip existing and force forwarded."""
         rec = {}
 
         def _tune_spec(spec, *, force, skip_existing):
+            """Tune spec."""
             rec["force"] = force
             rec["skip_existing"] = skip_existing
             return 3

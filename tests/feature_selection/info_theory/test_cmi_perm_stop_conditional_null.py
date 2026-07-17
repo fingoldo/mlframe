@@ -32,6 +32,7 @@ def _make_redundant_given_z(n: int, seed: int, nb: int = 6):
 
 
 def _conditional_null(x, y, z, nb, B=150, seed=0):
+    """Conditional null."""
     strata = {int(v): np.flatnonzero(z == v) for v in np.unique(z)}
     rng = np.random.default_rng(seed)
     out = np.empty(B)
@@ -45,6 +46,7 @@ def _conditional_null(x, y, z, nb, B=150, seed=0):
 
 
 def _marginal_null(x, y, z, nb, B=150, seed=0):
+    """Marginal null."""
     rng = np.random.default_rng(seed)
     n = x.size
     return np.array([_cmi_plugin_njit(x[rng.permutation(n)], y, z, nb, nb, nb) for _ in range(B)])

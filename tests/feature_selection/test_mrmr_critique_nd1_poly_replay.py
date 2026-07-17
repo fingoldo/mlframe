@@ -10,6 +10,7 @@ import warnings
 
 
 def test_fe_max_polynoms_fit_transform_no_keyerror():
+    """Fe max polynoms fit transform no keyerror."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)
@@ -29,6 +30,7 @@ def test_fe_max_polynoms_fit_transform_no_keyerror():
 
 
 def test_poly_recipe_persists_coef_and_replays_via_hermval():
+    """Poly recipe persists coef and replays via hermval."""
     from mlframe.feature_selection.filters.engineered_recipes._recipe_unary_binary import build_unary_binary_recipe, _apply_unary_binary
     from numpy.polynomial.hermite import hermval
 
