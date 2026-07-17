@@ -314,10 +314,12 @@ def test_cyclical_sincos_njit_dispatches_to_parallel_above_threshold(monkeypatch
     orig_ser, orig_par = basic._cyclical_sincos_serial, basic._cyclical_sincos_parallel
 
     def _spy_ser(b, s):
+        """Count a call into the serial cyclical kernel, then delegate to it."""
         calls["serial"] += 1
         return orig_ser(b, s)
 
     def _spy_par(b, s):
+        """Count a call into the parallel cyclical kernel, then delegate to it."""
         calls["parallel"] += 1
         return orig_par(b, s)
 
