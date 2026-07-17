@@ -62,6 +62,7 @@ from .shared import SimpleFeaturesAndTargetsExtractor
 
 
 def _has_lightning() -> bool:
+    """Returns whether pytorch-lightning is importable, to gate tests that require the neural backend."""
     try:
         import lightning.pytorch  # noqa: F401
 
@@ -216,6 +217,7 @@ def _flatten_entries(models: dict) -> list:
 
 
 def _collapse_sensor_fired(log_records) -> bool:
+    """Checks whether the regression-collapse-sensor warning appears among the captured log records."""
     return any("regression-collapse-sensor" in str(r.getMessage()) for r in log_records if r.levelno >= logging.WARNING)
 
 
