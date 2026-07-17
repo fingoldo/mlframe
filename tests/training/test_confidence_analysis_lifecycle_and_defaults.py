@@ -27,6 +27,7 @@ from mlframe.training.configs import ConfidenceAnalysisConfig
 
 
 def _toy_inputs(n=200, seed=0):
+    """Builds a small deterministic frame of standard-normal features for confidence-analysis tests."""
     rng = np.random.default_rng(seed)
     df = pd.DataFrame(
         {

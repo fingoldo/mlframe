@@ -61,6 +61,7 @@ def test_split_seed_independent_across_outer_seeds():
 
 
 def test_split_seed_reproducible_for_same_seed():
+    """Same random_state passed to _split_train_val twice yields bit-identical splits."""
     X = np.arange(200).reshape(100, 2).astype(float)
     y = (np.arange(100) % 2).astype(int)
     a = _split_train_val(X, y, 0.3, random_state=7)

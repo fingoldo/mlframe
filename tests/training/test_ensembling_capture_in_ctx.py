@@ -11,6 +11,7 @@ from __future__ import annotations
 
 
 def test_training_context_has_ensembles_slot():
+    """TrainingContext exposes an ensembles field defaulting to an empty dict."""
     # Verifies the new TrainingContext.ensembles field exists with the
     # expected default (empty dict).
     from mlframe.training.core._training_context import TrainingContext

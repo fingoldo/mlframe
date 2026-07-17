@@ -50,6 +50,7 @@ def _make_highcard_rare(seed):
 
 
 def _heldout_log_loss(cats, y, tr, te, smoothing, seed):
+    """Fits LeakageSafeEncoder on the train split and returns held-out log-loss at a given smoothing."""
     enc = LeakageSafeEncoder(method="target_mean", smoothing=smoothing, cv=5, random_state=seed)
     enc.fit(cats[tr], y[tr])
     p = np.clip(enc.transform(cats[te]), 1e-6, 1 - 1e-6)
