@@ -100,6 +100,8 @@ class TestDriftDetected:
 
 
 class TestEdgeCases:
+    """Groups edge-case tests for streaming_alpha_check_and_refit (small buffers, degenerate inputs)."""
+
     def test_buffer_too_small_skips(self) -> None:
         """Buffer too small skips."""
         rng = np.random.default_rng(4)

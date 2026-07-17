@@ -49,6 +49,7 @@ def _build_problem(n: int = 600, seed: int = 11):
 
 
 def _run(*, n_jobs: int, transforms: list[str]):
+    """Fits CompositeTargetDiscovery with the given n_jobs/transforms and returns the fitted discovery object, for parallel-vs-serial identity checks."""
     df, y = _build_problem()
     df_with_y = df.copy()
     df_with_y["y"] = y

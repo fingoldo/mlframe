@@ -44,6 +44,7 @@ def _silence():
 
 
 def _run(monkeypatch, *, group_column, group_aware):
+    """Fits discovery's stability-selection stage with group-aware subsampling toggled, spying on how many times it's invoked."""
     df, n = _grouped_df()
     calls = {"group": 0}
     real = _stab._subsample_groups

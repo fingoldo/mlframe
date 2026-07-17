@@ -23,6 +23,7 @@ from mlframe.training.reporting._reporting_probabilistic import (
 
 
 def _run(target_labels):
+    """Builds a weak-signal binary probability report under the given non-0/1 target_labels and runs the fairness ROC-AUC report."""
     rng = np.random.default_rng(1)
     n = 2000
     g = rng.integers(0, 2, n)

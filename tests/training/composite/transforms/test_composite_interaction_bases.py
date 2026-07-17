@@ -20,6 +20,8 @@ from mlframe.training.composite import generate_interaction_bases
 
 
 class TestBasic:
+    """Groups baseline coverage for generate_interaction_bases' default mul/div synthetic-feature generation."""
+
     def test_default_mul_div_top3(self) -> None:
         """3 candidates x 2 ops x (3*2 ordered pairs - 3 self) = 12 synthetics."""
         rng = np.random.default_rng(0)

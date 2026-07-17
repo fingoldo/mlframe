@@ -151,6 +151,7 @@ class TestNearCopyExemptionEndToEnd:
         assert corr > 0.9995, f"synthetic must make y_prev a near-copy (corr={corr:.6f})"
 
         def _run(exempt):
+            """Fits CompositeTargetDiscovery on the near-copy-of-y synthetic with causal_base_gate_exempt toggled."""
             cfg = CompositeTargetDiscoveryConfig(
                 enabled=True,
                 screening="mi",

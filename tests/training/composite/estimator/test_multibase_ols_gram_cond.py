@@ -56,6 +56,7 @@ def _legacy_fit(y: np.ndarray, base: np.ndarray) -> dict:
 
 
 def _cases():
+    """Builds clean and near-collinear multi-base regression fixtures to exercise the Gram-matrix condition-number fallback."""
     rng = np.random.default_rng(7)
     n = 4000
     out = {}

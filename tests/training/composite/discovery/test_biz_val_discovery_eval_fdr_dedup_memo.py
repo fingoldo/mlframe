@@ -261,6 +261,7 @@ def _shrink_dataset(n: int = 2400, seed: int = 11) -> pd.DataFrame:
 
 
 def _run(df: pd.DataFrame, config):
+    """Fits CompositeTargetDiscovery on an 80/20 train/val split of df and returns the fitted discovery object."""
     from mlframe.training.composite import CompositeTargetDiscovery
 
     n = len(df)

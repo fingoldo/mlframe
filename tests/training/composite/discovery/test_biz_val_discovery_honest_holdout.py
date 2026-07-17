@@ -86,6 +86,7 @@ def _make_config(**overrides):
 
 
 def _run(df, config, feature_cols, train_frac=0.85):
+    """Fits CompositeTargetDiscovery using the first train_frac rows as train_idx and returns the fitted discovery object."""
     from mlframe.training.composite import CompositeTargetDiscovery
 
     n = len(df)

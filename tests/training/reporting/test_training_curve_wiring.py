@@ -49,6 +49,8 @@ class _FakeCatBoost:
 
 
 class _Wrapper:
+    """Stand-in fitted-model wrapper exposing only the .base_estimator attribute the training-curve renderer reads."""
+
     def __init__(self, base):
         self.base_estimator = base
 
