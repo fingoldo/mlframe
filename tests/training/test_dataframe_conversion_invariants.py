@@ -1,5 +1,3 @@
-from mlframe.training import OutputConfig, PreprocessingConfig
-
 """
 Structural invariant tests — evergreen guards against the *class* of bugs
 that surfaced in the 2026-04-23 prod log review.
@@ -32,6 +30,9 @@ violate in order to re-introduce the same family of bugs:
 Adding a new strategy or convert-bridge code should either keep all of these
 green or update the invariant with a clear comment explaining why.
 """
+
+from mlframe.training import OutputConfig, PreprocessingConfig
+
 
 import warnings
 from collections import defaultdict

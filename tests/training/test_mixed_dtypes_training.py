@@ -1,7 +1,3 @@
-"""Integration coverage: CatBoost training on a ~576-column mixed-dtype Polars frame matching a real 100k-row production shape."""
-
-from mlframe.training import OutputConfig, ReportingConfig
-
 """
 Integration test: train CatBoost on a synthetic Polars DataFrame with mixed dtypes
 matching a real production dataset shape.
@@ -13,6 +9,9 @@ Real dataset dtypes:
 
 Total: ~576 feature columns + target source + metadata columns, 100k rows.
 """
+
+from mlframe.training import OutputConfig, ReportingConfig
+
 
 import numpy as np
 import polars as pl
