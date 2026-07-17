@@ -63,11 +63,13 @@ def test_float_precision_denoiser_transform_matches_fit_transform() -> None:
 
 
 def test_float_precision_denoiser_rejects_empty_series() -> None:
+    """Fitting on an empty array raises ValueError instead of silently producing a degenerate denominator."""
     with pytest.raises(ValueError):
         FloatPrecisionDenoiser().fit(np.array([]))
 
 
 def test_float_precision_denoiser_rejects_invalid_params() -> None:
+    """Non-positive max_decimal_pow or max_denominator are rejected at construction time."""
     with pytest.raises(ValueError):
         FloatPrecisionDenoiser(max_decimal_pow=-1)
     with pytest.raises(ValueError):
