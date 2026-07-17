@@ -16,6 +16,7 @@ from mlframe.models.optimization import MBHOptimizer
 
 
 def _make_optimizer(**overrides):
+    """Helper: Make optimizer."""
     kwargs = dict(
         search_space=np.arange(0, 20),
         model_name="ETR",
@@ -71,6 +72,7 @@ def test_rng_seeding_independent_of_intermediate_rng_draws():
 
 
 def test_optimizer_stdlib_rng_reproducible_for_same_random_state():
+    """Optimizer stdlib rng reproducible for same random state."""
     opt1 = _make_optimizer(random_state=42)
     opt2 = _make_optimizer(random_state=42)
     draws1 = [opt1._stdlib_rng.random() for _ in range(5)]
@@ -97,6 +99,7 @@ def test_justify_estimator_expected_score_is_refit_held_out_score_not_cv_mean():
     _SENTINEL_REFIT_SCORE = 0.4242
 
     def _fake_check_scoring(estimator, scoring=None):
+        """Helper: Fake check scoring."""
         return lambda est, X_test, y_test: _SENTINEL_REFIT_SCORE
 
     orig_check_scoring = tuning_mod.check_scoring

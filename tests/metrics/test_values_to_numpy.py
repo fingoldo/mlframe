@@ -22,6 +22,7 @@ def test_ice_metric_handles_pandas_nullable_int_y_true():
 
 
 def test_ice_metric_pandas_nullable_float_y_score():
+    """Ice metric pandas nullable float y score."""
     from mlframe.metrics._ice_metric import compute_probabilistic_multiclass_error
 
     y_true = np.array([0, 1, 0, 1, 0, 1, 0, 1])

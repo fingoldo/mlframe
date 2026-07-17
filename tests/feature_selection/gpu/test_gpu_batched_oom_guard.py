@@ -13,11 +13,13 @@ from mlframe.feature_selection.filters.gpu import _gpu_batched_bytes_per_perm
 
 
 def test_bytes_per_perm_reflects_true_20_bytes_per_row():
+    """_gpu_batched_bytes_per_perm returns 20 bytes/row (rand f64 + perm_idx i64 + perms_y i32), the true simultaneously-live working set."""
     assert _gpu_batched_bytes_per_perm(1000) == 20_000
     assert _gpu_batched_bytes_per_perm(1) == 20
 
 
 def test_bytes_per_perm_no_longer_undercounts_5x():
+    """The fixed n*20 formula is exactly 5x the pre-fix n*4 undercount, pinning the ratio against an accidental revert."""
     # The pre-fix formula was n * 4 (only perms_y int32); the fix is n * 20 (rand f64 + perm_idx i64 +
     # perms_y i32). Pin the ratio directly so a future accidental revert is caught.
     n = 12_345

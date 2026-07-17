@@ -16,6 +16,7 @@ import mlframe.utils.safe_pickle as sp
 
 def test_module_docstring_states_integrity_not_authenticity():
     # Collapse whitespace so the caveat matches regardless of line wrapping.
+    """Module docstring states integrity not authenticity."""
     doc = " ".join((pyutilz_sp.__doc__ or "").lower().split())
     assert "not an authenticity" in doc
     assert "integrity" in doc
@@ -24,5 +25,6 @@ def test_module_docstring_states_integrity_not_authenticity():
 
 
 def test_mlframe_shim_docstring_points_to_canonical_module():
+    """Mlframe shim docstring points to canonical module."""
     doc = " ".join((sp.__doc__ or "").lower().split())
     assert "pyutilz.core.safe_pickle" in doc

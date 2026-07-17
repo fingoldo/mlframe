@@ -17,6 +17,7 @@ pytestmark = pytest.mark.fast
 
 
 def test_merge_rankings_constant_market_column_no_inf_nan():
+    """Merge rankings constant market column no inf nan."""
     perticker = pl.DataFrame(
         {
             "date": [1, 2, 3, 4],

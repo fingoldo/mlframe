@@ -15,39 +15,49 @@ class _EvalSetRecorder:
         self.seen_train_rows = None
 
     def get_params(self, deep=True):
+        """Helper that get params."""
         return {}
 
     def set_params(self, **params):
+        """Helper that set params."""
         return self
 
     def fit(self, X, y, eval_set=None):
+        """Helper that fit."""
         self.seen_eval_set = eval_set
         self.seen_train_rows = len(X)
         return self
 
     def predict(self, X):
+        """Helper that predict."""
         return np.zeros(len(X))
 
 
 class _NoEvalSet:
+    """Groups tests covering NoEvalSet."""
     def __init__(self):
         self.seen_train_rows = None
 
     def get_params(self, deep=True):
+        """Helper that get params."""
         return {}
 
     def set_params(self, **params):
+        """Helper that set params."""
         return self
 
     def fit(self, X, y):
+        """Helper that fit."""
         self.seen_train_rows = len(X)
         return self
 
     def predict(self, X):
+        """Helper that predict."""
         return np.zeros(len(X))
 
 
 def test_eval_set_estimator_receives_validation_split():
+    """Eval set estimator receives validation split."""
     n = 200
     X = np.random.RandomState(0).normal(size=(n, 3))
     y = np.arange(n) % 2
@@ -61,6 +71,7 @@ def test_eval_set_estimator_receives_validation_split():
 
 
 def test_non_eval_set_estimator_fits_full_data_without_crash():
+    """Non eval set estimator fits full data without crash."""
     n = 60
     X = np.random.RandomState(1).normal(size=(n, 2))
     y = np.arange(n) % 2

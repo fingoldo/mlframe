@@ -24,6 +24,7 @@ from mlframe.feature_engineering.grouped import per_group_rank
 
 
 def _make_coarse_score_dataset(n_groups: int, group_size: int, seed: int):
+    """Helper: Make coarse score dataset."""
     rng = np.random.default_rng(seed)
     n = n_groups * group_size
     groups = np.repeat(np.arange(n_groups), group_size)
@@ -39,6 +40,7 @@ def _make_coarse_score_dataset(n_groups: int, group_size: int, seed: int):
 
 
 def _avg_per_group_spearman(rank: np.ndarray, merit: np.ndarray, groups: np.ndarray) -> float:
+    """Helper: Avg per group spearman."""
     corrs = []
     for g in np.unique(groups):
         mask = groups == g
@@ -48,6 +50,7 @@ def _avg_per_group_spearman(rank: np.ndarray, merit: np.ndarray, groups: np.ndar
 
 
 def test_biz_val_per_group_rank_tiebreak_recovers_merit_ordering():
+    """Biz val per group rank tiebreak recovers merit ordering."""
     groups, score, tiebreak, merit = _make_coarse_score_dataset(n_groups=200, group_size=30, seed=42)
 
     rank_plain = per_group_rank(score, groups, method="ordinal")
@@ -65,6 +68,7 @@ def test_biz_val_per_group_rank_tiebreak_recovers_merit_ordering():
 
 
 def test_biz_val_per_group_rank_tiebreak_omitted_is_bit_identical_to_baseline():
+    """Biz val per group rank tiebreak omitted is bit identical to baseline."""
     groups, score, _tiebreak, _merit = _make_coarse_score_dataset(n_groups=50, group_size=12, seed=7)
 
     baseline = per_group_rank(score, groups, method="ordinal")
@@ -74,6 +78,7 @@ def test_biz_val_per_group_rank_tiebreak_omitted_is_bit_identical_to_baseline():
 
 
 def test_biz_val_per_group_rank_tiebreak_rejects_non_ordinal_method():
+    """Biz val per group rank tiebreak rejects non ordinal method."""
     groups, score, tiebreak, _merit = _make_coarse_score_dataset(n_groups=10, group_size=8, seed=3)
     for method in ("average", "min", "max", "dense"):
         try:

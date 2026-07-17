@@ -21,11 +21,13 @@ from mlframe.metrics._fairness_metrics import (
 
 
 def _partition_for(bins_series, arr, bin_name):
+    """Helper: Partition for."""
     sub = bins_series.loc[arr].to_numpy()
     return np.where(sub == bin_name)[0]
 
 
 def test_equal_sized_val_test_both_retained_by_name():
+    """Equal sized val test both retained by name."""
     n = 600
     rng = np.random.default_rng(0)
     region = pd.Series([f"r{v}" for v in rng.integers(0, 4, n)], name="region")

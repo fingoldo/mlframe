@@ -16,6 +16,7 @@ from mlframe.metrics.classification._classification_extras_blocks import fast_bi
 
 
 def test_brier_precision_scorer_fails_closed_on_out_of_range_proba():
+    """Brier precision scorer fails closed on out of range proba."""
     yt = np.array([0, 1, 0, 1])
     yp_bad = np.array([0.3, 1.4, 0.2, -0.1])  # out of [0,1] -> Brier NaN
     score = brier_and_precision_score(yt, yp_bad)
@@ -24,6 +25,7 @@ def test_brier_precision_scorer_fails_closed_on_out_of_range_proba():
 
 
 def test_brier_precision_scorer_fails_closed_on_nan_proba():
+    """Brier precision scorer fails closed on nan proba."""
     yt = np.array([0, 1, 1, 0])
     yp = np.array([0.2, np.nan, 0.9, 0.1])
     score = brier_and_precision_score(yt, yp)
@@ -31,6 +33,7 @@ def test_brier_precision_scorer_fails_closed_on_nan_proba():
 
 
 def test_brier_precision_scorer_still_rewards_good_model():
+    """Brier precision scorer still rewards good model."""
     yt = np.array([0, 0, 1, 1, 1])
     yp = np.array([0.05, 0.1, 0.9, 0.95, 0.99])
     score = brier_and_precision_score(yt, yp)
@@ -38,6 +41,7 @@ def test_brier_precision_scorer_still_rewards_good_model():
 
 
 def test_probability_block_returns_nan_on_out_of_range():
+    """Probability block returns nan on out of range."""
     yt = np.array([0, 1, 0, 1])
     yp = np.array([0.3, 1.5, 0.2, 0.8])
     block = fast_binary_probability_metrics_block(yt, yp)
@@ -46,6 +50,7 @@ def test_probability_block_returns_nan_on_out_of_range():
 
 
 def test_probability_block_returns_nan_on_nan_scores():
+    """Probability block returns nan on nan scores."""
     yt = np.array([0, 1, 1])
     yp = np.array([0.2, np.nan, 0.8])
     block = fast_binary_probability_metrics_block(yt, yp)
@@ -53,6 +58,7 @@ def test_probability_block_returns_nan_on_nan_scores():
 
 
 def test_probability_block_valid_scores_unchanged():
+    """Probability block valid scores unchanged."""
     yt = np.array([0, 0, 1, 1])
     yp = np.array([0.1, 0.2, 0.8, 0.9])
     block = fast_binary_probability_metrics_block(yt, yp)

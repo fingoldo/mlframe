@@ -68,6 +68,7 @@ def test_freqs_predicted_is_bin_mean_not_centre():
 
 
 def test_freqs_predicted_within_observed_support_random():
+    """Freqs predicted within observed support random."""
     rng = np.random.default_rng(0)
     n = 5000
     y_pred = rng.random(n)
@@ -83,6 +84,7 @@ def test_freqs_predicted_within_observed_support_random():
 # INV-21: strategy dispatcher + biz_value
 # --------------------------------------------------------------------------- #
 def _rare_event_synthetic(seed: int = 7, n: int = 20000):
+    """Helper: Rare event synthetic."""
     rng = np.random.default_rng(seed)
     p = np.clip(rng.beta(0.5, 120.0, n), 0.0, 1.0)
     p[:2] = 0.99  # two high preds stretch the uniform span; the rest crowd bin 0
@@ -91,6 +93,7 @@ def _rare_event_synthetic(seed: int = 7, n: int = 20000):
 
 
 def test_strategy_validation():
+    """Strategy validation."""
     y = np.array([0, 1], dtype=np.int64)
     p = np.array([0.2, 0.8], dtype=np.float64)
     with pytest.raises(ValueError):
@@ -112,6 +115,7 @@ def test_biz_quantile_spreads_rare_event_mass():
 
 
 def test_auto_picks_quantile_for_rare_event():
+    """Auto picks quantile for rare event."""
     y, p = _rare_event_synthetic()
     _, _, hits_auto = calibration_binning(y, p, nbins=10, strategy="auto")
     _, _, hits_quantile = calibration_binning(y, p, nbins=10, strategy="quantile")
@@ -121,6 +125,7 @@ def test_auto_picks_quantile_for_rare_event():
 
 
 def test_auto_picks_uniform_for_balanced():
+    """Auto picks uniform for balanced."""
     rng = np.random.default_rng(3)
     n = 10000
     p = rng.random(n)
@@ -147,6 +152,7 @@ def test_quantile_bins_equal_population():
 # INV-8: NaN guard
 # --------------------------------------------------------------------------- #
 def test_nan_probs_dropped_before_binning(caplog):
+    """Nan probs dropped before binning."""
     from mlframe.metrics.classification._classification_report import fast_calibration_report
 
     rng = np.random.default_rng(0)
@@ -163,6 +169,7 @@ def test_nan_probs_dropped_before_binning(caplog):
 
 
 def test_all_nan_probs_does_not_crash():
+    """All nan probs does not crash."""
     from mlframe.metrics.classification._classification_report import fast_calibration_report
 
     n = 100
@@ -200,6 +207,7 @@ def test_wilson_ci_known_value():
 
 
 def test_wilson_ci_clips_and_handles_zero_n():
+    """Wilson ci clips and handles zero n."""
     from mlframe.reporting.charts.calibration import wilson_ci
 
     lower, upper = wilson_ci(np.array([0.0, 1.0, 0.5]), np.array([10, 10, 0]))

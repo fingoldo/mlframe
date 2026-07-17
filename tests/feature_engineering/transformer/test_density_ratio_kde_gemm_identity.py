@@ -13,6 +13,7 @@ from mlframe.feature_engineering.transformer.density_ratio import _gaussian_kde_
 
 
 def _kde_broadcast_reference(X_query, X_train_subset, h, chunk=1000):
+    """Helper: Kde broadcast reference."""
     n_q = X_query.shape[0]
     n_t = X_train_subset.shape[0]
     if n_t < 1:
@@ -33,6 +34,7 @@ def _kde_broadcast_reference(X_query, X_train_subset, h, chunk=1000):
 
 @pytest.mark.parametrize("n_q,n_t,d,h", [(500, 300, 20, 1.5), (1500, 800, 40, 0.7), (200, 100, 80, 3.0)])
 def test_kde_gemm_matches_broadcast(n_q, n_t, d, h):
+    """Kde gemm matches broadcast."""
     rng = np.random.default_rng(123)
     Xq = rng.standard_normal((n_q, d)).astype(np.float32)
     Xt = rng.standard_normal((n_t, d)).astype(np.float32)
@@ -46,6 +48,7 @@ def test_kde_gemm_matches_broadcast(n_q, n_t, d, h):
 
 
 def test_kde_empty_train_subset_sentinel():
+    """Kde empty train subset sentinel."""
     Xq = np.zeros((5, 3), dtype=np.float32)
     Xt = np.zeros((0, 3), dtype=np.float32)
     out = _gaussian_kde_log(Xq, Xt, h=1.0)

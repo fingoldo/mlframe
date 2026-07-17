@@ -17,6 +17,7 @@ from mlframe.feature_engineering.recency_aggregation import per_group_recency_we
 
 
 def _make_recent_vs_old_spike_data(n_entities: int, n_hist: int, seed: int):
+    """Helper: Make recent vs old spike data."""
     rng = np.random.default_rng(seed)
     group_ids = np.repeat(np.arange(n_entities), n_hist)
     order = np.tile(np.arange(n_hist), n_entities)
@@ -32,6 +33,7 @@ def _make_recent_vs_old_spike_data(n_entities: int, n_hist: int, seed: int):
 
 
 def test_biz_val_recency_weighted_max_separates_recent_from_old_spikes_better_than_plain_max():
+    """Biz val recency weighted max separates recent from old spikes better than plain max."""
     n_entities, n_hist = 2000, 12
     values, group_ids, order, label = _make_recent_vs_old_spike_data(n_entities, n_hist, seed=0)
 
@@ -48,6 +50,7 @@ def test_biz_val_recency_weighted_max_separates_recent_from_old_spikes_better_th
 
 
 def test_per_group_recency_weighted_agg_mean_matches_dedicated_mean_function():
+    """Per group recency weighted agg mean matches dedicated mean function."""
     n_entities, n_hist = 300, 8
     values, group_ids, order, _ = _make_recent_vs_old_spike_data(n_entities, n_hist, seed=1)
 
@@ -58,6 +61,7 @@ def test_per_group_recency_weighted_agg_mean_matches_dedicated_mean_function():
 
 
 def test_per_group_recency_weighted_agg_sum_and_min_identity_at_param_extremes():
+    """Per group recency weighted agg sum and min identity at param extremes."""
     values = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64)
     group_ids = np.array([0, 0, 0, 0])
     order = np.array([0, 1, 2, 3])

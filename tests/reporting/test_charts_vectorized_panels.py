@@ -19,6 +19,7 @@ from mlframe.reporting.charts.multilabel import _cooccurrence_panel, _cardinalit
 
 # ----- independent reference implementations (the pre-vectorization math) -----
 def _confusion_ref(y_true, y_pred, K):
+    """Helper: Confusion ref."""
     m = np.zeros((K, K), dtype=np.float64)
     for t, p in zip(y_true, y_pred):
         m[int(t), int(p)] += 1.0
@@ -28,6 +29,7 @@ def _confusion_ref(y_true, y_pred, K):
 
 
 def _calib_ref(y_true, y_proba, K, n_bins=10):
+    """Helper: Calib ref."""
     edges = np.linspace(0.0, 1.0, n_bins + 1)
     out = []
     for k in range(K):
@@ -44,6 +46,7 @@ def _calib_ref(y_true, y_proba, K, n_bins=10):
 
 
 def _cooc_ref(y_true, y_proba, K):
+    """Helper: Cooc ref."""
     y_pred = (y_proba >= 0.5).astype(np.int8)
     m = np.zeros((K, K), dtype=np.float64)
     for i in range(K):
@@ -57,6 +60,7 @@ def _cooc_ref(y_true, y_proba, K):
 
 
 def _card_ref(y_true, y_proba, K):
+    """Helper: Card ref."""
     y_pred = (y_proba >= 0.5).astype(np.int8)
     true_card = y_true.sum(axis=1).astype(np.int32)
     pred_card = y_pred.sum(axis=1).astype(np.int32)
@@ -73,6 +77,7 @@ def _card_ref(y_true, y_proba, K):
 
 @pytest.fixture
 def mc_data():
+    """Mc data."""
     rng = np.random.default_rng(7)
     n, K = 800, 4
     y_true = rng.integers(0, K, size=n)
@@ -83,6 +88,7 @@ def mc_data():
 
 @pytest.fixture
 def ml_data():
+    """Ml data."""
     rng = np.random.default_rng(11)
     n, K = 800, 5
     y_true = (rng.random((n, K)) < 0.35).astype(np.int8)
@@ -93,6 +99,7 @@ def ml_data():
 
 
 def test_confusion_matches_reference(mc_data):
+    """Confusion matches reference."""
     y_true, proba, classes, K = mc_data
     y_pred = np.argmax(proba, axis=1)
     spec = _confusion_panel(y_true, proba, classes)
@@ -100,6 +107,7 @@ def test_confusion_matches_reference(mc_data):
 
 
 def test_calib_matches_reference(mc_data):
+    """Calib matches reference."""
     y_true, proba, classes, K = mc_data
     spec = _calib_grid_panel(y_true, proba, classes)
     # spec.y = (perfect_diagonal, *per_class_series)
@@ -111,6 +119,7 @@ def test_calib_matches_reference(mc_data):
 
 
 def test_cooccurrence_matches_reference(ml_data):
+    """Cooccurrence matches reference."""
     y_true, proba, labels, K = ml_data
     spec = _cooccurrence_panel(y_true, proba, labels)
     ref = _cooc_ref(y_true, proba, K)
@@ -134,6 +143,7 @@ def test_compose_warns_on_total_label_mismatch():
 
 
 def test_cardinality_matches_reference(ml_data):
+    """Cardinality matches reference."""
     y_true, proba, labels, K = ml_data
     spec = _cardinality_panel(y_true, proba, labels)
     tc_exp, pc_exp = _card_ref(y_true, proba, K)

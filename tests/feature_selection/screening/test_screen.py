@@ -19,6 +19,8 @@ from mlframe.feature_selection.filters import (
 
 
 class TestScreenPredictorsPatienceObservability:
+    """screen_predictors must always emit a termination-reason summary log, on both the happy and patience-stopped paths."""
+
     def test_screen_predictors_logs_patience_summary(self, simple_classification_data, caplog):
         """On any invocation (happy path or patience-stopped), the
         function must emit a termination-reason summary line at exit.

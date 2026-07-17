@@ -429,6 +429,7 @@ class TestPerformanceBenchmarks:
         arr = random_array_1000
 
         def numpy_simple_stats(arr):
+            """Numpy simple stats."""
             return (np.min(arr), np.max(arr), np.argmin(arr), np.argmax(arr), np.mean(arr), np.std(arr))
 
         benchmark(numpy_simple_stats, arr)
@@ -446,6 +447,7 @@ class TestPerformanceBenchmarks:
         arr = random_array_1000
 
         def scipy_moments(arr):
+            """Scipy moments."""
             mean_val = np.mean(arr)
             return (np.mean(np.abs(arr - mean_val)), np.std(arr), stats.skew(arr), stats.kurtosis(arr))
 
@@ -463,6 +465,7 @@ class TestPerformanceBenchmarks:
         arr = random_array_1000
 
         def numpy_rolling_ma(arr, n):
+            """Numpy rolling ma."""
             return np.convolve(arr, np.ones(n) / n, mode="valid")
 
         benchmark(numpy_rolling_ma, arr, 10)
@@ -481,6 +484,7 @@ class TestPerformanceBenchmarks:
         marks = [0.0, 0.5, 1.0]
 
         def numpy_crossings(arr, marks):
+            """Numpy crossings."""
             results = []
             for mark in marks:
                 diff = arr - mark
@@ -738,18 +742,21 @@ class TestFusedNuniqueModesQuantilesFastPath:
 
     def _reference_via_unique_path(self, arr, q):
         # Reproduces the exact pre-fix unique-based computation for the integer/exact slots.
+        """Helper: Reference via unique path."""
         vals, _counts = np.unique(arr, return_counts=True)
         return len(vals)
 
     def test_fast_path_avoids_np_unique_on_finite_input(self, monkeypatch):
         # On all-finite input the fast path must NOT call np.unique (the eliminated full sort). This FAILS on
         # pre-fix code, which unconditionally routes through np.unique.
+        """Fast path avoids np unique on finite input."""
         import mlframe.feature_engineering.numerical as num
 
         calls = {"n": 0}
         real_unique = np.unique
 
         def spy_unique(*a, **k):
+            """Spy unique."""
             calls["n"] += 1
             return real_unique(*a, **k)
 
@@ -760,6 +767,7 @@ class TestFusedNuniqueModesQuantilesFastPath:
         assert calls["n"] == 0, "all-finite fast path must not invoke np.unique"
 
     def test_fast_path_nunique_modes_ncrossings_bit_identical(self):
+        """Fast path nunique modes ncrossings bit identical."""
         from mlframe.feature_engineering.numerical import compute_nunique_modes_quantiles_numpy as fn, default_quantiles
 
         for seed in range(6):
@@ -775,12 +783,14 @@ class TestFusedNuniqueModesQuantilesFastPath:
             assert np.max(np.abs(res[5:10] - ref_q)) < 1e-12  # quantiles within ULP
 
     def test_nan_input_stays_on_exact_unique_path(self, monkeypatch):
+        """Nan input stays on exact unique path."""
         import mlframe.feature_engineering.numerical as num
 
         calls = {"n": 0}
         real_unique = np.unique
 
         def spy_unique(*a, **k):
+            """Spy unique."""
             calls["n"] += 1
             return real_unique(*a, **k)
 
@@ -798,6 +808,7 @@ class TestNcrossingsMarkParallel:
 
     @pytest.mark.parametrize("kind", ["normal", "int_lowcard", "heavy_ties", "near_mark", "with_nan"])
     def test_mark_parallel_matches_serial(self, kind):
+        """Mark parallel matches serial."""
         from mlframe.feature_engineering.numerical import _compute_ncrossings_serial, _compute_ncrossings_marks_prange
 
         rng = np.random.default_rng(13)
@@ -824,12 +835,14 @@ class TestNcrossingsMarkParallel:
         # The default int32 path MUST route through the mark-parallel kernel; pre-fix there was only the serial kernel.
         # ``compute_ncrossings`` lives in ``_numerical_counts`` and resolves the kernel against that module's globals,
         # so the spy must replace the binding THERE, not on the ``numerical`` facade that merely re-exports it.
+        """Int32 path uses parallel kernel."""
         import mlframe.feature_engineering._numerical_counts as counts
 
         called = {"n": 0}
         real = counts._compute_ncrossings_marks_prange
 
         def spy(arr, marks):
+            """Spy."""
             called["n"] += 1
             return real(arr, marks)
 
@@ -840,6 +853,7 @@ class TestNcrossingsMarkParallel:
         assert called["n"] == 1, "int32 compute_ncrossings must dispatch to the mark-parallel kernel"
 
     def test_nondefault_dtype_uses_serial(self):
+        """Nondefault dtype uses serial."""
         rng = np.random.default_rng(2)
         arr = rng.standard_normal(5000)
         marks = np.array([0.0, 0.5])

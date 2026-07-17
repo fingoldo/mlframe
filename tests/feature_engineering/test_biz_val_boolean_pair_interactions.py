@@ -19,6 +19,7 @@ from mlframe.feature_engineering.boolean_pair_interactions import boolean_pair_i
 
 
 def _make_xor_dataset(n: int, seed: int):
+    """Helper: Make xor dataset."""
     rng = np.random.default_rng(seed)
     symptom_a = rng.integers(0, 2, n)
     symptom_b = rng.integers(0, 2, n)
@@ -29,6 +30,7 @@ def _make_xor_dataset(n: int, seed: int):
 
 
 def test_biz_val_xor_interaction_makes_unlearnable_target_learnable():
+    """Biz val xor interaction makes unlearnable target learnable."""
     df, y = _make_xor_dataset(n=2000, seed=0)
 
     clf_raw = LogisticRegression(max_iter=500).fit(df, y)
@@ -44,6 +46,7 @@ def test_biz_val_xor_interaction_makes_unlearnable_target_learnable():
 
 
 def test_boolean_pair_interactions_output_shape_and_values():
+    """Boolean pair interactions output shape and values."""
     df = pd.DataFrame({"a": [0, 0, 1, 1], "b": [0, 1, 0, 1]})
     out = boolean_pair_interactions(df, columns=["a", "b"], operators=("and", "or", "xor"))
     assert list(out.columns) == ["a__and__b", "a__or__b", "a__xor__b"]
@@ -53,6 +56,7 @@ def test_boolean_pair_interactions_output_shape_and_values():
 
 
 def test_is_binary_column_detects_binary_vs_continuous():
+    """Is binary column detects binary vs continuous."""
     assert is_binary_column(pd.Series([0, 1, 1, 0]))
     assert is_binary_column(pd.Series([True, False, True]))
     assert not is_binary_column(pd.Series([0, 1, 2]))
@@ -60,6 +64,7 @@ def test_is_binary_column_detects_binary_vs_continuous():
 
 
 def test_boolean_pair_interactions_auto_detects_binary_columns():
+    """Boolean pair interactions auto detects binary columns."""
     df = pd.DataFrame({"bin_a": [0, 1, 0, 1], "bin_b": [1, 1, 0, 0], "continuous": [0.5, 1.2, 3.4, 2.1]})
     out = boolean_pair_interactions(df)
     assert list(out.columns) == ["bin_a__and__bin_b", "bin_a__or__bin_b", "bin_a__xor__bin_b"]
@@ -84,6 +89,7 @@ def _make_pruning_dataset(n: int, n_noise_cols: int, seed: int):
 
 
 def test_biz_val_prune_against_target_keeps_informative_cuts_noise():
+    """Biz val prune against target keeps informative cuts noise."""
     df, y = _make_pruning_dataset(n=3000, n_noise_cols=20, seed=1)
 
     unpruned = boolean_pair_interactions(df, operators=("and", "or", "xor"))
@@ -100,6 +106,7 @@ def test_biz_val_prune_against_target_keeps_informative_cuts_noise():
 
 
 def test_boolean_pair_interactions_default_unchanged_when_prune_not_supplied():
+    """Boolean pair interactions default unchanged when prune not supplied."""
     df, _y = _make_pruning_dataset(n=500, n_noise_cols=10, seed=2)
     baseline = boolean_pair_interactions(df, operators=("and", "or", "xor"))
     default_call = boolean_pair_interactions(df, operators=("and", "or", "xor"), prune_against_target=None)

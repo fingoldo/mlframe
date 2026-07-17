@@ -35,6 +35,7 @@ pytestmark = pytest.mark.fast
 
 
 def _make_classification(n: int = 500, d: int = 8, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """Helper: Make classification."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, d)).astype(np.float32)
     y = (X[:, 0] + 0.3 * X[:, 1] + 0.1 * rng.standard_normal(n) > 0).astype(np.float32)

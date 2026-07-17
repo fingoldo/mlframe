@@ -18,6 +18,7 @@ from mlframe.metrics._core_precision_mape import fast_precision, fast_classifica
 
 def test_fast_precision_absent_predicted_class_is_finite():
     # nclasses=3 but class 2 is never predicted -> allpreds[2]==0.
+    """Fast precision absent predicted class is finite."""
     y_true = np.array([0, 0, 1, 1], dtype=np.int64)
     y_pred = np.array([0, 1, 1, 0], dtype=np.int64)
     with warnings.catch_warnings():
@@ -30,6 +31,7 @@ def test_fast_precision_absent_predicted_class_is_finite():
 def test_fast_classification_report_per_class_arrays_finite():
     # Class 2 absent from both arrays: the per-class precision/recall/f1 entries
     # for the absent class must be finite zeros, not propagated inf/nan.
+    """Fast classification report per class arrays finite."""
     y_true = np.array([0, 0, 1, 1], dtype=np.int64)
     y_pred = np.array([0, 0, 1, 0], dtype=np.int64)
     with warnings.catch_warnings():

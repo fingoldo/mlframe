@@ -33,6 +33,7 @@ def _ks_and_wasserstein_reference(y_neighbors: np.ndarray, y_global_sorted: np.n
 
 @pytest.mark.parametrize("n_q,k,n_g", [(500, 32, 400), (2000, 16, 1600), (3000, 32, 5000)])
 def test_ksshift_kernel_matches_loop_reference(n_q, k, n_g):
+    """Ksshift kernel matches loop reference."""
     rng = np.random.default_rng(n_q + k)
     y_global = np.sort(rng.normal(size=n_g).astype(np.float32))
     y_neighbors = rng.normal(size=(n_q, k)).astype(np.float32)

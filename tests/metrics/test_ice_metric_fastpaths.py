@@ -15,6 +15,7 @@ from mlframe.metrics._ice_metric import compute_probabilistic_multiclass_error a
 
 
 def _mk_multiclass(n, k, seed=0):
+    """Helper: Mk multiclass."""
     rng = np.random.default_rng(seed)
     yt = rng.integers(0, k, n).astype(np.int64)
     yt[:k] = np.arange(k)  # guarantee all classes present

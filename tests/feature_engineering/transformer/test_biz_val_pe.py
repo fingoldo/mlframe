@@ -49,12 +49,14 @@ def _make_pe_synthetic(n_groups: int = 500, group_len: int = 50, seed: int = 0) 
 
 
 def _lgbm():
+    """Helper: Lgbm."""
     import lightgbm as lgb
 
     return lgb.LGBMRegressor(n_estimators=200, learning_rate=0.05, num_leaves=31, min_child_samples=20, random_state=42, verbose=-1)
 
 
 def _group_cv_r2(model_ctor, X: np.ndarray, y: np.ndarray, groups: np.ndarray, n_splits: int = 5) -> float:
+    """Helper: Group cv r2."""
     splitter = GroupKFold(n_splits=n_splits)
     r2s = []
     for train_idx, val_idx in splitter.split(X, y, groups=groups):

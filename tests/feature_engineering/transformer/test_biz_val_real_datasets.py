@@ -634,6 +634,7 @@ def _make_hard_subspace_synth(n: int = 2000, d: int = 200, d_signal: int = 5, se
 
 
 def _lgb(task: str):
+    """Helper: Lgb."""
     import lightgbm as lgb
 
     if task == "regression":
@@ -642,6 +643,7 @@ def _lgb(task: str):
 
 
 def _xgb(task: str):
+    """Helper: Xgb."""
     import xgboost as xgb
 
     common = dict(n_estimators=300, learning_rate=0.05, max_depth=6, random_state=42, n_jobs=-1, verbosity=0, tree_method="hist")
@@ -651,6 +653,7 @@ def _xgb(task: str):
 
 
 def _cb(task: str):
+    """Helper: Cb."""
     import catboost as cb
 
     # Lower iterations and use bytes_per_feature_pool reduction to keep memory bounded; the matrix runs ~12 CatBoost fits per dataset and the default 300 + per
@@ -669,16 +672,19 @@ BOOSTING_FACTORIES: Dict[str, Callable[[str], object]] = {"lgb": _lgb, "xgb": _x
 
 
 def _features_raw(X_tr, X_te, y_tr, task):
+    """Helper: Features raw."""
     return X_tr, X_te
 
 
 def _features_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features rff."""
     rff_tr = compute_rff_features(X_tr, seed=42, n_features=128, sigma="median", standardize=True, use_gpu=False).to_numpy()
     rff_te = compute_rff_features(X_te, seed=42, n_features=128, sigma="median", standardize=True, use_gpu=False).to_numpy()
     return np.concatenate([X_tr, rff_tr], axis=1), np.concatenate([X_te, rff_te], axis=1)
 
 
 def _features_rowattn(X_tr, X_te, y_tr, task):
+    """Helper: Features rowattn."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     # head_dim auto-shrinks to d_input when input is narrower than 8 (e.g. phoneme has d=5).
     head_dim = min(8, max(2, X_tr.shape[1] - 1))
@@ -712,6 +718,7 @@ def _features_rowattn(X_tr, X_te, y_tr, task):
 
 
 def _features_rff_rowattn(X_tr, X_te, y_tr, task):
+    """Helper: Features rff rowattn."""
     tr1, te1 = _features_rff(X_tr, X_te, y_tr, task)
     tr2, te2 = _features_rowattn(X_tr, X_te, y_tr, task)
     rff_only_tr = tr1[:, X_tr.shape[1] :]
@@ -912,6 +919,7 @@ def _features_boosted(X_tr, X_te, y_tr, task, n_boost_layers=3):
 
 
 def _features_boosted_5(X_tr, X_te, y_tr, task):
+    """Helper: Features boosted 5."""
     return _features_boosted(X_tr, X_te, y_tr, task, n_boost_layers=5)
 
 
@@ -950,6 +958,7 @@ def _features_stacked(X_tr, X_te, y_tr, task, n_layers=2, projection="random"):
 
 
 def _features_stacked_pls(X_tr, X_te, y_tr, task):
+    """Helper: Features stacked pls."""
     return _features_stacked(X_tr, X_te, y_tr, task, n_layers=2, projection="pls")
 
 
@@ -1016,6 +1025,7 @@ def _features_rowattn_v2(X_tr, X_te, y_tr, task):
 
 
 def _features_rff_rowattn_v2(X_tr, X_te, y_tr, task):
+    """Helper: Features rff rowattn v2."""
     tr1, te1 = _features_rff(X_tr, X_te, y_tr, task)
     tr2, te2 = _features_rowattn_v2(X_tr, X_te, y_tr, task)
     rff_only_tr = tr1[:, X_tr.shape[1] :]
@@ -1280,6 +1290,7 @@ def _cap_rows(X: np.ndarray, y: np.ndarray, cap: Optional[int] = None, seed: int
     # Cap removed: previous default cap=4000 truncated mammography (loss of 64% of positives)
     # and kin8nm (half the data), turning records into noisy single-seed point estimates.
     # Default is now no cap; tests run on full datasets. Pass an explicit cap if needed.
+    """Helper: Cap rows."""
     if cap is None or X.shape[0] <= cap:
         return X, y
     rng = np.random.default_rng(seed)
@@ -1607,6 +1618,7 @@ def test_breakthrough_abalone():
 
 
 def test_iter4_kin8nm():
+    """Iter4 kin8nm."""
     X, y, task = _load_kin8nm()
     X, y = _cap_rows(X, y)
     print(f"\n[iter4-boosted] kin8nm: X.shape={X.shape}, task={task}")
@@ -1615,6 +1627,7 @@ def test_iter4_kin8nm():
 
 
 def test_iter4_abalone():
+    """Iter4 abalone."""
     X, y, task = _load_abalone()
     X, y = _cap_rows(X, y)
     print(f"\n[iter4-boosted] abalone: X.shape={X.shape}, task={task}")
@@ -1623,6 +1636,7 @@ def test_iter4_abalone():
 
 
 def test_iter4_knn_target_binary():
+    """Iter4 knn target binary."""
     X, y, task = _make_knn_target_synthetic(n=2500, d=12, k_neighbors=10, seed=0, task="binary")
     print(f"\n[iter4-boosted] KnnTargetBinary: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "KnnTargetBinary_iter4", builders=FEATURE_BUILDERS_ITER4)
@@ -1630,6 +1644,7 @@ def test_iter4_knn_target_binary():
 
 
 def test_iter4_knn_target_regression():
+    """Iter4 knn target regression."""
     X, y, task = _make_knn_target_synthetic(n=2500, d=12, k_neighbors=10, seed=1, task="regression")
     print(f"\n[iter4-boosted] KnnTargetRegression: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "KnnTargetRegression_iter4", builders=FEATURE_BUILDERS_ITER4)
@@ -1640,6 +1655,7 @@ def test_iter4_knn_target_regression():
 
 
 def test_iter4_bank8FM():
+    """Iter4 bank8FM."""
     X, y, task = _load_bank8FM()
     X, y = _cap_rows(X, y)
     print(f"\n[iter4-boosted] bank8FM: X.shape={X.shape}, task={task}")
@@ -1648,6 +1664,7 @@ def test_iter4_bank8FM():
 
 
 def test_iter4_house_8L():
+    """Iter4 house 8L."""
     X, y, task = _load_house_8L()
     X, y = _cap_rows(X, y)
     print(f"\n[iter4-boosted] house_8L: X.shape={X.shape}, task={task}")
@@ -1656,6 +1673,7 @@ def test_iter4_house_8L():
 
 
 def test_iter4_pumadyn_8nh():
+    """Iter4 pumadyn 8nh."""
     X, y, task = _load_pumadyn_8nh()
     X, y = _cap_rows(X, y)
     print(f"\n[iter4-boosted] pumadyn-8nh: X.shape={X.shape}, task={task}")
@@ -1664,6 +1682,7 @@ def test_iter4_pumadyn_8nh():
 
 
 def test_iter4_bodyfat():
+    """Iter4 bodyfat."""
     X, y, task = _load_bodyfat()
     X, y = _cap_rows(X, y)
     print(f"\n[iter4-boosted] bodyfat: X.shape={X.shape}, task={task}")
@@ -1675,6 +1694,7 @@ def test_iter4_bodyfat():
 
 
 def test_iter5_kin8nm():
+    """Iter5 kin8nm."""
     X, y, task = _load_kin8nm()
     X, y = _cap_rows(X, y)
     print(f"\n[iter5-rich] kin8nm: X.shape={X.shape}, task={task}")
@@ -1683,6 +1703,7 @@ def test_iter5_kin8nm():
 
 
 def test_iter5_abalone():
+    """Iter5 abalone."""
     X, y, task = _load_abalone()
     X, y = _cap_rows(X, y)
     print(f"\n[iter5-rich] abalone: X.shape={X.shape}, task={task}")
@@ -1691,6 +1712,7 @@ def test_iter5_abalone():
 
 
 def test_iter5_house_8L():
+    """Iter5 house 8L."""
     X, y, task = _load_house_8L()
     X, y = _cap_rows(X, y)
     print(f"\n[iter5-rich] house_8L: X.shape={X.shape}, task={task}")
@@ -1699,6 +1721,7 @@ def test_iter5_house_8L():
 
 
 def test_iter5_diabetes():
+    """Iter5 diabetes."""
     X, y, task = _load_diabetes_classification()
     X, y = _cap_rows(X, y)
     print(f"\n[iter5-rich] diabetes: X.shape={X.shape}, task={task}")
@@ -1797,6 +1820,7 @@ def test_iter6_energy():
 
 
 def test_iter7_kin8nm():
+    """Iter7 kin8nm."""
     X, y, task = _load_kin8nm()
     X, y = _cap_rows(X, y)
     print(f"\n[iter7-loclr] kin8nm: X.shape={X.shape}, task={task}")
@@ -1805,6 +1829,7 @@ def test_iter7_kin8nm():
 
 
 def test_iter7_abalone():
+    """Iter7 abalone."""
     X, y, task = _load_abalone()
     X, y = _cap_rows(X, y)
     print(f"\n[iter7-loclr] abalone: X.shape={X.shape}, task={task}")
@@ -1813,6 +1838,7 @@ def test_iter7_abalone():
 
 
 def test_iter7_wine():
+    """Iter7 wine."""
     X, y, task = _load_wine_quality_red()
     print(f"\n[iter7-loclr] wine_quality: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "wine_iter7", builders=FEATURE_BUILDERS_ITER7)
@@ -1820,6 +1846,7 @@ def test_iter7_wine():
 
 
 def test_iter7_knn_target_regression():
+    """Iter7 knn target regression."""
     X, y, task = _make_knn_target_synthetic(n=2500, d=12, k_neighbors=10, seed=1, task="regression")
     print(f"\n[iter7-loclr] KnnTargetRegression: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "KnnTargetRegression_iter7", builders=FEATURE_BUILDERS_ITER7)
@@ -1827,6 +1854,7 @@ def test_iter7_knn_target_regression():
 
 
 def test_iter7_friedman1():
+    """Iter7 friedman1."""
     X, y, task = _load_friedman1()
     print(f"\n[iter7-loclr] Friedman1: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "Friedman1_iter7", builders=FEATURE_BUILDERS_ITER7)
@@ -1834,6 +1862,7 @@ def test_iter7_friedman1():
 
 
 def test_iter7_concrete():
+    """Iter7 concrete."""
     X, y, task = _load_concrete()
     print(f"\n[iter7-loclr] concrete: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "concrete_iter7", builders=FEATURE_BUILDERS_ITER7)
@@ -2171,50 +2200,62 @@ def _run_multimetric_test(loader, name: str) -> None:
 
 
 def test_multimetric_kin8nm():
+    """Multimetric kin8nm."""
     _run_multimetric_test(_load_kin8nm, "kin8nm")
 
 
 def test_multimetric_abalone():
+    """Multimetric abalone."""
     _run_multimetric_test(_load_abalone, "abalone")
 
 
 def test_multimetric_house_16H():
+    """Multimetric house 16H."""
     _run_multimetric_test(_load_house_16H, "house_16H")
 
 
 def test_multimetric_wind():
+    """Multimetric wind."""
     _run_multimetric_test(_load_wind, "wind")
 
 
 def test_multimetric_mv():
+    """Multimetric mv."""
     _run_multimetric_test(_load_mv, "mv")
 
 
 def test_multimetric_wine_quality():
+    """Multimetric wine quality."""
     _run_multimetric_test(_load_wine_quality_red, "wine_quality_red")
 
 
 def test_multimetric_diabetes():
+    """Multimetric diabetes."""
     _run_multimetric_test(_load_diabetes_classification, "diabetes")
 
 
 def test_multimetric_phoneme():
+    """Multimetric phoneme."""
     _run_multimetric_test(_load_phoneme, "phoneme")
 
 
 def test_multimetric_spambase():
+    """Multimetric spambase."""
     _run_multimetric_test(_load_spambase, "spambase")
 
 
 def test_multimetric_bank_marketing():
+    """Multimetric bank marketing."""
     _run_multimetric_test(_load_bank_marketing, "bank_marketing")
 
 
 def test_multimetric_qsar_biodeg():
+    """Multimetric qsar biodeg."""
     _run_multimetric_test(_load_qsar_biodeg, "qsar_biodeg")
 
 
 def test_multimetric_breast_cancer():
+    """Multimetric breast cancer."""
     _run_multimetric_test(_load_breast_cancer_wdbc, "breast_cancer_wdbc")
 
 
@@ -2242,6 +2283,7 @@ FEATURE_BUILDERS_ITER10: Dict[str, Callable] = {
 
 
 def _run_iter9_test(loader, name: str) -> None:
+    """Helper: Run iter9 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -2254,26 +2296,32 @@ def _run_iter9_test(loader, name: str) -> None:
 
 
 def test_iter9_kin8nm():
+    """Iter9 kin8nm."""
     _run_iter9_test(_load_kin8nm, "kin8nm_iter9")
 
 
 def test_iter9_abalone():
+    """Iter9 abalone."""
     _run_iter9_test(_load_abalone, "abalone_iter9")
 
 
 def test_iter9_wine():
+    """Iter9 wine."""
     _run_iter9_test(_load_wine_quality_red, "wine_iter9")
 
 
 def test_iter9_diabetes():
+    """Iter9 diabetes."""
     _run_iter9_test(_load_diabetes_classification, "diabetes_iter9")
 
 
 def test_iter9_phoneme():
+    """Iter9 phoneme."""
     _run_iter9_test(_load_phoneme, "phoneme_iter9")
 
 
 def test_iter9_qsar():
+    """Iter9 qsar."""
     _run_iter9_test(_load_qsar_biodeg, "qsar_iter9")
 
 
@@ -2281,6 +2329,7 @@ def test_iter9_qsar():
 
 
 def _run_iter10_test(loader, name: str) -> None:
+    """Helper: Run iter10 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -2293,26 +2342,32 @@ def _run_iter10_test(loader, name: str) -> None:
 
 
 def test_iter10_kin8nm():
+    """Iter10 kin8nm."""
     _run_iter10_test(_load_kin8nm, "kin8nm_iter10")
 
 
 def test_iter10_abalone():
+    """Iter10 abalone."""
     _run_iter10_test(_load_abalone, "abalone_iter10")
 
 
 def test_iter10_phoneme():
+    """Iter10 phoneme."""
     _run_iter10_test(_load_phoneme, "phoneme_iter10")
 
 
 def test_iter10_qsar():
+    """Iter10 qsar."""
     _run_iter10_test(_load_qsar_biodeg, "qsar_iter10")
 
 
 def test_iter10_diabetes():
+    """Iter10 diabetes."""
     _run_iter10_test(_load_diabetes_classification, "diabetes_iter10")
 
 
 def test_iter10_wine():
+    """Iter10 wine."""
     _run_iter10_test(_load_wine_quality_red, "wine_iter10")
 
 
@@ -2320,18 +2375,22 @@ def test_iter10_wine():
 
 
 def test_iter11_credit_g():
+    """Iter11 credit g."""
     _run_iter10_test(_load_credit_g, "credit_g_iter11")
 
 
 def test_iter11_steel_plates():
+    """Iter11 steel plates."""
     _run_iter10_test(_load_steel_plates, "steel_plates_iter11")
 
 
 def test_iter11_churn():
+    """Iter11 churn."""
     _run_iter10_test(_load_churn, "churn_iter11")
 
 
 def test_iter11_mammography():
+    """Iter11 mammography."""
     _run_iter10_test(_load_mammography, "mammography_iter11")
 
 
@@ -2348,6 +2407,7 @@ FEATURE_BUILDERS_ITER12: Dict[str, Callable] = {
 
 
 def _run_iter12_test(loader, name: str) -> None:
+    """Helper: Run iter12 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -2360,18 +2420,22 @@ def _run_iter12_test(loader, name: str) -> None:
 
 
 def test_iter12_kin8nm():
+    """Iter12 kin8nm."""
     _run_iter12_test(_load_kin8nm, "kin8nm_iter12")
 
 
 def test_iter12_diabetes():
+    """Iter12 diabetes."""
     _run_iter12_test(_load_diabetes_classification, "diabetes_iter12")
 
 
 def test_iter12_mammography():
+    """Iter12 mammography."""
     _run_iter12_test(_load_mammography, "mammography_iter12")
 
 
 def test_iter12_abalone():
+    """Iter12 abalone."""
     _run_iter12_test(_load_abalone, "abalone_iter12")
 
 
@@ -2388,6 +2452,7 @@ FEATURE_BUILDERS_ITER13: Dict[str, Callable] = {
 
 
 def _run_iter13_test(loader, name: str) -> None:
+    """Helper: Run iter13 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -2400,18 +2465,22 @@ def _run_iter13_test(loader, name: str) -> None:
 
 
 def test_iter13_kin8nm():
+    """Iter13 kin8nm."""
     _run_iter13_test(_load_kin8nm, "kin8nm_iter13")
 
 
 def test_iter13_diabetes():
+    """Iter13 diabetes."""
     _run_iter13_test(_load_diabetes_classification, "diabetes_iter13")
 
 
 def test_iter13_mammography():
+    """Iter13 mammography."""
     _run_iter13_test(_load_mammography, "mammography_iter13")
 
 
 def test_iter13_abalone():
+    """Iter13 abalone."""
     _run_iter13_test(_load_abalone, "abalone_iter13")
 
 
@@ -2429,6 +2498,7 @@ FEATURE_BUILDERS_ITER14: Dict[str, Callable] = {
 
 
 def _run_iter14_test(loader, name: str) -> None:
+    """Helper: Run iter14 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -2451,10 +2521,12 @@ def test_iter14_mammography():
 
 
 def test_iter14_kin8nm():
+    """Iter14 kin8nm."""
     _run_iter14_test(_load_kin8nm, "kin8nm_iter14")
 
 
 def test_iter14_abalone():
+    """Iter14 abalone."""
     _run_iter14_test(_load_abalone, "abalone_iter14")
 
 
@@ -2471,6 +2543,7 @@ FEATURE_BUILDERS_ITER15: Dict[str, Callable] = {
 
 
 def _run_iter15_test(loader, name: str) -> None:
+    """Helper: Run iter15 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -2483,18 +2556,22 @@ def _run_iter15_test(loader, name: str) -> None:
 
 
 def test_iter15_diabetes():
+    """Iter15 diabetes."""
     _run_iter15_test(_load_diabetes_classification, "diabetes_iter15")
 
 
 def test_iter15_mammography():
+    """Iter15 mammography."""
     _run_iter15_test(_load_mammography, "mammography_iter15")
 
 
 def test_iter15_kin8nm():
+    """Iter15 kin8nm."""
     _run_iter15_test(_load_kin8nm, "kin8nm_iter15")
 
 
 def test_iter15_abalone():
+    """Iter15 abalone."""
     _run_iter15_test(_load_abalone, "abalone_iter15")
 
 
@@ -2563,6 +2640,7 @@ FEATURE_BUILDERS_ITER16: Dict[str, Callable] = {
 
 
 def _run_iter16_test(loader, name: str) -> None:
+    """Helper: Run iter16 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -2585,10 +2663,12 @@ def test_iter16_mammography():
 
 
 def test_iter16_kin8nm():
+    """Iter16 kin8nm."""
     _run_iter16_test(_load_kin8nm, "kin8nm_iter16")
 
 
 def test_iter16_abalone():
+    """Iter16 abalone."""
     _run_iter16_test(_load_abalone, "abalone_iter16")
 
 
@@ -2658,6 +2738,7 @@ FEATURE_BUILDERS_ITER17: Dict[str, Callable] = {
 
 
 def _run_iter17_test(loader, name: str) -> None:
+    """Helper: Run iter17 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -2670,18 +2751,22 @@ def _run_iter17_test(loader, name: str) -> None:
 
 
 def test_iter17_diabetes():
+    """Iter17 diabetes."""
     _run_iter17_test(_load_diabetes_classification, "diabetes_iter17")
 
 
 def test_iter17_mammography():
+    """Iter17 mammography."""
     _run_iter17_test(_load_mammography, "mammography_iter17")
 
 
 def test_iter17_kin8nm():
+    """Iter17 kin8nm."""
     _run_iter17_test(_load_kin8nm, "kin8nm_iter17")
 
 
 def test_iter17_abalone():
+    """Iter17 abalone."""
     _run_iter17_test(_load_abalone, "abalone_iter17")
 
 
@@ -2746,6 +2831,7 @@ FEATURE_BUILDERS_ITER18: Dict[str, Callable] = {
 
 
 def _run_iter18_test(loader, name: str) -> None:
+    """Helper: Run iter18 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -2758,18 +2844,22 @@ def _run_iter18_test(loader, name: str) -> None:
 
 
 def test_iter18_diabetes():
+    """Iter18 diabetes."""
     _run_iter18_test(_load_diabetes_classification, "diabetes_iter18")
 
 
 def test_iter18_mammography():
+    """Iter18 mammography."""
     _run_iter18_test(_load_mammography, "mammography_iter18")
 
 
 def test_iter18_kin8nm():
+    """Iter18 kin8nm."""
     _run_iter18_test(_load_kin8nm, "kin8nm_iter18")
 
 
 def test_iter18_abalone():
+    """Iter18 abalone."""
     _run_iter18_test(_load_abalone, "abalone_iter18")
 
 
@@ -2850,6 +2940,7 @@ FEATURE_BUILDERS_ITER19: Dict[str, Callable] = {
 
 
 def _run_iter19_test(loader, name: str) -> None:
+    """Helper: Run iter19 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -2867,6 +2958,7 @@ def test_iter19_mammography():
 
 
 def test_iter19_diabetes():
+    """Iter19 diabetes."""
     _run_iter19_test(_load_diabetes_classification, "diabetes_iter19")
 
 
@@ -2933,6 +3025,7 @@ FEATURE_BUILDERS_ITER20: Dict[str, Callable] = {
 
 
 def _run_iter20_test(loader, name: str) -> None:
+    """Helper: Run iter20 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -2945,18 +3038,22 @@ def _run_iter20_test(loader, name: str) -> None:
 
 
 def test_iter20_mammography():
+    """Iter20 mammography."""
     _run_iter20_test(_load_mammography, "mammography_iter20")
 
 
 def test_iter20_diabetes():
+    """Iter20 diabetes."""
     _run_iter20_test(_load_diabetes_classification, "diabetes_iter20")
 
 
 def test_iter20_kin8nm():
+    """Iter20 kin8nm."""
     _run_iter20_test(_load_kin8nm, "kin8nm_iter20")
 
 
 def test_iter20_abalone():
+    """Iter20 abalone."""
     _run_iter20_test(_load_abalone, "abalone_iter20")
 
 
@@ -3003,6 +3100,7 @@ def _features_pc_spectral_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_pc_spectral_plus_rfprox(X_tr, X_te, y_tr, task):
+    """Helper: Features pc spectral plus rfprox."""
     rp_tr, rp_te = _features_rfprox(X_tr, X_te, y_tr, task)
     pc_tr, pc_te = _features_pc_spectral(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3022,6 +3120,7 @@ FEATURE_BUILDERS_ITER21: Dict[str, Callable] = {
 
 
 def _run_iter21_test(loader, name: str) -> None:
+    """Helper: Run iter21 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -3034,10 +3133,12 @@ def _run_iter21_test(loader, name: str) -> None:
 
 
 def test_iter21_mammography():
+    """Iter21 mammography."""
     _run_iter21_test(_load_mammography, "mammography_iter21")
 
 
 def test_iter21_diabetes():
+    """Iter21 diabetes."""
     _run_iter21_test(_load_diabetes_classification, "diabetes_iter21")
 
 
@@ -3073,6 +3174,7 @@ def _features_sqnn(X_tr, X_te, y_tr, task):
 
 
 def _features_sqnn_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features sqnn plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     sq_tr, sq_te = _features_sqnn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3103,6 +3205,7 @@ FEATURE_BUILDERS_ITER22: Dict[str, Callable] = {
 
 
 def _run_iter22_test(loader, name: str) -> None:
+    """Helper: Run iter22 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -3115,18 +3218,22 @@ def _run_iter22_test(loader, name: str) -> None:
 
 
 def test_iter22_kin8nm():
+    """Iter22 kin8nm."""
     _run_iter22_test(_load_kin8nm, "kin8nm_iter22")
 
 
 def test_iter22_diabetes():
+    """Iter22 diabetes."""
     _run_iter22_test(_load_diabetes_classification, "diabetes_iter22")
 
 
 def test_iter22_mammography():
+    """Iter22 mammography."""
     _run_iter22_test(_load_mammography, "mammography_iter22")
 
 
 def test_iter22_abalone():
+    """Iter22 abalone."""
     _run_iter22_test(_load_abalone, "abalone_iter22")
 
 
@@ -3201,6 +3308,7 @@ FEATURE_BUILDERS_ITER23: Dict[str, Callable] = {
 
 
 def _run_iter23_test(loader, name: str) -> None:
+    """Helper: Run iter23 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -3218,6 +3326,7 @@ def test_iter23_mammography():
 
 
 def test_iter23_diabetes():
+    """Iter23 diabetes."""
     _run_iter23_test(_load_diabetes_classification, "diabetes_iter23")
 
 
@@ -3263,6 +3372,7 @@ def _features_loclift_plus_mega_v2(X_tr, X_te, y_tr, task):
 
 
 def _features_loclift_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features loclift plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     ll_tr, ll_te = _features_loclift(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3352,6 +3462,7 @@ FEATURE_BUILDERS_ITER2425: Dict[str, Callable] = {
 
 
 def _run_iter2425_test(loader, name: str) -> None:
+    """Helper: Run iter2425 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -3369,6 +3480,7 @@ def test_iter2425_mammography():
 
 
 def test_iter2425_diabetes():
+    """Iter2425 diabetes."""
     _run_iter2425_test(_load_diabetes_classification, "diabetes_iter2425")
 
 
@@ -3404,6 +3516,7 @@ def _features_focal(X_tr, X_te, y_tr, task):
 
 
 def _features_focal_plus_mega_v2(X_tr, X_te, y_tr, task):
+    """Helper: Features focal plus mega v2."""
     if task != "binary":
         return X_tr, X_te
     m_tr, m_te = _features_mega_v2(X_tr, X_te, y_tr, task)
@@ -3416,6 +3529,7 @@ def _features_focal_plus_mega_v2(X_tr, X_te, y_tr, task):
 
 
 def _features_focal_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features focal plus rff."""
     if task != "binary":
         return X_tr, X_te
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
@@ -3428,6 +3542,7 @@ def _features_focal_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_focal_plus_rfprox(X_tr, X_te, y_tr, task):
+    """Helper: Features focal plus rfprox."""
     if task != "binary":
         return X_tr, X_te
     rp_tr, rp_te = _features_rfprox(X_tr, X_te, y_tr, task)
@@ -3450,6 +3565,7 @@ FEATURE_BUILDERS_ITER26: Dict[str, Callable] = {
 
 
 def _run_iter26_test(loader, name: str) -> None:
+    """Helper: Run iter26 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -3467,6 +3583,7 @@ def test_iter26_mammography():
 
 
 def test_iter26_diabetes():
+    """Iter26 diabetes."""
     _run_iter26_test(_load_diabetes_classification, "diabetes_iter26")
 
 
@@ -3499,6 +3616,7 @@ def _features_cdist(X_tr, X_te, y_tr, task):
 
 
 def _features_cdist_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features cdist plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3509,6 +3627,7 @@ def _features_cdist_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_cdist_plus_focal(X_tr, X_te, y_tr, task):
+    """Helper: Features cdist plus focal."""
     if task != "binary":
         return _features_cdist(X_tr, X_te, y_tr, task)
     f_tr, f_te = _features_focal(X_tr, X_te, y_tr, task)
@@ -3521,6 +3640,7 @@ def _features_cdist_plus_focal(X_tr, X_te, y_tr, task):
 
 
 def _features_cdist_plus_mega_v2(X_tr, X_te, y_tr, task):
+    """Helper: Features cdist plus mega v2."""
     m_tr, m_te = _features_mega_v2(X_tr, X_te, y_tr, task)
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3541,6 +3661,7 @@ FEATURE_BUILDERS_ITER27: Dict[str, Callable] = {
 
 
 def _run_iter27_test(loader, name: str) -> None:
+    """Helper: Run iter27 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -3553,18 +3674,22 @@ def _run_iter27_test(loader, name: str) -> None:
 
 
 def test_iter27_mammography():
+    """Iter27 mammography."""
     _run_iter27_test(_load_mammography, "mammography_iter27")
 
 
 def test_iter27_diabetes():
+    """Iter27 diabetes."""
     _run_iter27_test(_load_diabetes_classification, "diabetes_iter27")
 
 
 def test_iter27_abalone():
+    """Iter27 abalone."""
     _run_iter27_test(_load_abalone, "abalone_iter27")
 
 
 def test_iter27_kin8nm():
+    """Iter27 kin8nm."""
     _run_iter27_test(_load_kin8nm, "kin8nm_iter27")
 
 
@@ -3597,6 +3722,7 @@ def _features_denrat(X_tr, X_te, y_tr, task):
 
 
 def _features_denrat_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features denrat plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3607,6 +3733,7 @@ def _features_denrat_plus_cdist(X_tr, X_te, y_tr, task):
 
 
 def _features_denrat_plus_mega_v2(X_tr, X_te, y_tr, task):
+    """Helper: Features denrat plus mega v2."""
     m_tr, m_te = _features_mega_v2(X_tr, X_te, y_tr, task)
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3639,6 +3766,7 @@ FEATURE_BUILDERS_ITER28: Dict[str, Callable] = {
 
 
 def _run_iter28_test(loader, name: str) -> None:
+    """Helper: Run iter28 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -3651,14 +3779,17 @@ def _run_iter28_test(loader, name: str) -> None:
 
 
 def test_iter28_mammography():
+    """Iter28 mammography."""
     _run_iter28_test(_load_mammography, "mammography_iter28")
 
 
 def test_iter28_diabetes():
+    """Iter28 diabetes."""
     _run_iter28_test(_load_diabetes_classification, "diabetes_iter28")
 
 
 def test_iter28_abalone():
+    """Iter28 abalone."""
     _run_iter28_test(_load_abalone, "abalone_iter28")
 
 
@@ -3693,6 +3824,7 @@ def _features_ksshift(X_tr, X_te, y_tr, task):
 
 
 def _features_ksshift_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features ksshift plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     ks_tr, ks_te = _features_ksshift(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3703,6 +3835,7 @@ def _features_ksshift_plus_denrat(X_tr, X_te, y_tr, task):
 
 
 def _features_ksshift_plus_mega_v2(X_tr, X_te, y_tr, task):
+    """Helper: Features ksshift plus mega v2."""
     m_tr, m_te = _features_mega_v2(X_tr, X_te, y_tr, task)
     ks_tr, ks_te = _features_ksshift(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3736,6 +3869,7 @@ FEATURE_BUILDERS_ITER29: Dict[str, Callable] = {
 
 
 def _run_iter29_test(loader, name: str) -> None:
+    """Helper: Run iter29 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -3753,10 +3887,12 @@ def test_iter29_mammography():
 
 
 def test_iter29_diabetes():
+    """Iter29 diabetes."""
     _run_iter29_test(_load_diabetes_classification, "diabetes_iter29")
 
 
 def test_iter29_abalone():
+    """Iter29 abalone."""
     _run_iter29_test(_load_abalone, "abalone_iter29")
 
 
@@ -3793,6 +3929,7 @@ def _features_loccls(X_tr, X_te, y_tr, task):
 
 
 def _features_loccls_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features loccls plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     lc_tr, lc_te = _features_loccls(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3803,6 +3940,7 @@ def _features_loccls_plus_denrat(X_tr, X_te, y_tr, task):
 
 
 def _features_loccls_plus_mega_v2(X_tr, X_te, y_tr, task):
+    """Helper: Features loccls plus mega v2."""
     m_tr, m_te = _features_mega_v2(X_tr, X_te, y_tr, task)
     lc_tr, lc_te = _features_loccls(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3836,6 +3974,7 @@ FEATURE_BUILDERS_ITER30: Dict[str, Callable] = {
 
 
 def _run_iter30_test(loader, name: str) -> None:
+    """Helper: Run iter30 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -3848,18 +3987,22 @@ def _run_iter30_test(loader, name: str) -> None:
 
 
 def test_iter30_mammography():
+    """Iter30 mammography."""
     _run_iter30_test(_load_mammography, "mammography_iter30")
 
 
 def test_iter30_diabetes():
+    """Iter30 diabetes."""
     _run_iter30_test(_load_diabetes_classification, "diabetes_iter30")
 
 
 def test_iter30_abalone():
+    """Iter30 abalone."""
     _run_iter30_test(_load_abalone, "abalone_iter30")
 
 
 def test_iter30_kin8nm():
+    """Iter30 kin8nm."""
     _run_iter30_test(_load_kin8nm, "kin8nm_iter30")
 
 
@@ -3892,6 +4035,7 @@ def _features_msrate(X_tr, X_te, y_tr, task):
 
 
 def _features_msrate_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features msrate plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     ms_tr, ms_te = _features_msrate(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3902,6 +4046,7 @@ def _features_msrate_plus_denrat(X_tr, X_te, y_tr, task):
 
 
 def _features_msrate_plus_mega_v2(X_tr, X_te, y_tr, task):
+    """Helper: Features msrate plus mega v2."""
     m_tr, m_te = _features_mega_v2(X_tr, X_te, y_tr, task)
     ms_tr, ms_te = _features_msrate(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3935,6 +4080,7 @@ FEATURE_BUILDERS_ITER31: Dict[str, Callable] = {
 
 
 def _run_iter31_test(loader, name: str) -> None:
+    """Helper: Run iter31 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -3947,14 +4093,17 @@ def _run_iter31_test(loader, name: str) -> None:
 
 
 def test_iter31_mammography():
+    """Iter31 mammography."""
     _run_iter31_test(_load_mammography, "mammography_iter31")
 
 
 def test_iter31_diabetes():
+    """Iter31 diabetes."""
     _run_iter31_test(_load_diabetes_classification, "diabetes_iter31")
 
 
 def test_iter31_abalone():
+    """Iter31 abalone."""
     _run_iter31_test(_load_abalone, "abalone_iter31")
 
 
@@ -3989,6 +4138,7 @@ def _features_multiaux(X_tr, X_te, y_tr, task):
 
 
 def _features_multiaux_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features multiaux plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     ma_tr, ma_te = _features_multiaux(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -3999,6 +4149,7 @@ def _features_multiaux_plus_denrat(X_tr, X_te, y_tr, task):
 
 
 def _features_multiaux_plus_mega_v2(X_tr, X_te, y_tr, task):
+    """Helper: Features multiaux plus mega v2."""
     m_tr, m_te = _features_mega_v2(X_tr, X_te, y_tr, task)
     ma_tr, ma_te = _features_multiaux(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4032,6 +4183,7 @@ FEATURE_BUILDERS_ITER32: Dict[str, Callable] = {
 
 
 def _run_iter32_test(loader, name: str) -> None:
+    """Helper: Run iter32 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -4044,10 +4196,12 @@ def _run_iter32_test(loader, name: str) -> None:
 
 
 def test_iter32_mammography():
+    """Iter32 mammography."""
     _run_iter32_test(_load_mammography, "mammography_iter32")
 
 
 def test_iter32_diabetes():
+    """Iter32 diabetes."""
     _run_iter32_test(_load_diabetes_classification, "diabetes_iter32")
 
 
@@ -4084,6 +4238,7 @@ def _features_smote(X_tr, X_te, y_tr, task):
 
 
 def _features_smote_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features smote plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     sm_tr, sm_te = _features_smote(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4094,6 +4249,7 @@ def _features_smote_plus_denrat(X_tr, X_te, y_tr, task):
 
 
 def _features_smote_plus_mega_v2(X_tr, X_te, y_tr, task):
+    """Helper: Features smote plus mega v2."""
     m_tr, m_te = _features_mega_v2(X_tr, X_te, y_tr, task)
     sm_tr, sm_te = _features_smote(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4127,6 +4283,7 @@ FEATURE_BUILDERS_ITER33: Dict[str, Callable] = {
 
 
 def _run_iter33_test(loader, name: str) -> None:
+    """Helper: Run iter33 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -4139,10 +4296,12 @@ def _run_iter33_test(loader, name: str) -> None:
 
 
 def test_iter33_mammography():
+    """Iter33 mammography."""
     _run_iter33_test(_load_mammography, "mammography_iter33")
 
 
 def test_iter33_diabetes():
+    """Iter33 diabetes."""
     _run_iter33_test(_load_diabetes_classification, "diabetes_iter33")
 
 
@@ -4181,6 +4340,7 @@ def _features_blsmote(X_tr, X_te, y_tr, task):
 
 
 def _features_blsmote_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features blsmote plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     bl_tr, bl_te = _features_blsmote(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4202,6 +4362,7 @@ def _features_blsmote_plus_smote(X_tr, X_te, y_tr, task):
 
 
 def _features_blsmote_plus_mega_v2(X_tr, X_te, y_tr, task):
+    """Helper: Features blsmote plus mega v2."""
     m_tr, m_te = _features_mega_v2(X_tr, X_te, y_tr, task)
     bl_tr, bl_te = _features_blsmote(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4240,6 +4401,7 @@ FEATURE_BUILDERS_ITER34: Dict[str, Callable] = {
 
 
 def _run_iter34_test(loader, name: str) -> None:
+    """Helper: Run iter34 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -4252,10 +4414,12 @@ def _run_iter34_test(loader, name: str) -> None:
 
 
 def test_iter34_mammography():
+    """Iter34 mammography."""
     _run_iter34_test(_load_mammography, "mammography_iter34")
 
 
 def test_iter34_diabetes():
+    """Iter34 diabetes."""
     _run_iter34_test(_load_diabetes_classification, "diabetes_iter34")
 
 
@@ -4305,6 +4469,7 @@ def _features_mixup_plus_smote(X_tr, X_te, y_tr, task):
 
 
 def _features_mixup_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features mixup plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     mu_tr, mu_te = _features_mixup(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4322,6 +4487,7 @@ FEATURE_BUILDERS_ITER35: Dict[str, Callable] = {
 
 
 def _run_iter35_test(loader, name: str) -> None:
+    """Helper: Run iter35 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -4334,10 +4500,12 @@ def _run_iter35_test(loader, name: str) -> None:
 
 
 def test_iter35_mammography():
+    """Iter35 mammography."""
     _run_iter35_test(_load_mammography, "mammography_iter35")
 
 
 def test_iter35_diabetes():
+    """Iter35 diabetes."""
     _run_iter35_test(_load_diabetes_classification, "diabetes_iter35")
 
 
@@ -4374,6 +4542,7 @@ def _features_cutmix(X_tr, X_te, y_tr, task):
 
 
 def _features_cutmix_plus_smote(X_tr, X_te, y_tr, task):
+    """Helper: Features cutmix plus smote."""
     sm_tr, sm_te = _features_smote(X_tr, X_te, y_tr, task)
     cm_tr, cm_te = _features_cutmix(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4404,6 +4573,7 @@ FEATURE_BUILDERS_ITER36: Dict[str, Callable] = {
 
 
 def _run_iter36_test(loader, name: str) -> None:
+    """Helper: Run iter36 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -4416,10 +4586,12 @@ def _run_iter36_test(loader, name: str) -> None:
 
 
 def test_iter36_mammography():
+    """Iter36 mammography."""
     _run_iter36_test(_load_mammography, "mammography_iter36")
 
 
 def test_iter36_diabetes():
+    """Iter36 diabetes."""
     _run_iter36_test(_load_diabetes_classification, "diabetes_iter36")
 
 
@@ -4452,6 +4624,7 @@ def _features_lda(X_tr, X_te, y_tr, task):
 
 
 def _features_lda_plus_smote(X_tr, X_te, y_tr, task):
+    """Helper: Features lda plus smote."""
     sm_tr, sm_te = _features_smote(X_tr, X_te, y_tr, task)
     ld_tr, ld_te = _features_lda(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4481,6 +4654,7 @@ FEATURE_BUILDERS_ITER37: Dict[str, Callable] = {
 
 
 def _run_iter37_test(loader, name: str) -> None:
+    """Helper: Run iter37 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -4493,10 +4667,12 @@ def _run_iter37_test(loader, name: str) -> None:
 
 
 def test_iter37_mammography():
+    """Iter37 mammography."""
     _run_iter37_test(_load_mammography, "mammography_iter37")
 
 
 def test_iter37_diabetes():
+    """Iter37 diabetes."""
     _run_iter37_test(_load_diabetes_classification, "diabetes_iter37")
 
 
@@ -4531,6 +4707,7 @@ def _features_nca(X_tr, X_te, y_tr, task):
 
 
 def _features_nca_plus_smote(X_tr, X_te, y_tr, task):
+    """Helper: Features nca plus smote."""
     sm_tr, sm_te = _features_smote(X_tr, X_te, y_tr, task)
     nc_tr, nc_te = _features_nca(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4560,6 +4737,7 @@ FEATURE_BUILDERS_ITER38: Dict[str, Callable] = {
 
 
 def _run_iter38_test(loader, name: str) -> None:
+    """Helper: Run iter38 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -4572,10 +4750,12 @@ def _run_iter38_test(loader, name: str) -> None:
 
 
 def test_iter38_mammography():
+    """Iter38 mammography."""
     _run_iter38_test(_load_mammography, "mammography_iter38")
 
 
 def test_iter38_diabetes():
+    """Iter38 diabetes."""
     _run_iter38_test(_load_diabetes_classification, "diabetes_iter38")
 
 
@@ -4618,6 +4798,7 @@ def _features_ncaattn(X_tr, X_te, y_tr, task):
 
 
 def _features_ncaattn_plus_smote(X_tr, X_te, y_tr, task):
+    """Helper: Features ncaattn plus smote."""
     sm_tr, sm_te = _features_smote(X_tr, X_te, y_tr, task)
     na_tr, na_te = _features_ncaattn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4628,6 +4809,7 @@ def _features_ncaattn_plus_smote(X_tr, X_te, y_tr, task):
 
 
 def _features_ncaattn_plus_mixup_smote(X_tr, X_te, y_tr, task):
+    """Helper: Features ncaattn plus mixup smote."""
     ms_tr, ms_te = _features_mixup_plus_smote(X_tr, X_te, y_tr, task)
     na_tr, na_te = _features_ncaattn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4646,6 +4828,7 @@ FEATURE_BUILDERS_ITER39: Dict[str, Callable] = {
 
 
 def _run_iter39_test(loader, name: str) -> None:
+    """Helper: Run iter39 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -4658,10 +4841,12 @@ def _run_iter39_test(loader, name: str) -> None:
 
 
 def test_iter39_mammography():
+    """Iter39 mammography."""
     _run_iter39_test(_load_mammography, "mammography_iter39")
 
 
 def test_iter39_diabetes():
+    """Iter39 diabetes."""
     _run_iter39_test(_load_diabetes_classification, "diabetes_iter39")
 
 
@@ -4695,6 +4880,7 @@ def _features_ae(X_tr, X_te, y_tr, task):
 
 
 def _features_ae_plus_smote(X_tr, X_te, y_tr, task):
+    """Helper: Features ae plus smote."""
     sm_tr, sm_te = _features_smote(X_tr, X_te, y_tr, task)
     ae_tr, ae_te = _features_ae(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4705,6 +4891,7 @@ def _features_ae_plus_smote(X_tr, X_te, y_tr, task):
 
 
 def _features_ae_plus_mixup_smote(X_tr, X_te, y_tr, task):
+    """Helper: Features ae plus mixup smote."""
     ms_tr, ms_te = _features_mixup_plus_smote(X_tr, X_te, y_tr, task)
     ae_tr, ae_te = _features_ae(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4715,6 +4902,7 @@ def _features_ae_plus_mixup_smote(X_tr, X_te, y_tr, task):
 
 
 def _features_ae_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features ae plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     ae_tr, ae_te = _features_ae(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4734,6 +4922,7 @@ FEATURE_BUILDERS_ITER40: Dict[str, Callable] = {
 
 
 def _run_iter40_test(loader, name: str) -> None:
+    """Helper: Run iter40 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -4746,10 +4935,12 @@ def _run_iter40_test(loader, name: str) -> None:
 
 
 def test_iter40_mammography():
+    """Iter40 mammography."""
     _run_iter40_test(_load_mammography, "mammography_iter40")
 
 
 def test_iter40_diabetes():
+    """Iter40 diabetes."""
     _run_iter40_test(_load_diabetes_classification, "diabetes_iter40")
 
 
@@ -4828,6 +5019,7 @@ FEATURE_BUILDERS_ITER41: Dict[str, Callable] = {
 
 
 def _run_iter41_test(loader, name: str) -> None:
+    """Helper: Run iter41 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -4840,10 +5032,12 @@ def _run_iter41_test(loader, name: str) -> None:
 
 
 def test_iter41_mammography():
+    """Iter41 mammography."""
     _run_iter41_test(_load_mammography, "mammography_iter41")
 
 
 def test_iter41_diabetes():
+    """Iter41 diabetes."""
     _run_iter41_test(_load_diabetes_classification, "diabetes_iter41")
 
 
@@ -4878,6 +5072,7 @@ def _features_diff(X_tr, X_te, y_tr, task):
 
 
 def _features_diff_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features diff plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     df_tr, df_te = _features_diff(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4899,6 +5094,7 @@ def _features_diff_plus_bgmm(X_tr, X_te, y_tr, task):
 
 
 def _features_diff_plus_mixup_smote(X_tr, X_te, y_tr, task):
+    """Helper: Features diff plus mixup smote."""
     ms_tr, ms_te = _features_mixup_plus_smote(X_tr, X_te, y_tr, task)
     df_tr, df_te = _features_diff(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4918,6 +5114,7 @@ FEATURE_BUILDERS_ITER42: Dict[str, Callable] = {
 
 
 def _run_iter42_test(loader, name: str) -> None:
+    """Helper: Run iter42 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -4930,10 +5127,12 @@ def _run_iter42_test(loader, name: str) -> None:
 
 
 def test_iter42_mammography():
+    """Iter42 mammography."""
     _run_iter42_test(_load_mammography, "mammography_iter42")
 
 
 def test_iter42_diabetes():
+    """Iter42 diabetes."""
     _run_iter42_test(_load_diabetes_classification, "diabetes_iter42")
 
 
@@ -4970,6 +5169,7 @@ def _features_psmote(X_tr, X_te, y_tr, task):
 
 
 def _features_psmote_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features psmote plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     ps_tr, ps_te = _features_psmote(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -4991,6 +5191,7 @@ def _features_psmote_plus_bgmm(X_tr, X_te, y_tr, task):
 
 
 def _features_psmote_plus_mixup_smote(X_tr, X_te, y_tr, task):
+    """Helper: Features psmote plus mixup smote."""
     ms_tr, ms_te = _features_mixup_plus_smote(X_tr, X_te, y_tr, task)
     ps_tr, ps_te = _features_psmote(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5010,6 +5211,7 @@ FEATURE_BUILDERS_ITER43: Dict[str, Callable] = {
 
 
 def _run_iter43_test(loader, name: str) -> None:
+    """Helper: Run iter43 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -5022,10 +5224,12 @@ def _run_iter43_test(loader, name: str) -> None:
 
 
 def test_iter43_mammography():
+    """Iter43 mammography."""
     _run_iter43_test(_load_mammography, "mammography_iter43")
 
 
 def test_iter43_diabetes():
+    """Iter43 diabetes."""
     _run_iter43_test(_load_diabetes_classification, "diabetes_iter43")
 
 
@@ -5062,6 +5266,7 @@ def _features_csmote(X_tr, X_te, y_tr, task):
 
 
 def _features_csmote_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features csmote plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     cs_tr, cs_te = _features_csmote(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5083,6 +5288,7 @@ def _features_csmote_plus_bgmm(X_tr, X_te, y_tr, task):
 
 
 def _features_csmote_plus_mixup(X_tr, X_te, y_tr, task):
+    """Helper: Features csmote plus mixup."""
     mu_tr, mu_te = _features_mixup(X_tr, X_te, y_tr, task)
     cs_tr, cs_te = _features_csmote(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5102,6 +5308,7 @@ FEATURE_BUILDERS_ITER44: Dict[str, Callable] = {
 
 
 def _run_iter44_test(loader, name: str) -> None:
+    """Helper: Run iter44 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -5114,10 +5321,12 @@ def _run_iter44_test(loader, name: str) -> None:
 
 
 def test_iter44_mammography():
+    """Iter44 mammography."""
     _run_iter44_test(_load_mammography, "mammography_iter44")
 
 
 def test_iter44_diabetes():
+    """Iter44 diabetes."""
     _run_iter44_test(_load_diabetes_classification, "diabetes_iter44")
 
 
@@ -5152,6 +5361,7 @@ def _features_bgmms(X_tr, X_te, y_tr, task):
 
 
 def _features_bgmms_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features bgmms plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     bs_tr, bs_te = _features_bgmms(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5162,6 +5372,7 @@ def _features_bgmms_plus_denrat(X_tr, X_te, y_tr, task):
 
 
 def _features_bgmms_plus_mixup_smote(X_tr, X_te, y_tr, task):
+    """Helper: Features bgmms plus mixup smote."""
     ms_tr, ms_te = _features_mixup_plus_smote(X_tr, X_te, y_tr, task)
     bs_tr, bs_te = _features_bgmms(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5180,6 +5391,7 @@ FEATURE_BUILDERS_ITER45: Dict[str, Callable] = {
 
 
 def _run_iter45_test(loader, name: str) -> None:
+    """Helper: Run iter45 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -5192,10 +5404,12 @@ def _run_iter45_test(loader, name: str) -> None:
 
 
 def test_iter45_mammography():
+    """Iter45 mammography."""
     _run_iter45_test(_load_mammography, "mammography_iter45")
 
 
 def test_iter45_diabetes():
+    """Iter45 diabetes."""
     _run_iter45_test(_load_diabetes_classification, "diabetes_iter45")
 
 
@@ -5239,6 +5453,7 @@ def _features_bdr_plus_bgmms(X_tr, X_te, y_tr, task):
 
 
 def _features_bdr_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features bdr plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     bdr_tr, bdr_te = _features_bdr(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5257,6 +5472,7 @@ FEATURE_BUILDERS_ITER46: Dict[str, Callable] = {
 
 
 def _run_iter46_test(loader, name: str) -> None:
+    """Helper: Run iter46 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -5269,10 +5485,12 @@ def _run_iter46_test(loader, name: str) -> None:
 
 
 def test_iter46_mammography():
+    """Iter46 mammography."""
     _run_iter46_test(_load_mammography, "mammography_iter46")
 
 
 def test_iter46_diabetes():
+    """Iter46 diabetes."""
     _run_iter46_test(_load_diabetes_classification, "diabetes_iter46")
 
 
@@ -5318,6 +5536,7 @@ def _features_mss_plus_bgmms(X_tr, X_te, y_tr, task):
 
 
 def _features_mss_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features mss plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     mss_tr, mss_te = _features_mss(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5336,6 +5555,7 @@ FEATURE_BUILDERS_ITER47: Dict[str, Callable] = {
 
 
 def _run_iter47_test(loader, name: str) -> None:
+    """Helper: Run iter47 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -5348,10 +5568,12 @@ def _run_iter47_test(loader, name: str) -> None:
 
 
 def test_iter47_mammography():
+    """Iter47 mammography."""
     _run_iter47_test(_load_mammography, "mammography_iter47")
 
 
 def test_iter47_diabetes():
+    """Iter47 diabetes."""
     _run_iter47_test(_load_diabetes_classification, "diabetes_iter47")
 
 
@@ -5399,6 +5621,7 @@ def _features_bcs_plus_bgmms(X_tr, X_te, y_tr, task):
 
 
 def _features_bcs_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features bcs plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     bcs_tr, bcs_te = _features_bcs(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5417,6 +5640,7 @@ FEATURE_BUILDERS_ITER48: Dict[str, Callable] = {
 
 
 def _run_iter48_test(loader, name: str) -> None:
+    """Helper: Run iter48 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -5429,10 +5653,12 @@ def _run_iter48_test(loader, name: str) -> None:
 
 
 def test_iter48_mammography():
+    """Iter48 mammography."""
     _run_iter48_test(_load_mammography, "mammography_iter48")
 
 
 def test_iter48_diabetes():
+    """Iter48 diabetes."""
     _run_iter48_test(_load_diabetes_classification, "diabetes_iter48")
 
 
@@ -5480,6 +5706,7 @@ def _features_actv_plus_bgmms(X_tr, X_te, y_tr, task):
 
 
 def _features_actv_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features actv plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     av_tr, av_te = _features_actv(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5498,6 +5725,7 @@ FEATURE_BUILDERS_ITER49: Dict[str, Callable] = {
 
 
 def _run_iter49_test(loader, name: str) -> None:
+    """Helper: Run iter49 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -5510,10 +5738,12 @@ def _run_iter49_test(loader, name: str) -> None:
 
 
 def test_iter49_mammography():
+    """Iter49 mammography."""
     _run_iter49_test(_load_mammography, "mammography_iter49")
 
 
 def test_iter49_diabetes():
+    """Iter49 diabetes."""
     _run_iter49_test(_load_diabetes_classification, "diabetes_iter49")
 
 
@@ -5548,6 +5778,7 @@ def _features_dwsmote(X_tr, X_te, y_tr, task):
 
 
 def _features_dwsmote_plus_bgmms(X_tr, X_te, y_tr, task):
+    """Helper: Features dwsmote plus bgmms."""
     bs_tr, bs_te = _features_bgmms(X_tr, X_te, y_tr, task)
     dws_tr, dws_te = _features_dwsmote(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5558,6 +5789,7 @@ def _features_dwsmote_plus_bgmms(X_tr, X_te, y_tr, task):
 
 
 def _features_dwsmote_plus_denrat(X_tr, X_te, y_tr, task):
+    """Helper: Features dwsmote plus denrat."""
     dr_tr, dr_te = _features_denrat(X_tr, X_te, y_tr, task)
     dws_tr, dws_te = _features_dwsmote(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5576,6 +5808,7 @@ FEATURE_BUILDERS_ITER50: Dict[str, Callable] = {
 
 
 def _run_iter50_test(loader, name: str) -> None:
+    """Helper: Run iter50 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -5588,19 +5821,23 @@ def _run_iter50_test(loader, name: str) -> None:
 
 
 def test_iter50_mammography():
+    """Iter50 mammography."""
     _run_iter50_test(_load_mammography, "mammography_iter50")
 
 
 def test_iter50_diabetes():
+    """Iter50 diabetes."""
     _run_iter50_test(_load_diabetes_classification, "diabetes_iter50")
 
 
 # Iter 50 on REGRESSION datasets (per user feedback: test sampling mechanisms on regression too)
 def test_iter50_kin8nm():
+    """Iter50 kin8nm."""
     _run_iter50_test(_load_kin8nm, "kin8nm_iter50")
 
 
 def test_iter50_abalone():
+    """Iter50 abalone."""
     _run_iter50_test(_load_abalone, "abalone_iter50")
 
 
@@ -5637,6 +5874,7 @@ def _features_adasyn(X_tr, X_te, y_tr, task):
 
 
 def _features_adasyn_plus_bgmms(X_tr, X_te, y_tr, task):
+    """Helper: Features adasyn plus bgmms."""
     bs_tr, bs_te = _features_bgmms(X_tr, X_te, y_tr, task)
     ad_tr, ad_te = _features_adasyn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5666,6 +5904,7 @@ FEATURE_BUILDERS_ITER51: Dict[str, Callable] = {
 
 
 def _run_iter51_test(loader, name: str) -> None:
+    """Helper: Run iter51 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -5678,19 +5917,23 @@ def _run_iter51_test(loader, name: str) -> None:
 
 
 def test_iter51_mammography():
+    """Iter51 mammography."""
     _run_iter51_test(_load_mammography, "mammography_iter51")
 
 
 def test_iter51_diabetes():
+    """Iter51 diabetes."""
     _run_iter51_test(_load_diabetes_classification, "diabetes_iter51")
 
 
 # Iter 51 on REGRESSION datasets
 def test_iter51_kin8nm():
+    """Iter51 kin8nm."""
     _run_iter51_test(_load_kin8nm, "kin8nm_iter51")
 
 
 def test_iter51_abalone():
+    """Iter51 abalone."""
     _run_iter51_test(_load_abalone, "abalone_iter51")
 
 
@@ -5725,6 +5968,7 @@ def _features_ppsmote(X_tr, X_te, y_tr, task):
 
 
 def _features_ppsmote_plus_bgmms(X_tr, X_te, y_tr, task):
+    """Helper: Features ppsmote plus bgmms."""
     bs_tr, bs_te = _features_bgmms(X_tr, X_te, y_tr, task)
     pp_tr, pp_te = _features_ppsmote(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5754,6 +5998,7 @@ FEATURE_BUILDERS_ITER52: Dict[str, Callable] = {
 
 
 def _run_iter52_test(loader, name: str) -> None:
+    """Helper: Run iter52 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -5766,18 +6011,22 @@ def _run_iter52_test(loader, name: str) -> None:
 
 
 def test_iter52_mammography():
+    """Iter52 mammography."""
     _run_iter52_test(_load_mammography, "mammography_iter52")
 
 
 def test_iter52_diabetes():
+    """Iter52 diabetes."""
     _run_iter52_test(_load_diabetes_classification, "diabetes_iter52")
 
 
 def test_iter52_kin8nm():
+    """Iter52 kin8nm."""
     _run_iter52_test(_load_kin8nm, "kin8nm_iter52")
 
 
 def test_iter52_abalone():
+    """Iter52 abalone."""
     _run_iter52_test(_load_abalone, "abalone_iter52")
 
 
@@ -5814,6 +6063,7 @@ def _features_indattn(X_tr, X_te, y_tr, task):
 
 
 def _features_indattn_plus_bgmms(X_tr, X_te, y_tr, task):
+    """Helper: Features indattn plus bgmms."""
     bs_tr, bs_te = _features_bgmms(X_tr, X_te, y_tr, task)
     ia_tr, ia_te = _features_indattn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5824,6 +6074,7 @@ def _features_indattn_plus_bgmms(X_tr, X_te, y_tr, task):
 
 
 def _features_indattn_plus_dwsmote(X_tr, X_te, y_tr, task):
+    """Helper: Features indattn plus dwsmote."""
     dws_tr, dws_te = _features_dwsmote(X_tr, X_te, y_tr, task)
     ia_tr, ia_te = _features_indattn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5842,6 +6093,7 @@ FEATURE_BUILDERS_ITER53: Dict[str, Callable] = {
 
 
 def _run_iter53_test(loader, name: str) -> None:
+    """Helper: Run iter53 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -5854,18 +6106,22 @@ def _run_iter53_test(loader, name: str) -> None:
 
 
 def test_iter53_mammography():
+    """Iter53 mammography."""
     _run_iter53_test(_load_mammography, "mammography_iter53")
 
 
 def test_iter53_diabetes():
+    """Iter53 diabetes."""
     _run_iter53_test(_load_diabetes_classification, "diabetes_iter53")
 
 
 def test_iter53_kin8nm():
+    """Iter53 kin8nm."""
     _run_iter53_test(_load_kin8nm, "kin8nm_iter53")
 
 
 def test_iter53_abalone():
+    """Iter53 abalone."""
     _run_iter53_test(_load_abalone, "abalone_iter53")
 
 
@@ -5897,6 +6153,7 @@ def _features_perfattn(X_tr, X_te, y_tr, task):
 
 
 def _features_perfattn_plus_bgmms(X_tr, X_te, y_tr, task):
+    """Helper: Features perfattn plus bgmms."""
     bs_tr, bs_te = _features_bgmms(X_tr, X_te, y_tr, task)
     pa_tr, pa_te = _features_perfattn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -5926,6 +6183,7 @@ FEATURE_BUILDERS_ITER54: Dict[str, Callable] = {
 
 
 def _run_iter54_test(loader, name: str) -> None:
+    """Helper: Run iter54 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -5938,18 +6196,22 @@ def _run_iter54_test(loader, name: str) -> None:
 
 
 def test_iter54_mammography():
+    """Iter54 mammography."""
     _run_iter54_test(_load_mammography, "mammography_iter54")
 
 
 def test_iter54_diabetes():
+    """Iter54 diabetes."""
     _run_iter54_test(_load_diabetes_classification, "diabetes_iter54")
 
 
 def test_iter54_kin8nm():
+    """Iter54 kin8nm."""
     _run_iter54_test(_load_kin8nm, "kin8nm_iter54")
 
 
 def test_iter54_abalone():
+    """Iter54 abalone."""
     _run_iter54_test(_load_abalone, "abalone_iter54")
 
 
@@ -6018,6 +6280,7 @@ FEATURE_BUILDERS_ITER55: Dict[str, Callable] = {
 
 
 def _run_iter55_test(loader, name: str) -> None:
+    """Helper: Run iter55 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -6030,18 +6293,22 @@ def _run_iter55_test(loader, name: str) -> None:
 
 
 def test_iter55_mammography():
+    """Iter55 mammography."""
     _run_iter55_test(_load_mammography, "mammography_iter55")
 
 
 def test_iter55_diabetes():
+    """Iter55 diabetes."""
     _run_iter55_test(_load_diabetes_classification, "diabetes_iter55")
 
 
 def test_iter55_kin8nm():
+    """Iter55 kin8nm."""
     _run_iter55_test(_load_kin8nm, "kin8nm_iter55")
 
 
 def test_iter55_abalone():
+    """Iter55 abalone."""
     _run_iter55_test(_load_abalone, "abalone_iter55")
 
 
@@ -6108,6 +6375,7 @@ FEATURE_BUILDERS_ITER56: Dict[str, Callable] = {
 
 
 def _run_iter56_test(loader, name: str) -> None:
+    """Helper: Run iter56 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -6120,18 +6388,22 @@ def _run_iter56_test(loader, name: str) -> None:
 
 
 def test_iter56_kin8nm():
+    """Iter56 kin8nm."""
     _run_iter56_test(_load_kin8nm, "kin8nm_iter56")
 
 
 def test_iter56_abalone():
+    """Iter56 abalone."""
     _run_iter56_test(_load_abalone, "abalone_iter56")
 
 
 def test_iter56_mammography():
+    """Iter56 mammography."""
     _run_iter56_test(_load_mammography, "mammography_iter56")
 
 
 def test_iter56_diabetes():
+    """Iter56 diabetes."""
     _run_iter56_test(_load_diabetes_classification, "diabetes_iter56")
 
 
@@ -6196,6 +6468,7 @@ FEATURE_BUILDERS_ITER57: Dict[str, Callable] = {
 
 
 def _run_iter57_test(loader, name: str) -> None:
+    """Helper: Run iter57 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -6208,18 +6481,22 @@ def _run_iter57_test(loader, name: str) -> None:
 
 
 def test_iter57_kin8nm():
+    """Iter57 kin8nm."""
     _run_iter57_test(_load_kin8nm, "kin8nm_iter57")
 
 
 def test_iter57_abalone():
+    """Iter57 abalone."""
     _run_iter57_test(_load_abalone, "abalone_iter57")
 
 
 def test_iter57_mammography():
+    """Iter57 mammography."""
     _run_iter57_test(_load_mammography, "mammography_iter57")
 
 
 def test_iter57_diabetes():
+    """Iter57 diabetes."""
     _run_iter57_test(_load_diabetes_classification, "diabetes_iter57")
 
 
@@ -6284,6 +6561,7 @@ FEATURE_BUILDERS_ITER58: Dict[str, Callable] = {
 
 
 def _run_iter58_test(loader, name: str) -> None:
+    """Helper: Run iter58 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -6296,18 +6574,22 @@ def _run_iter58_test(loader, name: str) -> None:
 
 
 def test_iter58_kin8nm():
+    """Iter58 kin8nm."""
     _run_iter58_test(_load_kin8nm, "kin8nm_iter58")
 
 
 def test_iter58_abalone():
+    """Iter58 abalone."""
     _run_iter58_test(_load_abalone, "abalone_iter58")
 
 
 def test_iter58_mammography():
+    """Iter58 mammography."""
     _run_iter58_test(_load_mammography, "mammography_iter58")
 
 
 def test_iter58_diabetes():
+    """Iter58 diabetes."""
     _run_iter58_test(_load_diabetes_classification, "diabetes_iter58")
 
 
@@ -6374,6 +6656,7 @@ FEATURE_BUILDERS_ITER59: Dict[str, Callable] = {
 
 
 def _run_iter59_test(loader, name: str) -> None:
+    """Helper: Run iter59 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -6386,18 +6669,22 @@ def _run_iter59_test(loader, name: str) -> None:
 
 
 def test_iter59_kin8nm():
+    """Iter59 kin8nm."""
     _run_iter59_test(_load_kin8nm, "kin8nm_iter59")
 
 
 def test_iter59_abalone():
+    """Iter59 abalone."""
     _run_iter59_test(_load_abalone, "abalone_iter59")
 
 
 def test_iter59_mammography():
+    """Iter59 mammography."""
     _run_iter59_test(_load_mammography, "mammography_iter59")
 
 
 def test_iter59_diabetes():
+    """Iter59 diabetes."""
     _run_iter59_test(_load_diabetes_classification, "diabetes_iter59")
 
 
@@ -6462,6 +6749,7 @@ FEATURE_BUILDERS_ITER60: Dict[str, Callable] = {
 
 
 def _run_iter60_test(loader, name: str) -> None:
+    """Helper: Run iter60 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -6474,18 +6762,22 @@ def _run_iter60_test(loader, name: str) -> None:
 
 
 def test_iter60_kin8nm():
+    """Iter60 kin8nm."""
     _run_iter60_test(_load_kin8nm, "kin8nm_iter60")
 
 
 def test_iter60_abalone():
+    """Iter60 abalone."""
     _run_iter60_test(_load_abalone, "abalone_iter60")
 
 
 def test_iter60_mammography():
+    """Iter60 mammography."""
     _run_iter60_test(_load_mammography, "mammography_iter60")
 
 
 def test_iter60_diabetes():
+    """Iter60 diabetes."""
     _run_iter60_test(_load_diabetes_classification, "diabetes_iter60")
 
 
@@ -6550,6 +6842,7 @@ FEATURE_BUILDERS_ITER61: Dict[str, Callable] = {
 
 
 def _run_iter61_test(loader, name: str) -> None:
+    """Helper: Run iter61 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -6562,18 +6855,22 @@ def _run_iter61_test(loader, name: str) -> None:
 
 
 def test_iter61_kin8nm():
+    """Iter61 kin8nm."""
     _run_iter61_test(_load_kin8nm, "kin8nm_iter61")
 
 
 def test_iter61_abalone():
+    """Iter61 abalone."""
     _run_iter61_test(_load_abalone, "abalone_iter61")
 
 
 def test_iter61_mammography():
+    """Iter61 mammography."""
     _run_iter61_test(_load_mammography, "mammography_iter61")
 
 
 def test_iter61_diabetes():
+    """Iter61 diabetes."""
     _run_iter61_test(_load_diabetes_classification, "diabetes_iter61")
 
 
@@ -6638,6 +6935,7 @@ FEATURE_BUILDERS_ITER62: Dict[str, Callable] = {
 
 
 def _run_iter62_test(loader, name: str) -> None:
+    """Helper: Run iter62 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -6650,18 +6948,22 @@ def _run_iter62_test(loader, name: str) -> None:
 
 
 def test_iter62_kin8nm():
+    """Iter62 kin8nm."""
     _run_iter62_test(_load_kin8nm, "kin8nm_iter62")
 
 
 def test_iter62_abalone():
+    """Iter62 abalone."""
     _run_iter62_test(_load_abalone, "abalone_iter62")
 
 
 def test_iter62_mammography():
+    """Iter62 mammography."""
     _run_iter62_test(_load_mammography, "mammography_iter62")
 
 
 def test_iter62_diabetes():
+    """Iter62 diabetes."""
     _run_iter62_test(_load_diabetes_classification, "diabetes_iter62")
 
 
@@ -6726,6 +7028,7 @@ FEATURE_BUILDERS_ITER63: Dict[str, Callable] = {
 
 
 def _run_iter63_test(loader, name: str) -> None:
+    """Helper: Run iter63 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -6738,18 +7041,22 @@ def _run_iter63_test(loader, name: str) -> None:
 
 
 def test_iter63_kin8nm():
+    """Iter63 kin8nm."""
     _run_iter63_test(_load_kin8nm, "kin8nm_iter63")
 
 
 def test_iter63_abalone():
+    """Iter63 abalone."""
     _run_iter63_test(_load_abalone, "abalone_iter63")
 
 
 def test_iter63_mammography():
+    """Iter63 mammography."""
     _run_iter63_test(_load_mammography, "mammography_iter63")
 
 
 def test_iter63_diabetes():
+    """Iter63 diabetes."""
     _run_iter63_test(_load_diabetes_classification, "diabetes_iter63")
 
 
@@ -6814,6 +7121,7 @@ FEATURE_BUILDERS_ITER64: Dict[str, Callable] = {
 
 
 def _run_iter64_test(loader, name: str) -> None:
+    """Helper: Run iter64 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -6826,18 +7134,22 @@ def _run_iter64_test(loader, name: str) -> None:
 
 
 def test_iter64_kin8nm():
+    """Iter64 kin8nm."""
     _run_iter64_test(_load_kin8nm, "kin8nm_iter64")
 
 
 def test_iter64_abalone():
+    """Iter64 abalone."""
     _run_iter64_test(_load_abalone, "abalone_iter64")
 
 
 def test_iter64_mammography():
+    """Iter64 mammography."""
     _run_iter64_test(_load_mammography, "mammography_iter64")
 
 
 def test_iter64_diabetes():
+    """Iter64 diabetes."""
     _run_iter64_test(_load_diabetes_classification, "diabetes_iter64")
 
 
@@ -6902,6 +7214,7 @@ FEATURE_BUILDERS_ITER65: Dict[str, Callable] = {
 
 
 def _run_iter65_test(loader, name: str) -> None:
+    """Helper: Run iter65 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -6914,18 +7227,22 @@ def _run_iter65_test(loader, name: str) -> None:
 
 
 def test_iter65_kin8nm():
+    """Iter65 kin8nm."""
     _run_iter65_test(_load_kin8nm, "kin8nm_iter65")
 
 
 def test_iter65_abalone():
+    """Iter65 abalone."""
     _run_iter65_test(_load_abalone, "abalone_iter65")
 
 
 def test_iter65_mammography():
+    """Iter65 mammography."""
     _run_iter65_test(_load_mammography, "mammography_iter65")
 
 
 def test_iter65_diabetes():
+    """Iter65 diabetes."""
     _run_iter65_test(_load_diabetes_classification, "diabetes_iter65")
 
 
@@ -6990,6 +7307,7 @@ FEATURE_BUILDERS_ITER66: Dict[str, Callable] = {
 
 
 def _run_iter66_test(loader, name: str) -> None:
+    """Helper: Run iter66 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -7002,18 +7320,22 @@ def _run_iter66_test(loader, name: str) -> None:
 
 
 def test_iter66_kin8nm():
+    """Iter66 kin8nm."""
     _run_iter66_test(_load_kin8nm, "kin8nm_iter66")
 
 
 def test_iter66_abalone():
+    """Iter66 abalone."""
     _run_iter66_test(_load_abalone, "abalone_iter66")
 
 
 def test_iter66_mammography():
+    """Iter66 mammography."""
     _run_iter66_test(_load_mammography, "mammography_iter66")
 
 
 def test_iter66_diabetes():
+    """Iter66 diabetes."""
     _run_iter66_test(_load_diabetes_classification, "diabetes_iter66")
 
 
@@ -7048,6 +7370,7 @@ def _features_mtcbhrattn(X_tr, X_te, y_tr, task):
 
 
 def _features_mtcbhrattn_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features mtcbhrattn plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     mt_tr, mt_te = _features_mtcbhrattn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7058,6 +7381,7 @@ def _features_mtcbhrattn_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_mtcbhrattn_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features mtcbhrattn plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     mt_tr, mt_te = _features_mtcbhrattn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7076,6 +7400,7 @@ FEATURE_BUILDERS_ITER67: Dict[str, Callable] = {
 
 
 def _run_iter67_test(loader, name: str) -> None:
+    """Helper: Run iter67 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -7088,18 +7413,22 @@ def _run_iter67_test(loader, name: str) -> None:
 
 
 def test_iter67_kin8nm():
+    """Iter67 kin8nm."""
     _run_iter67_test(_load_kin8nm, "kin8nm_iter67")
 
 
 def test_iter67_abalone():
+    """Iter67 abalone."""
     _run_iter67_test(_load_abalone, "abalone_iter67")
 
 
 def test_iter67_mammography():
+    """Iter67 mammography."""
     _run_iter67_test(_load_mammography, "mammography_iter67")
 
 
 def test_iter67_diabetes():
+    """Iter67 diabetes."""
     _run_iter67_test(_load_diabetes_classification, "diabetes_iter67")
 
 
@@ -7134,6 +7463,7 @@ def _features_mbhrattn(X_tr, X_te, y_tr, task):
 
 
 def _features_mbhrattn_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features mbhrattn plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     mb_tr, mb_te = _features_mbhrattn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7144,6 +7474,7 @@ def _features_mbhrattn_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_mbhrattn_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features mbhrattn plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     mb_tr, mb_te = _features_mbhrattn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7162,6 +7493,7 @@ FEATURE_BUILDERS_ITER68: Dict[str, Callable] = {
 
 
 def _run_iter68_test(loader, name: str) -> None:
+    """Helper: Run iter68 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -7174,18 +7506,22 @@ def _run_iter68_test(loader, name: str) -> None:
 
 
 def test_iter68_kin8nm():
+    """Iter68 kin8nm."""
     _run_iter68_test(_load_kin8nm, "kin8nm_iter68")
 
 
 def test_iter68_abalone():
+    """Iter68 abalone."""
     _run_iter68_test(_load_abalone, "abalone_iter68")
 
 
 def test_iter68_mammography():
+    """Iter68 mammography."""
     _run_iter68_test(_load_mammography, "mammography_iter68")
 
 
 def test_iter68_diabetes():
+    """Iter68 diabetes."""
     _run_iter68_test(_load_diabetes_classification, "diabetes_iter68")
 
 
@@ -7216,6 +7552,7 @@ def _features_blagreement(X_tr, X_te, y_tr, task):
 
 
 def _features_blagreement_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features blagreement plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     bl_tr, bl_te = _features_blagreement(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7226,6 +7563,7 @@ def _features_blagreement_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_blagreement_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features blagreement plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     bl_tr, bl_te = _features_blagreement(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7244,6 +7582,7 @@ FEATURE_BUILDERS_ITER69: Dict[str, Callable] = {
 
 
 def _run_iter69_test(loader, name: str) -> None:
+    """Helper: Run iter69 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -7256,18 +7595,22 @@ def _run_iter69_test(loader, name: str) -> None:
 
 
 def test_iter69_kin8nm():
+    """Iter69 kin8nm."""
     _run_iter69_test(_load_kin8nm, "kin8nm_iter69")
 
 
 def test_iter69_abalone():
+    """Iter69 abalone."""
     _run_iter69_test(_load_abalone, "abalone_iter69")
 
 
 def test_iter69_mammography():
+    """Iter69 mammography."""
     _run_iter69_test(_load_mammography, "mammography_iter69")
 
 
 def test_iter69_diabetes():
+    """Iter69 diabetes."""
     _run_iter69_test(_load_diabetes_classification, "diabetes_iter69")
 
 
@@ -7302,6 +7645,7 @@ def _features_dbattn(X_tr, X_te, y_tr, task):
 
 
 def _features_dbattn_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features dbattn plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     db_tr, db_te = _features_dbattn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7312,6 +7656,7 @@ def _features_dbattn_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_dbattn_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features dbattn plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     db_tr, db_te = _features_dbattn(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7330,6 +7675,7 @@ FEATURE_BUILDERS_ITER70: Dict[str, Callable] = {
 
 
 def _run_iter70_test(loader, name: str) -> None:
+    """Helper: Run iter70 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -7342,18 +7688,22 @@ def _run_iter70_test(loader, name: str) -> None:
 
 
 def test_iter70_kin8nm():
+    """Iter70 kin8nm."""
     _run_iter70_test(_load_kin8nm, "kin8nm_iter70")
 
 
 def test_iter70_abalone():
+    """Iter70 abalone."""
     _run_iter70_test(_load_abalone, "abalone_iter70")
 
 
 def test_iter70_mammography():
+    """Iter70 mammography."""
     _run_iter70_test(_load_mammography, "mammography_iter70")
 
 
 def test_iter70_diabetes():
+    """Iter70 diabetes."""
     _run_iter70_test(_load_diabetes_classification, "diabetes_iter70")
 
 
@@ -7386,6 +7736,7 @@ def _features_nnoof(X_tr, X_te, y_tr, task):
 
 
 def _features_nnoof_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features nnoof plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     nn_tr, nn_te = _features_nnoof(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7396,6 +7747,7 @@ def _features_nnoof_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_nnoof_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features nnoof plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     nn_tr, nn_te = _features_nnoof(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7414,6 +7766,7 @@ FEATURE_BUILDERS_ITER71: Dict[str, Callable] = {
 
 
 def _run_iter71_test(loader, name: str) -> None:
+    """Helper: Run iter71 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -7426,18 +7779,22 @@ def _run_iter71_test(loader, name: str) -> None:
 
 
 def test_iter71_kin8nm():
+    """Iter71 kin8nm."""
     _run_iter71_test(_load_kin8nm, "kin8nm_iter71")
 
 
 def test_iter71_abalone():
+    """Iter71 abalone."""
     _run_iter71_test(_load_abalone, "abalone_iter71")
 
 
 def test_iter71_mammography():
+    """Iter71 mammography."""
     _run_iter71_test(_load_mammography, "mammography_iter71")
 
 
 def test_iter71_diabetes():
+    """Iter71 diabetes."""
     _run_iter71_test(_load_diabetes_classification, "diabetes_iter71")
 
 
@@ -7470,6 +7827,7 @@ def _features_ldgrad(X_tr, X_te, y_tr, task):
 
 
 def _features_ldgrad_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features ldgrad plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     ld_tr, ld_te = _features_ldgrad(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7480,6 +7838,7 @@ def _features_ldgrad_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_ldgrad_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features ldgrad plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     ld_tr, ld_te = _features_ldgrad(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7498,6 +7857,7 @@ FEATURE_BUILDERS_ITER72: Dict[str, Callable] = {
 
 
 def _run_iter72_test(loader, name: str) -> None:
+    """Helper: Run iter72 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -7510,18 +7870,22 @@ def _run_iter72_test(loader, name: str) -> None:
 
 
 def test_iter72_kin8nm():
+    """Iter72 kin8nm."""
     _run_iter72_test(_load_kin8nm, "kin8nm_iter72")
 
 
 def test_iter72_abalone():
+    """Iter72 abalone."""
     _run_iter72_test(_load_abalone, "abalone_iter72")
 
 
 def test_iter72_mammography():
+    """Iter72 mammography."""
     _run_iter72_test(_load_mammography, "mammography_iter72")
 
 
 def test_iter72_diabetes():
+    """Iter72 diabetes."""
     _run_iter72_test(_load_diabetes_classification, "diabetes_iter72")
 
 
@@ -7554,6 +7918,7 @@ def _features_surprise(X_tr, X_te, y_tr, task):
 
 
 def _features_surprise_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features surprise plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     sp_tr, sp_te = _features_surprise(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7564,6 +7929,7 @@ def _features_surprise_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_surprise_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features surprise plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     sp_tr, sp_te = _features_surprise(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7582,6 +7948,7 @@ FEATURE_BUILDERS_ITER73: Dict[str, Callable] = {
 
 
 def _run_iter73_test(loader, name: str) -> None:
+    """Helper: Run iter73 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -7594,18 +7961,22 @@ def _run_iter73_test(loader, name: str) -> None:
 
 
 def test_iter73_kin8nm():
+    """Iter73 kin8nm."""
     _run_iter73_test(_load_kin8nm, "kin8nm_iter73")
 
 
 def test_iter73_abalone():
+    """Iter73 abalone."""
     _run_iter73_test(_load_abalone, "abalone_iter73")
 
 
 def test_iter73_mammography():
+    """Iter73 mammography."""
     _run_iter73_test(_load_mammography, "mammography_iter73")
 
 
 def test_iter73_diabetes():
+    """Iter73 diabetes."""
     _run_iter73_test(_load_diabetes_classification, "diabetes_iter73")
 
 
@@ -7638,6 +8009,7 @@ def _features_lid(X_tr, X_te, y_tr, task):
 
 
 def _features_lid_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features lid plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     lid_tr, lid_te = _features_lid(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7648,6 +8020,7 @@ def _features_lid_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_lid_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features lid plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     lid_tr, lid_te = _features_lid(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7666,6 +8039,7 @@ FEATURE_BUILDERS_ITER74: Dict[str, Callable] = {
 
 
 def _run_iter74_test(loader, name: str) -> None:
+    """Helper: Run iter74 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -7678,18 +8052,22 @@ def _run_iter74_test(loader, name: str) -> None:
 
 
 def test_iter74_kin8nm():
+    """Iter74 kin8nm."""
     _run_iter74_test(_load_kin8nm, "kin8nm_iter74")
 
 
 def test_iter74_abalone():
+    """Iter74 abalone."""
     _run_iter74_test(_load_abalone, "abalone_iter74")
 
 
 def test_iter74_mammography():
+    """Iter74 mammography."""
     _run_iter74_test(_load_mammography, "mammography_iter74")
 
 
 def test_iter74_diabetes():
+    """Iter74 diabetes."""
     _run_iter74_test(_load_diabetes_classification, "diabetes_iter74")
 
 
@@ -7724,6 +8102,7 @@ def _features_robust(X_tr, X_te, y_tr, task):
 
 
 def _features_robust_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features robust plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     rb_tr, rb_te = _features_robust(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7734,6 +8113,7 @@ def _features_robust_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_robust_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features robust plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     rb_tr, rb_te = _features_robust(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7752,6 +8132,7 @@ FEATURE_BUILDERS_ITER75: Dict[str, Callable] = {
 
 
 def _run_iter75_test(loader, name: str) -> None:
+    """Helper: Run iter75 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -7764,18 +8145,22 @@ def _run_iter75_test(loader, name: str) -> None:
 
 
 def test_iter75_kin8nm():
+    """Iter75 kin8nm."""
     _run_iter75_test(_load_kin8nm, "kin8nm_iter75")
 
 
 def test_iter75_abalone():
+    """Iter75 abalone."""
     _run_iter75_test(_load_abalone, "abalone_iter75")
 
 
 def test_iter75_mammography():
+    """Iter75 mammography."""
     _run_iter75_test(_load_mammography, "mammography_iter75")
 
 
 def test_iter75_diabetes():
+    """Iter75 diabetes."""
     _run_iter75_test(_load_diabetes_classification, "diabetes_iter75")
 
 
@@ -7783,6 +8168,7 @@ def test_iter75_diabetes():
 
 
 def _features_pwkl(X_tr, X_te, y_tr, task):
+    """Helper: Features pwkl."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     pw_te = compute_pairwise_kl_features(
@@ -7805,6 +8191,7 @@ def _features_pwkl(X_tr, X_te, y_tr, task):
 
 
 def _features_pwkl_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features pwkl plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     pw_tr, pw_te = _features_pwkl(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7815,6 +8202,7 @@ def _features_pwkl_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_pwkl_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features pwkl plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     pw_tr, pw_te = _features_pwkl(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7833,6 +8221,7 @@ FEATURE_BUILDERS_ITER76: Dict[str, Callable] = {
 
 
 def _run_iter76_test(loader, name: str) -> None:
+    """Helper: Run iter76 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -7845,18 +8234,22 @@ def _run_iter76_test(loader, name: str) -> None:
 
 
 def test_iter76_kin8nm():
+    """Iter76 kin8nm."""
     _run_iter76_test(_load_kin8nm, "kin8nm_iter76")
 
 
 def test_iter76_abalone():
+    """Iter76 abalone."""
     _run_iter76_test(_load_abalone, "abalone_iter76")
 
 
 def test_iter76_mammography():
+    """Iter76 mammography."""
     _run_iter76_test(_load_mammography, "mammography_iter76")
 
 
 def test_iter76_diabetes():
+    """Iter76 diabetes."""
     _run_iter76_test(_load_diabetes_classification, "diabetes_iter76")
 
 
@@ -7864,6 +8257,7 @@ def test_iter76_diabetes():
 
 
 def _features_curv(X_tr, X_te, y_tr, task):
+    """Helper: Features curv."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     cv_te = compute_local_curvature_features(
@@ -7888,6 +8282,7 @@ def _features_curv(X_tr, X_te, y_tr, task):
 
 
 def _features_curv_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features curv plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     cv_tr, cv_te = _features_curv(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7898,6 +8293,7 @@ def _features_curv_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_curv_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features curv plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     cv_tr, cv_te = _features_curv(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7916,6 +8312,7 @@ FEATURE_BUILDERS_ITER77: Dict[str, Callable] = {
 
 
 def _run_iter77_test(loader, name: str) -> None:
+    """Helper: Run iter77 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -7928,18 +8325,22 @@ def _run_iter77_test(loader, name: str) -> None:
 
 
 def test_iter77_kin8nm():
+    """Iter77 kin8nm."""
     _run_iter77_test(_load_kin8nm, "kin8nm_iter77")
 
 
 def test_iter77_abalone():
+    """Iter77 abalone."""
     _run_iter77_test(_load_abalone, "abalone_iter77")
 
 
 def test_iter77_mammography():
+    """Iter77 mammography."""
     _run_iter77_test(_load_mammography, "mammography_iter77")
 
 
 def test_iter77_diabetes():
+    """Iter77 diabetes."""
     _run_iter77_test(_load_diabetes_classification, "diabetes_iter77")
 
 
@@ -7947,6 +8348,7 @@ def test_iter77_diabetes():
 
 
 def _features_cfact(X_tr, X_te, y_tr, task):
+    """Helper: Features cfact."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     cf_te = compute_counterfactual_substitution_features(
@@ -7971,6 +8373,7 @@ def _features_cfact(X_tr, X_te, y_tr, task):
 
 
 def _features_cfact_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features cfact plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     cf_tr, cf_te = _features_cfact(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7981,6 +8384,7 @@ def _features_cfact_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_cfact_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features cfact plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     cf_tr, cf_te = _features_cfact(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -7999,6 +8403,7 @@ FEATURE_BUILDERS_ITER78: Dict[str, Callable] = {
 
 
 def _run_iter78_test(loader, name: str) -> None:
+    """Helper: Run iter78 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8011,18 +8416,22 @@ def _run_iter78_test(loader, name: str) -> None:
 
 
 def test_iter78_kin8nm():
+    """Iter78 kin8nm."""
     _run_iter78_test(_load_kin8nm, "kin8nm_iter78")
 
 
 def test_iter78_abalone():
+    """Iter78 abalone."""
     _run_iter78_test(_load_abalone, "abalone_iter78")
 
 
 def test_iter78_mammography():
+    """Iter78 mammography."""
     _run_iter78_test(_load_mammography, "mammography_iter78")
 
 
 def test_iter78_diabetes():
+    """Iter78 diabetes."""
     _run_iter78_test(_load_diabetes_classification, "diabetes_iter78")
 
 
@@ -8030,6 +8439,7 @@ def test_iter78_diabetes():
 
 
 def _features_advflip(X_tr, X_te, y_tr, task):
+    """Helper: Features advflip."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     af_te = compute_adversarial_flip_features(
@@ -8052,6 +8462,7 @@ def _features_advflip(X_tr, X_te, y_tr, task):
 
 
 def _features_advflip_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features advflip plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     af_tr, af_te = _features_advflip(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8062,6 +8473,7 @@ def _features_advflip_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_advflip_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features advflip plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     af_tr, af_te = _features_advflip(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8080,6 +8492,7 @@ FEATURE_BUILDERS_ITER79: Dict[str, Callable] = {
 
 
 def _run_iter79_test(loader, name: str) -> None:
+    """Helper: Run iter79 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8092,18 +8505,22 @@ def _run_iter79_test(loader, name: str) -> None:
 
 
 def test_iter79_kin8nm():
+    """Iter79 kin8nm."""
     _run_iter79_test(_load_kin8nm, "kin8nm_iter79")
 
 
 def test_iter79_abalone():
+    """Iter79 abalone."""
     _run_iter79_test(_load_abalone, "abalone_iter79")
 
 
 def test_iter79_mammography():
+    """Iter79 mammography."""
     _run_iter79_test(_load_mammography, "mammography_iter79")
 
 
 def test_iter79_diabetes():
+    """Iter79 diabetes."""
     _run_iter79_test(_load_diabetes_classification, "diabetes_iter79")
 
 
@@ -8111,6 +8528,7 @@ def test_iter79_diabetes():
 
 
 def _features_graddir(X_tr, X_te, y_tr, task):
+    """Helper: Features graddir."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     gd_te = compute_gradient_direction_agreement_features(
@@ -8133,6 +8551,7 @@ def _features_graddir(X_tr, X_te, y_tr, task):
 
 
 def _features_graddir_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features graddir plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     gd_tr, gd_te = _features_graddir(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8143,6 +8562,7 @@ def _features_graddir_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_graddir_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features graddir plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     gd_tr, gd_te = _features_graddir(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8161,6 +8581,7 @@ FEATURE_BUILDERS_ITER80: Dict[str, Callable] = {
 
 
 def _run_iter80_test(loader, name: str) -> None:
+    """Helper: Run iter80 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8173,18 +8594,22 @@ def _run_iter80_test(loader, name: str) -> None:
 
 
 def test_iter80_kin8nm():
+    """Iter80 kin8nm."""
     _run_iter80_test(_load_kin8nm, "kin8nm_iter80")
 
 
 def test_iter80_abalone():
+    """Iter80 abalone."""
     _run_iter80_test(_load_abalone, "abalone_iter80")
 
 
 def test_iter80_mammography():
+    """Iter80 mammography."""
     _run_iter80_test(_load_mammography, "mammography_iter80")
 
 
 def test_iter80_diabetes():
+    """Iter80 diabetes."""
     _run_iter80_test(_load_diabetes_classification, "diabetes_iter80")
 
 
@@ -8192,6 +8617,7 @@ def test_iter80_diabetes():
 
 
 def _features_fishres(X_tr, X_te, y_tr, task):
+    """Helper: Features fishres."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     fr_te = compute_fisher_weighted_residual_features(
@@ -8216,6 +8642,7 @@ def _features_fishres(X_tr, X_te, y_tr, task):
 
 
 def _features_fishres_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features fishres plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     fr_tr, fr_te = _features_fishres(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8226,6 +8653,7 @@ def _features_fishres_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_fishres_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features fishres plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     fr_tr, fr_te = _features_fishres(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8244,6 +8672,7 @@ FEATURE_BUILDERS_ITER81: Dict[str, Callable] = {
 
 
 def _run_iter81_test(loader, name: str) -> None:
+    """Helper: Run iter81 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8256,18 +8685,22 @@ def _run_iter81_test(loader, name: str) -> None:
 
 
 def test_iter81_kin8nm():
+    """Iter81 kin8nm."""
     _run_iter81_test(_load_kin8nm, "kin8nm_iter81")
 
 
 def test_iter81_abalone():
+    """Iter81 abalone."""
     _run_iter81_test(_load_abalone, "abalone_iter81")
 
 
 def test_iter81_mammography():
+    """Iter81 mammography."""
     _run_iter81_test(_load_mammography, "mammography_iter81")
 
 
 def test_iter81_diabetes():
+    """Iter81 diabetes."""
     _run_iter81_test(_load_diabetes_classification, "diabetes_iter81")
 
 
@@ -8275,6 +8708,7 @@ def test_iter81_diabetes():
 
 
 def _features_pinfo(X_tr, X_te, y_tr, task):
+    """Helper: Features pinfo."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     pi_te = compute_predictive_info_delta_features(
@@ -8299,6 +8733,7 @@ def _features_pinfo(X_tr, X_te, y_tr, task):
 
 
 def _features_pinfo_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features pinfo plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     pi_tr, pi_te = _features_pinfo(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8309,6 +8744,7 @@ def _features_pinfo_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_pinfo_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features pinfo plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     pi_tr, pi_te = _features_pinfo(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8327,6 +8763,7 @@ FEATURE_BUILDERS_ITER82: Dict[str, Callable] = {
 
 
 def _run_iter82_test(loader, name: str) -> None:
+    """Helper: Run iter82 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8339,18 +8776,22 @@ def _run_iter82_test(loader, name: str) -> None:
 
 
 def test_iter82_kin8nm():
+    """Iter82 kin8nm."""
     _run_iter82_test(_load_kin8nm, "kin8nm_iter82")
 
 
 def test_iter82_abalone():
+    """Iter82 abalone."""
     _run_iter82_test(_load_abalone, "abalone_iter82")
 
 
 def test_iter82_mammography():
+    """Iter82 mammography."""
     _run_iter82_test(_load_mammography, "mammography_iter82")
 
 
 def test_iter82_diabetes():
+    """Iter82 diabetes."""
     _run_iter82_test(_load_diabetes_classification, "diabetes_iter82")
 
 
@@ -8358,6 +8799,7 @@ def test_iter82_diabetes():
 
 
 def _features_drd(X_tr, X_te, y_tr, task):
+    """Helper: Features drd."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     dr_te = compute_decision_region_depth_features(
@@ -8382,6 +8824,7 @@ def _features_drd(X_tr, X_te, y_tr, task):
 
 
 def _features_drd_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features drd plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     dr_tr, dr_te = _features_drd(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8392,6 +8835,7 @@ def _features_drd_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_drd_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features drd plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     dr_tr, dr_te = _features_drd(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8410,6 +8854,7 @@ FEATURE_BUILDERS_ITER83: Dict[str, Callable] = {
 
 
 def _run_iter83_test(loader, name: str) -> None:
+    """Helper: Run iter83 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8422,18 +8867,22 @@ def _run_iter83_test(loader, name: str) -> None:
 
 
 def test_iter83_kin8nm():
+    """Iter83 kin8nm."""
     _run_iter83_test(_load_kin8nm, "kin8nm_iter83")
 
 
 def test_iter83_abalone():
+    """Iter83 abalone."""
     _run_iter83_test(_load_abalone, "abalone_iter83")
 
 
 def test_iter83_mammography():
+    """Iter83 mammography."""
     _run_iter83_test(_load_mammography, "mammography_iter83")
 
 
 def test_iter83_diabetes():
+    """Iter83 diabetes."""
     _run_iter83_test(_load_diabetes_classification, "diabetes_iter83")
 
 
@@ -8441,6 +8890,7 @@ def test_iter83_diabetes():
 
 
 def _features_ibcode(X_tr, X_te, y_tr, task):
+    """Helper: Features ibcode."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     ib_te = compute_ib_baseline_codes_features(
@@ -8463,6 +8913,7 @@ def _features_ibcode(X_tr, X_te, y_tr, task):
 
 
 def _features_ibcode_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features ibcode plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     ib_tr, ib_te = _features_ibcode(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8473,6 +8924,7 @@ def _features_ibcode_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_ibcode_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features ibcode plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     ib_tr, ib_te = _features_ibcode(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8491,6 +8943,7 @@ FEATURE_BUILDERS_ITER84: Dict[str, Callable] = {
 
 
 def _run_iter84_test(loader, name: str) -> None:
+    """Helper: Run iter84 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8503,18 +8956,22 @@ def _run_iter84_test(loader, name: str) -> None:
 
 
 def test_iter84_kin8nm():
+    """Iter84 kin8nm."""
     _run_iter84_test(_load_kin8nm, "kin8nm_iter84")
 
 
 def test_iter84_abalone():
+    """Iter84 abalone."""
     _run_iter84_test(_load_abalone, "abalone_iter84")
 
 
 def test_iter84_mammography():
+    """Iter84 mammography."""
     _run_iter84_test(_load_mammography, "mammography_iter84")
 
 
 def test_iter84_diabetes():
+    """Iter84 diabetes."""
     _run_iter84_test(_load_diabetes_classification, "diabetes_iter84")
 
 
@@ -8522,6 +8979,7 @@ def test_iter84_diabetes():
 
 
 def _features_geo(X_tr, X_te, y_tr, task):
+    """Helper: Features geo."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     g_te = compute_geodesic_kgraph_features(
@@ -8544,6 +9002,7 @@ def _features_geo(X_tr, X_te, y_tr, task):
 
 
 def _features_geo_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features geo plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     g_tr, g_te = _features_geo(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8554,6 +9013,7 @@ def _features_geo_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_geo_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features geo plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     g_tr, g_te = _features_geo(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8572,6 +9032,7 @@ FEATURE_BUILDERS_ITER85: Dict[str, Callable] = {
 
 
 def _run_iter85_test(loader, name: str) -> None:
+    """Helper: Run iter85 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8584,18 +9045,22 @@ def _run_iter85_test(loader, name: str) -> None:
 
 
 def test_iter85_kin8nm():
+    """Iter85 kin8nm."""
     _run_iter85_test(_load_kin8nm, "kin8nm_iter85")
 
 
 def test_iter85_abalone():
+    """Iter85 abalone."""
     _run_iter85_test(_load_abalone, "abalone_iter85")
 
 
 def test_iter85_mammography():
+    """Iter85 mammography."""
     _run_iter85_test(_load_mammography, "mammography_iter85")
 
 
 def test_iter85_diabetes():
+    """Iter85 diabetes."""
     _run_iter85_test(_load_diabetes_classification, "diabetes_iter85")
 
 
@@ -8603,6 +9068,7 @@ def test_iter85_diabetes():
 
 
 def _features_pers(X_tr, X_te, y_tr, task):
+    """Helper: Features pers."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     p_te = compute_persistence_diagram_features(
@@ -8627,6 +9093,7 @@ def _features_pers(X_tr, X_te, y_tr, task):
 
 
 def _features_pers_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features pers plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     p_tr, p_te = _features_pers(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8637,6 +9104,7 @@ def _features_pers_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_pers_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features pers plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     p_tr, p_te = _features_pers(X_tr, X_te, y_tr, task)
     only = lambda full, n: full[:, n:]
@@ -8655,6 +9123,7 @@ FEATURE_BUILDERS_ITER86: Dict[str, Callable] = {
 
 
 def _run_iter86_test(loader, name: str) -> None:
+    """Helper: Run iter86 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8667,18 +9136,22 @@ def _run_iter86_test(loader, name: str) -> None:
 
 
 def test_iter86_kin8nm():
+    """Iter86 kin8nm."""
     _run_iter86_test(_load_kin8nm, "kin8nm_iter86")
 
 
 def test_iter86_abalone():
+    """Iter86 abalone."""
     _run_iter86_test(_load_abalone, "abalone_iter86")
 
 
 def test_iter86_mammography():
+    """Iter86 mammography."""
     _run_iter86_test(_load_mammography, "mammography_iter86")
 
 
 def test_iter86_diabetes():
+    """Iter86 diabetes."""
     _run_iter86_test(_load_diabetes_classification, "diabetes_iter86")
 
 
@@ -8686,6 +9159,7 @@ def test_iter86_diabetes():
 
 
 def _features_varbase(X_tr, X_te, y_tr, task):
+    """Helper: Features varbase."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     v_te = compute_variance_baseline_features(X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str).to_numpy()
@@ -8694,6 +9168,7 @@ def _features_varbase(X_tr, X_te, y_tr, task):
 
 
 def _features_varbase_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features varbase plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     v_tr, v_te = _features_varbase(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
@@ -8704,6 +9179,7 @@ def _features_varbase_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_varbase_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features varbase plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     v_tr, v_te = _features_varbase(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
@@ -8722,6 +9198,7 @@ FEATURE_BUILDERS_ITER87: Dict[str, Callable] = {
 
 
 def _run_iter87_test(loader, name):
+    """Helper: Run iter87 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8733,18 +9210,22 @@ def _run_iter87_test(loader, name):
 
 
 def test_iter87_kin8nm():
+    """Iter87 kin8nm."""
     _run_iter87_test(_load_kin8nm, "kin8nm_iter87")
 
 
 def test_iter87_abalone():
+    """Iter87 abalone."""
     _run_iter87_test(_load_abalone, "abalone_iter87")
 
 
 def test_iter87_mammography():
+    """Iter87 mammography."""
     _run_iter87_test(_load_mammography, "mammography_iter87")
 
 
 def test_iter87_diabetes():
+    """Iter87 diabetes."""
     _run_iter87_test(_load_diabetes_classification, "diabetes_iter87")
 
 
@@ -8752,6 +9233,7 @@ def test_iter87_diabetes():
 
 
 def _features_signres(X_tr, X_te, y_tr, task):
+    """Helper: Features signres."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     s_te = compute_sign_residual_baseline_features(X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str).to_numpy()
@@ -8760,6 +9242,7 @@ def _features_signres(X_tr, X_te, y_tr, task):
 
 
 def _features_signres_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features signres plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     s_tr, s_te = _features_signres(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
@@ -8770,6 +9253,7 @@ def _features_signres_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_signres_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features signres plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     s_tr, s_te = _features_signres(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
@@ -8788,6 +9272,7 @@ FEATURE_BUILDERS_ITER88: Dict[str, Callable] = {
 
 
 def _run_iter88_test(loader, name):
+    """Helper: Run iter88 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8799,18 +9284,22 @@ def _run_iter88_test(loader, name):
 
 
 def test_iter88_kin8nm():
+    """Iter88 kin8nm."""
     _run_iter88_test(_load_kin8nm, "kin8nm_iter88")
 
 
 def test_iter88_abalone():
+    """Iter88 abalone."""
     _run_iter88_test(_load_abalone, "abalone_iter88")
 
 
 def test_iter88_mammography():
+    """Iter88 mammography."""
     _run_iter88_test(_load_mammography, "mammography_iter88")
 
 
 def test_iter88_diabetes():
+    """Iter88 diabetes."""
     _run_iter88_test(_load_diabetes_classification, "diabetes_iter88")
 
 
@@ -8818,6 +9307,7 @@ def test_iter88_diabetes():
 
 
 def _features_qfan(X_tr, X_te, y_tr, task):
+    """Helper: Features qfan."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     q_te = compute_quantile_spread_fan_features(X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str).to_numpy()
@@ -8826,6 +9316,7 @@ def _features_qfan(X_tr, X_te, y_tr, task):
 
 
 def _features_qfan_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features qfan plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     q_tr, q_te = _features_qfan(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
@@ -8836,6 +9327,7 @@ def _features_qfan_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_qfan_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features qfan plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     q_tr, q_te = _features_qfan(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
@@ -8854,6 +9346,7 @@ FEATURE_BUILDERS_ITER89: Dict[str, Callable] = {
 
 
 def _run_iter89_test(loader, name):
+    """Helper: Run iter89 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8865,18 +9358,22 @@ def _run_iter89_test(loader, name):
 
 
 def test_iter89_kin8nm():
+    """Iter89 kin8nm."""
     _run_iter89_test(_load_kin8nm, "kin8nm_iter89")
 
 
 def test_iter89_abalone():
+    """Iter89 abalone."""
     _run_iter89_test(_load_abalone, "abalone_iter89")
 
 
 def test_iter89_mammography():
+    """Iter89 mammography."""
     _run_iter89_test(_load_mammography, "mammography_iter89")
 
 
 def test_iter89_diabetes():
+    """Iter89 diabetes."""
     _run_iter89_test(_load_diabetes_classification, "diabetes_iter89")
 
 
@@ -8884,6 +9381,7 @@ def test_iter89_diabetes():
 
 
 def _features_trust(X_tr, X_te, y_tr, task):
+    """Helper: Features trust."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     task_str = "binary" if task == "binary" else "regression"
     t_te = compute_trust_score_oof_features(X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str).to_numpy()
@@ -8892,6 +9390,7 @@ def _features_trust(X_tr, X_te, y_tr, task):
 
 
 def _features_trust_plus_rff(X_tr, X_te, y_tr, task):
+    """Helper: Features trust plus rff."""
     rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
     t_tr, t_te = _features_trust(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
@@ -8902,6 +9401,7 @@ def _features_trust_plus_rff(X_tr, X_te, y_tr, task):
 
 
 def _features_trust_plus_cdist(X_tr, X_te, y_tr, task):
+    """Helper: Features trust plus cdist."""
     cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
     t_tr, t_te = _features_trust(X_tr, X_te, y_tr, task)
     only = lambda f, n: f[:, n:]
@@ -8920,6 +9420,7 @@ FEATURE_BUILDERS_ITER90: Dict[str, Callable] = {
 
 
 def _run_iter90_test(loader, name):
+    """Helper: Run iter90 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
@@ -8931,18 +9432,22 @@ def _run_iter90_test(loader, name):
 
 
 def test_iter90_kin8nm():
+    """Iter90 kin8nm."""
     _run_iter90_test(_load_kin8nm, "kin8nm_iter90")
 
 
 def test_iter90_abalone():
+    """Iter90 abalone."""
     _run_iter90_test(_load_abalone, "abalone_iter90")
 
 
 def test_iter90_mammography():
+    """Iter90 mammography."""
     _run_iter90_test(_load_mammography, "mammography_iter90")
 
 
 def test_iter90_diabetes():
+    """Iter90 diabetes."""
     _run_iter90_test(_load_diabetes_classification, "diabetes_iter90")
 
 
@@ -8953,6 +9458,7 @@ def _make_builders(compute_fn, prefix: str):
     """Factory: produces 4 builder funcs (alone/+rff/+cdist) + FEATURE_BUILDERS dict."""
 
     def _alone(X_tr, X_te, y_tr, task):
+        """Helper: Alone."""
         splitter = KFold(n_splits=5, shuffle=True, random_state=42)
         task_str = "binary" if task == "binary" else "regression"
         te = compute_fn(X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str).to_numpy()
@@ -8960,6 +9466,7 @@ def _make_builders(compute_fn, prefix: str):
         return np.concatenate([X_tr, tr], axis=1), np.concatenate([X_te, te], axis=1)
 
     def _plus_rff(X_tr, X_te, y_tr, task):
+        """Helper: Plus rff."""
         rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
         m_tr, m_te = _alone(X_tr, X_te, y_tr, task)
         only = lambda f, n: f[:, n:]
@@ -8969,6 +9476,7 @@ def _make_builders(compute_fn, prefix: str):
         )
 
     def _plus_cdist(X_tr, X_te, y_tr, task):
+        """Helper: Plus cdist."""
         cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
         m_tr, m_te = _alone(X_tr, X_te, y_tr, task)
         only = lambda f, n: f[:, n:]
@@ -8982,7 +9490,9 @@ def _make_builders(compute_fn, prefix: str):
 
 
 def _make_runner(iter_n: int, prefix: str, builders: Dict[str, Callable]):
+    """Helper: Make runner."""
     def _run(loader, name):
+        """Helper: Run."""
         try:
             X, y, task = loader()
         except Exception as exc:
@@ -9000,18 +9510,22 @@ _RUN_91 = _make_runner(91, "ccf", _BUILDERS_91)
 
 
 def test_iter91_kin8nm():
+    """Iter91 kin8nm."""
     _RUN_91(_load_kin8nm, "kin8nm_iter91")
 
 
 def test_iter91_abalone():
+    """Iter91 abalone."""
     _RUN_91(_load_abalone, "abalone_iter91")
 
 
 def test_iter91_mammography():
+    """Iter91 mammography."""
     _RUN_91(_load_mammography, "mammography_iter91")
 
 
 def test_iter91_diabetes():
+    """Iter91 diabetes."""
     _RUN_91(_load_diabetes_classification, "diabetes_iter91")
 
 
@@ -9020,18 +9534,22 @@ _RUN_92 = _make_runner(92, "tpath", _BUILDERS_92)
 
 
 def test_iter92_kin8nm():
+    """Iter92 kin8nm."""
     _RUN_92(_load_kin8nm, "kin8nm_iter92")
 
 
 def test_iter92_abalone():
+    """Iter92 abalone."""
     _RUN_92(_load_abalone, "abalone_iter92")
 
 
 def test_iter92_mammography():
+    """Iter92 mammography."""
     _RUN_92(_load_mammography, "mammography_iter92")
 
 
 def test_iter92_diabetes():
+    """Iter92 diabetes."""
     _RUN_92(_load_diabetes_classification, "diabetes_iter92")
 
 
@@ -9040,18 +9558,22 @@ _RUN_93 = _make_runner(93, "cla", _BUILDERS_93)
 
 
 def test_iter93_kin8nm():
+    """Iter93 kin8nm."""
     _RUN_93(_load_kin8nm, "kin8nm_iter93")
 
 
 def test_iter93_abalone():
+    """Iter93 abalone."""
     _RUN_93(_load_abalone, "abalone_iter93")
 
 
 def test_iter93_mammography():
+    """Iter93 mammography."""
     _RUN_93(_load_mammography, "mammography_iter93")
 
 
 def test_iter93_diabetes():
+    """Iter93 diabetes."""
     _RUN_93(_load_diabetes_classification, "diabetes_iter93")
 
 
@@ -9060,18 +9582,22 @@ _RUN_94 = _make_runner(94, "distmom", _BUILDERS_94)
 
 
 def test_iter94_kin8nm():
+    """Iter94 kin8nm."""
     _RUN_94(_load_kin8nm, "kin8nm_iter94")
 
 
 def test_iter94_abalone():
+    """Iter94 abalone."""
     _RUN_94(_load_abalone, "abalone_iter94")
 
 
 def test_iter94_mammography():
+    """Iter94 mammography."""
     _RUN_94(_load_mammography, "mammography_iter94")
 
 
 def test_iter94_diabetes():
+    """Iter94 diabetes."""
     _RUN_94(_load_diabetes_classification, "diabetes_iter94")
 
 
@@ -9080,18 +9606,22 @@ _RUN_95 = _make_runner(95, "xfeat", _BUILDERS_95)
 
 
 def test_iter95_kin8nm():
+    """Iter95 kin8nm."""
     _RUN_95(_load_kin8nm, "kin8nm_iter95")
 
 
 def test_iter95_abalone():
+    """Iter95 abalone."""
     _RUN_95(_load_abalone, "abalone_iter95")
 
 
 def test_iter95_mammography():
+    """Iter95 mammography."""
     _RUN_95(_load_mammography, "mammography_iter95")
 
 
 def test_iter95_diabetes():
+    """Iter95 diabetes."""
     _RUN_95(_load_diabetes_classification, "diabetes_iter95")
 
 
@@ -9100,18 +9630,22 @@ _RUN_96 = _make_runner(96, "multthr", _BUILDERS_96)
 
 
 def test_iter96_kin8nm():
+    """Iter96 kin8nm."""
     _RUN_96(_load_kin8nm, "kin8nm_iter96")
 
 
 def test_iter96_abalone():
+    """Iter96 abalone."""
     _RUN_96(_load_abalone, "abalone_iter96")
 
 
 def test_iter96_mammography():
+    """Iter96 mammography."""
     _RUN_96(_load_mammography, "mammography_iter96")
 
 
 def test_iter96_diabetes():
+    """Iter96 diabetes."""
     _RUN_96(_load_diabetes_classification, "diabetes_iter96")
 
 
@@ -9120,18 +9654,22 @@ _RUN_97 = _make_runner(97, "mdlbin", _BUILDERS_97)
 
 
 def test_iter97_kin8nm():
+    """Iter97 kin8nm."""
     _RUN_97(_load_kin8nm, "kin8nm_iter97")
 
 
 def test_iter97_abalone():
+    """Iter97 abalone."""
     _RUN_97(_load_abalone, "abalone_iter97")
 
 
 def test_iter97_mammography():
+    """Iter97 mammography."""
     _RUN_97(_load_mammography, "mammography_iter97")
 
 
 def test_iter97_diabetes():
+    """Iter97 diabetes."""
     _RUN_97(_load_diabetes_classification, "diabetes_iter97")
 
 
@@ -9140,18 +9678,22 @@ _RUN_98 = _make_runner(98, "apri", _BUILDERS_98)
 
 
 def test_iter98_kin8nm():
+    """Iter98 kin8nm."""
     _RUN_98(_load_kin8nm, "kin8nm_iter98")
 
 
 def test_iter98_abalone():
+    """Iter98 abalone."""
     _RUN_98(_load_abalone, "abalone_iter98")
 
 
 def test_iter98_mammography():
+    """Iter98 mammography."""
     _RUN_98(_load_mammography, "mammography_iter98")
 
 
 def test_iter98_diabetes():
+    """Iter98 diabetes."""
     _RUN_98(_load_diabetes_classification, "diabetes_iter98")
 
 
@@ -9160,18 +9702,22 @@ _RUN_99 = _make_runner(99, "tkmc", _BUILDERS_99)
 
 
 def test_iter99_kin8nm():
+    """Iter99 kin8nm."""
     _RUN_99(_load_kin8nm, "kin8nm_iter99")
 
 
 def test_iter99_abalone():
+    """Iter99 abalone."""
     _RUN_99(_load_abalone, "abalone_iter99")
 
 
 def test_iter99_mammography():
+    """Iter99 mammography."""
     _RUN_99(_load_mammography, "mammography_iter99")
 
 
 def test_iter99_diabetes():
+    """Iter99 diabetes."""
     _RUN_99(_load_diabetes_classification, "diabetes_iter99")
 
 
@@ -9180,18 +9726,22 @@ _RUN_100 = _make_runner(100, "fca", _BUILDERS_100)
 
 
 def test_iter100_kin8nm():
+    """Iter100 kin8nm."""
     _RUN_100(_load_kin8nm, "kin8nm_iter100")
 
 
 def test_iter100_abalone():
+    """Iter100 abalone."""
     _RUN_100(_load_abalone, "abalone_iter100")
 
 
 def test_iter100_mammography():
+    """Iter100 mammography."""
     _RUN_100(_load_mammography, "mammography_iter100")
 
 
 def test_iter100_diabetes():
+    """Iter100 diabetes."""
     _RUN_100(_load_diabetes_classification, "diabetes_iter100")
 
 
@@ -9200,18 +9750,22 @@ _RUN_101 = _make_runner(101, "jkep", _BUILDERS_101)
 
 
 def test_iter101_kin8nm():
+    """Iter101 kin8nm."""
     _RUN_101(_load_kin8nm, "kin8nm_iter101")
 
 
 def test_iter101_abalone():
+    """Iter101 abalone."""
     _RUN_101(_load_abalone, "abalone_iter101")
 
 
 def test_iter101_mammography():
+    """Iter101 mammography."""
     _RUN_101(_load_mammography, "mammography_iter101")
 
 
 def test_iter101_diabetes():
+    """Iter101 diabetes."""
     _RUN_101(_load_diabetes_classification, "diabetes_iter101")
 
 

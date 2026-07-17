@@ -22,7 +22,9 @@ import pytest
 
 
 class TestNumericalStableKernels:
+    """Groups tests for: TestNumericalStableKernels."""
     def test_welford_mean_var_seq_basic(self):
+        """Welford mean var seq basic."""
         from mlframe.feature_engineering._numerical_stable import welford_mean_var_seq
 
         rng = np.random.default_rng(0)
@@ -33,6 +35,7 @@ class TestNumericalStableKernels:
         np.testing.assert_allclose(var, float(arr.var()), rtol=1e-10)
 
     def test_welford_mean_var_seq_with_nans(self):
+        """Welford mean var seq with nans."""
         from mlframe.feature_engineering._numerical_stable import welford_mean_var_seq
 
         arr = np.array([1.0, np.nan, 2.0, np.inf, 3.0], dtype=np.float64)
@@ -42,12 +45,14 @@ class TestNumericalStableKernels:
         np.testing.assert_allclose(mean, 2.0, atol=1e-12)
 
     def test_welford_mean_var_seq_empty(self):
+        """Welford mean var seq empty."""
         from mlframe.feature_engineering._numerical_stable import welford_mean_var_seq
 
         mean, var, n = welford_mean_var_seq(np.empty(0, dtype=np.float64))
         assert n == 0 and mean == 0.0 and var == 0.0
 
     def test_welford_moments_seq_basic(self):
+        """Welford moments seq basic."""
         from mlframe.feature_engineering._numerical_stable import welford_moments_seq
 
         rng = np.random.default_rng(1)
@@ -58,18 +63,21 @@ class TestNumericalStableKernels:
         assert abs(skew) < 0.3 and abs(kurt) < 0.5  # near-Gaussian
 
     def test_welford_moments_seq_short(self):
+        """Welford moments seq short."""
         from mlframe.feature_engineering._numerical_stable import welford_moments_seq
 
         _mean, var, skew, kurt, n = welford_moments_seq(np.array([1.0], dtype=np.float64))
         assert n == 1 and var == 0.0 and skew == 0.0 and kurt == 0.0
 
     def test_welford_moments_seq_zero_var(self):
+        """Welford moments seq zero var."""
         from mlframe.feature_engineering._numerical_stable import welford_moments_seq
 
         mean, _var, skew, kurt, _n = welford_moments_seq(np.full(50, 7.0, dtype=np.float64))
         assert mean == 7.0 and skew == 0.0 and kurt == 0.0
 
     def test_kahan_sum_seq(self):
+        """Kahan sum seq."""
         from mlframe.feature_engineering._numerical_stable import kahan_sum_seq
 
         arr = np.array([1.0, np.nan, 2.0, np.inf, 3.0], dtype=np.float64)
@@ -77,6 +85,7 @@ class TestNumericalStableKernels:
         np.testing.assert_allclose(s, 6.0, atol=1e-12)
 
     def test_kahan_dot_seq_basic(self):
+        """Kahan dot seq basic."""
         from mlframe.feature_engineering._numerical_stable import kahan_dot_seq
 
         a = np.array([1.0, 2.0, 3.0], dtype=np.float64)
@@ -85,6 +94,7 @@ class TestNumericalStableKernels:
         np.testing.assert_allclose(s, 32.0, atol=1e-12)
 
     def test_kahan_dot_seq_skips_non_finite(self):
+        """Kahan dot seq skips non finite."""
         from mlframe.feature_engineering._numerical_stable import kahan_dot_seq
 
         a = np.array([1.0, np.nan, 3.0], dtype=np.float64)
@@ -93,6 +103,7 @@ class TestNumericalStableKernels:
         np.testing.assert_allclose(s, 22.0, atol=1e-12)  # skip middle (NaN product)
 
     def test_kahan_dot_seq_length_mismatch(self):
+        """Kahan dot seq length mismatch."""
         from mlframe.feature_engineering._numerical_stable import kahan_dot_seq
 
         a = np.array([1.0, 2.0, 3.0], dtype=np.float64)
@@ -101,6 +112,7 @@ class TestNumericalStableKernels:
             kahan_dot_seq(a, b)
 
     def test_naive_mean_var_two_pass_seq(self):
+        """Naive mean var two pass seq."""
         from mlframe.feature_engineering._numerical_stable import naive_mean_var_two_pass_seq
 
         rng = np.random.default_rng(2)
@@ -111,12 +123,14 @@ class TestNumericalStableKernels:
         assert n == 200
 
     def test_naive_mean_var_two_pass_seq_empty(self):
+        """Naive mean var two pass seq empty."""
         from mlframe.feature_engineering._numerical_stable import naive_mean_var_two_pass_seq
 
         _mean, _var, n = naive_mean_var_two_pass_seq(np.empty(0, dtype=np.float64))
         assert n == 0
 
     def test_kahan_two_pass_var_seq(self):
+        """Kahan two pass var seq."""
         from mlframe.feature_engineering._numerical_stable import kahan_two_pass_var_seq
 
         rng = np.random.default_rng(3)
@@ -127,12 +141,14 @@ class TestNumericalStableKernels:
         assert n == 500
 
     def test_kahan_two_pass_var_seq_empty(self):
+        """Kahan two pass var seq empty."""
         from mlframe.feature_engineering._numerical_stable import kahan_two_pass_var_seq
 
         _mean, _var, n = kahan_two_pass_var_seq(np.empty(0, dtype=np.float64))
         assert n == 0
 
     def test_naive_moments_two_pass_seq(self):
+        """Naive moments two pass seq."""
         from mlframe.feature_engineering._numerical_stable import naive_moments_two_pass_seq
 
         rng = np.random.default_rng(4)
@@ -142,12 +158,14 @@ class TestNumericalStableKernels:
         np.testing.assert_allclose(mean, float(arr.mean()), rtol=1e-10)
 
     def test_naive_moments_two_pass_seq_short(self):
+        """Naive moments two pass seq short."""
         from mlframe.feature_engineering._numerical_stable import naive_moments_two_pass_seq
 
         _mean, var, _skew, _kurt, n = naive_moments_two_pass_seq(np.array([3.0], dtype=np.float64))
         assert n == 1 and var == 0.0
 
     def test_naive_moments_two_pass_seq_zero_var(self):
+        """Naive moments two pass seq zero var."""
         from mlframe.feature_engineering._numerical_stable import naive_moments_two_pass_seq
 
         mean, _var, skew, kurt, n = naive_moments_two_pass_seq(np.full(20, 4.2, dtype=np.float64))
@@ -165,7 +183,9 @@ class TestNumericalStableKernels:
 
 
 class TestMpsCoverage:
+    """Groups tests for: TestMpsCoverage."""
     def test_compute_area_profits_all_flat(self):
+        """Compute area profits all flat."""
         from mlframe.feature_engineering.mps import compute_area_profits
 
         prices = np.array([100.0, 101.0, 102.0, 103.0], dtype=np.float64)
@@ -174,6 +194,7 @@ class TestMpsCoverage:
         assert (out == 0.0).all()
 
     def test_compute_area_profits_run_extends_to_end(self):
+        """Compute area profits run extends to end."""
         from mlframe.feature_engineering.mps import compute_area_profits
 
         prices = np.array([100.0, 101.0, 102.0, 103.0], dtype=np.float64)
@@ -183,6 +204,7 @@ class TestMpsCoverage:
         assert (out == 0.0).all()
 
     def test_compute_area_profits_zero_price_guarded(self):
+        """Compute area profits zero price guarded."""
         from mlframe.feature_engineering.mps import compute_area_profits
 
         prices = np.array([100.0, 0.0, 102.0, 103.0], dtype=np.float64)
@@ -192,6 +214,7 @@ class TestMpsCoverage:
         assert np.isfinite(out).all()
 
     def test_find_best_mps_sequence_short_input(self):
+        """Find best mps sequence short input."""
         from mlframe.feature_engineering.mps import find_best_mps_sequence
 
         prices = np.array([100.0], dtype=np.float64)
@@ -199,6 +222,7 @@ class TestMpsCoverage:
         assert positions.size == 0 and profits.size == 0
 
     def test_find_best_mps_sequence_with_shift(self):
+        """Find best mps sequence with shift."""
         from mlframe.feature_engineering.mps import find_best_mps_sequence
 
         prices = np.linspace(100, 110, 20)
@@ -206,6 +230,7 @@ class TestMpsCoverage:
         assert positions.size == 19  # n-1
 
     def test_find_best_mps_sequence_fixed_tc_mode(self):
+        """Find best mps sequence fixed tc mode."""
         from mlframe.feature_engineering.mps import find_best_mps_sequence
 
         prices = np.linspace(100, 110, 30)
@@ -213,6 +238,7 @@ class TestMpsCoverage:
         assert positions.size == 29
 
     def test_find_best_mps_sequence_no_optimize_regions(self):
+        """Find best mps sequence no optimize regions."""
         from mlframe.feature_engineering.mps import find_best_mps_sequence
 
         prices = np.linspace(100, 110, 20)
@@ -226,6 +252,7 @@ class TestMpsCoverage:
         assert positions.size == 19
 
     def test_backfill_zeros_right(self):
+        """Backfill zeros right."""
         from mlframe.feature_engineering.mps import backfill_zeros
 
         arr = np.array([0, 0, 1, 0, 0, -1, 0, 0], dtype=np.int8)
@@ -233,6 +260,7 @@ class TestMpsCoverage:
         assert list(out) == [1, 1, 1, -1, -1, -1, 0, 0]
 
     def test_backfill_zeros_left(self):
+        """Backfill zeros left."""
         from mlframe.feature_engineering.mps import backfill_zeros
 
         arr = np.array([0, 0, 1, 0, 0, -1, 0, 0], dtype=np.int8)
@@ -240,12 +268,14 @@ class TestMpsCoverage:
         assert list(out) == [0, 0, 1, 1, 1, -1, -1, -1]
 
     def test_find_maximum_profit_system_bad_tc_mode(self):
+        """Find maximum profit system bad tc mode."""
         from mlframe.feature_engineering.mps import find_maximum_profit_system
 
         with pytest.raises(ValueError):
             find_maximum_profit_system(np.array([100.0, 101.0]), tc_mode="weird")
 
     def test_find_maximum_profit_system_fixed_mode(self):
+        """Find maximum profit system fixed mode."""
         from mlframe.feature_engineering.mps import find_maximum_profit_system
 
         prices = np.linspace(100, 110, 50)
@@ -253,6 +283,7 @@ class TestMpsCoverage:
         assert "positions" in r and "profits" in r
 
     def test_find_maximum_profit_system_with_raw_prices(self):
+        """Find maximum profit system with raw prices."""
         from mlframe.feature_engineering.mps import find_maximum_profit_system
 
         prices = np.linspace(100, 110, 30)
@@ -261,18 +292,21 @@ class TestMpsCoverage:
         assert r["positions"].size == 29
 
     def test_generate_market_price(self):
+        """Generate market price."""
         from mlframe.feature_engineering.mps import generate_market_price
 
         dates, prices, volumes = generate_market_price(n_days=50, random_seed=0)
         assert len(dates) == 50 and prices.shape == (50,) and volumes.shape == (50,)
 
     def test_safely_compute_mps_missing_file(self):
+        """Safely compute mps missing file."""
         from mlframe.feature_engineering.mps import safely_compute_mps
 
         res = safely_compute_mps("/non/existent/path.parquet")
         assert res is None
 
     def test_safely_compute_mps_caught_exception(self, tmp_path):
+        """Safely compute mps caught exception."""
         from mlframe.feature_engineering.mps import safely_compute_mps
 
         bad = tmp_path / "bad.parquet"
@@ -281,6 +315,7 @@ class TestMpsCoverage:
         assert res is None
 
     def test_compute_mps_targets_from_df(self):
+        """Compute mps targets from df."""
         from mlframe.feature_engineering.mps import compute_mps_targets
 
         rng = np.random.default_rng(0)
@@ -320,6 +355,7 @@ class TestMpsCoverage:
         assert up["OPTIMAL_PROFIT"].sum() > 0.0, "long-on-uptrend must yield positive profit"
 
     def test_compute_mps_targets_ewm_path(self):
+        """Compute mps targets ewm path."""
         from mlframe.feature_engineering.mps import compute_mps_targets
 
         rng = np.random.default_rng(1)
@@ -336,6 +372,7 @@ class TestMpsCoverage:
         assert set(res["OPTIMAL_POSITION"].unique().to_list()) <= {-1, 0, 1}
 
     def test_show_mps_regions_no_chart(self):
+        """Show mps regions no chart."""
         from mlframe.feature_engineering.mps import show_mps_regions
 
         # Strict uptrend: every bar should be held long, so positions are all +1.
@@ -346,6 +383,7 @@ class TestMpsCoverage:
         assert (positions == 1).all(), f"uptrend MPS positions should be all long; got {set(positions.tolist())}"
 
     def test_plot_positions_matplotlib(self):
+        """Plot positions matplotlib."""
         from mlframe.feature_engineering.mps import plot_positions
         import matplotlib
 
@@ -373,7 +411,9 @@ class TestMpsCoverage:
 
 
 class TestHurstCoverage:
+    """Groups tests for: TestHurstCoverage."""
     def test_precompute_hurst_short_returns_empty(self):
+        """Precompute hurst short returns empty."""
         from mlframe.feature_engineering.hurst import precompute_hurst_exponent
 
         sizes, rs = precompute_hurst_exponent(np.array([1.0, 2.0]), min_window=5)
@@ -381,24 +421,28 @@ class TestHurstCoverage:
         assert len(sizes) == 0 and len(rs) == 0
 
     def test_precompute_hurst_max_window_le_min(self):
+        """Precompute hurst max window le min."""
         from mlframe.feature_engineering.hurst import precompute_hurst_exponent
 
         sizes, rs = precompute_hurst_exponent(np.random.default_rng(0).standard_normal(50), min_window=10, max_window=5)
         assert len(sizes) == 0 and len(rs) == 0
 
     def test_compute_hurst_rs_short_returns_nan(self):
+        """Compute hurst rs short returns nan."""
         from mlframe.feature_engineering.hurst import compute_hurst_rs
 
         rs = compute_hurst_rs(np.array([5.0]))
         assert np.isnan(rs)
 
     def test_compute_hurst_rs_constant_returns_nan(self):
+        """Compute hurst rs constant returns nan."""
         from mlframe.feature_engineering.hurst import compute_hurst_rs
 
         rs = compute_hurst_rs(np.ones(50, dtype=np.float64))
         assert np.isnan(rs)
 
     def test_compute_hurst_rs_real_window(self):
+        """Compute hurst rs real window."""
         from mlframe.feature_engineering.hurst import compute_hurst_rs
 
         rng = np.random.default_rng(0)
@@ -406,6 +450,7 @@ class TestHurstCoverage:
         assert np.isfinite(rs) and rs > 0
 
     def test_compute_hurst_exponent_take_diffs(self):
+        """Compute hurst exponent take diffs."""
         from mlframe.feature_engineering.hurst import compute_hurst_exponent
 
         rng = np.random.default_rng(0)
@@ -420,7 +465,9 @@ class TestHurstCoverage:
 
 
 class TestBasicCoverage:
+    """Groups tests for: TestBasicCoverage."""
     def test_create_date_features_empty_cols(self):
+        """Create date features empty cols."""
         from mlframe.feature_engineering.basic import create_date_features
 
         df = pd.DataFrame({"x": [1, 2, 3]})
@@ -428,6 +475,7 @@ class TestBasicCoverage:
         assert out is df
 
     def test_create_date_features_pandas(self):
+        """Create date features pandas."""
         from mlframe.feature_engineering.basic import create_date_features
 
         df = pd.DataFrame({"ts": pd.to_datetime(["2024-01-01", "2024-02-15", "2024-03-20"])})
@@ -435,6 +483,7 @@ class TestBasicCoverage:
         assert "ts_day" in out.columns and "ts_weekday" in out.columns
 
     def test_create_date_features_polars(self):
+        """Create date features polars."""
         from mlframe.feature_engineering.basic import create_date_features
 
         df = pl.DataFrame({"ts": [datetime(2024, 1, 1), datetime(2024, 2, 15)]})
@@ -442,12 +491,14 @@ class TestBasicCoverage:
         assert "ts" not in out.columns and "ts_day" in out.columns
 
     def test_create_date_features_unsupported_backend(self):
+        """Create date features unsupported backend."""
         from mlframe.feature_engineering.basic import create_date_features
 
         with pytest.raises(ValueError):
             create_date_features({"foo": "bar"}, cols=["ts"])
 
     def test_create_date_features_unknown_method_pandas(self):
+        """Create date features unknown method pandas."""
         from mlframe.feature_engineering.basic import create_date_features
 
         df = pd.DataFrame({"ts": pd.to_datetime(["2024-01-01"])})
@@ -455,6 +506,7 @@ class TestBasicCoverage:
             create_date_features(df, cols=["ts"], methods={"nonexistent_method": np.int8})
 
     def test_create_date_features_unsupported_dtype_polars(self):
+        """Create date features unsupported dtype polars."""
         from mlframe.feature_engineering.basic import create_date_features
 
         df = pl.DataFrame({"ts": [datetime(2024, 1, 1)]})
@@ -462,6 +514,7 @@ class TestBasicCoverage:
             create_date_features(df, cols=["ts"], methods={"day": np.float32})
 
     def test_create_date_features_clash_warning(self, caplog):
+        """Create date features clash warning."""
         from mlframe.feature_engineering.basic import create_date_features
         import logging
 
@@ -482,7 +535,9 @@ class TestBasicCoverage:
 
 
 class TestNumericalCoverage:
+    """Groups tests for: TestNumericalCoverage."""
     def test_compute_numaggs_short_input_returns_nans(self):
+        """Compute numaggs short input returns nans."""
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 
         # Single element -> all NaN sentinels of correct length.
@@ -492,6 +547,7 @@ class TestNumericalCoverage:
         assert all(np.isnan(v) for v in res)
 
     def test_compute_numaggs_with_weights(self):
+        """Compute numaggs with weights."""
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 
         rng = np.random.default_rng(0)
@@ -502,6 +558,7 @@ class TestNumericalCoverage:
         assert len(res) == len(names)
 
     def test_compute_numaggs_directional_only(self):
+        """Compute numaggs directional only."""
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 
         arr = np.linspace(1, 100, 100)
@@ -510,6 +567,7 @@ class TestNumericalCoverage:
         assert len(res) == len(names)
 
     def test_compute_numaggs_with_drawdown_stats(self):
+        """Compute numaggs with drawdown stats."""
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 
         rng = np.random.default_rng(0)
@@ -519,6 +577,7 @@ class TestNumericalCoverage:
         assert len(res) == len(names)
 
     def test_compute_numaggs_with_profit_factor(self):
+        """Compute numaggs with profit factor."""
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 
         rng = np.random.default_rng(0)
@@ -528,6 +587,7 @@ class TestNumericalCoverage:
         assert len(res) == len(names)
 
     def test_compute_numaggs_with_distributional(self):
+        """Compute numaggs with distributional."""
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 
         rng = np.random.default_rng(0)
@@ -537,6 +597,7 @@ class TestNumericalCoverage:
         assert len(res) == len(names)
 
     def test_compute_numaggs_with_lintrend_approx(self):
+        """Compute numaggs with lintrend approx."""
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 
         rng = np.random.default_rng(0)
@@ -546,6 +607,7 @@ class TestNumericalCoverage:
         assert len(res) == len(names)
 
     def test_compute_numaggs_geomean_log_mode(self):
+        """Compute numaggs geomean log mode."""
         from mlframe.feature_engineering.numerical import compute_numaggs
 
         arr = np.abs(np.random.default_rng(0).standard_normal(50)) + 0.1
@@ -553,6 +615,7 @@ class TestNumericalCoverage:
         assert len(res) > 0
 
     def test_compute_numaggs_float32_return(self):
+        """Compute numaggs float32 return."""
         from mlframe.feature_engineering.numerical import compute_numaggs
 
         arr = np.random.default_rng(0).standard_normal(50)
@@ -560,6 +623,7 @@ class TestNumericalCoverage:
         assert isinstance(res, np.ndarray) and res.dtype == np.float32
 
     def test_compute_numaggs_no_entropy_no_hurst(self):
+        """Compute numaggs no entropy no hurst."""
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 
         arr = np.random.default_rng(0).standard_normal(50)
@@ -568,6 +632,7 @@ class TestNumericalCoverage:
         assert len(res) == len(names)
 
     def test_compute_numaggs_with_xvals(self):
+        """Compute numaggs with xvals."""
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 
         arr = np.linspace(0, 10, 30)
@@ -578,12 +643,14 @@ class TestNumericalCoverage:
         assert len(res) == len(names)
 
     def test_compute_numerical_aggregates_numba_empty(self):
+        """Compute numerical aggregates numba empty."""
         from mlframe.feature_engineering.numerical import compute_numerical_aggregates_numba
 
         res = compute_numerical_aggregates_numba(np.empty(0, dtype=np.float64))
         assert isinstance(res, list) and len(res) > 0
 
     def test_compute_numerical_aggregates_numba_with_weights(self):
+        """Compute numerical aggregates numba with weights."""
         from mlframe.feature_engineering.numerical import compute_numerical_aggregates_numba
 
         arr = np.linspace(1, 10, 20)
@@ -592,6 +659,7 @@ class TestNumericalCoverage:
         assert len(res) > 0
 
     def test_compute_numerical_aggregates_numba_drawdown(self):
+        """Compute numerical aggregates numba drawdown."""
         from mlframe.feature_engineering.numerical import compute_numerical_aggregates_numba
 
         rng = np.random.default_rng(0)
@@ -600,6 +668,7 @@ class TestNumericalCoverage:
         assert len(res) > 0
 
     def test_compute_nunique_modes_quantiles_numpy(self):
+        """Compute nunique modes quantiles numpy."""
         from mlframe.feature_engineering.numerical import compute_nunique_modes_quantiles_numpy
 
         arr = np.array([1.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.0])
@@ -607,6 +676,7 @@ class TestNumericalCoverage:
         assert len(res) > 0
 
     def test_compute_ncrossings(self):
+        """Compute ncrossings."""
         from mlframe.feature_engineering.numerical import compute_ncrossings
 
         arr = np.array([1.0, 2.0, 1.5, 2.5, 1.8, 3.0])
@@ -615,6 +685,7 @@ class TestNumericalCoverage:
         assert out.shape == (1,)
 
     def test_numaggs_over_matrix_rows_basic(self):
+        """Numaggs over matrix rows basic."""
         from mlframe.feature_engineering.numerical import numaggs_over_matrix_rows
 
         rng = np.random.default_rng(0)
@@ -623,6 +694,7 @@ class TestNumericalCoverage:
         assert out.shape[0] == 5
 
     def test_numaggs_over_matrix_rows_with_rolling(self):
+        """Numaggs over matrix rows with rolling."""
         from mlframe.feature_engineering.numerical import numaggs_over_matrix_rows
 
         rng = np.random.default_rng(0)
@@ -631,6 +703,7 @@ class TestNumericalCoverage:
         assert out.shape[0] == 3
 
     def test_compute_numaggs_parallel_validates_inputs(self):
+        """Compute numaggs parallel validates inputs."""
         from mlframe.feature_engineering.numerical import compute_numaggs_parallel
 
         with pytest.raises(ValueError):
@@ -643,7 +716,9 @@ class TestNumericalCoverage:
 
 
 class TestTimeseriesCoverage:
+    """Groups tests for: TestTimeseriesCoverage."""
     def test_find_next_cumsum_left_index_basic(self):
+        """Find next cumsum left index basic."""
         from mlframe.feature_engineering.timeseries import find_next_cumsum_left_index
 
         arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
@@ -651,6 +726,7 @@ class TestTimeseriesCoverage:
         assert left >= 0 and total >= 6.0
 
     def test_find_next_cumsum_right_index_basic(self):
+        """Find next cumsum right index basic."""
         from mlframe.feature_engineering.timeseries import find_next_cumsum_right_index
 
         arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
@@ -658,6 +734,7 @@ class TestTimeseriesCoverage:
         assert right > 0 and total >= 6.0
 
     def test_find_next_cumsum_left_index_use_abs(self):
+        """Find next cumsum left index use abs."""
         from mlframe.feature_engineering.timeseries import find_next_cumsum_left_index
 
         arr = np.array([1.0, -2.0, 3.0, -4.0, 5.0], dtype=np.float64)
@@ -665,18 +742,21 @@ class TestTimeseriesCoverage:
         assert left >= 0
 
     def test_get_nwindows_expected(self):
+        """Get nwindows expected."""
         from mlframe.feature_engineering.timeseries import get_nwindows_expected
 
         n = get_nwindows_expected({"a": [1, 2, 3], "b": [10]})
         assert n == 4
 
     def test_get_ts_window_name(self):
+        """Get ts window name."""
         from mlframe.feature_engineering.timeseries import get_ts_window_name
 
         assert get_ts_window_name("", 5, "D") == "5D"
         assert "vol" in get_ts_window_name("vol", 1000)
 
     def test_create_aggregated_features_with_weighting(self):
+        """Create aggregated features with weighting."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
         df = pd.DataFrame(
@@ -697,6 +777,7 @@ class TestTimeseriesCoverage:
         assert len(feats) > 0 and len(names) == len(feats)
 
     def test_create_aggregated_features_with_ewma(self):
+        """Create aggregated features with ewma."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
         df = pd.DataFrame({"price": np.arange(30, dtype=float)})
@@ -712,6 +793,7 @@ class TestTimeseriesCoverage:
         assert len(feats) > 0
 
     def test_create_aggregated_features_with_nonlinear(self):
+        """Create aggregated features with nonlinear."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
         df = pd.DataFrame({"price": np.arange(1, 21, dtype=float)})
@@ -729,6 +811,7 @@ class TestTimeseriesCoverage:
         assert any("cbrt" in n for n in names)
 
     def test_create_aggregated_features_with_groupby(self):
+        """Create aggregated features with groupby."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
         df = pd.DataFrame(
@@ -749,6 +832,7 @@ class TestTimeseriesCoverage:
         assert any("grpby" in n for n in names)
 
     def test_create_aggregated_features_with_rolling(self):
+        """Create aggregated features with rolling."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
         df = pd.DataFrame({"price": np.arange(30, dtype=float)})
@@ -765,6 +849,7 @@ class TestTimeseriesCoverage:
         assert any("rol" in n for n in names)
 
     def test_create_aggregated_features_with_splitting_vars(self):
+        """Create aggregated features with splitting vars."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
         df = pd.DataFrame(
@@ -785,6 +870,7 @@ class TestTimeseriesCoverage:
         assert any("split" in n for n in names)
 
     def test_create_aggregated_features_with_counts_processing(self):
+        """Create aggregated features with counts processing."""
         import re
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
@@ -801,6 +887,7 @@ class TestTimeseriesCoverage:
         assert any("vlscnt" in n for n in names)
 
     def test_create_aggregated_features_with_subsets(self):
+        """Create aggregated features with subsets."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
         df = pd.DataFrame(
@@ -821,6 +908,7 @@ class TestTimeseriesCoverage:
         assert any("side=BUY" in n for n in names)
 
     def test_create_aggregated_features_with_wavelets(self):
+        """Create aggregated features with wavelets."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
         df = pd.DataFrame({"price": np.arange(64, dtype=float)})
@@ -836,6 +924,7 @@ class TestTimeseriesCoverage:
         assert any("haar" in n for n in names)
 
     def test_compute_corr_with_corrcoef(self):
+        """Compute corr with corrcoef."""
         from mlframe.feature_engineering.timeseries import compute_corr
 
         rng = np.random.default_rng(0)
@@ -845,6 +934,7 @@ class TestTimeseriesCoverage:
         assert 0 <= c <= 1
 
     def test_general_acf_no_windows(self):
+        """General acf no windows."""
         from mlframe.feature_engineering.timeseries import general_acf
 
         rng = np.random.default_rng(0)
@@ -853,6 +943,7 @@ class TestTimeseriesCoverage:
         assert "fixed_offsets" in res
 
     def test_compute_splitting_stats_with_datetime(self):
+        """Compute splitting stats with datetime."""
         from mlframe.feature_engineering.timeseries import compute_splitting_stats
 
         df = pd.DataFrame(
@@ -983,6 +1074,7 @@ class TestTimeseriesHeavyCombos:
         # Module-level-safe apply_fcn (no closure over df): emit exactly 3 features.
         # On the first call (create_features_names=True), populate features_names once.
         def apply_fcn(df, row_features, targets, features_names, dataset_name):
+            """Apply fcn."""
             row_features.extend([float(df["price"].mean()), float(df["price"].std()), float(df["price"].iloc[-1])])
             if not features_names:
                 features_names.extend([f"{dataset_name}-mean", f"{dataset_name}-std", f"{dataset_name}-last"])
@@ -1011,6 +1103,7 @@ class TestTimeseriesHeavyCombos:
         calls = []
 
         def apply_fcn(df, row_features, targets, features_names, dataset_name):
+            """Apply fcn."""
             calls.append((dataset_name, len(df)))
             row_features.extend([float(df["x"].sum()), float(df["x"].mean())])
 
@@ -1089,6 +1182,7 @@ class TestMpsPlotAndIo:
     matplotlib-Agg backend (set in conftest) and a tempfile parquet roundtrip."""
 
     def test_plot_positions_matplotlib_with_raw_prices_and_profits(self):
+        """Plot positions matplotlib with raw prices and profits."""
         from mlframe.feature_engineering.mps import plot_positions
 
         prices = np.linspace(100, 110, 50).tolist()
@@ -1106,6 +1200,7 @@ class TestMpsPlotAndIo:
         assert fig is not None
 
     def test_plot_positions_plotly_with_hover_and_raw(self):
+        """Plot positions plotly with hover and raw."""
         from mlframe.feature_engineering.mps import plot_positions
 
         prices = np.linspace(100, 110, 30).tolist()
@@ -1124,6 +1219,7 @@ class TestMpsPlotAndIo:
         assert hasattr(fig, "add_trace")
 
     def test_show_mps_regions_with_explicit_positions_no_chart(self):
+        """Show mps regions with explicit positions no chart."""
         from mlframe.feature_engineering.mps import show_mps_regions
 
         prices = np.linspace(100, 110, 30)
@@ -1138,6 +1234,7 @@ class TestMpsPlotAndIo:
 
     def test_show_mps_regions_with_chart_matplotlib_path(self):
         # Force fig.show() through matplotlib-Agg backend so plot path is fully exercised.
+        """Show mps regions with chart matplotlib path."""
         from mlframe.feature_engineering.mps import show_mps_regions
 
         prices = np.linspace(100, 110, 30)
@@ -1145,6 +1242,7 @@ class TestMpsPlotAndIo:
         assert "positions" in r
 
     def test_compute_mps_targets_via_parquet_file(self, tmp_path):
+        """Compute mps targets via parquet file."""
         from mlframe.feature_engineering.mps import compute_mps_targets, safely_compute_mps
 
         rng = np.random.default_rng(0)
@@ -1168,6 +1266,7 @@ class TestMpsPlotAndIo:
         assert res2 is not None and res2.height > 0
 
     def test_compute_mps_targets_no_smoothing_path(self, tmp_path):
+        """Compute mps targets no smoothing path."""
         from mlframe.feature_engineering.mps import compute_mps_targets
 
         rng = np.random.default_rng(0)
@@ -1266,6 +1365,7 @@ def _snapshot_digest(feats, names):
 
 
 def _snap_df(seed=0, n=60):
+    """Helper: Snap df."""
     import re  # noqa: F401  - imported here for parity with gen_snapshots.py
 
     rng = np.random.default_rng(seed)
@@ -1323,6 +1423,7 @@ DIGESTS = {
 
 
 def _scenario_kwargs(name):
+    """Helper: Scenario kwargs."""
     import re
 
     if name == "minimal":
@@ -1379,6 +1480,7 @@ class TestCreateAggregatedFeaturesSnapshot:
 
     @pytest.mark.parametrize("scenario", list(SNAPSHOTS.keys()))
     def test_snapshot(self, scenario):
+        """Snapshot."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
         df = _snap_df()
@@ -1415,6 +1517,7 @@ class TestNumericalAdvancedCoverage:
     and the prefetch-factor chunking path."""
 
     def test_compute_numaggs_parallel_with_df_and_cols(self):
+        """Compute numaggs parallel with df and cols."""
         from mlframe.feature_engineering.numerical import compute_numaggs_parallel, get_numaggs_names
 
         rng = np.random.default_rng(0)
@@ -1437,6 +1540,7 @@ class TestNumericalAdvancedCoverage:
         assert out.ndim == 2 and out.shape[1] == len(names)
 
     def test_compute_numaggs_parallel_with_values_array(self):
+        """Compute numaggs parallel with values array."""
         from mlframe.feature_engineering.numerical import compute_numaggs_parallel
 
         rng = np.random.default_rng(0)
@@ -1445,6 +1549,7 @@ class TestNumericalAdvancedCoverage:
         assert out.shape[0] == 4
 
     def test_compute_numaggs_parallel_n_jobs_le_zero_fallback(self):
+        """Compute numaggs parallel n jobs le zero fallback."""
         from mlframe.feature_engineering.numerical import compute_numaggs_parallel
 
         values = np.random.default_rng(0).standard_normal((2, 30))
@@ -1453,6 +1558,7 @@ class TestNumericalAdvancedCoverage:
         assert out.shape[0] == 2
 
     def test_compute_numaggs_parallel_rolling_and_diffs(self):
+        """Compute numaggs parallel rolling and diffs."""
         from mlframe.feature_engineering.numerical import compute_numaggs_parallel
 
         values = np.random.default_rng(0).standard_normal((3, 40))
@@ -1476,12 +1582,14 @@ class TestNumericalAdvancedCoverage:
         assert params == params_snapshot, "caller's dict was mutated"
 
     def test_rolling_moving_average_n_too_large_raises(self):
+        """Rolling moving average n too large raises."""
         from mlframe.feature_engineering.numerical import rolling_moving_average
 
         with pytest.raises(ValueError, match="must be less than"):
             rolling_moving_average(np.arange(10, dtype=np.float64), n=20)
 
     def test_rolling_moving_average_n_zero_raises(self):
+        """Rolling moving average n zero raises."""
         from mlframe.feature_engineering.numerical import rolling_moving_average
 
         with pytest.raises(ValueError, match="must be greater"):
@@ -1498,6 +1606,7 @@ class TestFinancialAdvancedCoverage:
     relative=False branch, custom rolling_windows, and create_ohlcv_wholemarket_features."""
 
     def test_add_fast_rolling_stats_no_groupby_relative(self):
+        """Add fast rolling stats no groupby relative."""
         from mlframe.feature_engineering.financial import add_fast_rolling_stats
 
         rng = np.random.default_rng(0)
@@ -1515,6 +1624,7 @@ class TestFinancialAdvancedCoverage:
         assert len(relative_cols) > 0
 
     def test_add_fast_rolling_stats_absolute_path(self):
+        """Add fast rolling stats absolute path."""
         from mlframe.feature_engineering.financial import add_fast_rolling_stats
 
         rng = np.random.default_rng(0)
@@ -1529,6 +1639,7 @@ class TestFinancialAdvancedCoverage:
         assert any("_mean" in c or "_std" in c for c in result.columns)
 
     def test_add_fast_rolling_stats_with_groupby(self):
+        """Add fast rolling stats with groupby."""
         from mlframe.feature_engineering.financial import add_fast_rolling_stats
 
         rng = np.random.default_rng(0)
@@ -1544,6 +1655,7 @@ class TestFinancialAdvancedCoverage:
         assert len(result.columns) > len(df.columns)
 
     def test_add_fast_rolling_stats_with_exclude_fields(self):
+        """Add fast rolling stats with exclude fields."""
         from mlframe.feature_engineering.financial import add_fast_rolling_stats
 
         rng = np.random.default_rng(0)
@@ -1580,6 +1692,7 @@ class TestFinancialAdvancedCoverage:
         assert "rsi5" in str(expr.meta.output_name()) or True  # alias check is best-effort
 
     def test_create_ohlcv_wholemarket_features_basic(self):
+        """Create ohlcv wholemarket features basic."""
         from mlframe.feature_engineering.financial import create_ohlcv_wholemarket_features
 
         rng = np.random.default_rng(0)
@@ -1606,6 +1719,7 @@ class TestFinancialAdvancedCoverage:
         assert any("_wm_" in c for c in res.columns)
 
     def test_merge_perticker_and_wholemarket_features(self):
+        """Merge perticker and wholemarket features."""
         from mlframe.feature_engineering.financial import (
             create_ohlcv_wholemarket_features,
             merge_perticker_and_wholemarket_features,
@@ -1649,6 +1763,7 @@ class TestNumericalGapClosing:
     """Close the remaining ~19 missed lines in numerical.py."""
 
     def test_compute_distributional_features_basic(self):
+        """Compute distributional features basic."""
         from mlframe.feature_engineering.numerical import compute_distributional_features
 
         rng = np.random.default_rng(0)
@@ -1677,6 +1792,7 @@ class TestNumericalGapClosing:
         assert np.isfinite(out)
 
     def test_compute_mutual_info_regression_with_xvals(self):
+        """Compute mutual info regression with xvals."""
         from mlframe.feature_engineering.numerical import compute_mutual_info_regression
 
         rng = np.random.default_rng(0)
@@ -1711,6 +1827,7 @@ class TestTimeseriesGapClosing:
         df = pd.DataFrame({"price": np.linspace(100, 110, 50) + rng.standard_normal(50) * 0.2})
 
         def apply_fcn(df, row_features, targets, features_names, dataset_name):
+            """Apply fcn."""
             row_features.extend([float(df["price"].mean()), float(df["price"].std())])
             if not features_names:
                 features_names.extend([f"{dataset_name}-mean", f"{dataset_name}-std"])
@@ -1718,6 +1835,7 @@ class TestTimeseriesGapClosing:
         def targets_creation_fcn(past_windows, future_windows):
             # Use the future_windows dict directly -- this exercises the dict-return branch
             # rather than the row_targets-list branch.
+            """Targets creation fcn."""
             return [sum(v[0] for v in future_windows.values())]
 
         X, Y = create_windowed_features(
@@ -1742,11 +1860,13 @@ class TestTimeseriesGapClosing:
         df = pd.DataFrame({"price": np.linspace(100, 110, 50) + rng.standard_normal(50) * 0.2})
 
         def apply_fcn(df, row_features, targets, features_names, dataset_name):
+            """Apply fcn."""
             row_features.extend([float(df["price"].mean())])
             if not features_names:
                 features_names.append(f"{dataset_name}-mean")
 
         def features_creation_fcn(past_windows):
+            """Features creation fcn."""
             return [sum(v[0] for v in past_windows.values())]
 
         X, _Y = create_windowed_features(
@@ -1843,6 +1963,7 @@ class TestFinancialGapClosing:
 
 # Module-level apply_fcn for create_ts_features_parallel test - must be picklable for joblib spawn.
 def _ts_apply_fcn_module_level(df, row_features, targets, features_names, dataset_name):
+    """Helper: Ts apply fcn module level."""
     row_features.extend([float(df["x"].mean()), float(df["x"].std())])
     if not features_names:
         features_names.extend([f"{dataset_name}-mean", f"{dataset_name}-std"])
@@ -1991,6 +2112,7 @@ class TestTimeseriesFinalGaps:
         calls = []
 
         def apply_fcn(df, row_features, targets, features_names, dataset_name):
+            """Apply fcn."""
             calls.append(dataset_name)
             row_features.append(float(df["x"].mean()))
 
@@ -2014,6 +2136,7 @@ class TestTimeseriesFinalGaps:
         calls = []
 
         def apply_fcn(df, row_features, targets, features_names, dataset_name):
+            """Apply fcn."""
             calls.append(dataset_name)
             row_features.append(float(df["x"].sum()))
 
@@ -2292,7 +2415,9 @@ class TestBruteforceAdvancedCoverage:
 
 
 class TestBruteforceHelper:
+    """Groups tests for: TestBruteforceHelper."""
     def test_kfold_target_encode_helper(self):
+        """Kfold target encode helper."""
         pytest.importorskip("category_encoders")
         from mlframe.feature_engineering.bruteforce import _kfold_target_encode
 

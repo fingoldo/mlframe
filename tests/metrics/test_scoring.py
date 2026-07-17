@@ -15,12 +15,14 @@ from mlframe.metrics.scoring import (
 
 
 def test_rmse_loss_zero_on_match():
+    """Rmse loss zero on match."""
     y = np.array([1.0, 2.0, 3.0])
     assert rmse_loss(y, y) == 0.0
 
 
 def test_rmse_loss_known_value():
     # sqrt(mean([1,1,1])) == 1
+    """Rmse loss known value."""
     y_true = np.array([1.0, 2.0, 3.0])
     y_pred = np.array([2.0, 3.0, 4.0])
     assert rmse_loss(y_true, y_pred) == pytest.approx(1.0)
@@ -42,6 +44,7 @@ def test_fast_rmse_matches_rmse_loss():
 
 
 def test_fast_rmse_zero_on_match():
+    """Fast rmse zero on match."""
     y = np.array([1.0, 2.0, 3.0])
     assert fast_rmse(y, y) == 0.0
 
@@ -96,6 +99,7 @@ def test_fast_rmse_handles_non_contiguous_input():
 
 
 def test_rmsle_loss_clips_negative_predictions():
+    """Rmsle loss clips negative predictions."""
     y_true = np.array([1.0, 2.0])
     y_pred_neg = np.array([-5.0, 2.0])
     y_pred_zero = np.array([0.0, 2.0])
@@ -104,17 +108,20 @@ def test_rmsle_loss_clips_negative_predictions():
 
 
 def test_rmsle_loss_zero_on_match():
+    """Rmsle loss zero on match."""
     y = np.array([0.5, 1.5, 10.0])
     assert rmsle_loss(y, y) == pytest.approx(0.0)
 
 
 def test_rmse_and_rmsle_scorers_greater_is_better_false():
     # make_scorer with greater_is_better=False negates the output
+    """Rmse and rmsle scorers greater is better false."""
     assert rmse_score._sign == -1
     assert rmsle_score._sign == -1
 
 
 def test_log_uniform_bounds():
+    """Log uniform bounds."""
     lu = LogUniform(a=-2, b=2, base=10)
     samples = lu.rvs(size=500, random_state=42)
     assert samples.shape == (500,)
@@ -123,6 +130,7 @@ def test_log_uniform_bounds():
 
 
 def test_log_uniform_scalar():
+    """Log uniform scalar."""
     lu = LogUniform(a=0, b=1, base=10)
     val = lu.rvs(random_state=1)
     assert np.isscalar(val) or val.shape == ()
@@ -130,6 +138,7 @@ def test_log_uniform_scalar():
 
 
 def test_log_uniform_random_state_reproducible():
+    """Log uniform random state reproducible."""
     lu = LogUniform(-1, 1, base=10)
     a = lu.rvs(size=10, random_state=7)
     b = lu.rvs(size=10, random_state=7)
@@ -137,6 +146,7 @@ def test_log_uniform_random_state_reproducible():
 
 
 def test_proba_score_proxy_selects_column():
+    """Proba score proxy selects column."""
     from sklearn.metrics import roc_auc_score
 
     y_true = np.array([0, 1, 0, 1, 1, 0])

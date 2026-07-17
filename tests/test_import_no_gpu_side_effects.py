@@ -25,6 +25,7 @@ print("CLEAN_IMPORT_OK")
 
 
 def test_plain_import_does_not_probe_gpu():
+    """Plain import does not probe gpu."""
     env = {k: v for k, v in os.environ.items() if k not in ("CUDA_HOME", "CUDA_PATH")}
     env["PYTHONPATH"] = _SRC + os.pathsep + env.get("PYTHONPATH", "")
     env["CUDA_VISIBLE_DEVICES"] = ""

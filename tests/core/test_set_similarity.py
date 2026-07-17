@@ -18,18 +18,21 @@ from mlframe.core.set_similarity import (
 
 # ---------------------------------------------------------------- unit
 def test_identical_sets_all_one():
+    """Identical sets all one."""
     s = {1, 2, 3}
     for fn in (jaccard, dice, overlap, braun_blanquet, ochiai, kulczynski, tversky):
         assert abs(fn(s, s) - 1.0) < 1e-12
 
 
 def test_disjoint_sets_all_zero():
+    """Disjoint sets all zero."""
     a, b = {1, 2}, {3, 4}
     for fn in (jaccard, dice, overlap, braun_blanquet, ochiai, kulczynski):
         assert fn(a, b) == 0.0
 
 
 def test_known_values():
+    """Known values."""
     a, b = {1, 2, 3, 4}, {3, 4, 5}  # inter=2, |A|=4, |B|=3
     assert abs(jaccard(a, b) - 2 / 5) < 1e-12
     assert abs(dice(a, b) - 4 / 7) < 1e-12
@@ -39,6 +42,7 @@ def test_known_values():
 
 
 def test_boolean_mask_input_matches_set_input():
+    """Boolean mask input matches set input."""
     am = np.array([True, True, False, True])
     bm = np.array([False, True, True, True])
     # A={0,1,3}, B={1,2,3}: inter=2, union=4
@@ -47,16 +51,19 @@ def test_boolean_mask_input_matches_set_input():
 
 
 def test_overlap_is_one_when_subset():
+    """Overlap is one when subset."""
     assert overlap({1, 2}, {1, 2, 3, 4}) == 1.0  # A ⊂ B
 
 
 def test_tversky_reduces_to_jaccard_and_dice():
+    """Tversky reduces to jaccard and dice."""
     a, b = {1, 2, 3}, {2, 3, 4}
     assert abs(tversky(a, b, alpha=1.0, beta=1.0) - jaccard(a, b)) < 1e-12
     assert abs(tversky(a, b, alpha=0.5, beta=0.5) - dice(a, b)) < 1e-12
 
 
 def test_tversky_asymmetry_and_guard():
+    """Tversky asymmetry and guard."""
     a, b = {1, 2, 3, 4, 5}, {1, 2}  # prediction big, reference small
     fp_heavy = tversky(a, b, alpha=0.9, beta=0.1)  # penalize A-only (false positives) hard
     fn_heavy = tversky(a, b, alpha=0.1, beta=0.9)
@@ -66,11 +73,13 @@ def test_tversky_asymmetry_and_guard():
 
 
 def test_both_empty_is_one():
+    """Both empty is one."""
     assert jaccard(set(), set()) == 1.0
     assert dice(set(), set()) == 1.0
 
 
 def test_mask_shape_mismatch_raises():
+    """Mask shape mismatch raises."""
     with pytest.raises(ValueError):
         jaccard(np.array([True, False]), np.array([True, False, True]))
 

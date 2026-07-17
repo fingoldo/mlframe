@@ -13,6 +13,7 @@ import pandas as pd
 
 
 def test_smart_polynom_pair_fe_survives_object_dtype_frame():
+    """A string column forcing X.to_numpy() to object dtype must not crash np.isfinite in the polynomial-pair FE; operands get float64-coerced."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)

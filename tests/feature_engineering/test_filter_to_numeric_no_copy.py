@@ -14,6 +14,7 @@ from mlframe.training.pipeline._pipeline_extensions import _filter_to_numeric
 
 
 def _make_frame_with_bools(n: int = 10_000) -> pd.DataFrame:
+    """Helper: Make frame with bools."""
     rng = np.random.default_rng(0)
     return pd.DataFrame(
         {

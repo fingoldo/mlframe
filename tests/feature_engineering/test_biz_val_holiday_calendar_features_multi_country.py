@@ -18,6 +18,7 @@ from mlframe.feature_engineering.holiday_calendar_features import holiday_calend
 
 
 def test_biz_val_holiday_calendar_features_multi_country_any_flag_catches_subsidiary_only_spikes():
+    """Biz val holiday calendar features multi country any flag catches subsidiary only spikes."""
     dates = pd.Series(pd.date_range("2020-01-01", "2024-12-31", freq="D"))
 
     # Single fixed-country pipeline (default/legacy behavior): parent entity's own calendar only.
@@ -50,6 +51,7 @@ def test_biz_val_holiday_calendar_features_multi_country_any_flag_catches_subsid
 
 
 def test_holiday_calendar_features_countries_default_omitted_matches_single_country_output():
+    """Holiday calendar features countries default omitted matches single country output."""
     dates = pd.Series(pd.date_range("2023-01-01", "2023-12-31", freq="D"))
 
     baseline = holiday_calendar_features(dates, country="US")
@@ -59,6 +61,7 @@ def test_holiday_calendar_features_countries_default_omitted_matches_single_coun
 
 
 def test_holiday_calendar_features_multi_country_any_flag_matches_manual_or():
+    """Holiday calendar features multi country any flag matches manual or."""
     dates = pd.Series(pd.to_datetime(["2024-07-01", "2024-07-04", "2024-12-25", "2024-03-29"]))
     multi = holiday_calendar_features(dates, country="US", countries=["US", "CA"])
 

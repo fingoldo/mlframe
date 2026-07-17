@@ -31,6 +31,7 @@ from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
 
 def _rmse(y_true, y_pred):
+    """Helper that rmse."""
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
@@ -40,6 +41,7 @@ def _rmse(y_true, y_pred):
 
 
 def _classification_data(seed: int = 1, n: int = 400, d: int = 8):
+    """Helper that classification data."""
     rng = np.random.RandomState(seed)
     X = rng.randn(n, d).astype(np.float64)
     w = np.array([1.6, -1.3, 0.9, -0.5] + [0.0] * (d - 4))
@@ -48,6 +50,7 @@ def _classification_data(seed: int = 1, n: int = 400, d: int = 8):
 
 
 def _regression_data(seed: int = 1, n: int = 400, d: int = 8):
+    """Helper that regression data."""
     rng = np.random.RandomState(seed)
     X = rng.randn(n, d).astype(np.float64)
     w = np.array([2.0, -1.5, 1.0, -0.7] + [0.0] * (d - 4))
@@ -131,6 +134,7 @@ def _fit_es(base_model, X, y):
 
 @pytest.mark.parametrize("name", sorted(_CLASSIFIERS))
 def test_biz_val_wrapper_classifier_no_accuracy_loss(name):
+    """Wrapper classifier no accuracy loss."""
     X, y = _classification_data()
     es, X_used = _fit_es(_CLASSIFIERS[name], X, y)
     assert es is not None, f"{name}: EarlyStoppingWrapper.fit returned no wrapper"
@@ -160,6 +164,7 @@ def test_biz_val_wrapper_classifier_no_accuracy_loss(name):
 
 @pytest.mark.parametrize("name", sorted(_REGRESSORS))
 def test_biz_val_wrapper_regressor_no_rmse_loss(name):
+    """Wrapper regressor no rmse loss."""
     X, y = _regression_data()
     es, X_used = _fit_es(_REGRESSORS[name], X, y)
     assert es is not None, f"{name}: EarlyStoppingWrapper.fit returned no wrapper"
@@ -186,6 +191,7 @@ def test_biz_val_wrapper_regressor_no_rmse_loss(name):
 
 
 def test_biz_val_wrapper_classifier_best_beats_overshot_final():
+    """Wrapper classifier best beats overshot final."""
     X, y = _classification_data(seed=2)
     base = SGDClassifier(max_iter=1, tol=None, random_state=0, learning_rate="constant", eta0=6.0)
     es = EarlyStoppingWrapper(base, patience=10, max_iter=120, validation_fraction=0.1, random_state=0)
@@ -199,6 +205,7 @@ def test_biz_val_wrapper_classifier_best_beats_overshot_final():
 
 
 def test_biz_val_wrapper_regressor_best_beats_overshot_final():
+    """Wrapper regressor best beats overshot final."""
     X, y = _regression_data(seed=2)
     # Constant-LR ridge-via-SGD that overshoots: ES must recover the peak iterate.
     base = SGDRegressor(penalty="l2", alpha=1e-3, max_iter=1, tol=None, random_state=0, learning_rate="constant", eta0=0.05)
@@ -215,6 +222,7 @@ def test_biz_val_wrapper_regressor_best_beats_overshot_final():
 def test_partial_fit_estimators_were_discovered():
     # Guard the dynamic discovery itself: if all_estimators / partial_fit detection silently returns
     # nothing, the parametrized tests would vacuously pass with zero cases.
+    """Partial fit estimators were discovered."""
     assert len(_CLASSIFIERS) >= 4, f"expected several partial_fit classifiers, got {sorted(_CLASSIFIERS)}"
     assert len(_REGRESSORS) >= 2, f"expected several partial_fit regressors, got {sorted(_REGRESSORS)}"
 

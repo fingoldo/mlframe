@@ -27,6 +27,7 @@ from mlframe.metrics.quantile import crps_from_quantiles, pinball_loss
 
 
 def test_poisson_deviance_matches_sklearn():
+    """Poisson deviance matches sklearn."""
     from sklearn.metrics import mean_poisson_deviance
 
     rng = np.random.default_rng(0)
@@ -39,6 +40,7 @@ def test_poisson_deviance_matches_sklearn():
 
 
 def test_gamma_deviance_matches_sklearn():
+    """Gamma deviance matches sklearn."""
     from sklearn.metrics import mean_gamma_deviance
 
     rng = np.random.default_rng(1)
@@ -51,6 +53,7 @@ def test_gamma_deviance_matches_sklearn():
 
 
 def test_tweedie_general_matches_sklearn():
+    """Tweedie general matches sklearn."""
     from sklearn.metrics import mean_tweedie_deviance
 
     rng = np.random.default_rng(2)
@@ -63,6 +66,7 @@ def test_tweedie_general_matches_sklearn():
 
 
 def test_tweedie_power_0_is_mse():
+    """Tweedie power 0 is mse."""
     rng = np.random.default_rng(3)
     y = rng.standard_normal(100)
     p = y + rng.standard_normal(100)
@@ -71,6 +75,7 @@ def test_tweedie_power_0_is_mse():
 
 
 def test_tweedie_rejects_invalid_power():
+    """Tweedie rejects invalid power."""
     y = np.array([1.0, 2.0])
     p = np.array([1.0, 2.0])
     with pytest.raises(ValueError):
@@ -100,6 +105,7 @@ def test_gamma_zero_y_skipped():
 
 
 def test_poisson_deviance_zero_on_perfect_prediction():
+    """Poisson deviance zero on perfect prediction."""
     rng = np.random.default_rng(4)
     y = rng.poisson(5.0, 200).astype(np.float64)
     # y_pred = y exactly -> deviance = 0
@@ -107,6 +113,7 @@ def test_poisson_deviance_zero_on_perfect_prediction():
 
 
 def test_gamma_deviance_zero_on_perfect_prediction():
+    """Gamma deviance zero on perfect prediction."""
     rng = np.random.default_rng(5)
     y = rng.gamma(2.0, 1.0, 200)
     assert fast_gamma_deviance(y, y.copy()) == pytest.approx(0.0, abs=1e-10)
@@ -227,6 +234,7 @@ def test_accuracy_ratio_matches_gini_from_auc():
 
 
 def test_accuracy_ratio_single_class_returns_nan():
+    """Accuracy ratio single class returns nan."""
     y = np.zeros(100, dtype=np.int64)
     s = np.random.default_rng(0).uniform(size=100)
     assert np.isnan(accuracy_ratio(y, s))
@@ -268,6 +276,7 @@ def test_crps_monotone_with_residual_size():
 
 
 def test_crps_rejects_unsorted_alphas():
+    """Crps rejects unsorted alphas."""
     y = np.array([1.0, 2.0])
     preds = np.array([[0.0, 1.0], [1.0, 2.0]])
     with pytest.raises(ValueError):
@@ -275,6 +284,7 @@ def test_crps_rejects_unsorted_alphas():
 
 
 def test_crps_rejects_mismatched_shapes():
+    """Crps rejects mismatched shapes."""
     y = np.array([1.0, 2.0, 3.0])
     preds = np.array([[1.0, 2.0], [2.0, 3.0]])  # only 2 rows
     with pytest.raises(ValueError):

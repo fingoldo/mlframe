@@ -20,6 +20,7 @@ from mlframe.feature_engineering.panel_pivot import pivot_time_indexed_panel
 
 
 def _make_variable_length_panel(n_entities: int, seed: int):
+    """Helper: Make variable length panel."""
     rng = np.random.default_rng(seed)
     rows = []
     targets = {}
@@ -33,6 +34,7 @@ def _make_variable_length_panel(n_entities: int, seed: int):
 
 
 def test_biz_val_right_aligned_pivot_beats_left_aligned_pivot():
+    """Biz val right aligned pivot beats left aligned pivot."""
     df, y = _make_variable_length_panel(n_entities=800, seed=0)
 
     right_aligned = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=13)
@@ -43,6 +45,7 @@ def test_biz_val_right_aligned_pivot_beats_left_aligned_pivot():
     train_idx, test_idx = train_test_split(right_aligned.index, test_size=0.3, random_state=0)
 
     def _rmse(X: pd.DataFrame) -> float:
+        """Helper: Rmse."""
         Xtr, Xte = X.loc[train_idx], X.loc[test_idx]
         ytr, yte = y_aligned.loc[train_idx], y_aligned.loc[test_idx]
         model = LGBMRegressor(n_estimators=200, num_leaves=15, random_state=0, verbose=-1)
@@ -58,6 +61,7 @@ def test_biz_val_right_aligned_pivot_beats_left_aligned_pivot():
 
 
 def test_pivot_time_indexed_panel_right_alignment_hand_computed():
+    """Pivot time indexed panel right alignment hand computed."""
     df = pd.DataFrame({"id": [1, 1, 1, 2, 2], "t": [0, 1, 2, 0, 1], "x": [10, 11, 12, 20, 21]})
     out = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=3)
 
@@ -68,6 +72,7 @@ def test_pivot_time_indexed_panel_right_alignment_hand_computed():
 
 
 def test_pivot_time_indexed_panel_truncates_to_max_lags():
+    """Pivot time indexed panel truncates to max lags."""
     df = pd.DataFrame({"id": [1] * 5, "t": range(5), "x": range(100, 105)})
     out = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=3)
     assert list(out.columns) == ["x_lag_0", "x_lag_1", "x_lag_2"]

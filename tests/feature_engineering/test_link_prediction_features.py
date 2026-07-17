@@ -11,6 +11,7 @@ from mlframe.feature_engineering.graph_features import link_prediction_features
 # ---------------------------------------------------------------- unit
 def test_common_neighbors_and_jaccard():
     # x=0, y=1 share neighbours {2,3}; 0~{2,3}, 1~{2,3} -> cn=2, union=2, jaccard=1
+    """Common neighbors and jaccard."""
     edges = np.array([[0, 2], [0, 3], [1, 2], [1, 3]])
     f = link_prediction_features(4, edges, np.array([[0, 1]]))
     assert f["common_neighbors"][0] == 2.0
@@ -19,6 +20,7 @@ def test_common_neighbors_and_jaccard():
 
 
 def test_no_common_neighbors():
+    """No common neighbors."""
     edges = np.array([[0, 2], [1, 3]])
     f = link_prediction_features(4, edges, np.array([[0, 1]]))
     assert f["common_neighbors"][0] == 0.0
@@ -29,6 +31,7 @@ def test_no_common_neighbors():
 
 def test_adamic_adar_and_resource_allocation_known():
     # one common neighbour z=2 with degree 2 -> AA = 1/log(2), RA = 1/2
+    """Adamic adar and resource allocation known."""
     edges = np.array([[0, 2], [1, 2]])
     f = link_prediction_features(3, edges, np.array([[0, 1]]))
     assert abs(f["adamic_adar"][0] - 1.0 / np.log(2)) < 1e-12
@@ -37,6 +40,7 @@ def test_adamic_adar_and_resource_allocation_known():
 
 def test_rare_common_neighbor_weighted_higher_by_adamic_adar():
     # pair A shares a LOW-degree hub, pair B shares a HIGH-degree hub -> A's Adamic/Adar > B's
+    """Rare common neighbor weighted higher by adamic adar."""
     edges = np.array(
         [
             [0, 10],
@@ -55,6 +59,7 @@ def test_rare_common_neighbor_weighted_higher_by_adamic_adar():
 
 
 def test_guard_out_of_range():
+    """Guard out of range."""
     with pytest.raises(ValueError):
         link_prediction_features(3, np.array([[0, 1]]), np.array([[0, 5]]))
 

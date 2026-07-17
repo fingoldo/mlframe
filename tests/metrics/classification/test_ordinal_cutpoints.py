@@ -14,18 +14,21 @@ from mlframe.metrics.classification._weighted_kappa import quadratic_weighted_ka
 
 # ---------------------------------------------------------------- unit
 def test_apply_cutpoints_basic():
+    """Apply cutpoints basic."""
     yp = np.array([0.1, 1.4, 2.4, 3.9])  # land inside bins [<.5], [.5,1.5), [1.5,2.5), [2.5,inf)
     labels = apply_cutpoints(yp, np.array([0.5, 1.5, 2.5]), n_classes=4)
     assert labels.tolist() == [0, 1, 2, 3]
 
 
 def test_apply_cutpoints_clips_to_range():
+    """Apply cutpoints clips to range."""
     yp = np.array([-5.0, 100.0])
     labels = apply_cutpoints(yp, np.array([0.5, 1.5]), n_classes=3)
     assert labels.tolist() == [0, 2]
 
 
 def test_perfectly_separable_recovers_labels():
+    """Perfectly separable recovers labels."""
     y = np.array([0, 0, 1, 1, 2, 2])
     pred = np.array([0.1, 0.2, 1.1, 1.2, 2.1, 2.2])  # already separable
     thr, score = optimal_ordinal_cutpoints(y, pred, n_classes=3, metric="qwk")
@@ -34,6 +37,7 @@ def test_perfectly_separable_recovers_labels():
 
 
 def test_invalid_metric_and_nclasses_and_mismatch():
+    """Invalid metric and nclasses and mismatch."""
     with pytest.raises(ValueError):
         optimal_ordinal_cutpoints(np.zeros(3, int), np.zeros(3), n_classes=3, metric="nope")
     with pytest.raises(ValueError):

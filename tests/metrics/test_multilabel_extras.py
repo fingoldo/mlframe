@@ -20,6 +20,7 @@ from mlframe.metrics.core import (
 
 
 def _rand_ml(N=200, K=5, seed=0):
+    """Helper: Rand ml."""
     rng = np.random.default_rng(seed)
     y = (rng.uniform(size=(N, K)) > 0.7).astype(np.int64)
     p = (rng.uniform(size=(N, K)) > 0.7).astype(np.int64)
@@ -28,6 +29,7 @@ def _rand_ml(N=200, K=5, seed=0):
 
 
 def test_lrap_matches_sklearn():
+    """Lrap matches sklearn."""
     from sklearn.metrics import label_ranking_average_precision_score
 
     y, _, s = _rand_ml(seed=1)
@@ -40,6 +42,7 @@ def test_lrap_matches_sklearn():
 
 
 def test_coverage_error_matches_sklearn():
+    """Coverage error matches sklearn."""
     from sklearn.metrics import coverage_error as skl_cov
 
     y, _, s = _rand_ml(seed=2)
@@ -49,6 +52,7 @@ def test_coverage_error_matches_sklearn():
 
 
 def test_ranking_loss_matches_sklearn():
+    """Ranking loss matches sklearn."""
     from sklearn.metrics import label_ranking_loss as skl_rl
 
     y, _, s = _rand_ml(seed=3)
@@ -72,6 +76,7 @@ def test_one_error_matches_sklearn_formula():
 
 
 def test_f1_macro_micro_weighted_match_sklearn():
+    """F1 macro micro weighted match sklearn."""
     from sklearn.metrics import f1_score
 
     y, p, _ = _rand_ml(seed=5)
@@ -90,6 +95,7 @@ def test_f1_macro_micro_weighted_match_sklearn():
 
 
 def test_multilabel_fused_block_agrees_with_individual_metrics():
+    """Multilabel fused block agrees with individual metrics."""
     y, p, _ = _rand_ml(seed=6)
     block = fast_multilabel_classification_metrics_block(y, p)
     assert block["hamming_loss"] == pytest.approx(hamming_loss(y, p), abs=1e-12)

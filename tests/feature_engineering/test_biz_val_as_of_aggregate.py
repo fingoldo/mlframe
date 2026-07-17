@@ -16,6 +16,7 @@ from mlframe.feature_engineering.as_of_aggregate import leakage_safe_aggregate
 
 
 def _make_leaky_scenario(seed: int):
+    """Helper: Make leaky scenario."""
     rng = np.random.default_rng(seed)
     n_entities = 300
     rows = []
@@ -42,6 +43,7 @@ def _make_leaky_scenario(seed: int):
 
 
 def test_biz_val_leakage_safe_aggregate_avoids_label_leak_naive_aggregate_falls_for():
+    """Biz val leakage safe aggregate avoids label leak naive aggregate falls for."""
     history_df, query_df, y = _make_leaky_scenario(seed=0)
 
     safe_result = leakage_safe_aggregate(history_df, entity_col="entity", time_col="t", as_of=query_df, agg_funcs={"amount": ["mean"]})
@@ -55,6 +57,7 @@ def test_biz_val_leakage_safe_aggregate_avoids_label_leak_naive_aggregate_falls_
 
 
 def test_leakage_safe_aggregate_matches_manual_computation():
+    """Leakage safe aggregate matches manual computation."""
     history_df = pd.DataFrame({"entity": ["a", "a", "a", "b", "b"], "t": [1, 5, 9, 2, 8], "amount": [10.0, 20.0, 30.0, 100.0, 200.0]})
     query_df = pd.DataFrame({"entity": ["a", "b"], "as_of": [6, 9]})
 
@@ -70,6 +73,7 @@ def test_leakage_safe_aggregate_matches_manual_computation():
 
 
 def test_leakage_safe_aggregate_no_eligible_history_is_nan():
+    """Leakage safe aggregate no eligible history is nan."""
     history_df = pd.DataFrame({"entity": ["a"], "t": [10], "amount": [5.0]})
     query_df = pd.DataFrame({"entity": ["a"], "as_of": [1]})
     result = leakage_safe_aggregate(history_df, entity_col="entity", time_col="t", as_of=query_df, agg_funcs={"amount": ["mean"]})
@@ -77,6 +81,7 @@ def test_leakage_safe_aggregate_no_eligible_history_is_nan():
 
 
 def test_leakage_safe_aggregate_rejects_non_dataframe_as_of():
+    """Leakage safe aggregate rejects non dataframe as of."""
     import pytest
 
     history_df = pd.DataFrame({"entity": ["a"], "t": [1], "amount": [5.0]})

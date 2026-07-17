@@ -18,6 +18,7 @@ CatBoostRegressor = pytest.importorskip("catboost").CatBoostRegressor
 
 
 def _data(n=200, seed=0):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 4))
     y = (X[:, 0] + rng.normal(scale=0.3, size=n) > 0).astype(int)
@@ -27,6 +28,7 @@ def _data(n=200, seed=0):
 
 def test_classifier_early_stopping_sample_weight_split_aligns():
     # Pre-fix: full-length weight (n=200) hit the 160-row train fold -> CatBoostError.
+    """Classifier early stopping sample weight split aligns."""
     X, y, w = _data()
     est = ClassifierWithEarlyStopping(
         base_estimator=CatBoostClassifier(iterations=10, verbose=False),
@@ -38,6 +40,7 @@ def test_classifier_early_stopping_sample_weight_split_aligns():
 
 
 def test_regressor_early_stopping_sample_weight_split_aligns():
+    """Regressor early stopping sample weight split aligns."""
     X, y, w = _data()
     y = y.astype(float) + np.arange(len(y)) * 0.01
     est = RegressorWithEarlyStopping(
@@ -52,6 +55,7 @@ def test_regressor_early_stopping_sample_weight_split_aligns():
 def test_early_stopping_weights_are_honored_not_just_length_matched():
     # Extreme weights must measurably change the fitted model vs uniform weights,
     # proving the train-fold weights actually reach fit (not silently dropped).
+    """Early stopping weights are honored not just length matched."""
     X, y, _ = _data(n=300, seed=2)
     w = np.where(y == 1, 50.0, 0.01)
 

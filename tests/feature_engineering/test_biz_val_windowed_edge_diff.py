@@ -17,6 +17,7 @@ from mlframe.feature_engineering.windowed_edge_diff import windowed_edge_aggrega
 
 
 def _make_trending_entities_dataset(n_entities: int, seed: int):
+    """Helper: Make trending entities dataset."""
     rng = np.random.default_rng(seed)
     rows = []
     labels = np.zeros(n_entities, dtype=int)
@@ -37,6 +38,7 @@ def _make_trending_entities_dataset(n_entities: int, seed: int):
 
 
 def test_biz_val_windowed_edge_diff_separates_trend_when_mean_cannot():
+    """Biz val windowed edge diff separates trend when mean cannot."""
     df, labels = _make_trending_entities_dataset(n_entities=150, seed=0)
     entities = pd.unique(df["entity"])
     y = labels[entities]
@@ -53,6 +55,7 @@ def test_biz_val_windowed_edge_diff_separates_trend_when_mean_cannot():
 
 
 def test_windowed_edge_diff_short_group_uses_available_records():
+    """Windowed edge diff short group uses available records."""
     df = pd.DataFrame({"entity": [1], "t": [0], "value": [5.0]})
     out = windowed_edge_aggregate_diff(df, "entity", "t", "value", n=3, agg="mean")
     assert out["value_edge_diff_3_mean"].item() == 0.0
@@ -60,6 +63,7 @@ def test_windowed_edge_diff_short_group_uses_available_records():
 
 
 def test_windowed_edge_diff_respects_time_ordering():
+    """Windowed edge diff respects time ordering."""
     df = pd.DataFrame({"entity": [1, 1, 1, 1], "t": [3, 1, 2, 0], "value": [40.0, 20.0, 30.0, 10.0]})
     out = windowed_edge_aggregate_diff(df, "entity", "t", "value", n=2, agg="mean")
     assert out["value_first2_mean"].item() == 15.0  # t=0,1 -> (10+20)/2

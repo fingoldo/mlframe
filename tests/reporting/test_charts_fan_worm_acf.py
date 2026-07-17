@@ -38,6 +38,7 @@ from mlframe.reporting.spec import (
 
 
 def _flat(fig):
+    """Helper: Flat."""
     return [p for row in fig.panels for p in row if p is not None]
 
 
@@ -63,10 +64,13 @@ def synth_fan_widening():
 
 
 class TestFanChart:
+    """Groups tests for: TestFanChart."""
     def test_token_registered(self):
+        """Token registered."""
         assert "FAN_CHART" in ALLOWED_QUANTILE_PANEL_TOKENS
 
     def test_fan_chart_shape(self, synth_fan_widening):
+        """Fan chart shape."""
         y, p, alphas = synth_fan_widening
         fig = compose_quantile_figure(y, p, alphas, panels_template="FAN_CHART")
         panels = _flat(fig)
@@ -82,6 +86,7 @@ class TestFanChart:
         assert np.all(hi >= lo - 1e-9)
 
     def test_fan_chart_skips_on_single_alpha(self):
+        """Fan chart skips on single alpha."""
         y = np.zeros(10)
         p = np.zeros((10, 1))
         fig = compose_quantile_figure(y, p, (0.5,), panels_template="FAN_CHART")
@@ -107,6 +112,7 @@ class TestFanChart:
         assert late >= 3.0 * early, f"fan band must widen with horizon: early={early:.3f} late={late:.3f}"
 
     def test_fan_chart_render_matplotlib(self, synth_fan_widening, tmp_path):
+        """Fan chart render matplotlib."""
         y, p, alphas = synth_fan_widening
         spec = compose_quantile_figure(y, p, alphas, panels_template="FAN_CHART")
         with warnings.catch_warnings():
@@ -116,6 +122,7 @@ class TestFanChart:
         assert os.path.getsize(tmp_path / "fan.png") > 5000
 
     def test_fan_chart_render_plotly(self, synth_fan_widening, tmp_path):
+        """Fan chart render plotly."""
         y, p, alphas = synth_fan_widening
         spec = compose_quantile_figure(y, p, alphas, panels_template="FAN_CHART")
         with warnings.catch_warnings():
@@ -150,10 +157,13 @@ def synth_resid_heavy_tailed():
 
 
 class TestWorm:
+    """Groups tests for: TestWorm."""
     def test_token_registered(self):
+        """Token registered."""
         assert "WORM" in ALLOWED_REGRESSION_PANEL_TOKENS
 
     def test_worm_shape(self, synth_resid_normal):
+        """Worm shape."""
         yt, yp = synth_resid_normal
         fig = compose_regression_figure(yt, yp, panels_template="WORM")
         panel = _flat(fig)[0]
@@ -167,6 +177,7 @@ class TestWorm:
         assert np.all(np.diff(panel.x) >= -1e-9)
 
     def test_worm_skips_on_constant_resid(self):
+        """Worm skips on constant resid."""
         yt = np.arange(50.0)
         yp = yt.copy()  # zero residual -> zero variance
         fig = compose_regression_figure(yt, yp, panels_template="WORM")
@@ -203,6 +214,7 @@ class TestWorm:
         assert frac_out >= 0.30, f"heavy tails must escape the CI band at the tails: frac_out={frac_out:.3f}"
 
     def test_worm_render_matplotlib(self, synth_resid_heavy_tailed, tmp_path):
+        """Worm render matplotlib."""
         yt, yp = synth_resid_heavy_tailed
         spec = compose_regression_figure(yt, yp, panels_template="WORM")
         with warnings.catch_warnings():
@@ -241,10 +253,13 @@ def synth_resid_ar1():
 
 
 class TestResidAcf:
+    """Groups tests for: TestResidAcf."""
     def test_token_registered(self):
+        """Token registered."""
         assert "RESID_ACF" in ALLOWED_REGRESSION_PANEL_TOKENS
 
     def test_resid_acf_shape(self, synth_resid_white):
+        """Resid acf shape."""
         yt, yp = synth_resid_white
         fig = compose_regression_figure(yt, yp, panels_template="RESID_ACF")
         panel = _flat(fig)[0]
@@ -279,6 +294,7 @@ class TestResidAcf:
         assert lag1 <= band, f"white-noise lag-1 ACF {lag1:.4f} should be within band {band:.4f}"
 
     def test_resid_acf_render_matplotlib(self, synth_resid_ar1, tmp_path):
+        """Resid acf render matplotlib."""
         yt, yp = synth_resid_ar1
         spec = compose_regression_figure(yt, yp, panels_template="RESID_ACF")
         with warnings.catch_warnings():
@@ -293,7 +309,9 @@ class TestResidAcf:
 
 
 class TestAcfHelper:
+    """Groups tests for: TestAcfHelper."""
     def test_acf_ar1_recovers_phi(self):
+        """Acf ar1 recovers phi."""
         rng = np.random.default_rng(5)
         n = 20000
         e = rng.standard_normal(n)
@@ -305,6 +323,7 @@ class TestAcfHelper:
         assert abs(acf_lags[0] - 0.7) < 0.05
 
     def test_pacf_ar1_spike_only_at_lag1(self):
+        """Pacf ar1 spike only at lag1."""
         rng = np.random.default_rng(6)
         n = 20000
         e = rng.standard_normal(n)
@@ -317,6 +336,7 @@ class TestAcfHelper:
         assert np.all(np.abs(pacf_lags[1:]) < 0.05)
 
     def test_acf_tail_caps_long_series(self):
+        """Acf tail caps long series."""
         from mlframe.reporting.charts._acf import MAX_ACF_SERIES
 
         rng = np.random.default_rng(7)

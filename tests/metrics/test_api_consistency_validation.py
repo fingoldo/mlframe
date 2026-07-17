@@ -26,6 +26,7 @@ import pytest
 
 
 def test_fast_roc_auc_mismatched_lengths_raises():
+    """Fast roc auc mismatched lengths raises."""
     from mlframe.metrics._core_auc_brier import fast_roc_auc
 
     yt = np.array([0, 1, 0, 1, 1])
@@ -35,6 +36,7 @@ def test_fast_roc_auc_mismatched_lengths_raises():
 
 
 def test_fast_brier_mismatched_lengths_raises():
+    """Fast brier mismatched lengths raises."""
     from mlframe.metrics._core_auc_brier import fast_brier_score_loss
 
     yt = np.array([0, 1, 0, 1])
@@ -44,6 +46,7 @@ def test_fast_brier_mismatched_lengths_raises():
 
 
 def test_fast_mae_mismatched_lengths_raises():
+    """Fast mae mismatched lengths raises."""
     from mlframe.metrics.regression._regression_metrics import fast_mean_absolute_error
 
     with pytest.raises(ValueError):
@@ -51,6 +54,7 @@ def test_fast_mae_mismatched_lengths_raises():
 
 
 def test_fast_mse_mismatched_lengths_raises():
+    """Fast mse mismatched lengths raises."""
     from mlframe.metrics.regression._regression_metrics import fast_mean_squared_error
 
     with pytest.raises(ValueError):
@@ -58,6 +62,7 @@ def test_fast_mse_mismatched_lengths_raises():
 
 
 def test_fast_rmsle_mismatched_lengths_raises():
+    """Fast rmsle mismatched lengths raises."""
     from mlframe.metrics.regression._regression_extras import fast_rmsle
 
     with pytest.raises(ValueError):
@@ -65,6 +70,7 @@ def test_fast_rmsle_mismatched_lengths_raises():
 
 
 def test_fast_spearman_mismatched_lengths_raises():
+    """Fast spearman mismatched lengths raises."""
     from mlframe.metrics.regression._regression_extras import fast_spearman_corr
 
     with pytest.raises(ValueError):
@@ -72,6 +78,7 @@ def test_fast_spearman_mismatched_lengths_raises():
 
 
 def test_fast_kendall_mismatched_lengths_raises():
+    """Fast kendall mismatched lengths raises."""
     from mlframe.metrics.regression._regression_extras import fast_kendall_tau
 
     with pytest.raises(ValueError):
@@ -79,6 +86,7 @@ def test_fast_kendall_mismatched_lengths_raises():
 
 
 def test_fast_binary_confusion_block_mismatched_lengths_raises():
+    """Fast binary confusion block mismatched lengths raises."""
     from mlframe.metrics.classification._classification_extras_blocks import (
         fast_binary_confusion_metrics_block,
     )
@@ -88,6 +96,7 @@ def test_fast_binary_confusion_block_mismatched_lengths_raises():
 
 
 def test_fast_binary_probability_block_mismatched_lengths_raises():
+    """Fast binary probability block mismatched lengths raises."""
     from mlframe.metrics.classification._classification_extras_blocks import (
         fast_binary_probability_metrics_block,
     )
@@ -97,6 +106,7 @@ def test_fast_binary_probability_block_mismatched_lengths_raises():
 
 
 def test_fast_multiclass_confusion_block_mismatched_lengths_raises():
+    """Fast multiclass confusion block mismatched lengths raises."""
     from mlframe.metrics.classification._classification_extras_blocks import (
         fast_multiclass_confusion_metrics_block,
     )
@@ -119,6 +129,7 @@ def test_equal_length_inputs_still_work():
 
 
 def test_brier_returns_nan_on_out_of_range_prob():
+    """Brier returns nan on out of range prob."""
     from mlframe.metrics._core_auc_brier import fast_brier_score_loss
     from mlframe.metrics._log_loss_and_separation import fast_log_loss_binary
 
@@ -130,6 +141,7 @@ def test_brier_returns_nan_on_out_of_range_prob():
 
 
 def test_brier_returns_nan_on_nan_prob():
+    """Brier returns nan on nan prob."""
     from mlframe.metrics._core_auc_brier import fast_brier_score_loss
 
     yt = np.array([0.0, 1.0, 0.0, 1.0])
@@ -138,6 +150,7 @@ def test_brier_returns_nan_on_nan_prob():
 
 
 def test_brier_valid_range_unchanged():
+    """Brier valid range unchanged."""
     from mlframe.metrics._core_auc_brier import fast_brier_score_loss
 
     yt = np.array([0.0, 1.0, 0.0, 1.0])
@@ -151,6 +164,7 @@ def test_brier_valid_range_unchanged():
 
 
 def test_fast_aucs_rejects_sample_weight():
+    """Fast aucs rejects sample weight."""
     from mlframe.metrics._core_auc_brier import fast_aucs
 
     yt = np.array([0, 1, 0, 1, 1, 0])
@@ -161,6 +175,7 @@ def test_fast_aucs_rejects_sample_weight():
 
 
 def test_fast_aucs_without_weight_still_works():
+    """Fast aucs without weight still works."""
     from mlframe.metrics._core_auc_brier import fast_aucs
 
     yt = np.array([0, 1, 0, 1, 1, 0])
@@ -176,6 +191,7 @@ def test_fast_aucs_without_weight_still_works():
 
 
 def test_ranking_none_group_ids_treated_as_single_group():
+    """Ranking none group ids treated as single group."""
     from mlframe.metrics.ranking import ndcg_at_k
     from mlframe.metrics._ranking_extras import dcg_at_k
 
@@ -197,6 +213,7 @@ def test_ranking_none_group_ids_treated_as_single_group():
 
 
 def test_split_by_group_empty_unpacks_as_triple():
+    """Split by group empty unpacks as triple."""
     from mlframe.metrics._ranking_extras import _split_by_group
 
     boundaries, _yt, _ys = _split_by_group(np.empty(0), np.empty(0), np.empty(0, dtype=int))  # must not ValueError on unpack
@@ -204,6 +221,7 @@ def test_split_by_group_empty_unpacks_as_triple():
 
 
 def test_ranking_extras_empty_input_returns_nan_not_crash():
+    """Ranking extras empty input returns nan not crash."""
     from mlframe.metrics._ranking_extras import dcg_at_k
 
     val = dcg_at_k(np.empty(0), np.empty(0), np.empty(0, dtype=int), k=10)

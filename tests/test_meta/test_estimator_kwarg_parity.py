@@ -50,6 +50,7 @@ _USER_DEFERRED_KWARGS: dict[str, str] = {
 
 
 def _consumer_corpus() -> str:
+    """Helper that consumer corpus."""
     chunks: list[str] = []
     for py in MLFRAME_DIR.rglob("*.py"):
         if py.resolve() == Path(configs_module.__file__).resolve():
@@ -133,6 +134,7 @@ def _is_routed(field_name: str, corpus: str) -> bool:
 
 
 def test_every_estimator_kwarg_routes_to_a_constructor():
+    """Every estimator kwarg routes to a constructor."""
     corpus = _consumer_corpus()
     fields = _flavor_kwargs_fields()
     assert fields, "no <flavor>_kwargs fields found — class enumeration broken or naming convention changed (test should be updated)."

@@ -37,7 +37,9 @@ def _gen(n: int, miscalibrated: bool, seed: int = 0):
 
 
 class TestBootstrapBandUnit:
+    """Groups tests for: TestBootstrapBandUnit."""
     def test_band_present_in_spec_when_raw_supplied(self):
+        """Band present in spec when raw supplied."""
         y, score = _gen(5000, miscalibrated=True)
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
         spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y)
@@ -49,6 +51,7 @@ class TestBootstrapBandUnit:
         assert np.all(bhi >= blo - 1e-9)
 
     def test_band_contains_the_curve(self):
+        """Band contains the curve."""
         y, score = _gen(8000, miscalibrated=True)
         grid, cal = smoothed_reliability_curve(score, y)
         bgrid, lo, hi, _ = bootstrap_reliability_band(score, y)
@@ -56,17 +59,20 @@ class TestBootstrapBandUnit:
         assert np.all(cal >= lo - 1e-9) and np.all(cal <= hi + 1e-9)
 
     def test_significant_fraction_computed(self):
+        """Significant fraction computed."""
         y, score = _gen(8000, miscalibrated=True)
         _, _, _, sig = bootstrap_reliability_band(score, y)
         assert 0.0 <= sig <= 1.0
 
     def test_band_annotation_in_title(self):
+        """Band annotation in title."""
         y, score = _gen(8000, miscalibrated=True)
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
         spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, plot_title="")
         assert "miscal. significant on" in spec.panels[0][0].title
 
     def test_band_absent_when_toggle_off(self):
+        """Band absent when toggle off."""
         y, score = _gen(5000, miscalibrated=True)
         fp, ftr, hits = fast_calibration_binning(y, score, nbins=15)
         spec = build_calibration_spec(fp, ftr, hits, raw_probs=score, raw_labels=y, reliability_band=False)
@@ -75,17 +81,21 @@ class TestBootstrapBandUnit:
         assert scatter.overlay_band is None  # band gone
 
     def test_degenerate_single_class_omits_band(self):
+        """Degenerate single class omits band."""
         assert bootstrap_reliability_band(np.linspace(0.0, 1.0, 200), np.zeros(200)) is None
 
     def test_degenerate_all_equal_scores_omits_band(self):
+        """Degenerate all equal scores omits band."""
         rng = np.random.default_rng(0)
         y = (rng.random(200) < 0.5).astype(int)
         assert bootstrap_reliability_band(np.full(200, 0.5), y) is None
 
     def test_degenerate_too_few_rows_omits_band(self):
+        """Degenerate too few rows omits band."""
         assert bootstrap_reliability_band(np.array([0.1, 0.9]), np.array([0, 1])) is None
 
     def test_deterministic_under_seed(self):
+        """Deterministic under seed."""
         y, score = _gen(4000, miscalibrated=True)
         a = bootstrap_reliability_band(score, y, random_state=7)
         b = bootstrap_reliability_band(score, y, random_state=7)
@@ -93,6 +103,7 @@ class TestBootstrapBandUnit:
 
 
 class TestBootstrapBandBizValue:
+    """Groups tests for: TestBootstrapBandBizValue."""
     def test_biz_val_significant_fraction_separates_calibrated_from_miscalibrated(self):
         """On a perfectly-calibrated synthetic the band contains the diagonal almost everywhere (significant-fraction
         ~0); on a clearly over-confident synthetic the band excludes the diagonal over most of the range. Measured at

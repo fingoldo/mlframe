@@ -20,6 +20,7 @@ from mlframe.feature_engineering import compute_auxiliary_feature_prediction_fea
 
 
 def _make_noisy_proxy_dataset(n: int, seed: int):
+    """Helper: Make noisy proxy dataset."""
     rng = np.random.default_rng(seed)
     z = rng.normal(size=n)
     ext_source = z + rng.normal(scale=1.8, size=n)
@@ -31,6 +32,7 @@ def _make_noisy_proxy_dataset(n: int, seed: int):
 
 
 def test_biz_val_auxiliary_feature_prediction_beats_raw_features_alone_mse():
+    """Biz val auxiliary feature prediction beats raw features alone mse."""
     X, y = _make_noisy_proxy_dataset(n=150, seed=2)
     rng = np.random.default_rng(3)
     perm = rng.permutation(len(y))
@@ -57,6 +59,7 @@ def test_biz_val_auxiliary_feature_prediction_beats_raw_features_alone_mse():
 
 
 def test_auxiliary_feature_prediction_output_columns():
+    """Auxiliary feature prediction output columns."""
     X, _y = _make_noisy_proxy_dataset(n=80, seed=4)
     kf = KFold(n_splits=4, shuffle=True, random_state=0)
     result = compute_auxiliary_feature_prediction_features(X, ["ext_source", "f0"], splitter=kf, seed=0)
@@ -109,6 +112,7 @@ def test_auxiliary_feature_prediction_default_unchanged_when_uncertainty_unused(
 
 
 def test_auxiliary_feature_prediction_rejects_unknown_target_feature():
+    """Auxiliary feature prediction rejects unknown target feature."""
     X, _y = _make_noisy_proxy_dataset(n=50, seed=5)
     kf = KFold(n_splits=3, shuffle=True, random_state=0)
     try:

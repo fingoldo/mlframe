@@ -18,6 +18,7 @@ from mlframe.feature_engineering.ewma_multi_alpha_features import ewma_multi_alp
 
 
 def _make_entities_with_hidden_rate(n_entities: int, seed: int):
+    """Helper: Make entities with hidden rate."""
     rng = np.random.default_rng(seed)
     presence_list, group_list = [], []
     true_rate = {}
@@ -32,6 +33,7 @@ def _make_entities_with_hidden_rate(n_entities: int, seed: int):
 
 
 def test_biz_val_low_alpha_ewma_beats_fixed_window_rolling_mean():
+    """Biz val low alpha ewma beats fixed window rolling mean."""
     presence_list, group_ids, true_rate = _make_entities_with_hidden_rate(n_entities=500, seed=1)
     presence = np.concatenate(presence_list)
 
@@ -52,6 +54,7 @@ def test_biz_val_low_alpha_ewma_beats_fixed_window_rolling_mean():
 
 
 def test_ewma_multi_alpha_features_matches_pandas_ewm():
+    """Ewma multi alpha features matches pandas ewm."""
     values = np.array([1.0, 0.0, 1.0, 1.0, 0.0, 5.0, 5.0, 4.0])
     groups = np.array([0, 0, 0, 0, 0, 1, 1, 1])
     res = ewma_multi_alpha_features(values, groups, alphas=[0.5])
@@ -62,6 +65,7 @@ def test_ewma_multi_alpha_features_matches_pandas_ewm():
 
 
 def test_ewma_multi_alpha_features_rejects_invalid_alpha():
+    """Ewma multi alpha features rejects invalid alpha."""
     import pytest
 
     with pytest.raises(ValueError):

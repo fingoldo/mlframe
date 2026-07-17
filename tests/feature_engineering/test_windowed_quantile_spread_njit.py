@@ -20,6 +20,7 @@ from mlframe.feature_engineering import windowed_shape as ws
 
 
 def _ref(values, window_K, q_low, q_high):
+    """Helper: Ref."""
     out = np.full(values.size, np.nan, dtype=np.float64)
     wins = sliding_window_view(values, window_K)
     q = np.quantile(wins, [q_low, q_high], axis=1)
@@ -28,11 +29,13 @@ def _ref(values, window_K, q_low, q_high):
 
 
 def test_kernel_symbol_present_and_routed():
+    """Kernel symbol present and routed."""
     assert hasattr(ws, "_quantile_spread_kernel")
     calls = {"n": 0}
     orig = ws._quantile_spread_kernel
 
     def spy(*a, **k):
+        """Spy."""
         calls["n"] += 1
         return orig(*a, **k)
 
@@ -50,6 +53,7 @@ def test_kernel_symbol_present_and_routed():
 @pytest.mark.parametrize("qs", [(0.1, 0.9), (0.25, 0.75), (0.0, 1.0), (0.05, 0.95), (0.5, 0.95)])
 @pytest.mark.parametrize("kind", ["continuous", "tied_lowcard", "discrete_int"])
 def test_matches_numpy_reference_finite(window_K, qs, kind):
+    """Matches numpy reference finite."""
     rng = np.random.default_rng(7)
     n = 4000
     if kind == "continuous":
@@ -69,6 +73,7 @@ def test_matches_numpy_reference_finite(window_K, qs, kind):
 
 
 def test_nan_segment_falls_back_to_numpy():
+    """Nan segment falls back to numpy."""
     rng = np.random.default_rng(3)
     v = rng.standard_normal(3000)
     v[100] = np.nan

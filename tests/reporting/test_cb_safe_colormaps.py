@@ -46,34 +46,43 @@ _TAB20_EXT = (
 
 
 class TestCBDefaults:
+    """Groups tests for: TestCBDefaults."""
     def test_heatmap_cmap_is_cb_safe_sequential(self):
+        """Heatmap cmap is cb safe sequential."""
         assert HEATMAP_CMAP == "viridis"
 
     def test_diverging_cmap_is_signed_safe(self):
         # Diverging default must be a recognised signed scheme (RdBu_r) so renderers map it cleanly.
+        """Diverging cmap is signed safe."""
         assert DIVERGING_CMAP in ("RdBu_r", "RdBu", "cividis")
 
     def test_resolver_maps_generic_placeholder_to_cb_safe(self):
+        """Resolver maps generic placeholder to cb safe."""
         assert resolve_heatmap_cmap(HEATMAP_GENERIC) == HEATMAP_CMAP
         assert resolve_heatmap_cmap(None) == HEATMAP_CMAP
 
     def test_resolver_honours_explicit_override(self):
+        """Resolver honours explicit override."""
         assert resolve_heatmap_cmap("RdBu_r") == "RdBu_r"
         assert resolve_heatmap_cmap("plasma") == "plasma"
 
     def test_default_heatmap_spec_resolves_cb_safe(self):
         # An un-overridden HeatmapPanelSpec keeps HEATMAP_GENERIC as its field default; the resolver turns it CB-safe.
+        """Default heatmap spec resolves cb safe."""
         spec = HeatmapPanelSpec(matrix=np.eye(3), row_labels=("a", "b", "c"), col_labels=("a", "b", "c"))
         assert spec.colormap == HEATMAP_GENERIC
         assert resolve_heatmap_cmap(spec.colormap) == HEATMAP_CMAP
 
 
 class TestRendererCBDefault:
+    """Groups tests for: TestRendererCBDefault."""
     def _spec(self):
+        """Helper: Spec."""
         m = np.array([[0.1, 0.4, 0.9], [0.3, 0.7, 0.2], [0.5, 0.6, 0.8]])
         return HeatmapPanelSpec(matrix=m, row_labels=("r0", "r1", "r2"), col_labels=("c0", "c1", "c2"), title="t", cell_text=m, colorbar_label="v")
 
     def test_matplotlib_uses_cb_safe_cmap_by_default(self):
+        """Matplotlib uses cb safe cmap by default."""
         import matplotlib
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -90,6 +99,7 @@ class TestRendererCBDefault:
         assert images[0].get_cmap().name == matplotlib.colormaps[HEATMAP_CMAP].name
 
     def test_plotly_uses_cb_safe_colorscale_by_default(self):
+        """Plotly uses cb safe colorscale by default."""
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
 
@@ -115,6 +125,7 @@ class TestChartCmapsHavePlotlyMapping:
     CHART_CMAPS = ("Reds", "Blues", "RdYlGn_r", "RdBu_r", "viridis", "RdYlGn", "coolwarm")
 
     def test_each_chart_cmap_maps_to_non_viridis(self):
+        """Each chart cmap maps to non viridis."""
         for name in self.CHART_CMAPS:
             scale = _mpl_to_plotly_cmap(name)
             # viridis is the only cmap legitimately allowed to resolve to Viridis; everything else must map to its own scale.
@@ -123,21 +134,26 @@ class TestChartCmapsHavePlotlyMapping:
 
     def test_reds_weak_segment_heatmap_maps_to_reds(self):
         # Pin the error-analysis weak-segment heatmap case that produced the original warning.
+        """Reds weak segment heatmap maps to reds."""
         assert _mpl_to_plotly_cmap("Reds") == "Reds"
 
     def test_reversed_suffix_resolves_generically(self):
+        """Reversed suffix resolves generically."""
         assert _mpl_to_plotly_cmap("RdYlGn_r") == "RdYlGn_r"
         assert _mpl_to_plotly_cmap("RdYlGn") == "RdYlGn"
         assert _mpl_to_plotly_cmap("Reds_r") == "Reds_r"
 
     def test_case_insensitive_like_matplotlib(self):
+        """Case insensitive like matplotlib."""
         assert _mpl_to_plotly_cmap("reds") == "Reds"
         assert _mpl_to_plotly_cmap("REDS") == "Reds"
 
     def test_coolwarm_maps_to_closest_diverging(self):
+        """Coolwarm maps to closest diverging."""
         assert _mpl_to_plotly_cmap("coolwarm") == "RdBu_r"
 
     def test_no_fallback_warning_for_audited_cmaps(self, caplog):
+        """No fallback warning for audited cmaps."""
         import logging
         from mlframe.reporting.renderers import plotly as plotly_mod
 
@@ -148,6 +164,7 @@ class TestChartCmapsHavePlotlyMapping:
         assert not fallbacks, f"unexpected Viridis fallback warnings: {[r.getMessage() for r in fallbacks]}"
 
     def test_genuinely_unknown_still_warns_and_falls_back(self, caplog):
+        """Genuinely unknown still warns and falls back."""
         import logging
         from mlframe.reporting.renderers import plotly as plotly_mod
 
@@ -157,8 +174,11 @@ class TestChartCmapsHavePlotlyMapping:
 
 
 class TestLinePaletteUnchanged:
+    """Groups tests for: TestLinePaletteUnchanged."""
     def test_first_ten_are_tab10(self):
+        """First ten are tab10."""
         assert LINE_PALETTE[:10] == _TAB10
 
     def test_full_palette_byte_stable(self):
+        """Full palette byte stable."""
         assert LINE_PALETTE == _TAB10 + _TAB20_EXT

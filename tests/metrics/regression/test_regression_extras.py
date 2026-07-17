@@ -40,11 +40,13 @@ from mlframe.metrics.core import (
 
 
 def test_rmsle_zero_on_perfect_prediction():
+    """Rmsle zero on perfect prediction."""
     y = np.array([1.0, 2.0, 5.0, 10.0])
     assert fast_rmsle(y, y) == pytest.approx(0.0)
 
 
 def test_rmsle_matches_manual_formula():
+    """Rmsle matches manual formula."""
     y = np.array([1.0, 2.0, 5.0])
     p = np.array([0.5, 2.5, 4.0])
     expected = float(np.sqrt(np.mean((np.log1p(p) - np.log1p(y)) ** 2)))
@@ -52,6 +54,7 @@ def test_rmsle_matches_manual_formula():
 
 
 def test_rmsle_warns_on_negative_inputs():
+    """Rmsle warns on negative inputs."""
     y = np.array([1.0, -2.0, 5.0])
     p = np.array([1.0, 2.0, 5.0])
     with warnings.catch_warnings(record=True) as w:
@@ -61,6 +64,7 @@ def test_rmsle_warns_on_negative_inputs():
 
 
 def test_rmsle_all_negative_returns_nan():
+    """Rmsle all negative returns nan."""
     y = np.array([-1.0, -2.0])
     p = np.array([-1.0, -2.0])
     with warnings.catch_warnings():
@@ -72,6 +76,7 @@ def test_rmsle_all_negative_returns_nan():
 
 
 def test_mape_mean_matches_sklearn():
+    """Mape mean matches sklearn."""
     from sklearn.metrics import mean_absolute_percentage_error
 
     rng = np.random.default_rng(0)
@@ -145,6 +150,7 @@ def test_wmape_mixed_dtypes_bit_equivalent():
 
 
 def test_mase_zero_on_perfect_prediction():
+    """Mase zero on perfect prediction."""
     rng = np.random.default_rng(3)
     y_train = rng.standard_normal(100) * 5 + 50
     y = y_train.copy()
@@ -163,6 +169,7 @@ def test_mase_constant_train_returns_nan():
 
 
 def test_mbe_signed():
+    """Mbe signed."""
     y = np.array([1.0, 2.0, 3.0])
     # over-prediction by 1
     p = y + 1.0
@@ -173,6 +180,7 @@ def test_mbe_signed():
 
 
 def test_cv_rmse_unit_free():
+    """Cv rmse unit free."""
     y = np.array([10.0, 20.0, 30.0])
     p = np.array([11.0, 21.0, 31.0])
     expected = float(np.sqrt(np.mean((y - p) ** 2)) / abs(y.mean()))
@@ -287,6 +295,7 @@ def test_iter597_mbe_nse_mixed_dtypes_bit_equivalent():
 
 
 def test_explained_variance_matches_sklearn():
+    """Explained variance matches sklearn."""
     from sklearn.metrics import explained_variance_score
 
     rng = np.random.default_rng(5)
@@ -302,6 +311,7 @@ def test_explained_variance_matches_sklearn():
 
 
 def test_huber_loss_quadratic_for_small_residuals():
+    """Huber loss quadratic for small residuals."""
     y = np.array([0.0, 0.0])
     p = np.array([0.5, 0.5])
     # |r|=0.5 < delta=1 -> 0.5 * 0.5^2 = 0.125 each
@@ -309,6 +319,7 @@ def test_huber_loss_quadratic_for_small_residuals():
 
 
 def test_huber_loss_linear_for_large_residuals():
+    """Huber loss linear for large residuals."""
     y = np.array([0.0])
     p = np.array([5.0])
     # |r|=5 > delta=1 -> delta*(|r| - 0.5*delta) = 1*(5-0.5) = 4.5
@@ -319,6 +330,7 @@ def test_huber_loss_linear_for_large_residuals():
 
 
 def test_pearson_corr_matches_numpy():
+    """Pearson corr matches numpy."""
     rng = np.random.default_rng(6)
     y = rng.standard_normal(300)
     p = 0.5 * y + rng.standard_normal(300) * 0.3
@@ -329,6 +341,7 @@ def test_pearson_corr_matches_numpy():
 
 
 def test_spearman_corr_matches_scipy():
+    """Spearman corr matches scipy."""
     from scipy.stats import spearmanr
 
     rng = np.random.default_rng(7)
@@ -339,6 +352,7 @@ def test_spearman_corr_matches_scipy():
 
 
 def test_kendall_tau_matches_scipy_small_N():
+    """Kendall tau matches scipy small N."""
     from scipy.stats import kendalltau
 
     rng = np.random.default_rng(8)
@@ -383,6 +397,7 @@ def test_kendall_tau_falls_back_to_scipy_large_N():
 
 
 def test_concordance_index_range():
+    """Concordance index range."""
     rng = np.random.default_rng(10)
     y = rng.standard_normal(500)
     p_good = y + rng.standard_normal(500) * 0.1  # very correlated
@@ -430,6 +445,7 @@ def test_extended_block_handles_large_n_parallel_path():
 
 
 def test_extended_block_empty_input():
+    """Extended block empty input."""
     block = fast_regression_metrics_block_extended(np.array([]), np.array([]))
     for k in ("MAE", "RMSE", "MaxError", "R2", "MBE", "MAPE_mean", "SMAPE"):
         assert np.isnan(block[k])
@@ -450,6 +466,7 @@ def test_extended_block_constant_y():
 
 
 def test_adjusted_r2_matches_textbook_formula():
+    """Adjusted r2 matches textbook formula."""
     yt = np.array([1.0, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     yp = yt + np.array([0.3, -0.2, 0.1, -0.4, 0.2, -0.1, 0.3, -0.2, 0.0, 0.1])
     r2 = fast_r2_score(yt, yp)
@@ -459,17 +476,20 @@ def test_adjusted_r2_matches_textbook_formula():
 
 
 def test_adjusted_r2_p_zero_returns_plain_r2():
+    """Adjusted r2 p zero returns plain r2."""
     yt = np.array([1.0, 2, 3, 4, 5])
     yp = np.array([1.1, 1.9, 3.2, 3.8, 5.1])
     assert fast_adjusted_r2_score(yt, yp, 0) == pytest.approx(fast_r2_score(yt, yp), rel=1e-12)
 
 
 def test_adjusted_r2_perfect_fit_stays_one():
+    """Adjusted r2 perfect fit stays one."""
     yt = np.array([1.0, 2, 3, 4, 5, 6])
     assert fast_adjusted_r2_score(yt, yt.copy(), 2) == pytest.approx(1.0, abs=1e-12)
 
 
 def test_adjusted_r2_degenerate_denominator_is_nan():
+    """Adjusted r2 degenerate denominator is nan."""
     yt = np.array([1.0, 2, 3, 4, 5])
     # p == n - 1 -> denom = 0; p > n - 1 -> denom < 0. Both NaN.
     assert np.isnan(fast_adjusted_r2_score(yt, yt.copy(), 4))
@@ -477,6 +497,7 @@ def test_adjusted_r2_degenerate_denominator_is_nan():
 
 
 def test_adjusted_r2_penalises_below_plain_when_p_positive():
+    """Adjusted r2 penalises below plain when p positive."""
     rng = np.random.default_rng(0)
     yt = rng.normal(0, 1, 50)
     yp = yt + rng.normal(0, 0.5, 50)

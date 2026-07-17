@@ -31,6 +31,7 @@ def _install_stub_run_pysr_feature_engineering(monkeypatch, raise_with):
     import mlframe.feature_engineering.bruteforce as _bf
 
     def _raising_stub(*_args, **_kwargs):
+        """Helper: Raising stub."""
         raise raise_with
 
     monkeypatch.setattr(_bf, "run_pysr_feature_engineering", _raising_stub)

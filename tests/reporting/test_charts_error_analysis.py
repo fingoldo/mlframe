@@ -41,6 +41,7 @@ from mlframe.reporting.spec import (
 
 @pytest.fixture
 def reg_clean():
+    """Reg clean."""
     rng = np.random.default_rng(0)
     n = 4000
     X = pd.DataFrame({"f0": rng.uniform(0, 1, n), "f1": rng.uniform(0, 1, n), "f2": rng.normal(0, 1, n)})
@@ -50,6 +51,7 @@ def reg_clean():
 
 
 def test_weak_segment_heatmap_returns_heatmap_spec(reg_clean):
+    """Weak segment heatmap returns heatmap spec."""
     X, yt, yp = reg_clean
     res = weak_segment_heatmap(X, yt, yp, task="regression")
     assert isinstance(res, WeakSegmentResult)
@@ -62,6 +64,7 @@ def test_weak_segment_heatmap_returns_heatmap_spec(reg_clean):
 
 
 def test_weak_segment_heatmap_grid_shape_matches_bins(reg_clean):
+    """Weak segment heatmap grid shape matches bins."""
     X, yt, yp = reg_clean
     res = weak_segment_heatmap(X, yt, yp, task="regression", nbins=5)
     # Two split features -> 2-D grid of (<=5) x (<=5); counts cover all rows.
@@ -71,6 +74,7 @@ def test_weak_segment_heatmap_grid_shape_matches_bins(reg_clean):
 
 
 def test_weak_segment_heatmap_classification_logloss(reg_clean):
+    """Weak segment heatmap classification logloss."""
     X, _, _ = reg_clean
     rng = np.random.default_rng(1)
     n = len(X)
@@ -82,6 +86,7 @@ def test_weak_segment_heatmap_classification_logloss(reg_clean):
 
 
 def test_weak_segment_heatmap_ndarray_input(reg_clean):
+    """Weak segment heatmap ndarray input."""
     X, yt, yp = reg_clean
     res = weak_segment_heatmap(X.to_numpy(), yt, yp, task="regression", feature_names=["f0", "f1", "f2"])
     assert res.split_features  # at least one feature chosen
@@ -130,6 +135,7 @@ def test_biz_val_weak_segment_localizes_injected_bad_region():
 
 
 def test_error_bias_returns_per_feature_panels_and_table(reg_clean):
+    """Error bias returns per feature panels and table."""
     X, yt, yp = reg_clean
     res = error_bias_per_feature(X, yt, yp, max_features=3)
     assert isinstance(res, ErrorBiasResult)
@@ -145,6 +151,7 @@ def test_error_bias_returns_per_feature_panels_and_table(reg_clean):
 
 
 def test_error_bias_group_masks_partition_rows(reg_clean):
+    """Error bias group masks partition rows."""
     X, yt, yp = reg_clean
     res = error_bias_per_feature(X, yt, yp, tail_fraction=0.1)
     masks = res.group_masks
@@ -156,6 +163,7 @@ def test_error_bias_group_masks_partition_rows(reg_clean):
 
 
 def test_error_bias_feature_subset(reg_clean):
+    """Error bias feature subset."""
     X, yt, yp = reg_clean
     res = error_bias_per_feature(X, yt, yp, features=["f1"])
     assert list(res.group_means.index) == ["f1"]
@@ -200,6 +208,7 @@ def test_biz_val_error_bias_over_group_mean_shifts_high():
 
 
 def test_worst_k_table_columns_and_size(reg_clean):
+    """Worst k table columns and size."""
     X, yt, yp = reg_clean
     res = worst_k_table(X, yt, yp, task="regression", k=15)
     assert isinstance(res, WorstKResult)
@@ -210,6 +219,7 @@ def test_worst_k_table_columns_and_size(reg_clean):
 
 
 def test_worst_k_table_sorted_worst_first(reg_clean):
+    """Worst k table sorted worst first."""
     X, yt, yp = reg_clean
     res = worst_k_table(X, yt, yp, k=20)
     losses = res.table["loss"].to_numpy()
@@ -220,6 +230,7 @@ def test_worst_k_table_sorted_worst_first(reg_clean):
 
 
 def test_worst_k_indices_point_to_original_rows(reg_clean):
+    """Worst k indices point to original rows."""
     X, yt, yp = reg_clean
     res = worst_k_table(X, yt, yp, k=10)
     idx = res.highlight_indices()
@@ -230,6 +241,7 @@ def test_worst_k_indices_point_to_original_rows(reg_clean):
 
 
 def test_worst_k_table_ids_timestamps_and_fi(reg_clean):
+    """Worst k table ids timestamps and fi."""
     X, yt, yp = reg_clean
     n = len(yt)
     ids = np.arange(n)
@@ -339,6 +351,7 @@ def test_error_bias_pruned_pull_matches_full_matrix():
 
 
 def test_worst_k_classification_uses_loss(reg_clean):
+    """Worst k classification uses loss."""
     X, _, _ = reg_clean
     rng = np.random.default_rng(3)
     n = len(X)
@@ -357,6 +370,7 @@ def test_worst_k_classification_uses_loss(reg_clean):
 
 @pytest.fixture
 def fairness_frame():
+    """Fairness frame."""
     return pd.DataFrame(
         {
             "segment": ["A", "B", "C", "D"],
@@ -372,6 +386,7 @@ def _seg_vals(bar):
 
 
 def test_segments_bar_returns_single_series_with_hline_reference(fairness_frame):
+    """Segments bar returns single series with hline reference."""
     fig = segments_bar(fairness_frame, metric_name="accuracy")
     panels = [p for row in fig.panels for p in row if p is not None]
     assert len(panels) == 1
@@ -384,6 +399,7 @@ def test_segments_bar_returns_single_series_with_hline_reference(fairness_frame)
 
 
 def test_segments_bar_sorts_worst_first(fairness_frame):
+    """Segments bar sorts worst first."""
     fig = segments_bar(fairness_frame, metric_name="accuracy")
     bar = next(p for row in fig.panels for p in row if p is not None)
     # Lowest accuracy = worst -> leftmost: D(0.55) then B(0.71) then C(0.88) then A(0.92).
@@ -392,6 +408,7 @@ def test_segments_bar_sorts_worst_first(fairness_frame):
 
 
 def test_segments_bar_count_weighted_reference(fairness_frame):
+    """Segments bar count weighted reference."""
     fig = segments_bar(fairness_frame, metric_name="accuracy")
     bar = next(p for row in fig.panels for p in row if p is not None)
     ref = bar.hline[0]
@@ -401,6 +418,7 @@ def test_segments_bar_count_weighted_reference(fairness_frame):
 
 
 def test_segments_bar_higher_is_worse_orders_descending():
+    """Segments bar higher is worse orders descending."""
     df = pd.DataFrame({"seg": ["X", "Y", "Z"], "error_rate": [0.05, 0.30, 0.12]})
     fig = segments_bar(df, metric_col="error_rate", higher_is_worse=True, metric_name="error rate")
     bar = next(p for row in fig.panels for p in row if p is not None)
@@ -415,6 +433,7 @@ def test_segments_bar_higher_is_worse_orders_descending():
 
 
 def test_target_dist_overlay_regression_panels():
+    """Target dist overlay regression panels."""
     rng = np.random.default_rng(0)
     y = {"train": rng.normal(0, 1, 3000), "val": rng.normal(0, 1, 1000), "test": rng.normal(0, 1, 1000)}
     pred = {"oof": rng.normal(0, 1, 3000), "test": rng.normal(0, 1, 1000)}
@@ -432,6 +451,7 @@ def test_target_dist_overlay_regression_panels():
 
 
 def test_target_dist_overlay_classification_classrates():
+    """Target dist overlay classification classrates."""
     rng = np.random.default_rng(1)
     y = {"train": (rng.uniform(0, 1, 2000) < 0.3).astype(int), "test": (rng.uniform(0, 1, 1000) < 0.3).astype(int)}
     fig = target_dist_overlay(y, task="classification")
@@ -448,6 +468,7 @@ def test_target_dist_overlay_classification_classrates():
 
 
 def test_target_dist_overlay_only_target_when_no_preds():
+    """Target dist overlay only target when no preds."""
     rng = np.random.default_rng(2)
     y = {"train": rng.normal(0, 1, 500), "test": rng.normal(0, 1, 500)}
     fig = target_dist_overlay(y, task="regression")
@@ -473,6 +494,7 @@ def test_target_dist_overlay_all_nan_split_is_surfaced_as_excluded():
 
 
 def test_target_dist_overlay_no_usable_nontrain_split():
+    """Target dist overlay no usable nontrain split."""
     y = {"train": np.random.default_rng(4).normal(0, 1, 500), "test": np.full(200, np.nan)}
     fig = target_dist_overlay(y, task="regression")
     assert "excluded" in fig.suptitle
@@ -513,6 +535,7 @@ def test_biz_val_target_dist_overlay_detects_train_test_shift():
 
 @pytest.mark.parametrize("backend", ["matplotlib[png]", "plotly[html]"])
 def test_render_smoke_all_figures(reg_clean, fairness_frame, tmp_path, backend):
+    """Render smoke all figures."""
     X, yt, yp = reg_clean
     figs = {
         "heatmap": weak_segment_heatmap(X, yt, yp).figure,

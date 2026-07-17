@@ -29,7 +29,9 @@ from mlframe.reporting.spec import (
 
 
 class TestCalibrationSpec:
+    """Groups tests for: TestCalibrationSpec."""
     def test_returns_2_panel_grid_when_histogram_on(self):
+        """Returns 2 panel grid when histogram on."""
         spec = build_calibration_spec(
             freqs_predicted=np.linspace(0.05, 0.95, 10),
             freqs_true=np.linspace(0.0, 1.0, 10),
@@ -44,6 +46,7 @@ class TestCalibrationSpec:
         assert isinstance(spec.panels[1][0], HistogramPanelSpec)
 
     def test_returns_1_panel_when_histogram_off(self):
+        """Returns 1 panel when histogram off."""
         spec = build_calibration_spec(
             freqs_predicted=np.array([0.1, 0.5, 0.9]),
             freqs_true=np.array([0.05, 0.5, 0.95]),
@@ -53,6 +56,7 @@ class TestCalibrationSpec:
         assert len(spec.panels) == 1
 
     def test_inline_labels_populated(self):
+        """Inline labels populated."""
         spec = build_calibration_spec(
             freqs_predicted=np.array([0.1, 0.5]),
             freqs_true=np.array([0.05, 0.5]),
@@ -65,6 +69,7 @@ class TestCalibrationSpec:
         assert any("K" in t[2] for t in scatter.inline_labels)
 
     def test_renders_via_matplotlib(self, tmp_path):
+        """Renders via matplotlib."""
         spec = build_calibration_spec(
             freqs_predicted=np.linspace(0.05, 0.95, 10),
             freqs_true=np.linspace(0.0, 1.0, 10),
@@ -74,6 +79,7 @@ class TestCalibrationSpec:
         assert os.path.exists(tmp_path / "calib.png")
 
     def test_renders_via_plotly(self, tmp_path):
+        """Renders via plotly."""
         spec = build_calibration_spec(
             freqs_predicted=np.linspace(0.05, 0.95, 10),
             freqs_true=np.linspace(0.0, 1.0, 10),
@@ -83,6 +89,7 @@ class TestCalibrationSpec:
         assert os.path.exists(tmp_path / "calib.html")
 
     def test_wilson_ci_band_default_on(self):
+        """Wilson ci band default on."""
         spec = build_calibration_spec(
             freqs_predicted=np.array([0.1, 0.5, 0.9]),
             freqs_true=np.array([0.08, 0.52, 0.88]),
@@ -94,6 +101,7 @@ class TestCalibrationSpec:
         assert np.any(lo > 0) and np.any(hi > 0)
 
     def test_wilson_ci_band_suppressed_when_off(self):
+        """Wilson ci band suppressed when off."""
         spec = build_calibration_spec(
             freqs_predicted=np.array([0.1, 0.5, 0.9]),
             freqs_true=np.array([0.08, 0.52, 0.88]),
@@ -108,6 +116,7 @@ class TestCalibrationSpec:
         # area ~5000, occluding every neighbour. Above MAX_BUBBLE_AREA the area is sqrt-
         # compressed toward the cap, so the dominant bin is far smaller than the raw value
         # yet still the largest point.
+        """Bubble area capped for dominant bin."""
         from mlframe.reporting.charts.calibration import MAX_BUBBLE_AREA
 
         hits = np.array([1, 1, 1_000_000, 1, 1])
@@ -126,6 +135,7 @@ class TestCalibrationSpec:
         assert dominant == sizes.max()
 
     def test_inline_labels_auto_disabled_above_max_bins(self):
+        """Inline labels auto disabled above max bins."""
         from mlframe.reporting.charts.calibration import INLINE_LABEL_MAX_BINS
 
         nbins = INLINE_LABEL_MAX_BINS + 5
@@ -138,6 +148,7 @@ class TestCalibrationSpec:
         assert spec.panels[0][0].inline_labels is None
 
     def test_inline_labels_kept_at_or_below_max_bins(self):
+        """Inline labels kept at or below max bins."""
         from mlframe.reporting.charts.calibration import INLINE_LABEL_MAX_BINS
 
         nbins = INLINE_LABEL_MAX_BINS
@@ -155,6 +166,7 @@ class TestReliabilityCiToggleWiring:
     """G7: ReportingConfig.reliability_show_ci must reach the chart, not be a dead pipe."""
 
     def _binned(self):
+        """Helper: Binned."""
         rng = np.random.default_rng(0)
         y_pred = rng.random(4000)
         y_true = (rng.random(4000) < y_pred).astype(int)
@@ -164,11 +176,13 @@ class TestReliabilityCiToggleWiring:
         # build_calibration_spec is imported lazily inside show_calibration_plot; patch it at
         # its definition module so the lazy import resolves to the spy. Capture the ORIGINAL
         # reference before patching so the spy does not call itself (recursion).
+        """Helper: Spy build calibration spec."""
         import mlframe.reporting.charts.calibration as cal_mod
 
         real = cal_mod.build_calibration_spec
 
         def _spy(*args, **kwargs):
+            """Helper: Spy."""
             captured["show_wilson_ci"] = kwargs.get("show_wilson_ci")
             return real(*args, **kwargs)
 
@@ -177,6 +191,7 @@ class TestReliabilityCiToggleWiring:
     def test_fast_calibration_report_off_suppresses_ci(self, tmp_path, monkeypatch):
         # On pre-fix code fast_calibration_report has no reliability_show_ci parameter at all,
         # and the toggle never reaches build_calibration_spec -> show_wilson_ci stays True.
+        """Fast calibration report off suppresses ci."""
         from mlframe.metrics.core import fast_calibration_report
 
         captured = {}
@@ -195,6 +210,7 @@ class TestReliabilityCiToggleWiring:
         assert captured.get("show_wilson_ci") is False
 
     def test_fast_calibration_report_default_keeps_ci(self, tmp_path, monkeypatch):
+        """Fast calibration report default keeps ci."""
         from mlframe.metrics.core import fast_calibration_report
 
         captured = {}
@@ -232,6 +248,7 @@ def _fake_audit():
 
 
 class TestRegressionSpec:
+    """Groups tests for: TestRegressionSpec."""
     def test_returns_4_panel_grid(self):
         """The default template restores RESID_VS_PRED and adds ERR_BY_DECILE,
         so the legacy adapter now packs SCATTER + RESID_HIST + RESID_VS_PRED +
@@ -281,6 +298,7 @@ class TestRegressionSpec:
         assert spec.panels[0][0].title == "MAE=0.1 RMSE=0.15"
 
     def test_histogram_title_includes_hypothesis_and_suggested(self):
+        """Histogram title includes hypothesis and suggested."""
         spec = build_regression_panel_spec(
             np.random.default_rng(0).standard_normal(50),
             np.random.default_rng(1).standard_normal(50),
@@ -293,6 +311,7 @@ class TestRegressionSpec:
         assert "suggested: MSE" in hist_title
 
     def test_renders_via_plotly(self, tmp_path):
+        """Renders via plotly."""
         rng = np.random.default_rng(0)
         y = rng.standard_normal(100)
         spec = build_regression_panel_spec(
@@ -312,7 +331,9 @@ class TestRegressionSpec:
 
 
 class TestTemporalSpec:
+    """Groups tests for: TestTemporalSpec."""
     def test_returns_single_line_panel(self):
+        """Returns single line panel."""
         audit = SimpleNamespace(
             time_bins=np.arange(20),
             rates=np.random.default_rng(0).uniform(0.4, 0.6, 20),
@@ -326,6 +347,7 @@ class TestTemporalSpec:
         assert isinstance(spec.panels[0][0], LinePanelSpec)
 
     def test_segments_in_title(self):
+        """Segments in title."""
         rng = np.random.default_rng(0)
         rates = rng.uniform(0.4, 0.6, 20)
         bins = [SimpleNamespace(bin_start=float(i), target_rate=float(rates[i]), kept=True) for i in range(20)]
@@ -345,6 +367,7 @@ class TestTemporalSpec:
         assert "2 segment(s)" in spec.panels[0][0].title
 
     def test_renders_via_plotly(self, tmp_path):
+        """Renders via plotly."""
         audit = SimpleNamespace(
             time_bins=np.arange(20),
             rates=np.linspace(0.1, 0.5, 20),

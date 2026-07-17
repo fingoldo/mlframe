@@ -12,6 +12,7 @@ from mlframe.reporting.charts.risk_coverage import build_risk_coverage_spec
 
 
 def test_aurc_matches_random_on_random_quality_scores():
+    """Aurc matches random on random quality scores."""
     rng = np.random.default_rng(0)
     n = 500
     y_true = (rng.random(n) < 0.5).astype(int)

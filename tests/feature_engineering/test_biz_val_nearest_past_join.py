@@ -17,6 +17,7 @@ from mlframe.feature_engineering.nearest_past_join import nearest_past_join
 
 
 def test_biz_val_nearest_past_join_feature_beats_no_signal_baseline():
+    """Biz val nearest past join feature beats no signal baseline."""
     rng = np.random.default_rng(0)
     n_entities = 200
 
@@ -53,6 +54,7 @@ def test_biz_val_nearest_past_join_feature_beats_no_signal_baseline():
 
 
 def test_nearest_past_join_respects_backward_only_no_future_leakage():
+    """Nearest past join respects backward only no future leakage."""
     left = pd.DataFrame({"entity": ["a", "a"], "t": [1, 3]})
     right = pd.DataFrame({"entity": ["a", "a", "a"], "t": [0, 2, 5], "val": [10, 20, 999]})
 
@@ -62,6 +64,7 @@ def test_nearest_past_join_respects_backward_only_no_future_leakage():
 
 
 def test_nearest_past_join_no_eligible_history_gives_nan():
+    """Nearest past join no eligible history gives nan."""
     left = pd.DataFrame({"entity": ["a"], "t": [0]})
     right = pd.DataFrame({"entity": ["a"], "t": [5], "val": [42]})
     result = nearest_past_join(left, right, on="t", by=["entity"], right_value_cols=["val"])
@@ -69,6 +72,7 @@ def test_nearest_past_join_no_eligible_history_gives_nan():
 
 
 def test_nearest_past_join_preserves_row_count_and_order():
+    """Nearest past join preserves row count and order."""
     left = pd.DataFrame({"entity": ["b", "a", "a"], "t": [10, 5, 1]})
     right = pd.DataFrame({"entity": ["a", "b"], "t": [0, 0], "val": [1.0, 2.0]})
     result = nearest_past_join(left, right, on="t", by=["entity"], right_value_cols=["val"])
@@ -98,6 +102,7 @@ def _make_sparse_key_dataset(rng: np.random.Generator, n_entities: int = 150):
 
 
 def test_biz_val_nearest_past_join_fallback_chain_recovers_sparse_key_matches():
+    """Biz val nearest past join fallback chain recovers sparse key matches."""
     rng = np.random.default_rng(0)
     history_df, query_df = _make_sparse_key_dataset(rng)
 
@@ -132,6 +137,7 @@ def test_biz_val_nearest_past_join_fallback_chain_recovers_sparse_key_matches():
 
 
 def test_nearest_past_join_fallback_chain_omitted_matches_single_key_bit_identical():
+    """Nearest past join fallback chain omitted matches single key bit identical."""
     rng = np.random.default_rng(1)
     history_df, query_df = _make_sparse_key_dataset(rng)
 
@@ -141,6 +147,7 @@ def test_nearest_past_join_fallback_chain_omitted_matches_single_key_bit_identic
 
 
 def test_nearest_past_join_fallback_chain_min_group_size_treats_thin_groups_as_sparse():
+    """Nearest past join fallback chain min group size treats thin groups as sparse."""
     left = pd.DataFrame({"g": [1, 2], "t": [10, 10]})
     right = pd.DataFrame({"g": [1, 1, 2], "t": [1, 2, 1], "val": [10.0, 20.0, 5.0]})
 

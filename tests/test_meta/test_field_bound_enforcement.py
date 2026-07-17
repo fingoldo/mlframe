@@ -41,6 +41,7 @@ def _config_classes() -> list[type[BaseModel]]:
     # re-exported from ``mlframe.training.configs``. The field-bound contract
     # applies to the full re-exported surface, so accept classes whose
     # ``__module__`` is either ``configs`` itself or any of those siblings.
+    """Helper that config classes."""
     _accepted_modules = {
         configs_module.__name__,
         f"{configs_module.__package__}._preprocessing_configs",
@@ -62,6 +63,7 @@ def _config_classes() -> list[type[BaseModel]]:
 
 
 def _has_default(info: FieldInfo) -> bool:
+    """Helper that has default."""
     if info.default is not PydanticUndefined and info.default is not Ellipsis:
         return True
     if info.default_factory is not None:

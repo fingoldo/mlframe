@@ -10,6 +10,7 @@ from mlframe.reporting.charts import slice_finder as sf
 
 @pytest.mark.skipif(not sf._HAS_NUMBA_SLICE, reason="numba unavailable")
 def test_batched_pairs_bit_identical_to_serial_aggregate():
+    """Batched pairs bit identical to serial aggregate."""
     rng = np.random.default_rng(0)
     n, p = 8000, 14
     mat = rng.standard_normal((n, p))
@@ -34,6 +35,7 @@ def test_batched_pairs_bit_identical_to_serial_aggregate():
 
 @pytest.mark.skipif(not sf._HAS_NUMBA_SLICE, reason="numba unavailable")
 def test_find_weak_slices_table_unchanged_by_batching(monkeypatch):
+    """Find weak slices table unchanged by batching."""
     rng = np.random.default_rng(3)
     n, p = 6000, 10
     X = rng.standard_normal((n, p))
@@ -70,6 +72,7 @@ def test_find_weak_slices_defers_labels_to_displayed_top_k(monkeypatch):
     real_bin_label = sf._bin_label
 
     def _counting_bin_label(edges, b):
+        """Helper: Counting bin label."""
         calls["n"] += 1
         return real_bin_label(edges, b)
 

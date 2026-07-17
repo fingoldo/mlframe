@@ -10,6 +10,7 @@ from mlframe.reporting.spec import FigureSpec, HeatmapPanelSpec, LinePanelSpec
 
 
 def _dense_heatmap_spec(nbins: int = 80) -> FigureSpec:
+    """Helper: Dense heatmap spec."""
     mat = np.random.default_rng(0).random((nbins, nbins))
     labels = tuple(f"{v:.3g}" for v in np.linspace(8770, 14300, nbins))
     panel = HeatmapPanelSpec(
@@ -24,6 +25,7 @@ def _dense_heatmap_spec(nbins: int = 80) -> FigureSpec:
 
 
 def test_thin_tick_positions_caps_and_keeps_endpoints():
+    """Thin tick positions caps and keeps endpoints."""
     from mlframe.reporting.renderers.matplotlib import _thin_tick_positions, _HEATMAP_MAX_TICKS
 
     pos = _thin_tick_positions(80)
@@ -34,6 +36,7 @@ def test_thin_tick_positions_caps_and_keeps_endpoints():
 
 
 def test_matplotlib_heatmap_thins_dense_ticks():
+    """Matplotlib heatmap thins dense ticks."""
     from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer, _HEATMAP_MAX_TICKS
 
     fig = MatplotlibRenderer().render(_dense_heatmap_spec(80))
@@ -43,6 +46,7 @@ def test_matplotlib_heatmap_thins_dense_ticks():
 
 
 def test_plotly_heatmap_thins_dense_ticks():
+    """Plotly heatmap thins dense ticks."""
     pytest.importorskip("plotly")
     from mlframe.reporting.renderers.plotly import PlotlyRenderer, _HEATMAP_MAX_TICKS
 
@@ -54,6 +58,7 @@ def test_plotly_heatmap_thins_dense_ticks():
 
 
 def test_caption_renders_as_bottom_footnote_matplotlib():
+    """Caption renders as bottom footnote matplotlib."""
     line = LinePanelSpec(x=np.linspace(0, 1, 10), y=(np.linspace(0, 1, 10),), series_labels=("a",), title="t")
     cap = "Sort predictions by confidence; x = coverage, y = error on kept rows. Flat => no signal."
     fig = FigureSpec(panels=((line,),), figsize=(8.0, 5.8), caption=cap)

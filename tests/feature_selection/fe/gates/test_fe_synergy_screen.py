@@ -18,6 +18,7 @@ from mlframe.feature_selection.filters.discretization import discretize_array
 
 
 def _q(arr, nb):
+    """Quantile-discretize a continuous array into nb integer bins for joint_synergy_mi inputs."""
     return discretize_array(arr=np.asarray(arr, dtype=float), n_bins=nb, method="quantile", dtype=np.int32)
 
 

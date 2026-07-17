@@ -28,6 +28,7 @@ from mlframe.feature_engineering.transformer.class_mahalanobis import _mahalanob
 
 
 def _make(n: int, d: int, seed: int = 0):
+    """Helper: Make."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, d)).astype(np.float32)
     mean = rng.standard_normal(d).astype(np.float32)

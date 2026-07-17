@@ -32,6 +32,7 @@ _COLD_YEARS = (28, 29)  # the cold-start country's only two Christmas Day occurr
 
 
 def _build_synthetic():
+    """Helper: Build synthetic."""
     rng = np.random.default_rng(0)
     names = []
     countries = []
@@ -58,6 +59,7 @@ def _build_synthetic():
 
 
 def test_biz_val_holiday_name_target_encode_cross_locale_cold_start_country_beats_same_country_only():
+    """Biz val holiday name target encode cross locale cold start country beats same country only."""
     names, countries, y, order = _build_synthetic()
 
     same_country_only = holiday_name_target_encode_cross_locale(names, countries, y, order=order, smoothing=1.0)
@@ -78,6 +80,7 @@ def test_biz_val_holiday_name_target_encode_cross_locale_cold_start_country_beat
 
 
 def test_holiday_name_target_encode_cross_locale_default_is_bit_identical_to_composite_key_encoding():
+    """Holiday name target encode cross locale default is bit identical to composite key encoding."""
     names, countries, y, order = _build_synthetic()
 
     default_out = holiday_name_target_encode_cross_locale(names, countries, y, order=order, smoothing=1.0)
@@ -89,6 +92,7 @@ def test_holiday_name_target_encode_cross_locale_default_is_bit_identical_to_com
 
 
 def test_holiday_name_target_encode_cross_locale_rejects_non_positive_shrinkage():
+    """Holiday name target encode cross locale rejects non positive shrinkage."""
     names, countries, y, order = _build_synthetic()
     import pytest
 

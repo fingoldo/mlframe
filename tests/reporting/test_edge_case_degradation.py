@@ -84,10 +84,13 @@ def _to_result_fig(obj):
 
 
 class _LinearModel:
+    """Groups tests for: LinearModel."""
     def __init__(self, w):
+        """Helper: Init  ."""
         self.w = np.asarray(w, dtype=np.float64)
 
     def predict(self, X):
+        """Predict."""
         return np.asarray(X, dtype=np.float64) @ self.w
 
 
@@ -95,12 +98,14 @@ class _LinearModel:
 
 
 def _single_class(n=200, cls=1):
+    """Helper: Single class."""
     y = np.full(n, cls, dtype=int)
     s = np.linspace(0.1, 0.9, n)
     return y, s
 
 
 def _const_score(n=200):
+    """Helper: Const score."""
     rng = np.random.default_rng(0)
     y = rng.integers(0, 2, n)
     s = np.full(n, 0.5)
@@ -108,6 +113,7 @@ def _const_score(n=200):
 
 
 def _all_nan(n=200):
+    """Helper: All nan."""
     rng = np.random.default_rng(0)
     y = rng.integers(0, 2, n)
     s = np.full(n, np.nan)
@@ -115,6 +121,7 @@ def _all_nan(n=200):
 
 
 def _all_inf(n=200):
+    """Helper: All inf."""
     rng = np.random.default_rng(0)
     y = rng.integers(0, 2, n)
     s = np.full(n, np.inf)
@@ -122,6 +129,7 @@ def _all_inf(n=200):
 
 
 def _mixed_nan(n=200):
+    """Helper: Mixed nan."""
     rng = np.random.default_rng(0)
     y = rng.integers(0, 2, n)
     s = rng.random(n)
@@ -131,10 +139,12 @@ def _mixed_nan(n=200):
 
 
 def _empty():
+    """Helper: Empty."""
     return np.array([], dtype=int), np.array([], dtype=float)
 
 
 def _tiny(n):
+    """Helper: Tiny."""
     rng = np.random.default_rng(n)
     y = rng.integers(0, 2, n)
     if n >= 2:  # ensure at least one of each where possible
@@ -165,6 +175,7 @@ _BINARY_TEMPLATE = "ROC PR SCORE_DIST KS THRESHOLD GAIN PIT"
 
 @pytest.mark.parametrize("case", sorted(_BINARY_CASES))
 def test_binary_degenerate(case):
+    """Binary degenerate."""
     y, s = _BINARY_CASES[case]
     fig = compose_binary_figure(y, s, panels_template=_BINARY_TEMPLATE)
     _render_both(fig)
@@ -174,6 +185,7 @@ def test_binary_degenerate(case):
 
 
 def _mc_case(name, K=3, n=300):
+    """Helper: Mc case."""
     rng = np.random.default_rng(1)
     if name == "single_class":
         y = np.zeros(n, dtype=int)
@@ -211,6 +223,7 @@ _MC_TEMPLATE = "CONFUSION CONFUSED_PAIRS PR_F1 ROC PR_CURVES CALIB_GRID PROB_DIS
 
 @pytest.mark.parametrize("case", _MC_CASES)
 def test_multiclass_degenerate(case):
+    """Multiclass degenerate."""
     y, P, classes = _mc_case(case)
     fig = compose_multiclass_figure(y, P, classes, panels_template=_MC_TEMPLATE)
     _render_both(fig)
@@ -220,6 +233,7 @@ def test_multiclass_degenerate(case):
 
 
 def _ml_case(name, K=4, n=300):
+    """Helper: Ml case."""
     rng = np.random.default_rng(2)
     if name == "empty":
         return np.zeros((0, K), dtype=int), np.zeros((0, K))
@@ -248,6 +262,7 @@ _ML_TEMPLATE = "PR_F1 ROC CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST HAMMI
 
 @pytest.mark.parametrize("case", _ML_CASES)
 def test_multilabel_degenerate(case):
+    """Multilabel degenerate."""
     Y, P = _ml_case(case)
     K = Y.shape[1]
     fig = compose_multilabel_figure(Y, P, list(range(K)), panels_template=_ML_TEMPLATE)
@@ -258,6 +273,7 @@ def test_multilabel_degenerate(case):
 
 
 def _ltr_case(name):
+    """Helper: Ltr case."""
     rng = np.random.default_rng(3)
     if name == "empty":
         return np.array([], dtype=int), np.array([], dtype=float), np.array([], dtype=int)
@@ -287,6 +303,7 @@ _LTR_TEMPLATE = "NDCG_K NDCG_DIST NDCG_BY_QSIZE LIFT MRR_DIST SCORE_BY_REL TOP1_
 
 @pytest.mark.parametrize("case", _LTR_CASES)
 def test_ltr_degenerate(case):
+    """Ltr degenerate."""
     yt, ys, g = _ltr_case(case)
     fig = compose_ltr_figure(yt, ys, g, panels_template=_LTR_TEMPLATE)
     _render_both(fig)
@@ -296,6 +313,7 @@ def test_ltr_degenerate(case):
 
 
 def _quant_case(name):
+    """Helper: Quant case."""
     rng = np.random.default_rng(4)
     alphas = (0.1, 0.5, 0.9)
     K = len(alphas)
@@ -327,6 +345,7 @@ _QUANT_TEMPLATE = "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIS
 
 @pytest.mark.parametrize("case", _QUANT_CASES)
 def test_quantile_degenerate(case):
+    """Quantile degenerate."""
     y, P, alphas = _quant_case(case)
     fig = compose_quantile_figure(y, P, alphas, panels_template=_QUANT_TEMPLATE)
     _render_both(fig)
@@ -336,6 +355,7 @@ def test_quantile_degenerate(case):
 
 
 def _reg_case(name):
+    """Helper: Reg case."""
     rng = np.random.default_rng(5)
     if name == "empty":
         return np.array([], dtype=float), np.array([], dtype=float)
@@ -367,6 +387,7 @@ _REG_TEMPLATE = "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE WORM RESID_ACF"
 
 @pytest.mark.parametrize("case", _REG_CASES)
 def test_regression_degenerate(case):
+    """Regression degenerate."""
     y, p = _reg_case(case)
     fig = compose_regression_figure(y, p, panels_template=_REG_TEMPLATE)
     _render_both(fig)
@@ -377,6 +398,7 @@ def test_regression_degenerate(case):
 
 @pytest.mark.parametrize("case", sorted(_BINARY_CASES))
 def test_decision_curve_degenerate(case):
+    """Decision curve degenerate."""
     y, s = _BINARY_CASES[case]
     res = build_decision_curve_spec(y, s)
     _render_both(_to_result_fig(res))
@@ -386,6 +408,7 @@ def test_decision_curve_degenerate(case):
 
 
 def _calib_case(name):
+    """Helper: Calib case."""
     if name == "empty":
         return np.array([]), np.array([]), np.array([])
     if name == "single_bin":
@@ -403,6 +426,7 @@ _CALIB_CASES = ["empty", "single_bin", "const_bins", "all_nan", "normal"]
 
 @pytest.mark.parametrize("case", _CALIB_CASES)
 def test_build_calibration_spec_degenerate(case):
+    """Build calibration spec degenerate."""
     fp, ft, hits = _calib_case(case)
     fig = build_calibration_spec(fp, ft, hits)
     _render_both(fig)
@@ -412,6 +436,7 @@ def test_build_calibration_spec_degenerate(case):
 
 
 def _calib_drift_case(name):
+    """Helper: Calib drift case."""
     rng = np.random.default_rng(6)
     if name == "empty":
         return np.array([], dtype=int), np.array([], dtype=float), np.array([], dtype="datetime64[D]")
@@ -439,6 +464,7 @@ _CALIB_DRIFT_CASES = ["empty", "single_class", "const_score", "all_nan", "n5", "
 
 @pytest.mark.parametrize("case", _CALIB_DRIFT_CASES)
 def test_calibration_drift_degenerate(case):
+    """Calibration drift degenerate."""
     y, s, ts = _calib_drift_case(case)
     res = calibration_drift(y, s, ts)
     assert isinstance(res, CalibrationDriftResult)
@@ -450,6 +476,7 @@ def test_calibration_drift_degenerate(case):
 
 
 def _tc_case(name):
+    """Helper: Tc case."""
     if name == "empty":
         return {}
     if name == "single_point":
@@ -466,6 +493,7 @@ _TC_CASES = ["empty", "single_point", "all_nan", "mismatched_len", "normal"]
 
 @pytest.mark.parametrize("case", _TC_CASES)
 def test_training_curve_degenerate(case):
+    """Training curve degenerate."""
     hist = _tc_case(case)
     fig = compose_training_curve_figure(hist)
     _render_both(fig)
@@ -475,9 +503,11 @@ def test_training_curve_degenerate(case):
 
 
 def _mc_compare_case(name):
+    """Helper: Mc compare case."""
     rng = np.random.default_rng(7)
 
     def entry(y, s, **m):
+        """Entry."""
         return {"y_true": np.asarray(y), "y_score": np.asarray(s), "metrics": dict(m)}
 
     if name == "empty":
@@ -506,6 +536,7 @@ _MC_COMPARE_CASES = ["empty", "single_model_single_class", "const_score", "no_me
 
 @pytest.mark.parametrize("case", _MC_COMPARE_CASES)
 def test_model_comparison_degenerate(case):
+    """Model comparison degenerate."""
     per_model, task = _mc_compare_case(case)
     fig = compose_model_comparison_figure(per_model, task)
     _render_both(fig)
@@ -515,6 +546,7 @@ def test_model_comparison_degenerate(case):
 
 
 def _pdp_case(name):
+    """Helper: Pdp case."""
     rng = np.random.default_rng(8)
     model = _LinearModel([1.0, 0.0])
     if name == "no_features":
@@ -539,6 +571,7 @@ _PDP_CASES = ["no_features", "n1", "n5", "const_feature", "nan_feature", "normal
 
 @pytest.mark.parametrize("case", _PDP_CASES)
 def test_pdp_degenerate(case):
+    """Pdp degenerate."""
     model, X, feats = _pdp_case(case)
     fig = compose_pdp_figure(model, X, feats)
     _render_both(fig)
@@ -548,6 +581,7 @@ def test_pdp_degenerate(case):
 
 
 def _slice_case(name):
+    """Helper: Slice case."""
     rng = np.random.default_rng(9)
     if name == "empty":
         return np.zeros((0, 3)), np.array([]), np.array([])
@@ -573,6 +607,7 @@ _SLICE_CASES = ["empty", "n1", "n5", "no_features", "const_features", "all_nan_e
 
 @pytest.mark.parametrize("case", _SLICE_CASES)
 def test_slice_finder_degenerate(case):
+    """Slice finder degenerate."""
     X, yt, yp = _slice_case(case)
     res = find_weak_slices(X, yt, yp, task="regression")
     assert isinstance(res, SliceFinderResult)
@@ -584,6 +619,7 @@ def test_slice_finder_degenerate(case):
 
 @pytest.mark.parametrize("case", _SLICE_CASES)
 def test_weak_segment_heatmap_degenerate(case):
+    """Weak segment heatmap degenerate."""
     X, yt, yp = _slice_case(case)
     res = weak_segment_heatmap(X, yt, yp, task="regression")
     _render_both(_to_result_fig(res))
@@ -594,6 +630,7 @@ def test_weak_segment_heatmap_degenerate(case):
 
 @pytest.mark.parametrize("case", _SLICE_CASES)
 def test_error_bias_per_feature_degenerate(case):
+    """Error bias per feature degenerate."""
     X, yt, yp = _slice_case(case)
     res = error_bias_per_feature(X, yt, yp)
     assert isinstance(res, ErrorBiasResult)
@@ -604,6 +641,7 @@ def test_error_bias_per_feature_degenerate(case):
 
 
 def _tdo_case(name):
+    """Helper: Tdo case."""
     rng = np.random.default_rng(10)
     if name == "empty_split":
         return {"train": np.array([]), "test": np.array([])}, "regression"
@@ -623,6 +661,7 @@ _TDO_CASES = ["empty_split", "single_split", "const", "all_nan", "classification
 
 @pytest.mark.parametrize("case", _TDO_CASES)
 def test_target_dist_overlay_degenerate(case):
+    """Target dist overlay degenerate."""
     by_split, task = _tdo_case(case)
     fig = target_dist_overlay(by_split, task=task)
     _render_both(fig)
@@ -632,6 +671,7 @@ def test_target_dist_overlay_degenerate(case):
 
 
 def _frame_case(name, p=3):
+    """Helper: Frame case."""
     import pandas as pd
 
     rng = np.random.default_rng(11)
@@ -657,6 +697,7 @@ _FRAME_CASES = ["empty", "n1", "n5", "const_features", "all_nan", "normal"]
 
 @pytest.mark.parametrize("case", _FRAME_CASES)
 def test_psi_heatmap_degenerate(case):
+    """Psi heatmap degenerate."""
     X, ts = _frame_case(case)
     fig = psi_heatmap(X, ts, n_time_buckets=5)
     _render_both(fig)
@@ -666,6 +707,7 @@ def test_psi_heatmap_degenerate(case):
 
 
 def _rvt_case(name):
+    """Helper: Rvt case."""
     rng = np.random.default_rng(12)
     if name == "empty":
         return np.array([]), np.array([]), np.array([], dtype="datetime64[D]")
@@ -690,6 +732,7 @@ _RVT_CASES = ["empty", "n1", "n5", "all_nan", "const", "normal"]
 
 @pytest.mark.parametrize("case", _RVT_CASES)
 def test_residual_vs_time_degenerate(case):
+    """Residual vs time degenerate."""
     y, p, ts = _rvt_case(case)
     fig = residual_vs_time(y, p, ts)
     _render_both(fig)
@@ -699,6 +742,7 @@ def test_residual_vs_time_degenerate(case):
 
 
 def _mot_case(name):
+    """Helper: Mot case."""
     rng = np.random.default_rng(13)
     if name == "empty":
         return np.array([], dtype=int), np.array([], dtype=float), np.array([], dtype="datetime64[D]")
@@ -725,6 +769,7 @@ _MOT_CASES = ["empty", "n5", "single_class", "const_score", "all_nan", "no_bucke
 
 @pytest.mark.parametrize("case", _MOT_CASES)
 def test_metric_over_time_degenerate(case):
+    """Metric over time degenerate."""
     y, p, ts = _mot_case(case)
     min_samples = 10_000_000 if case == "no_buckets" else 10
     fig = metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=min_samples)
@@ -735,6 +780,7 @@ def test_metric_over_time_degenerate(case):
 
 
 def _adv_case(name):
+    """Helper: Adv case."""
     import pandas as pd
 
     rng = np.random.default_rng(14)
@@ -760,6 +806,7 @@ _ADV_CASES = ["empty", "n5", "identical", "const_features", "all_nan", "normal"]
 
 @pytest.mark.parametrize("case", _ADV_CASES)
 def test_adversarial_validation_degenerate(case):
+    """Adversarial validation degenerate."""
     pytest.importorskip("lightgbm")
     Xa, Xb = _adv_case(case)
     fig = adversarial_validation(Xa, Xb, n_splits=2, top_features=3)

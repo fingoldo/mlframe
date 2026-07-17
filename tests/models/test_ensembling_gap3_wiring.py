@@ -8,6 +8,7 @@ import pytest
 
 # ---------------------------------------------------------------- rank_average
 def test_rank_average_registered_and_matches_blend():
+    """Rank average registered and matches blend."""
     from mlframe.models.ensembling.base import RANK_FUSION_METHODS, combine_probs
     from mlframe.models.ensembling.selection import rank_average_blend
 
@@ -22,6 +23,7 @@ def test_rank_average_registered_and_matches_blend():
 
 
 def test_rank_average_through_public_ensemble_path():
+    """Rank average through public ensemble path."""
     from mlframe.models.ensembling.predict import ensemble_probabilistic_predictions
 
     rng = np.random.default_rng(1)
@@ -36,6 +38,7 @@ def test_rank_average_through_public_ensemble_path():
 
 
 def test_unknown_method_still_rejected():
+    """Unknown method still rejected."""
     from mlframe.models.ensembling.predict import ensemble_probabilistic_predictions
 
     with pytest.raises(ValueError):
@@ -121,6 +124,7 @@ def test_biz_val_rank_average_beats_arithmetic_on_miscalibrated_members():
     y = rng.integers(0, 2, size=n)
 
     def _sigmoid(z):
+        """Helper: Sigmoid."""
         return 1.0 / (1.0 + np.exp(-z))
 
     # Strong ranker, but its probabilities are compressed to a narrow band around 0.5 (near-zero magnitude swing).
@@ -131,6 +135,7 @@ def test_biz_val_rank_average_beats_arithmetic_on_miscalibrated_members():
     wide2 = _sigmoid(0.6 * ((2.0 * y - 1.0) + rng.normal(0, 1.6, n)))
 
     def _as_probs(p):
+        """Helper: As probs."""
         p = np.clip(p, 0.0, 1.0)
         return np.column_stack([1.0 - p, p])
 
@@ -141,6 +146,7 @@ def test_biz_val_rank_average_beats_arithmetic_on_miscalibrated_members():
 
 
 def test_nnls_still_default_when_caruana_off():
+    """Nnls still default when caruana off."""
     from mlframe.models.ensembling.score_flavours import run_stacking_aware_gate
 
     rng = np.random.default_rng(3)

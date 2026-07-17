@@ -18,6 +18,7 @@ from mlframe.reporting.spec import FigureSpec, LinePanelSpec
 
 
 def _feature(n=5000, seed=0):
+    """Helper: Feature."""
     return np.random.default_rng(seed).normal(size=n)
 
 
@@ -27,12 +28,14 @@ def _feature(n=5000, seed=0):
 
 
 def test_curves_shape_and_n_partitions_honored():
+    """Curves shape and n partitions honored."""
     grid_x, memb = fuzzy_membership_curves(_feature(), n_partitions=5, grid=200)
     assert grid_x.shape == (200,)
     assert memb.shape == (5, 200)
 
 
 def test_curves_respects_grid_and_partition_counts():
+    """Curves respects grid and partition counts."""
     for n_p in (3, 4, 7):
         grid_x, memb = fuzzy_membership_curves(_feature(), n_partitions=n_p, grid=128)
         assert grid_x.shape == (128,)
@@ -40,6 +43,7 @@ def test_curves_respects_grid_and_partition_counts():
 
 
 def test_panel_and_figure_shapes():
+    """Panel and figure shapes."""
     panel = fuzzy_membership_panel(_feature(), n_partitions=5)
     assert isinstance(panel, LinePanelSpec)
     assert len(panel.y) == 5 and len(panel.series_labels) == 5

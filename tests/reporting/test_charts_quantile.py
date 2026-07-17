@@ -64,7 +64,9 @@ def synth_qr_5alpha():
 
 
 class TestAllowedTokens:
+    """Groups tests for: TestAllowedTokens."""
     def test_allowed_set(self):
+        """Allowed set."""
         assert ALLOWED_QUANTILE_PANEL_TOKENS == frozenset(
             {
                 "RELIABILITY",
@@ -87,7 +89,9 @@ class TestAllowedTokens:
 
 
 class TestPanelTypes:
+    """Groups tests for: TestPanelTypes."""
     def test_reliability_returns_line_with_diagonal(self, synth_qr_3alpha):
+        """Reliability returns line with diagonal."""
         y, p, alphas = synth_qr_3alpha
         spec = compose_quantile_figure(y, p, alphas, panels_template="RELIABILITY")
         panel = spec.panels[0][0]
@@ -97,6 +101,7 @@ class TestPanelTypes:
         assert panel.series_labels[1] == "empirical"
 
     def test_pinball_by_alpha_returns_line(self, synth_qr_3alpha):
+        """Pinball by alpha returns line."""
         y, p, alphas = synth_qr_3alpha
         spec = compose_quantile_figure(y, p, alphas, panels_template="PINBALL_BY_ALPHA")
         panel = spec.panels[0][0]
@@ -106,6 +111,7 @@ class TestPanelTypes:
         assert isinstance(panel.y, np.ndarray) or len(panel.y) == 3
 
     def test_interval_band_returns_line(self, synth_qr_3alpha):
+        """Interval band returns line."""
         y, p, alphas = synth_qr_3alpha
         spec = compose_quantile_figure(y, p, alphas, panels_template="INTERVAL_BAND")
         panel = spec.panels[0][0]
@@ -118,6 +124,7 @@ class TestPanelTypes:
         assert panel.line_styles[1] == "markers"
 
     def test_width_dist_returns_prebinned_histogram(self, synth_qr_3alpha):
+        """Width dist returns prebinned histogram."""
         y, p, alphas = synth_qr_3alpha
         spec = compose_quantile_figure(y, p, alphas, panels_template="WIDTH_DIST")
         panel = spec.panels[0][0]
@@ -129,6 +136,7 @@ class TestPanelTypes:
         assert len(panel.values) < len(y)
 
     def test_pit_hist_returns_prebinned_histogram(self, synth_qr_5alpha):
+        """Pit hist returns prebinned histogram."""
         y, p, alphas = synth_qr_5alpha
         spec = compose_quantile_figure(y, p, alphas, panels_template="PIT_HIST")
         panel = spec.panels[0][0]
@@ -139,6 +147,7 @@ class TestPanelTypes:
 
     def test_pit_hist_placeholder_when_K_lt_3(self, synth_qr_3alpha):
         # K = 2 alphas (drop median) -> honest annotation placeholder, not a fake histogram.
+        """Pit hist placeholder when K lt 3."""
         from mlframe.reporting.spec import AnnotationPanelSpec
 
         y, p, alphas = synth_qr_3alpha
@@ -154,7 +163,9 @@ class TestPanelTypes:
 
 
 class TestComposer:
+    """Groups tests for: TestComposer."""
     def test_default_template_renders_all_default_tokens(self, synth_qr_3alpha):
+        """Default template renders all default tokens."""
         from mlframe.reporting.charts.quantile import DEFAULT_QUANTILE_PANELS
 
         y, p, alphas = synth_qr_3alpha
@@ -164,33 +175,39 @@ class TestComposer:
         assert n_set == len(DEFAULT_QUANTILE_PANELS.split())
 
     def test_subset_template(self, synth_qr_3alpha):
+        """Subset template."""
         y, p, alphas = synth_qr_3alpha
         spec = compose_quantile_figure(y, p, alphas, panels_template="RELIABILITY WIDTH_DIST")
         n_set = sum(1 for r in spec.panels for c in r if c is not None)
         assert n_set == 2
 
     def test_unknown_token_raises(self, synth_qr_3alpha):
+        """Unknown token raises."""
         y, p, alphas = synth_qr_3alpha
         with pytest.raises(ValueError, match="Unknown quantile"):
             compose_quantile_figure(y, p, alphas, panels_template="RELIABILITY BOGUS")
 
     def test_shape_mismatch_raises_2d(self, synth_qr_3alpha):
+        """Shape mismatch raises 2d."""
         y, p, alphas = synth_qr_3alpha
         # Wrong K
         with pytest.raises(ValueError, match="preds_NK.shape\\[1\\]"):
             compose_quantile_figure(y, p[:, :2], alphas)
 
     def test_n_mismatch_raises(self, synth_qr_3alpha):
+        """N mismatch raises."""
         y, p, alphas = synth_qr_3alpha
         with pytest.raises(ValueError, match="preds_NK.shape\\[0\\]"):
             compose_quantile_figure(y[:-1], p, alphas)
 
     def test_1d_preds_raises(self, synth_qr_3alpha):
+        """1d preds raises."""
         y, _, alphas = synth_qr_3alpha
         with pytest.raises(ValueError, match="2-D preds_NK"):
             compose_quantile_figure(y, np.zeros(len(y)), alphas)
 
     def test_suptitle(self, synth_qr_3alpha):
+        """Suptitle."""
         y, p, alphas = synth_qr_3alpha
         spec = compose_quantile_figure(y, p, alphas, panels_template="RELIABILITY", suptitle="QR baseline")
         assert spec.suptitle == "QR baseline"
@@ -202,7 +219,9 @@ class TestComposer:
 
 
 class TestRender:
+    """Groups tests for: TestRender."""
     def test_matplotlib_render(self, synth_qr_3alpha, tmp_path):
+        """Matplotlib render."""
         y, p, alphas = synth_qr_3alpha
         spec = compose_quantile_figure(y, p, alphas)
         with warnings.catch_warnings():
@@ -212,6 +231,7 @@ class TestRender:
         assert os.path.getsize(tmp_path / "qr.png") > 5000
 
     def test_plotly_render(self, synth_qr_3alpha, tmp_path):
+        """Plotly render."""
         y, p, alphas = synth_qr_3alpha
         spec = compose_quantile_figure(y, p, alphas)
         with warnings.catch_warnings():
@@ -280,7 +300,9 @@ def synth_qr_crossing():
 
 
 class TestQuantileReliabilityPanelTypes:
+    """Groups tests for: TestQuantileReliabilityPanelTypes."""
     def test_quantile_reliability_returns_line(self, synth_qr_calibrated):
+        """Quantile reliability returns line."""
         y, p, alphas = synth_qr_calibrated
         spec = compose_quantile_figure(y, p, alphas, panels_template="QUANTILE_RELIABILITY")
         panel = spec.panels[0][0]
@@ -302,6 +324,7 @@ class TestQuantileReliabilityPanelTypes:
         assert panel.legend_outside is True
 
     def test_pinball_decomp_returns_bar(self, synth_qr_calibrated):
+        """Pinball decomp returns bar."""
         y, p, alphas = synth_qr_calibrated
         spec = compose_quantile_figure(y, p, alphas, panels_template="PINBALL_DECOMP")
         panel = spec.panels[0][0]
@@ -309,6 +332,7 @@ class TestQuantileReliabilityPanelTypes:
         assert len(panel.categories) == len(alphas)
 
     def test_pinball_decomp_corp_three_series_when_md_available(self, synth_qr_calibrated):
+        """Pinball decomp corp three series when md available."""
         if _model_diagnostics_decompose() is None:
             pytest.skip("model-diagnostics not importable")
         y, p, alphas = synth_qr_calibrated
@@ -318,6 +342,7 @@ class TestQuantileReliabilityPanelTypes:
         assert panel.series_labels == ("miscalibration", "discrimination", "uncertainty")
 
     def test_quantile_crossing_returns_bar(self, synth_qr_calibrated):
+        """Quantile crossing returns bar."""
         y, p, alphas = synth_qr_calibrated
         spec = compose_quantile_figure(y, p, alphas, panels_template="QUANTILE_CROSSING")
         panel = spec.panels[0][0]
@@ -327,6 +352,7 @@ class TestQuantileReliabilityPanelTypes:
         assert panel.values.shape == (len(alphas) - 1,)
 
     def test_quantile_crossing_placeholder_when_single_alpha(self, synth_qr_calibrated):
+        """Quantile crossing placeholder when single alpha."""
         y, p, alphas = synth_qr_calibrated
         spec = compose_quantile_figure(
             y,
@@ -339,6 +365,7 @@ class TestQuantileReliabilityPanelTypes:
         assert "needs >= 2" in panel.text
 
     def test_new_tokens_render_matplotlib(self, synth_qr_calibrated, tmp_path):
+        """New tokens render matplotlib."""
         y, p, alphas = synth_qr_calibrated
         spec = compose_quantile_figure(
             y,
@@ -357,6 +384,7 @@ class TestQuantileReliabilityBizValue:
     """Quantitative wins: calibrated -> near-nominal + zero crossing; broken -> detectable."""
 
     def _reliability_curves(self, y, p, alphas):
+        """Helper: Reliability curves."""
         spec = compose_quantile_figure(y, p, alphas, panels_template="QUANTILE_RELIABILITY")
         panel = spec.panels[0][0]
         K = len(alphas)
@@ -365,6 +393,7 @@ class TestQuantileReliabilityBizValue:
         return obs, nominal
 
     def test_biz_calibrated_reliability_tracks_nominal(self, synth_qr_calibrated):
+        """Biz calibrated reliability tracks nominal."""
         y, p, alphas = synth_qr_calibrated
         obs, _nominal = self._reliability_curves(y, p, alphas)
         for k, a in enumerate(alphas):
@@ -373,6 +402,7 @@ class TestQuantileReliabilityBizValue:
             assert mean_abs_dev < 0.05, f"tau={a} dev {mean_abs_dev}"
 
     def test_biz_miscalibrated_reliability_off_nominal(self, synth_qr_miscalibrated):
+        """Biz miscalibrated reliability off nominal."""
         y, p, alphas = synth_qr_miscalibrated
         obs, _nominal = self._reliability_curves(y, p, alphas)
         # q shifted below the true quantile => observed coverage well BELOW nominal at tau=0.5.
@@ -381,12 +411,14 @@ class TestQuantileReliabilityBizValue:
         assert dev < -0.2, f"miscalibrated mid-tau drop only {dev}"
 
     def test_biz_calibrated_crossing_near_zero(self, synth_qr_calibrated):
+        """Biz calibrated crossing near zero."""
         y, p, alphas = synth_qr_calibrated
         spec = compose_quantile_figure(y, p, alphas, panels_template="QUANTILE_CROSSING")
         rates = spec.panels[0][0].values
         assert float(rates.max()) < 0.01, f"calibrated crossing rate {rates.max()}"
 
     def test_biz_crossing_rate_clearly_positive(self, synth_qr_crossing):
+        """Biz crossing rate clearly positive."""
         y, p, alphas = synth_qr_crossing
         spec = compose_quantile_figure(y, p, alphas, panels_template="QUANTILE_CROSSING")
         rates = spec.panels[0][0].values
@@ -398,6 +430,7 @@ class TestQuantileReliabilityBizValue:
         synth_qr_calibrated,
         synth_qr_miscalibrated,
     ):
+        """Biz corp miscalibration jumps on shift."""
         if _model_diagnostics_decompose() is None:
             pytest.skip("model-diagnostics not importable")
         yc, pc, alphas = synth_qr_calibrated
@@ -416,6 +449,7 @@ class TestQuantileReliabilityPerf:
 
     def test_reliability_subsample_cap_keeps_curve_size(self):
         # Above the 100k cap the panel must still emit the same fixed-resolution curve, fast.
+        """Reliability subsample cap keeps curve size."""
         from mlframe.reporting.charts.quantile import _RELIABILITY_GRID
         from scipy.stats import norm
 
@@ -435,6 +469,7 @@ class TestQuantileReliabilityPerf:
 
     def test_corp_decomp_capped_fast_at_large_n(self):
         # Regression sensor for the uncapped-CORP perf bug (243s -> sub-second at n=1e6 via cap).
+        """Corp decomp capped fast at large n."""
         if _model_diagnostics_decompose() is None:
             pytest.skip("model-diagnostics not importable")
         import time

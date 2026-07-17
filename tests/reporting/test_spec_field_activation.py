@@ -21,6 +21,7 @@ from mlframe.reporting.spec import (
 
 
 def _first_panel(fig):
+    """Helper: First panel."""
     for row in fig.panels:
         for cell in row:
             if cell is not None:
@@ -28,6 +29,7 @@ def _first_panel(fig):
 
 
 def _panels_of_type(fig, tp):
+    """Helper: Panels of type."""
     return [c for c in _first_panel(fig) if isinstance(c, tp)]
 
 
@@ -37,6 +39,7 @@ def _panels_of_type(fig, tp):
 
 
 def test_calibration_reliability_scatter_carries_wilson_ci_band():
+    """Calibration reliability scatter carries wilson ci band."""
     from mlframe.reporting.charts.calibration import build_calibration_spec
 
     freqs_pred = np.linspace(0.05, 0.95, 10)
@@ -55,6 +58,7 @@ def test_calibration_reliability_scatter_carries_wilson_ci_band():
 
 
 def test_calibration_ci_renders_errorbar_both_backends():
+    """Calibration ci renders errorbar both backends."""
     from mlframe.reporting.charts.calibration import build_calibration_spec
     import matplotlib
 
@@ -75,6 +79,7 @@ def test_calibration_ci_renders_errorbar_both_backends():
 
 
 def test_calibration_ci_can_be_disabled():
+    """Calibration ci can be disabled."""
     from mlframe.reporting.charts.calibration import build_calibration_spec
 
     freqs_pred = np.linspace(0.1, 0.9, 5)
@@ -91,6 +96,7 @@ def test_calibration_ci_can_be_disabled():
 
 
 def test_regression_scatter_highlights_worst_k_red():
+    """Regression scatter highlights worst k red."""
     from mlframe.reporting.charts.regression import compose_regression_figure
 
     rng = np.random.default_rng(0)
@@ -128,6 +134,7 @@ def test_regression_scatter_highlights_worst_k_red():
 
 
 def test_regression_worst_k_survives_subsample():
+    """Regression worst k survives subsample."""
     from mlframe.reporting.charts.regression import compose_regression_figure
 
     rng = np.random.default_rng(11)
@@ -155,6 +162,7 @@ def test_regression_worst_k_survives_subsample():
 
 
 def test_confused_pairs_is_horizontal_bar():
+    """Confused pairs is horizontal bar."""
     from mlframe.reporting.charts.multiclass import compose_multiclass_figure
 
     rng = np.random.default_rng(1)
@@ -179,6 +187,7 @@ def test_confused_pairs_is_horizontal_bar():
 
 
 def test_segments_bar_uses_hline_reference():
+    """Segments bar uses hline reference."""
     import pandas as pd
     from mlframe.reporting.charts.error_analysis import segments_bar
 
@@ -198,6 +207,7 @@ def test_segments_bar_uses_hline_reference():
 
 
 def test_coverage_panel_puts_width_on_secondary_axis():
+    """Coverage panel puts width on secondary axis."""
     from mlframe.reporting.charts.quantile import compose_quantile_figure
 
     rng = np.random.default_rng(2)
@@ -214,6 +224,7 @@ def test_coverage_panel_puts_width_on_secondary_axis():
 
 
 def test_threshold_panel_puts_queue_rate_on_secondary_axis():
+    """Threshold panel puts queue rate on secondary axis."""
     from mlframe.reporting.charts.binary import compose_binary_figure
 
     rng = np.random.default_rng(3)
@@ -231,6 +242,7 @@ def test_threshold_panel_puts_queue_rate_on_secondary_axis():
 
 
 def test_gain_and_score_dist_fill():
+    """Gain and score dist fill."""
     from mlframe.reporting.charts.binary import compose_binary_figure
 
     rng = np.random.default_rng(4)
@@ -248,6 +260,7 @@ def test_gain_and_score_dist_fill():
 
 
 def test_regression_scatter_has_trend_line():
+    """Regression scatter has trend line."""
     from mlframe.reporting.charts.regression import compose_regression_figure
 
     rng = np.random.default_rng(5)
@@ -265,6 +278,7 @@ def test_regression_scatter_has_trend_line():
 
 
 def test_psi_heatmap_has_threshold_contours():
+    """Psi heatmap has threshold contours."""
     from mlframe.reporting.charts.drift import psi_heatmap
 
     rng = np.random.default_rng(6)
@@ -287,6 +301,7 @@ def test_psi_heatmap_has_threshold_contours():
 
 
 def test_quantile_default_template_includes_r6_tokens():
+    """Quantile default template includes r6 tokens."""
     from mlframe.reporting.charts.quantile import DEFAULT_QUANTILE_PANELS, compose_quantile_figure
 
     for tok in ("QUANTILE_RELIABILITY", "PINBALL_DECOMP", "QUANTILE_CROSSING"):
@@ -305,6 +320,7 @@ def test_quantile_default_template_includes_r6_tokens():
 
 
 def test_adversarial_roc_uses_per_series_x():
+    """Adversarial roc uses per series x."""
     pytest.importorskip("lightgbm")
     from mlframe.reporting.charts.drift import adversarial_validation
 

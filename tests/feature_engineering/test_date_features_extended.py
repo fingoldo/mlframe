@@ -35,6 +35,7 @@ def _make_year_pd(n: int = 24) -> pd.DataFrame:
 
 
 def _make_year_pl(n: int = 24) -> pl.DataFrame:
+    """Helper: Make year pl."""
     base = datetime(2024, 1, 1)
     return pl.DataFrame({"d": [base + timedelta(days=15 * i) for i in range(n)]})
 
@@ -83,12 +84,14 @@ def test_quarter_values_in_1_to_4():
 
 
 def test_week_of_year_in_1_to_53():
+    """Week of year in 1 to 53."""
     out = create_date_features(_make_year_pd(48), cols=["d"], delete_original_cols=False)
     weeks = set(int(v) for v in out["d_week_of_year"].values)
     assert all(1 <= w <= 53 for w in weeks)
 
 
 def test_day_of_year_in_1_to_366():
+    """Day of year in 1 to 366."""
     out = create_date_features(_make_year_pd(48), cols=["d"], delete_original_cols=False)
     doy = set(int(v) for v in out["d_day_of_year"].values)
     assert all(1 <= d <= 366 for d in doy)
@@ -119,6 +122,7 @@ def test_cyclical_features_pairs_sin_cos_normalised():
 
 
 def test_cyclical_features_dtype_float32():
+    """Cyclical features dtype float32."""
     out = add_cyclical_date_features(_make_year_pd(12), cols=["d"])
     for c in out.columns:
         if c.endswith("_sin") or c.endswith("_cos"):
@@ -126,6 +130,7 @@ def test_cyclical_features_dtype_float32():
 
 
 def test_cyclical_features_range_minus_one_to_one():
+    """Cyclical features range minus one to one."""
     out = add_cyclical_date_features(_make_year_pd(48), cols=["d"])
     for c in out.columns:
         if c.endswith("_sin") or c.endswith("_cos"):
@@ -166,6 +171,7 @@ def test_cyclical_month_jan_dec_adjacent():
 
 
 def test_cyclical_unknown_period_name_raises():
+    """Cyclical unknown period name raises."""
     with pytest.raises(ValueError, match="Unknown cyclical period"):
         add_cyclical_date_features(
             _make_year_pd(5),

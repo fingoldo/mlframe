@@ -26,6 +26,7 @@ from mlframe.metrics._core_auc_brier import fast_roc_auc
 
 
 def test_rank_average_blend_binary_shape_and_range():
+    """Rank average blend binary shape and range."""
     rng = np.random.default_rng(0)
     stacked = rng.random((3, 50))  # (M=3, N=50)
     out = rank_average_blend(stacked)
@@ -35,6 +36,7 @@ def test_rank_average_blend_binary_shape_and_range():
 
 def test_rank_average_blend_is_scale_invariant():
     # Two models that are monotone rescalings of each other must yield the SAME rank-average as either alone.
+    """Rank average blend is scale invariant."""
     rng = np.random.default_rng(1)
     a = rng.random(40)
     b = a * 1000.0 + 5.0  # affine, order-preserving
@@ -44,6 +46,7 @@ def test_rank_average_blend_is_scale_invariant():
 
 
 def test_rank_average_blend_multiclass_shape():
+    """Rank average blend multiclass shape."""
     rng = np.random.default_rng(2)
     stacked = rng.random((4, 30, 3))  # (M, N, K)
     out = rank_average_blend(stacked)
@@ -51,6 +54,7 @@ def test_rank_average_blend_multiclass_shape():
 
 
 def test_rank_average_blend_weights_and_validation():
+    """Rank average blend weights and validation."""
     rng = np.random.default_rng(3)
     stacked = rng.random((2, 20))
     out = rank_average_blend(stacked, weights=[3.0, 1.0])
@@ -64,6 +68,7 @@ def test_rank_average_blend_weights_and_validation():
 
 
 def test_rank_average_blend_normalise_false_is_monotone_equivalent():
+    """Rank average blend normalise false is monotone equivalent."""
     rng = np.random.default_rng(4)
     stacked = rng.random((3, 25))
     norm = rank_average_blend(stacked, normalise=True)
@@ -81,6 +86,7 @@ def test_rank_average_blend_normalise_false_is_monotone_equivalent():
 
 
 def _toy_binary_matrix(seed=0, n=400, m=4):
+    """Helper: Toy binary matrix."""
     rng = np.random.default_rng(seed)
     y = (rng.random(n) < 0.5).astype(np.int64)
     # Each model = signal proportional to y + independent noise; different noise levels => different quality.
@@ -92,6 +98,7 @@ def _toy_binary_matrix(seed=0, n=400, m=4):
 
 
 def test_caruana_returns_convex_weights_summing_to_one():
+    """Caruana returns convex weights summing to one."""
     preds, y = _toy_binary_matrix()
     res = caruana_greedy_selection(preds, y, max_picks=20)
     assert isinstance(res, CaruanaSelectionResult)
@@ -103,6 +110,7 @@ def test_caruana_returns_convex_weights_summing_to_one():
 
 
 def test_caruana_predict_matches_weighted_mean():
+    """Caruana predict matches weighted mean."""
     preds, y = _toy_binary_matrix()
     res = caruana_greedy_selection(preds, y, max_picks=15)
     blend = res.predict(preds)
@@ -111,15 +119,18 @@ def test_caruana_predict_matches_weighted_mean():
 
 
 def test_caruana_without_replacement_picks_each_at_most_once():
+    """Caruana without replacement picks each at most once."""
     preds, y = _toy_binary_matrix()
     res = caruana_greedy_selection(preds, y, max_picks=preds.shape[0], with_replacement=False)
     assert (res.counts <= 1).all()
 
 
 def test_caruana_custom_metric_and_lower_is_better():
+    """Caruana custom metric and lower is better."""
     preds, y = _toy_binary_matrix()
 
     def rmse(yt, blend):
+        """Rmse."""
         p = blend[:, 1] if blend.ndim == 2 else np.ravel(blend)
         return float(np.sqrt(np.mean((yt - p) ** 2)))
 
@@ -130,6 +141,7 @@ def test_caruana_custom_metric_and_lower_is_better():
 
 
 def test_caruana_input_validation():
+    """Caruana input validation."""
     preds, y = _toy_binary_matrix()
     with pytest.raises(ValueError):
         caruana_greedy_selection(preds, y[:-1])  # y length mismatch
@@ -145,6 +157,7 @@ def test_caruana_input_validation():
 
 
 def test_backward_elimination_returns_kept_subset_and_score():
+    """Backward elimination returns kept subset and score."""
     preds, y = _toy_binary_matrix()
     res = greedy_backward_ensemble_elimination(preds, y)
     assert isinstance(res, BackwardEliminationResult)
@@ -154,6 +167,7 @@ def test_backward_elimination_returns_kept_subset_and_score():
 
 
 def test_backward_elimination_predict_matches_uniform_mean_of_kept():
+    """Backward elimination predict matches uniform mean of kept."""
     preds, y = _toy_binary_matrix()
     res = greedy_backward_ensemble_elimination(preds, y)
     blend = res.predict(preds)
@@ -162,12 +176,14 @@ def test_backward_elimination_predict_matches_uniform_mean_of_kept():
 
 
 def test_backward_elimination_respects_min_models():
+    """Backward elimination respects min models."""
     preds, y = _toy_binary_matrix()
     res = greedy_backward_ensemble_elimination(preds, y, min_models=3)
     assert len(res.kept) >= 3
 
 
 def test_backward_elimination_input_validation():
+    """Backward elimination input validation."""
     preds, y = _toy_binary_matrix()
     with pytest.raises(ValueError):
         greedy_backward_ensemble_elimination(preds, y[:-1])
@@ -195,6 +211,7 @@ def test_backward_elimination_extra_stacked_default_is_bit_identical_to_no_param
 
 
 def test_backward_elimination_extra_stacked_sets_removal_votes():
+    """Backward elimination extra stacked sets removal votes."""
     preds, y = _toy_binary_matrix(seed=5, n=600, m=6)
     rng = np.random.default_rng(1)
     extra = [preds + rng.normal(0, 0.05, preds.shape) for _ in range(6)]
@@ -209,6 +226,7 @@ def test_backward_elimination_extra_stacked_sets_removal_votes():
 
 
 def test_backward_elimination_extra_stacked_respects_min_models():
+    """Backward elimination extra stacked respects min models."""
     preds, y = _toy_binary_matrix(seed=9, n=600, m=8)
     rng = np.random.default_rng(2)
     extra = [preds + rng.normal(0, 0.05, preds.shape) for _ in range(4)]
@@ -222,6 +240,7 @@ def test_backward_elimination_extra_stacked_respects_min_models():
 
 
 def test_stepwise_returns_kept_subset_and_score():
+    """Stepwise returns kept subset and score."""
     preds, y = _toy_binary_matrix()
     res = stepwise_ensemble_selection(preds, y)
     assert isinstance(res, StepwiseSelectionResult)
@@ -231,6 +250,7 @@ def test_stepwise_returns_kept_subset_and_score():
 
 
 def test_stepwise_predict_matches_uniform_mean_of_kept():
+    """Stepwise predict matches uniform mean of kept."""
     preds, y = _toy_binary_matrix()
     res = stepwise_ensemble_selection(preds, y)
     blend = res.predict(preds)
@@ -242,6 +262,7 @@ def test_stepwise_respects_min_models():
     # min_models is a REMOVAL floor (backward steps never shrink the bag below it), not a forward growth target
     # -- mirrors greedy_backward_ensemble_elimination's min_models semantic. Use the local-optimum construction
     # (forces all 3 forward adds, so a backward removal is actually attempted) to exercise the guard for real.
+    """Stepwise respects min models."""
     preds, y = _stepwise_local_optimum_matrix(seed=42)
     res = stepwise_ensemble_selection(preds, y, min_models=3, max_picks=3, with_replacement=False)
     assert len(res.kept) >= 3
@@ -249,12 +270,14 @@ def test_stepwise_respects_min_models():
 
 
 def test_stepwise_removed_and_kept_are_disjoint_without_replacement():
+    """Stepwise removed and kept are disjoint without replacement."""
     preds, y = _toy_binary_matrix()
     res = stepwise_ensemble_selection(preds, y, with_replacement=False)
     assert set(res.kept).isdisjoint(set(res.removed_order))
 
 
 def test_stepwise_input_validation():
+    """Stepwise input validation."""
     preds, y = _toy_binary_matrix()
     with pytest.raises(ValueError):
         stepwise_ensemble_selection(preds, y[:-1])
@@ -445,6 +468,7 @@ def _stepwise_local_optimum_matrix(seed, n=3000):
 
 
 def _run_stepwise_beats_forward_once(seed):
+    """Helper: Run stepwise beats forward once."""
     preds, y = _stepwise_local_optimum_matrix(seed)
     fwd = caruana_greedy_selection(preds, y, max_picks=3, with_replacement=False)
     fwd_auc = fast_roc_auc(y, fwd.predict(preds))

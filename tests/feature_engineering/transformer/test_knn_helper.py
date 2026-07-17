@@ -89,6 +89,7 @@ def test_disable_hnsw_truthy_skips_import(monkeypatch):
     real_import = builtins.__import__
 
     def _boom(name, *args, **kwargs):
+        """Helper: Boom."""
         if name == "hnswlib":
             raise AssertionError("import hnswlib must NOT be attempted when MLFRAME_DISABLE_HNSW is set")
         return real_import(name, *args, **kwargs)

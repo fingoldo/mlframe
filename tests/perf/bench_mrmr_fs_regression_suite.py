@@ -32,6 +32,7 @@ from training.shared import SimpleFeaturesAndTargetsExtractor
 
 
 def _make_df(n_rows: int, n_features: int = 14, seed: int = 145, classification: bool = False) -> pd.DataFrame:
+    """Helper that make df."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n_rows, n_features))
     # a few informative + interaction structure so MRMR/FE has real work
@@ -46,6 +47,7 @@ def _make_df(n_rows: int, n_features: int = 14, seed: int = 145, classification:
 def run_once(
     n_rows: int, classification: bool = False, n_features: int = 14, seed: int = 145, no_mrmr: bool = False, ensembles: bool = False, rfecv: bool = False
 ) -> None:
+    """Helper that run once."""
     df = _make_df(n_rows=n_rows, n_features=n_features, seed=seed, classification=classification)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=not classification)
     tmp_dir = tempfile.mkdtemp(prefix="mlframe_iter145_")
@@ -80,6 +82,7 @@ def profile(
     ensembles: bool = False,
     rfecv: bool = False,
 ) -> None:
+    """Helper that profile."""
     out = Path(__file__).parent / "results" / ("iter146.prof" if classification else "iter145.prof")
     out.parent.mkdir(parents=True, exist_ok=True)
     pr = cProfile.Profile()
@@ -97,6 +100,7 @@ def profile(
 
 
 def main() -> int:
+    """Helper that main."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-rows", type=int, default=4000)
     ap.add_argument("--top", type=int, default=35)

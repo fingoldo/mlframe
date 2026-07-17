@@ -16,6 +16,7 @@ from mlframe.models.ensembling.predict import ensemble_probabilistic_predictions
 
 
 def test_uncertainty_near_zero_mean_class_does_not_poison_selection():
+    """Uncertainty near zero mean class does not poison selection."""
     rng = np.random.default_rng(0)
     n, k = 50, 3
     # Three members. Column 2 has ~0 mean across members for every row

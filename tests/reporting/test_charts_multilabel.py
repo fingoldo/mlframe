@@ -43,6 +43,7 @@ def synth_3label():
 
 @pytest.fixture
 def synth_4label():
+    """Synth 4label."""
     rng = np.random.default_rng(42)
     n = 400
     K = 4
@@ -59,7 +60,9 @@ def synth_4label():
 
 
 class TestAllowedTokens:
+    """Groups tests for: TestAllowedTokens."""
     def test_allowed_set_matches_documented(self):
+        """Allowed set matches documented."""
         assert ALLOWED_MULTILABEL_PANEL_TOKENS == frozenset(
             {
                 "PR_F1",
@@ -80,7 +83,9 @@ class TestAllowedTokens:
 
 
 class TestPanelTypes:
+    """Groups tests for: TestPanelTypes."""
     def test_pr_f1_returns_grouped_bar(self, synth_3label):
+        """Pr f1 returns grouped bar."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="PR_F1")
         panel = spec.panels[0][0]
@@ -90,6 +95,7 @@ class TestPanelTypes:
         assert len(panel.categories) == 3
 
     def test_roc_returns_line_with_K_series(self, synth_3label):
+        """Roc returns line with K series."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="ROC")
         panel = spec.panels[0][0]
@@ -100,6 +106,7 @@ class TestPanelTypes:
         assert all("AUC=" in s or "n/a" in s for s in panel.series_labels[1:])
 
     def test_calib_grid_returns_line_with_K_plus_diagonal(self, synth_3label):
+        """Calib grid returns line with K plus diagonal."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="CALIB_GRID")
         panel = spec.panels[0][0]
@@ -109,6 +116,7 @@ class TestPanelTypes:
         assert panel.series_labels[0] == "perfect"
 
     def test_cooccurrence_returns_heatmap(self, synth_3label):
+        """Cooccurrence returns heatmap."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="COOCCURRENCE")
         panel = spec.panels[0][0]
@@ -120,6 +128,7 @@ class TestPanelTypes:
             assert 0.0 <= panel.matrix[k, k] <= 1.0
 
     def test_cardinality_returns_grouped_bar(self, synth_3label):
+        """Cardinality returns grouped bar."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="CARDINALITY")
         panel = spec.panels[0][0]
@@ -133,6 +142,7 @@ class TestPanelTypes:
         assert int(panel.values[1].sum()) == n
 
     def test_jaccard_dist_returns_prebinned_histogram(self, synth_3label):
+        """Jaccard dist returns prebinned histogram."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="JACCARD_DIST")
         panel = spec.panels[0][0]
@@ -145,6 +155,7 @@ class TestPanelTypes:
         assert panel.bin_centers.max() <= 1.0
 
     def test_hamming_dist_returns_prebinned_histogram(self, synth_4label):
+        """Hamming dist returns prebinned histogram."""
         y, p, lbl = synth_4label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="HAMMING_DIST")
         panel = spec.panels[0][0]
@@ -162,7 +173,9 @@ class TestPanelTypes:
 
 
 class TestComposer:
+    """Groups tests for: TestComposer."""
     def test_default_template_returns_5_panels(self, synth_3label):
+        """Default template returns 5 panels."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl)  # default template
         # default = 5 tokens -> 3 rows × 2 cols
@@ -170,6 +183,7 @@ class TestComposer:
         assert len(spec.panels[0]) == 2
 
     def test_subset_template_returns_fewer_panels(self, synth_3label):
+        """Subset template returns fewer panels."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="PR_F1 ROC")
         assert len(spec.panels) == 1
@@ -177,28 +191,33 @@ class TestComposer:
         assert spec.panels[0][1] is not None
 
     def test_unknown_token_raises(self, synth_3label):
+        """Unknown token raises."""
         y, p, lbl = synth_3label
         with pytest.raises(ValueError, match="Unknown multilabel"):
             compose_multilabel_figure(y, p, lbl, panels_template="PR_F1 BOGUS")
 
     def test_suptitle_propagated(self, synth_3label):
+        """Suptitle propagated."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="PR_F1", suptitle="ml model")
         assert spec.suptitle == "ml model"
 
     def test_max_cols_controls_grid_width(self, synth_3label):
+        """Max cols controls grid width."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="PR_F1 ROC CALIB_GRID COOCCURRENCE", max_cols=4)
         assert len(spec.panels) == 1
         assert len(spec.panels[0]) == 4
 
     def test_shape_mismatch_raises(self, synth_3label):
+        """Shape mismatch raises."""
         y, p, lbl = synth_3label
         # Truncate y_proba to wrong shape.
         with pytest.raises(ValueError, match="y_true .* != y_proba"):
             compose_multilabel_figure(y, p[:, :2], lbl, panels_template="PR_F1")
 
     def test_1d_input_raises(self, synth_3label):
+        """1d input raises."""
         y, p, lbl = synth_3label
         with pytest.raises(ValueError, match="2-D"):
             compose_multilabel_figure(y[:, 0], p, lbl, panels_template="PR_F1")
@@ -210,7 +229,9 @@ class TestComposer:
 
 
 class TestRender:
+    """Groups tests for: TestRender."""
     def test_render_via_matplotlib(self, synth_3label, tmp_path):
+        """Render via matplotlib."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl)
         with warnings.catch_warnings():
@@ -220,6 +241,7 @@ class TestRender:
         assert os.path.getsize(tmp_path / "ml.png") > 5000
 
     def test_render_via_plotly(self, synth_3label, tmp_path):
+        """Render via plotly."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl)
         with warnings.catch_warnings():
@@ -265,10 +287,13 @@ def _planted_optima(n: int, true_optima, seed: int):
 
 
 class TestThresholdSweep:
+    """Groups tests for: TestThresholdSweep."""
     def test_token_registered(self):
+        """Token registered."""
         assert "THRESHOLD_SWEEP" in ALLOWED_MULTILABEL_PANEL_TOKENS
 
     def test_sweep_shape(self, synth_3label):
+        """Sweep shape."""
         y, p, lbl = synth_3label
         fig = compose_multilabel_figure(y, p, lbl, panels_template="THRESHOLD_SWEEP")
         panel = next(pp for row in fig.panels for pp in row if pp is not None)
@@ -279,6 +304,7 @@ class TestThresholdSweep:
         assert all("@t*=" in rl for rl in panel.row_labels)
 
     def test_sweep_f1_matches_sklearn(self):
+        """Sweep f1 matches sklearn."""
         rng = np.random.default_rng(0)
         n, K = 2000, 3
         y = rng.integers(0, 2, (n, K))
@@ -291,6 +317,7 @@ class TestThresholdSweep:
                 assert abs(ref - f1[k, j]) < 1e-9
 
     def test_sweep_empty_labels_annotates(self):
+        """Sweep empty labels annotates."""
         y = np.zeros((10, 0))
         p = np.zeros((10, 0))
         panel = _threshold_sweep_panel(y, p, [])
@@ -332,6 +359,7 @@ class TestThresholdSweep:
         assert recovered.max() - recovered.min() >= 0.25
 
     def test_sweep_render_matplotlib(self, synth_3label, tmp_path):
+        """Sweep render matplotlib."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="THRESHOLD_SWEEP")
         with warnings.catch_warnings():
@@ -340,6 +368,7 @@ class TestThresholdSweep:
         assert os.path.exists(tmp_path / "sweep.png")
 
     def test_sweep_render_plotly(self, synth_3label, tmp_path):
+        """Sweep render plotly."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="THRESHOLD_SWEEP")
         with warnings.catch_warnings():

@@ -28,9 +28,11 @@ class _LinearModel:
     """Deterministic linear scorer: predict = X @ w. No fit; weights fixed so PDP slope is exactly w[feature]."""
 
     def __init__(self, w):
+        """Helper: Init  ."""
         self.w = np.asarray(w, dtype=np.float64)
 
     def predict(self, X):
+        """Predict."""
         return np.asarray(X, dtype=np.float64) @ self.w
 
 
@@ -38,14 +40,17 @@ class _StepProbaModel:
     """Binary classifier whose P(y=1) is a logistic of feature 0 only (monotone increasing in f0)."""
 
     def __init__(self, k=3.0):
+        """Helper: Init  ."""
         self.k = k
 
     def predict_proba(self, X):
+        """Predict proba."""
         z = self.k * np.asarray(X, dtype=np.float64)[:, 0]
         p1 = 1.0 / (1.0 + np.exp(-z))
         return np.column_stack([1.0 - p1, p1])
 
     def predict(self, X):
+        """Predict."""
         return (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
 
 
@@ -53,6 +58,7 @@ class _StepProbaModel:
 
 
 def test_compute_pdp_shapes_and_keys():
+    """Compute pdp shapes and keys."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(5000, 4))
     model = _LinearModel([1.0, 0.0, -0.5, 2.0])
@@ -66,6 +72,7 @@ def test_compute_pdp_shapes_and_keys():
 
 
 def test_compute_pdp_centered_anchors_first_grid_point():
+    """Compute pdp centered anchors first grid point."""
     rng = np.random.default_rng(1)
     X = rng.normal(size=(2000, 3))
     res = pdp_ice.compute_pdp(_LinearModel([1.5, 0.0, 0.0]), X, 0, grid=12, sample=800, ice=True, centered=True)
@@ -76,6 +83,7 @@ def test_compute_pdp_centered_anchors_first_grid_point():
 
 
 def test_compute_pdp_proba_model_uses_positive_column():
+    """Compute pdp proba model uses positive column."""
     rng = np.random.default_rng(2)
     X = rng.normal(size=(3000, 3))
     res = pdp_ice.compute_pdp(_StepProbaModel(k=3.0), X, 0, grid=20, sample=1000, ice=False)
@@ -92,16 +100,20 @@ class _RaisingProbaRegressor:
     """
 
     def __init__(self, w):
+        """Helper: Init  ."""
         self.w = np.asarray(w, dtype=np.float64)
 
     def predict(self, X):
+        """Predict."""
         return np.asarray(X, dtype=np.float64) @ self.w
 
     def predict_proba(self, X):
+        """Predict proba."""
         raise AttributeError("Underlying estimator has no predict_proba or decision_function")
 
 
 def test_compute_pdp_falls_back_to_predict_when_proba_raises_at_call_time():
+    """Compute pdp falls back to predict when proba raises at call time."""
     rng = np.random.default_rng(7)
     X = rng.normal(size=(500, 3))
     model = _RaisingProbaRegressor([2.0, 0.0, 0.0])
@@ -118,12 +130,14 @@ class _MulticlassScoreModel:
     2-D per-class score array (as some multiclass wrappers do) instead of 1-D class labels."""
 
     def predict_proba(self, X):
+        """Predict proba."""
         z = np.asarray(X, dtype=np.float64)[:, 0]
         raw = np.column_stack([-z, np.zeros_like(z), z])
         e = np.exp(raw - raw.max(axis=1, keepdims=True))
         return e / e.sum(axis=1, keepdims=True)
 
     def predict(self, X):
+        """Predict."""
         return self.predict_proba(X)
 
 
@@ -142,6 +156,7 @@ def test_compute_pdp_multiclass_predict_fallback_reduces_2d_score_output():
 
 
 def test_compute_pdp_discrete_feature_grid_is_categories():
+    """Compute pdp discrete feature grid is categories."""
     rng = np.random.default_rng(3)
     cont = rng.normal(size=2000)
     cat = rng.integers(0, 4, size=2000).astype(float)  # 4 distinct values -> discrete
@@ -152,6 +167,7 @@ def test_compute_pdp_discrete_feature_grid_is_categories():
 
 
 def test_pdp_panel_has_ice_and_mean_series():
+    """Pdp panel has ice and mean series."""
     rng = np.random.default_rng(4)
     X = rng.normal(size=(4000, 3))
     panel = pdp_ice.pdp_panel(_LinearModel([1.0, 0.0, 0.0]), X, 0, grid=15, sample=600, ice=True)
@@ -163,12 +179,14 @@ def test_pdp_panel_has_ice_and_mean_series():
 
 
 def test_pdp_panel_constant_feature_is_annotation():
+    """Pdp panel constant feature is annotation."""
     X = np.column_stack([np.full(500, 2.0), np.random.default_rng(5).normal(size=500)])
     panel = pdp_ice.pdp_panel(_LinearModel([1.0, 1.0]), X, 0, grid=10, sample=400)
     assert isinstance(panel, AnnotationPanelSpec)
 
 
 def test_pdp_pandas_input_named_feature():
+    """Pdp pandas input named feature."""
     pd = pytest.importorskip("pandas")
     rng = np.random.default_rng(6)
     df = pd.DataFrame({"a": rng.normal(size=2000), "b": rng.normal(size=2000)})
@@ -178,6 +196,7 @@ def test_pdp_pandas_input_named_feature():
 
 
 def test_compute_pdp_2d_surface_shape():
+    """Compute pdp 2d surface shape."""
     rng = np.random.default_rng(7)
     X = rng.normal(size=(3000, 3))
     res = pdp_ice.compute_pdp_2d(_LinearModel([1.0, 1.0, 0.0]), X, (0, 1), grid=10, sample=600)
@@ -188,6 +207,7 @@ def test_compute_pdp_2d_surface_shape():
 
 
 def test_compose_pdp_figure_grid_and_interaction():
+    """Compose pdp figure grid and interaction."""
     rng = np.random.default_rng(8)
     X = rng.normal(size=(3000, 4))
     fig = pdp_ice.compose_pdp_figure(
@@ -206,6 +226,7 @@ def test_compose_pdp_figure_grid_and_interaction():
 
 
 def test_compose_pdp_figure_no_features_is_annotation():
+    """Compose pdp figure no features is annotation."""
     fig = pdp_ice.compose_pdp_figure(_LinearModel([1.0]), np.zeros((10, 1)), features=[])
     assert isinstance(fig.panels[0][0], AnnotationPanelSpec)
 

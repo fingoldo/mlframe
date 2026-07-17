@@ -16,6 +16,7 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_pair_cros
 
 
 def test_pair_cross_does_not_mutate_caller_nans():
+    """generate_pair_cross_basis_features must not overwrite the caller's NaNs in place via its mean-fill aliasing bug."""
     rng = np.random.default_rng(0)
     n = 500
     a = rng.normal(0, 1, n)

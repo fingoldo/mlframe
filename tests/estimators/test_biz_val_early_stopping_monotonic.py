@@ -19,6 +19,7 @@ from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
 
 def _rmse(yt, yp):
+    """Helper that rmse."""
     return float(np.sqrt(mean_squared_error(yt, yp)))
 
 
@@ -64,6 +65,7 @@ def test_biz_val_monotonic_stops_earlier_without_holdout_loss():
     # then strictly diverges, exactly the confident-overfitting shape the monotonic detector is built to catch.
     # (Too-aggressive eta0 puts SGD in a chaotic-divergence regime where NO iterate is good and "stop early
     # vs run long" is a coin-flip on which catastrophic point you land -- not the early-peak shape under test.)
+    """Monotonic stops earlier without holdout loss."""
     X, y = _overfit_data()
     n_val = max(1, int(len(X) * 0.2))
     Xv, yv = X[-n_val:], y[-n_val:]

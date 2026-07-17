@@ -129,6 +129,7 @@ def _scan_used_markers() -> dict[str, list[str]]:
 
 
 def test_every_used_marker_is_registered():
+    """Every used marker is registered."""
     pyproject_markers = _parse_pyproject_markers()
     conftest_markers = _parse_conftest_markers()
     registered = pyproject_markers | conftest_markers | _BUILTIN_MARKERS

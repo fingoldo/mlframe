@@ -14,6 +14,7 @@ from mlframe.metrics._fairness_metrics import create_fairness_subgroups
 
 
 def test_tie_heavy_numeric_feature_does_not_raise():
+    """Tie heavy numeric feature does not raise."""
     n = 3000
     # Zero-inflated: ~80% zeros, the rest a small spread -> repeated quantile edges at q=3.
     rng = np.random.default_rng(0)

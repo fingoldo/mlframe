@@ -27,6 +27,7 @@ from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec, FigureSpec
 
 
 def _flat(fig: FigureSpec):
+    """Helper: Flat."""
     return [p for row in fig.panels for p in row if p is not None]
 
 
@@ -40,6 +41,7 @@ def _clf_split(n, sep, seed):
 
 
 def _reg_split(n, noise, seed):
+    """Helper: Reg split."""
     rng = np.random.default_rng(seed)
     x = rng.uniform(0.0, 10.0, n)
     yt = 2.0 * x + 5.0 + rng.normal(0.0, 0.3, n)
@@ -84,6 +86,7 @@ def _overfit_reg(seed=0):
 
 
 def _generalizing_reg(seed=1):
+    """Helper: Generalizing reg."""
     return {"train": _reg_split(4000, 0.4, seed), "test": _reg_split(4000, 0.4, seed + 100)}
 
 
@@ -93,6 +96,7 @@ def _generalizing_reg(seed=1):
 
 
 def test_figure_structure_classification():
+    """Figure structure classification."""
     per_split = {"train": _clf_split(3000, 2.0, 0), "val": _clf_split(2000, 1.4, 1), "test": _clf_split(2000, 1.3, 2)}
     fig = compose_split_comparison_figure(per_split, task="classification", model_name="lgbm")
     assert isinstance(fig, FigureSpec)
@@ -108,6 +112,7 @@ def test_figure_structure_classification():
 
 
 def test_figure_structure_regression():
+    """Figure structure regression."""
     per_split = {"train": _reg_split(3000, 0.3, 0), "test": _reg_split(2000, 0.6, 2)}
     fig = compose_split_comparison_figure(per_split, task="regression", model_name="ridge")
     bar = next(p for p in _flat(fig) if isinstance(p, BarPanelSpec))
@@ -146,6 +151,7 @@ def test_delta_table_matches_metric_difference():
 
 
 def test_verdict_red_on_large_auc_gap():
+    """Verdict red on large auc gap."""
     v = overfit_verdict(
         task="classification",
         per_split={
@@ -158,6 +164,7 @@ def test_verdict_red_on_large_auc_gap():
 
 
 def test_verdict_amber_on_moderate_auc_gap():
+    """Verdict amber on moderate auc gap."""
     v = overfit_verdict(
         task="classification",
         per_split={
@@ -169,6 +176,7 @@ def test_verdict_amber_on_moderate_auc_gap():
 
 
 def test_verdict_green_on_small_auc_gap():
+    """Verdict green on small auc gap."""
     v = overfit_verdict(
         task="classification",
         per_split={
@@ -180,6 +188,7 @@ def test_verdict_green_on_small_auc_gap():
 
 
 def test_verdict_regression_rmse_ratio():
+    """Verdict regression rmse ratio."""
     v_red = overfit_verdict(
         task="regression",
         per_split={
@@ -227,6 +236,7 @@ def test_single_class_split_annotated_and_excluded():
 
 
 def test_fewer_than_two_usable_splits_degrades():
+    """Fewer than two usable splits degrades."""
     rng = np.random.default_rng(0)
     per_split = {"train": {"y_true": np.ones(100, dtype=np.int8), "y_score": rng.random(100)}}
     fig = compose_split_comparison_figure(per_split, task="classification")
@@ -236,6 +246,7 @@ def test_fewer_than_two_usable_splits_degrades():
 
 
 def test_no_splits_degrades():
+    """No splits degrades."""
     fig = compose_split_comparison_figure({}, task="classification")
     panels = _flat(fig)
     assert len(panels) == 1 and isinstance(panels[0], AnnotationPanelSpec)
@@ -254,6 +265,7 @@ def test_precomputed_metrics_short_circuit():
 
 
 def test_overfit_verdict_raises_on_single_split():
+    """Overfit verdict raises on single split."""
     with pytest.raises(ValueError):
         overfit_verdict(task="classification", per_split={"train": {"metrics": {"ROC_AUC": 0.9}}})
 
@@ -287,6 +299,7 @@ def test_biz_val_split_comparison_overfit_reg_red():
 
 
 def test_biz_val_split_comparison_generalizing_reg_green():
+    """Biz val split comparison generalizing reg green."""
     v = overfit_verdict(task="regression", per_split=_generalizing_reg())
     assert v.color == "green", f"expected GREEN, got {v.color} ({v.reason})"
     assert v.gap < RMSE_RATIO_AMBER, f"RMSE ratio should be near 1.0; got {v.gap:.2f}"

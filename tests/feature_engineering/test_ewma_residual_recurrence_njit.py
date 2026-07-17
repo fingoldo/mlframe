@@ -14,6 +14,7 @@ from mlframe.feature_engineering.stationarity import ewma_residual
 
 
 def _old_ewma_single(seg, hl, adjust=False):
+    """Helper: Old ewma single."""
     alpha = 1.0 - 2.0 ** (-1.0 / hl)
     seg_f = np.where(np.isfinite(seg), seg, 0.0)
     ewma = np.empty_like(seg_f)
@@ -29,6 +30,7 @@ def _old_ewma_single(seg, hl, adjust=False):
 
 @pytest.mark.parametrize("n", [3, 100, 5000])
 def test_ewma_scalar_bit_identical(n):
+    """Ewma scalar bit identical."""
     rng = np.random.default_rng(n)
     x = rng.standard_normal(n).cumsum()
     new = ewma_residual(x, half_life=20.0)
@@ -37,6 +39,7 @@ def test_ewma_scalar_bit_identical(n):
 
 
 def test_ewma_multi_half_life_bit_identical():
+    """Ewma multi half life bit identical."""
     rng = np.random.default_rng(1)
     x = rng.standard_normal(2000).cumsum()
     hl = [5.0, 20.0, 60.0, 240.0]
@@ -46,6 +49,7 @@ def test_ewma_multi_half_life_bit_identical():
 
 
 def test_ewma_with_nans_bit_identical():
+    """Ewma with nans bit identical."""
     rng = np.random.default_rng(2)
     x = rng.standard_normal(500).cumsum()
     x[::17] = np.nan
@@ -55,6 +59,7 @@ def test_ewma_with_nans_bit_identical():
 
 
 def test_ewma_adjust_bit_identical():
+    """Ewma adjust bit identical."""
     rng = np.random.default_rng(3)
     x = rng.standard_normal(400).cumsum()
     new = ewma_residual(x, half_life=30.0, adjust=True)
@@ -63,6 +68,7 @@ def test_ewma_adjust_bit_identical():
 
 
 def test_ewma_grouped_bit_identical():
+    """Ewma grouped bit identical."""
     rng = np.random.default_rng(4)
     n = 600
     x = rng.standard_normal(n).cumsum()
