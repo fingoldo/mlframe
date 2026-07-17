@@ -24,6 +24,7 @@ from mlframe.training.neural.field_grouped_mlp import FieldGroupedMLPRegressor
 
 
 def test_field_grouped_mlp_fits_and_predicts_correct_shape():
+    """FieldGroupedMLPRegressor fits on multi-field input and returns finite predictions of the expected shape."""
     rng = np.random.default_rng(0)
     n, field_a_size, field_b_size = 100, 4, 4
     X = rng.normal(size=(n, field_a_size + field_b_size)).astype(np.float32)
@@ -38,6 +39,7 @@ def test_field_grouped_mlp_fits_and_predicts_correct_shape():
 
 
 def test_field_grouped_mlp_only_uses_columns_within_their_declared_field():
+    """Zeroing field B entirely leaves field A's contribution to the output unaffected, proving structural field isolation."""
     # a field's encoder must never see another field's columns -- verify by zeroing field B entirely and
     # confirming field A's contribution to the output is unaffected (structural isolation, not learned).
     rng = np.random.default_rng(1)
