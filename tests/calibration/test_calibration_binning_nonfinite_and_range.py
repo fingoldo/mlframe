@@ -16,6 +16,7 @@ from mlframe.metrics.calibration._calibration_plot import (
 
 
 def _clean(n, seed):
+    """Helper that clean."""
     rng = np.random.default_rng(seed)
     yp = rng.uniform(0, 1, n)
     yt = (rng.uniform(0, 1, n) < yp).astype(np.int64)
@@ -23,6 +24,7 @@ def _clean(n, seed):
 
 
 def test_nan_pred_does_not_crash_and_is_excluded():
+    """Nan pred does not crash and is excluded."""
     yt, yp = _clean(500, 0)
     yp = yp.copy()
     yp[::17] = np.nan  # inject NaNs
@@ -34,6 +36,7 @@ def test_nan_pred_does_not_crash_and_is_excluded():
 
 
 def test_all_nan_returns_empty():
+    """All nan returns empty."""
     yt = np.array([0, 1, 0], dtype=np.int64)
     yp = np.array([np.nan, np.nan, np.inf])
     fp, ft, hits = fast_calibration_binning(yt, yp, nbins=10)
@@ -42,6 +45,7 @@ def test_all_nan_returns_empty():
 
 def test_out_of_range_predictions_bin_without_collapse():
     # Predictions all > 1 (a logit fed in by mistake): the old (1.0, 0.0) seed collapsed the lower bound to 1.0.
+    """Out of range predictions bin without collapse."""
     yt = np.array([0, 0, 1, 1, 1], dtype=np.int64)
     yp = np.array([1.2, 1.4, 1.6, 1.8, 2.0])
     _fp, _ft, hits = fast_calibration_binning(yt, yp, nbins=5)
@@ -51,6 +55,7 @@ def test_out_of_range_predictions_bin_without_collapse():
 
 
 def test_serial_and_prange_agree_on_clean_data():
+    """Serial and prange agree on clean data."""
     yt, yp = _clean(4000, 1)
     fp_s, ft_s, h_s = _fast_calibration_binning_serial(yt, yp, 50)
     fp_p, ft_p, h_p = _fast_calibration_binning_prange(yt, yp, 50)
@@ -60,6 +65,7 @@ def test_serial_and_prange_agree_on_clean_data():
 
 
 def test_nan_safe_quantile_strategy():
+    """Nan safe quantile strategy."""
     yt, yp = _clean(600, 2)
     yp = yp.copy()
     yp[::13] = np.nan

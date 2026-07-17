@@ -27,6 +27,7 @@ from mlframe.calibration.quality import (
 
 def test_small_n_produces_finite_report_no_nan_pockets():
     # n=4 samples but nbins=20: pre-fix bin_size==0 -> empty pockets -> NaN metrics.
+    """Small n produces finite report no nan pockets."""
     y_true = np.array([0, 1, 0, 1], dtype=np.float64)
     y_pred = np.array([0.2, 0.7, 0.3, 0.9], dtype=np.float64)
     pockets_pred, pockets_true, _data, metrics = estimate_calibration_quality_binned(y_true, y_pred, nbins=20)
@@ -37,6 +38,7 @@ def test_small_n_produces_finite_report_no_nan_pockets():
 
 
 def test_show_classifier_calibration_nintervals_zero_raises_clear_error():
+    """Show classifier calibration nintervals zero raises clear error."""
     y_true = np.array([0, 1, 0, 1], dtype=np.float64)
     y_pred = np.array([0.2, 0.7, 0.3, 0.9], dtype=np.float64)
     with pytest.raises(ValueError, match="nintervals"):
@@ -44,5 +46,6 @@ def test_show_classifier_calibration_nintervals_zero_raises_clear_error():
 
 
 def test_chi_square_statistic_empty_pit_returns_nan_not_crash():
+    """Chi square statistic empty pit returns nan not crash."""
     res = chi_square_statistic(np.array([], dtype=np.float64))
     assert np.isnan(res)

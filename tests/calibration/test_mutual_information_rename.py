@@ -11,6 +11,7 @@ pytest.importorskip("sklearn")
 
 
 def _data(seed: int = 0):
+    """Helper that data."""
     rng = np.random.default_rng(seed)
     y_pred = rng.random(500)
     y_true = (rng.random(500) < y_pred).astype(np.float64)
@@ -19,6 +20,7 @@ def _data(seed: int = 0):
 
 @pytest.mark.fast
 def test_mutual_information_score_present_and_returns_float():
+    """Mutual information score present and returns float."""
     from mlframe.calibration.quality import mutual_information_score
 
     y_true, y_pred = _data()
@@ -30,6 +32,7 @@ def test_mutual_information_score_present_and_returns_float():
 
 @pytest.mark.fast
 def test_hyvarinen_score_alias_warns_deprecation():
+    """Hyvarinen score alias warns deprecation."""
     from mlframe.calibration.quality import hyvarinen_score
 
     y_true, y_pred = _data()
@@ -39,6 +42,7 @@ def test_hyvarinen_score_alias_warns_deprecation():
 
 @pytest.mark.fast
 def test_alias_delegates_identically():
+    """Alias delegates identically."""
     from mlframe.calibration.quality import hyvarinen_score, mutual_information_score
 
     y_true, y_pred = _data(seed=7)

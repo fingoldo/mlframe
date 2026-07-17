@@ -11,12 +11,14 @@ import pytest
 
 
 def _global_state_unchanged(before) -> bool:
+    """Helper that global state unchanged."""
     after = np.random.get_state()
     return before[0] == after[0] and np.array_equal(before[1], after[1]) and before[2:] == after[2:]
 
 
 @pytest.fixture(scope="module")
 def _probs():
+    """Helper that probs."""
     rng = np.random.default_rng(0)
     p = np.clip(rng.normal(0.5, 0.2, size=300), 1e-3, 1 - 1e-3)
     y = (rng.random(300) < p).astype(int)
@@ -24,6 +26,7 @@ def _probs():
 
 
 def test_con18_logit_space_seeded(_probs):
+    """Con18 logit space seeded."""
     from mlframe.calibration.probabilities import generate_similar_probs_logit_space
 
     p, y = _probs
@@ -37,6 +40,7 @@ def test_con18_logit_space_seeded(_probs):
 
 
 def test_con18_random_walk_seeded(_probs):
+    """Con18 random walk seeded."""
     from mlframe.calibration.probabilities import generate_similar_probs_random_walk
 
     p, y = _probs
@@ -50,6 +54,7 @@ def test_con18_random_walk_seeded(_probs):
 
 
 def test_con18_similar_probs_seeded(_probs):
+    """Con18 similar probs seeded."""
     from mlframe.calibration.probabilities import generate_similar_probs
 
     p, y = _probs
@@ -61,6 +66,7 @@ def test_con18_similar_probs_seeded(_probs):
 
 
 def test_con18_by_ranking_seeded(_probs):
+    """Con18 by ranking seeded."""
     from mlframe.calibration.probabilities import generate_similar_probs_by_ranking
 
     p, y = _probs
@@ -74,6 +80,7 @@ def test_con18_by_ranking_seeded(_probs):
 
 
 def test_con18_generate_probs_from_outcomes_seeded():
+    """Con18 generate probs from outcomes seeded."""
     from mlframe.calibration.probabilities import generate_probs_from_outcomes
 
     outcomes = (np.arange(500) % 2).astype(np.int64)
@@ -88,6 +95,7 @@ def test_con18_generate_probs_from_outcomes_seeded():
 
 
 def test_con19_create_redundant_continuous_factor_seeded():
+    """Con19 create redundant continuous factor seeded."""
     from mlframe.feature_selection.filters.discretization._discretization_dataset import create_redundant_continuous_factor
 
     base = pd.DataFrame({"a": np.arange(200.0), "b": np.arange(200.0) * 2})

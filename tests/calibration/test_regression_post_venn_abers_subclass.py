@@ -20,6 +20,7 @@ class MyVennAbers(VennAbersCalibrator):
 
 
 def test_subclass_of_venn_abers_takes_venn_abers_branch():
+    """Subclass of venn abers takes venn abers branch."""
     cal = MyVennAbers()
     assert BinaryPostCalibrator._is_venn_abers(cal) is True
 
@@ -34,7 +35,9 @@ def test_subclass_of_venn_abers_takes_venn_abers_branch():
 
 
 def test_plain_object_not_treated_as_venn_abers():
+    """Plain object not treated as venn abers."""
     class NotACalibrator:
+        """Groups tests covering NotACalibrator."""
         pass
 
     assert BinaryPostCalibrator._is_venn_abers(NotACalibrator()) is False

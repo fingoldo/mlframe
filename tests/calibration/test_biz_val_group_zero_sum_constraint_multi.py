@@ -17,6 +17,7 @@ from mlframe.calibration.group_zero_sum_constraint import apply_group_zero_sum_c
 
 
 def _make_double_zero_sum_target_with_biased_predictions(n_a: int, n_b: int, seed: int):
+    """Helper that make double zero sum target with biased predictions."""
     rng = np.random.default_rng(seed)
     n = n_a * n_b
     group_a = np.repeat(np.arange(n_a), n_b)  # e.g. date_id
@@ -33,10 +34,12 @@ def _make_double_zero_sum_target_with_biased_predictions(n_a: int, n_b: int, see
 
 
 def _max_abs_group_sum(values: np.ndarray, group: np.ndarray, n_groups: int) -> float:
+    """Helper that max abs group sum."""
     return float(max(abs(values[group == g].sum()) for g in range(n_groups)))
 
 
 def test_single_constraint_leaves_other_grouping_violated():
+    """Single constraint leaves other grouping violated."""
     pred, _, group_a, group_b = _make_double_zero_sum_target_with_biased_predictions(n_a=30, n_b=25, seed=0)
 
     corrected_a_only = apply_group_zero_sum_constraint(pred, group_a)
@@ -49,6 +52,7 @@ def test_single_constraint_leaves_other_grouping_violated():
 
 
 def test_biz_val_group_zero_sum_constraint_multi_satisfies_both_and_reduces_rmse():
+    """Group zero sum constraint multi satisfies both and reduces rmse."""
     pred, true_y, group_a, group_b = _make_double_zero_sum_target_with_biased_predictions(n_a=30, n_b=25, seed=0)
 
     corrected = apply_group_zero_sum_constraint_multi(pred, groups=[group_a, group_b])
@@ -64,6 +68,7 @@ def test_biz_val_group_zero_sum_constraint_multi_satisfies_both_and_reduces_rmse
 
 
 def test_group_zero_sum_constraint_multi_no_groups_is_identity():
+    """Group zero sum constraint multi no groups is identity."""
     pred = np.array([1.0, 2.0, 3.0])
     corrected = apply_group_zero_sum_constraint_multi(pred, groups=[])
     assert np.allclose(corrected, pred)

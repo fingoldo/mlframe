@@ -24,6 +24,7 @@ pytestmark = [pytest.mark.fast]
 @pytest.mark.parametrize("seed", [0, 1, 7])
 @pytest.mark.parametrize("kind", ["continuous", "discrete", "with_nan"])
 def test_fused_kernel_bit_identical_to_slice(seed, kind):
+    """Fused kernel bit identical to slice."""
     from mlframe.calibration.policy import _ece_score, _ece_score_idx_numba_serial
 
     rng = np.random.default_rng(seed)
@@ -50,6 +51,7 @@ def test_fused_kernel_bit_identical_to_slice(seed, kind):
 
 @pytest.mark.parametrize("stratified", [True, False])
 def test_fused_bootstrap_bit_identical_to_metric_fn_and_bootstrap_metric(stratified):
+    """Fused bootstrap bit identical to metric fn and bootstrap metric."""
     from mlframe.calibration import policy
     from mlframe.evaluation.bootstrap import bootstrap_metric
 
