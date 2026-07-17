@@ -23,6 +23,7 @@ logging.disable(logging.CRITICAL)
 
 
 def test_subpackage_exports_and_reexport_identity():
+    """Subpackage exports and reexport identity."""
     import mlframe.training.reporting._reporting_regression as pkg
     from mlframe.training.reporting._reporting_regression import _mtr, _sensors
     from mlframe.training.reporting._reporting import report_regression_model_perf
@@ -36,6 +37,7 @@ def test_subpackage_exports_and_reexport_identity():
 
 
 def test_apply_prediction_envelope_clip_moved_body_runs():
+    """Apply prediction envelope clip moved body runs."""
     from mlframe.training.reporting._reporting_regression._sensors import apply_prediction_envelope_clip
 
     rng = np.random.default_rng(0)
@@ -53,6 +55,7 @@ def test_apply_prediction_envelope_clip_moved_body_runs():
 
 
 def test_run_collapse_sensor_moved_body_runs_warning_branch(caplog):
+    """Run collapse sensor moved body runs warning branch."""
     from mlframe.training.reporting._reporting_regression._sensors import run_collapse_sensor
 
     logging.disable(logging.NOTSET)
@@ -67,6 +70,7 @@ def test_run_collapse_sensor_moved_body_runs_warning_branch(caplog):
 
 
 def test_render_mtr_report_moved_body_runs():
+    """Render mtr report moved body runs."""
     from mlframe.training.reporting._reporting_regression._mtr import render_mtr_report
 
     rng = np.random.default_rng(0)
@@ -97,6 +101,7 @@ def test_render_mtr_report_moved_body_runs():
 
 
 def _report(**kw):
+    """Report."""
     from mlframe.training.reporting._reporting import report_regression_model_perf
 
     return report_regression_model_perf(**kw)
@@ -132,6 +137,7 @@ def test_inv6_audit_none_routes_through_spec_path(tmp_path, monkeypatch):
     import mlframe.training.targets as targets_mod
 
     def _boom(*a, **k):
+        """Boom."""
         raise RuntimeError("audit deliberately broken")
 
     # Break the audit so _residual_audit becomes None upstream AND the chart re-attempt also fails.

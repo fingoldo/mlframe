@@ -18,6 +18,7 @@ from mlframe.training import FeatureSelectionConfig
 
 
 def _build(**over):
+    """Build."""
     from mlframe.training.core._setup_helpers_pre_pipelines import _build_pre_pipelines
 
     base = dict(use_ordinary_models=False, rfecv_models=[], rfecv_models_params={}, use_mrmr_fs=False, mrmr_kwargs={})
@@ -26,6 +27,7 @@ def _build(**over):
 
 
 def _make_classification_frame(n=200, seed=0):
+    """Make classification frame."""
     rng = np.random.default_rng(seed)
     signal = rng.standard_normal(n)
     df = pd.DataFrame(
@@ -54,6 +56,7 @@ def _make_classification_frame(n=200, seed=0):
     ],
 )
 def test_selector_reachable_from_suite(flag, names_key, kwargs_field):
+    """Selector reachable from suite."""
     pps, names = _build(**{flag: True})
     assert names_key in names
     sel = pps[names.index(names_key)]
@@ -61,6 +64,7 @@ def test_selector_reachable_from_suite(flag, names_key, kwargs_field):
 
 
 def test_selector_kind_classifies_all_four():
+    """Selector kind classifies all four."""
     from mlframe.training.core._phase_train_one_target import _selector_kind
 
     for flag, names_key in [
@@ -88,6 +92,7 @@ def test_selector_kind_classifies_all_four():
 def test_kwargs_master_flag_gate(flag, kwargs_field):
     # The 4 selector flags default to True (2026-07-12); the guard now only fires when the caller
     # explicitly turns the flag off while still supplying its kwargs.
+    """Kwargs master flag gate."""
     with pytest.raises(ValueError, match=f"{kwargs_field} supplied but {flag}"):
         FeatureSelectionConfig(**{flag: False, kwargs_field: {"cv": 3}})
 
@@ -102,6 +107,7 @@ def test_kwargs_master_flag_gate(flag, kwargs_field):
     ],
 )
 def test_kwargs_rejects_unknown_key(flag, kwargs_field):
+    """Kwargs rejects unknown key."""
     with pytest.raises(ValueError, match="unknown key"):
         FeatureSelectionConfig(**{flag: True, kwargs_field: {"definitely_not_a_param": 1}})
 
@@ -110,6 +116,7 @@ def test_kwargs_rejects_unknown_key(flag, kwargs_field):
 
 
 def test_biz_forward_select_shrinks_noisy_frame():
+    """Biz forward select shrinks noisy frame."""
     df, y = _make_classification_frame()
     pps, names = _build(use_forward_select_fs=True, forward_select_kwargs={"cv": 3, "min_improvement": 0.001})
     sel = pps[names.index("ForwardSelect ")]
@@ -119,6 +126,7 @@ def test_biz_forward_select_shrinks_noisy_frame():
 
 
 def test_biz_greedy_backward_elimination_shrinks_noisy_frame():
+    """Biz greedy backward elimination shrinks noisy frame."""
     from sklearn.linear_model import LogisticRegression
 
     df, y = _make_classification_frame(n=400)
@@ -132,6 +140,7 @@ def test_biz_greedy_backward_elimination_shrinks_noisy_frame():
 
 
 def test_biz_zero_importance_pruning_shrinks_noisy_frame():
+    """Biz zero importance pruning shrinks noisy frame."""
     df, y = _make_classification_frame()
     pps, names = _build(use_zero_importance_pruning_fs=True, zero_importance_pruning_kwargs={})
     sel = pps[names.index("ZeroImportancePruning ")]
@@ -140,6 +149,7 @@ def test_biz_zero_importance_pruning_shrinks_noisy_frame():
 
 
 def test_biz_cascade_select_shrinks_noisy_frame():
+    """Biz cascade select shrinks noisy frame."""
     df, y = _make_classification_frame(n=300)
     pps, names = _build(use_cascade_select_fs=True, cascade_select_kwargs={"n_boruta_iterations": 10, "cv": 3})
     sel = pps[names.index("CascadeSelect ")]
@@ -198,6 +208,7 @@ def test_selector_handles_raw_categorical_column_instead_of_crashing(flag, kwarg
 
 
 def test_transform_preserves_polars_frame_and_columns():
+    """Transform preserves polars frame and columns."""
     import polars as pl
 
     df, y = _make_classification_frame()

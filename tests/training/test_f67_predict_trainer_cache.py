@@ -20,6 +20,7 @@ from sklearn.model_selection import train_test_split
 
 @pytest.fixture
 def fitted_regressor():
+    """Fitted regressor."""
     from mlframe.training.neural import (
         MLPTorchModel,
         PytorchLightningRegressor,

@@ -38,6 +38,7 @@ from mlframe.training.splitting import make_train_test_split
 
 
 def _build_df(n: int = 400):
+    """Build df."""
     rng = np.random.default_rng(0)
     return pd.DataFrame(
         {

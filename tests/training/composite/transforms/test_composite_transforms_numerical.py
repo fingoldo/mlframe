@@ -29,6 +29,7 @@ from mlframe.training.composite.transforms.extended import (
 
 
 class TestYeoJohnsonInverseFinite:
+    """Groups tests covering yeo johnson inverse finite."""
     @pytest.mark.parametrize("lam", [-2.0, -1.5, -0.87, 2.5, 3.0, 4.0])
     def test_inverse_finite_past_asymptote(self, lam: float) -> None:
         """T1: inverse must be finite for ALL t, including past the
@@ -39,6 +40,7 @@ class TestYeoJohnsonInverseFinite:
         assert np.all(np.isfinite(y)), f"YJ inverse produced non-finite output for lam={lam}: {int((~np.isfinite(y)).sum())} of {y.size} rows"
 
     def test_scalar_matches_numpy_past_asymptote(self) -> None:
+        """Scalar matches numpy past asymptote."""
         lam = -0.87
         ts = [0.0, 1.0, 1.14, 1.15, 1.16, 5.0, 50.0]
         for t in ts:
@@ -59,6 +61,7 @@ class TestYeoJohnsonInverseFinite:
 
 
 class TestLinearResidualMultiScaleInvariance:
+    """Groups tests covering linear residual multi scale invariance."""
     def test_independent_mixed_unit_bases_not_flagged_collinear(self) -> None:
         """T2: two INDEPENDENT bases differing only in scale (N(0,1) and
         N(0,1e6)) must NOT be rejected as collinear. Pre-fix the unscaled
@@ -90,6 +93,7 @@ class TestLinearResidualMultiScaleInvariance:
 
 
 class TestSmoothingSplineNoiseUnits:
+    """Groups tests covering smoothing spline noise units."""
     def test_s_in_noise_variance_units_not_signal_std(self) -> None:
         """T3: the smoothing factor must scale with m*var(noise) (~m*0.01=30),
         NOT m*std(signal) (~m*3.5=10000). This is the unambiguous bug

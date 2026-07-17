@@ -30,13 +30,16 @@ import pytest
 
 
 class TestFormatCtxTruncation:
+    """Groups tests covering format ctx truncation."""
     def test_short_values_are_not_truncated(self):
+        """Short values are not truncated."""
         from mlframe.training.phases import _format_ctx
 
         out = _format_ctx({"model": "CatBoost", "n_rows": 810_000})
         assert out == "model=CatBoost n_rows=810000"
 
     def test_none_values_dropped(self):
+        """None values dropped."""
         from mlframe.training.phases import _format_ctx
 
         out = _format_ctx({"a": 1, "b": None, "c": 2})
@@ -69,6 +72,7 @@ class TestFormatCtxTruncation:
         assert len(val_portion) <= 120
 
     def test_empty_context_returns_empty_string(self):
+        """Empty context returns empty string."""
         from mlframe.training.phases import _format_ctx
 
         assert _format_ctx({}) == ""
@@ -100,7 +104,9 @@ def minimal_metadata():
 
 
 class TestValidateInputColumnsAgainstMetadata:
+    """Groups tests covering validate input columns against metadata."""
     def test_happy_path_identical_columns(self, minimal_metadata):
+        """Happy path identical columns."""
         from mlframe.training.core import _validate_input_columns_against_metadata
 
         df = pd.DataFrame(
@@ -115,6 +121,7 @@ class TestValidateInputColumnsAgainstMetadata:
         assert list(out.columns) == ["a", "b", "cat_x", "text_y"]
 
     def test_extra_columns_are_dropped(self, minimal_metadata):
+        """Extra columns are dropped."""
         from mlframe.training.core import _validate_input_columns_against_metadata
 
         df = pd.DataFrame(
@@ -142,6 +149,7 @@ class TestValidateInputColumnsAgainstMetadata:
             _validate_input_columns_against_metadata(df, minimal_metadata)
 
     def test_missing_text_feature_raises(self, minimal_metadata):
+        """Missing text feature raises."""
         from mlframe.training.core import _validate_input_columns_against_metadata
 
         df = pd.DataFrame({"a": [1, 2], "b": [3, 4], "cat_x": ["p", "q"]})

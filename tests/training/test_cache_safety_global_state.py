@@ -15,6 +15,7 @@ import pytest
 # CON10: _PINNED_BUFFERS pool -- lock + per-thread keying + LRU cap.
 # ---------------------------------------------------------------------------
 def test_con10_pinned_pool_has_lock_and_cap_and_per_thread_key():
+    """Con10 pinned pool has lock and cap and per thread key."""
     from mlframe.feature_engineering.transformer import _kernels_cupy as kc
 
     assert isinstance(kc._PINNED_BUFFERS_LOCK, type(threading.Lock()))
@@ -23,12 +24,14 @@ def test_con10_pinned_pool_has_lock_and_cap_and_per_thread_key():
     # The key now leads with the thread id -> two threads asking for the same (name, shape, dtype)
     # get DISTINCT keys, so they never share a buffer. Simulate the keying directly.
     def _key():
+        """Key."""
         return (threading.get_ident(), "buf", (4,), np.dtype(np.float32))
 
     main_key = _key()
     child_key_box = {}
 
     def _worker():
+        """Worker."""
         child_key_box["k"] = _key()
 
     t = threading.Thread(target=_worker)
@@ -61,11 +64,13 @@ def test_con11_cb_val_pool_stage1_rejects_dtype_mismatch():
     from mlframe.training import _predict_guards as pg
 
     class _FakeFrame:
+        """Groups tests covering fake frame."""
         columns = ["a", "b"]
         shape = (3, 2)
         dtypes = ["float64", "float64"]
 
     class _Pool:
+        """Groups tests covering pool."""
         pass
 
     X = _FakeFrame()
@@ -82,14 +87,17 @@ def test_con11_cb_val_pool_stage1_rejects_dtype_mismatch():
 
 
 def test_con11_cb_val_pool_stage1_accepts_matching_dtypes():
+    """Con11 cb val pool stage1 accepts matching dtypes."""
     from mlframe.training import _predict_guards as pg
 
     class _FakeFrame:
+        """Groups tests covering fake frame."""
         columns = ["a", "b"]
         shape = (3, 2)
         dtypes = ["float64", "float64"]
 
     class _Pool:
+        """Groups tests covering pool."""
         pass
 
     X = _FakeFrame()
@@ -105,6 +113,7 @@ def test_con11_cb_val_pool_stage1_accepts_matching_dtypes():
 # CON12: drift invariant cache is FIFO-capped.
 # ---------------------------------------------------------------------------
 def test_con12_drift_cache_capped():
+    """Con12 drift cache capped."""
     from mlframe.training import feature_drift_report as fdr
 
     fdr._DRIFT_INVARIANT_CACHE.clear()
@@ -121,6 +130,7 @@ def test_con12_drift_cache_capped():
 # CON13: OOF holdout cache has a hard LRU cap.
 # ---------------------------------------------------------------------------
 def test_con13_oof_cache_lru_capped():
+    """Con13 oof cache lru capped."""
     from mlframe.training.composite import ensemble as ens
 
     ens._OOF_HOLDOUT_CACHE.clear()
@@ -173,6 +183,7 @@ def test_con15_fold_state_lock_serialises_concurrent_appends():
     n = 200
 
     def _commit(k):
+        """Commit."""
         with ff._FOLD_STATE_LOCK:
             scores.append(k)
             fi[k] = {"v": k}

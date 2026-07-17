@@ -22,6 +22,7 @@ from mlframe.training.composite.discovery.screening import _mi_pair_bin
 
 
 def _concordance(true: np.ndarray, est: np.ndarray) -> float:
+    """Concordance."""
     k = len(true)
     correct = total = 0
     for i in range(k):

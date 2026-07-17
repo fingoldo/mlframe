@@ -16,6 +16,7 @@ from mlframe.training.reporting._reporting_diagnostics import _build_learning_cu
 
 
 def test_build_learning_curve_uses_custom_metadata_target_name():
+    """Build learning curve uses custom metadata target name."""
     rng = np.random.default_rng(0)
     n = 200
     df = pd.DataFrame({"x1": rng.normal(size=n), "x2": rng.normal(size=n)})

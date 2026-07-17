@@ -33,6 +33,7 @@ def crash_reporting_module():
 
 
 def test_enable_returns_bool(crash_reporting_module):
+    """Enable returns bool."""
     cr = crash_reporting_module
     rv = cr.enable_crash_reporting()
     assert isinstance(rv, bool), "enable_crash_reporting must return a bool"
@@ -51,6 +52,7 @@ def test_enable_idempotent_second_call_short_circuits(crash_reporting_module, mo
     calls = {"count": 0}
 
     def _counting_enable(file=None, all_threads=False):
+        """Counting enable."""
         calls["count"] += 1
 
     monkeypatch.setattr(faulthandler, "enable", _counting_enable)
@@ -66,6 +68,7 @@ def test_enable_idempotent_second_call_short_circuits(crash_reporting_module, mo
 
 
 def test_enable_sets_module_flag(crash_reporting_module, monkeypatch):
+    """Enable sets module flag."""
     cr = crash_reporting_module
 
     import faulthandler
@@ -83,6 +86,7 @@ def test_enable_uses_provided_file_handle(crash_reporting_module, monkeypatch):
     captured = {}
 
     def _capture(file=None, all_threads=True):
+        """Capture."""
         captured["file"] = file
         captured["all_threads"] = all_threads
 
@@ -105,6 +109,7 @@ def test_enable_falls_back_to_fd_2_when_stream_has_no_fileno(crash_reporting_mod
     invocations = []
 
     def _record(file=None, all_threads=True):
+        """Record."""
         invocations.append(file)
         if file != 2 and not isinstance(file, int):
             # The first call (with the broken stream) raised UnsupportedOperation in
@@ -116,7 +121,9 @@ def test_enable_falls_back_to_fd_2_when_stream_has_no_fileno(crash_reporting_mod
     monkeypatch.setattr(faulthandler, "enable", _record)
 
     class _BrokenStream:
+        """Groups tests covering broken stream."""
         def fileno(self):
+            """Fileno."""
             raise io.UnsupportedOperation("no fileno on this wrapper")
 
     rv = cr.enable_crash_reporting(file=_BrokenStream())
@@ -132,6 +139,7 @@ def test_enable_never_raises_on_faulthandler_exception(crash_reporting_module, m
     cr = crash_reporting_module
 
     def _boom(file=None, all_threads=True):
+        """Boom."""
         raise RuntimeError("simulated faulthandler init failure")
 
     import faulthandler
@@ -161,6 +169,7 @@ def test_enable_calls_seterrormode_on_windows(crash_reporting_module, monkeypatc
 
 
     def _spy_set_error_mode(flags):
+        """Spy set error mode."""
         call_log.append(int(flags))
         # Return a benign prior value (0); the real call would return the current process mode.
         return 0
@@ -211,6 +220,7 @@ def test_enable_seterrormode_failure_returns_false(crash_reporting_module, monke
     import ctypes
 
     def _boom(flags):
+        """Boom."""
         raise OSError("simulated SetErrorMode failure")
 
     monkeypatch.setattr(ctypes.windll.kernel32, "SetErrorMode", _boom)

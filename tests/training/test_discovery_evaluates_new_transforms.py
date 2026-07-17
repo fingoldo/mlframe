@@ -61,10 +61,12 @@ def synthetic_heavy_tail_df() -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
 
 
 class TestDiscoveryEvaluatesNewTransforms:
+    """Groups tests covering discovery evaluates new transforms."""
     def test_discovery_runs_without_crash(
         self,
         synthetic_heavy_tail_df: tuple[pd.DataFrame, np.ndarray, np.ndarray],
     ) -> None:
+        """Discovery runs without crash."""
         df, train_idx, val_idx = synthetic_heavy_tail_df
         cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=1000)
         disc = CompositeTargetDiscovery(config=cfg)
@@ -83,6 +85,7 @@ class TestDiscoveryEvaluatesNewTransforms:
         self,
         synthetic_heavy_tail_df: tuple[pd.DataFrame, np.ndarray, np.ndarray],
     ) -> None:
+        """All 14 transforms evaluated."""
         df, train_idx, val_idx = synthetic_heavy_tail_df
         cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=1000)
         disc = CompositeTargetDiscovery(config=cfg)

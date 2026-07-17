@@ -36,12 +36,15 @@ def test_try_predict_with_pp_fallback_passthrough_on_success() -> None:
     from mlframe.training.core.predict import _try_predict_with_pp_fallback
 
     class _Model:
+        """Groups tests covering model."""
         def predict(self, X):
+            """Predict."""
             return np.full(len(X), 0.5)
 
     # Use a function that does NOT match "predict"/"predict_proba" by name so
     # we bypass the _predict_with_fallback path and exercise the direct fn(primary) branch.
     def plain_fn(X):
+        """Plain fn."""
         return np.full(len(X), 0.5)
 
     df = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
@@ -70,6 +73,7 @@ def test_try_predict_with_pp_fallback_encoder_mismatch_retries_on_fallback() -> 
     calls: list[str] = []
 
     def maybe_fail(X):
+        """Maybe fail."""
         if X is primary:
             calls.append("primary")
             raise TypeError("ufunc 'isnan' not supported for input types")
@@ -97,6 +101,7 @@ def test_try_predict_with_pp_fallback_unrelated_typeerror_raises() -> None:
     primary = pd.DataFrame({"x": [1.0, 2.0]})
 
     def always_fail(X):
+        """Always fail."""
         raise TypeError("some unrelated dtype problem")
 
     with pytest.raises(TypeError, match="some unrelated dtype problem"):

@@ -14,6 +14,7 @@ from mlframe.training.neural.data import TorchDataModule
 
 
 def _params(max_epochs=50, monotonic=3):
+    """Params."""
     return {
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 5e-2},
@@ -59,6 +60,7 @@ def _ood_data(seed=0, n=200, d=30):
 
 
 def _fit(monotonic):
+    """Fit."""
     import pandas as pd
 
     Xtr, ytr, Xv, yv = _ood_data()
@@ -72,6 +74,7 @@ def _fit(monotonic):
 
 @pytest.mark.timeout(240)
 def test_monotonic_decline_stops_mlp_early():
+    """Monotonic decline stops mlp early."""
     _est_mono, ep_mono, rmse_mono = _fit(monotonic=3)
     _est_none, ep_none, rmse_none = _fit(monotonic=None)
 

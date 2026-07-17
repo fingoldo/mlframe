@@ -29,6 +29,7 @@ def _ranking_data(n_groups=120, items=20, seed=0):
 
 
 def _split(X, y, g, frac=0.6):
+    """Split."""
     gids = np.unique(g)
     cut = int(len(gids) * frac)
     train_g, test_g = set(gids[:cut].tolist()), set(gids[cut:].tolist())
@@ -38,6 +39,7 @@ def _split(X, y, g, frac=0.6):
 
 
 def test_biz_val_composite_ranking_beats_base_only_lambdarank():
+    """Biz val composite ranking beats base only lambdarank."""
     pytest.importorskip("lightgbm")
     X, y, g = _ranking_data(seed=11)
     Xtr, ytr, gtr, Xte, yte, gte = _split(X, y, g)
@@ -51,6 +53,7 @@ def test_biz_val_composite_ranking_beats_base_only_lambdarank():
 
 
 def test_biz_val_composite_ranking_beats_base_only_pairwise():
+    """Biz val composite ranking beats base only pairwise."""
     from sklearn.linear_model import LogisticRegression
 
     X, y, g = _ranking_data(seed=12)

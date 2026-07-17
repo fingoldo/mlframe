@@ -23,6 +23,7 @@ from mlframe.training.composite import CountWeightedBlendEnsemble
 
 
 def _make_skewed_entity_dataset(n_entities: int, seed: int, noise_scale: float = 12.0):
+    """Make skewed entity dataset."""
     rng = np.random.default_rng(seed)
     counts = rng.integers(1, 4, n_entities)
     counts[:20] = rng.integers(60, 100, 20)  # a few well-observed entities
@@ -43,10 +44,12 @@ def _make_skewed_entity_dataset(n_entities: int, seed: int, noise_scale: float =
 
 
 def _entity_pipeline():
+    """Entity pipeline."""
     return make_pipeline(ColumnTransformer([("oh", OneHotEncoder(handle_unknown="ignore"), ["entity"])], remainder="passthrough"), LinearRegression())
 
 
 def test_biz_val_count_weighted_blend_beats_entity_only_and_global_only_mse():
+    """Biz val count weighted blend beats entity only and global only mse."""
     X_train, y_train, X_test, y_test = _make_skewed_entity_dataset(n_entities=300, seed=0)
 
     entity_only = _entity_pipeline().fit(X_train, y_train)
@@ -68,6 +71,7 @@ def test_biz_val_count_weighted_blend_beats_entity_only_and_global_only_mse():
 
 
 def test_count_weighted_blend_weight_increases_with_observation_count():
+    """Count weighted blend weight increases with observation count."""
     X_train, y_train, X_test, _y_test = _make_skewed_entity_dataset(n_entities=300, seed=1)
     blend = CountWeightedBlendEnsemble(
         entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0
@@ -139,6 +143,7 @@ def test_count_weighted_blend_auto_k_false_is_bit_identical_to_legacy_fixed_k():
 
 
 def test_count_weighted_blend_unseen_entity_gets_zero_weight():
+    """Count weighted blend unseen entity gets zero weight."""
     X_train, y_train, _, _ = _make_skewed_entity_dataset(n_entities=50, seed=2)
     blend = CountWeightedBlendEnsemble(
         entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0

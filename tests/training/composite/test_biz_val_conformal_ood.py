@@ -47,10 +47,12 @@ class _Stub:
         self.runtime_stats_: dict = {}
 
     def predict(self, X):
+        """Predict."""
         return np.zeros(len(X), dtype=np.float64)
 
 
 def _cal_stub(y_cal, groups_cal, alpha):
+    """Cal stub."""
     st = _Stub()
     conf.calibrate_conformal_mondrian(st, np.arange(len(y_cal)), y_cal, groups_cal, alpha)
     return st
@@ -71,10 +73,12 @@ def _grouped(rng, spec, prefix):
 # Seen-group bit-identity: the OOD change must not touch the certified path.
 # --------------------------------------------------------------------------- #
 class TestSeenGroupBitIdentity:
+    """Groups tests covering seen group bit identity."""
     def test_stored_seen_radius_equals_reference_quantile(self) -> None:
         # The stored per-group radius for a CERTIFIED group must be exactly the
         # independent split-conformal reference. This assertion FAILS if the seen
         # path is ever changed to inflate / route through the OOD fallback.
+        """Stored seen radius equals reference quantile."""
         rng = np.random.default_rng(0)
         y, g = _grouped(rng, [(0.7, 500), (2.5, 500), (1.2, 500)], "cal")
         alpha = 0.1
@@ -89,6 +93,7 @@ class TestSeenGroupBitIdentity:
     def test_predict_seen_radius_bit_identical_across_ood_toggle(self) -> None:
         # Flipping the OOD gate must leave the applied radius on a SEEN certified
         # group bit-identical (only unseen / uncertifiable rows may change).
+        """Predict seen radius bit identical across ood toggle."""
         rng = np.random.default_rng(1)
         y, g = _grouped(rng, [(0.6, 600), (3.0, 600)], "cal")
         alpha = 0.1
@@ -110,13 +115,16 @@ class TestSeenGroupBitIdentity:
 # OOD unseen + too-small routing and the low-confidence flag.
 # --------------------------------------------------------------------------- #
 class TestOODRouting:
+    """Groups tests covering o o d routing."""
     def _dispersed(self, seed=0):
+        """Dispersed."""
         rng = np.random.default_rng(seed)
         spec = [(0.6, 180)] * 20 + [(2.8, 180)] * 6  # modest bulk + wide tail
         y, g = _grouped(rng, spec, "cal")
         return _cal_stub(y, g, 0.1), y, g
 
     def test_unseen_group_gets_inflated_radius_not_raw_global(self) -> None:
+        """Unseen group gets inflated radius not raw global."""
         st, _, _ = self._dispersed()
         key = round(0.1, 6)
         ood_r = st._mondrian_ood_[key]
@@ -134,6 +142,7 @@ class TestOODRouting:
         # A 2-row group cannot certify alpha=0.1 -> its STORED radius stays the pooled
         # global (bit-identical), but at PREDICT time it routes to the OOD inflation
         # and is flagged. Regression: too-small groups must fall back WITH inflation.
+        """Too small group stored global but predicts inflated."""
         rng = np.random.default_rng(2)
         spec = [(0.6, 180)] * 15 + [(2.8, 180)] * 5 + [(1.0, 2)]  # last = tiny
         y, g = _grouped(rng, spec, "cal")
@@ -157,6 +166,7 @@ class TestOODRouting:
         assert flag.all(), "too-small (uncertifiable) rows must be flagged OOD"
 
     def test_flag_exact_on_ood_rows_clear_on_seen(self) -> None:
+        """Flag exact on ood rows clear on seen."""
         st, _, _ = self._dispersed()
         # mix: seen certified (cal0), unseen (zzz), and stays certified
         labels = np.array(["cal0", "zzz", "cal1", "zzz", "cal2"], dtype=object)
@@ -166,6 +176,7 @@ class TestOODRouting:
         assert np.array_equal(flag, np.array([False, True, False, True, False]))
 
     def test_adaptive_off_uses_raw_global_still_flagged(self) -> None:
+        """Adaptive off uses raw global still flagged."""
         st, _, _ = self._dispersed()
         st.conformal_ood_adaptive = False
         key = round(0.1, 6)
@@ -178,6 +189,7 @@ class TestOODRouting:
         assert flag.all(), "provenance flag is independent of the inflation gate"
 
     def test_unseen_group_warns_with_global_radius_message(self) -> None:
+        """Unseen group warns with global radius message."""
         st, _, _ = self._dispersed()
         with warnings.catch_warnings(record=True) as rec:
             warnings.simplefilter("always")
@@ -189,7 +201,9 @@ class TestOODRouting:
 # Degenerate cases.
 # --------------------------------------------------------------------------- #
 class TestDegenerate:
+    """Groups tests covering degenerate."""
     def test_all_groups_seen_no_ood_flag(self) -> None:
+        """All groups seen no ood flag."""
         rng = np.random.default_rng(0)
         y, g = _grouped(rng, [(0.6, 400), (1.5, 400)], "cal")
         st = _cal_stub(y, g, 0.1)
@@ -199,6 +213,7 @@ class TestDegenerate:
         assert conf.mondrian_ood_summary(st, 0.1)["fraction_ood"] == 0.0
 
     def test_single_calibration_group(self) -> None:
+        """Single calibration group."""
         rng = np.random.default_rng(0)
         y, g = _grouped(rng, [(1.0, 500)], "cal")
         st = _cal_stub(y, g, 0.1)
@@ -212,6 +227,7 @@ class TestDegenerate:
         assert lo.shape == (3,) and flag.all()
 
     def test_empty_unseen_set_fraction_zero(self) -> None:
+        """Empty unseen set fraction zero."""
         rng = np.random.default_rng(0)
         y, g = _grouped(rng, [(0.6, 300), (2.0, 300)], "cal")
         st = _cal_stub(y, g, 0.1)
@@ -219,6 +235,7 @@ class TestDegenerate:
         assert st.runtime_stats_["mondrian_ood_fraction"] == 0.0
 
     def test_summary_zeros_before_any_predict(self) -> None:
+        """Summary zeros before any predict."""
         rng = np.random.default_rng(0)
         y, g = _grouped(rng, [(1.0, 400)], "cal")
         st = _cal_stub(y, g, 0.1)
@@ -230,7 +247,9 @@ class TestDegenerate:
 # Verdict accessor + runtime_stats_ aggregate.
 # --------------------------------------------------------------------------- #
 class TestVerdictAccessor:
+    """Groups tests covering verdict accessor."""
     def test_runtime_stats_and_summary_record_fraction(self) -> None:
+        """Runtime stats and summary record fraction."""
         rng = np.random.default_rng(0)
         y, g = _grouped(rng, [(0.6, 300)] * 10 + [(2.8, 300)] * 3, "cal")
         st = _cal_stub(y, g, 0.1)
@@ -245,6 +264,7 @@ class TestVerdictAccessor:
         assert st.runtime_stats_["mondrian_ood_fraction"] == pytest.approx(0.5)
 
     def test_return_ood_shape_and_dtype(self) -> None:
+        """Return ood shape and dtype."""
         rng = np.random.default_rng(0)
         y, g = _grouped(rng, [(1.0, 400), (2.0, 400)], "cal")
         st = _cal_stub(y, g, 0.1)
@@ -257,6 +277,7 @@ class TestVerdictAccessor:
         assert len(out2) == 2
 
     def test_predict_without_calibration_raises(self) -> None:
+        """Predict without calibration raises."""
         st = _Stub()
         with pytest.raises(RuntimeError, match="no Mondrian radius"):
             conf.predict_interval_mondrian(st, np.arange(1), np.array(["a"], dtype=object), 0.1)
@@ -266,7 +287,9 @@ class TestVerdictAccessor:
 # biz_value: OOD-adaptive covers unseen groups; legacy global under-covers.
 # --------------------------------------------------------------------------- #
 class TestBizValueOODCoverage:
+    """Groups tests covering biz value o o d coverage."""
     def _run(self, seed):
+        """Calibrates on a bimodal-spread grouped set, evaluates coverage on an unseen wider-spread group, and returns the comparison."""
         alpha = 0.1
         rng = np.random.default_rng(seed)
         # calibration: modest bulk (sigma 0.6) + a real wide tail (sigma 2.8)
@@ -321,7 +344,9 @@ class TestBizValueOODCoverage:
 # Integration: the real estimator binds return_ood + the verdict accessors.
 # --------------------------------------------------------------------------- #
 class TestRealEstimatorIntegration:
+    """Groups tests covering real estimator integration."""
     def test_real_estimator_return_ood_and_runtime_stats(self) -> None:
+        """Real estimator return ood and runtime stats."""
         rng = np.random.default_rng(0)
         n = 1500
         b = rng.normal(0.0, 1.0, n)

@@ -62,6 +62,7 @@ def test_precomputed_composite_specs_decoupled_from_metadata_slot():
 
 
 def test_precomputed_dummy_baselines_decoupled_from_metadata_slot():
+    """Precomputed dummy baselines decoupled from metadata slot."""
     from types import SimpleNamespace
     from mlframe.training.core._main_train_suite_phases import (
         maybe_apply_dummy_baselines_precomputed,
@@ -71,9 +72,11 @@ def test_precomputed_dummy_baselines_decoupled_from_metadata_slot():
     precomputed = SimpleNamespace(composite_target_specs={}, dummy_baselines=bundle)
 
     class _Cfg:
+        """Groups tests covering cfg."""
         enabled = True
 
         def model_copy(self, update):
+            """Model copy."""
             new = _Cfg()
             new.enabled = update["enabled"]
             return new

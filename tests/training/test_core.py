@@ -24,6 +24,7 @@ try:
 except ImportError:  # pragma: no cover
 
     def fast_subset(values, **_):
+        """Fast subset."""
         return list(values)
 
 
@@ -2489,6 +2490,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             fit_df_types.append((model_type_name, type(train_df).__name__))
             return original_train(
                 model=model,
@@ -2562,6 +2564,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             fit_df_types.append((model_type_name, type(train_df).__name__))
             return original_train(
                 model=model,
@@ -2635,6 +2638,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             captured_dfs.append(train_df)
             return original_train(
                 model=model,
@@ -2717,6 +2721,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             fit_df_types.append((model_type_name, type(train_df).__name__))
             return original_train(
                 model=model,
@@ -2796,6 +2801,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             captured_dfs.append((model_type_name, train_df))
             return original_train(
                 model=model,
@@ -2860,6 +2866,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             captured_dfs.append((model_type_name, train_df))
             return original_train(
                 model=model,
@@ -2948,6 +2955,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             captured_dfs.append((model_type_name, train_df))
             return original_train(
                 model=model,
@@ -3034,6 +3042,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             fit_df_types.append((model_type_name, type(train_df).__name__))
             return original_train(
                 model=model,
@@ -3110,6 +3119,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             captured_dfs.append((model_type_name, type(train_df).__name__))
             return original_train(
                 model=model,
@@ -3173,6 +3183,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             fit_df_types.append((model_type_name, type(train_df).__module__))
             return original_train(
                 model=model,
@@ -3258,6 +3269,7 @@ class TestPolarsNativeFastpath:
         original_fit = _pipeline_mod.fit_and_transform_pipeline
 
         def _spy_pipeline(**kwargs):
+            """Spy pipeline."""
             captured_configs.append(kwargs["config"].skip_categorical_encoding)
             return original_fit(**kwargs)
 
@@ -3305,6 +3317,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             fit_df_info.append((model_type_name, type(train_df).__module__, type(train_df).__name__))
             return original_train(
                 model=model,
@@ -3380,6 +3393,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             fit_df_info.append((model_type_name, type(train_df).__name__))
             return original_train(
                 model=model,
@@ -3493,6 +3507,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             fit_df_types.append((model_type_name, type(train_df).__module__))
             return original_train(
                 model=model,
@@ -3560,6 +3575,7 @@ class TestPolarsNativeFastpath:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             fit_df_types.append((model_type_name, type(train_df).__name__))
             return original_train(
                 model=model,
@@ -3641,6 +3657,7 @@ class TestPolarsNativeFastpath:
         original_fit = _pipeline_mod.fit_and_transform_pipeline
 
         def _spy_pipeline(**kwargs):
+            """Spy pipeline."""
             captured_configs.append(kwargs["config"].skip_categorical_encoding)
             return original_fit(**kwargs)
 
@@ -3709,6 +3726,7 @@ class TestTextAndEmbeddingFeatures:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             captured_fit_params.append((model_type_name, dict(fit_params) if fit_params else {}))
             return original_train(
                 model=model,
@@ -3766,6 +3784,7 @@ class TestTextAndEmbeddingFeatures:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             captured_fit_params.append((model_type_name, dict(fit_params) if fit_params else {}))
             return original_train(
                 model=model,
@@ -3822,6 +3841,7 @@ class TestTextAndEmbeddingFeatures:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             cols = list(train_df.columns) if hasattr(train_df, "columns") else []
             captured_dfs[model_type_name] = cols
             return original_train(
@@ -3876,6 +3896,7 @@ class TestTextAndEmbeddingFeatures:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             cols = list(train_df.columns) if hasattr(train_df, "columns") else []
             captured_dfs[model_type_name] = cols
             return original_train(
@@ -4068,6 +4089,7 @@ class TestTextAndEmbeddingFeatures:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             captured_fit_params.append((model_type_name, dict(fit_params) if fit_params else {}))
             return original_train(
                 model=model,
@@ -4127,6 +4149,7 @@ class TestTextAndEmbeddingFeatures:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             cols = list(train_df.columns) if hasattr(train_df, "columns") else []
             captured_dfs[model_type_name] = cols
             return original_train(
@@ -4222,6 +4245,7 @@ class TestTextAndEmbeddingFeatures:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             training_order.append(model_type_name)
             return original_train(
                 model=model,
@@ -4280,6 +4304,7 @@ class TestTextAndEmbeddingFeatures:
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
             # Store id to verify same object is reused
+            """Spy train."""
             captured_dfs[model_type_name] = id(train_df)
             return original_train(
                 model=model,
@@ -4338,6 +4363,7 @@ class TestTextAndEmbeddingFeatures:
         original_clone = pl.DataFrame.clone
 
         def _spy_clone(self):
+            """Spy clone."""
             clone_calls.append(True)
             return original_clone(self)
 
@@ -4408,6 +4434,7 @@ class TestTextAndEmbeddingFeatures:
         original_prepare = CatBoostStrategy.prepare_polars_dataframe
 
         def _spy_prepare(self, df, cat_features):
+            """Spy prepare."""
             prepare_calls.append(True)
             return original_prepare(self, df, cat_features)
 
@@ -4444,6 +4471,7 @@ class TestTextAndEmbeddingFeatures:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             ncols = train_df.shape[1] if hasattr(train_df, "shape") else 0
             captured_ncols[model_type_name] = ncols
             return original_train(
@@ -4504,6 +4532,7 @@ class TestTextAndEmbeddingFeatures:
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            """Spy train."""
             training_info.append((model_type_name, type(train_df).__name__))
             return original_train(
                 model=model,

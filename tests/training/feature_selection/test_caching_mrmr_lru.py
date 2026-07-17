@@ -15,10 +15,12 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def test_mrmr_fit_cache_is_lru_ordered_dict():
+    """Mrmr fit cache is lru ordered dict."""
     assert isinstance(MRMR._FIT_CACHE, OrderedDict)
 
 
 def test_mrmr_has_fit_cache_max_kwarg_default_four():
+    """Mrmr has fit cache max kwarg default four."""
     inst = MRMR()
     assert getattr(inst, "fit_cache_max") == 4
 
@@ -45,6 +47,7 @@ def test_mrmr_fit_cache_respects_fit_cache_max():
 
 
 def test_mrmr_fit_cache_default_cap_bounds_ten_writes_to_four():
+    """Mrmr fit cache default cap bounds ten writes to four."""
     MRMR._FIT_CACHE.clear()
     inst = MRMR()  # default fit_cache_max=4
     for i in range(10):

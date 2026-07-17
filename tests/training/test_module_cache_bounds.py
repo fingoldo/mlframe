@@ -27,10 +27,13 @@ def test_proxy_cls_cache_bounded():
     _PROXY_CLS_CACHE.clear()
 
     class _Dummy:
+        """Groups tests covering dummy."""
         def fit(self, X, y=None):
+            """Fit."""
             return self
 
         def transform(self, X):
+            """Transform."""
             return X
 
     # Dynamically build 200 distinct types so cache_key (cls, label, methods) differs each call.
@@ -47,15 +50,19 @@ def test_proxy_cls_cache_thread_safe():
     from mlframe.training.logging_transformers import wrap_with_logging
 
     class _Dummy:
+        """Groups tests covering dummy."""
         def fit(self, X, y=None):
+            """Fit."""
             return self
 
         def transform(self, X):
+            """Transform."""
             return X
 
     errors = []
 
     def _worker(_n: int):
+        """Worker."""
         try:
             for _ in range(50):
                 wrap_with_logging(_Dummy())
@@ -74,6 +81,7 @@ def test_proxy_cls_cache_thread_safe():
 
 
 def test_plot_idx_cache_bounded():
+    """Plot idx cache bounded."""
     from mlframe.training.evaluation import (
         _get_cached_plot_idx,
         _PLOT_IDX_CACHE,
@@ -99,6 +107,7 @@ def test_plot_idx_cache_returns_same_idx_for_same_key():
 
 
 def test_plot_idx_cache_thread_safe():
+    """Plot idx cache thread safe."""
     from mlframe.training.evaluation import _get_cached_plot_idx
 
     errors = []
@@ -106,6 +115,7 @@ def test_plot_idx_cache_thread_safe():
     lock = threading.Lock()
 
     def _worker(_n: int):
+        """Worker."""
         try:
             for _ in range(30):
                 idx = _get_cached_plot_idx(n=1000, sample_size=100, seed=_n)
@@ -138,6 +148,7 @@ def test_init_sig_cache_weakkey_clears_on_class_gc():
     )
 
     class _ShimA:
+        """Groups tests covering shim a."""
         def __init__(self, foo, bar):
             pass
 
@@ -162,6 +173,7 @@ def test_init_sig_cache_no_id_recycle_collision():
     from mlframe.training.core._phase_train_one_target import _cached_init_params
 
     class _ShimX:
+        """Groups tests covering shim x."""
         def __init__(self, alpha):
             pass
 
@@ -172,6 +184,7 @@ def test_init_sig_cache_no_id_recycle_collision():
 
     # Now build a DIFFERENT class with potentially-recycled id but different signature.
     class _ShimY:
+        """Groups tests covering shim y."""
         def __init__(self, beta, gamma):
             pass
 

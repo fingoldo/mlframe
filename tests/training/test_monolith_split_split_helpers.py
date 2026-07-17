@@ -12,6 +12,7 @@ import pandas as pd
 
 
 def test_split_helpers_reexport_identity():
+    """Split helpers reexport identity."""
     from mlframe.training import _split_helpers as sib
     from mlframe.training import splitting as parent
 
@@ -20,6 +21,7 @@ def test_split_helpers_reexport_identity():
 
 
 def test_stratified_split_body_callable():
+    """Stratified split body callable."""
     from mlframe.training._split_helpers import _stratified_split
 
     idx = np.arange(20)
@@ -31,6 +33,7 @@ def test_stratified_split_body_callable():
 
 
 def test_carve_calib_random_and_timeordered_bodies_callable():
+    """Carve calib random and timeordered bodies callable."""
     from mlframe.training._split_helpers import _carve_calib_from_train
 
     train = np.arange(16)

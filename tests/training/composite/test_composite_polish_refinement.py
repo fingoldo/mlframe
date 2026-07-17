@@ -37,8 +37,10 @@ from mlframe.training.composite import (
 
 
 class TestRuntimeStatsCallback:
+    """Groups tests covering runtime stats callback."""
     @pytest.fixture
     def fitted_wrapper(self):
+        """Fitted wrapper."""
         rng = np.random.default_rng(0)
         n = 400
         df = pd.DataFrame(
@@ -53,6 +55,7 @@ class TestRuntimeStatsCallback:
         captured: list = []
 
         def callback(stats: dict) -> None:
+            """Callback."""
             captured.append(stats)
 
         from sklearn.linear_model import Ridge
@@ -67,6 +70,7 @@ class TestRuntimeStatsCallback:
         return wrapper, captured
 
     def test_callback_fires_per_predict(self, fitted_wrapper):
+        """Callback fires per predict."""
         wrapper, captured = fitted_wrapper
         df_test = pd.DataFrame(
             {
@@ -85,6 +89,7 @@ class TestRuntimeStatsCallback:
         assert "cumulative_predict_calls" in stats
 
     def test_callback_cumulative_counts(self, fitted_wrapper):
+        """Callback cumulative counts."""
         wrapper, captured = fitted_wrapper
         captured.clear()
         df_test = pd.DataFrame(
@@ -104,6 +109,7 @@ class TestRuntimeStatsCallback:
         assert captured[-1]["cumulative_predict_rows_total"] >= 15
 
     def test_callback_failure_swallowed(self, fitted_wrapper):
+        """Callback failure swallowed."""
         wrapper, _ = fitted_wrapper
         # Replace callback with one that raises -- predict must not
         # propagate the exception.
@@ -129,6 +135,7 @@ class TestRuntimeStatsCallback:
 
 
 class TestSampleWeights:
+    """Groups tests covering sample weights."""
     def test_weighted_alpha_differs_from_unweighted(self) -> None:
         """Heavy weight on rows where alpha would be different
         produces a different fitted alpha than the unweighted version."""
@@ -153,6 +160,7 @@ class TestSampleWeights:
         assert 0.9 < params_w["alpha"] < 1.3
 
     def test_zero_weights_fallback(self) -> None:
+        """Zero weights fallback."""
         params = _linear_residual_fit(
             np.array([1.0, 2.0, 3.0]),
             np.array([0.5, 1.0, 1.5]),
@@ -163,6 +171,7 @@ class TestSampleWeights:
         assert abs(params["beta"] - 2.0) < 1e-9
 
     def test_weight_length_mismatch_raises(self) -> None:
+        """Weight length mismatch raises."""
         with pytest.raises(ValueError, match="length"):
             _linear_residual_fit(
                 np.array([1.0, 2.0]),
@@ -177,6 +186,7 @@ class TestSampleWeights:
 
 
 class TestStratifiedSampling:
+    """Groups tests covering stratified sampling."""
     def test_stratified_gives_per_bin_coverage(self) -> None:
         """Stratified-quantile sampling guarantees ~equal rows per
         quantile bin even when y is heavy-tail. Random sampling has
@@ -227,6 +237,7 @@ class TestStratifiedSampling:
         assert strat_per_bin.std() < random_per_bin.std() * 0.5, f"stratified {strat_per_bin} vs random {random_per_bin}"
 
     def test_unknown_strategy_raises(self) -> None:
+        """Unknown strategy raises."""
         with pytest.raises(ValueError, match="unknown strategy"):
             _sample_indices(
                 100,
@@ -238,6 +249,7 @@ class TestStratifiedSampling:
 
     def test_stratified_falls_back_when_y_missing(self) -> None:
         # No y supplied -> falls back to random; check it doesn't crash.
+        """Stratified falls back when y missing."""
         idx = _sample_indices(
             1000,
             100,
@@ -267,16 +279,20 @@ class _StubQuantileRegressor(BaseEstimator):
         self.q_to_value = q_to_value if q_to_value is not None else {0.5: 0.0}
 
     def fit(self, X, y):
+        """Fit."""
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.zeros(len(X))
 
     def predict_quantile(self, X, alpha=0.5):
+        """Predict quantile."""
         return np.full(len(X), self.q_to_value.get(alpha, 0.0))
 
 
 class TestPredictQuantile:
+    """Groups tests covering predict quantile."""
     def test_diff_quantile_inverts_correctly(self) -> None:
         """For diff: y_q = T_q + base. With stub T_q=0.5 and
         base=[10, 20, 30] expect y_q=[10.5, 20.5, 30.5]."""
@@ -364,7 +380,9 @@ class TestPredictQuantile:
 
 
 class TestPlotHelpers:
+    """Groups tests covering plot helpers."""
     def test_plot_target_distribution(self) -> None:
+        """Plot target distribution."""
         from mlframe.training.composite.diagnostics import plot_target_distribution
 
         rng = np.random.default_rng(0)
@@ -375,6 +393,7 @@ class TestPlotHelpers:
         assert hasattr(fig, "savefig")  # matplotlib Figure
 
     def test_plot_qq(self) -> None:
+        """Plot qq."""
         from mlframe.training.composite.diagnostics import plot_qq
 
         rng = np.random.default_rng(0)
@@ -383,6 +402,7 @@ class TestPlotHelpers:
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_linear_fit(self) -> None:
+        """Plot linear fit."""
         from mlframe.training.composite.diagnostics import plot_linear_fit
 
         rng = np.random.default_rng(0)
@@ -392,6 +412,7 @@ class TestPlotHelpers:
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_mi_gain_with_ci(self) -> None:
+        """Plot mi gain with ci."""
         from mlframe.training.composite.diagnostics import plot_mi_gain_with_ci
 
         specs = [
@@ -403,6 +424,7 @@ class TestPlotHelpers:
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_per_fold_tiny_rmse(self) -> None:
+        """Plot per fold tiny rmse."""
         from mlframe.training.composite.diagnostics import plot_per_fold_tiny_rmse
 
         per_fold = {
@@ -413,6 +435,7 @@ class TestPlotHelpers:
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_per_fold_tiny_rmse_empty(self) -> None:
+        """Plot per fold tiny rmse empty."""
         from mlframe.training.composite.diagnostics import plot_per_fold_tiny_rmse
 
         fig = plot_per_fold_tiny_rmse({})
@@ -421,6 +444,7 @@ class TestPlotHelpers:
         assert fig is not None and hasattr(fig, "savefig")
 
     def test_plot_per_family_disagreement(self) -> None:
+        """Plot per family disagreement."""
         from mlframe.training.composite.diagnostics import plot_per_family_disagreement
 
         # 3 families, 4 specs.
@@ -443,6 +467,7 @@ class TestPlotHelpers:
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_alpha_stability(self) -> None:
+        """Plot alpha stability."""
         from mlframe.training.composite.diagnostics import plot_alpha_stability
 
         alphas = [0.95, 0.97, 0.93, 0.96, 0.98, 0.94, 0.95]
@@ -450,12 +475,14 @@ class TestPlotHelpers:
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_alpha_stability_empty(self) -> None:
+        """Plot alpha stability empty."""
         from mlframe.training.composite.diagnostics import plot_alpha_stability
 
         fig = plot_alpha_stability([])
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_predictions_vs_actual(self) -> None:
+        """Plot predictions vs actual."""
         from mlframe.training.composite.diagnostics import plot_predictions_vs_actual
 
         rng = np.random.default_rng(0)

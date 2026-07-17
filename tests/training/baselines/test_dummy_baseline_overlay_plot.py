@@ -27,6 +27,7 @@ from mlframe.training.configs import DummyBaselinesConfig
 
 
 def _make_regression_data(n_train: int = 500, n_val: int = 200, n_test: int = 200, seed: int = 0):
+    """Make regression data."""
     rng = np.random.default_rng(seed)
     train_y = rng.normal(loc=10, scale=2, size=n_train)
     val_y = rng.normal(loc=10, scale=2, size=n_val)
@@ -43,6 +44,7 @@ class TestStrongestPredsRetained:
     can read them."""
 
     def test_strongest_preds_present_in_extras(self) -> None:
+        """Strongest preds present in extras."""
         train_X, val_X, test_X, train_y, val_y, test_y = _make_regression_data()
         report = compute_dummy_baselines(
             target_type="regression",
@@ -90,6 +92,7 @@ class TestOverlayPlotRegression:
     the overlay, assert the figure is well-formed."""
 
     def test_regression_overlay_renders(self, tmp_path) -> None:
+        """Regression overlay renders."""
         train_X, val_X, test_X, train_y, val_y, test_y = _make_regression_data()
         report = compute_dummy_baselines(
             target_type="regression",
@@ -159,6 +162,7 @@ class TestConfigPlotStrongestDefaultOn:
     """User-facing contract: default ON per their repeated request."""
 
     def test_plot_strongest_default_true(self) -> None:
+        """Plot strongest default true."""
         cfg = DummyBaselinesConfig()
         assert cfg.plot_strongest is True, "regression: per user feedback this default should be ON; manual opt-out via plot_strongest=False"
 
@@ -248,6 +252,7 @@ class TestOverlayHandlesMissingPreds:
     falls back gracefully -- doesn't crash, renders what it can."""
 
     def test_only_val_preds(self, tmp_path) -> None:
+        """Only val preds."""
         report = BaselineReport(
             target_type="regression",
             target_name="y",
@@ -285,9 +290,11 @@ class TestOverlayPlotConfigFlag:
     """
 
     def test_overlay_plot_default_off(self) -> None:
+        """Overlay plot default off."""
         assert DummyBaselinesConfig().overlay_plot is False
 
     def test_overlay_plot_renders_and_saves_when_enabled(self, tmp_path) -> None:
+        """Overlay plot renders and saves when enabled."""
         train_X, val_X, test_X, train_y, val_y, test_y = _make_regression_data()
         prefix = str(tmp_path) + "/"
         report = compute_dummy_baselines(
@@ -309,6 +316,7 @@ class TestOverlayPlotConfigFlag:
         assert os.path.exists(report.plot_path), "overlay PNG should be written to disk"
 
     def test_overlay_plot_off_leaves_plot_path_none(self, tmp_path) -> None:
+        """Overlay plot off leaves plot path none."""
         train_X, val_X, test_X, train_y, val_y, test_y = _make_regression_data()
         report = compute_dummy_baselines(
             target_type="regression",

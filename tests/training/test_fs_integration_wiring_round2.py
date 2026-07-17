@@ -44,6 +44,7 @@ class _FakeRFECV(BaseEstimator, TransformerMixin):
         self.random_state = random_state
 
     def fit(self, X, y=None, **fit_params):
+        """Fit."""
         cols = list(X.columns)
         self.feature_names_in_ = np.asarray(cols, dtype=object)
         self.n_features_in_ = len(cols)
@@ -51,10 +52,12 @@ class _FakeRFECV(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
+        """Transform."""
         return X.iloc[:, np.where(self.support_)[0]]
 
 
 def _build(**over):
+    """Build."""
     from mlframe.training.core._setup_helpers_pre_pipelines import _build_pre_pipelines
 
     base = dict(use_ordinary_models=False, rfecv_models=[], rfecv_models_params={}, use_mrmr_fs=False, mrmr_kwargs={})
@@ -66,6 +69,7 @@ def _build(**over):
 
 
 def test_f3_suite_rfecv_is_cluster_wrapped_when_default_on():
+    """F3 suite rfecv is cluster wrapped when default on."""
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
 
     rf = _FakeRFECV(keep=2)
@@ -78,6 +82,7 @@ def test_f3_suite_rfecv_is_cluster_wrapped_when_default_on():
 
 
 def test_f3_cluster_reduce_off_yields_bare_rfecv():
+    """F3 cluster reduce off yields bare rfecv."""
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
 
     rf = _FakeRFECV(keep=2)
@@ -88,6 +93,7 @@ def test_f3_cluster_reduce_off_yields_bare_rfecv():
 
 
 def test_f3_wrapped_rfecv_threads_overrides_to_inner():
+    """F3 wrapped rfecv threads overrides to inner."""
     rf = _FakeRFECV(keep=2)
     pps, _ = _build(
         rfecv_models=["lgb"],
@@ -102,6 +108,7 @@ def test_f3_wrapped_rfecv_threads_overrides_to_inner():
 
 
 def test_f3_selector_kind_classifies_wrapped_rfecv():
+    """F3 selector kind classifies wrapped rfecv."""
     from mlframe.training.core._phase_train_one_target import _selector_kind
 
     rf = _FakeRFECV(keep=2)
@@ -148,6 +155,7 @@ def test_biz_f3_cluster_wrap_keeps_whole_correlated_cluster():
 
 
 def test_f4_shap_proxied_fs_reachable_from_suite():
+    """F4 shap proxied fs reachable from suite."""
     pps, names = _build(use_shap_proxied_fs=True, shap_proxied_fs_kwargs={"top_n": 5})
     assert "ShapProxiedFS " in names
     sel = pps[names.index("ShapProxiedFS ")]
@@ -156,12 +164,14 @@ def test_f4_shap_proxied_fs_reachable_from_suite():
 
 
 def test_f4_shap_proxied_fs_auto_derives_regression_classification():
+    """F4 shap proxied fs auto derives regression classification."""
     pps, names = _build(use_shap_proxied_fs=True, shap_proxied_fs_kwargs={}, target_type="TargetTypes.REGRESSION")
     sel = pps[names.index("ShapProxiedFS ")]
     assert sel.classification is False  # regression target -> regressor inner model
 
 
 def test_f4_shap_proxied_fs_kind_classified():
+    """F4 shap proxied fs kind classified."""
     from mlframe.training.core._phase_train_one_target import _selector_kind
 
     pps, names = _build(use_shap_proxied_fs=True, shap_proxied_fs_kwargs={})
@@ -172,21 +182,25 @@ def test_f4_shap_proxied_fs_kind_classified():
 
 
 def test_f6_shap_proxied_fs_kwargs_master_flag_gate():
+    """F6 shap proxied fs kwargs master flag gate."""
     with pytest.raises(ValueError, match="shap_proxied_fs_kwargs supplied but use_shap_proxied_fs"):
         FeatureSelectionConfig(shap_proxied_fs_kwargs={"top_n": 5})
 
 
 def test_f6_shap_proxied_fs_kwargs_rejects_unknown_key():
+    """F6 shap proxied fs kwargs rejects unknown key."""
     with pytest.raises(ValueError, match="unknown key"):
         FeatureSelectionConfig(use_shap_proxied_fs=True, shap_proxied_fs_kwargs={"definitely_not_a_param": 1})
 
 
 def test_f6_shap_proxied_fs_kwargs_accepts_valid_key():
+    """F6 shap proxied fs kwargs accepts valid key."""
     cfg = FeatureSelectionConfig(use_shap_proxied_fs=True, shap_proxied_fs_kwargs={"top_n": 7, "optimizer": "auto"})
     assert cfg.shap_proxied_fs_kwargs["top_n"] == 7
 
 
 def test_f6_rfecv_cluster_corr_method_validated():
+    """F6 rfecv cluster corr method validated."""
     with pytest.raises(ValueError, match="rfecv_cluster_corr_method"):
         FeatureSelectionConfig(rfecv_cluster_corr_method="bogus")
     assert FeatureSelectionConfig(rfecv_cluster_corr_method="su").rfecv_cluster_corr_method == "su"
@@ -200,6 +214,7 @@ def test_report_builder_consumes_registry_report_extract():
     from mlframe.training.core._phase_train_one_target_helpers import _build_feature_selection_report
 
     class _FakeShapProxied:
+        """Groups tests covering fake shap proxied."""
         feature_names_in_ = np.asarray(["f0", "f1", "f2"], dtype=object)
         selected_features_ = ["f0", "f2"]
         shap_proxy_report_ = {"mean_abs_shap": {"f0": 0.4, "f1": 0.01, "f2": 0.3}}

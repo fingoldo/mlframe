@@ -33,11 +33,13 @@ class TestWatchdogDiagnosticFormat:
                 self.scale_factor = scale_factor
 
             def fit(self, X, y):
+                """Fit."""
                 self.coef_ = np.zeros(X.shape[1] if X.ndim > 1 else 1)
                 return self
 
             def predict(self, X):
                 # Pretend we know y - return scaled y. Production-style "near-oracle with wrong scaling".
+                """Predict."""
                 rng = np.random.default_rng(0)
                 return rng.normal(0.0, 1.0, size=len(X)) * self.scale_factor
 
@@ -86,6 +88,7 @@ class TestWatchdogDiagnosticFormat:
         # using the same structure the suite produces (list of entries; each
         # entry has .model attribute pointing at the inner).
         class _Entry:
+            """Groups tests covering entry."""
             def __init__(self, m):
                 self.model = m
                 self.model_name = "Broken"

@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
 def _make_mtr_data(n=120, d=5, k=3, seed=0):
+    """Make mtr data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, d)).astype(np.float32)
     coefs = rng.normal(size=(d, k)).astype(np.float32)

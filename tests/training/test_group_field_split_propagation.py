@@ -21,6 +21,7 @@ class TestGroupFieldEndToEnd:
     per-row group leakage."""
 
     def _build_problem(self, n_groups: int = 20, rows_per_group: int = 100, seed: int = 42):
+        """Build problem."""
         rng = np.random.default_rng(seed)
         rows = []
         for g in range(n_groups):
@@ -40,6 +41,7 @@ class TestGroupFieldEndToEnd:
 
     @pytest.mark.timeout(60)
     def test_groups_never_leak_across_splits(self) -> None:
+        """Groups never leak across splits."""
         from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.configs import TrainingSplitConfig
         from mlframe.training.splitting import make_train_test_split
@@ -162,6 +164,7 @@ class TestSplitterEmitsGroupAwareInfoLine:
     GroupShuffleSplit internals."""
 
     def test_enabled_log_when_groups_supplied(self, caplog) -> None:
+        """Enabled log when groups supplied."""
         import logging
         from mlframe.training.splitting import make_train_test_split
 
@@ -191,6 +194,7 @@ class TestSplitterEmitsGroupAwareInfoLine:
         )
 
     def test_disabled_log_when_groups_none(self, caplog) -> None:
+        """Disabled log when groups none."""
         import logging
         from mlframe.training.splitting import make_train_test_split
 

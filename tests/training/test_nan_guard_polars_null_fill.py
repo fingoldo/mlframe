@@ -21,9 +21,11 @@ from mlframe.training._predict_guards import _apply_nan_guard
 
 
 def _captured_fn():
+    """Captured fn."""
     seen = {}
 
     def fn(X):
+        """Records the array it was called with (for later inspection) and returns an all-zero prediction."""
         seen["X"] = X
         return np.zeros(len(X))
 
@@ -31,6 +33,7 @@ def _captured_fn():
 
 
 def test_polars_null_is_filled_not_just_nan():
+    """Polars null is filled not just nan."""
     rng = np.random.default_rng(0)
     n = 300
     a = rng.normal(size=n)
@@ -53,6 +56,7 @@ def test_polars_null_is_filled_not_just_nan():
 
 
 def test_polars_all_null_column_filled_zero():
+    """Polars all null column filled zero."""
     rng = np.random.default_rng(1)
     n = 200
     b = rng.normal(size=n)

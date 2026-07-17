@@ -14,6 +14,7 @@ from mlframe.training.composite import (
 
 
 class TestNoDriftPath:
+    """Groups tests covering no drift path."""
     def test_no_drift_returns_current_params(self) -> None:
         """When the buffer's alpha matches the deployed alpha (within noise), the function returns the unchanged ``(current_alpha, current_beta)``."""
         rng = np.random.default_rng(0)
@@ -33,6 +34,7 @@ class TestNoDriftPath:
         assert info["reason"] == "no_drift"
 
     def test_z_score_reported_even_without_refit(self) -> None:
+        """Z score reported even without refit."""
         rng = np.random.default_rng(1)
         n = 500
         base = rng.normal(size=n)
@@ -47,6 +49,7 @@ class TestNoDriftPath:
 
 
 class TestDriftDetected:
+    """Groups tests covering drift detected."""
     def test_clear_drift_triggers_refit(self) -> None:
         """Deployed alpha is 0.5; buffer's true alpha is 2.0 -- large drift, z >> threshold, refit fires."""
         rng = np.random.default_rng(2)
@@ -97,7 +100,10 @@ class TestDriftDetected:
 
 
 class TestEdgeCases:
+    """Groups edge-case tests for streaming_alpha_check_and_refit (small buffers, degenerate inputs)."""
+
     def test_buffer_too_small_skips(self) -> None:
+        """Buffer too small skips."""
         rng = np.random.default_rng(4)
         y = rng.normal(size=50)
         base = rng.normal(size=50)
@@ -113,6 +119,7 @@ class TestEdgeCases:
         assert new_alpha == 0.5
 
     def test_constant_base_degenerate(self) -> None:
+        """Constant base degenerate."""
         n = 300
         base = np.array([7.0] * n)
         y = np.linspace(0.0, 10.0, n)
@@ -129,6 +136,7 @@ class TestEdgeCases:
         assert new_alpha == 0.5
 
     def test_non_finite_filtered(self) -> None:
+        """Non finite filtered."""
         rng = np.random.default_rng(5)
         n = 500
         base = rng.normal(loc=10.0, scale=2.0, size=n)

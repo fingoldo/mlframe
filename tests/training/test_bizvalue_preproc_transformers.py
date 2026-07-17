@@ -62,6 +62,7 @@ try:
 except ImportError:  # pragma: no cover
 
     def fast_subset(values, **_):
+        """Fast subset."""
         return list(values)
 
 
@@ -76,6 +77,7 @@ SEEDS = fast_subset([42, 7, 99], representative=42)
 
 
 def _xor_dataset(seed: int, n: int = 2000):
+    """Xor dataset."""
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
@@ -87,6 +89,7 @@ def _xor_dataset(seed: int, n: int = 2000):
 
 
 def _circles_dataset(seed: int, n: int = 1500):
+    """Circles dataset."""
     rng = np.random.default_rng(seed)
     r = rng.uniform(0.0, 2.0, size=n)
     theta = rng.uniform(0, 2 * np.pi, size=n)
@@ -100,6 +103,7 @@ def _circles_dataset(seed: int, n: int = 1500):
 
 
 def _rank_r_wide_dataset(seed: int, n: int = 1500, p: int = 200, rank: int = 10):
+    """Rank r wide dataset."""
     rng = np.random.default_rng(seed)
     Z = rng.standard_normal((n, rank))
     mix = rng.standard_normal((rank, p))
@@ -111,10 +115,12 @@ def _rank_r_wide_dataset(seed: int, n: int = 1500, p: int = 200, rank: int = 10)
 
 
 def _split(X: pd.DataFrame, y: pd.Series, seed: int):
+    """Split."""
     return train_test_split(X, y, test_size=0.3, random_state=seed, stratify=y)
 
 
 def _apply(cfg, X_tr, X_te, y_tr=None):
+    """Apply."""
     train, _val, test, _ = apply_preprocessing_extensions(
         X_tr,
         None,
@@ -127,6 +133,7 @@ def _apply(cfg, X_tr, X_te, y_tr=None):
 
 
 def _auroc(X_tr, y_tr, X_te, y_te, seed=0):
+    """Auroc."""
     clf = LogisticRegression(max_iter=2000, random_state=seed)
     clf.fit(X_tr, y_tr)
     probs = clf.predict_proba(X_te)[:, 1]
@@ -140,6 +147,7 @@ def _auroc(X_tr, y_tr, X_te, y_te, seed=0):
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_polynomial_degree_lifts_xor(seed):
+    """Polynomial degree lifts xor."""
     X, y = _xor_dataset(seed)
     X_tr, X_te, y_tr, y_te = _split(X, y, seed)
 
@@ -165,6 +173,7 @@ def test_polynomial_degree_lifts_xor(seed):
 @pytest.mark.parametrize("seed", SEEDS)
 @pytest.mark.parametrize("variant", fast_subset(["RBFSampler", "Nystroem"], representative="RBFSampler"))
 def test_nonlinear_features_lift_on_circles(seed, variant):
+    """Nonlinear features lift on circles."""
     X, y = _circles_dataset(seed)
     X_tr, X_te, y_tr, y_te = _split(X, y, seed)
     base = _auroc(X_tr, y_tr, X_te, y_te, seed=seed)
@@ -188,6 +197,7 @@ def test_nonlinear_features_lift_on_circles(seed, variant):
 
 @pytest.mark.parametrize("variant", ["AdditiveChi2Sampler", "SkewedChi2Sampler"])
 def test_chi2_samplers_reject_negative_inputs(variant):
+    """Chi2 samplers reject negative inputs."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((200, 4)), columns=[f"f{i}" for i in range(4)])
     pd.Series((X["f0"] > 0).astype(int))
@@ -204,6 +214,7 @@ def test_chi2_samplers_reject_negative_inputs(variant):
 @pytest.mark.parametrize("seed", SEEDS)
 @pytest.mark.parametrize("reducer", fast_subset(["PCA", "TruncatedSVD"], representative="PCA"))
 def test_pca_like_dim_reducer_preserves_auroc(seed, reducer):
+    """Pca like dim reducer preserves auroc."""
     X, y = _rank_r_wide_dataset(seed)
     X_tr, X_te, y_tr, y_te = _split(X, y, seed)
     base = _auroc(X_tr, y_tr, X_te, y_te, seed=seed)
@@ -227,6 +238,7 @@ def test_pca_like_dim_reducer_preserves_auroc(seed, reducer):
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_lda_dim_reducer_supervised(seed):
+    """Lda dim reducer supervised."""
     rng = np.random.default_rng(seed)
     n = 1500
     # 3 classes, clear linear separability.
@@ -269,6 +281,7 @@ def test_lda_dim_reducer_supervised(seed):
     ),
 )
 def test_dim_reducer_variants_smoke_and_shape(reducer):
+    """Dim reducer variants smoke and shape."""
     X, y = _rank_r_wide_dataset(seed=42, n=500, p=60, rank=8)
     X_tr, X_te, _y_tr, _y_te = _split(X, y, seed=42)
     # BernoulliRBM expects inputs in [0,1]; scale via MinMax.
@@ -286,6 +299,7 @@ def test_dim_reducer_variants_smoke_and_shape(reducer):
 
 def test_dim_reducer_nmf_requires_positive():
     # NMF needs non-negative inputs; pre-clip to absolute values.
+    """Dim reducer nmf requires positive."""
     X, y = _rank_r_wide_dataset(seed=42, n=500, p=40, rank=6)
     X = X.abs()
     X_tr, X_te, _y_tr, _y_te = _split(X, y, seed=42)
@@ -296,6 +310,7 @@ def test_dim_reducer_nmf_requires_positive():
 
 
 def test_dim_reducer_random_trees_embedding():
+    """Dim reducer random trees embedding."""
     X, y = _rank_r_wide_dataset(seed=42, n=500, p=30, rank=5)
     X_tr, X_te, _y_tr, _y_te = _split(X, y, seed=42)
     # dim_n_components becomes n_estimators for RandomTreesEmbedding — output is
@@ -310,6 +325,7 @@ def test_dim_reducer_random_trees_embedding():
 
 
 def test_dim_reducer_umap_optional():
+    """Dim reducer umap optional."""
     pytest.importorskip("umap")
     X, y = _rank_r_wide_dataset(seed=42, n=400, p=40, rank=6)
     X_tr, X_te, _y_tr, _y_te = _split(X, y, seed=42)
@@ -338,6 +354,7 @@ def test_dim_reducer_umap_optional():
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_kbins_lifts_linear_regression_on_sine(seed):
+    """Kbins lifts linear regression on sine."""
     rng = np.random.default_rng(seed)
     n = 2000
     x = rng.uniform(0, 2 * np.pi, size=n)
@@ -366,6 +383,7 @@ def test_kbins_lifts_linear_regression_on_sine(seed):
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_binarization_threshold_on_sign_signal(seed):
+    """Binarization threshold on sign signal."""
     rng = np.random.default_rng(seed)
     n = 1500
     # Setup where the sign (above/below threshold) perfectly predicts target
@@ -407,6 +425,7 @@ def test_binarization_threshold_on_sign_signal(seed):
 
 
 def test_memory_safety_guard_blocks_poly_explosion():
+    """Memory safety guard blocks poly explosion."""
     rng = np.random.default_rng(0)
     n, p = 100, 500
     X = pd.DataFrame(rng.standard_normal((n, p)), columns=[f"f{i}" for i in range(p)])
@@ -423,5 +442,6 @@ def test_memory_safety_guard_blocks_poly_explosion():
 
 
 def test_binarizer_kbins_mutually_exclusive():
+    """Binarizer kbins mutually exclusive."""
     with pytest.raises(ValueError, match="mutually exclusive"):
         PreprocessingExtensionsConfig(binarization_threshold=0.0, kbins=5)

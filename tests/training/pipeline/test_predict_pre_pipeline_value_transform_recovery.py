@@ -62,6 +62,7 @@ def _build_value_transform_suite():
     df = pd.DataFrame({"x0": x0, "x1": x1})
 
     def _broken(_X, *_a, **_k):
+        """Broken."""
         raise RuntimeError("simulated stale pre_pipeline state at predict")
 
     # --- value-transform model (must be dropped) ---

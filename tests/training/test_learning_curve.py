@@ -31,6 +31,7 @@ ACC = get_scorer("accuracy")
 
 
 def _linear_reg(n: int, noise: float = 0.5, seed: int = 0):
+    """Linear reg."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 5))
     y = X @ np.array([1.0, -2.0, 0.5, 0.0, 0.3]) + rng.normal(0, noise, n)
@@ -38,6 +39,7 @@ def _linear_reg(n: int, noise: float = 0.5, seed: int = 0):
 
 
 def _ridge_factory():
+    """Ridge factory."""
     return Ridge(alpha=1.0)
 
 
@@ -45,6 +47,7 @@ def _ridge_factory():
 
 
 def test_returns_k_sizes_with_parallel_arrays():
+    """Returns k sizes with parallel arrays."""
     X, y = _linear_reg(500)
     res = compute_learning_curve(_ridge_factory, X, y, scorer=R2, n_jobs=1)
     k = len(res.train_sizes)
@@ -57,6 +60,7 @@ def test_returns_k_sizes_with_parallel_arrays():
 
 
 def test_size_grid_is_strictly_increasing():
+    """Size grid is strictly increasing."""
     X, y = _linear_reg(500)
     res = compute_learning_curve(_ridge_factory, X, y, scorer=R2, n_jobs=1)
     assert np.all(np.diff(res.train_sizes) > 0), res.train_sizes.tolist()
@@ -67,6 +71,7 @@ def test_size_grid_is_strictly_increasing():
 def test_holdout_is_disjoint_from_every_train_subset():
     # Reproduce the internal split with the same seed, then assert no holdout row index is reachable from the
     # pool the sizes index into.
+    """Holdout is disjoint from every train subset."""
     n = 400
     X, y = _linear_reg(n)
     holdout = 0.25
@@ -83,6 +88,7 @@ def test_holdout_is_disjoint_from_every_train_subset():
 
 
 def test_custom_sizes_collapse_duplicates_on_small_pool():
+    """Custom sizes collapse duplicates on small pool."""
     X, y = _linear_reg(40)
     # 0.05 and 0.1 both round to the same tiny count on a ~32-row pool -> collapse, but result stays ascending.
     res = compute_learning_curve(
@@ -98,6 +104,7 @@ def test_custom_sizes_collapse_duplicates_on_small_pool():
 
 
 def test_parallel_matches_serial_bit_for_bit():
+    """Parallel matches serial bit for bit."""
     X, y = _linear_reg(600)
     serial = compute_learning_curve(_ridge_factory, X, y, scorer=R2, n_jobs=1, random_state=7)
     parallel = compute_learning_curve(_ridge_factory, X, y, scorer=R2, n_jobs=-1, random_state=7)
@@ -107,6 +114,7 @@ def test_parallel_matches_serial_bit_for_bit():
 
 
 def test_score_repeats_produce_nonzero_std_band():
+    """Score repeats produce nonzero std band."""
     X, y = _linear_reg(500)
     res = compute_learning_curve(_ridge_factory, X, y, scorer=R2, n_jobs=1, score_repeats=3)
     # Reshuffled equal-length prefixes must give SOME spread on at least one size.
@@ -114,11 +122,15 @@ def test_score_repeats_produce_nonzero_std_band():
 
 
 def test_time_budget_skips_larger_sizes_and_logs(caplog):
+    """Time budget skips larger sizes and logs."""
     X, y = _linear_reg(800)
 
     def _slow_factory():
+        """Slow factory."""
         class _Slow(Ridge):
+            """Groups tests covering slow."""
             def fit(self, X, yy, **kw):
+                """Fit."""
                 time.sleep(0.15)
                 return super().fit(X, yy, **kw)
 
@@ -140,6 +152,7 @@ def test_time_budget_skips_larger_sizes_and_logs(caplog):
 
 
 def test_warm_start_falls_back_when_unsupported():
+    """Warm start falls back when unsupported."""
     X, y = _linear_reg(400)
     # Ridge has no warm_start param -> the warm path must be skipped and a full sweep returned.
     res = compute_learning_curve(_ridge_factory, X, y, scorer=R2, warm_start=True, n_jobs=1)
@@ -148,12 +161,14 @@ def test_warm_start_falls_back_when_unsupported():
 
 
 def test_warm_start_used_for_incremental_learner():
+    """Warm start used for incremental learner."""
     rng = np.random.default_rng(0)
     n = 600
     X = rng.normal(size=(n, 6))
     y = (X[:, 0] + X[:, 1] * X[:, 2] > 0).astype(int)
 
     def _gb():
+        """Gb."""
         return HistGradientBoostingClassifier(max_iter=40, warm_start=True, random_state=0)
 
     res = compute_learning_curve(_gb, X, y, scorer=ACC, warm_start=True, n_jobs=1)
@@ -162,18 +177,21 @@ def test_warm_start_used_for_incremental_learner():
 
 
 def test_raises_on_too_few_rows():
+    """Raises on too few rows."""
     X, y = _linear_reg(3)
     with pytest.raises(ValueError):
         compute_learning_curve(_ridge_factory, X, y, scorer=R2)
 
 
 def test_raises_on_bad_holdout():
+    """Raises on bad holdout."""
     X, y = _linear_reg(100)
     with pytest.raises(ValueError):
         compute_learning_curve(_ridge_factory, X, y, scorer=R2, holdout=1.5)
 
 
 def test_panel_is_pure_data_figurespec():
+    """Panel is pure data figurespec."""
     X, y = _linear_reg(500)
     res = compute_learning_curve(_ridge_factory, X, y, scorer=R2, n_jobs=1, scorer_name="r2")
     fig = learning_curve_panel(res)
@@ -188,6 +206,7 @@ def test_panel_is_pure_data_figurespec():
 
 
 def test_panel_band_present_only_with_repeats():
+    """Panel band present only with repeats."""
     X, y = _linear_reg(500)
     no_rep = learning_curve_panel(compute_learning_curve(_ridge_factory, X, y, scorer=R2, n_jobs=1))
     assert no_rep.panels[0][0].band is None
@@ -196,6 +215,7 @@ def test_panel_band_present_only_with_repeats():
 
 
 def test_config_default_is_opt_in_off():
+    """Config default is opt in off."""
     cfg = LearningCurveConfig()
     assert cfg.enabled is False
     assert cfg.sizes == DEFAULT_SIZES
@@ -203,6 +223,7 @@ def test_config_default_is_opt_in_off():
 
 def test_higher_is_better_false_orients_slope():
     # A raw-loss scorer (lower better): a decreasing loss with size must read as a POSITIVE oriented slope.
+    """Higher is better false orients slope."""
     res = LearningCurveResult(
         train_sizes=np.array([10, 100, 1000]),
         train_scores=np.array([0.5, 0.3, 0.2]),
@@ -239,6 +260,7 @@ def test_biz_val_learning_curve_slope_distinguishes_starved_from_saturated():
     ys = np.sin(2.0 * Xs[:, 0]) * Xs[:, 1] + Xs[:, 2] * Xs[:, 3] - np.abs(Xs[:, 4]) + 0.5 * Xs[:, 5] ** 2 + rng.normal(0, 0.3, n)
 
     def _gb():
+        """Gb."""
         return HistGradientBoostingRegressor(max_iter=120, max_depth=4, random_state=0)
 
     starved = compute_learning_curve(

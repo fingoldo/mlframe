@@ -23,6 +23,7 @@ pl = pytest.importorskip("polars")
 
 
 def _synth(n_rows: int, n_groups: int, n_extra_cols: int, seed: int) -> tuple["pl.DataFrame", np.ndarray]:
+    """Synth."""
     rng = np.random.default_rng(seed)
     cols: dict[str, np.ndarray] = {"g": rng.integers(0, n_groups, n_rows, dtype=np.int64)}
     for i in range(n_extra_cols):

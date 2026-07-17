@@ -32,11 +32,14 @@ def test_pipeline_json_roundtrip_cache_skips_second_validation():
     call_count = {"n": 0}
 
     class _StubPipeline:
+        """Groups tests covering stub pipeline."""
         def to_json(self):
+            """To json."""
             return fake_js
 
         @classmethod
         def from_json(cls, js):
+            """From json."""
             call_count["n"] += 1
             return cls()
 
@@ -81,6 +84,7 @@ def test_pipeline_json_roundtrip_cache_remembers_failures():
     call_count = {"n": 0}
 
     def _failing_from_json(js):
+        """Failing from json."""
         call_count["n"] += 1
         raise ValueError("intentional failure for test")
 

@@ -70,6 +70,7 @@ def test_diversity_uses_full_prob_matrix_not_just_last_column():
     """DIVERSITY-LAST-COL: a multiclass member should be compared on every class column."""
 
     class _M:
+        """Groups tests covering m."""
         def __init__(self, val_probs):
             self.val_probs = np.asarray(val_probs, dtype=np.float64)
             self.test_probs = None
@@ -113,6 +114,7 @@ def test_score_ensemble_threads_sample_weight_to_lower_call():
     """NO-SW: score_ensemble surfaces sample_weight in its kwargs (and tolerates None)."""
 
     def _make(val_preds):
+        """Make."""
         m = SimpleNamespace(
             val_preds=val_preds,
             test_preds=val_preds,
@@ -187,6 +189,7 @@ def test_score_ensemble_early_exit_on_identical_members():
     arr = np.linspace(0.1, 0.9, 50).astype(np.float64)
 
     def _make():
+        """Make."""
         return SimpleNamespace(
             val_preds=arr.copy(),
             test_preds=arr.copy(),
@@ -260,6 +263,7 @@ def test_gate_falls_back_to_coarse_when_require_oof_for_gate_and_oof_missing(cap
     instead of skipping silently."""
 
     def _make(val_preds, has_oof: bool):
+        """Make."""
         return SimpleNamespace(
             val_preds=val_preds,
             test_preds=val_preds,
@@ -300,6 +304,7 @@ def test_gate_skipped_when_require_oof_for_gate_and_coarse_disabled(caplog):
     legacy "skipping quality gate" warning."""
 
     def _make(val_preds, has_oof: bool):
+        """Make."""
         return SimpleNamespace(
             val_preds=val_preds,
             test_preds=val_preds,
@@ -343,6 +348,7 @@ def test_k2_catastrophic_dropout_drops_obvious_outlier_member(caplog):
     the other's, the broken member is dropped and a sentinel result returns."""
 
     def _make(val_preds):
+        """Make."""
         return SimpleNamespace(
             val_preds=val_preds.astype(np.float64),
             test_preds=val_preds.astype(np.float64),
@@ -448,6 +454,7 @@ def test_k2_catastrophic_dropout_skipped_when_no_target_available(caplog):
     full K=2 ensemble (legacy behaviour)."""
 
     def _make(val_preds):
+        """Make."""
         return SimpleNamespace(
             val_preds=val_preds.astype(np.float64),
             test_preds=val_preds.astype(np.float64),
@@ -490,6 +497,7 @@ def test_kn_borderline_mae_blowout_stamped_into_metadata(caplog):
     surface "watch this member" candidates from metadata."""
 
     def _make(val_preds):
+        """Make."""
         return SimpleNamespace(
             val_preds=val_preds.astype(np.float64),
             test_preds=val_preds.astype(np.float64),
@@ -546,6 +554,7 @@ def test_kn_all_members_catastrophic_sentinel_when_only_one_survives(caplog):
     ensembling for this target."""
 
     def _make(val_preds):
+        """Make."""
         return SimpleNamespace(
             val_preds=val_preds.astype(np.float64),
             test_preds=val_preds.astype(np.float64),
@@ -599,6 +608,7 @@ def test_kn_catastrophic_target_mae_drops_obvious_outlier_when_k_above_2(caplog)
     appears in the result for downstream metadata."""
 
     def _make(val_preds):
+        """Make."""
         return SimpleNamespace(
             val_preds=val_preds.astype(np.float64),
             test_preds=val_preds.astype(np.float64),
@@ -658,6 +668,7 @@ def test_coarse_gate_drops_catastrophic_outlier_member(caplog):
     member is ~30x further from median than the cluster."""
 
     def _make(val_preds):
+        """Make."""
         return SimpleNamespace(
             val_preds=val_preds.astype(np.float64),
             test_preds=val_preds.astype(np.float64),
@@ -740,6 +751,7 @@ def test_stacking_aware_gate_runs_when_enabled():
     target = rng.normal(size=n)
 
     def _make(oof_preds):
+        """Make."""
         return SimpleNamespace(
             val_preds=oof_preds.copy(),
             test_preds=oof_preds.copy(),
@@ -776,6 +788,7 @@ def test_regression_filters_rrf_from_default_methods():
     """REG-RRF-DROPPED: rrf flavour is silently dropped when is_regression."""
 
     def _make():
+        """Make."""
         return SimpleNamespace(
             val_preds=np.linspace(0.1, 0.9, 50).astype(np.float64),
             test_preds=np.linspace(0.1, 0.9, 50).astype(np.float64),

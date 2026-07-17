@@ -15,6 +15,7 @@ from mlframe.training.composite.discovery.auto_detect import detect_group_column
 
 
 def _make_gid_frames(seed: int = 11):
+    """Make gid frames."""
     rng = np.random.default_rng(seed)
     group_ids = np.tile(np.arange(50, dtype=np.int64), 30)
     rng.shuffle(group_ids)
@@ -24,6 +25,7 @@ def _make_gid_frames(seed: int = 11):
 
 
 def test_default_candidates_polars_matches_pandas_for_lowcard_int_gid():
+    """Default candidates polars matches pandas for lowcard int gid."""
     pd_df, pl_df = _make_gid_frames()
     pd_names = {n for n, _ in detect_group_column_candidates(pd_df)}
     pl_names = {n for n, _ in detect_group_column_candidates(pl_df)}
@@ -33,6 +35,7 @@ def test_default_candidates_polars_matches_pandas_for_lowcard_int_gid():
 
 
 def test_default_candidates_polars_excludes_highcard_int():
+    """Default candidates polars excludes highcard int."""
     n = 1000
     rng = np.random.default_rng(13)
     big_ids = rng.integers(0, n, size=n, dtype=np.int64)

@@ -25,15 +25,18 @@ class _ConstInner(BaseEstimator, RegressorMixin):
         self.with_quantile = with_quantile
 
     def fit(self, X, y, **kw):
+        """Fit."""
         self.n_features_in_ = X.shape[1]
         self._mean_t = float(np.mean(np.asarray(y, dtype=np.float64)))
         return self
 
     def predict(self, X):
+        """Predict."""
         n = X.shape[0]
         return np.full(n, self._mean_t, dtype=np.float64)
 
     def predict_quantile(self, X, alpha=0.5):
+        """Predict quantile."""
         n = X.shape[0]
         if np.isscalar(alpha):
             return np.full(n, self._mean_t, dtype=np.float64)
@@ -41,6 +44,7 @@ class _ConstInner(BaseEstimator, RegressorMixin):
 
 
 def _make_multibase_frame(n=200, seed=0):
+    """Make multibase frame."""
     rng = np.random.default_rng(seed)
     b1 = rng.normal(0.0, 1.0, size=n)
     b2 = rng.normal(0.0, 5.0, size=n)
@@ -51,6 +55,7 @@ def _make_multibase_frame(n=200, seed=0):
 
 
 class TestMultiBaseDomainFallback:
+    """Groups tests covering multi base domain fallback."""
     def test_predict_with_nonfinite_base_does_not_crash(self) -> None:
         """E1: a non-finite cell in a multi-base column at predict-time must
         route through the domain fallback, not raise a broadcast ValueError."""
@@ -69,6 +74,7 @@ class TestMultiBaseDomainFallback:
         assert np.all(np.isfinite(y_hat)), "fallback rows must be finite"
 
     def test_all_valid_multibase_predict_ok(self) -> None:
+        """All valid multibase predict ok."""
         X, y = _make_multibase_frame()
         est = CompositeTargetEstimator(
             base_estimator=_ConstInner(),
@@ -82,6 +88,7 @@ class TestMultiBaseDomainFallback:
 
 
 class TestPredictQuantileUnary:
+    """Groups tests covering predict quantile unary."""
     @pytest.mark.parametrize("alpha", [0.5, [0.1, 0.5, 0.9]])
     def test_predict_quantile_unary_transform(self, alpha) -> None:
         """E3: predict_quantile must work for a unary (requires_base=False)

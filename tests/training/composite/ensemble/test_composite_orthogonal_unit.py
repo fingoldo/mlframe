@@ -19,6 +19,7 @@ from sklearn.model_selection import KFold
 
 
 def _make_frame(n=400, seed=0):
+    """Make frame."""
     rng = np.random.default_rng(seed)
     f0 = rng.normal(size=n)
     f1 = rng.normal(size=n)
@@ -29,6 +30,7 @@ def _make_frame(n=400, seed=0):
 
 
 def test_predict_shape():
+    """Predict shape."""
     X, y = _make_frame()
     est = OrthogonalizedCompositeEstimator(base_column="base", inner_estimator=LinearRegression(), n_folds=4, random_state=0)
     est.fit(X, y)
@@ -38,6 +40,7 @@ def test_predict_shape():
 
 
 def test_clone_preserves_params():
+    """Clone preserves params."""
     est = OrthogonalizedCompositeEstimator(
         base_column="base",
         inner_estimator=Ridge(alpha=2.0),
@@ -59,6 +62,7 @@ def test_cross_fitting_is_leakage_free():
     # error on a pure-noise target only if it leaked. With a constant-mean predictor the
     # OOF prediction for a held-out fold must equal the mean of the OTHER folds, never
     # including the held-out row's own value.
+    """Cross fitting is leakage free."""
     rng = np.random.default_rng(3)
     n = 60
     X = pd.DataFrame({"f0": rng.normal(size=n)})
@@ -79,6 +83,7 @@ def test_cross_fitting_is_leakage_free():
 def test_fwl_identity_equals_plain_ols_on_no_confounder():
     # With base INDEPENDENT of X, partialling-out must leave the base coefficient
     # essentially equal to the plain joint-OLS base coefficient (FWL identity).
+    """Fwl identity equals plain ols on no confounder."""
     X, y = _make_frame(n=2000, seed=1)
     est = OrthogonalizedCompositeEstimator(
         base_column="base",
@@ -100,6 +105,7 @@ def test_fwl_identity_equals_plain_ols_on_no_confounder():
 
 
 def test_n_folds_validation():
+    """N folds validation."""
     X, y = _make_frame(n=100)
     est = OrthogonalizedCompositeEstimator(base_column="base", inner_estimator=Ridge(), n_folds=1)
     with pytest.raises(ValueError):
@@ -107,6 +113,7 @@ def test_n_folds_validation():
 
 
 def test_missing_base_column_raises():
+    """Missing base column raises."""
     X, y = _make_frame()
     est = OrthogonalizedCompositeEstimator(base_column="nope", inner_estimator=Ridge(), n_folds=3)
     with pytest.raises(KeyError):
@@ -114,6 +121,7 @@ def test_missing_base_column_raises():
 
 
 def test_predict_before_fit_raises():
+    """Predict before fit raises."""
     X, _ = _make_frame()
     est = OrthogonalizedCompositeEstimator(base_column="base", inner_estimator=Ridge())
     from sklearn.exceptions import NotFittedError

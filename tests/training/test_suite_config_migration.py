@@ -28,6 +28,7 @@ from mlframe.training import (
 def suite_params():
     # Session-scoped: inspecting a function signature is pure introspection,
     # idempotent across the whole session.
+    """Suite params."""
     return set(inspect.signature(train_mlframe_models_suite).parameters)
 
 
@@ -50,12 +51,14 @@ class TestRemovedKwargs:
         ],
     )
     def test_kwarg_removed(self, suite_params, kwarg):
+        """Kwarg removed."""
         assert kwarg not in suite_params, f"`{kwarg}` should have been removed from train_mlframe_models_suite in the 2026-04-27 refactor"
 
     def test_typeerror_when_calling_with_removed_kwarg(self):
         # Pass a removed kwarg via **kwargs (so the file doesn't parse-time-fail
         # on a literal that the migration grep would flag) to confirm Python
         # raises TypeError before any work runs.
+        """Typeerror when calling with removed kwarg."""
         legacy_kwargs = {"init_common_params": {"show_perf_chart": False}}
         with pytest.raises(TypeError) as exc_info:
             train_mlframe_models_suite(
@@ -70,6 +73,7 @@ class TestRemovedKwargs:
 
 
 class TestNewTypedConfigsArePresent:
+    """Groups tests covering new typed configs are present."""
     @pytest.mark.parametrize(
         "kwarg",
         [
@@ -81,6 +85,7 @@ class TestNewTypedConfigsArePresent:
         ],
     )
     def test_kwarg_present(self, suite_params, kwarg):
+        """Kwarg present."""
         assert kwarg in suite_params, f"`{kwarg}` should be a first-class kwarg of train_mlframe_models_suite"
 
 
@@ -99,6 +104,7 @@ class TestModelSelectionKwargsRetained:
         ],
     )
     def test_model_selection_kwarg_kept(self, suite_params, kwarg):
+        """Model selection kwarg kept."""
         assert kwarg in suite_params, f'`{kwarg}` is intentionally a top-level kwarg - it answers "what does this suite do" and was NOT migrated into a config'
 
 
@@ -106,6 +112,7 @@ class TestConfigInstantiationDoesNotRaise:
     """Construct each new config with sentinel values - smoke check."""
 
     def test_reporting_config(self):
+        """Reporting config."""
         cfg = ReportingConfig(
             show_prob_histogram=False,
             title_metrics_template="ICE BR",
@@ -115,16 +122,19 @@ class TestConfigInstantiationDoesNotRaise:
         assert cfg.feature_importance_config.num_factors == 5
 
     def test_output_config(self, tmp_path):
+        """Output config."""
         cfg = OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False)
         assert cfg.save_charts is False
 
     def test_outlier_detection_config(self):
+        """Outlier detection config."""
         sentinel = object()
         cfg = OutlierDetectionConfig(detector=sentinel, apply_to_val=False)
         assert cfg.detector is sentinel
         assert cfg.apply_to_val is False
 
     def test_feature_selection_config_with_custom_pipelines(self):
+        """Feature selection config with custom pipelines."""
         sentinel = object()
         cfg = FeatureSelectionConfig(
             use_mrmr_fs=True,
@@ -137,6 +147,7 @@ class TestConfigInstantiationDoesNotRaise:
 
     def test_confidence_analysis_config(self):
         # Wired as first-class kwarg 2026-04-27 - was severed before that.
+        """Confidence analysis config."""
         cfg = ConfidenceAnalysisConfig(
             include=True,
             use_shap=False,

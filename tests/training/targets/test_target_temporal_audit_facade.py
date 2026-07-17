@@ -13,6 +13,7 @@ from mlframe.training.targets import _target_temporal_audit_coerce as coerce
 
 
 def test_w12b_target_temporal_audit_identity_preserved():
+    """W12b target temporal audit identity preserved."""
     assert parent.coerce_timestamps_for_audit is coerce.coerce_timestamps_for_audit
     assert parent._pick_granularity is agg._pick_granularity
     assert parent._aggregate_by_time_polars is agg._aggregate_by_time_polars
@@ -23,11 +24,13 @@ def test_w12b_target_temporal_audit_identity_preserved():
 
 
 def test_w12b_target_temporal_audit_facade_under_budget():
+    """W12b target temporal audit facade under budget."""
     facade_loc = sum(1 for _ in Path(parent.__file__).open(encoding="utf-8"))
     assert facade_loc < 750, f"target_temporal_audit.py LOC={facade_loc} exceeds 750 budget"
 
 
 def test_w12b_target_temporal_audit_smoke_runs():
+    """W12b target temporal audit smoke runs."""
     ts = pd.date_range("2020-01-01", periods=300, freq="D")
     y = (np.arange(300) > 150).astype(int)
     df = pd.DataFrame({"ts": ts, "y": y})
@@ -45,6 +48,7 @@ def test_w12b_target_temporal_audit_smoke_runs():
 
 
 def test_w12b_target_temporal_audit_coerce_numeric_to_ns():
+    """W12b target temporal audit coerce numeric to ns."""
     arr = np.array([1700000000.0, 1701000000.0, 1702000000.0])
     out = parent.coerce_timestamps_for_audit(arr)
     assert out.dtype == np.dtype("datetime64[ns]")

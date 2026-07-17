@@ -28,6 +28,7 @@ from mlframe.training.pipeline._pipeline_helpers import (
 
 @pytest.mark.fast
 def test_data_signature_is_stable_for_same_frame() -> None:
+    """Data signature is stable for same frame."""
     df = pl.DataFrame({"a": [1, 2, 3, 4, 5], "target": [0, 1, 0, 1, 0]})
     sig1 = data_signature(df, "target", ["a"])
     sig2 = data_signature(df, "target", ["a"])

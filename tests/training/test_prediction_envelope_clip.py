@@ -22,7 +22,9 @@ import pytest
 
 
 class TestComputeTrainEnvelopeStats:
+    """Groups tests covering compute train envelope stats."""
     def test_finite_y_train(self) -> None:
+        """Finite y train."""
         from mlframe.training._prediction_envelope_clip import (
             compute_train_envelope_stats,
         )
@@ -35,6 +37,7 @@ class TestComputeTrainEnvelopeStats:
         assert stats.y_std > 0
 
     def test_too_few_finite(self) -> None:
+        """Too few finite."""
         from mlframe.training._prediction_envelope_clip import (
             compute_train_envelope_stats,
         )
@@ -43,6 +46,7 @@ class TestComputeTrainEnvelopeStats:
         assert stats is None
 
     def test_zero_variance(self) -> None:
+        """Zero variance."""
         from mlframe.training._prediction_envelope_clip import (
             compute_train_envelope_stats,
         )
@@ -51,6 +55,7 @@ class TestComputeTrainEnvelopeStats:
         assert stats is None
 
     def test_skips_non_finite_rows(self) -> None:
+        """Skips non finite rows."""
         from mlframe.training._prediction_envelope_clip import (
             compute_train_envelope_stats,
         )
@@ -63,7 +68,9 @@ class TestComputeTrainEnvelopeStats:
 
 
 class TestClipPredictionsToTrainEnvelope:
+    """Groups tests covering clip predictions to train envelope."""
     def _stats(self, y_min=10.0, y_max=20.0, y_std=2.0):
+        """Stats."""
         from mlframe.training._prediction_envelope_clip import (
             TrainEnvelopeStats,
         )
@@ -71,6 +78,7 @@ class TestClipPredictionsToTrainEnvelope:
         return TrainEnvelopeStats(y_min=y_min, y_max=y_max, y_std=y_std)
 
     def test_in_envelope_preds_pass_through(self) -> None:
+        """In envelope preds pass through."""
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
@@ -81,6 +89,7 @@ class TestClipPredictionsToTrainEnvelope:
         np.testing.assert_allclose(out, preds)
 
     def test_blow_up_above_envelope_clipped(self) -> None:
+        """Blow up above envelope clipped."""
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
@@ -93,6 +102,7 @@ class TestClipPredictionsToTrainEnvelope:
         assert out[2] == pytest.approx(26.0)
 
     def test_blow_up_below_envelope_clipped(self) -> None:
+        """Blow up below envelope clipped."""
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
@@ -105,6 +115,7 @@ class TestClipPredictionsToTrainEnvelope:
         assert out[2] == pytest.approx(15.0)
 
     def test_none_stats_noop(self) -> None:
+        """None stats noop."""
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
@@ -114,6 +125,7 @@ class TestClipPredictionsToTrainEnvelope:
         np.testing.assert_allclose(out, preds)
 
     def test_apply_clip_false_noop(self) -> None:
+        """Apply clip false noop."""
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
@@ -127,6 +139,7 @@ class TestClipPredictionsToTrainEnvelope:
         np.testing.assert_allclose(out, preds)
 
     def test_env_var_disable(self, monkeypatch) -> None:
+        """Env var disable."""
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
@@ -137,6 +150,7 @@ class TestClipPredictionsToTrainEnvelope:
         np.testing.assert_allclose(out, preds)
 
     def test_warn_message_on_clip_fire(self, caplog) -> None:
+        """Warn message on clip fire."""
         import logging
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
@@ -173,6 +187,7 @@ class TestReportingIntegration:
     y_train_{min,max,std} kwargs are supplied."""
 
     def test_source_has_envelope_clip_wiring(self) -> None:
+        """Source has envelope clip wiring."""
         from pathlib import Path
         from mlframe.training.reporting import _reporting as rep
 

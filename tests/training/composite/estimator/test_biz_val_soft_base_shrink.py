@@ -56,16 +56,19 @@ class _SubsetLinear(LinearRegression):
     """
 
     def fit(self, X, y, **kw):
+        """Fit."""
         self._cols = list(X.columns)
         return super().fit(X[self._cols].to_numpy(dtype=float), np.asarray(y, dtype=float), **kw)
 
     def predict(self, X):
+        """Predict."""
         cols = getattr(self, "_cols", None)
         arr = X[cols].to_numpy(dtype=float) if cols is not None else np.asarray(X, dtype=float)
         return super().predict(arr)
 
 
 def _fit_linear_residual(seed=0, n=800, slope=3.0, base_lo=0.0, base_hi=10.0, noise=0.3, cols=("base", "f")):
+    """Fit linear residual."""
     rng = np.random.default_rng(seed)
     base = rng.uniform(base_lo, base_hi, n)
     y = slope * base + rng.normal(0.0, noise, n)
@@ -86,6 +89,7 @@ def _fit_linear_residual(seed=0, n=800, slope=3.0, base_lo=0.0, base_hi=10.0, no
 
 
 def test_in_range_predict_is_byte_identical_to_disabled():
+    """In range predict is byte identical to disabled."""
     est, _X, _y = _fit_linear_residual()
     rng = np.random.default_rng(11)
     Xin = pd.DataFrame({"base": rng.uniform(1.0, 9.0, 300), "f": rng.normal(0, 1, 300)})
@@ -106,6 +110,7 @@ def test_in_range_predict_is_byte_identical_to_disabled():
 
 
 def test_disabled_flag_restores_raw_inverse_exactly():
+    """Disabled flag restores raw inverse exactly."""
     est, _X, _y = _fit_linear_residual()
     Xoor = pd.DataFrame({"base": [50.0, 200.0], "f": [0.0, 0.0]})
     est.soft_base_shrink = False
@@ -124,6 +129,7 @@ def test_disabled_flag_restores_raw_inverse_exactly():
 
 
 def test_shrink_base_monotone_continuous_saturating_not_clamped():
+    """Shrink base monotone continuous saturating not clamped."""
     lo, hi, iqr = np.array([0.0]), np.array([10.0]), np.array([4.0])
     xs = np.linspace(5.0, 400.0, 600)  # spans in-range through deep out-of-range
     base_eff, d_row = ss.shrink_base(xs, lo, hi, iqr)
@@ -153,6 +159,7 @@ def test_shrink_base_monotone_continuous_saturating_not_clamped():
 
 
 def test_shrink_base_below_range_symmetric():
+    """Shrink base below range symmetric."""
     lo, hi, iqr = np.array([0.0]), np.array([10.0]), np.array([4.0])
     below = ss.shrink_base(np.array([-40.0]), lo, hi, iqr)[0][0]
     assert below < lo[0], "below-range value keeps moving past the lower boundary"
@@ -161,6 +168,7 @@ def test_shrink_base_below_range_symmetric():
 
 @pytest.mark.parametrize("K", [1, 3])
 def test_njit_kernel_matches_numpy_oracle(K):
+    """Njit kernel matches numpy oracle."""
     pytest.importorskip("numba")
     rng = np.random.default_rng(5)
     b = rng.uniform(-6.0, 6.0, (4000, K))
@@ -183,6 +191,7 @@ def test_njit_kernel_matches_numpy_oracle(K):
 
 def test_deep_ood_routes_to_causal_lag_when_present():
     # _SubsetLinear inner ignores the extra 'y_prev' column present only in the predict frame.
+    """Deep ood routes to causal lag when present."""
     rng = np.random.default_rng(12)
     n = 800
     base = rng.uniform(0, 10, n)
@@ -205,6 +214,7 @@ def test_deep_ood_routes_to_causal_lag_when_present():
 
 
 def test_deep_ood_routes_to_median_when_no_lag():
+    """Deep ood routes to median when no lag."""
     est, _X, _y = _fit_linear_residual()
     est.soft_base_shrink_severity_iqr = 3.0
     med = est.fitted_params_["y_train_median"]
@@ -215,6 +225,7 @@ def test_deep_ood_routes_to_median_when_no_lag():
 
 
 def test_deep_ood_routes_to_nan_when_no_lag_and_nan_fallback():
+    """Deep ood routes to nan when no lag and nan fallback."""
     rng = np.random.default_rng(2)
     n = 600
     base = rng.uniform(0, 10, n)
@@ -240,6 +251,7 @@ def test_deep_ood_routes_to_nan_when_no_lag_and_nan_fallback():
 
 
 def test_per_row_flag_is_exact():
+    """Per row flag is exact."""
     est, _X, _y = _fit_linear_residual()
     rng_ = est.fitted_params_[ss.BASE_FIT_RANGE_KEY]
     hi = float(rng_["hi"][0])
@@ -258,6 +270,7 @@ def test_per_row_flag_is_exact():
 
 
 def test_no_ood_rows_flag_zero():
+    """No ood rows flag zero."""
     est, _X, _y = _fit_linear_residual()
     Xin = pd.DataFrame({"base": np.linspace(1.0, 9.0, 50), "f": np.zeros(50)})
     est.predict(Xin)
@@ -266,6 +279,7 @@ def test_no_ood_rows_flag_zero():
 
 
 def test_all_rows_deep_ood():
+    """All rows deep ood."""
     est, _X, _y = _fit_linear_residual()
     est.soft_base_shrink_severity_iqr = 3.0
     Xo = pd.DataFrame({"base": np.full(40, 500.0), "f": np.zeros(40)})
@@ -280,6 +294,7 @@ def test_all_rows_deep_ood():
 
 
 def test_diff_transform_captures_range_and_shrinks():
+    """Diff transform captures range and shrinks."""
     rng = np.random.default_rng(4)
     n = 700
     base = rng.uniform(0, 20, n)
@@ -300,6 +315,7 @@ def test_diff_transform_captures_range_and_shrinks():
 
 
 def test_multibase_shrink_per_column():
+    """Multibase shrink per column."""
     rng = np.random.default_rng(6)
     n = 900
     b1 = rng.uniform(0, 10, n)
@@ -321,6 +337,7 @@ def test_multibase_shrink_per_column():
 
 
 def test_non_additive_transform_captures_no_range():
+    """Non additive transform captures no range."""
     rng = np.random.default_rng(8)
     n = 600
     base = rng.uniform(1, 10, n)
@@ -336,6 +353,7 @@ def test_non_additive_transform_captures_no_range():
 
 
 def test_from_fitted_inner_has_no_range_and_is_noop():
+    """From fitted inner has no range and is noop."""
     est, _X, y = _fit_linear_residual()
     wrapped = CompositeTargetEstimator.from_fitted_inner(
         est.estimator_,
@@ -386,10 +404,12 @@ def _grouped_unseen_scenario():
 
 
 def _rmse(a, b):
+    """Rmse."""
     return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
 
 def test_biz_val_soft_base_shrink_beats_raw_and_median_on_unseen_groups():
+    """Biz val soft base shrink beats raw and median on unseen groups."""
     est, Xun, uy, _bs, _ys = _grouped_unseen_scenario()
     med = est.fitted_params_["y_train_median"]
 
@@ -414,6 +434,7 @@ def test_biz_val_soft_base_shrink_beats_raw_and_median_on_unseen_groups():
 
 
 def test_biz_val_soft_base_shrink_seen_group_rmse_unchanged():
+    """Biz val soft base shrink seen group rmse unchanged."""
     est, _Xun, _uy, bs, ys = _grouped_unseen_scenario()
     rng = np.random.default_rng(99)
     idx = rng.choice(len(bs), 300, replace=False)
@@ -432,6 +453,7 @@ def test_biz_val_soft_base_shrink_seen_group_rmse_unchanged():
 
 
 def _profile_predict(n: int = 200_000, oor_frac: float = 0.3):  # pragma: no cover - manual profiling entry
+    """Profile predict."""
     import cProfile
     import pstats
 

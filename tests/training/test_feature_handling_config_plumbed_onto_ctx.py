@@ -16,6 +16,7 @@ from mlframe.training.feature_handling.config import FeatureHandlingConfig
 
 
 def test_feature_handling_config_lands_on_ctx_artifacts():
+    """Feature handling config lands on ctx artifacts."""
     fhc = FeatureHandlingConfig()
     ctx = setup_configuration(
         preprocessing_config=None,

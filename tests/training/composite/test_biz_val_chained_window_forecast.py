@@ -23,12 +23,14 @@ from mlframe.training.composite import ChainedWindowForecaster
 
 
 def _make_ar_window_dataset(n: int, seed: int, ar_coef: float = 0.9):
+    """Make ar window dataset."""
     rng = np.random.default_rng(seed)
     z_prev = rng.normal(size=n)
     z_curr = ar_coef * z_prev + rng.normal(scale=0.3, size=n)
     z_target = ar_coef * z_curr + rng.normal(scale=0.3, size=n)
 
     def make_features(z: np.ndarray) -> pd.DataFrame:
+        """Make features."""
         return pd.DataFrame(
             {
                 "f1": np.sin(z * 2) + rng.normal(scale=0.2, size=len(z)),
@@ -45,6 +47,7 @@ def _make_ar_window_dataset(n: int, seed: int, ar_coef: float = 0.9):
 
 
 def test_biz_val_chained_window_forecaster_beats_naive_linear_baseline_mse():
+    """Biz val chained window forecaster beats naive linear baseline mse."""
     X_prev, X_curr, y_curr, y_target = _make_ar_window_dataset(n=3000, seed=0)
     idx = np.arange(len(y_target))
     train_idx, test_idx = train_test_split(idx, test_size=0.3, random_state=0)
@@ -64,6 +67,7 @@ def test_biz_val_chained_window_forecaster_beats_naive_linear_baseline_mse():
 
 
 def test_chained_window_forecaster_injects_chained_feature_column():
+    """Chained window forecaster injects chained feature column."""
     X_prev, X_curr, y_curr, y_target = _make_ar_window_dataset(n=200, seed=1)
     chained = ChainedWindowForecaster(stage1_estimator=LinearRegression(), stage2_estimator=LinearRegression(), chained_feature_name="my_chained_col")
     chained.fit(X_prev, X_curr, y_curr, y_target)
@@ -73,6 +77,7 @@ def test_chained_window_forecaster_injects_chained_feature_column():
 
 
 def test_chained_window_forecaster_ndarray_input():
+    """Chained window forecaster ndarray input."""
     X_prev, X_curr, y_curr, y_target = _make_ar_window_dataset(n=200, seed=2)
     chained = ChainedWindowForecaster(stage1_estimator=LinearRegression(), stage2_estimator=LinearRegression())
     chained.fit(X_prev.to_numpy(), X_curr.to_numpy(), y_curr, y_target)

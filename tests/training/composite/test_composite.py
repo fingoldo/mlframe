@@ -84,6 +84,7 @@ def _positive_data(n: int = 200, seed: int = 0):
 
 
 class TestRegistry:
+    """Groups tests covering registry."""
     def test_list_transforms_default_alphabetical(self) -> None:
         """Result is alphabetically sorted and covers the well-known core
         transforms. The registry is open and grows as new brainstorm transforms
@@ -107,17 +108,20 @@ class TestRegistry:
         assert not missing, f"core transforms missing from list_transforms(): {missing}"
 
     def test_list_transforms_filters_by_tag(self) -> None:
+        """List transforms filters by tag."""
         core = list_transforms(tags=frozenset({"core"}))
         assert "diff" in core
         # Unknown tag returns empty.
         assert list_transforms(tags=frozenset({"nonexistent_tag_xyz"})) == []
 
     def test_get_transform_known(self) -> None:
+        """Get transform known."""
         t = get_transform("diff")
         assert isinstance(t, Transform)
         assert t.name == "diff"
 
     def test_get_transform_unknown_raises(self) -> None:
+        """Get transform unknown raises."""
         with pytest.raises(UnknownTransformError) as exc:
             get_transform("subtract")  # plausible typo for diff
         assert "subtract" in str(exc.value)
@@ -125,6 +129,7 @@ class TestRegistry:
 
     @pytest.mark.parametrize("name", sorted(["diff", "ratio", "logratio", "linear_residual"]))
     def test_registry_entries_have_required_callables(self, name: str) -> None:
+        """Registry entries have required callables."""
         t = get_transform(name)
         assert callable(t.forward) and callable(t.inverse)
         assert callable(t.fit) and callable(t.domain_check)
@@ -139,8 +144,10 @@ class TestRegistry:
 
 
 class TestRoundTripFixed:
+    """Groups tests covering round trip fixed."""
     @pytest.mark.parametrize("name", ["diff", "linear_residual"])
     def test_general_domain_roundtrip(self, name: str) -> None:
+        """General domain roundtrip."""
         rng = np.random.default_rng(0)
         y = rng.normal(loc=50, scale=10, size=300)
         base = rng.normal(loc=48, scale=10, size=300)
@@ -151,6 +158,7 @@ class TestRoundTripFixed:
         np.testing.assert_allclose(y, y_back, rtol=1e-10, atol=1e-10)
 
     def test_ratio_roundtrip(self) -> None:
+        """Ratio roundtrip."""
         rng = np.random.default_rng(1)
         # base must be away from zero for ratio to be stable.
         base = rng.uniform(low=1.0, high=10.0, size=300)
@@ -162,6 +170,7 @@ class TestRoundTripFixed:
         np.testing.assert_allclose(y, y_back, rtol=1e-10)
 
     def test_logratio_roundtrip_positive_domain(self) -> None:
+        """Logratio roundtrip positive domain."""
         rng = np.random.default_rng(2)
         base = rng.lognormal(mean=2.0, sigma=0.4, size=300)
         y = base * np.exp(rng.normal(0, 0.3, size=300))
@@ -197,6 +206,7 @@ class TestHypothesisRoundTrip:
     """
 
     def test_diff_property(self) -> None:
+        """Diff property."""
         from hypothesis import given, settings
         from hypothesis.extra.numpy import arrays
         from hypothesis import strategies as st
@@ -207,6 +217,7 @@ class TestHypothesisRoundTrip:
         )
         @settings(max_examples=30, deadline=2000)
         def _check(y: np.ndarray, base: np.ndarray) -> None:
+            """Hypothesis property: forward+inverse of the 'diff' transform round-trips y for any random y/base pair."""
             t = get_transform("diff")
             p = t.fit(y, base)
             T = t.forward(y, base, p)
@@ -216,6 +227,7 @@ class TestHypothesisRoundTrip:
         _check()
 
     def test_ratio_property(self) -> None:
+        """Ratio property."""
         from hypothesis import given, settings
         from hypothesis.extra.numpy import arrays
         from hypothesis import strategies as st
@@ -226,6 +238,7 @@ class TestHypothesisRoundTrip:
         )
         @settings(max_examples=30, deadline=2000)
         def _check(y: np.ndarray, base: np.ndarray) -> None:
+            """Hypothesis property: forward+inverse of the 'ratio' transform round-trips y for any random y/base pair."""
             t = get_transform("ratio")
             p = t.fit(y, base)
             T = t.forward(y, base, p)
@@ -235,6 +248,7 @@ class TestHypothesisRoundTrip:
         _check()
 
     def test_linear_residual_property(self) -> None:
+        """Linear residual property."""
         from hypothesis import given, settings, assume
         from hypothesis.extra.numpy import arrays
         from hypothesis import strategies as st
@@ -245,6 +259,7 @@ class TestHypothesisRoundTrip:
         )
         @settings(max_examples=30, deadline=2000)
         def _check(y: np.ndarray, base: np.ndarray) -> None:
+            """Hypothesis property: forward+inverse of the 'linear_residual' transform round-trips y for any non-constant base."""
             assume(np.std(base) > 1e-6)  # OLS singular if base is constant
             t = get_transform("linear_residual")
             p = t.fit(y, base)
@@ -261,7 +276,9 @@ class TestHypothesisRoundTrip:
 
 
 class TestDomainChecks:
+    """Groups tests covering domain checks."""
     def test_diff_domain_all_finite_valid(self) -> None:
+        """Diff domain all finite valid."""
         y = np.array([1.0, 2.0, np.nan, np.inf, 5.0])
         base = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         t = get_transform("diff")
@@ -269,6 +286,7 @@ class TestDomainChecks:
         assert valid.tolist() == [True, True, False, False, True]
 
     def test_logratio_domain_strictly_positive(self) -> None:
+        """Logratio domain strictly positive."""
         y = np.array([1.0, 0.0, -1.0, 5.0])
         base = np.array([1.0, 2.0, 3.0, 4.0])
         t = get_transform("logratio")
@@ -276,6 +294,7 @@ class TestDomainChecks:
         assert valid.tolist() == [True, False, False, True]
 
     def test_ratio_domain_nonzero_base(self) -> None:
+        """Ratio domain nonzero base."""
         y = np.array([1.0, 1.0, 1.0])
         base = np.array([1.0, 0.0, 2.0])
         t = get_transform("ratio")
@@ -289,12 +308,15 @@ class TestDomainChecks:
 
 
 class TestEstimatorE2E:
+    """Groups tests covering estimator e2 e."""
     @pytest.fixture
     def tvt_data(self):
+        """Tvt data."""
         df, y = _tvt_like(n=600)
         return df, y
 
     def test_fit_predict_diff_beats_naive_baseline(self, tvt_data) -> None:
+        """Fit predict diff beats naive baseline."""
         df, y = tvt_data
         # Train/test split.
         n_train = 480
@@ -315,6 +337,7 @@ class TestEstimatorE2E:
         assert rmse_wrapper < rmse_naive, f"wrapper RMSE {rmse_wrapper:.3f} should beat naive {rmse_naive:.3f}"
 
     def test_fit_predict_linear_residual_beats_diff(self, tvt_data) -> None:
+        """Fit predict linear residual beats diff."""
         df, y = tvt_data
         n_train = 480
         X_tr, X_te = df.iloc[:n_train], df.iloc[n_train:]
@@ -336,6 +359,7 @@ class TestEstimatorE2E:
         assert rmses["linear_residual"] <= rmses["diff"] * 1.10
 
     def test_predict_returns_finite_values(self, tvt_data) -> None:
+        """Predict returns finite values."""
         df, y = tvt_data
         wrapper = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=50, num_leaves=15, verbose=-1),
@@ -353,8 +377,10 @@ class TestEstimatorE2E:
 
 
 class TestAdversarialPredict:
+    """Groups tests covering adversarial predict."""
     @pytest.fixture
     def fitted_wrapper(self):
+        """Fitted wrapper."""
         df, y = _tvt_like(n=400)
         w = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=50, num_leaves=15, verbose=-1),
@@ -366,6 +392,7 @@ class TestAdversarialPredict:
 
     def test_predict_inf_base_falls_back_to_median(self, fitted_wrapper) -> None:
         # Construct adversarial test row.
+        """Predict inf base falls back to median."""
         n = 5
         rng = np.random.default_rng(0)
         df_test = pd.DataFrame(
@@ -383,6 +410,7 @@ class TestAdversarialPredict:
         assert fitted_wrapper.runtime_stats_["domain_violation_rows"] >= 2
 
     def test_predict_logratio_with_negative_base_falls_back(self) -> None:
+        """Predict logratio with negative base falls back."""
         df, y = _positive_data(n=300)
         wrapper = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=50, num_leaves=15, verbose=-1),
@@ -407,6 +435,7 @@ class TestAdversarialPredict:
 
 
 class TestNumericalSafety:
+    """Groups tests covering numerical safety."""
     def test_logratio_extreme_t_hat_does_not_blow_up(self) -> None:
         """Manually inject an extreme T_hat and verify the two-layer guard
         (MAD-soft-cap inside the inverse + post-inverse y-clip in the
@@ -430,7 +459,9 @@ class TestNumericalSafety:
         # Stub the inner predict to return enormous T values: without
         # any guard, y_hat = base * exp(50) = 5.18e21.
         class _StubInner:
+            """Groups tests covering stub inner."""
             def predict(self, X):
+                """Predict."""
                 return np.full(len(X), 50.0)
 
         wrapper.estimator_ = _StubInner()
@@ -464,7 +495,9 @@ class TestNumericalSafety:
         wrapper.fitted_params_["t_clip_high"] = float("+inf")
 
         class _StubInner:
+            """Groups tests covering stub inner."""
             def predict(self, X):
+                """Predict."""
                 return np.full(len(X), 50.0)
 
         wrapper.estimator_ = _StubInner()
@@ -481,7 +514,9 @@ class TestNumericalSafety:
 
 
 class TestSklearnCloneAndPickle:
+    """Groups tests covering sklearn clone and pickle."""
     def test_clone_unfitted_preserves_params(self) -> None:
+        """Clone unfitted preserves params."""
         original = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=50, verbose=-1),
             transform_name="linear_residual",
@@ -500,6 +535,7 @@ class TestSklearnCloneAndPickle:
         assert type(cloned.base_estimator) is type(original.base_estimator)
 
     def test_clone_then_fit_independent(self) -> None:
+        """Clone then fit independent."""
         df, y = _tvt_like(n=400)
         original = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=30, verbose=-1),
@@ -513,6 +549,7 @@ class TestSklearnCloneAndPickle:
         assert not hasattr(cloned, "fitted_params_")
 
     def test_pickle_roundtrip_after_fit(self) -> None:
+        """Pickle roundtrip after fit."""
         df, y = _tvt_like(n=400)
         wrapper = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=30, verbose=-1),
@@ -534,7 +571,9 @@ class TestSklearnCloneAndPickle:
 
 
 class TestDelegation:
+    """Groups tests covering delegation."""
     def test_feature_importances_delegated(self) -> None:
+        """Feature importances delegated."""
         df, y = _tvt_like(n=400)
         wrapper = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=30, verbose=-1),
@@ -547,6 +586,7 @@ class TestDelegation:
         assert len(fi) == len(df.columns)
 
     def test_n_features_in_delegated(self) -> None:
+        """N features in delegated."""
         df, y = _tvt_like(n=400)
         wrapper = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=30, verbose=-1),
@@ -560,6 +600,7 @@ class TestDelegation:
         # Audit 2026-05-17 H-COMP-14: ``feature_importances_`` /
         # ``coef_`` / ``intercept_`` now raise NotFittedError on unfit
         # wrappers (sklearn convention) instead of returning None.
+        """Unfitted attributes return none or raise."""
         from sklearn.exceptions import NotFittedError
 
         wrapper = CompositeTargetEstimator(
@@ -578,7 +619,9 @@ class TestDelegation:
 
 
 class TestFitValidation:
+    """Groups tests covering fit validation."""
     def test_fit_without_base_estimator_raises(self) -> None:
+        """Fit without base estimator raises."""
         wrapper = CompositeTargetEstimator(
             base_estimator=None,
             transform_name="diff",
@@ -589,6 +632,7 @@ class TestFitValidation:
             wrapper.fit(df, y)
 
     def test_fit_without_base_column_raises(self) -> None:
+        """Fit without base column raises."""
         wrapper = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=10, verbose=-1),
             transform_name="diff",
@@ -599,6 +643,7 @@ class TestFitValidation:
             wrapper.fit(df, y)
 
     def test_fit_missing_base_column_in_X_raises_keyerror(self) -> None:
+        """Fit missing base column in x raises keyerror."""
         wrapper = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=10, verbose=-1),
             transform_name="diff",
@@ -609,6 +654,7 @@ class TestFitValidation:
             wrapper.fit(df, y)
 
     def test_fit_drops_invalid_rows_for_logratio(self) -> None:
+        """Fit drops invalid rows for logratio."""
         wrapper = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=20, verbose=-1),
             transform_name="logratio",
@@ -626,6 +672,7 @@ class TestFitValidation:
         assert wrapper.fitted_params_["n_train_valid"] == len(y) - wrapper.fitted_params_["n_train_invalid"]
 
     def test_fit_drop_invalid_rows_false_raises(self) -> None:
+        """Fit drop invalid rows false raises."""
         wrapper = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=20, verbose=-1),
             transform_name="logratio",

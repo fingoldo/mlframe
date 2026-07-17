@@ -32,6 +32,7 @@ def _defer_pandas_conv(
 
 
 def test_defer_pandas_conv_false_with_recurrent_model():
+    """Defer pandas conv false with recurrent model."""
     assert (
         _defer_pandas_conv(
             was_polars_input=True,
@@ -43,6 +44,7 @@ def test_defer_pandas_conv_false_with_recurrent_model():
 
 
 def test_defer_pandas_conv_true_with_polars_native_and_no_recurrent():
+    """Defer pandas conv true with polars native and no recurrent."""
     assert (
         _defer_pandas_conv(
             was_polars_input=True,
@@ -54,6 +56,7 @@ def test_defer_pandas_conv_true_with_polars_native_and_no_recurrent():
 
 
 def test_defer_pandas_conv_false_when_input_is_pandas():
+    """Defer pandas conv false when input is pandas."""
     assert (
         _defer_pandas_conv(
             was_polars_input=False,
@@ -65,6 +68,7 @@ def test_defer_pandas_conv_false_when_input_is_pandas():
 
 
 def test_defer_pandas_conv_false_with_rfecv():
+    """Defer pandas conv false with rfecv."""
     assert (
         _defer_pandas_conv(
             was_polars_input=True,

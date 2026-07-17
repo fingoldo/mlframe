@@ -28,6 +28,7 @@ import pytest
 
 
 def test_rolling_median_matches_pandas_baseline_on_finite_windows():
+    """Rolling median matches pandas baseline on finite windows."""
     import mlframe.training.composite.transforms  # noqa: F401 - parent first to avoid cycle
     from mlframe.training.composite.transforms.nonlinear import _rolling_median
 
@@ -48,6 +49,7 @@ def test_rolling_median_matches_pandas_baseline_on_finite_windows():
 
 
 def test_vectorised_oof_rmse_matches_per_column_loop():
+    """Vectorised oof rmse matches per column loop."""
     rng = np.random.default_rng(1)
     n_rows, K = 5_000, 7
     preds = rng.standard_normal((n_rows, K))
@@ -56,6 +58,7 @@ def test_vectorised_oof_rmse_matches_per_column_loop():
     y = rng.standard_normal(n_rows)
 
     def per_col(preds, y):
+        """Per col."""
         out = []
         for i in range(preds.shape[1]):
             diff = preds[:, i] - y
@@ -67,6 +70,7 @@ def test_vectorised_oof_rmse_matches_per_column_loop():
         return np.asarray(out, dtype=np.float64)
 
     def vec(preds, y):
+        """Vec."""
         diff = preds - y[:, None]
         finite = np.isfinite(diff)
         n_fin = finite.sum(axis=0)
@@ -81,6 +85,7 @@ def test_vectorised_oof_rmse_matches_per_column_loop():
 
 
 def test_preallocated_pred_matrix_equals_column_stack():
+    """Preallocated pred matrix equals column stack."""
     rng = np.random.default_rng(2)
     n_rows, K = 1000, 4
     preds = [rng.standard_normal(n_rows) for _ in range(K)]
@@ -106,6 +111,7 @@ def test_frame_content_key_distinguishes_id_collision():
 
 
 def test_orjson_roundtrip_payload_matches_json():
+    """Orjson roundtrip payload matches json."""
     pytest.importorskip("orjson")
     # Resolve stdlib json via __import__ so the literal ``import json``
     # regex in tests/test_conventions.py::test_no_stdlib_json_in_tests

@@ -47,18 +47,21 @@ def _load_metadata(metadata_dir: Path) -> dict:
 def test_validate_requires_trusted_root(tmp_path):
     # Path content doesn't matter -- the function rejects on trusted_root=None
     # before any filesystem touch.
+    """Validate requires trusted root."""
     candidate = str(tmp_path / "anything.joblib")
     with pytest.raises(ValueError, match="trusted_root is required"):
         _validate_trusted_path(candidate, None)
 
 
 def test_validate_inside_is_ok(tmp_path):
+    """Validate inside is ok."""
     f = tmp_path / "x.joblib"
     f.write_text("")
     _validate_trusted_path(str(f), str(tmp_path))
 
 
 def test_validate_outside_rejected(tmp_path):
+    """Validate outside rejected."""
     other = tmp_path / "a"
     outside = tmp_path / "b" / "hack.joblib"
     other.mkdir()
@@ -69,6 +72,7 @@ def test_validate_outside_rejected(tmp_path):
 
 
 def test_validate_parent_escape_rejected(tmp_path):
+    """Validate parent escape rejected."""
     trusted = tmp_path / "trusted"
     trusted.mkdir()
     escape = str(trusted / ".." / "evil.joblib")
@@ -82,6 +86,7 @@ def test_validate_symlink_escape_resolved(tmp_path):
     # A symlink file *inside* trusted_root still has abspath inside trusted_root,
     # so the current implementation permits it (documented behavior).
     # We verify at minimum that a symlink *outside* is rejected by abspath check.
+    """Validate symlink escape resolved."""
     outside = tmp_path / "outside.joblib"
     outside.write_text("")
     trusted = tmp_path / "trusted"
@@ -100,6 +105,7 @@ def test_validate_symlink_escape_resolved(tmp_path):
 def test_validate_cross_drive_rejected():
     # Windows: commonpath raises ValueError across different drives. Code catches
     # and re-raises as "not inside trusted_root".
+    """Validate cross drive rejected."""
     with pytest.raises(ValueError, match="not inside trusted_root"):
         _validate_trusted_path(r"Z:\foo\bar.joblib", r"C:\trusted")
 
@@ -108,6 +114,7 @@ def test_validate_cross_drive_rejected():
 
 
 def test_finalize_saves_and_roundtrips(tmp_path):
+    """Finalize saves and roundtrips."""
     from types import SimpleNamespace
 
     data_dir = str(tmp_path)
@@ -159,6 +166,7 @@ def _make_ctx(**overrides):
 
 
 def test_finalize_adds_slug_mappings(tmp_path):
+    """Finalize adds slug mappings."""
     (Path(tmp_path) / "models" / "t" / "m").mkdir(parents=True)
     ctx = _make_ctx(
         data_dir=str(tmp_path),
@@ -174,6 +182,7 @@ def test_finalize_adds_slug_mappings(tmp_path):
 
 
 def test_finalize_no_save_when_no_dirs():
+    """Finalize no save when no dirs."""
     ctx = _make_ctx()
     # Should not raise even when no dirs given.
     _finalize_and_save_metadata(ctx)
@@ -186,6 +195,7 @@ def test_finalize_bubbles_ioerror(tmp_path, monkeypatch):
     # atomic_write_bytes(metadata_file, _writer). Monkeypatch the new
     # write entry point. _finalize_and_save_metadata catches
     # (OSError, IOError) and re-raises after logging.
+    """Finalize bubbles ioerror."""
     bad_dir = tmp_path / "bad"
     bad_dir.mkdir()
     target_path = bad_dir / "models" / "t" / "m"
@@ -194,6 +204,7 @@ def test_finalize_bubbles_ioerror(tmp_path, monkeypatch):
     import mlframe.training.io as io_mod
 
     def _bad_write(*a, **k):
+        """Bad write."""
         raise OSError("disk full")
 
     monkeypatch.setattr(io_mod, "atomic_write_bytes", _bad_write)
@@ -206,6 +217,7 @@ def test_finalize_bubbles_ioerror(tmp_path, monkeypatch):
 
 
 def test_save_split_artifacts_writes_parquet(tmp_path):
+    """Save split artifacts writes parquet."""
     n = 20
     train_idx = np.arange(0, 10)
     val_idx = np.arange(10, 15)
@@ -237,6 +249,7 @@ def test_save_split_artifacts_writes_parquet(tmp_path):
 
 
 def test_save_split_artifacts_dict_artifacts(tmp_path):
+    """Save split artifacts dict artifacts."""
     n = 10
     train_idx = np.arange(0, 5)
     val_idx = np.arange(5, 8)
@@ -264,6 +277,7 @@ def test_save_split_artifacts_dict_artifacts(tmp_path):
 
 def test_save_split_artifacts_noop_without_data_dir(tmp_path):
     # data_dir=None -> nothing written, no error
+    """Save split artifacts noop without data dir."""
     save_split_artifacts(
         train_idx=np.arange(3),
         val_idx=np.arange(3, 5),

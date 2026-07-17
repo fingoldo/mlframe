@@ -16,6 +16,7 @@ from mlframe.training.composite.missing import MissingAwareComposite
 
 
 def _make_composite() -> CompositeTargetEstimator:
+    """Make composite."""
     return CompositeTargetEstimator(
         base_estimator=LinearRegression(),
         transform_name="diff",
@@ -24,6 +25,7 @@ def _make_composite() -> CompositeTargetEstimator:
 
 
 def _rmse(a, b) -> float:
+    """Rmse."""
     a = np.asarray(a, dtype=np.float64)
     b = np.asarray(b, dtype=np.float64)
     return float(np.sqrt(np.mean((a - b) ** 2)))
@@ -49,6 +51,7 @@ def _mnar_dataset(n: int, seed: int):
 
 
 def test_biz_val_missing_aware_beats_impute_zero_and_drop():
+    """Biz val missing aware beats impute zero and drop."""
     X_tr, y_tr, miss_tr = _mnar_dataset(1200, seed=11)
     X_te, y_te, _miss_te = _mnar_dataset(1200, seed=99)
 

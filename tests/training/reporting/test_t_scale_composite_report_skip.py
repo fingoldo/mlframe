@@ -23,6 +23,7 @@ from pathlib import Path
 
 
 class TestTScaleCompositeReportSkip:
+    """Groups tests covering t scale composite report skip."""
     def test_source_skip_path_present(self) -> None:
         """Source-grep sensor: skip block + MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS
         env-var opt-out are wired into report_regression_model_perf

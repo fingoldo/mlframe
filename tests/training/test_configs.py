@@ -305,6 +305,7 @@ from hypothesis import strategies as st
 
 
 class TestModelHyperparamsConfigHypothesis:
+    """Groups tests covering model hyperparams config hypothesis."""
     @given(
         iterations=st.integers(1, 10000),
         learning_rate=st.floats(0.001, 1.0, allow_nan=False, allow_infinity=False),
@@ -312,6 +313,7 @@ class TestModelHyperparamsConfigHypothesis:
     )
     @settings(max_examples=50, deadline=None)
     def test_round_trip_through_model_dump(self, iterations, learning_rate, early_stopping_rounds):
+        """Round trip through model dump."""
         from mlframe.training.configs import ModelHyperparamsConfig
 
         config = ModelHyperparamsConfig(iterations=iterations, learning_rate=learning_rate, early_stopping_rounds=early_stopping_rounds)
@@ -323,12 +325,14 @@ class TestModelHyperparamsConfigHypothesis:
 
 
 class TestTrainingBehaviorConfigHypothesis:
+    """Groups tests covering training behavior config hypothesis."""
     @given(
         nbins=st.integers(2, 100),
         cont_nbins=st.integers(2, 20),
     )
     @settings(max_examples=30, deadline=None)
     def test_round_trip_through_model_dump(self, nbins, cont_nbins):
+        """Round trip through model dump."""
         from mlframe.training.configs import TrainingBehaviorConfig
 
         config = TrainingBehaviorConfig(nbins=nbins, cont_nbins=cont_nbins)
@@ -354,21 +358,25 @@ class TestModelHyperparamsRangeValidators:
 
     @pytest.mark.parametrize("lr", [-0.5, 0.0, 1.1, 10.0])
     def test_learning_rate_out_of_range_raises(self, lr):
+        """Learning rate out of range raises."""
         with pytest.raises(ValidationError, match="learning_rate"):
             ModelHyperparamsConfig(learning_rate=lr)
 
     @pytest.mark.parametrize("lr", [0.001, 0.1, 1.0])
     def test_learning_rate_in_range_accepted(self, lr):
+        """Learning rate in range accepted."""
         cfg = ModelHyperparamsConfig(learning_rate=lr)
         assert cfg.learning_rate == lr
 
     @pytest.mark.parametrize("it", [-1, 0])
     def test_iterations_must_be_positive(self, it):
+        """Iterations must be positive."""
         with pytest.raises(ValidationError, match="iterations"):
             ModelHyperparamsConfig(iterations=it)
 
     @pytest.mark.parametrize("esr", [-1, 0])
     def test_early_stopping_rounds_must_be_positive(self, esr):
+        """Early stopping rounds must be positive."""
         with pytest.raises(ValidationError, match="early_stopping_rounds"):
             ModelHyperparamsConfig(early_stopping_rounds=esr)
 
@@ -383,15 +391,18 @@ class TestTrainingSplitAgingValidator:
 
     @pytest.mark.parametrize("val", [-0.5, 0.0, 1.0, 1.5])
     def test_out_of_range_rejected(self, val):
+        """Out of range rejected."""
         with pytest.raises(ValidationError, match="trainset_aging_limit"):
             TrainingSplitConfig(trainset_aging_limit=val)
 
     @pytest.mark.parametrize("val", [0.01, 0.5, 0.99])
     def test_in_range_accepted(self, val):
+        """In range accepted."""
         cfg = TrainingSplitConfig(trainset_aging_limit=val)
         assert cfg.trainset_aging_limit == val
 
     def test_none_is_noop_signal(self):
+        """None is noop signal."""
         cfg = TrainingSplitConfig(trainset_aging_limit=None)
         assert cfg.trainset_aging_limit is None
 
@@ -405,6 +416,7 @@ class TestTypoWarningOnUnknownExtras:
     """
 
     def test_typo_on_behavior_config_warns(self, caplog):
+        """Typo on behavior config warns."""
         import logging
 
         with caplog.at_level(logging.WARNING, logger="mlframe.training.configs"):
@@ -460,28 +472,33 @@ class TestStrictConfigsRejectUnknownFields:
     """
 
     def test_preprocessing_config_typo_raises(self):
+        """Preprocessing config typo raises."""
         import pydantic
 
         with pytest.raises(pydantic.ValidationError):
             PreprocessingConfig(fillna_vlue=0.0)  # typo for fillna_value
 
     def test_preprocessing_config_valid_still_works(self):
+        """Preprocessing config valid still works."""
         cfg = PreprocessingConfig(fillna_value=0.0, fix_infinities=False)
         assert cfg.fillna_value == 0.0
         assert cfg.fix_infinities is False
 
     def test_training_split_config_typo_raises(self):
+        """Training split config typo raises."""
         import pydantic
 
         with pytest.raises(pydantic.ValidationError):
             TrainingSplitConfig(trainset_agng_limit=0.5)  # typo
 
     def test_training_split_config_valid_still_works(self):
+        """Training split config valid still works."""
         cfg = TrainingSplitConfig(test_size=0.2, trainset_aging_limit=0.5)
         assert cfg.test_size == 0.2
         assert cfg.trainset_aging_limit == 0.5
 
     def test_feature_types_config_typo_raises(self):
+        """Feature types config typo raises."""
         import pydantic
         from mlframe.training.configs import FeatureTypesConfig
 
@@ -489,6 +506,7 @@ class TestStrictConfigsRejectUnknownFields:
             FeatureTypesConfig(embeding_features=["x"])  # typo
 
     def test_feature_types_config_valid_still_works(self):
+        """Feature types config valid still works."""
         from mlframe.training.configs import FeatureTypesConfig
 
         cfg = FeatureTypesConfig(text_features=["t"], embedding_features=["e"])

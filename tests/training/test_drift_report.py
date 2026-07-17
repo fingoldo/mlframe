@@ -23,6 +23,7 @@ from mlframe.training.drift_report import (
 
 
 def test_binary_no_drift_when_splits_match():
+    """Binary no drift when splits match."""
     rng = np.random.default_rng(0)
     train = rng.integers(0, 2, size=2000)
     val = rng.integers(0, 2, size=500)
@@ -37,6 +38,7 @@ def test_binary_no_drift_when_splits_match():
 
 
 def test_binary_prior_shift_50_50_to_90_10_warns():
+    """Binary prior shift 50 50 to 90 10 warns."""
     rng = np.random.default_rng(1)
     train = rng.integers(0, 2, size=4000)
     # Shifted val/test: 90% positive vs train's ~50%.
@@ -57,6 +59,7 @@ def test_binary_prior_shift_50_50_to_90_10_warns():
 
 
 def test_binary_format_drift_report_contains_target_name_and_summary():
+    """Binary format drift report contains target name and summary."""
     rng = np.random.default_rng(2)
     train = rng.integers(0, 2, size=100)
     val = rng.integers(0, 2, size=50)
@@ -77,6 +80,7 @@ def test_binary_format_drift_report_contains_target_name_and_summary():
 
 
 def test_regression_no_drift_within_threshold():
+    """Regression no drift within threshold."""
     rng = np.random.default_rng(3)
     train = rng.normal(loc=0.0, scale=1.0, size=2000)
     val = rng.normal(loc=0.0, scale=1.0, size=500)
@@ -91,6 +95,7 @@ def test_regression_no_drift_within_threshold():
 
 
 def test_regression_mean_shift_warns_when_above_threshold():
+    """Regression mean shift warns when above threshold."""
     rng = np.random.default_rng(4)
     train = rng.normal(loc=0.0, scale=1.0, size=2000)
     # 5-sigma shifted val/test (way above the 0.5 sigma threshold).
@@ -108,6 +113,7 @@ def test_regression_mean_shift_warns_when_above_threshold():
 
 
 def test_multiclass_no_drift_when_class_priors_match():
+    """Multiclass no drift when class priors match."""
     rng = np.random.default_rng(5)
     train = rng.integers(0, 4, size=4000)
     val = rng.integers(0, 4, size=1000)
@@ -121,6 +127,7 @@ def test_multiclass_no_drift_when_class_priors_match():
 
 def test_multiclass_warns_when_one_class_shifts():
     # Train: uniform over 3 classes. Val/test: heavily skewed to class 0.
+    """Multiclass warns when one class shifts."""
     rng = np.random.default_rng(6)
     train = rng.integers(0, 3, size=3000)
     val = np.full(1000, 0)  # all class 0
@@ -136,6 +143,7 @@ def test_multiclass_warns_when_one_class_shifts():
 
 
 def test_multilabel_2d_ndarray_no_drift():
+    """Multilabel 2d ndarray no drift."""
     rng = np.random.default_rng(7)
     train = (rng.random(size=(2000, 4)) < 0.3).astype(int)
     val = (rng.random(size=(500, 4)) < 0.3).astype(int)
@@ -148,6 +156,7 @@ def test_multilabel_2d_ndarray_no_drift():
 
 
 def test_multilabel_warns_when_one_label_shifts():
+    """Multilabel warns when one label shifts."""
     rng = np.random.default_rng(8)
     train = (rng.random(size=(2000, 3)) < 0.3).astype(int)
     val = train[:500].copy()
@@ -162,12 +171,14 @@ def test_multilabel_warns_when_one_label_shifts():
 
 
 def test_train_target_none_returns_safe_report():
+    """Train target none returns safe report."""
     out = compute_label_distribution_drift(None, np.array([0, 1]), np.array([0, 1]), target_type="binary_classification")
     assert out["splits"] == {}
     assert any("train_target is None" in w for w in out["warnings"])
 
 
 def test_val_and_test_none_handled():
+    """Val and test none handled."""
     rng = np.random.default_rng(9)
     train = rng.integers(0, 2, size=200)
     out = compute_label_distribution_drift(train, None, None, target_type="binary_classification")
@@ -177,6 +188,7 @@ def test_val_and_test_none_handled():
 
 
 def test_empty_test_handled_without_crash():
+    """Empty test handled without crash."""
     rng = np.random.default_rng(10)
     train = rng.integers(0, 2, size=200)
     val = rng.integers(0, 2, size=50)
@@ -188,6 +200,7 @@ def test_empty_test_handled_without_crash():
 
 
 def test_format_drift_report_no_target_name():
+    """Format drift report no target name."""
     rep = compute_label_distribution_drift(np.array([0, 1, 1]), None, None, target_type="binary_classification")
     out = format_drift_report(rep)
     assert isinstance(out, str)
@@ -197,6 +210,7 @@ def test_format_drift_report_no_target_name():
 
 
 def test_format_drift_report_regression_branch_has_mean_std():
+    """Format drift report regression branch has mean std."""
     rng = np.random.default_rng(11)
     rep = compute_label_distribution_drift(
         rng.normal(size=300),
@@ -211,6 +225,7 @@ def test_format_drift_report_regression_branch_has_mean_std():
 
 
 def test_format_drift_report_emits_no_warn_marker_when_clean():
+    """Format drift report emits no warn marker when clean."""
     rng = np.random.default_rng(12)
     rep = compute_label_distribution_drift(
         rng.integers(0, 2, size=1000),
@@ -239,6 +254,7 @@ def test_multiclass_split_summary_single_pass_via_unique(monkeypatch):
     real_unique = np.unique
 
     def _spy_unique(a, *args, **kwargs):
+        """Spy unique."""
         calls["n"] += 1
         return real_unique(a, *args, **kwargs)
 

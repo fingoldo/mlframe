@@ -41,6 +41,7 @@ MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
+    """Read."""
     _path = MLFRAME_ROOT / rel
     if not _path.exists() and _path.suffix == ".py":
         # Monolith-split compat: the flat module became a subpackage
@@ -57,6 +58,7 @@ def _read(rel: str) -> str:
 
 
 def test_es_transformed_target_regressor_calls_super_init() -> None:
+    """Es transformed target regressor calls super init."""
     src = _read("estimators/custom.py")
     helper_idx = src.find("class ESTransformedTargetRegressor")
     assert helper_idx != -1
@@ -71,6 +73,7 @@ def test_aggregating_validation_callback_calls_super_init() -> None:
     # ``AggregatingValidationCallback`` was carved out of ``training/neural/base.py``
     # into ``_base_callbacks.py``; concat parent + sibling so the source-grep
     # guard survives the split.
+    """Aggregating validation callback calls super init."""
     src = _read("training/neural/base.py")
     sib = MLFRAME_ROOT / "training" / "neural" / "_base_callbacks.py"
     if sib.exists():
@@ -82,6 +85,7 @@ def test_aggregating_validation_callback_calls_super_init() -> None:
 
 
 def test_torch_dataset_calls_super_init() -> None:
+    """Torch dataset calls super init."""
     src = _read("training/neural/data.py")
     helper_idx = src.find("class TorchDataset")
     assert helper_idx != -1
@@ -91,6 +95,7 @@ def test_torch_dataset_calls_super_init() -> None:
 
 
 def test_group_batch_sampler_calls_super_init() -> None:
+    """Group batch sampler calls super init."""
     src = _read("training/neural/ranker.py")
     helper_idx = src.find("class GroupBatchSampler")
     assert helper_idx != -1
@@ -110,6 +115,7 @@ def test_group_batch_sampler_calls_super_init() -> None:
 
 
 def test_ranker_dataset_calls_super_init() -> None:
+    """Ranker dataset calls super init."""
     src = _read("training/neural/ranker.py")
     helper_idx = src.find("class _RankerDataset")
     assert helper_idx != -1

@@ -25,6 +25,7 @@ from mlframe.training.pipeline._categorical_composite_fe import apply_categorica
 
 
 def _cat_frame(n=400, seed=0):
+    """Cat frame."""
     rng = np.random.default_rng(seed)
     return pd.DataFrame(
         {
@@ -37,6 +38,7 @@ def _cat_frame(n=400, seed=0):
 
 
 def test_apply_categorical_composite_fe_noop_when_disabled():
+    """Apply categorical composite fe noop when disabled."""
     df = _cat_frame()
     cfg = PreprocessingExtensionsConfig()
     train, val, test = apply_categorical_composite_fe(df.iloc[:200], df.iloc[200:300], df.iloc[300:], cfg, None, {}, verbose=0)
@@ -46,6 +48,7 @@ def test_apply_categorical_composite_fe_noop_when_disabled():
 
 
 def test_apply_categorical_composite_fe_schema_aligned_across_splits():
+    """Apply categorical composite fe schema aligned across splits."""
     df = _cat_frame()
     y = np.random.default_rng(1).integers(0, 2, len(df))
     cfg = PreprocessingExtensionsConfig(categorical_powerset_concat_enabled=True, categorical_group_concat_auto_enabled=True)
@@ -59,6 +62,7 @@ def test_apply_categorical_composite_fe_schema_aligned_across_splits():
 
 
 def test_apply_categorical_composite_fe_respects_max_source_columns_cap():
+    """Apply categorical composite fe respects max source columns cap."""
     df = _cat_frame()
     df["d"] = df["a"]
     df["e"] = df["b"]
@@ -75,6 +79,7 @@ def test_apply_categorical_composite_fe_respects_max_source_columns_cap():
 
 
 def test_apply_categorical_composite_fe_polars_roundtrip():
+    """Apply categorical composite fe polars roundtrip."""
     n = 200
     rng = np.random.default_rng(3)
     df = pl.DataFrame({"a": rng.choice(list("XY"), n), "b": rng.choice(list("PQ"), n), "num0": rng.normal(size=n).astype(np.float32)})
@@ -87,6 +92,7 @@ def test_apply_categorical_composite_fe_polars_roundtrip():
 
 
 def test_replay_categorical_composite_fe_matches_fit_time_columns():
+    """Replay categorical composite fe matches fit time columns."""
     df = _cat_frame()
     y = np.random.default_rng(4).integers(0, 2, len(df))
     cfg = PreprocessingExtensionsConfig(categorical_powerset_concat_enabled=True, categorical_group_concat_auto_enabled=True)
@@ -99,6 +105,7 @@ def test_replay_categorical_composite_fe_matches_fit_time_columns():
 
 
 def test_replay_categorical_composite_fe_noop_without_persisted_metadata():
+    """Replay categorical composite fe noop without persisted metadata."""
     df = _cat_frame(n=20)
     out = replay_categorical_composite_fe(df, {}, verbose=0)
     assert list(out.columns) == list(df.columns)
@@ -128,6 +135,7 @@ def test_biz_val_categorical_composite_wiring_recovers_pairwise_signal():
     assert set(test_composite_replayed.columns) == set(test_composite.columns)
 
     def _fit_eval(train_frame, test_frame, cols):
+        """Fit eval."""
         enc = OneHotEncoder(handle_unknown="ignore")
         X_train = enc.fit_transform(train_frame[cols])
         X_test = enc.transform(test_frame[cols])

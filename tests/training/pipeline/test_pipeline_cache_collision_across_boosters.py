@@ -41,6 +41,7 @@ import pytest
 
 
 class TestCacheKeyIncludesFeatureTier:
+    """Groups tests covering cache key includes feature tier."""
     def test_cb_and_lgb_produce_different_cache_keys(self):
         """CB and LGB both have ``strategy.cache_key='tree'`` but
         different feature_tier(). After the fix the effective cache
@@ -85,6 +86,7 @@ class TestCacheKeyIncludesFeatureTier:
 
 
 class TestPrepareDfForXgboostContract:
+    """Groups tests covering prepare df for xgboost contract."""
     def test_polars_input_raises_typeerror(self):
         """Pre-fix: ``df[var].dtype`` on polars raised obscure
         AttributeError deep inside the function. Now: explicit
@@ -199,7 +201,9 @@ class TestBruteforceTargetEncoderWarnStaticCheck:
 
 
 class TestMpsComputeAreaProfitsZeroPriceGuard:
+    """Groups tests covering mps compute area profits zero price guard."""
     def _call(self, positions, prices):
+        """Call."""
         from mlframe.feature_engineering.mps import compute_area_profits
 
         return compute_area_profits(

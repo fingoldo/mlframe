@@ -215,7 +215,9 @@ def test_mlp_predict_returns_nan_silently_on_nan_input():
 
     # Wrap in TTR so we match production wiring
     class _TTR(TransformedTargetRegressor):
+        """Groups tests covering t t r."""
         def fit(self, X, y, **fit_params):
+            """Fit."""
             from sklearn.base import clone as _clone
 
             y_arr = np.asarray(y, dtype=np.float64)

@@ -26,12 +26,14 @@ class TestNDCG:
     """NDCG@k correctness on binary, graded, and multi-query inputs."""
 
     def test_perfect_binary_ranking_is_one(self):
+        """Perfect binary ranking is one."""
         y_true = np.array([1, 1, 0, 0])
         y_score = np.array([0.9, 0.8, 0.2, 0.1])  # perfect order
         gids = np.zeros(4, dtype=int)
         assert ndcg_at_k(y_true, y_score, gids, k=4) == pytest.approx(1.0)
 
     def test_random_binary_ranking_below_one(self):
+        """Random binary ranking below one."""
         rng = np.random.default_rng(0)
         y_true = np.array([1, 0, 1, 0, 1, 0])
         y_score = rng.uniform(size=6)
@@ -111,12 +113,14 @@ class TestMAP:
     """MAP@k correctness."""
 
     def test_perfect_binary_is_one(self):
+        """Perfect binary is one."""
         y = np.array([1, 1, 0, 0])
         s = np.array([0.9, 0.8, 0.2, 0.1])
         gids = np.zeros(4, dtype=int)
         assert map_at_k(y, s, gids, k=4) == pytest.approx(1.0)
 
     def test_zero_positives_is_nan(self):
+        """Zero positives is nan."""
         y = np.zeros(5, dtype=int)
         s = np.arange(5, dtype=float)
         gids = np.zeros(5, dtype=int)
@@ -138,12 +142,14 @@ class TestMRR:
     """MRR correctness."""
 
     def test_first_position_relevant_is_one(self):
+        """First position relevant is one."""
         y = np.array([1, 0, 0, 0])
         s = np.array([0.9, 0.8, 0.7, 0.6])
         gids = np.zeros(4, dtype=int)
         assert mrr(y, s, gids) == pytest.approx(1.0)
 
     def test_third_position_relevant(self):
+        """Third position relevant."""
         y = np.array([0, 0, 1, 0])
         s = np.array([0.9, 0.8, 0.7, 0.6])  # perfect descending
         # Score-sort puts y[0] first (rel=0), y[1] (rel=0), y[2] (rel=1) at pos 3
@@ -151,6 +157,7 @@ class TestMRR:
         assert mrr(y, s, gids) == pytest.approx(1.0 / 3.0)
 
     def test_zero_positives_is_nan(self):
+        """Zero positives is nan."""
         y = np.zeros(4, dtype=int)
         s = np.arange(4, dtype=float)
         gids = np.zeros(4, dtype=int)
@@ -158,6 +165,7 @@ class TestMRR:
 
     def test_multi_query_mean(self):
         # Q0: relevant at pos 2 -> 1/2; Q1: relevant at pos 1 -> 1
+        """Multi query mean."""
         y = np.array([0, 1, 1, 0])
         s = np.array([0.9, 0.8, 0.5, 0.4])
         gids = np.array([0, 0, 1, 1])
@@ -169,6 +177,7 @@ class TestSummary:
     """``compute_ranking_summary`` returns NDCG/MAP for each k + MRR."""
 
     def test_summary_has_all_keys(self):
+        """Summary has all keys."""
         rng = np.random.default_rng(3)
         y = rng.integers(0, 4, size=30)
         s = rng.uniform(size=30)
@@ -191,6 +200,7 @@ class TestSummary:
             assert np.isnan(v)
 
     def test_summary_eval_at_single_k(self):
+        """Summary eval at single k."""
         rng = np.random.default_rng(4)
         y = rng.integers(0, 2, size=20)
         s = rng.uniform(size=20)

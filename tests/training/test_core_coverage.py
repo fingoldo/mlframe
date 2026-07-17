@@ -35,6 +35,7 @@ class TestInputValidation:
     """Tests for input validation in train_mlframe_models_suite."""
 
     def test_invalid_df_type_raises_type_error(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Invalid df type raises type error."""
         _df, _feature_names, _y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         with pytest.raises(TypeError, match="df must be pandas DataFrame"):
@@ -50,6 +51,7 @@ class TestInputValidation:
             )
 
     def test_non_parquet_path_raises_value_error(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Non parquet path raises value error."""
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         with pytest.raises(ValueError, match="File path must be a .parquet file"):
             train_mlframe_models_suite(
@@ -64,6 +66,7 @@ class TestInputValidation:
             )
 
     def test_empty_target_name_raises_value_error(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Empty target name raises value error."""
         df, _feature_names, _y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         with pytest.raises(ValueError, match="target_name cannot be empty"):
@@ -79,6 +82,7 @@ class TestInputValidation:
             )
 
     def test_empty_model_name_raises_value_error(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Empty model name raises value error."""
         df, _feature_names, _y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         with pytest.raises(ValueError, match="model_name cannot be empty"):
@@ -94,6 +98,7 @@ class TestInputValidation:
             )
 
     def test_none_extractor_raises_value_error(self, sample_regression_data, temp_data_dir, common_init_params):
+        """None extractor raises value error."""
         df, _feature_names, _y = sample_regression_data
         with pytest.raises(ValueError, match="features_and_targets_extractor is required"):
             train_mlframe_models_suite(
@@ -108,6 +113,7 @@ class TestInputValidation:
             )
 
     def test_int_df_raises_type_error(self, common_init_params):
+        """Int df raises type error."""
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         with pytest.raises(TypeError, match="df must be pandas DataFrame"):
             train_mlframe_models_suite(
@@ -121,6 +127,7 @@ class TestInputValidation:
             )
 
     def test_parquet_path_loads_and_trains(self, sample_regression_data, tmp_path, temp_data_dir, common_init_params):
+        """Parquet path loads and trains."""
         df, _feature_names, _y = sample_regression_data
         parquet_path = tmp_path / "test.parquet"
         df.to_parquet(str(parquet_path), index=False)
@@ -166,6 +173,7 @@ class TestConfigurationSetup:
     """Tests for configuration setup in train_mlframe_models_suite."""
 
     def test_pydantic_preprocessing_config_passthrough(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Pydantic preprocessing config passthrough."""
         df, _feature_names, _y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         preproc = PreprocessingConfig(fillna_value=-999.0)
@@ -185,6 +193,7 @@ class TestConfigurationSetup:
         assert isinstance(models, dict)
 
     def test_pydantic_split_config_passthrough(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Pydantic split config passthrough."""
         df, _feature_names, _y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         split = TrainingSplitConfig(test_size=0.15, val_size=0.15)
@@ -204,6 +213,7 @@ class TestConfigurationSetup:
         assert isinstance(models, dict)
 
     def test_pydantic_hyperparams_config_passthrough(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Pydantic hyperparams config passthrough."""
         df, _feature_names, _y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         hparams = ModelHyperparamsConfig(iterations=10)
@@ -222,6 +232,7 @@ class TestConfigurationSetup:
         assert isinstance(models, dict)
 
     def test_pydantic_behavior_config_passthrough(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Pydantic behavior config passthrough."""
         df, _feature_names, _y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         behavior = TrainingBehaviorConfig(prefer_gpu=False)
@@ -295,6 +306,7 @@ class TestSplitting:
     """Tests for phase 3: train/val/test splitting."""
 
     def test_split_sizes_sum_to_total(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Split sizes sum to total."""
         df, _, _ = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         _, metadata = train_mlframe_models_suite(
@@ -314,6 +326,7 @@ class TestSplitting:
         assert total == len(df)
 
     def test_artifact_files_saved_when_data_dir_given(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Artifact files saved when data dir given."""
         df, _, _ = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         train_mlframe_models_suite(
@@ -354,6 +367,7 @@ class TestSplitting:
         assert len(saved_files) == 0
 
     def test_split_metadata_keys_present(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Split metadata keys present."""
         df, _, _ = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         _, metadata = train_mlframe_models_suite(
@@ -381,6 +395,7 @@ class TestPipelineFitting:
     """Tests for Section 4 pipeline behavior in train_mlframe_models_suite."""
 
     def _call(self, df, temp_data_dir, common_init_params, **kwargs):
+        """Call."""
         defaults = dict(
             target_name="test_target",
             model_name="pipe_test",
@@ -396,16 +411,19 @@ class TestPipelineFitting:
         return train_mlframe_models_suite(df=df, **defaults)
 
     def test_metadata_pipeline_key_present_pandas(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Metadata pipeline key present pandas."""
         df, _, _ = sample_regression_data
         _, metadata = self._call(df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
         assert "pipeline" in metadata
 
     def test_metadata_cat_features_key_present(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Metadata cat features key present."""
         df, _, _ = sample_regression_data
         _, metadata = self._call(df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
         assert "cat_features" in metadata
 
     def test_metadata_columns_contains_features(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Metadata columns contains features."""
         df, feature_names, _ = sample_regression_data
         _, metadata = self._call(df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
         assert "columns" in metadata
@@ -414,6 +432,7 @@ class TestPipelineFitting:
             assert f in cols
 
     def test_pandas_input_no_polars_pre_keys(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Pandas input no polars pre keys."""
         df, _, _ = sample_regression_data
         _, metadata = self._call(df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
         assert "train_df_polars_pre" not in metadata
@@ -440,6 +459,7 @@ class TestPipelineFitting:
         assert "pipeline" in metadata
 
     def test_polars_input_columns_stored(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Polars input columns stored."""
         df, feature_names, _ = sample_regression_data
         pl_df = pl.from_pandas(df)
         _, metadata = self._call(pl_df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
@@ -467,6 +487,7 @@ class TestFeatureTypeDetection:
     """Tests for Section 4.5 feature type detection."""
 
     def _call(self, df, temp_data_dir, common_init_params, **kwargs):
+        """Call."""
         defaults = dict(
             target_name="test_target",
             model_name="ftd_test",
@@ -482,6 +503,7 @@ class TestFeatureTypeDetection:
         return train_mlframe_models_suite(df=df, **defaults)
 
     def test_text_features_in_metadata(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Text features in metadata."""
         df, _, _ = sample_regression_data
         df = df.copy()
         df["desc"] = "some text"
@@ -496,6 +518,7 @@ class TestFeatureTypeDetection:
         assert "desc" in metadata["text_features"]
 
     def test_embedding_features_in_metadata(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Embedding features in metadata."""
         df, _, _ = sample_regression_data
         df = df.copy()
         df["emb"] = [np.zeros(4).tolist() for _ in range(len(df))]
@@ -510,6 +533,7 @@ class TestFeatureTypeDetection:
         assert "emb" in metadata["embedding_features"]
 
     def test_no_feature_types_yields_empty_lists(self, sample_regression_data, temp_data_dir, common_init_params):
+        """No feature types yields empty lists."""
         df, _, _ = sample_regression_data
         _, metadata = self._call(df, temp_data_dir, common_init_params, mlframe_models=["ridge"])
         assert "text_features" in metadata
@@ -552,6 +576,7 @@ class TestModelTrainingLoop:
         assert len(models[TargetTypes.REGRESSION]["target"]) >= 1
 
     def test_all_unknown_models_produces_empty(self, sample_regression_data, temp_data_dir, common_init_params):
+        """All unknown models produces empty."""
         df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         models, _metadata = train_mlframe_models_suite(
@@ -616,6 +641,7 @@ class TestModelTrainingLoop:
         assert len(trained) == 2
 
     def test_multiple_models_produce_multiple_entries(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Multiple models produce multiple entries."""
         df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         models, _ = train_mlframe_models_suite(
@@ -660,6 +686,7 @@ class TestModelTrainingLoop:
         assert len(trained) == 4
 
     def test_ensemble_scored_with_multiple_models(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Ensemble scored with multiple models."""
         df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         models, _ = train_mlframe_models_suite(
@@ -679,6 +706,7 @@ class TestModelTrainingLoop:
         assert len(trained) >= 2
 
     def test_ensemble_not_scored_single_model(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Ensemble not scored single model."""
         df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         models, _ = train_mlframe_models_suite(
@@ -739,6 +767,7 @@ class TestRecurrentModels:
     """
 
     def _build_sequences(self, n_samples=1000, seq_len=10, n_seq_features=5):
+        """Build sequences."""
         return [np.random.randn(seq_len, n_seq_features) for _ in range(n_samples)]
 
     def test_recurrent_fit_called_and_error_handled(self, sample_regression_data, temp_data_dir, common_init_params):
@@ -754,6 +783,7 @@ class TestRecurrentModels:
         mock_model.fit.side_effect = RuntimeError("simulated GPU OOM")
 
         def fake_configure(**kwargs):
+            """Fake configure."""
             return {"lstm": {"model": mock_model}}
 
         # Patch where the name is BOUND -- ``_phase_recurrent`` did ``from ..trainer import _configure_recurrent_params``
@@ -763,6 +793,7 @@ class TestRecurrentModels:
             original_clone = __import__("sklearn.base", fromlist=["clone"]).clone
 
             def selective_clone(estimator, **kw):
+                """Selective clone."""
                 if estimator is mock_model:
                     return mock_model
                 return original_clone(estimator, **kw)
@@ -802,6 +833,7 @@ class TestRecurrentModels:
         mock_model.get_params.return_value = {}
 
         def fake_configure(**kwargs):
+            """Fake configure."""
             return {}  # "gru" not configured
 
         # Patch where the name is BOUND -- ``_phase_recurrent`` did ``from ..trainer import _configure_recurrent_params``
@@ -863,6 +895,7 @@ class TestMetadataCompleteness:
     """Tests verifying metadata completeness and persistence."""
 
     def _train(self, df, temp_data_dir, common_init_params):
+        """Train."""
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         return train_mlframe_models_suite(
             df=df,
@@ -879,6 +912,7 @@ class TestMetadataCompleteness:
         )
 
     def test_metadata_has_all_expected_keys(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Metadata has all expected keys."""
         df, _, _ = sample_regression_data
         _, metadata = self._train(df, temp_data_dir, common_init_params)
         expected_keys = [
@@ -898,18 +932,21 @@ class TestMetadataCompleteness:
             assert key in metadata, f"Expected metadata key '{key}' not found"
 
     def test_metadata_configs_exists(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Metadata configs exists."""
         df, _, _ = sample_regression_data
         _, metadata = self._train(df, temp_data_dir, common_init_params)
         assert "configs" in metadata
         assert metadata["configs"] is not None
 
     def test_split_sizes_sum_to_original(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Split sizes sum to original."""
         df, _, _ = sample_regression_data
         _, metadata = self._train(df, temp_data_dir, common_init_params)
         total = metadata["train_size"] + metadata["val_size"] + metadata["test_size"]
         assert total == len(df)
 
     def test_metadata_saved_to_disk(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Metadata saved to disk."""
         df, _, _ = sample_regression_data
         self._train(df, temp_data_dir, common_init_params)
         # 2026-04-29: format switched joblib -> pickle proto=5 + zstd L3 (8c301f2).

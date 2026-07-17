@@ -16,6 +16,7 @@ class _SimpleStep:
         # set later by external caller as a side-effect
 
     def get_params(self, deep: bool = False):
+        """Get params."""
         return {"with_mean": self.with_mean}
 
 
@@ -27,6 +28,7 @@ class _ToyPipeline:
 
 
 def test_attribute_only_random_state_changes_signature():
+    """Attribute only random state changes signature."""
     a = _SimpleStep()
     a.random_state = 11
     b = _SimpleStep()
@@ -39,6 +41,7 @@ def test_attribute_only_random_state_changes_signature():
 
 
 def test_no_random_state_signatures_remain_stable():
+    """No random state signatures remain stable."""
     a = _SimpleStep(with_mean=True)
     b = _SimpleStep(with_mean=True)
     sig_a = _pipeline_signature_for_cache(_ToyPipeline([("s", a)]))

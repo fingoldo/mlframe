@@ -21,6 +21,7 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
+    """Parent module."""
     from mlframe.training.core import _phase_composite_post
 
     return _phase_composite_post
@@ -28,16 +29,19 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def xt_sibling():
+    """Xt sibling."""
     from mlframe.training.core import _phase_composite_post_xt_ensemble
 
     return _phase_composite_post_xt_ensemble
 
 
 def test_helper_symbol_resolves(xt_sibling):
+    """Helper symbol resolves."""
     assert hasattr(xt_sibling, "_build_cross_target_ensemble_for_target")
 
 
 def test_facade_loc_budget(parent_module):
+    """Facade loc budget."""
     path = Path(parent_module.__file__)
     n_lines = len(path.read_text(encoding="utf-8").splitlines())
     assert n_lines < 400, f"facade is {n_lines} LOC, expected < 400 after Wave 12 cross-target carve"

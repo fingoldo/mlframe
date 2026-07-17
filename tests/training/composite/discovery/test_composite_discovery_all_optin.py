@@ -12,6 +12,7 @@ from mlframe.training.composite import CompositeTargetDiscovery
 
 
 def _temporal_frame(n=4000, seed=0):
+    """Temporal frame."""
     rng = np.random.default_rng(seed)
     ts = np.arange(n)
     y = np.empty(n)
@@ -35,6 +36,7 @@ def _temporal_frame(n=4000, seed=0):
 
 
 def _all_on_config(**over):
+    """All on config."""
     cfg = dict(
         enabled=True,
         mi_sample_n=800,
@@ -53,6 +55,7 @@ def _all_on_config(**over):
 
 
 def _fit(cfg):
+    """Fit."""
     df = _temporal_frame()
     disc = CompositeTargetDiscovery(cfg)
     return disc.fit(
@@ -65,7 +68,9 @@ def _fit(cfg):
 
 
 class TestAllOptInKitchenSink:
+    """Groups tests covering all opt in kitchen sink."""
     def test_all_optin_runs_clean_and_produces_valid_specs(self) -> None:
+        """All optin runs clean and produces valid specs."""
         disc, df = _fit(_all_on_config())
         assert isinstance(disc.specs_, list)
         # Every kept spec round-trips fit->predict to finite y.
@@ -87,11 +92,13 @@ class TestAllOptInKitchenSink:
         assert hasattr(disc, "interaction_bases_")
 
     def test_all_optin_is_deterministic(self) -> None:
+        """All optin is deterministic."""
         a, _ = _fit(_all_on_config())
         b, _ = _fit(_all_on_config())
         assert [s.name for s in a.specs_] == [s.name for s in b.specs_]
 
     def test_all_off_reproduces_bare_baseline(self) -> None:
+        """All off reproduces bare baseline."""
         off = _all_on_config(
             time_series_transforms_enabled=False,
             transform_waic_validation_enabled=False,

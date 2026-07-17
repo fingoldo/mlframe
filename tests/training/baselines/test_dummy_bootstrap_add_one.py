@@ -15,6 +15,7 @@ from mlframe.training.baselines.dummy import _paired_bootstrap_vs_runner_up
 
 
 def _run(p_strongest, p_runner, y, n_resamples=200, seed=42):
+    """Builds a 2-row RMSE table for strongest-vs-runner-up and runs the paired bootstrap comparison over it."""
     rmse_s = float(np.sqrt(np.mean((y - p_strongest) ** 2)))
     rmse_r = float(np.sqrt(np.mean((y - p_runner) ** 2)))
     table = pd.DataFrame({"val_RMSE": [rmse_s, rmse_r]}, index=["strongest", "runner_up"])
@@ -34,6 +35,7 @@ def _run(p_strongest, p_runner, y, n_resamples=200, seed=42):
 
 
 def test_clean_sweep_win_fraction_below_one():
+    """Clean sweep win fraction below one."""
     rng = np.random.default_rng(0)
     n = 400
     y = rng.normal(size=n)
@@ -52,6 +54,7 @@ def test_clean_sweep_win_fraction_below_one():
 
 
 def test_reverse_sweep_win_fraction_above_zero():
+    """Reverse sweep win fraction above zero."""
     rng = np.random.default_rng(1)
     n = 400
     y = rng.normal(size=n)
@@ -67,6 +70,7 @@ def test_reverse_sweep_win_fraction_above_zero():
 
 
 def test_win_fraction_matches_add_one_formula():
+    """Win fraction matches add one formula."""
     rng = np.random.default_rng(7)
     n = 300
     y = rng.normal(size=n)

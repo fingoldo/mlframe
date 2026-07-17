@@ -34,16 +34,19 @@ def _compositional_dataset(seed: int = 0, n: int = 1500):
 
 
 def _make():
+    """Make."""
     from sklearn.linear_model import Ridge
 
     return CompositeSimplexEstimator(base_estimator=Ridge(alpha=1.0))
 
 
 def test_score_metric_defaults_to_aitchison():
+    """Score metric defaults to aitchison."""
     assert _make().score_metric == "aitchison"
 
 
 def test_aitchison_score_rewards_learnable_compositional_fit():
+    """Aitchison score rewards learnable compositional fit."""
     X, y = _compositional_dataset(seed=1)
     cut = 1000
     est = _make().fit(X[:cut], y[:cut])
@@ -53,6 +56,7 @@ def test_aitchison_score_rewards_learnable_compositional_fit():
 
 
 def test_aitchison_score_above_constant_baseline_but_euclidean_optout_available():
+    """Aitchison score above constant baseline but euclidean optout available."""
     X, y = _compositional_dataset(seed=2)
     cut = 1000
     est = _make().fit(X[:cut], y[:cut])

@@ -16,6 +16,7 @@ from mlframe.training.feature_handling.polynomial import (
 
 
 def _make_X(n_rows: int, n_cols: int, seed: int = 0) -> np.ndarray:
+    """Make x."""
     rng = np.random.default_rng(seed)
     return rng.standard_normal(size=(n_rows, n_cols)).astype(np.float32)
 

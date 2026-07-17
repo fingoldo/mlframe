@@ -214,15 +214,18 @@ class TestPermutationFallbackAndNestedUnwrap:
         ``predict`` only, no ``feature_importances_`` / ``coef_``."""
 
         class _PredictOnly:
+            """Groups tests covering predict only."""
             def __init__(self, n):
                 self.n = n
                 rng = np.random.default_rng(0)
                 self._w = rng.standard_normal(n)
 
             def fit(self, X, y):
+                """Fit."""
                 return self
 
             def predict(self, X):
+                """Predict."""
                 X = np.asarray(X)
                 return X @ self._w
 
@@ -235,6 +238,7 @@ class TestPermutationFallbackAndNestedUnwrap:
         assert importances is None
 
     def test_permutation_fallback_runs_when_xy_supplied(self):
+        """Permutation fallback runs when xy supplied."""
         n = 200
         rng = np.random.default_rng(1)
         X = rng.standard_normal((n, 4))
@@ -302,6 +306,7 @@ class TestNativeNNFeatureImportance:
       on bench; preferred path when captum is available."""
 
     def _build_torch_mlp(self, n_features=20):
+        """Build torch mlp."""
         import torch
         import torch.nn as nn
 
@@ -341,9 +346,11 @@ class TestNativeNNFeatureImportance:
             # the network is already trained above so this is a no-op
             # that just keeps the sklearn API happy.
             def fit(self, X, y=None):
+                """Fit."""
                 return self
 
             def predict(self, X):
+                """Predict."""
                 import torch as _t
 
                 self.network.eval()
@@ -353,6 +360,7 @@ class TestNativeNNFeatureImportance:
         return _Wrap(net), X, y, [f"x{i}" for i in range(n_features)]
 
     def test_first_layer_method_returns_per_feature_importance(self):
+        """First layer method returns per feature importance."""
         model, X, y, columns = self._build_torch_mlp(n_features=20)
         imp = get_model_feature_importances(
             model,
@@ -366,6 +374,7 @@ class TestNativeNNFeatureImportance:
         assert np.all(imp >= 0)  # |W| sum is non-negative
 
     def test_captum_method_returns_per_feature_importance(self):
+        """Captum method returns per feature importance."""
         pytest.importorskip("captum")
         model, X, y, columns = self._build_torch_mlp(n_features=20)
         imp = get_model_feature_importances(

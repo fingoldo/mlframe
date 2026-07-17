@@ -26,6 +26,7 @@ class TestXgbEvalCategoricalAlignment:
     val-only category (fuzz c0011)."""
 
     def test_polars_val_enum_widened_to_train(self):
+        """Polars val enum widened to train."""
         from mlframe.training.xgb_shim import _align_eval_categoricals
 
         tr_enum = pl.Enum(["alpha"])
@@ -38,6 +39,7 @@ class TestXgbEvalCategoricalAlignment:
         assert out["c"].null_count() == 2
 
     def test_xgb_fit_with_train_absent_val_category(self):
+        """Xgb fit with train absent val category."""
         pytest.importorskip("xgboost")
         from mlframe.training.xgb_shim import XGBClassifierWithDMatrixReuse
 
@@ -62,6 +64,7 @@ class TestPolarsdsModeImpute:
     ``mode().list.first()`` breaks on current polars) (fuzz c0074/...)."""
 
     def test_mode_impute_pipeline_builds_and_fills(self):
+        """Mode impute pipeline builds and fills."""
         from mlframe.training.configs import PreprocessingBackendConfig
         from mlframe.training.pipeline import create_polarsds_pipeline
 
@@ -90,6 +93,7 @@ class TestPolarsdsEnumEncode:
 
     @pytest.mark.parametrize("encoding", ["onehot", "ordinal"])
     def test_enum_columns_encode(self, encoding):
+        """Enum columns encode."""
         from mlframe.training.configs import PreprocessingBackendConfig
         from mlframe.training.pipeline import create_polarsds_pipeline
 
@@ -122,6 +126,7 @@ class TestRankerCategoricalRobustness:
     (fuzz c0030 / c0141)."""
 
     def _ranker_frames(self, train_cats, val_cats):
+        """Ranker frames."""
         import pandas as pd
 
         rng = np.random.default_rng(0)
@@ -133,6 +138,7 @@ class TestRankerCategoricalRobustness:
         return Xtr, ytr, gtr, Xva
 
     def test_lgb_ranker_predict_on_object_cat_frame(self):
+        """Lgb ranker predict on object cat frame."""
         pytest.importorskip("lightgbm")
         from mlframe.training.ranking.ranking import _fit_lgb_ranker, predict_ranker_scores
 
@@ -161,6 +167,7 @@ class TestRankerCategoricalRobustness:
         assert scores.shape[0] == 40
 
     def test_xgb_ranker_predict_on_object_cat_frame(self):
+        """Xgb ranker predict on object cat frame."""
         pytest.importorskip("xgboost")
         from mlframe.training.ranking.ranking import _fit_xgb_ranker, predict_ranker_scores
 
@@ -187,6 +194,7 @@ class TestRankerCategoricalRobustness:
         assert scores.shape[0] == 40
 
     def test_cb_ranker_fits_with_none_in_object_cat(self):
+        """Cb ranker fits with none in object cat."""
         pytest.importorskip("catboost")
         from mlframe.training.ranking.ranking import _fit_cb_ranker, predict_ranker_scores
 

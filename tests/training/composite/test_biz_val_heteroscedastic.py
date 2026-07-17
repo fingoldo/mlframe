@@ -24,10 +24,12 @@ from mlframe.training.composite._heteroscedastic import HeteroscedasticComposite
 
 
 def _base_estimator():
+    """Base estimator."""
     return HistGradientBoostingRegressor(max_iter=80, max_depth=3, random_state=0)
 
 
 def _homoscedastic(n=1500, seed=0):
+    """Homoscedastic."""
     rng = np.random.default_rng(seed)
     base = rng.normal(0.0, 1.0, n)
     x0 = rng.normal(0.0, 1.0, n)
@@ -49,6 +51,7 @@ def _heteroscedastic(n=3000, seed=0):
 
 
 def _fit(X, y, **kw):
+    """Fit."""
     est = HeteroscedasticCompositeEstimator(
         base_estimator=_base_estimator(),
         transform_name="linear_residual",
@@ -62,6 +65,7 @@ def _fit(X, y, **kw):
 
 # ---------------------------------------------------------------- unit
 def test_fit_predict_shapes_and_positive_std():
+    """Fit predict shapes and positive std."""
     X, y = _homoscedastic()
     est = _fit(X, y)
     yhat = est.predict(X)
@@ -76,6 +80,7 @@ def test_fit_predict_shapes_and_positive_std():
 
 
 def test_interval_covers_at_nominal_on_homoscedastic():
+    """Interval covers at nominal on homoscedastic."""
     X, y = _homoscedastic(n=2000, seed=1)
     Xte, yte = _homoscedastic(n=2000, seed=2)
     est = _fit(X, y)
@@ -85,6 +90,7 @@ def test_interval_covers_at_nominal_on_homoscedastic():
 
 
 def test_predict_var_is_std_squared():
+    """Predict var is std squared."""
     X, y = _homoscedastic()
     est = _fit(X, y)
     std = est.predict_std(X)
@@ -93,6 +99,7 @@ def test_predict_var_is_std_squared():
 
 
 def test_params_and_clone_roundtrip():
+    """Params and clone roundtrip."""
     est = HeteroscedasticCompositeEstimator(
         base_estimator=_base_estimator(),
         transform_name="linear_residual",
@@ -110,6 +117,7 @@ def test_params_and_clone_roundtrip():
 
 
 def test_degenerate_constant_y_and_tiny_n():
+    """Degenerate constant y and tiny n."""
     rng = np.random.default_rng(0)
     n = 40
     X = pd.DataFrame({"base": rng.normal(0, 1, n), "x0": rng.normal(0, 1, n)})
@@ -123,6 +131,7 @@ def test_degenerate_constant_y_and_tiny_n():
 
 
 def test_ngboost_path_when_available():
+    """Ngboost path when available."""
     ngboost = pytest.importorskip("ngboost")  # noqa: F841
     X, y = _homoscedastic(n=800)
     est = HeteroscedasticCompositeEstimator(
@@ -170,6 +179,7 @@ def test_biz_val_hetero_interval_beats_constant_width_winkler():
 
 # ---------------------------------------------------------------- cProfile
 def test_cprofile_fit_predict_std_runs_fast():
+    """Cprofile fit predict std runs fast."""
     X, y, _ = _heteroscedastic(n=2000, seed=6)
     pr = cProfile.Profile()
     pr.enable()

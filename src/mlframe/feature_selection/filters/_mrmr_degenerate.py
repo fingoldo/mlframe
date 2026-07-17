@@ -29,10 +29,13 @@ column-side diagnostic.
 """
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 # Perfect-collinearity tolerance. |Pearson| within this of 1.0 counts as a perfect
 # linear dependence (covers float round-off in an exact 2*x+3 relationship).
@@ -43,8 +46,8 @@ try:
     import xxhash as _xxhash
 
     _xxh3_64 = _xxhash.xxh3_64_intdigest
-except Exception:  # nosec B110 - xxhash optional: falls back to pandas hash_array below
-    pass
+except Exception as e:  # nosec B110 - xxhash optional: falls back to pandas hash_array below
+    logger.debug("xxhash unavailable, falling back to pandas hash_array for duplicate-column detection: %s", e)
 
 
 def _column_arrays(X):
@@ -64,8 +67,8 @@ def _column_arrays(X):
             for i, name in enumerate(cols):
                 yield name, arr[:, i]
             return
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("polars-native per-column extraction failed for degenerate-column audit, falling back to np.asarray: %s", e)
     arr = np.asarray(X)
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
@@ -80,7 +83,8 @@ def _is_all_nan(values: np.ndarray) -> bool:
     # object / other: treat None / NaN-like as missing
     try:
         return bool(values.size) and bool(pd.isna(values).all())
-    except Exception:
+    except Exception as e:
+        logger.debug("all-nan check failed for an object-dtype column, treating as not-all-nan: %s", e)
         return False
 
 
@@ -97,7 +101,8 @@ def _is_constant(values: np.ndarray) -> bool:
         ser = pd.Series(values)
         nun = ser.nunique(dropna=True)
         return nun <= 1 and not ser.isna().all()
-    except Exception:
+    except Exception as e:
+        logger.debug("constant-column check failed, treating as not-constant: %s", e)
         return False
 
 
@@ -118,14 +123,16 @@ def _content_key(values: np.ndarray):
     if _xxh3_64 is not None and arr.dtype.kind in "fiub" and arr.flags["C_CONTIGUOUS"]:
         try:
             return _xxh3_64(arr)
-        except Exception:  # nosec B110 - best-effort path, pandas fallback below
-            pass
+        except Exception as e:  # nosec B110 - best-effort path, pandas fallback below
+            logger.debug("xxh3_64 content-key hashing failed for a column, falling back to pandas hash_array: %s", e)
     try:
         return pd.util.hash_array(arr).tobytes()
-    except Exception:
+    except Exception as e:
+        logger.debug("pandas hash_array failed for a column, falling back to raw tobytes content key: %s", e)
         try:
             return arr.tobytes()
-        except Exception:
+        except Exception as e2:
+            logger.debug("tobytes content key also failed, column excluded from duplicate detection: %s", e2)
             return None
 
 

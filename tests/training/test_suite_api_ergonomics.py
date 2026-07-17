@@ -33,6 +33,7 @@ _SMOKE_ITERATIONS = 2 if is_fast_mode() else 5
 
 
 def _try_import_suite():
+    """Try import suite."""
     try:
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training import OutputConfig
@@ -49,6 +50,7 @@ def _try_import_suite():
 
 
 def test_suite_result_tuple_backcompat_and_accessors():
+    """Suite result tuple backcompat and accessors."""
     from mlframe.training.core._main_train_suite_encoding import SuiteResult
 
     models = {"reg_lgb": "MODEL_A", "clf_lgb": "MODEL_B"}
@@ -81,6 +83,7 @@ def test_suite_result_tuple_backcompat_and_accessors():
 
 
 def test_assert_suite_return_shape_coerces_bare_tuple():
+    """Assert suite return shape coerces bare tuple."""
     from mlframe.training.core._main_train_suite_encoding import (
         SuiteResult,
         _assert_suite_return_shape,
@@ -100,6 +103,7 @@ def test_assert_suite_return_shape_coerces_bare_tuple():
 
 
 def test_toplevel_lazy_symbols_resolve():
+    """Toplevel lazy symbols resolve."""
     import mlframe
 
     assert callable(mlframe.train_mlframe_models_suite)
@@ -126,6 +130,7 @@ def test_plain_import_mlframe_does_not_load_training(monkeypatch):
 
 
 def _train(suite, OutputConfig, tmp_path, df, extractor, tag):
+    """Train."""
     return suite(
         df=df,
         target_name="target",
@@ -141,6 +146,7 @@ def _train(suite, OutputConfig, tmp_path, df, extractor, tag):
 
 
 def test_default_extractor_regression_matches_explicit(tmp_path):
+    """Default extractor regression matches explicit."""
     pytest.importorskip("lightgbm")
     suite, OutputConfig, FTE = _try_import_suite()
     df, _, _ = make_simple_regression_data(n_samples=400, n_features=5, seed=42)
@@ -159,6 +165,7 @@ def test_default_extractor_regression_matches_explicit(tmp_path):
 
 
 def test_default_extractor_classification_matches_explicit(tmp_path):
+    """Default extractor classification matches explicit."""
     pytest.importorskip("lightgbm")
     suite, OutputConfig, FTE = _try_import_suite()
     df, _, _, _ = make_simple_classification_data(n_samples=400, n_features=5, seed=42)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 def test_public_uncertainty_api_importable():
+    """Public uncertainty api importable."""
     import mlframe.training as training_mod
 
     names = [

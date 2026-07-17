@@ -147,6 +147,7 @@ class TestSuiteRunsFillOnUnion:
         calls = {"n": 0, "frames": []}
 
         def _spy(df, **kw):
+            """Spy."""
             calls["n"] += 1
             calls["frames"].append(id(df) if df is not None else None)
             return original(df, **kw)

@@ -41,6 +41,7 @@ def _grouped_frame(n_groups: int = 10, per: int = 150, seed: int = 0):
 
 
 def _spec(name: str, alpha: float, beta: float = 0.0) -> CompositeSpec:
+    """Spec."""
     return CompositeSpec(
         name=name,
         target_col="y",
@@ -56,6 +57,7 @@ def _spec(name: str, alpha: float, beta: float = 0.0) -> CompositeSpec:
 
 
 def _make_gate_ctx(group_ids):
+    """Make gate ctx."""
     cfg = CompositeTargetDiscoveryConfig(
         enabled=True,
         random_state=0,
@@ -70,6 +72,7 @@ def _make_gate_ctx(group_ids):
 
 
 def test_biz_val_yscale_gate_drops_collapsing_high_alpha_spec():
+    """Biz val yscale gate drops collapsing high alpha spec."""
     df, groups, y = _grouped_frame()
     disc = _make_gate_ctx(groups)
     bad = _spec("y-linres-base-BADalpha", alpha=50.0)
@@ -91,6 +94,7 @@ def test_biz_val_yscale_gate_drops_collapsing_high_alpha_spec():
 
 
 def test_biz_val_yscale_gate_noop_when_disabled():
+    """Biz val yscale gate noop when disabled."""
     df, groups, y = _grouped_frame()
     cfg = CompositeTargetDiscoveryConfig(
         enabled=True,
@@ -106,6 +110,7 @@ def test_biz_val_yscale_gate_noop_when_disabled():
 
 
 def test_biz_val_yscale_gate_noop_without_group_ids():
+    """Biz val yscale gate noop without group ids."""
     df, _groups, y = _grouped_frame()
     disc = _make_gate_ctx(None)  # no group ids -> nothing to validate
     bad = _spec("y-linres-base-BADalpha", alpha=50.0)
@@ -123,6 +128,7 @@ def _train_and_val_extrapolating(per=150, n_train_groups=8, n_val_groups=4, seed
     levels = np.linspace(100.0, 1000.0, n_groups)  # monotone: high-id groups = high base
 
     def _frame(group_ids):
+        """Frame."""
         g = np.repeat(group_ids, per)
         base = levels[g] + rng.normal(0.0, 5.0, g.size)
         x1 = rng.normal(size=g.size)
@@ -136,6 +142,7 @@ def _train_and_val_extrapolating(per=150, n_train_groups=8, n_val_groups=4, seed
 
 
 def test_biz_val_yscale_gate_drops_collapsing_spec_on_val_split():
+    """Biz val yscale gate drops collapsing spec on val split."""
     train_df, train_groups, train_y, val_df, val_y = _train_and_val_extrapolating()
     disc = _make_gate_ctx(train_groups)
     bad = _spec("y-linres-base-BADalpha", alpha=50.0)
@@ -164,6 +171,7 @@ from mlframe.training.composite.discovery._yscale_holdout_gate import apply_stru
 
 
 def _spec_t(name: str, transform_name: str, base_column: str, params: dict) -> CompositeSpec:
+    """Spec t."""
     return CompositeSpec(
         name=name,
         target_col="y",
@@ -192,6 +200,7 @@ def _per_well_base_frame(n_groups=12, per=200, seed=5):
 
 
 def test_biz_val_structural_gate_drops_additive_inverse_on_per_well_base():
+    """Biz val structural gate drops additive inverse on per well base."""
     df, groups, y = _per_well_base_frame()
     disc = _make_gate_ctx(groups)
     diff_spec = _spec_t("y-diff-base", "diff", "base", {})
@@ -225,6 +234,7 @@ def test_rejection_ledger_records_structural_gate_drops():
 
 
 def test_biz_val_structural_gate_noop_without_group_ids():
+    """Biz val structural gate noop without group ids."""
     df, _g, y = _per_well_base_frame()
     disc = _make_gate_ctx(None)
     diff_spec = _spec_t("y-diff-base", "diff", "base", {})

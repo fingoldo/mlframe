@@ -25,6 +25,7 @@ from mlframe.training.preprocessing import (
 
 
 def test_helper_covers_both_legacy_and_extension_float():
+    """Helper covers both legacy and extension float."""
     df = pd.DataFrame(
         {
             "legacy32": pd.array([1.0, 2.0], dtype="float32"),
@@ -62,6 +63,7 @@ def test_nullable_float64_inf_scrubbed_post_fix():
 
 
 def test_nullable_float32_inf_also_scrubbed():
+    """Nullable float32 inf also scrubbed."""
     df = pd.DataFrame(
         {
             "x": pd.array([1.0, float("inf"), 2.0], dtype=pd.Float32Dtype()),
@@ -84,6 +86,7 @@ def test_frame_contains_inf_nullable_float_detected():
 
 
 def test_frame_contains_inf_clean_nullable_float_returns_false():
+    """Frame contains inf clean nullable float returns false."""
     df = pd.DataFrame(
         {
             "x": pd.array([1.0, 2.0, None], dtype=pd.Float64Dtype()),

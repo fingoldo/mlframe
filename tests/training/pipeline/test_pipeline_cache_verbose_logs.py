@@ -15,6 +15,7 @@ import pandas as pd
 
 
 def _log_lines(caplog) -> list[str]:
+    """Log lines."""
     return [r.getMessage() for r in caplog.records]
 
 

@@ -18,13 +18,16 @@ from mlframe.training.core._phase_finalize import _recalibrate_regression_on_cal
 
 
 class _FakeBase:
+    """Groups tests covering fake base."""
     feature_names_in_ = np.array(["a", "b"])
 
     def predict(self, X):
+        """Predict."""
         return np.asarray(X, dtype=np.float64).reshape(-1)
 
 
 def test_wrapper_applies_g_and_delegates_attrs_and_pickles():
+    """Wrapper applies g and delegates attrs and pickles."""
     rng = np.random.default_rng(0)
     yp = rng.uniform(-2, 2, 1000)
     yt = 2.0 * yp + rng.standard_normal(1000)
@@ -38,6 +41,7 @@ def test_wrapper_applies_g_and_delegates_attrs_and_pickles():
 
 
 def test_cv2_gain_positive_on_shrunk_zero_on_calibrated():
+    """Cv2 gain positive on shrunk zero on calibrated."""
     rng = np.random.default_rng(1)
     n = 4000
     y = rng.standard_t(df=3, size=n)
@@ -48,6 +52,7 @@ def test_cv2_gain_positive_on_shrunk_zero_on_calibrated():
 
 
 def _reg_ctx(rng, shrink, **over):
+    """Reg ctx."""
     n = 4000
     y_cal = rng.standard_t(df=3, size=n)
     calib_preds = shrink * y_cal + (1 - shrink) * float(np.mean(y_cal)) + 0.1 * rng.standard_normal(n)
@@ -71,6 +76,7 @@ def _reg_ctx(rng, shrink, **over):
 
 
 def test_hook_applies_recalibration_on_shrunk_when_enabled(monkeypatch):
+    """Hook applies recalibration on shrunk when enabled."""
     monkeypatch.setenv("MLFRAME_REGRESSION_RECALIBRATION", "isotonic")
     rng = np.random.default_rng(2)
     ctx, e = _reg_ctx(rng, shrink=0.5)
@@ -84,6 +90,7 @@ def test_hook_applies_recalibration_on_shrunk_when_enabled(monkeypatch):
 
 
 def test_hook_skips_when_gate_rejects_calibrated(monkeypatch):
+    """Hook skips when gate rejects calibrated."""
     monkeypatch.setenv("MLFRAME_REGRESSION_RECALIBRATION", "isotonic")
     rng = np.random.default_rng(3)
     ctx, e = _reg_ctx(rng, shrink=1.0)  # already calibrated -> gate should reject
@@ -93,6 +100,7 @@ def test_hook_skips_when_gate_rejects_calibrated(monkeypatch):
 
 
 def test_hook_noop_when_disabled(monkeypatch):
+    """Hook noop when disabled."""
     monkeypatch.delenv("MLFRAME_REGRESSION_RECALIBRATION", raising=False)
     rng = np.random.default_rng(4)
     ctx, e = _reg_ctx(rng, shrink=0.5)  # would benefit, but feature is OFF by default

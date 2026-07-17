@@ -68,12 +68,14 @@ _GENERIC_INVERSE_MARK = "= inverse("
 
 
 def test_every_registered_transform_has_a_formula_builder() -> None:
+    """Every registered transform has a formula builder."""
     registered = set(TRANSFORMS_REGISTRY)
     missing = registered - set(_TRANSFORM_FORMULA_BUILDERS)
     assert not missing, f"registered transforms with no provenance formula builder (would render the opaque generic stub): {sorted(missing)}"
 
 
 def test_every_registered_transform_has_a_description() -> None:
+    """Every registered transform has a description."""
     registered = set(TRANSFORMS_REGISTRY)
     missing = registered - set(_TRANSFORM_DESCRIPTIONS)
     assert not missing, f"registered transforms with no stakeholder description: {sorted(missing)}"
@@ -108,6 +110,7 @@ def test_registered_transform_never_renders_generic_stub(name: str) -> None:
 
 
 def _g(value) -> str:
+    """Formats a fitted parameter value the same way the provenance formula strings do (4 significant digits)."""
     return f"{float(value):.4g}"
 
 

@@ -36,6 +36,7 @@ def _gen_heteroscedastic_temporal(seed: int, n_train: int = 800, n_val: int = 12
     rng = np.random.default_rng(seed)
 
     def gen_clean(n, sigma):
+        """Gen clean."""
         X = rng.uniform(0, 1, (n, d))
         y = np.sum(np.sin(2 * np.pi * X), axis=1) + rng.normal(0, sigma, n)
         return pd.DataFrame(X, columns=[f"f{i}" for i in range(d)]), y
@@ -118,6 +119,7 @@ def _fit_one(
 
 
 def _wilcoxon_one_sided(baseline: list[float], slice_es: list[float]) -> float:
+    """Wilcoxon one sided."""
     from scipy.stats import wilcoxon
 
     diffs = np.array(baseline) - np.array(slice_es)

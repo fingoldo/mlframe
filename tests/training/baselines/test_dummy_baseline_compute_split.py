@@ -97,6 +97,7 @@ def test_compute_quantile_baselines_round_trips_via_facade() -> None:
     from mlframe.training.baselines._dummy_baseline_compute import _compute_quantile_baselines
 
     class _Config:
+        """Groups tests covering config."""
         pass
 
     train_y = np.linspace(0.0, 1.0, 101)

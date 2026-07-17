@@ -58,6 +58,7 @@ def _build_diff_setup():
 
 
 def test_per_model_emit_wraps_inner_and_logs_y_scale(caplog) -> None:
+    """Per model emit wraps inner and logs y scale."""
     df, test_idx, y_full, spec, entry = _build_diff_setup()
     with caplog.at_level(logging.INFO, logger="mlframe.training.core._phase_composite_wrapping"):
         emit_per_model_composite_y_scale_test(
@@ -85,6 +86,7 @@ def test_per_model_emit_wraps_inner_and_logs_y_scale(caplog) -> None:
 
 
 def test_per_model_emit_is_idempotent_on_already_wrapped_entry() -> None:
+    """Per model emit is idempotent on already wrapped entry."""
     df, test_idx, y_full, spec, entry = _build_diff_setup()
     # First call: wraps.
     emit_per_model_composite_y_scale_test(
@@ -116,6 +118,7 @@ def test_per_model_emit_is_idempotent_on_already_wrapped_entry() -> None:
 
 def test_per_model_emit_swallows_missing_inputs() -> None:
     # Must never raise -- training continues regardless of reporting hook.
+    """Per model emit swallows missing inputs."""
     df, test_idx, y_full, spec, _entry = _build_diff_setup()
     entry = types.SimpleNamespace(model=None)
     emit_per_model_composite_y_scale_test(

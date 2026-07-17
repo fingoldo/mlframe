@@ -25,6 +25,7 @@ pytest.importorskip("numba")
 
 
 def _make_probs(M: int, N: int, K: int, *, dtype=np.float64, seed: int = 0):
+    """Make probs."""
     rng = np.random.default_rng(seed)
     return rng.uniform(0.0, 1.0, size=(M, N, K)).astype(dtype)
 
@@ -39,6 +40,7 @@ def test_rrf_njit_fastpath_fires_on_typical_input():
     _orig_njit = ens_base._rrf_aggregate_probs_njit
 
     def _spy_njit(arr, k):
+        """Spy njit."""
         seen["njit"] += 1
         return _orig_njit(arr, k)
 
@@ -65,6 +67,7 @@ def test_rrf_njit_skipped_for_float32():
     _orig_njit = ens_base._rrf_aggregate_probs_njit
 
     def _spy_njit(arr, k):
+        """Spy njit."""
         seen["njit"] += 1
         return _orig_njit(arr, k)
 

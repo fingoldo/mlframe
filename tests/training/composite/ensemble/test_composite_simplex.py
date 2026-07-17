@@ -36,6 +36,7 @@ def _make_dirichlet_data(n=600, k=4, n_feat=5, seed=0):
 
 
 def test_ilr_basis_orthonormal():
+    """Ilr basis orthonormal."""
     for k in (2, 3, 5, 8):
         v = _ilr_basis(k)
         assert v.shape == (k, k - 1)
@@ -45,6 +46,7 @@ def test_ilr_basis_orthonormal():
 
 
 def test_alr_round_trip():
+    """Alr round trip."""
     rng = np.random.default_rng(1)
     y = rng.dirichlet(np.ones(5), size=50)
     z = alr_forward(y, ref=2)
@@ -54,6 +56,7 @@ def test_alr_round_trip():
 
 
 def test_ilr_round_trip():
+    """Ilr round trip."""
     rng = np.random.default_rng(2)
     y = rng.dirichlet(np.ones(6), size=40)
     basis = _ilr_basis(6)
@@ -64,6 +67,7 @@ def test_ilr_round_trip():
 
 
 def test_zero_replacement_preserves_closure_and_positivity():
+    """Zero replacement preserves closure and positivity."""
     y = np.array([[0.0, 0.5, 0.5], [0.2, 0.0, 0.8], [0.3, 0.3, 0.4]])
     out = multiplicative_zero_replacement(y, delta=1e-4)
     assert (out > 0).all()
@@ -77,6 +81,7 @@ def test_zero_replacement_preserves_closure_and_positivity():
 
 @pytest.mark.parametrize("transform", ["ilr", "alr"])
 def test_predict_valid_composition(transform):
+    """Predict valid composition."""
     X, y = _make_dirichlet_data(k=4)
     est = CompositeSimplexEstimator(Ridge(), transform=transform).fit(X, y)
     p = est.predict(X)
@@ -86,6 +91,7 @@ def test_predict_valid_composition(transform):
 
 
 def test_predict_coordinates_shape():
+    """Predict coordinates shape."""
     X, y = _make_dirichlet_data(k=5)
     est = CompositeSimplexEstimator(Ridge(), transform="ilr").fit(X, y)
     assert est.predict_coordinates(X).shape == (X.shape[0], 4)
@@ -94,6 +100,7 @@ def test_predict_coordinates_shape():
 def test_k2_reduces_to_logistic():
     # With K=2 alr coordinate is log(y1/y0); inverse is the logistic of the
     # predicted log-odds. Verify the inverse matches sigmoid by construction.
+    """K2 reduces to logistic."""
     rng = np.random.default_rng(3)
     z = rng.normal(size=(20, 1))
     p = alr_inverse(z, ref=0, k=2)  # ref=0 -> coordinate is log(y1/y0)
@@ -104,12 +111,14 @@ def test_k2_reduces_to_logistic():
 
 
 def test_fit_rejects_non_composition():
+    """Fit rejects non composition."""
     X, y = _make_dirichlet_data(k=4)
     with pytest.raises(ValueError):
         CompositeSimplexEstimator(Ridge()).fit(X, y[:, 0])  # 1-D
 
 
 def test_handles_zeros_in_training_target():
+    """Handles zeros in training target."""
     X, y = _make_dirichlet_data(k=4, seed=7)
     y[:10, 0] = 0.0
     y[:10] = y[:10] / y[:10].sum(axis=1, keepdims=True)

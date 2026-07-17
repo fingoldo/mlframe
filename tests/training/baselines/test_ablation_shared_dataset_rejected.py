@@ -27,6 +27,7 @@ lgb = pytest.importorskip("lightgbm")
 
 
 def _data(n: int = 3000, nf: int = 8, seed: int = 0):
+    """Data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, nf)).astype(np.float64)
     y = (X[:, 0] + 0.5 * X[:, 3] - 0.3 * X[:, 5] + rng.normal(size=n) > 0).astype(int)

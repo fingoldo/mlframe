@@ -25,6 +25,7 @@ pytest.importorskip("polars_ds")
 
 
 def _frame(n: int = 200, with_allnull: bool = False) -> pl.DataFrame:
+    """Frame."""
     rng = np.random.default_rng(0)
     data = {
         "a": rng.normal(size=n),
@@ -37,6 +38,7 @@ def _frame(n: int = 200, with_allnull: bool = False) -> pl.DataFrame:
 
 
 def _numeric_finite(out: pl.DataFrame) -> bool:
+    """Numeric finite."""
     cols = [c for c in out.columns if out[c].dtype.is_numeric()]
     if not cols:
         return True
@@ -46,6 +48,7 @@ def _numeric_finite(out: pl.DataFrame) -> bool:
 
 @pytest.mark.parametrize("scaler_name", ["robust", "standard", "min_max"])
 def test_zero_iqr_column_excluded_from_scalable_set(scaler_name):
+    """Zero iqr column excluded from scalable set."""
     method = "robust" if scaler_name == "robust" else scaler_name
     safe = _select_scalable_numeric_columns(_frame(with_allnull=True), method=method)
     assert "const" not in safe
@@ -55,6 +58,7 @@ def test_zero_iqr_column_excluded_from_scalable_set(scaler_name):
 
 @pytest.mark.parametrize("scaler_name", ["robust", "standard", "min_max"])
 def test_pipeline_no_nonfinite_with_constant_column(scaler_name):
+    """Pipeline no nonfinite with constant column."""
     df = _frame()
     cfg = PreprocessingBackendConfig(scaler_name=scaler_name)
     bp = create_polarsds_pipeline(df, cfg, verbose=0)

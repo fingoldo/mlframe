@@ -146,6 +146,7 @@ def test_fix3b_select_target_accepts_size_kwargs():
 
 
 def test_fix3b_configure_training_params_accepts_size_kwargs():
+    """Fix3b configure training params accepts size kwargs."""
     import inspect
     from mlframe.training.trainer import configure_training_params
 
@@ -410,6 +411,7 @@ def test_fix7_lazy_start_defers_elapsed_counter(monkeypatch):
 
     def gen():
         # Simulate idle period before first yield by advancing the clock without sleeping.
+        """Gen."""
         clock["t"] += 0.5
         yield_times.append(clock["t"])
         yield "a"
@@ -777,6 +779,7 @@ def test_fix9_cb_pool_reuse_weight_only_swap_no_rebuild():
     orig_init = cb.Pool.__init__
 
     def counting_init(self, *args, **kwargs):
+        """Counting init."""
         build_count["n"] += 1
         return orig_init(self, *args, **kwargs)
 
@@ -1075,6 +1078,7 @@ def test_orch1_cb_val_pool_reuse_across_weight_swaps():
     orig_init = cb.Pool.__init__
 
     def counting_init(self, *args, **kwargs):
+        """Counting init."""
         build_count["n"] += 1
         return orig_init(self, *args, **kwargs)
 
@@ -1144,6 +1148,7 @@ def test_fix943_cb_val_pool_reused_on_predict_path_too():
     orig_init = cb.Pool.__init__
 
     def counting_init(self, *args, **kwargs):
+        """Counting init."""
         build_count["n"] += 1
         return orig_init(self, *args, **kwargs)
 

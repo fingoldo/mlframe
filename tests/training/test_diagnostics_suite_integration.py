@@ -33,6 +33,7 @@ from .shared import SimpleFeaturesAndTargetsExtractor, get_cpu_config, skip_if_d
 
 
 def _make_frame(n: int, *, binary: bool, seed: int = 0) -> pd.DataFrame:
+    """Make frame."""
     rng = np.random.default_rng(seed)
     f0 = rng.uniform(0, 1, n)
     f1 = rng.uniform(0, 1, n)
@@ -49,6 +50,7 @@ def _make_frame(n: int, *, binary: bool, seed: int = 0) -> pd.DataFrame:
 
 
 def _saved_chart_files(data_dir: str):
+    """Saved chart files."""
     return [os.path.basename(p) for p in glob.glob(os.path.join(data_dir, "charts", "**", "*"), recursive=True) if os.path.isfile(p)]
 
 
@@ -57,6 +59,7 @@ def _collect_charts_acc(obj):
     saved = []
 
     def _walk(o):
+        """Walk."""
         if isinstance(o, dict):
             c = o.get("charts")
             if isinstance(c, dict) and isinstance(c.get("saved"), list):
@@ -75,10 +78,12 @@ def _collect_charts_acc(obj):
 def reporting_cfg():
     # Suppress the legacy per-class calibration matplotlib figure + FI plot; the
     # new diagnostics still render default-ON via the DSL plot_outputs path.
+    """Reporting cfg."""
     return ReportingConfig(show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]")
 
 
 def test_binary_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg):
+    """Binary suite renders diagnostics default on."""
     skip_if_dependency_missing("hgb")
     df = _make_frame(900, binary=True)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False, ts_field="timestamp")
@@ -244,6 +249,7 @@ def test_per_model_calibration_chart_is_written_without_missing_dir(tmp_path):
 
 
 def test_regression_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg):
+    """Regression suite renders diagnostics default on."""
     skip_if_dependency_missing("hgb")
     df = _make_frame(900, binary=False)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True, ts_field="timestamp")
@@ -285,6 +291,7 @@ def test_regression_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg
 
 
 def _make_multiclass_frame(n: int, *, n_classes: int = 3, seed: int = 0) -> pd.DataFrame:
+    """Make multiclass frame."""
     rng = np.random.default_rng(seed)
     f0 = rng.uniform(0, 1, n)
     f1 = rng.uniform(0, 1, n)
@@ -296,6 +303,7 @@ def _make_multiclass_frame(n: int, *, n_classes: int = 3, seed: int = 0) -> pd.D
 
 
 def test_multiclass_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg):
+    """Multiclass suite renders diagnostics default on."""
     skip_if_dependency_missing("hgb")
     df = _make_multiclass_frame(900, n_classes=3)
     fte = SimpleFeaturesAndTargetsExtractor(
@@ -332,6 +340,7 @@ def test_multiclass_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg
 
 
 def _make_multilabel_frame(n: int, *, n_labels: int = 3, seed: int = 0) -> pd.DataFrame:
+    """Make multilabel frame."""
     rng = np.random.default_rng(seed)
     f0 = rng.uniform(0, 1, n)
     f1 = rng.uniform(0, 1, n)
@@ -348,6 +357,7 @@ def _make_multilabel_frame(n: int, *, n_labels: int = 3, seed: int = 0) -> pd.Da
 
 
 def test_multilabel_suite_renders_threshold_sweep_default_on(tmp_path, reporting_cfg):
+    """Multilabel suite renders threshold sweep default on."""
     skip_if_dependency_missing("hgb")
     df = _make_multilabel_frame(900, n_labels=3)
     fte = SimpleFeaturesAndTargetsExtractor(

@@ -22,6 +22,7 @@ class _NumpyAdapter:
         self.feature_cols = feature_cols
 
     def predict(self, X) -> np.ndarray:
+        """Predict."""
         if isinstance(X, pd.DataFrame):
             return self.sklearn_est.predict(X[self.feature_cols].to_numpy())
         return self.sklearn_est.predict(np.asarray(X))

@@ -24,6 +24,7 @@ from mlframe.training._cv_aggregation import select_from_pareto
 
 def test_stratified_split_singleton_class_falls_back(caplog):
     # Pre-fix: sklearn raised opaque "least populated class has only 1 member".
+    """Stratified split singleton class falls back."""
     indices = np.arange(20)
     y = np.array([0] * 19 + [1])  # class 1 is a singleton
     with caplog.at_level(logging.WARNING):
@@ -33,6 +34,7 @@ def test_stratified_split_singleton_class_falls_back(caplog):
 
 
 def test_stratified_split_normal_class_still_stratifies():
+    """Stratified split normal class still stratifies."""
     indices = np.arange(40)
     y = np.array([0] * 20 + [1] * 20)
     _left, right = _stratified_split(indices, test_size=0.25, stratify_y=y, random_state=0)
@@ -41,6 +43,7 @@ def test_stratified_split_normal_class_still_stratifies():
 
 def test_carve_temporal_time_values_length_mismatch_raises():
     # Pre-fix: no length check (grouped carver had one); mismatch silently misordered rows.
+    """Carve temporal time values length mismatch raises."""
     train_idx = np.arange(10)
     bad_time = np.arange(5)
     with pytest.raises(ValueError, match="must align with train_idx"):
@@ -49,6 +52,7 @@ def test_carve_temporal_time_values_length_mismatch_raises():
 
 def test_carve_grouped_nonzero_frac_floors_to_zero_groups_raises():
     # Pre-fix: conformal_frac flooring to 0 groups silently produced an empty conformal slice.
+    """Carve grouped nonzero frac floors to zero groups raises."""
     train_idx = np.arange(6)
     groups = np.array([0, 0, 0, 1, 1, 1])  # only 2 groups
     with pytest.raises(ValueError, match="floors to 0 conformal groups"):
@@ -57,6 +61,7 @@ def test_carve_grouped_nonzero_frac_floors_to_zero_groups_raises():
 
 def test_select_from_pareto_skips_empty_shard():
     # Pre-fix: np.quantile([]) on an empty shard warned and returned NaN, poisoning selection.
+    """Select from pareto skips empty shard."""
     frontier = [0, 1]
     iter_means = [0.5, 0.4]
     iter_stds = [0.1, 0.1]

@@ -32,15 +32,18 @@ def small_text_df():
 
 
 def _tfidf_columns(df: pd.DataFrame) -> list[str]:
+    """Tfidf columns."""
     return [c for c in df.columns if "__tfidf_" in c]
 
 
 def test_tfidf_keep_sparse_default_is_true():
+    """Tfidf keep sparse default is true."""
     cfg = PreprocessingExtensionsConfig(tfidf_columns=["text_col"])
     assert cfg.tfidf_keep_sparse is True
 
 
 def test_tfidf_sparse_dataframe_has_sparsedtype_columns(small_text_df):
+    """Tfidf sparse dataframe has sparsedtype columns."""
     cfg = PreprocessingExtensionsConfig(
         tfidf_columns=["text_col"],
         tfidf_max_features=50,
@@ -55,6 +58,7 @@ def test_tfidf_sparse_dataframe_has_sparsedtype_columns(small_text_df):
 
 
 def test_tfidf_dense_path_when_keep_sparse_false(small_text_df):
+    """Tfidf dense path when keep sparse false."""
     cfg = PreprocessingExtensionsConfig(
         tfidf_columns=["text_col"],
         tfidf_max_features=50,
@@ -159,6 +163,7 @@ def test_sparse_dataframe_supports_to_numpy(small_text_df):
 
 
 def test_sparse_train_val_test_alignment(small_text_df):
+    """Sparse train val test alignment."""
     val_df = small_text_df.iloc[:20].copy().reset_index(drop=True)
     test_df = small_text_df.iloc[20:35].copy().reset_index(drop=True)
 

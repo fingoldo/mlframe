@@ -34,12 +34,14 @@ class _RecordingScaler(BaseEstimator):
         self.scale_: float = 1.0
 
     def fit(self, X, y=None):
+        """Fit."""
         arr = np.asarray(X, dtype=np.float64)
         self.mean_ = float(arr.mean())
         self.scale_ = float(arr.std() or 1.0)
         return self
 
     def transform(self, X):
+        """Transform."""
         self.calls += 1
         return (np.asarray(X, dtype=np.float64) - self.mean_) / self.scale_
 
@@ -51,6 +53,7 @@ class _StubEstimator(BaseEstimator, RegressorMixin):
         self.slope = slope
 
     def fit(self, X, y, sample_weight=None):
+        """Fit."""
         arr = np.asarray(X, dtype=np.float64)
         self.fit_input_mean_ = float(arr.mean())
         self.fit_n_ = int(arr.shape[0])
@@ -58,6 +61,7 @@ class _StubEstimator(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X):
+        """Predict."""
         n = int(np.asarray(X).shape[0])
         return np.full(n, self.coef_, dtype=np.float64)
 
@@ -68,6 +72,7 @@ class _QuantileStubEstimator(_StubEstimator):
     to quantile-predict so the test can assert the pre_pipeline routed it."""
 
     def predict_quantile(self, X, alpha=0.5):
+        """Predict quantile."""
         arr = np.asarray(X, dtype=np.float64)
         self.quantile_input_mean_ = float(arr.mean())
         n = int(arr.shape[0])
@@ -85,17 +90,21 @@ class _CompositeLikeWrapper(BaseEstimator, RegressorMixin):
         self.inner = inner
 
     def fit(self, X, y, sample_weight=None):
+        """Fit."""
         self.estimator_ = (self.inner or _QuantileStubEstimator()).fit(X, y)
         return self
 
     def predict(self, X):
+        """Predict."""
         return self.estimator_.predict(X)
 
     def predict_quantile(self, X, alpha=0.5):
+        """Predict quantile."""
         return self.estimator_.predict_quantile(X, alpha)
 
 
 def _make_X_y(n: int = 200, seed: int = 7) -> tuple[pd.DataFrame, np.ndarray]:
+    """Make x y."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({"a": rng.normal(10.0, 2.0, n), "b": rng.normal(-3.0, 0.5, n)})
     y = X["a"].values * 0.3 + X["b"].values * -1.1 + rng.normal(0, 0.1, n)
@@ -103,7 +112,9 @@ def _make_X_y(n: int = 200, seed: int = 7) -> tuple[pd.DataFrame, np.ndarray]:
 
 
 class TestShimSemantics:
+    """Groups tests covering shim semantics."""
     def test_fit_routes_through_pre_pipeline(self) -> None:
+        """Fit routes through pre pipeline."""
         scaler = StandardScaler().fit(np.array([[1.0], [2.0], [3.0], [4.0]]))
         inner = _StubEstimator()
         shim = PrePipelinePredictShim(model=inner, pre_pipeline=scaler, name="t")
@@ -114,6 +125,7 @@ class TestShimSemantics:
         assert inner.fit_input_mean_ == pytest.approx(expected_mean, abs=1e-9)
 
     def test_predict_routes_through_pre_pipeline(self) -> None:
+        """Predict routes through pre pipeline."""
         rec = _RecordingScaler().fit(np.array([1.0, 2.0, 3.0]).reshape(-1, 1))
         inner = _StubEstimator()
         inner.fit(np.array([[1.0]]), np.array([0.5]))
@@ -123,6 +135,7 @@ class TestShimSemantics:
         assert rec.calls == pre_calls + 1
 
     def test_passthrough_when_pre_pipeline_none(self) -> None:
+        """Passthrough when pre pipeline none."""
         inner = _StubEstimator()
         shim = PrePipelinePredictShim(model=inner, pre_pipeline=None, name="np")
         X = np.array([[1.0], [2.0], [3.0]])
@@ -131,7 +144,9 @@ class TestShimSemantics:
 
 
 class TestSklearnClone:
+    """Groups tests covering sklearn clone."""
     def test_clone_returns_shim_with_cloned_inner(self) -> None:
+        """Clone returns shim with cloned inner."""
         inner = _StubEstimator(slope=2.5)
         pp = StandardScaler().fit(np.array([[1.0], [2.0], [3.0]]))
         shim = PrePipelinePredictShim(model=inner, pre_pipeline=pp, name="A")
@@ -145,6 +160,7 @@ class TestSklearnClone:
         assert cloned.pre_pipeline is pp
 
     def test_clone_inner_has_no_fitted_state(self) -> None:
+        """Clone inner has no fitted state."""
         inner = _StubEstimator()
         inner.fit(np.array([[1.0]]), np.array([0.5]))
         shim = PrePipelinePredictShim(model=inner, pre_pipeline=None, name="B")
@@ -152,6 +168,7 @@ class TestSklearnClone:
         assert not hasattr(cloned.model, "coef_")
 
     def test_get_params_set_params_roundtrip(self) -> None:
+        """Get params set params roundtrip."""
         inner = _StubEstimator(slope=1.5)
         shim = PrePipelinePredictShim(model=inner, pre_pipeline=None, name="C")
         params = shim.get_params(deep=False)
@@ -166,6 +183,7 @@ class TestOofRefitWithShim:
     """Repro: pre-fix this triggered 'OOF refit failed ... Cannot clone object _PrePipelinePredictShim' for every component."""
 
     def test_raw_shim_component_survives_oof_refit(self, caplog) -> None:
+        """Raw shim component survives oof refit."""
         X, y = _make_X_y(n=400, seed=11)
         pp = Pipeline([("scaler", StandardScaler())]).fit(X)
         inner_raw = LinearRegression().fit(pp.transform(X), y)
@@ -190,6 +208,7 @@ class TestOofRefitWithShim:
         assert np.all(np.isfinite(matrix))
 
     def test_multiple_shims_all_survive(self, caplog) -> None:
+        """Multiple shims all survive."""
         X, y = _make_X_y(n=400, seed=13)
         pp = Pipeline([("scaler", StandardScaler())]).fit(X)
         Xt = pp.transform(X)
@@ -233,6 +252,7 @@ class TestShimIsFitted:
     """
 
     def test_unfitted_shim_is_not_fitted(self) -> None:
+        """Unfitted shim is not fitted."""
         shim = PrePipelinePredictShim(model=_StubEstimator(), pre_pipeline=None, name="u")
         with pytest.raises(NotFittedError):
             check_is_fitted(shim)
@@ -241,6 +261,7 @@ class TestShimIsFitted:
     def test_fitted_shim_reports_fitted(self) -> None:
         # Pre-fix this FAILED: a fitted shim raised NotFittedError because nothing
         # in vars(shim) ended in '_'. Post-fix __sklearn_is_fitted__ returns True.
+        """Fitted shim reports fitted."""
         shim = PrePipelinePredictShim(model=_StubEstimator(), pre_pipeline=None, name="f")
         shim.fit(np.array([[1.0], [2.0], [3.0]]), np.array([1.0, 2.0, 3.0]))
         check_is_fitted(shim)  # must not raise
@@ -249,6 +270,7 @@ class TestShimIsFitted:
     def test_pre_fitted_inner_without_shim_fit_reports_fitted(self) -> None:
         # Cross-target ensemble wraps an ALREADY-trained inner and calls predict
         # without re-calling shim.fit; the shim must still report fitted.
+        """Pre fitted inner without shim fit reports fitted."""
         inner = _StubEstimator().fit(np.array([[1.0], [2.0]]), np.array([1.0, 2.0]))
         shim = PrePipelinePredictShim(model=inner, pre_pipeline=None, name="p")
         check_is_fitted(shim)  # must not raise
@@ -257,6 +279,7 @@ class TestShimIsFitted:
     def test_clone_of_fitted_shim_is_not_fitted(self) -> None:
         # Cloning drops fitted state; the fresh shim must report UNFITTED so the
         # OOF refit knows it has to fit it.
+        """Clone of fitted shim is not fitted."""
         shim = PrePipelinePredictShim(model=_StubEstimator(), pre_pipeline=None, name="c")
         shim.fit(np.array([[1.0], [2.0]]), np.array([1.0, 2.0]))
         fresh = clone(shim)
@@ -274,19 +297,23 @@ class TestShimPredictQuantile:
     """
 
     def test_quantile_hidden_when_inner_lacks_it(self) -> None:
+        """Quantile hidden when inner lacks it."""
         shim = PrePipelinePredictShim(model=_StubEstimator(), pre_pipeline=None, name="n")
         assert not hasattr(shim, "predict_quantile")
 
     def test_quantile_exposed_when_inner_supports_it(self) -> None:
         # Pre-fix hasattr was False even here (the bug); post-fix it is True.
+        """Quantile exposed when inner supports it."""
         shim = PrePipelinePredictShim(model=_QuantileStubEstimator(), pre_pipeline=None, name="q")
         assert hasattr(shim, "predict_quantile")
 
     def test_quantile_exposed_when_composite_wrapper_supports_it(self) -> None:
+        """Quantile exposed when composite wrapper supports it."""
         shim = PrePipelinePredictShim(model=_CompositeLikeWrapper(), pre_pipeline=None, name="w")
         assert hasattr(shim, "predict_quantile")
 
     def test_quantile_routes_through_pre_pipeline(self) -> None:
+        """Quantile routes through pre pipeline."""
         scaler = StandardScaler().fit(np.array([[1.0], [2.0], [3.0], [4.0]]))
         inner = _QuantileStubEstimator()
         inner.fit(scaler.transform(np.array([[1.0], [2.0]])), np.array([0.5, 1.5]))
@@ -299,6 +326,7 @@ class TestShimPredictQuantile:
         assert inner.quantile_input_mean_ != pytest.approx(float(X.mean()), abs=1e-3)
 
     def test_quantile_scalar_vs_array_alpha_shapes(self) -> None:
+        """Quantile scalar vs array alpha shapes."""
         inner = _QuantileStubEstimator().fit(np.array([[1.0], [2.0]]), np.array([0.0, 2.0]))
         shim = PrePipelinePredictShim(model=inner, pre_pipeline=None, name="q")
         X = np.array([[1.0], [2.0], [3.0]])

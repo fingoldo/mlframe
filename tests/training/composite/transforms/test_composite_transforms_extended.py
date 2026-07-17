@@ -58,7 +58,9 @@ _RNG = np.random.default_rng(20260526)
 
 
 class TestAsinhResidual:
+    """Groups tests covering asinh residual."""
     def test_accepts_signed_base(self):
+        """Accepts signed base."""
         base = _RNG.uniform(-10.0, 10.0, size=400)
         y = 1.2 * np.arcsinh(base) + 0.05 * _RNG.standard_normal(400)
         y = np.sinh(y)  # back to original scale
@@ -66,6 +68,7 @@ class TestAsinhResidual:
         assert domain.all(), "asinh_residual must accept signed (and zero) bases"
 
     def test_recovers_alpha_on_linear_arcsinh_relation(self):
+        """Recovers alpha on linear arcsinh relation."""
         base = _RNG.uniform(-5.0, 5.0, size=2000)
         # T = arcsinh(y) - alpha * arcsinh(base) - beta. Forcing alpha=1.5, beta=0.3.
         alpha_true, beta_true = 1.5, 0.3
@@ -76,6 +79,7 @@ class TestAsinhResidual:
         assert params["beta"] == pytest.approx(beta_true, abs=0.05)
 
     def test_roundtrip_exact(self):
+        """Roundtrip exact."""
         base = _RNG.uniform(-3.0, 3.0, size=300)
         y = 2.0 * base + 1.0 + 0.1 * _RNG.standard_normal(300)
         params = _asinh_residual_fit(y, base)
@@ -84,6 +88,7 @@ class TestAsinhResidual:
         np.testing.assert_allclose(y_back, y, rtol=1e-9, atol=1e-9)
 
     def test_degenerate_too_few_finite(self):
+        """Degenerate too few finite."""
         params = _asinh_residual_fit(np.array([1.0, np.nan, np.inf]), np.array([1.0, 2.0, 3.0]))
         assert params == {"alpha": 1.0, "beta": 0.0}
 
@@ -94,7 +99,9 @@ class TestAsinhResidual:
 
 
 class TestCenteredRatio:
+    """Groups tests covering centered ratio."""
     def test_signed_base_shifts_above_zero(self):
+        """Signed base shifts above zero."""
         base = np.linspace(-2.0, 5.0, 300)
         y = 3.0 + 0.05 * _RNG.standard_normal(300)
         params = _centered_ratio_fit(y, base)
@@ -105,6 +112,7 @@ class TestCenteredRatio:
         assert params["eps"] > 0
 
     def test_roundtrip_exact_on_signed_base(self):
+        """Roundtrip exact on signed base."""
         base = np.linspace(-2.0, 5.0, 400)
         y = base * 0.5 + 1.0 + 0.05 * _RNG.standard_normal(400)
         params = _centered_ratio_fit(y, base)
@@ -119,7 +127,9 @@ class TestCenteredRatio:
 
 
 class TestPolynomialResidualDeg2:
+    """Groups tests covering polynomial residual deg2."""
     def test_recovers_quadratic_coefficients(self):
+        """Recovers quadratic coefficients."""
         base = _RNG.uniform(-3.0, 3.0, size=2000)
         # y = 1.0 + 0.7*base - 0.4*base^2 + noise
         a1_true, a2_true, beta_true = 0.7, -0.4, 1.0
@@ -130,6 +140,7 @@ class TestPolynomialResidualDeg2:
         assert params["beta"] == pytest.approx(beta_true, abs=0.02)
 
     def test_residual_is_small_when_quadratic_fits(self):
+        """Residual is small when quadratic fits."""
         base = _RNG.uniform(-2.0, 2.0, size=1000)
         y = 0.3 - 0.5 * base + 0.8 * base * base
         params = _polynomial_residual_deg2_fit(y, base)
@@ -139,6 +150,7 @@ class TestPolynomialResidualDeg2:
 
     def test_degenerate_constant_base(self):
         # Constant base -> only intercept identifiable; alpha1/alpha2 ridge-pulled to 0.
+        """Degenerate constant base."""
         base = np.full(100, 2.0)
         y = 3.0 + 0.1 * _RNG.standard_normal(100)
         params = _polynomial_residual_deg2_fit(y, base)
@@ -154,7 +166,9 @@ class TestPolynomialResidualDeg2:
 
 
 class TestRankResidual:
+    """Groups tests covering rank residual."""
     def test_t_is_centered_rank_space(self):
+        """T is centered rank space."""
         base = _RNG.uniform(-5.0, 5.0, size=500)
         y = base + 0.3 * _RNG.standard_normal(500)
         params = _rank_residual_fit(y, base)
@@ -163,6 +177,7 @@ class TestRankResidual:
         assert abs(np.mean(t)) < 0.05
 
     def test_inverse_yields_train_y_values(self):
+        """Inverse yields train y values."""
         base = _RNG.uniform(0.0, 10.0, size=300)
         y = 2.0 * base + 1.0
         params = _rank_residual_fit(y, base)
@@ -180,7 +195,9 @@ class TestRankResidual:
 
 
 class TestSmoothingSplineResidual:
+    """Groups tests covering smoothing spline residual."""
     def test_tracks_smooth_nonmonotone_curve(self):
+        """Tracks smooth nonmonotone curve."""
         base = np.linspace(-3.0, 3.0, 500)
         # Non-monotone smooth curve (sin) - linear_residual / monotonic_residual cannot fit this.
         y = np.sin(base) + 0.02 * _RNG.standard_normal(500)
@@ -190,6 +207,7 @@ class TestSmoothingSplineResidual:
         assert np.std(t) < 0.5 * np.std(y)
 
     def test_pickle_safe_params(self):
+        """Pickle safe params."""
         import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
         base = np.linspace(0.0, 10.0, 200)
@@ -209,7 +227,9 @@ class TestSmoothingSplineResidual:
 
 
 class TestReciprocalResidual:
+    """Groups tests covering reciprocal residual."""
     def test_forward_math(self):
+        """Forward math."""
         base = np.array([1.0, 2.0, 4.0])
         y = np.array([2.0, 4.0, 8.0])
         params = _reciprocal_residual_fit(y, base)
@@ -218,6 +238,7 @@ class TestReciprocalResidual:
         np.testing.assert_allclose(t, 1.0 / y - 1.0 / base, rtol=1e-9)
 
     def test_near_zero_y_safe(self):
+        """Near zero y safe."""
         base = np.array([1.0, 2.0, 3.0])
         y = np.array([1.0, 1e-30, 2.0])
         params = _reciprocal_residual_fit(y, base)
@@ -225,6 +246,7 @@ class TestReciprocalResidual:
         assert np.all(np.isfinite(t)), "near-zero y must not produce inf/nan"
 
     def test_domain_rejects_zero(self):
+        """Domain rejects zero."""
         base = np.array([0.0, 1.0, 2.0])
         y = np.array([1.0, 0.0, 2.0])
         ok = _reciprocal_residual_domain(y, base)
@@ -239,7 +261,9 @@ class TestReciprocalResidual:
 
 
 class TestGeometricMeanResidual:
+    """Groups tests covering geometric mean residual."""
     def test_accepts_2d_base(self):
+        """Accepts 2d base."""
         base = _RNG.uniform(1.0, 10.0, size=(300, 3))
         gm = np.exp(np.log(base).mean(axis=1))
         y = gm * 2.0
@@ -248,6 +272,7 @@ class TestGeometricMeanResidual:
         np.testing.assert_allclose(t, 2.0 * np.ones(300), rtol=1e-9)
 
     def test_roundtrip_2d(self):
+        """Roundtrip 2d."""
         base = _RNG.uniform(0.5, 5.0, size=(200, 2))
         gm = np.exp(np.log(base).mean(axis=1))
         y = gm * (1.0 + 0.1 * _RNG.standard_normal(200))
@@ -257,6 +282,7 @@ class TestGeometricMeanResidual:
         np.testing.assert_allclose(y_back, y, rtol=1e-9)
 
     def test_domain_rejects_zero_or_negative_base(self):
+        """Domain rejects zero or negative base."""
         base = np.array([[1.0, 2.0], [0.0, 3.0], [2.0, -1.0]])
         y = np.array([1.0, 2.0, 3.0])
         ok = _geometric_mean_residual_domain(y, base)
@@ -271,7 +297,9 @@ class TestGeometricMeanResidual:
 
 
 class TestPairwiseInteractionResidual:
+    """Groups tests covering pairwise interaction residual."""
     def test_recovers_bilinear_relation(self):
+        """Recovers bilinear relation."""
         base = _RNG.uniform(-2.0, 2.0, size=(2000, 2))
         prod = base[:, 0] * base[:, 1]
         alpha_true, beta_true = 1.7, 0.4
@@ -281,6 +309,7 @@ class TestPairwiseInteractionResidual:
         assert params["beta"] == pytest.approx(beta_true, abs=0.02)
 
     def test_roundtrip_2d(self):
+        """Roundtrip 2d."""
         base = _RNG.uniform(-1.0, 1.0, size=(500, 3))
         y = 0.5 * np.prod(base, axis=1) + 1.0 + 0.05 * _RNG.standard_normal(500)
         params = _pairwise_interaction_residual_fit(y, base)
@@ -289,6 +318,7 @@ class TestPairwiseInteractionResidual:
         np.testing.assert_allclose(y_back, y, rtol=1e-9)
 
     def test_accepts_signed_bases(self):
+        """Accepts signed bases."""
         base = _RNG.uniform(-5.0, 5.0, size=(100, 2))
         y = _RNG.standard_normal(100)
         ok = _pairwise_interaction_residual_domain(y, base)

@@ -16,6 +16,7 @@ warnings.filterwarnings("ignore")
 
 
 def _toy_stack_dataset(n=200, k=3, seed=3):
+    """Toy stack dataset."""
     rng = np.random.default_rng(seed)
     # K component prediction columns + 1 target. Targets correlated with col 0.
     X = rng.normal(size=(n, k))
@@ -28,14 +29,17 @@ class _DummyModel:
     """Minimal placeholder so CompositeCrossTargetEnsemble accepts ``component_models``."""
 
     def predict(self, X):
+        """Predict."""
         return np.zeros(len(X))
 
 
 def _components(k):
+    """Components."""
     return [_DummyModel() for _ in range(k)], [f"c{i}" for i in range(k)]
 
 
 def test_from_linear_stack_sample_weight_none_matches_omitted():
+    """From linear stack sample weight none matches omitted."""
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     X, y = _toy_stack_dataset()
@@ -47,6 +51,7 @@ def test_from_linear_stack_sample_weight_none_matches_omitted():
 
 
 def test_from_linear_stack_nonuniform_sample_weight_changes_weights():
+    """From linear stack nonuniform sample weight changes weights."""
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     X, y = _toy_stack_dataset()
@@ -60,6 +65,7 @@ def test_from_linear_stack_nonuniform_sample_weight_changes_weights():
 
 
 def test_from_linear_stack_validates_sample_weight():
+    """From linear stack validates sample weight."""
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     X, y = _toy_stack_dataset()
@@ -73,6 +79,7 @@ def test_from_linear_stack_validates_sample_weight():
 
 
 def test_from_nnls_stack_sample_weight_none_matches_omitted():
+    """From nnls stack sample weight none matches omitted."""
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     X, y = _toy_stack_dataset()
@@ -107,6 +114,7 @@ def test_from_nnls_stack_row_scaling_matches_weighted_least_squares():
 
 
 def test_from_nnls_stack_validates_sample_weight():
+    """From nnls stack validates sample weight."""
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     X, y = _toy_stack_dataset()

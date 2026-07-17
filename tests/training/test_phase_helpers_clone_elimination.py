@@ -74,6 +74,7 @@ def test_phase_fit_pipeline_aliases_polars_pre_when_encoding_enabled(monkeypatch
     # We only care about the pre-clone-vs-alias decision in _phase_fit_pipeline.
     def _stub_fit_and_transform(train_df, val_df, test_df, **kwargs):
         # Return frames as-is, no pipeline, no cat_features.
+        """Stub fit and transform."""
         return train_df, val_df, test_df, None, []
 
     monkeypatch.setattr(ph, "fit_and_transform_pipeline", _stub_fit_and_transform)

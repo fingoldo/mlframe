@@ -21,6 +21,7 @@ from mlframe.training.reporting._reporting_regression import report_regression_m
 @pytest.mark.parametrize("seed", [0, 1, 7, 42])
 @pytest.mark.parametrize("n", [600, 5000, 20000])
 def test_report_cindex_byte_identical_to_standalone_concordance(seed: int, n: int):
+    """Report cindex byte identical to standalone concordance."""
     rng = np.random.default_rng(seed)
     yt = np.abs(rng.standard_normal(n)) * 10.0 + 5.0
     yp = yt + 0.3 * rng.standard_normal(n)

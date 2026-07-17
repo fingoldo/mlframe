@@ -26,6 +26,7 @@ from tests.training._fuzz_combo import AXES, _build_combo
 
 
 def _make_combo(**overrides):
+    """Make combo."""
     axes = {name: values[0] for name, values in AXES.items()}
     axes.update(overrides)
     return _build_combo(models=("cb",), axes=axes, seed=0)

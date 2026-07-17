@@ -45,16 +45,19 @@ class _CaptureTInner(BaseEstimator, RegressorMixin):
     assert the inner was trained on the same T values predict reconstructs."""
 
     def fit(self, X, y, **kw):
+        """Fit."""
         self.t_train_ = np.asarray(y, dtype=np.float64).copy()
         self.n_features_in_ = X.shape[1]
         self._mean_t = float(np.mean(self.t_train_)) if self.t_train_.size else 0.0
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.full(X.shape[0], self._mean_t, dtype=np.float64)
 
 
 def _smooth_series(n=140, seed=0):
+    """Smooth series."""
     rng = np.random.default_rng(seed)
     base = np.cumsum(rng.normal(0.0, 1.0, size=n)) + 50.0
     y = base + rng.normal(0.0, 0.05, size=n)
@@ -89,6 +92,7 @@ class TestT13RecurrentForwardFullThenMask:
     """
 
     def _fit_capture(self, transform_name, X, y):
+        """Fit capture."""
         est = CompositeTargetEstimator(
             base_estimator=_CaptureTInner(),
             transform_name=transform_name,
@@ -292,37 +296,47 @@ class _ShimWeightAwareButBuggyInner(BaseEstimator, RegressorMixin):
     fit_call_count = 0
 
     def fit(self, X, y, sample_weight=None, **kw):
+        """Fit."""
         type(self).fit_call_count += 1
         self.n_features_in_ = X.shape[1] if hasattr(X, "shape") else len(X[0])
         raise TypeError("deep boom: simulated downstream dtype error inside fit")
 
     def predict(self, X):
+        """Predict."""
         return np.zeros(len(X), dtype=np.float64)
 
 
 class _ShimWeightAwareInner(BaseEstimator, RegressorMixin):
+    """Groups tests covering shim weight aware inner."""
     def fit(self, X, y, sample_weight=None, **kw):
+        """Fit."""
         self.got_sample_weight_ = sample_weight is not None
         self.n_features_in_ = X.shape[1] if hasattr(X, "shape") else len(X[0])
         self._m = float(np.mean(np.asarray(y, dtype=np.float64)))
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.full(len(X), self._m, dtype=np.float64)
 
 
 class _ShimNoWeightInner(BaseEstimator, RegressorMixin):
+    """Groups tests covering shim no weight inner."""
     def fit(self, X, y, **kw):  # no sample_weight, no **kwargs swallow
+        """Fit."""
         self.n_features_in_ = X.shape[1] if hasattr(X, "shape") else len(X[0])
         self._m = float(np.mean(np.asarray(y, dtype=np.float64)))
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.full(len(X), self._m, dtype=np.float64)
 
 
 class TestE7ShimSampleWeightSignatureGate:
+    """Groups tests covering e7 shim sample weight signature gate."""
     def _xy(self, n=60, seed=0):
+        """Xy."""
         rng = np.random.default_rng(seed)
         X = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n)})
         y = rng.normal(size=n)
@@ -348,6 +362,7 @@ class TestE7ShimSampleWeightSignatureGate:
         )
 
     def test_weight_aware_inner_receives_sample_weight(self) -> None:
+        """Weight aware inner receives sample weight."""
         X, y, sw = self._xy(seed=1)
         inner = _ShimWeightAwareInner()
         shim = PrePipelinePredictShim(model=inner, pre_pipeline=None, name="t")
@@ -355,6 +370,7 @@ class TestE7ShimSampleWeightSignatureGate:
         assert inner.got_sample_weight_ is True
 
     def test_weight_unaware_inner_falls_back_cleanly(self) -> None:
+        """Weight unaware inner falls back cleanly."""
         X, y, sw = self._xy(seed=2)
         shim = PrePipelinePredictShim(
             model=_ShimNoWeightInner(),

@@ -28,6 +28,7 @@ from sklearn.model_selection import train_test_split
 
 
 def _fit_mlp(use_sam=False, sam_rho=0.05, use_lookahead=False, use_mixup=False, mixup_alpha=0.2, seed=0, max_epochs=50, noise=5.0, n=600):
+    """Fit mlp."""
     from mlframe.training.neural import (
         MLPTorchModel,
         PytorchLightningRegressor,
@@ -141,6 +142,7 @@ def test_biz_value_spectral_norm_output_only_prevents_ood_blowup():
     )
 
     def fit_predict(use_spec_out: bool):
+        """Fit predict."""
         torch.manual_seed(0)
         np.random.seed(0)
         reg = PytorchLightningRegressor(
@@ -289,6 +291,7 @@ def test_biz_value_recurrent_mixup_sequence_only_within_tolerance():
     y_tr, y_te = y[:n_tr], y[n_tr:]
 
     def fit_seq(use_mixup: bool):
+        """Fit seq."""
         torch.manual_seed(seed)
         np.random.seed(seed)
         cfg = RecurrentConfig(

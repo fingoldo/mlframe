@@ -19,6 +19,7 @@ from mlframe.training.neural.tabular_1dcnn import Tabular1DCNNClassifier, Tabula
 
 
 def _make_pathway_local_interaction_data(n: int, n_pathways: int, pathway_size: int, seed: int):
+    """Make pathway local interaction data."""
     rng = np.random.default_rng(seed)
     n_features = n_pathways * pathway_size
     X = np.zeros((n, n_features), dtype=np.float32)
@@ -35,16 +36,19 @@ def _make_pathway_local_interaction_data(n: int, n_pathways: int, pathway_size: 
 
 
 class _MLPBaseline(nn.Module):
+    """Groups tests covering m l p baseline."""
     def __init__(self, n_features: int, hidden: int = 16) -> None:
         super().__init__()
         self.net = nn.Sequential(nn.Linear(n_features, hidden), nn.ReLU(), nn.Linear(hidden, hidden), nn.ReLU(), nn.Linear(hidden, 1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward."""
         out: torch.Tensor = self.net(x).squeeze(-1)
         return out
 
 
 def test_biz_val_1dcnn_beats_mlp_on_local_pathway_interactions():
+    """Biz val 1dcnn beats mlp on local pathway interactions."""
     X, y = _make_pathway_local_interaction_data(n=300, n_pathways=6, pathway_size=4, seed=0)
     Xtr, Xte, ytr, yte = X[:200], X[200:], y[:200], y[200:]
 
@@ -95,16 +99,19 @@ def _make_pathway_local_interaction_labels(n: int, n_pathways: int, pathway_size
 
 
 class _MLPClassifierBaseline(nn.Module):
+    """Groups tests covering m l p classifier baseline."""
     def __init__(self, n_features: int, n_classes: int, hidden: int = 16) -> None:
         super().__init__()
         self.net = nn.Sequential(nn.Linear(n_features, hidden), nn.ReLU(), nn.Linear(hidden, hidden), nn.ReLU(), nn.Linear(hidden, n_classes))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward."""
         out: torch.Tensor = self.net(x)
         return out
 
 
 def test_biz_val_1dcnn_classifier_beats_mlp_on_local_pathway_interactions():
+    """Biz val 1dcnn classifier beats mlp on local pathway interactions."""
     X, y = _make_pathway_local_interaction_labels(n=400, n_pathways=6, pathway_size=4, seed=0)
     Xtr, Xte, ytr, yte = X[:280], X[280:], y[:280], y[280:]
 
@@ -136,6 +143,7 @@ def test_biz_val_1dcnn_classifier_beats_mlp_on_local_pathway_interactions():
 
 
 def test_biz_val_1dcnn_classifier_predict_matches_argmax_proba():
+    """Biz val 1dcnn classifier predict matches argmax proba."""
     X, y = _make_pathway_local_interaction_labels(n=120, n_pathways=4, pathway_size=4, seed=2)
     clf = Tabular1DCNNClassifier(n_channels=8, kernel_size=3, n_epochs=50, learning_rate=0.02, random_state=0).fit(X, y)
     proba = clf.predict_proba(X)
@@ -145,6 +153,7 @@ def test_biz_val_1dcnn_classifier_predict_matches_argmax_proba():
 
 
 def test_correlation_order_features_groups_correlated_columns_adjacently():
+    """Correlation order features groups correlated columns adjacently."""
     rng = np.random.default_rng(1)
     n = 200
     latent_a = rng.normal(size=n)

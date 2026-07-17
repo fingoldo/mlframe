@@ -49,6 +49,7 @@ def _plain_small_frame(n: int = 800, seed: int = 1) -> pd.DataFrame:
 # biz_value: temporal right-skewed frame triggers every data-driven choice.
 # ----------------------------------------------------------------------
 def test_biz_val_autoconfig_temporal_right_skewed_triggers_all():
+    """Biz val autoconfig temporal right skewed triggers all."""
     df = _temporal_right_skewed_frame()
     cfg, rationale = suggest_discovery_config(
         df,
@@ -85,6 +86,7 @@ def test_biz_val_autoconfig_temporal_right_skewed_triggers_all():
 # biz_value: plain small frame returns conservative defaults.
 # ----------------------------------------------------------------------
 def test_biz_val_autoconfig_plain_small_frame_conservative():
+    """Biz val autoconfig plain small frame conservative."""
     df = _plain_small_frame()
     cfg, rationale = suggest_discovery_config(df, "y", ["x1", "x2", "x3"])
 
@@ -108,6 +110,7 @@ def test_biz_val_autoconfig_plain_small_frame_conservative():
 # ----------------------------------------------------------------------
 def test_autoconfig_mi_sample_n_bands():
     # Small band -> None.
+    """Autoconfig mi sample n bands."""
     small = _plain_small_frame(n=1000)
     cfg_s, _ = suggest_discovery_config(small, "y", ["x1", "x2", "x3"])
     assert cfg_s.mi_sample_n is None
@@ -123,6 +126,7 @@ def test_autoconfig_mi_sample_n_bands():
 # Structural hint: a near-affine predictor is surfaced as a dominant base hint.
 # ----------------------------------------------------------------------
 def test_autoconfig_structural_hint_near_affine_base():
+    """Autoconfig structural hint near affine base."""
     rng = np.random.default_rng(7)
     n = 5000
     base = rng.normal(size=n)
@@ -140,6 +144,7 @@ def test_autoconfig_structural_hint_near_affine_base():
 # Edge cases: empty frame + absent target return conservative defaults.
 # ----------------------------------------------------------------------
 def test_autoconfig_empty_frame_conservative():
+    """Autoconfig empty frame conservative."""
     df = pd.DataFrame({"x1": [], "y": []})
     cfg, _rationale = suggest_discovery_config(df, "y", ["x1"])
     assert cfg.enabled is True
@@ -148,6 +153,7 @@ def test_autoconfig_empty_frame_conservative():
 
 
 def test_autoconfig_absent_target_conservative():
+    """Autoconfig absent target conservative."""
     df = _plain_small_frame(n=500)
     cfg, rationale = suggest_discovery_config(df, "not_a_col", ["x1", "x2"])
     assert cfg.time_column is None
@@ -158,6 +164,7 @@ def test_autoconfig_absent_target_conservative():
 # config_overrides win over suggested fields.
 # ----------------------------------------------------------------------
 def test_autoconfig_overrides_take_precedence():
+    """Autoconfig overrides take precedence."""
     df = _temporal_right_skewed_frame()
     cfg, _ = suggest_discovery_config(
         df,
@@ -174,6 +181,7 @@ def test_autoconfig_overrides_take_precedence():
 # polars parity: same temporal frame as polars triggers the same wiring.
 # ----------------------------------------------------------------------
 def test_autoconfig_polars_parity_temporal():
+    """Autoconfig polars parity temporal."""
     pl = pytest.importorskip("polars")
     pdf = _temporal_right_skewed_frame(n=60_000)
     df = pl.from_pandas(pdf)

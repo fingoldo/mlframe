@@ -28,34 +28,40 @@ from mlframe.training._data_helpers import _validate_target_values
 
 
 def test_all_finite_passes() -> None:
+    """All finite passes."""
     arr = np.arange(5000, dtype=np.float64)
     _validate_target_values(arr, subset_name="train", is_classification=False)
 
 
 def test_all_finite_classification_passes() -> None:
+    """All finite classification passes."""
     arr = np.random.default_rng(0).integers(0, 2, size=5000).astype(np.float64)
     _validate_target_values(arr, subset_name="train", is_classification=True)
 
 
 def test_nan_raises_with_count() -> None:
+    """Nan raises with count."""
     arr = np.array([1.0, np.nan, 3.0, np.nan, np.nan], dtype=np.float64)
     with pytest.raises(ValueError, match="3 NaN"):
         _validate_target_values(arr, subset_name="train", is_classification=False)
 
 
 def test_inf_raises_with_count() -> None:
+    """Inf raises with count."""
     arr = np.array([1.0, np.inf, 3.0, -np.inf], dtype=np.float64)
     with pytest.raises(ValueError, match="2 infinity"):
         _validate_target_values(arr, subset_name="train", is_classification=False)
 
 
 def test_nan_and_inf_raises_with_both_counts() -> None:
+    """Nan and inf raises with both counts."""
     arr = np.array([np.nan, np.inf, 1.0, -np.inf, np.nan], dtype=np.float64)
     with pytest.raises(ValueError, match="2 NaN and 2 infinity"):
         _validate_target_values(arr, subset_name="val", is_classification=False)
 
 
 def test_pd_series_wrapper_unwraps() -> None:
+    """Pd series wrapper unwraps."""
     s = pd.Series([1.0, 2.0, np.nan])
     with pytest.raises(ValueError, match="1 NaN"):
         _validate_target_values(s, subset_name="test", is_classification=False)
@@ -69,11 +75,13 @@ def test_object_dtype_falls_through_to_classification_branch() -> None:
 
 
 def test_single_class_classification_raises() -> None:
+    """Single class classification raises."""
     arr = np.zeros(100, dtype=np.float64)
     with pytest.raises(ValueError, match="only one unique value"):
         _validate_target_values(arr, subset_name="train", is_classification=True)
 
 
 def test_empty_target_does_not_crash() -> None:
+    """Empty target does not crash."""
     arr = np.array([], dtype=np.float64)
     _validate_target_values(arr, subset_name="train", is_classification=False)

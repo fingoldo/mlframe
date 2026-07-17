@@ -807,4 +807,5 @@ def test_enumerator_hits_all_models():
 
 
 def test_enumerator_target_count():
+    """Enumerator target count."""
     assert len(COMBOS) == 150

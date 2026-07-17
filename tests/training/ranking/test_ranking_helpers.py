@@ -25,28 +25,33 @@ from mlframe.training.ranking import (
 
 def test_qid_to_group_sizes_basic_contiguous():
     # docstring example.
+    """Qid to group sizes basic contiguous."""
     g = np.array([0, 0, 0, 1, 1, 2, 2, 2, 2])
     sizes = qid_to_group_sizes(g)
     np.testing.assert_array_equal(sizes, [3, 2, 4])
 
 
 def test_qid_to_group_sizes_empty():
+    """Qid to group sizes empty."""
     sizes = qid_to_group_sizes(np.array([], dtype=int))
     assert sizes.shape == (0,)
     assert sizes.dtype == np.intp
 
 
 def test_qid_to_group_sizes_single_query():
+    """Qid to group sizes single query."""
     sizes = qid_to_group_sizes(np.array([7, 7, 7, 7]))
     np.testing.assert_array_equal(sizes, [4])
 
 
 def test_qid_to_group_sizes_singleton_queries():
+    """Qid to group sizes singleton queries."""
     sizes = qid_to_group_sizes(np.array([0, 1, 2, 3]))
     np.testing.assert_array_equal(sizes, [1, 1, 1, 1])
 
 
 def test_qid_to_group_sizes_total_equals_n_rows():
+    """Qid to group sizes total equals n rows."""
     rng = np.random.default_rng(0)
     n_queries = 50
     sizes_truth = rng.integers(1, 8, size=n_queries)
@@ -60,6 +65,7 @@ def test_qid_to_group_sizes_parity_with_unique_return_counts():
     # The numpy reference: np.unique(..., return_counts=True) matches when
     # group_ids are contiguous AND sorted. (Otherwise diff path is correct
     # per the docstring; unique sums duplicates across the array.)
+    """Qid to group sizes parity with unique return counts."""
     g = np.array([0, 0, 1, 1, 1, 2, 2])
     sizes = qid_to_group_sizes(g)
     _, expected = np.unique(g, return_counts=True)
@@ -70,6 +76,7 @@ def test_qid_to_group_sizes_parity_with_unique_return_counts():
 
 
 def _make_synthetic(n_rows: int = 30, n_features: int = 3, n_queries: int = 6, seed: int = 0):
+    """Make synthetic."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(
         rng.normal(size=(n_rows, n_features)),
@@ -85,6 +92,7 @@ def _make_synthetic(n_rows: int = 30, n_features: int = 3, n_queries: int = 6, s
 
 
 def test_prepare_cb_inputs_sorted_input_returns_in_place():
+    """Prepare cb inputs sorted input returns in place."""
     X, y, g = _make_synthetic(seed=1)
     _X_out, y_out, g_out, sort_idx = prepare_cb_inputs(X, y, g)
     # Sorted -> sort_idx is the identity permutation.
@@ -94,6 +102,7 @@ def test_prepare_cb_inputs_sorted_input_returns_in_place():
 
 
 def test_prepare_cb_inputs_unsorted_input_gets_sorted():
+    """Prepare cb inputs unsorted input gets sorted."""
     X, y, g = _make_synthetic(seed=2)
     perm = np.random.default_rng(99).permutation(len(y))
     X_perm = X.iloc[perm].reset_index(drop=True)
@@ -108,6 +117,7 @@ def test_prepare_cb_inputs_unsorted_input_gets_sorted():
 
 
 def test_prepare_xgb_inputs_pass_through():
+    """Prepare xgb inputs pass through."""
     X, y, g = _make_synthetic(seed=3)
     X_out, y_out, g_out = prepare_xgb_inputs(X, y, g)
     # XGB requires NO sort; outputs equal inputs (qid is the per-row group array).
@@ -117,6 +127,7 @@ def test_prepare_xgb_inputs_pass_through():
 
 
 def test_prepare_lgb_inputs_sorted_uses_identity_sort_idx():
+    """Prepare lgb inputs sorted uses identity sort idx."""
     X, y, g = _make_synthetic(seed=4)
     _X_out, _y_out, group_sizes, sort_idx = prepare_lgb_inputs(X, y, g)
     np.testing.assert_array_equal(sort_idx, np.arange(len(y)))
@@ -125,6 +136,7 @@ def test_prepare_lgb_inputs_sorted_uses_identity_sort_idx():
 
 
 def test_prepare_lgb_inputs_unsorted_returns_sorted_group_sizes():
+    """Prepare lgb inputs unsorted returns sorted group sizes."""
     X, y, g = _make_synthetic(seed=5)
     perm = np.random.default_rng(11).permutation(len(y))
     X_perm = X.iloc[perm].reset_index(drop=True)
@@ -138,6 +150,7 @@ def test_prepare_lgb_inputs_unsorted_returns_sorted_group_sizes():
 def test_prepare_inputs_parity_row_counts_across_backends():
     # CB / XGB / LGB MUST agree on row counts on the same input. A silent
     # divergence here was historically the most common ranking-suite bug.
+    """Prepare inputs parity row counts across backends."""
     X, y, g = _make_synthetic(seed=6)
     _cb_X, cb_y, cb_g, _ = prepare_cb_inputs(X, y, g)
     _xgb_X, xgb_y, xgb_g = prepare_xgb_inputs(X, y, g)
@@ -151,18 +164,21 @@ def test_prepare_inputs_parity_row_counts_across_backends():
 
 
 def test_prepare_cb_inputs_rejects_length_mismatch():
+    """Prepare cb inputs rejects length mismatch."""
     X, y, g = _make_synthetic(seed=7)
     with pytest.raises(ValueError, match="length mismatch"):
         prepare_cb_inputs(X, y[:-1], g)
 
 
 def test_prepare_xgb_inputs_rejects_empty():
+    """Prepare xgb inputs rejects empty."""
     X = pd.DataFrame(columns=["f0"])
     with pytest.raises(ValueError, match="empty"):
         prepare_xgb_inputs(X, np.array([]), np.array([]))
 
 
 def test_prepare_lgb_inputs_rejects_length_mismatch():
+    """Prepare lgb inputs rejects length mismatch."""
     X, y, g = _make_synthetic(seed=8)
     with pytest.raises(ValueError, match="length mismatch"):
         prepare_lgb_inputs(X, y, g[:-1])

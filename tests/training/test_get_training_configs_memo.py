@@ -34,6 +34,7 @@ def test_repeated_identical_kwargs_hits_cache_after_first_call():
     call_count = {"n": 0}
 
     def _stub(**_kw):
+        """Stub."""
         from types import SimpleNamespace
 
         call_count["n"] += 1
@@ -52,6 +53,7 @@ def test_different_has_gpu_flag_separate_cache_entries():
     call_count = {"n": 0}
 
     def _stub(**_kw):
+        """Stub."""
         from types import SimpleNamespace
 
         call_count["n"] += 1
@@ -70,12 +72,14 @@ def test_unhashable_kwarg_falls_through_to_direct_call():
     call_count = {"n": 0}
 
     def _stub(**_kw):
+        """Stub."""
         from types import SimpleNamespace
 
         call_count["n"] += 1
         return SimpleNamespace()
 
     def _scorer(y_true, y_pred):
+        """Scorer."""
         return 0.0
 
     with patch("mlframe.training.trainer.get_training_configs", side_effect=_stub):
@@ -90,6 +94,7 @@ def test_cache_cap_bounds_dict_via_fifo_eviction():
     """``_GTC_CACHE_MAX`` is respected -- once the cap is hit, the oldest entry evicts."""
 
     def _stub(**_kw):
+        """Stub."""
         from types import SimpleNamespace
 
         return SimpleNamespace(payload=_kw.get("iterations"))
@@ -106,6 +111,7 @@ def test_returned_object_is_deepcopy_so_caller_mutation_does_not_poison_hits():
     from types import SimpleNamespace
 
     def _stub(**_kw):
+        """Stub."""
         return SimpleNamespace(catboost_dict={"iterations": 100})
 
     with patch("mlframe.training.trainer.get_training_configs", side_effect=_stub):
@@ -124,6 +130,7 @@ def test_none_subgroups_is_stable_cache_key():
     call_count = {"n": 0}
 
     def _stub(**_kw):
+        """Stub."""
         from types import SimpleNamespace
 
         call_count["n"] += 1

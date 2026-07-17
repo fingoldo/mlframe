@@ -170,9 +170,11 @@ def test_h_neu_08_l1_norm_equivalence_and_speedup() -> None:
     params = [torch.randn(64, 64, requires_grad=False) for _ in range(20)]
 
     def naive() -> torch.Tensor:
+        """Naive."""
         return sum(p.abs().sum() for p in params)
 
     def optimised() -> torch.Tensor:
+        """Optimised."""
         return torch.cat([p.abs().sum().unsqueeze(0) for p in params]).sum()
 
     assert torch.allclose(naive(), optimised(), atol=1e-4)
@@ -383,6 +385,7 @@ def test_h_neu_16_ranks_within_group_equivalent_and_faster() -> None:
     group_starts = np.arange(0, n + 1, docs_per, dtype=np.intp)
 
     def _naive(scores, group_starts, descending=True):
+        """Naive."""
         n = len(scores)
         ranks = np.empty(n, dtype=np.float64)
         n_groups = len(group_starts) - 1

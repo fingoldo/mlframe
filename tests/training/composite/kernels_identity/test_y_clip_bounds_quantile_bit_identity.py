@@ -27,6 +27,7 @@ def _reference_bounds(finite):
 @pytest.mark.parametrize("seed", [0, 1, 7])
 @pytest.mark.parametrize("n", [1000, 50_000])
 def test_quantiles_bit_identical_to_two_calls(seed, n):
+    """Quantiles bit identical to two calls."""
     rng = np.random.default_rng(seed)
     y = rng.standard_normal(n).astype(np.float64)
     q_low_ref = float(np.quantile(y, 0.001))
@@ -37,6 +38,7 @@ def test_quantiles_bit_identical_to_two_calls(seed, n):
 
 
 def test_clip_bounds_stable_on_fixture():
+    """Clip bounds stable on fixture."""
     rng = np.random.default_rng(42)
     y = rng.standard_normal(20_000).astype(np.float64)
     lo, hi = _y_train_clip_bounds(y)
@@ -50,13 +52,16 @@ def test_clip_bounds_stable_on_fixture():
 
 
 def test_perf_sentinel_one_call_not_slower():
+    """Perf sentinel one call not slower."""
     rng = np.random.default_rng(3)
     y = rng.standard_normal(100_000).astype(np.float64)
 
     def two():
+        """Two."""
         return float(np.quantile(y, 0.001)), float(np.quantile(y, 0.999))
 
     def one():
+        """One."""
         return tuple(float(v) for v in np.quantile(y, (0.001, 0.999)))
 
     one()

@@ -18,6 +18,7 @@ from mlframe.training.composite.transforms.linear import (
 
 
 def _make_segments(seed: int = 0):
+    """Make segments."""
     rng = np.random.default_rng(seed)
     xs: list[np.ndarray] = []
     ys: list[np.ndarray] = []
@@ -35,6 +36,7 @@ def _make_segments(seed: int = 0):
 
 
 def test_batched_bit_identical_to_sequential_closed_form():
+    """Batched bit identical to sequential closed form."""
     xs, ys = _make_segments(seed=1)
     alphas, betas = _linear_residual_fit_batched(xs, ys)
     assert alphas.shape == (len(xs),)
@@ -60,6 +62,7 @@ def test_batched_zero_variance_fold_exact():
 
 
 def test_batched_empty_and_singleton_folds():
+    """Batched empty and singleton folds."""
     xs = [np.array([]), np.array([4.0]), np.array([1.0, 2.0, 3.0])]
     ys = [np.array([]), np.array([9.0]), np.array([2.0, 4.0, 6.0])]
     alphas, betas = _linear_residual_fit_batched(xs, ys)
@@ -71,11 +74,13 @@ def test_batched_empty_and_singleton_folds():
 
 
 def test_batched_empty_input_returns_empty():
+    """Batched empty input returns empty."""
     alphas, betas = _linear_residual_fit_batched([], [])
     assert alphas.shape == (0,) and betas.shape == (0,)
 
 
 def test_batched_length_mismatch_raises():
+    """Batched length mismatch raises."""
     with pytest.raises(ValueError, match="x-segments"):
         _linear_residual_fit_batched([np.zeros(3)], [np.zeros(3), np.zeros(3)])
 

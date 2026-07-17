@@ -34,6 +34,7 @@ from mlframe.training.pipeline import apply_preprocessing_extensions
 
 
 def _make_frame(n: int = 200, *, n_numeric: int = 6, n_all_null: int = 2):
+    """Make frame."""
     rng = np.random.default_rng(0)
     cols = {}
     for i in range(n_numeric):

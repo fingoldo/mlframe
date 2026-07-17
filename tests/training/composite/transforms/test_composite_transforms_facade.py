@@ -30,6 +30,7 @@ import numpy as np
 
 
 def test_composite_transforms_simple_identity_preserved():
+    """Composite transforms simple identity preserved."""
     from mlframe.training.composite import transforms as parent
     from mlframe.training.composite.transforms import simple
 
@@ -67,6 +68,7 @@ def test_composite_transforms_simple_identity_preserved():
 
 
 def test_composite_transforms_registry_identity_preserved():
+    """Composite transforms registry identity preserved."""
     from mlframe.training.composite import transforms as parent
     from mlframe.training.composite.transforms import registry
 
@@ -86,6 +88,7 @@ def test_composite_transforms_registry_identity_preserved():
 
 
 def test_composite_transforms_naming_identity_preserved():
+    """Composite transforms naming identity preserved."""
     from mlframe.training.composite import transforms as parent
     from mlframe.training.composite.transforms import naming
 
@@ -101,6 +104,7 @@ def test_composite_transforms_naming_identity_preserved():
 
 
 def test_composite_transforms_facade_loc_budget():
+    """Composite transforms facade loc budget."""
     parent_path = Path(__file__).resolve().parents[4] / "src" / "mlframe" / "training" / "composite" / "transforms" / "__init__.py"
     n_lines = len(parent_path.read_text(encoding="utf-8").splitlines())
     # Plan target: <800; current carve lands ~300. Budget guard at 800 so
@@ -109,6 +113,7 @@ def test_composite_transforms_facade_loc_budget():
 
 
 def test_composite_transforms_smoke_simple_via_parent():
+    """Composite transforms smoke simple via parent."""
     from mlframe.training.composite.transforms import get_transform
 
     rng = np.random.default_rng(0)
@@ -122,6 +127,7 @@ def test_composite_transforms_smoke_simple_via_parent():
 
 
 def test_composite_transforms_smoke_registry_unary_via_parent():
+    """Composite transforms smoke registry unary via parent."""
     from mlframe.training.composite.transforms import get_transform
 
     rng = np.random.default_rng(1)
@@ -134,6 +140,7 @@ def test_composite_transforms_smoke_registry_unary_via_parent():
 
 
 def test_composite_transforms_smoke_naming_via_parent():
+    """Composite transforms smoke naming via parent."""
     from mlframe.training.composite.transforms import (
         compose_target_name,
         is_composite_target_name,

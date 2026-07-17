@@ -15,6 +15,7 @@ zstd = pytest.importorskip("zstandard")
 
 
 def _write_dummy_bundle(path: str, payload) -> None:
+    """Write dummy bundle."""
     cctx = zstd.ZstdCompressor()
     with open(path, "wb") as f:
         with cctx.stream_writer(f) as zw:
@@ -22,6 +23,7 @@ def _write_dummy_bundle(path: str, payload) -> None:
 
 
 def test_load_mlframe_model_caches_by_path_and_mtime(tmp_path, monkeypatch):
+    """Load mlframe model caches by path and mtime."""
     from mlframe.training import io as io_mod
 
     io_mod._load_model_cache_clear()
@@ -35,6 +37,7 @@ def test_load_mlframe_model_caches_by_path_and_mtime(tmp_path, monkeypatch):
 
 
 def test_load_mlframe_model_invalidates_on_mtime_change(tmp_path):
+    """Load mlframe model invalidates on mtime change."""
     from mlframe.training import io as io_mod
 
     io_mod._load_model_cache_clear()
@@ -51,6 +54,7 @@ def test_load_mlframe_model_invalidates_on_mtime_change(tmp_path):
 
 
 def test_load_mlframe_model_size_gate_skips_cache(tmp_path, monkeypatch):
+    """Load mlframe model size gate skips cache."""
     from mlframe.training import io as io_mod
 
     io_mod._load_model_cache_clear()

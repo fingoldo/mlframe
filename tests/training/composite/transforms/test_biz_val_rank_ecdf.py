@@ -36,6 +36,7 @@ from mlframe.training.composite.transforms import (
 
 
 def test_rank_ecdf_registered_contract():
+    """Rank ecdf registered contract."""
     t = get_transform("rank_ecdf_residual")
     assert t is TRANSFORMS_REGISTRY["rank_ecdf_residual"]
     assert t.requires_base is True
@@ -44,6 +45,7 @@ def test_rank_ecdf_registered_contract():
 
 
 def test_rank_ecdf_not_in_default_transform_list():
+    """Rank ecdf not in default transform list."""
     from mlframe.training._composite_target_discovery_config import (
         CompositeTargetDiscoveryConfig,
     )
@@ -117,6 +119,7 @@ def test_rank_ecdf_constant_y_stays_finite():
 
 
 def test_rank_ecdf_single_row():
+    """Rank ecdf single row."""
     t = get_transform("rank_ecdf_residual")
     y = np.array([3.0])
     base = np.array([2.0])
@@ -127,6 +130,7 @@ def test_rank_ecdf_single_row():
 
 
 def test_rank_ecdf_params_serialize():
+    """Rank ecdf params serialize."""
     rng = np.random.default_rng(3)
     base = rng.standard_normal(500)
     y = np.sinh(base)
@@ -134,6 +138,7 @@ def test_rank_ecdf_params_serialize():
     assert set(p) == {"y_knots", "y_cdf", "base_knots", "base_cdf"}
 
     def _coerce(o):
+        """Coerce."""
         if isinstance(o, np.ndarray):
             return o.tolist()
         return o
@@ -145,6 +150,7 @@ def test_rank_ecdf_params_serialize():
 
 
 def test_rank_ecdf_domain_rejects_non_finite():
+    """Rank ecdf domain rejects non finite."""
     t = get_transform("rank_ecdf_residual")
     y = np.array([1.0, np.nan, 3.0, np.inf, 5.0])
     base = np.array([1.0, 2.0, np.nan, 4.0, 5.0])
@@ -154,6 +160,7 @@ def test_rank_ecdf_domain_rejects_non_finite():
 
 
 def test_rank_ecdf_fit_does_not_mutate_inputs():
+    """Rank ecdf fit does not mutate inputs."""
     rng = np.random.default_rng(4)
     base = rng.standard_normal(400)
     y = np.sinh(base)
@@ -164,6 +171,7 @@ def test_rank_ecdf_fit_does_not_mutate_inputs():
 
 
 def test_rank_ecdf_composite_name_recognised():
+    """Rank ecdf composite name recognised."""
     name = compose_target_name("y", "rank_ecdf_residual", "b")
     assert name == "y-rankecdf-b"
     assert is_composite_target_name(name)
@@ -175,12 +183,14 @@ def test_rank_ecdf_composite_name_recognised():
 
 
 def _ols(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Ols."""
     X = np.column_stack([x, np.ones_like(x)])
     coef, *_ = np.linalg.lstsq(X, y, rcond=None)
     return coef
 
 
 def _medae(a: np.ndarray, b: np.ndarray) -> float:
+    """Medae."""
     return float(np.median(np.abs(a - b)))
 
 
@@ -198,6 +208,7 @@ def _gen_warped(n: int, seed: int):
 
 
 def test_biz_val_rank_ecdf_beats_linear_residual_on_heavy_tailed_warp():
+    """Biz val rank ecdf beats linear residual on heavy tailed warp."""
     re = get_transform("rank_ecdf_residual")
     lin = get_transform("linear_residual")
     re_errs, lin_errs = [], []

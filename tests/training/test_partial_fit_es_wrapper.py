@@ -16,6 +16,7 @@ from mlframe.training._partial_fit_es_wrapper import PartialFitESWrapper
 
 
 def _make_regression(seed: int = 0, n: int = 800, d: int = 5):
+    """Make regression."""
     rng = np.random.default_rng(seed)
     X = rng.normal(0, 1, (n, d))
     y = X[:, 0] + 0.5 * X[:, 1] - 0.3 * X[:, 2] + rng.normal(0, 0.5, n)
@@ -23,6 +24,7 @@ def _make_regression(seed: int = 0, n: int = 800, d: int = 5):
 
 
 def _make_classification(seed: int = 0, n: int = 800, d: int = 5):
+    """Make classification."""
     rng = np.random.default_rng(seed)
     X = rng.normal(0, 1, (n, d))
     logit = X[:, 0] + 0.5 * X[:, 1] + rng.normal(0, 0.5, n)
@@ -58,6 +60,7 @@ def test_partial_fit_regression_sgd_stops_via_callback() -> None:
 
 
 def test_partial_fit_classification_sgd_uses_predict_proba() -> None:
+    """Partial fit classification sgd uses predict proba."""
     pytest.importorskip("sklearn")
     from sklearn.linear_model import SGDClassifier
 

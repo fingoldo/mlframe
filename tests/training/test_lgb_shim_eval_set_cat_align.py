@@ -18,6 +18,7 @@ from mlframe.training.lgb_shim import LGBMRegressorWithDatasetReuse
 
 
 def test_lgb_shim_fit_aligns_eval_set_cat_dtype():
+    """Lgb shim fit aligns eval set cat dtype."""
     rng = np.random.default_rng(0)
     n = 200
     X = pd.DataFrame(

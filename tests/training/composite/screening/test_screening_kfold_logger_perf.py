@@ -69,6 +69,7 @@ def test_cache_bounded_reset():
 
 
 def _run_spec(y, base, X, seed, family="linear"):
+    """Run spec."""
     tr = T.get_transform("additive_residual")
     fp = tr.fit(y, base)
     fp = fp if isinstance(fp, dict) else {}
@@ -123,6 +124,7 @@ def test_y_scale_rmse_bit_identical_across_repeated_specs():
     [(None, True), ("lgb", True), ("lightgbm", True), ("LightGBM", True), ("linear", False), ("ridge", False), ("cb", False), ("xgb", False)],
 )
 def test_family_uses_lgb_gate(family, expected):
+    """Family uses lgb gate."""
     assert _family_uses_lgb(family) is expected
 
 
@@ -167,6 +169,7 @@ def test_silence_reentrant_only_outermost_touches_level(monkeypatch):
     real_setlevel = type(lgb_logger).setLevel
 
     def _counting_setlevel(self, level):
+        """Counting setlevel."""
         if self is lgb_logger:
             calls["n"] += 1
         return real_setlevel(self, level)

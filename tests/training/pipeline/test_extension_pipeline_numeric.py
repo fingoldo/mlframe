@@ -34,6 +34,7 @@ from mlframe.training.pipeline import apply_preprocessing_extensions
 
 
 def _make_mixed_frame(n: int = 200, seed: int = 0) -> pd.DataFrame:
+    """Make mixed frame."""
     rng = np.random.default_rng(seed)
     return pd.DataFrame(
         {

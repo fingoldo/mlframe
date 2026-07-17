@@ -15,6 +15,7 @@ from mlframe.training.composite.qrf import _QuantileForestAdapter
 
 
 def test_quantile_forest_adapter_clone_roundtrips_on_model_param():
+    """Quantile forest adapter clone roundtrips on model param."""
     adapter = _QuantileForestAdapter(model=RandomForestRegressor(n_estimators=7))
 
     assert list(adapter.get_params(deep=False)) == ["model"]

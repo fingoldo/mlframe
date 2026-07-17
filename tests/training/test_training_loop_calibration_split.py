@@ -13,6 +13,7 @@ from pathlib import Path
 
 
 def test_calibration_symbols_still_importable_from_facade() -> None:
+    """Calibration symbols still importable from facade."""
     from mlframe.training._training_loop import (
         _SigmoidAdapter,
         _PostHocCalibratedModel,
@@ -32,6 +33,7 @@ def test_calibration_symbols_still_importable_from_facade() -> None:
 
 
 def test_training_loop_ops_still_importable() -> None:
+    """Training loop ops still importable."""
     from mlframe.training._training_loop import (
         _ensure_cb_multilabel_loss,
         _handle_oom_error,
@@ -51,6 +53,7 @@ def test_training_loop_ops_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """Facade below 1k line threshold."""
     root = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training"
     facade = root / "_training_loop.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())
@@ -78,13 +81,17 @@ def test_post_hoc_calibrated_model_predict_proba_round_trip() -> None:
     from mlframe.training._training_loop import _PostHocCalibratedModel
 
     class _FakeBase:
+        """Groups tests covering fake base."""
         classes_ = np.array([0, 1])
 
         def predict_proba(self, X):
+            """Predict proba."""
             return np.array([[0.8, 0.2], [0.3, 0.7]])
 
     class _FakeCalibrator:
+        """Groups tests covering fake calibrator."""
         def predict(self, p):
+            """Predict."""
             return np.clip(np.asarray(p) * 0.5, 0.0, 1.0)
 
     wrapped = _PostHocCalibratedModel(_FakeBase(), _FakeCalibrator())

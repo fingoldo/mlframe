@@ -34,6 +34,7 @@ warnings.filterwarnings("ignore")
 
 
 def _make_prebinned(n: int = 8_000, f: int = 12, nbins: int = 12, seed: int = 0, *, nan_cols=()):
+    """Make prebinned."""
     rng = np.random.default_rng(seed)
     x = rng.standard_normal((n, f)).astype(np.float32)
     for c in nan_cols:
@@ -55,6 +56,7 @@ def _make_prebinned(n: int = 8_000, f: int = 12, nbins: int = 12, seed: int = 0,
 @pytest.mark.parametrize("aggregation", ["mean", "sum"])
 @pytest.mark.parametrize("drop", [0, 5, 11])
 def test_mi_to_target_prebinned_exclude_col_bit_identical(aggregation: str, drop: int) -> None:
+    """Mi to target prebinned exclude col bit identical."""
     prebinned, y, nbins = _make_prebinned()
     ref = _mi_to_target_prebinned(
         np.delete(prebinned, drop, axis=1),
@@ -86,6 +88,7 @@ def test_mi_per_feature_prebinned_exclude_col_vector_bit_identical(drop: int) ->
 @pytest.mark.parametrize("aggregation", ["mean", "sum"])
 @pytest.mark.parametrize("drop", [0, 6, 11])
 def test_aggregate_excluding_bit_identical(aggregation: str, drop: int) -> None:
+    """Aggregate excluding bit identical."""
     rng = np.random.default_rng(7)
     v = rng.standard_normal(12).astype(np.float64)
     ref = _aggregate_mi_per_feature(np.delete(v, drop), aggregation)
@@ -122,6 +125,7 @@ def test_exclude_col_edges_and_degenerate() -> None:
 
 
 def _peak_bytes(fn) -> int:
+    """Peak bytes."""
     tracemalloc.start()
     tracemalloc.reset_peak()
     fn()
@@ -139,6 +143,7 @@ def test_exclude_col_peak_alloc_strictly_lower_than_delete() -> None:
     idxs = list(range(b))
 
     def _old():
+        """Old."""
         return [
             _aggregate_mi_per_feature(
                 _mi_per_feature_prebinned(np.delete(prebinned, k, axis=1), y, nbins=nbins),
@@ -148,6 +153,7 @@ def test_exclude_col_peak_alloc_strictly_lower_than_delete() -> None:
         ]
 
     def _new():
+        """New."""
         return [_mi_to_target_prebinned(prebinned, y, nbins=nbins, aggregation="mean", exclude_col=k) for k in idxs]
 
     # bit-identity over the whole sweep (belt-and-suspenders vs the parametrized cases above).
@@ -201,6 +207,7 @@ def test_mi_per_feature_matrix_level_sentinel_gate_routes_correctly() -> None:
     pb_sent, _, _ = _make_prebinned(n=n, f=f, nbins=nbins, seed=7, nan_cols=(2, 9, 15))
 
     def _ref(fb, target):
+        """Ref."""
         out = []
         finite = np.isfinite(target)
         t_f = target[finite] if finite.sum() != finite.shape[0] else target
@@ -228,6 +235,7 @@ def test_mi_per_feature_matrix_level_sentinel_gate_routes_correctly() -> None:
     seen_lengths: list[int] = []
 
     def _spy(x_idx, y_idx, *, nbins):
+        """Spy."""
         seen_lengths.append(int(x_idx.shape[0]))
         return real_kernel(x_idx, y_idx, nbins=nbins)
 

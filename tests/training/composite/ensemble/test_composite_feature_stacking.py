@@ -21,6 +21,7 @@ from mlframe.training.composite import (
 
 
 def _make_dataset(n: int = 400, seed: int = 0) -> tuple:
+    """Make dataset."""
     rng = np.random.default_rng(seed)
     base = rng.normal(loc=10.0, scale=2.0, size=n)
     x_other = rng.normal(size=n)
@@ -30,6 +31,7 @@ def _make_dataset(n: int = 400, seed: int = 0) -> tuple:
 
 
 def _fit_wrapper(df: pd.DataFrame, y: np.ndarray) -> CompositeTargetEstimator:
+    """Fit wrapper."""
     inner = lgb.LGBMRegressor(n_estimators=30, num_leaves=11, verbose=-1, random_state=0)
     wrapper = CompositeTargetEstimator(
         base_estimator=inner,
@@ -46,7 +48,9 @@ def _fit_wrapper(df: pd.DataFrame, y: np.ndarray) -> CompositeTargetEstimator:
 
 
 class TestPredictionsAsFeature:
+    """Groups tests covering predictions as feature."""
     def test_attaches_column_pandas(self) -> None:
+        """Attaches column pandas."""
         df, y = _make_dataset()
         wrapper = _fit_wrapper(df, y)
         out = composite_predictions_as_feature(wrapper, df)
@@ -57,6 +61,7 @@ class TestPredictionsAsFeature:
         assert "composite_pred__linear_residual__base" not in df.columns
 
     def test_custom_column_name(self) -> None:
+        """Custom column name."""
         df, y = _make_dataset()
         wrapper = _fit_wrapper(df, y)
         out = composite_predictions_as_feature(wrapper, df, column_name="my_pred")
@@ -64,6 +69,7 @@ class TestPredictionsAsFeature:
         assert out["my_pred"].notna().all()
 
     def test_finite_predictions(self) -> None:
+        """Finite predictions."""
         df, y = _make_dataset()
         wrapper = _fit_wrapper(df, y)
         out = composite_predictions_as_feature(wrapper, df)
@@ -86,6 +92,7 @@ class TestPredictionsAsFeature:
         assert (out["pred"] == 0.0).all()
 
     def test_fallback_none_reraises(self) -> None:
+        """Fallback none reraises."""
         df, y = _make_dataset()
         wrapper = _fit_wrapper(df, y)
         df_bad = df.drop(columns=["base"])
@@ -116,6 +123,7 @@ class TestPredictionsAsFeature:
             composite_predictions_as_feature(wrapper, df)
 
     def test_large_frame_copy_allowed_with_opt_in(self, monkeypatch) -> None:
+        """Large frame copy allowed with opt in."""
         from mlframe.training.composite.ensemble import feature_stacking as fs_mod
 
         df, y = _make_dataset()
@@ -131,10 +139,13 @@ class TestPredictionsAsFeature:
 
 
 class TestOOFPredictions:
+    """Groups tests covering o o f predictions."""
     def test_shape_matches_input(self) -> None:
+        """Shape matches input."""
         df, y = _make_dataset(n=300)
 
         def factory():
+            """Factory."""
             inner = lgb.LGBMRegressor(n_estimators=15, num_leaves=7, verbose=-1, random_state=0)
             return CompositeTargetEstimator(
                 base_estimator=inner,
@@ -146,9 +157,11 @@ class TestOOFPredictions:
         assert oof.shape == (len(df),)
 
     def test_oof_predictions_finite(self) -> None:
+        """Oof predictions finite."""
         df, y = _make_dataset(n=300)
 
         def factory():
+            """Factory."""
             inner = lgb.LGBMRegressor(n_estimators=15, num_leaves=7, verbose=-1, random_state=0)
             return CompositeTargetEstimator(
                 base_estimator=inner,
@@ -170,6 +183,7 @@ class TestOOFPredictions:
 
         # OOF predictions.
         def factory():
+            """Factory."""
             inner = lgb.LGBMRegressor(n_estimators=30, num_leaves=11, verbose=-1, random_state=0)
             return CompositeTargetEstimator(
                 base_estimator=inner,
@@ -211,6 +225,7 @@ class _SpyWrapper:
         # The wrapper sees exactly the fold-train rows; a full-length
         # sample_weight (length n) would be a bug. Record the length so the
         # test can assert it equals len(X), never n.
+        """Fit."""
         if sample_weight is not None:
             sw = np.asarray(sample_weight).reshape(-1)
             assert sw.shape[0] == len(X), f"sample_weight length {sw.shape[0]} must match fold-train rows {len(X)}"
@@ -222,11 +237,14 @@ class _SpyWrapper:
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.full(len(X), self._mean, dtype=np.float64)
 
 
 class TestOOFN19GroupsAndSampleWeight:
+    """Groups tests covering o o f n19 groups and sample weight."""
     def setup_method(self) -> None:
+        """Setup method."""
         _SpyWrapper.sample_weight_lens = []
         _SpyWrapper.train_row_sets = []
 
@@ -308,6 +326,7 @@ class TestOOFN19GroupsAndSampleWeight:
         assert sum(_SpyWrapper.sample_weight_lens) == (n_splits - 1) * n
 
     def test_groups_length_mismatch_raises(self) -> None:
+        """Groups length mismatch raises."""
         n = 30
         df = pd.DataFrame({"x": np.zeros(n), "gid": np.arange(n)})
         y = np.zeros(n)

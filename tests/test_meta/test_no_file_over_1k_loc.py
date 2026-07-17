@@ -158,6 +158,23 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # conditional kernel block the transforms reference. Tightly coupled (the transform functions close over the
     # conditionally-defined kernels); a clean carve must move the kernel block + its consumers together. Pending.
     "src/mlframe/training/composite/transforms/nonlinear.py",
+    # FIXME(carve-wave-next): filters/_mrmr_fe_step/_step_core.py -- the residual body of
+    # ``_run_fe_step_impl`` after the operand-pool / pair-MI-floor / pair-rank / candidate-scoring
+    # stages were already carved to _step_pool.py / _step_pairmi.py / _step_pairs_rank.py /
+    # _step_score.py (same carve wave as _pairs_core.py / _fit_impl_core.py). What remains is one
+    # long sequential orchestration function threading ~40 fit-scoped locals (data/cols/nbins/X,
+    # the prewarp/gate-med spec accumulators, the polynom-pair injection indices, the serial-vs-
+    # joblib dispatch branch) through non-early-exit control flow with a `try/except` RNG-safe
+    # subsample resolution and two structurally-different call shapes (serial single dict vs.
+    # joblib per-chunk merge-with-reserved-key). Assessed 2026-07-18: the joblib branch (~140 LOC)
+    # is the only block that reads as visually separable, but it still closes over ~25 of those same
+    # locals (X, classes_y, cols, original_cols, numeric_vars_to_consider, every fe_pair_prewarp_*
+    # knob, the shared subsample index) that the serial branch right above it also needs -- lifting
+    # it out would mean threading the same ~25-argument list the sibling carves already show is the
+    # ceiling of what stays a safe verbatim move, for a block that is two-thirds a literal copy of
+    # the arguments to `check_prospective_fe_pairs` already visible in the serial branch. Left exempt
+    # BY DESIGN, same class as `_pairs_core.py` / `_fit_impl_core.py` above.
+    "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_core.py",
 }
 
 

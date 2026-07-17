@@ -31,6 +31,7 @@ def _hetero_xy(n: int = 3000, seed: int = 0):
 
 
 def _fit_split(seed: int = 0, n: int = 3000):
+    """Fit split."""
     X, y = _hetero_xy(n=n, seed=seed)
     ntr = (n * 3) // 4
     Xtr, ytr = X.iloc[:ntr], y[:ntr]

@@ -29,6 +29,7 @@ class _ColumnStub:
         self.column = column
 
     def predict(self, X):
+        """Predict."""
         return np.asarray(X[self.column], dtype=np.float64)
 
 
@@ -56,6 +57,7 @@ def _build_synthetic():
 
 
 def _make_models_metadata(*, with_lag: bool = True):
+    """Make models metadata."""
     composite = _ColumnStub("composite_pred")
     raw = _ColumnStub("raw_pred")
     models = {
@@ -73,6 +75,7 @@ def _make_models_metadata(*, with_lag: bool = True):
 
 
 def _config(**over):
+    """Config."""
     base = dict(
         group_column="grp",
         emit_composite_value_report=True,
@@ -85,12 +88,14 @@ def _config(**over):
 
 
 def _rmse(a, b):
+    """Rmse."""
     a = np.asarray(a, dtype=np.float64)
     b = np.asarray(b, dtype=np.float64)
     return float(np.sqrt(np.mean((a - b) ** 2)))
 
 
 def test_moe_gate_and_value_report_end_to_end():
+    """Moe gate and value report end to end."""
     df, y, grp = _build_synthetic()
     idx = np.arange(len(y))
     models, metadata, composite = _make_models_metadata()
@@ -133,6 +138,7 @@ def test_moe_gate_and_value_report_end_to_end():
 
 
 def test_flags_off_leaves_deploy_unchanged():
+    """Flags off leaves deploy unchanged."""
     df, y, grp = _build_synthetic()
     idx = np.arange(len(y))
     models, metadata, composite = _make_models_metadata()
@@ -158,6 +164,7 @@ def test_flags_off_leaves_deploy_unchanged():
 
 
 def test_no_lag_and_no_groups_no_op_gate():
+    """No lag and no groups no op gate."""
     df, y, grp = _build_synthetic()
     idx = np.arange(len(y))
 
@@ -200,6 +207,7 @@ def test_no_lag_and_no_groups_no_op_gate():
 def test_missing_group_column_in_frame_no_ops_gate():
     # Group ids exist at fit, but the predict frame lacks the group column -> gate would route globally to lag
     # (worse than the ensemble where composite wins), so the wrap is skipped and the ensemble ships unchanged.
+    """Missing group column in frame no ops gate."""
     df, y, grp = _build_synthetic()
     df = df.drop(columns=["grp"])
     idx = np.arange(len(y))

@@ -41,6 +41,7 @@ def _pure_noise_df(n=6000, seed=7, n_feat=10, n_base=8):
 
 
 def _noise_feature_cols(n_feat=10, n_base=8):
+    """Noise feature cols."""
     return [f"f{j}" for j in range(n_feat)] + [f"b{b}" for b in range(n_base)] + ["base"]
 
 
@@ -57,6 +58,7 @@ def _real_signal_df(n=3000, seed=7):
 
 
 def _make_config(**overrides):
+    """Make config."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     defaults = dict(
@@ -84,6 +86,7 @@ def _make_config(**overrides):
 
 
 def _run(df, config, feature_cols, train_frac=0.85):
+    """Fits CompositeTargetDiscovery using the first train_frac rows as train_idx and returns the fitted discovery object."""
     from mlframe.training.composite import CompositeTargetDiscovery
 
     n = len(df)

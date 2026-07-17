@@ -32,9 +32,11 @@ def _legacy_brier_ll_cis(y, p_pos, rng_seed, n_bootstrap=400):
     from mlframe.calibration.policy import _ece_score
 
     def br(yy, pp):
+        """Br."""
         return float(_b(yy.astype(np.float64, copy=False), pp.astype(np.float64, copy=False)))
 
     def ll(yy, pp):
+        """Ll."""
         return float(_l(yy.astype(np.float64, copy=False), pp.astype(np.float64, copy=False)))
 
     mf = {"brier": br, "log_loss": ll, "ece": lambda yy, pp: _ece_score(yy, pp)}
@@ -42,6 +44,7 @@ def _legacy_brier_ll_cis(y, p_pos, rng_seed, n_bootstrap=400):
 
 
 def test_bootstrap_block_precast_ci_unchanged():
+    """Bootstrap block precast ci unchanged."""
     from mlframe.training.honest_diagnostics import _bootstrap_block
 
     rng = np.random.default_rng(3)

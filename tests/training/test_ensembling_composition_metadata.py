@@ -19,6 +19,7 @@ import numpy as np
 # Arch-3: ensembles_chosen sub-keyed by family
 # ---------------------------------------------------------------------------
 def test_resolve_chosen_flavour_reads_simple_bucket():
+    """Resolve chosen flavour reads simple bucket."""
     from mlframe.training.core.predict import _resolve_chosen_flavour
 
     metadata = {
@@ -33,6 +34,7 @@ def test_resolve_chosen_flavour_reads_simple_bucket():
 
 
 def test_resolve_chosen_flavour_reads_cross_target_bucket_for_ct_prefix():
+    """Resolve chosen flavour reads cross target bucket for ct prefix."""
     from mlframe.training.core.predict import _resolve_chosen_flavour
 
     metadata = {
@@ -48,6 +50,7 @@ def test_resolve_chosen_flavour_reads_cross_target_bucket_for_ct_prefix():
 
 
 def test_resolve_chosen_flavour_missing_returns_none():
+    """Resolve chosen flavour missing returns none."""
     from mlframe.training.core.predict import _resolve_chosen_flavour
 
     metadata = {"ensembles_chosen": {"simple": {}, "cross_target": {}}}
@@ -58,6 +61,7 @@ def test_resolve_chosen_flavour_missing_returns_none():
 # Arch-4: calibrated/uncalibrated mix WARN + metadata stamp
 # ---------------------------------------------------------------------------
 def test_combine_probs_warns_on_calibration_mix(caplog):
+    """Combine probs warns on calibration mix."""
     from mlframe.training.core.predict import _combine_probs
 
     probs = [np.array([0.1, 0.2, 0.3]), np.array([0.2, 0.3, 0.4]), np.array([0.3, 0.4, 0.5])]
@@ -78,6 +82,7 @@ def test_combine_probs_warns_on_calibration_mix(caplog):
 
 
 def test_combine_probs_no_warn_when_all_calibrated(caplog):
+    """Combine probs no warn when all calibrated."""
     from mlframe.training.core.predict import _combine_probs
 
     probs = [np.array([0.1, 0.2]), np.array([0.2, 0.3])]
@@ -94,6 +99,7 @@ def test_combine_probs_no_warn_when_all_calibrated(caplog):
 
 
 def test_combine_probs_no_warn_when_none_calibrated(caplog):
+    """Combine probs no warn when none calibrated."""
     from mlframe.training.core.predict import _combine_probs
 
     probs = [np.array([0.1, 0.2]), np.array([0.2, 0.3])]
@@ -124,12 +130,15 @@ def test_combine_probs_proceeds_on_mix_does_not_refuse():
 
 
 def test_is_post_hoc_calibrated_model_class_name_match():
+    """Is post hoc calibrated model class name match."""
     from mlframe.training.core.predict import _is_post_hoc_calibrated_model
 
     class _PostHocCalibratedModel:
+        """Groups tests covering post hoc calibrated model."""
         pass
 
     class _SomethingElse:
+        """Groups tests covering something else."""
         pass
 
     assert _is_post_hoc_calibrated_model(_PostHocCalibratedModel()) is True
@@ -141,9 +150,11 @@ def test_is_post_hoc_calibrated_model_class_name_match():
 # Arch-6: ensemble_composition stamping
 # ---------------------------------------------------------------------------
 def test_stamp_ensemble_composition_simple_bucket_records_members_and_flavour():
+    """Stamp ensemble composition simple bucket records members and flavour."""
     from mlframe.training.core._phase_finalize import _stamp_ensemble_composition
 
     class _Ctx:
+        """Groups tests covering ctx."""
         ensembles = {
             "binary": {
                 "y_target": {"arithm": object(), "harm": object(), "geo": object()},
@@ -171,9 +182,11 @@ def test_stamp_ensemble_composition_simple_bucket_records_members_and_flavour():
 
 
 def test_stamp_ensemble_composition_marks_fallback_when_no_flavour_chosen():
+    """Stamp ensemble composition marks fallback when no flavour chosen."""
     from mlframe.training.core._phase_finalize import _stamp_ensemble_composition
 
     class _Ctx:
+        """Groups tests covering ctx."""
         ensembles = {"binary": {"y_target": {"arithm": object()}}}
         models = {}
         metadata = {"ensembles_chosen": {"simple": {}, "cross_target": {}}}
@@ -188,10 +201,13 @@ def test_stamp_ensemble_composition_marks_fallback_when_no_flavour_chosen():
 
 
 def test_stamp_ensemble_composition_cross_target_reads_stacker_state():
+    """Stamp ensemble composition cross target reads stacker state."""
     from mlframe.training.core._phase_finalize import _stamp_ensemble_composition
 
     class _FakeEnsemble:
+        """Groups tests covering fake ensemble."""
         def export_metadata(self):
+            """Export metadata."""
             return {
                 "strategy": "linear_stack",
                 "component_names": ["modelA", "modelB"],
@@ -200,9 +216,11 @@ def test_stamp_ensemble_composition_cross_target_reads_stacker_state():
             }
 
     class _Entry:
+        """Groups tests covering entry."""
         model = _FakeEnsemble()
 
     class _Ctx:
+        """Groups tests covering ctx."""
         ensembles = {}
         models = {"binary": {"_CT_ENSEMBLE__y_target": [_Entry()]}}
         metadata = {}
@@ -217,10 +235,13 @@ def test_stamp_ensemble_composition_cross_target_reads_stacker_state():
 
 
 def test_stamp_ensemble_composition_cross_target_single_best_fallback():
+    """Stamp ensemble composition cross target single best fallback."""
     from mlframe.training.core._phase_finalize import _stamp_ensemble_composition
 
     class _FakeEnsemble:
+        """Groups tests covering fake ensemble."""
         def export_metadata(self):
+            """Export metadata."""
             return {
                 "strategy": "single_best_fallback",
                 "component_names": ["modelA"],
@@ -229,9 +250,11 @@ def test_stamp_ensemble_composition_cross_target_single_best_fallback():
             }
 
     class _Entry:
+        """Groups tests covering entry."""
         model = _FakeEnsemble()
 
     class _Ctx:
+        """Groups tests covering ctx."""
         ensembles = {}
         models = {"binary": {"_CT_ENSEMBLE__y_target": [_Entry()]}}
         metadata = {}

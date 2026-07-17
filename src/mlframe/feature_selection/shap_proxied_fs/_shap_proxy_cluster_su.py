@@ -85,7 +85,8 @@ def cluster_su_gpu_available() -> bool:
         _ = probe.sum().get()
         _GPU_AVAILABLE_CACHE = True
         return True
-    except Exception:
+    except Exception as exc:
+        logger.debug("cupy/CUDA probe failed, treating GPU as unavailable: %s", exc)
         _GPU_AVAILABLE_CACHE = False
         return False
 
@@ -97,7 +98,8 @@ def _gpu_free_memory_bytes() -> int:
 
         free, _total = cp.cuda.runtime.memGetInfo()
         return int(free)
-    except Exception:
+    except Exception as exc:
+        logger.debug("cupy free-memory probe failed, treating as 0 free bytes: %s", exc)
         return 0
 
 

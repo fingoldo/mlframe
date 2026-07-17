@@ -9,6 +9,7 @@ import mlframe.training.utils as U
 
 
 def test_clear_empties_the_memo_after_a_view_is_cached():
+    """Clear empties the memo after a view is cached."""
     df = pl.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
     U.get_pandas_view_of_polars_df(df)
     # The memo now retains the last view (it pins the polars buffers zero-copy).

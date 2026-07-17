@@ -27,15 +27,18 @@ from sklearn.exceptions import NotFittedError
 
 
 def test_helper_is_module_level_callable() -> None:
+    """Helper is module level callable."""
     from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough
 
     assert callable(_apply_pre_pipeline_with_passthrough)
 
 
 def test_passthrough_when_model_obj_has_no_pre_pipeline() -> None:
+    """Passthrough when model obj has no pre pipeline."""
     from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough
 
     class _ModelObj:
+        """Groups tests covering model obj."""
         pass  # no pre_pipeline attribute
 
     df = pd.DataFrame({"x": [1.0, 2.0]})
@@ -54,11 +57,13 @@ def test_passthrough_when_model_obj_has_no_pre_pipeline() -> None:
 
 
 def test_passthrough_when_pre_pipeline_is_suite_pipeline() -> None:
+    """Passthrough when pre pipeline is suite pipeline."""
     from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough
 
     _sentinel_pipeline = object()
 
     class _ModelObj:
+        """Groups tests covering model obj."""
         pre_pipeline = _sentinel_pipeline
 
     df = pd.DataFrame({"x": [1.0, 2.0]})
@@ -77,13 +82,16 @@ def test_passthrough_when_pre_pipeline_is_suite_pipeline() -> None:
 
 
 def test_unfitted_pre_pipeline_skips_transform_and_logs_debug(caplog) -> None:
+    """Unfitted pre pipeline skips transform and logs debug."""
     from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough
 
     class _UnfittedPP:
         # No fitted attributes; sklearn's check_is_fitted will raise.
+        """Groups tests covering unfitted p p."""
         pass
 
     class _ModelObj:
+        """Groups tests covering model obj."""
         pre_pipeline = _UnfittedPP()
 
     df = pd.DataFrame({"x": [1.0, 2.0]})
@@ -104,21 +112,26 @@ def test_unfitted_pre_pipeline_skips_transform_and_logs_debug(caplog) -> None:
 
 
 def test_fitted_pre_pipeline_runs_transform_and_reattaches_passthrough() -> None:
+    """Fitted pre pipeline runs transform and reattaches passthrough."""
     from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough
 
     class _FittedPP(BaseEstimator, TransformerMixin):
+        """Groups tests covering fitted p p."""
         def __init__(self) -> None:
             # Instance attribute ending in _ so sklearn check_is_fitted accepts as fitted.
             self.is_fitted_ = True
 
         def fit(self, X, y=None):
+            """Fit."""
             return self
 
         def transform(self, X):
             # Drop the text passthrough col so the helper has to re-attach it.
+            """Transform."""
             return X.drop(columns=[c for c in X.columns if c == "txt"])
 
     class _ModelObj:
+        """Groups tests covering model obj."""
         pre_pipeline = _FittedPP()
 
     df_pre_pipeline = pd.DataFrame({"x": [1.0, 2.0, 3.0], "txt": ["a", "b", "c"]})
@@ -143,24 +156,30 @@ def test_fitted_pre_pipeline_runs_transform_and_reattaches_passthrough() -> None
 
 
 def test_not_fitted_error_in_transform_falls_back_to_feature_names_in() -> None:
+    """Not fitted error in transform falls back to feature names in."""
     from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough
 
     class _RaisingPP(BaseEstimator, TransformerMixin):
+        """Groups tests covering raising p p."""
         def __init__(self) -> None:
             # Instance attribute ending in _ so sklearn check_is_fitted accepts as fitted.
             self.is_fitted_ = True
 
         def fit(self, X, y=None):
+            """Fit."""
             return self
 
         def transform(self, X):
+            """Transform."""
             raise NotFittedError("cloned but not refit")
 
     class _ModelObj:
+        """Groups tests covering model obj."""
         pre_pipeline = _RaisingPP()
 
     # Inner model exposes feature_names_in_; the helper should subset to it.
     class _InnerModel:
+        """Groups tests covering inner model."""
         feature_names_in_ = np.array(["x"])
 
     df = pd.DataFrame({"x": [1.0, 2.0, 3.0], "extra": [9.0, 9.0, 9.0]})

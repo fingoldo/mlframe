@@ -16,6 +16,7 @@ import pytest
 
 
 class _OrderRecordingDict(dict):
+    """Groups tests covering order recording dict."""
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
         self.set_order = []
@@ -26,6 +27,7 @@ class _OrderRecordingDict(dict):
 
 
 def test_mrmr_x_hash_memo_publishes_value_before_key():
+    """Mrmr x hash memo publishes value before key."""
     import mlframe.feature_selection.filters._mrmr_fingerprints as fp
 
     rec = _OrderRecordingDict({"id_shape": None, "hash": None})
@@ -42,6 +44,7 @@ def test_mrmr_x_hash_memo_publishes_value_before_key():
 
 
 def test_pipeline_last_key_memo_publishes_value_before_key():
+    """Pipeline last key memo publishes value before key."""
     import mlframe.training.pipeline._pipeline_cache as pc
 
     rec = _OrderRecordingDict({"id_tup": None, "key": None})
@@ -61,6 +64,7 @@ def test_pipeline_last_key_memo_publishes_value_before_key():
 
 
 def test_pd_view_memo_publishes_value_before_key():
+    """Pd view memo publishes value before key."""
     pl = pytest.importorskip("polars")
     import mlframe.training.utils as ut
 

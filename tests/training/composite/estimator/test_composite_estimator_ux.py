@@ -44,6 +44,7 @@ def linres_kit():
 
 
 def test_repr_html_unfitted_shows_config_and_not_fitted():
+    """Repr html unfitted shows config and not fitted."""
     cte = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
         transform_name="linear_residual",
@@ -61,6 +62,7 @@ def test_repr_html_unfitted_shows_config_and_not_fitted():
 
 
 def test_repr_html_fitted_shows_alpha_beta_clip_and_n_train(linres_kit):
+    """Repr html fitted shows alpha beta clip and n train."""
     X, y, _ = linres_kit
     cte = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
@@ -82,6 +84,7 @@ def test_repr_html_fitted_shows_alpha_beta_clip_and_n_train(linres_kit):
 
 
 def test_repr_html_reflects_conformal_and_cqr_calibration(linres_kit):
+    """Repr html reflects conformal and cqr calibration."""
     X, y, X_cal = linres_kit
     cte = CompositeTargetEstimator(
         base_estimator=LinearRegression(),

@@ -29,6 +29,7 @@ def _redundant_block(base: np.ndarray, rng: np.random.Generator, eps: float = 1e
 
 
 class TestResidualDedupKeepBestFirst:
+    """Groups tests covering residual dedup keep best first."""
     def test_redundant_pair_keeps_lower_rmse_member(self) -> None:
         """Two near-duplicate members + one independent: the redundant pair is
         collapsed to its LOWER-RMSE member; the independent member survives."""
@@ -71,6 +72,7 @@ class TestResidualDedupKeepBestFirst:
 
 
 class TestResidualDedupMinKeepFloor:
+    """Groups tests covering residual dedup min keep floor."""
     def test_floor_never_drops_below_min_keep(self) -> None:
         """All members redundant: dedup must still leave exactly ``min_keep``."""
         rng = np.random.default_rng(3)
@@ -107,6 +109,7 @@ class TestResidualDedupMinKeepFloor:
 
 
 class TestResidualDedupNaNRowGuard:
+    """Groups tests covering residual dedup na n row guard."""
     def test_too_few_finite_rows_keeps_all(self) -> None:
         """When jointly-finite rows < 3, correlation is undefined -> keep all
         (rather than silently correlating on a 1-2 row sample)."""
@@ -161,7 +164,9 @@ class TestResidualDedupNaNRowGuard:
 
 
 class TestResidualDedupContract:
+    """Groups tests covering residual dedup contract."""
     def test_oof_length_mismatch_raises(self) -> None:
+        """Oof length mismatch raises."""
         rng = np.random.default_rng(8)
         resid = rng.normal(size=(100, 3))
         with pytest.raises(ValueError, match="oof_rmses length"):
@@ -213,6 +218,7 @@ class TestResidualDedupContract:
 
 
 class TestResidualDedupProductionShape:
+    """Groups tests covering residual dedup production shape."""
     def test_pred_minus_y_residual_dedup_matches_caller(self) -> None:
         """Mirror the production call: residual = oof_pred - y_holdout, oof_rmses
         from the same predictions. A duplicated component (identical predictions)

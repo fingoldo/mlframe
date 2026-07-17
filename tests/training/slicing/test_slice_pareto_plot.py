@@ -38,6 +38,7 @@ def _make_callback_with_history(n_iters: int = 30, k: int = 4, seed: int = 0):
 
 
 def _make_ctx() -> SimpleNamespace:
+    """Make ctx."""
     return SimpleNamespace(metadata={})
 
 
@@ -56,6 +57,7 @@ def _make_config(**overrides):
 
 
 def test_pareto_plot_default_on_writes_matplotlib_png(tmp_path) -> None:
+    """Pareto plot default on writes matplotlib png."""
     from mlframe.training.slicing._slice_pareto_plot import generate_pareto_artifact
 
     cb = _make_callback_with_history(n_iters=30)
@@ -81,6 +83,7 @@ def test_pareto_plot_default_on_writes_matplotlib_png(tmp_path) -> None:
 
 
 def test_pareto_plot_alternative_selections_populated(tmp_path) -> None:
+    """Pareto plot alternative selections populated."""
     from mlframe.training.slicing._slice_pareto_plot import generate_pareto_artifact
 
     cb = _make_callback_with_history(n_iters=40)
@@ -103,6 +106,7 @@ def test_pareto_plot_alternative_selections_populated(tmp_path) -> None:
 
 
 def test_pareto_plot_disabled_emits_nothing(tmp_path) -> None:
+    """Pareto plot disabled emits nothing."""
     from mlframe.training.slicing._slice_pareto_plot import generate_pareto_artifact
 
     cb = _make_callback_with_history(n_iters=30)
@@ -122,6 +126,7 @@ def test_pareto_plot_disabled_emits_nothing(tmp_path) -> None:
 
 
 def test_pareto_plot_short_run_skip(tmp_path, caplog) -> None:
+    """Pareto plot short run skip."""
     import logging
     from mlframe.training.slicing._slice_pareto_plot import generate_pareto_artifact
 
@@ -142,6 +147,7 @@ def test_pareto_plot_short_run_skip(tmp_path, caplog) -> None:
 
 
 def test_pareto_plot_persist_shard_history(tmp_path) -> None:
+    """Pareto plot persist shard history."""
     from mlframe.training.slicing._slice_pareto_plot import generate_pareto_artifact
 
     cb = _make_callback_with_history(n_iters=30, k=5)
@@ -167,6 +173,7 @@ def test_pareto_plot_persist_shard_history(tmp_path) -> None:
 
 
 def test_pareto_plot_plotly_backend_writes_html(tmp_path) -> None:
+    """Pareto plot plotly backend writes html."""
     pytest.importorskip("plotly")
     from mlframe.training.slicing._slice_pareto_plot import generate_pareto_artifact
 
@@ -189,6 +196,7 @@ def test_pareto_plot_plotly_backend_writes_html(tmp_path) -> None:
 
 
 def test_pareto_plot_save_failure_warns_doesnt_raise(tmp_path, caplog, monkeypatch) -> None:
+    """Pareto plot save failure warns doesnt raise."""
     import logging
     from mlframe.training.slicing import _slice_pareto_plot as mod
 
@@ -197,6 +205,7 @@ def test_pareto_plot_save_failure_warns_doesnt_raise(tmp_path, caplog, monkeypat
     cfg = _make_config(pareto_plot_backends=["matplotlib"])
 
     def _bad_render(*a, **k):
+        """Bad render."""
         raise RuntimeError("simulated render failure")
 
     monkeypatch.setattr(mod, "_render_matplotlib", _bad_render)

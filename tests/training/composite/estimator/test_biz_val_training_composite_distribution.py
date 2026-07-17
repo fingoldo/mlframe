@@ -54,6 +54,7 @@ def _homoscedastic_gaussian_crps(mu: np.ndarray, sd: float, y: np.ndarray) -> fl
 
 
 def _make_inner(alpha: float = 0.5):
+    """Make inner."""
     lgbm = pytest.importorskip("lightgbm")
     return lgbm.LGBMRegressor(
         n_estimators=120,

@@ -18,6 +18,7 @@ from mlframe.training.composite._moe_gate import MoESelectionGate
 
 
 def _rmse(a, b):
+    """Rmse."""
     return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
 
@@ -26,6 +27,7 @@ def _rmse(a, b):
 
 def test_per_group_argmin_selection_correct():
     # Group A: composite exact, raw/lag off -> pick composite. Group B: lag exact -> pick lag.
+    """Per group argmin selection correct."""
     y = np.array([0.0, 0.0, 0.0, 10.0, 10.0, 10.0])
     comp = np.array([0.0, 0.0, 0.0, 5.0, 5.0, 5.0])  # exact on A, off on B
     raw = np.array([2.0, 2.0, 2.0, 12.0, 12.0, 12.0])  # off everywhere
@@ -37,6 +39,7 @@ def test_per_group_argmin_selection_correct():
 
 
 def test_gate_never_selects_worse_than_lag_on_selection_split():
+    """Gate never selects worse than lag on selection split."""
     rng = np.random.default_rng(1)
     n = 300
     y = rng.normal(size=n)
@@ -54,6 +57,7 @@ def test_gate_never_selects_worse_than_lag_on_selection_split():
 
 def test_gate_pooled_rmse_exact_argmin_at_shrink_zero():
     # With shrink_rtol=0 the gate's pooled selection-split RMSE must equal the per-group argmin exactly.
+    """Gate pooled rmse exact argmin at shrink zero."""
     y = np.array([0.0, 0.0, 5.0, 5.0])
     comp = np.array([0.1, -0.1, 4.0, 6.0])
     raw = np.array([1.0, -1.0, 5.05, 4.95])
@@ -65,6 +69,7 @@ def test_gate_pooled_rmse_exact_argmin_at_shrink_zero():
 
 
 def test_global_fallback_for_unseen_group_is_lag():
+    """Global fallback for unseen group is lag."""
     y = np.array([0.0, 0.0, 1.0, 1.0])
     comp = np.array([0.0, 0.0, 0.5, 0.5])
     raw = np.array([2.0, 2.0, 2.0, 2.0])
@@ -78,6 +83,7 @@ def test_global_fallback_for_unseen_group_is_lag():
 
 
 def test_degenerate_single_expert_no_groups():
+    """Degenerate single expert no groups."""
     y = np.array([1.0, 2.0, 3.0])
     comp = np.array([1.1, 2.1, 2.9])
     gate = MoESelectionGate().fit(y, {"composite": comp})
@@ -87,6 +93,7 @@ def test_degenerate_single_expert_no_groups():
 
 
 def test_degenerate_no_groups_single_global_choice():
+    """Degenerate no groups single global choice."""
     y = np.array([0.0, 0.0, 0.0, 0.0])
     comp = np.array([0.1, -0.1, 0.1, -0.1])
     raw = np.array([1.0, 1.0, 1.0, 1.0])
@@ -101,6 +108,7 @@ def test_degenerate_no_groups_single_global_choice():
 
 def test_tie_prefers_lag():
     # composite and lag are BYTE-identical -> tie must resolve to the conservative lag failsafe.
+    """Tie prefers lag."""
     y = np.array([0.0, 0.0, 0.0])
     comp = np.array([1.0, -1.0, 1.0])
     raw = np.array([5.0, 5.0, 5.0])
@@ -111,6 +119,7 @@ def test_tie_prefers_lag():
 
 def test_shrink_rtol_keeps_lag_on_marginal_win_but_stays_not_worse_than_lag():
     # composite beats lag by ~4% only; shrink_rtol=0.10 keeps lag; vs-lag guarantee stays exact.
+    """Shrink rtol keeps lag on marginal win but stays not worse than lag."""
     rng = np.random.default_rng(3)
     n = 400
     y = rng.normal(size=n)
@@ -125,6 +134,7 @@ def test_shrink_rtol_keeps_lag_on_marginal_win_but_stays_not_worse_than_lag():
 
 def test_nan_lag_rows_routed_by_priority_fallback():
     # Group chose lag, but the first row's lag is NaN -> per-row fallback to next available (raw here).
+    """Nan lag rows routed by priority fallback."""
     y = np.array([0.0, 0.0, 0.0])
     comp = np.array([5.0, 5.0, 5.0])
     raw = np.array([2.0, 2.0, 2.0])
@@ -139,6 +149,7 @@ def test_nan_lag_rows_routed_by_priority_fallback():
 
 def test_all_nan_lag_group_uses_nonlag_expert():
     # Whole group has lag == NaN -> tier-2 decides among raw/composite.
+    """All nan lag group uses nonlag expert."""
     y = np.array([0.0, 0.0, 0.0, 0.0])
     comp = np.array([0.1, -0.1, 0.1, -0.1])  # best
     raw = np.array([1.0, 1.0, 1.0, 1.0])
@@ -148,6 +159,7 @@ def test_all_nan_lag_group_uses_nonlag_expert():
 
 
 def test_no_lag_expert_is_plain_argmin_selector():
+    """No lag expert is plain argmin selector."""
     y = np.array([0.0, 0.0, 5.0, 5.0])
     comp = np.array([0.1, -0.1, 4.0, 6.0])
     raw = np.array([1.0, -1.0, 5.0, 5.0])
@@ -158,6 +170,7 @@ def test_no_lag_expert_is_plain_argmin_selector():
 
 
 def test_route_labels_reports_per_row_choice():
+    """Route labels reports per row choice."""
     y = np.array([0.0, 0.0, 1.0, 1.0])
     comp = np.array([0.0, 0.0, 5.0, 5.0])
     raw = np.array([2.0, 2.0, 2.0, 2.0])
@@ -171,6 +184,7 @@ def test_route_labels_reports_per_row_choice():
 def test_sample_weight_shifts_group_choice():
     # Regression sensor: weights must enter the per-group SSE. Unweighted, composite wins (SSE 1 vs lag 8);
     # putting a heavy weight on the one row where lag is exact and composite is off flips the group to lag.
+    """Sample weight shifts group choice."""
     y = np.array([0.0, 0.0, 0.0])
     comp = np.array([1.0, 0.0, 0.0])  # off by 1 on the heavy row, exact on the light rows
     lag = np.array([0.0, 2.0, 2.0])  # exact on the heavy row, off by 2 on the light rows
@@ -184,6 +198,7 @@ def test_sample_weight_shifts_group_choice():
 
 
 def test_empty_input_guarded():
+    """Empty input guarded."""
     gate = MoESelectionGate().fit(np.array([]), {"composite": np.array([]), "lag": np.array([])})
     assert gate.guarantee_["pooled_rmse_gate"] is None
 
@@ -217,12 +232,14 @@ def _make_split_synthetic(seed=7, n_per_group=400):
     sel, hold = idx[:half], idx[half:]
 
     def pack(ix):
+        """Pack."""
         return dict(y=y[ix], comp=comp[ix], raw=raw[ix], lag=lag[ix], g=g[ix])
 
     return pack(sel), pack(hold)
 
 
 def test_biz_val_moe_gate_beats_every_expert_and_composite_held_out():
+    """Biz val moe gate beats every expert and composite held out."""
     sel, hold = _make_split_synthetic()
     gate = MoESelectionGate(shrink_rtol=0.0).fit(sel["y"], {"composite": sel["comp"], "raw": sel["raw"], "lag": sel["lag"]}, group_ids=sel["g"])
 
@@ -247,6 +264,7 @@ def test_biz_val_moe_gate_beats_every_expert_and_composite_held_out():
 
 
 def test_biz_val_moe_gate_selection_split_guarantee_is_exact():
+    """Biz val moe gate selection split guarantee is exact."""
     sel, _ = _make_split_synthetic(seed=11)
     gate = MoESelectionGate(shrink_rtol=0.0).fit(sel["y"], {"composite": sel["comp"], "raw": sel["raw"], "lag": sel["lag"]}, group_ids=sel["g"])
     g = gate.guarantee_

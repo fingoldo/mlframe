@@ -29,6 +29,7 @@ class TestENS_P1_7_FilterMaskHoist:
     the list-comp, called per row."""
 
     def test_polars_mask_construction_count(self) -> None:
+        """Polars mask construction count."""
         pl = pytest.importorskip("polars")
         from mlframe.training.composite.ensemble.feature_stacking import (
             composite_oof_predictions,
@@ -47,11 +48,14 @@ class TestENS_P1_7_FilterMaskHoist:
         y = rng.normal(size=n)
 
         class FakeWrapper:
+            """Groups tests covering fake wrapper."""
             def fit(self, X, y, **kw):
+                """Fit."""
                 self._n = len(X)
                 return self
 
             def predict(self, X):
+                """Predict."""
                 return np.full(len(X), 0.5)
 
         # Spy on np.isin to confirm vectorised filter path runs (one isin
@@ -101,6 +105,7 @@ class TestENS_P2_2_Level2Ensembling:
         # ``ensembling.py:1395`` runs the per-level loop; behavioural lock is
         # that for max_ensembling_level=2 the inner loop runs twice. We
         # verify the contract via a focused unit on a stand-in driver.
+        """Level2 smoke."""
         from types import SimpleNamespace
 
         # Three "base" members with finite val_preds / test_preds.
@@ -155,6 +160,7 @@ class TestENS_P2_4_ZeroCrossingVectorised:
         return False
 
     def _vectorised_scan(self, members) -> bool:
+        """Vectorised scan."""
         flat = []
         for m in members:
             for attr in ("val_preds", "test_preds", "train_preds"):
@@ -176,6 +182,7 @@ class TestENS_P2_4_ZeroCrossingVectorised:
 
     @pytest.mark.parametrize("seed", [0, 1, 2, 3, 4, 5, 7])
     def test_vectorised_matches_loop(self, seed: int) -> None:
+        """Vectorised matches loop."""
         from types import SimpleNamespace
 
         rng = np.random.default_rng(seed)
@@ -211,6 +218,7 @@ class TestENS_P2_5_CachedPerBin:
         # discovery* test files.
         # 2026-05-21 split: composite_discovery moved code to sibling files.
         # Walk parent + every sibling so the per_bin sensor still matches.
+        """Per bin first pass dict attached."""
         import pathlib
         import mlframe.training.composite.discovery as cd
 
@@ -242,6 +250,7 @@ class TestENS_P2_6_NoDuckTyping:
     polars frames."""
 
     def test_non_polars_mock_not_misdetected(self) -> None:
+        """Non polars mock not misdetected."""
         from mlframe.training.composite import _is_polars_df
         from mlframe.training.composite.discovery.screening import (
             _is_polars_df as _scr_is,
@@ -257,7 +266,9 @@ class TestENS_P2_6_NoDuckTyping:
         )
 
         class FakePolarsLike:
+            """Groups tests covering fake polars like."""
             def to_pandas(self):
+                """To pandas."""
                 return pd.DataFrame({"a": [1, 2]})
 
         obj = FakePolarsLike()
@@ -265,6 +276,7 @@ class TestENS_P2_6_NoDuckTyping:
             assert fn(obj) is False, f"{fn.__module__}._is_polars_df mis-detected a non-polars object exposing to_pandas() as a polars frame."
 
     def test_real_polars_detected(self) -> None:
+        """Real polars detected."""
         pl = pytest.importorskip("polars")
         from mlframe.training.composite import _is_polars_df
 
@@ -283,6 +295,7 @@ class TestENS_Low_1_KFoldParameter:
     small fixture; signature must accept the new parameter."""
 
     def test_signature_accepts_kfold(self) -> None:
+        """Signature accepts kfold."""
         import inspect
         from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
@@ -368,6 +381,7 @@ class TestENS_Low_2_3_OLS_SE:
     base_std), not marginal y-std / (sqrt(n) * base_std)."""
 
     def test_residual_se_matches_textbook_form(self) -> None:
+        """Residual se matches textbook form."""
         rng = np.random.default_rng(0)
         n = 1000
         x = rng.normal(size=n)
@@ -413,6 +427,7 @@ class TestENS_Low_6_PoolArraysHoist:
         # 2026-05-21 split: composite_discovery body moved to siblings
         # (_composite_discovery_fit.py etc.); read parent + every matching
         # sibling so the source-pattern sensor still matches.
+        """Pool cache keyed correctly."""
         import pathlib
         import mlframe.training.composite.discovery as cd
 
@@ -439,6 +454,7 @@ class TestENS_Low_7_RidgeImportHoisted:
     stacker fit does not re-import sklearn.linear_model on the hot path. (ElasticNetCV is no longer used.)"""
 
     def test_module_top_imports_present(self) -> None:
+        """Module top imports present."""
         import mlframe.training.composite.ensemble as ce
 
         assert hasattr(ce, "Ridge")
@@ -454,6 +470,7 @@ class TestCACHE_P0_2_DataSignature:
     """Appending one row to df should yield a different fingerprint."""
 
     def test_pandas_append_changes_signature(self) -> None:
+        """Pandas append changes signature."""
         from mlframe.training.composite.cache import data_signature
 
         rng = np.random.default_rng(0)
@@ -478,6 +495,7 @@ class TestCACHE_P0_2_DataSignature:
         assert sig_before != sig_after, "CACHE-P0-2: appending one row did not change the signature."
 
     def test_polars_append_changes_signature(self) -> None:
+        """Polars append changes signature."""
         pl = pytest.importorskip("polars")
         from mlframe.training.composite.cache import data_signature
 
@@ -504,10 +522,12 @@ class TestCACHE_P1_2_GetCacheKeyDeleted:
     """Importing get_cache_key from strategies must now fail."""
 
     def test_import_error_raised(self) -> None:
+        """Import error raised."""
         with pytest.raises(ImportError):
             from mlframe.training.strategies import get_cache_key  # noqa: F401
 
     def test_not_in_all(self) -> None:
+        """Not in all."""
         import mlframe.training.strategies as s
 
         assert "get_cache_key" not in s.__all__
@@ -523,6 +543,7 @@ class TestCACHE_P1_7_SizeSafetyFactor:
     post-conversion size is read from pandas.memory_usage."""
 
     def test_safety_factor_function_present(self) -> None:
+        """Safety factor function present."""
         import mlframe.training.core._phase_helpers as ph
 
         src = open(ph.__file__, encoding="utf-8").read()
@@ -544,10 +565,12 @@ class TestCACHE_P1_7_SizeSafetyFactor:
 
 
 class TestCACHE_P2_1_OrderingNote:
+    """Groups tests covering c a c h e p2 1 ordering note."""
     def test_ordering_comment_present(self) -> None:
         # 2026-05-22 split: train_mlframe_models_suite body moved to
         # ``_main_train_suite.py``; the ordering comment migrated with it.
         # Read both files so the docstring/comment sensor still matches.
+        """Ordering comment present."""
         import pathlib
         import mlframe.training.core.main as m
 
@@ -565,12 +588,15 @@ class TestCACHE_P2_1_OrderingNote:
 
 
 class TestCACHE_P2_5_SeedConstant:
+    """Groups tests covering c a c h e p2 5 seed constant."""
     def test_constant_value(self) -> None:
+        """Constant value."""
         from mlframe.training.composite.cache import _DISCOVERY_DEFAULT_SEED
 
         assert _DISCOVERY_DEFAULT_SEED == 42
 
     def test_both_functions_reference_it(self) -> None:
+        """Both functions reference it."""
         import inspect
         from mlframe.training.composite.cache import (
             data_signature,
@@ -597,7 +623,9 @@ class TestCACHE_P2_5_SeedConstant:
 
 
 class TestCACHE_Low_1_NodfDigestLength:
+    """Groups tests covering c a c h e low 1 nodf digest length."""
     def test_len_eq_10(self) -> None:
+        """Len eq 10."""
         from mlframe.training.utils import compute_model_input_fingerprint
 
         digest, _ = compute_model_input_fingerprint(None)
@@ -610,7 +638,9 @@ class TestCACHE_Low_1_NodfDigestLength:
 
 
 class TestCACHE_Low_2_NumpyHashable:
+    """Groups tests covering c a c h e low 2 numpy hashable."""
     def test_same_content_same_signature(self) -> None:
+        """Same content same signature."""
         from mlframe.feature_selection.filters.mrmr import (
             _hashable_params_signature,
         )
@@ -622,6 +652,7 @@ class TestCACHE_Low_2_NumpyHashable:
         assert sig_a == sig_b
 
     def test_different_content_different_signature(self) -> None:
+        """Different content different signature."""
         from mlframe.feature_selection.filters.mrmr import (
             _hashable_params_signature,
         )
@@ -640,7 +671,9 @@ class TestCACHE_Low_2_NumpyHashable:
 
 
 class TestCACHE_Low_3_DtypeCoverage:
+    """Groups tests covering c a c h e low 3 dtype coverage."""
     def test_list_inner_dtype_recorded(self) -> None:
+        """List inner dtype recorded."""
         pl = pytest.importorskip("polars")
         from mlframe.training.utils import _canonical_dtype_str
 
@@ -650,6 +683,7 @@ class TestCACHE_Low_3_DtypeCoverage:
         assert "List[" in a
 
     def test_datetime_tz_recorded(self) -> None:
+        """Datetime tz recorded."""
         pl = pytest.importorskip("polars")
         from mlframe.training.utils import _canonical_dtype_str
 
@@ -658,6 +692,7 @@ class TestCACHE_Low_3_DtypeCoverage:
         assert a != b
 
     def test_duration_unit_recorded(self) -> None:
+        """Duration unit recorded."""
         pl = pytest.importorskip("polars")
         from mlframe.training.utils import _canonical_dtype_str
 
@@ -672,7 +707,9 @@ class TestCACHE_Low_3_DtypeCoverage:
 
 
 class TestENS_Low_8_AuditNotesDoc:
+    """Groups tests covering e n s low 8 audit notes doc."""
     def test_audit_notes_file_present(self) -> None:
+        """Audit notes file present."""
         import os
 
         here = os.path.dirname(__file__)

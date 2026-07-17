@@ -37,9 +37,11 @@ class _FakeFittedBoosterRejectingSetParams:
         self.best_iteration_ = 0
 
     def get_params(self, deep: bool = True):
+        """Get params."""
         return dict(self._stored)
 
     def set_params(self, **params):
+        """Set params."""
         self.set_params_attempts += 1
         if self._is_fitted:
             raise RuntimeError("You can't change params of fitted model. (sensor)")
@@ -47,6 +49,7 @@ class _FakeFittedBoosterRejectingSetParams:
         return self
 
     def fit(self, X, y, **kwargs):
+        """Fit."""
         self.fit_calls += 1
         self._is_fitted = True
         # Pretend best_iter improves only on RMSE refit.
@@ -57,6 +60,7 @@ class _FakeFittedBoosterRejectingSetParams:
         return self
 
     def predict(self, X):
+        """Predict."""
         return np.zeros(len(X) if hasattr(X, "__len__") else 0)
 
 

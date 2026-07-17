@@ -146,6 +146,7 @@ class TestTorchDataModuleInit:
         """Test initialization with read function."""
 
         def dummy_read_fcn(path):
+            """Dummy read fcn."""
             return sample_data["X_train"]
 
         dm = TorchDataModule(train_features="dummy_path", train_labels=sample_data["y_train"], read_fcn=dummy_read_fcn)
@@ -501,6 +502,7 @@ class TestTorchDataModuleFileLoading:
         mock_data = np.random.randn(50, 5)
 
         def mock_read_fcn(path):
+            """Mock read fcn."""
             return mock_data
 
         dm = TorchDataModule(train_features="path/to/train.csv", train_labels=np.random.randint(0, 2, 50), read_fcn=mock_read_fcn)

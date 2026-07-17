@@ -886,6 +886,7 @@ class TestValPlacementBackwardIntegration:
         iso = re.compile(r"(\d{4}-\d{2}-\d{2})/(\d{4}-\d{2}-\d{2})")
 
         def _parse(s):
+            """Parse."""
             m = iso.search(s)
             assert m, f"couldn't parse date range from {s!r}"
             return _dt.date.fromisoformat(m.group(1)), _dt.date.fromisoformat(m.group(2))
@@ -951,6 +952,7 @@ class TestValPlacementBackwardIntegration:
         iso = re.compile(r"(\d{4}-\d{2}-\d{2})/(\d{4}-\d{2}-\d{2})")
 
         def _parse(s):
+            """Parse."""
             m = iso.search(s)
             return _dt.date.fromisoformat(m.group(1)), _dt.date.fromisoformat(m.group(2))
 
@@ -1236,6 +1238,7 @@ class TestTrainMlframeModelsSuiteUseGroups:
         from mlframe.training.core import _phase_helpers_fit_split as _ph_fs_mod
 
         def _fake_split(df, **kwargs):
+            """Fake split."""
             captured["groups"] = kwargs.get("groups")
             n = len(df)
             n_test = max(1, n // 5)

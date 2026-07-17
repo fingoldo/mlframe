@@ -42,6 +42,7 @@ def _run_gate(delta: float, *, min_effect: float, n: int = 200_000):
 
 
 def test_negligible_slope_drift_high_z_is_kept_with_effect_floor():
+    """Negligible slope drift high z is kept with effect floor."""
     kept, flags = _run_gate(delta=0.004, min_effect=0.01)
     assert flags["lr-b"]["z_score"] > 3.0, "negligible drift should still trip the z-test at this n"
     assert flags["lr-b"]["effect_size"] < 0.01, "but its effect size must be below the floor"
@@ -49,6 +50,7 @@ def test_negligible_slope_drift_high_z_is_kept_with_effect_floor():
 
 
 def test_large_slope_drift_is_still_dropped():
+    """Large slope drift is still dropped."""
     kept, flags = _run_gate(delta=0.6, min_effect=0.01)
     assert flags["lr-b"]["z_score"] > 3.0 and flags["lr-b"]["effect_size"] >= 0.01
     assert kept == [], "a practically-meaningful slope drift must still be dropped"
@@ -56,5 +58,6 @@ def test_large_slope_drift_is_still_dropped():
 
 def test_legacy_z_only_behaviour_when_floor_zero():
     # min_effect=0 reproduces the pre-fix z-only gate: the negligible-drift spec is dropped.
+    """Legacy z only behaviour when floor zero."""
     kept, _ = _run_gate(delta=0.004, min_effect=0.0)
     assert kept == [], "with the floor disabled the z-only gate drops even negligible drift (legacy)"

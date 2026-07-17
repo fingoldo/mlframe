@@ -16,6 +16,7 @@ from mlframe.training.composite.cv import (
 # Unit tests
 # --------------------------------------------------------------------------- #
 def test_n_splits_respected():
+    """N splits respected."""
     cv = PurgedTimeSeriesSplit(n_splits=4)
     folds = list(cv.split(n_samples=100))
     assert len(folds) == 4
@@ -36,6 +37,7 @@ def test_forward_only_order():
 
 
 def test_no_overlap_plain():
+    """No overlap plain."""
     cv = PurgedTimeSeriesSplit(n_splits=5)
     for train_idx, test_idx in cv.split(n_samples=200):
         assert len(np.intersect1d(train_idx, test_idx)) == 0
@@ -65,6 +67,7 @@ def test_embargo_removes_right_count():
 
 
 def test_fractional_embargo():
+    """Fractional embargo."""
     n = 1000
     cv = PurgedTimeSeriesSplit(n_splits=3, purge=0, embargo=0.05)  # 50 rows
     for train_idx, test_idx in cv.split(n_samples=n):
@@ -73,6 +76,7 @@ def test_fractional_embargo():
 
 
 def test_max_train_size_rolling_window():
+    """Max train size rolling window."""
     cv = PurgedTimeSeriesSplit(n_splits=4, max_train_size=30)
     for train_idx, _ in cv.split(n_samples=300):
         assert train_idx.size <= 30
@@ -82,6 +86,7 @@ def test_split_reads_frame_shape_no_copy():
     """split() reads only len/shape, never materialises the frame."""
 
     class _FakeFrame:
+        """Groups tests covering fake frame."""
         shape = (150, 4)
 
         def __len__(self):  # pragma: no cover - shape preferred
@@ -93,6 +98,7 @@ def test_split_reads_frame_shape_no_copy():
 
 
 def test_invalid_params_raise():
+    """Invalid params raise."""
     with pytest.raises(ValueError):
         PurgedTimeSeriesSplit(n_splits=1)
     with pytest.raises(ValueError):
@@ -104,12 +110,14 @@ def test_invalid_params_raise():
 
 
 def test_make_purged_cv_factory():
+    """Make purged cv factory."""
     cv = make_purged_cv(n_splits=3, purge=2, embargo=5)
     assert isinstance(cv, PurgedTimeSeriesSplit)
     assert cv.purge == 2 and cv.embargo == 5 and cv.get_n_splits() == 3
 
 
 def test_purged_oof_holdout_no_overlap_and_gap():
+    """Purged oof holdout no overlap and gap."""
     tr, ho = purged_oof_holdout(1000, holdout_frac=0.2, purge=5, embargo=15)
     assert len(np.intersect1d(tr, ho)) == 0
     assert ho.size == 200
@@ -122,6 +130,7 @@ def test_purged_oof_holdout_no_overlap_and_gap():
 
 
 def test_purged_oof_holdout_bad_args():
+    """Purged oof holdout bad args."""
     with pytest.raises(ValueError):
         purged_oof_holdout(1, holdout_frac=0.2)
     with pytest.raises(ValueError):

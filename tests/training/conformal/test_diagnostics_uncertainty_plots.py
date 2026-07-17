@@ -37,6 +37,7 @@ def _annotation_texts(fig: Figure) -> str:
 
 
 def test_reliability_diagram_from_report_has_axes_and_ece():
+    """Reliability diagram from report has axes and ece."""
     report = {
         "bin_confidence": np.array([0.55, 0.85]),
         "bin_accuracy": np.array([0.50, 0.90]),
@@ -56,6 +57,7 @@ def test_reliability_diagram_from_raw_matches_hand_computed_ece():
     # land in bin1 [0.5,1.0)... build so binning is unambiguous and ECE checkable.
     # bin edges for n_bins=2: [0,0.5,1.0]. conf 0.6 -> bin1, conf 0.9 -> bin1.
     # Use n_bins=10 to spread: conf 0.6 -> bin5, 0.9 -> bin8.
+    """Reliability diagram from raw matches hand computed ece."""
     proba = np.array(
         [
             [0.4, 0.6],  # pred class1, conf 0.6
@@ -72,12 +74,14 @@ def test_reliability_diagram_from_raw_matches_hand_computed_ece():
 
 
 def test_reliability_diagram_requires_inputs():
+    """Reliability diagram requires inputs."""
     with pytest.raises(ValueError):
         plot_reliability_diagram()
 
 
 def test_interval_coverage_annotation_matches_hand_value():
     # 5 rows. Intervals cover rows where lower<=y<=upper.
+    """Interval coverage annotation matches hand value."""
     y_true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     lower = np.array([0.0, 1.5, 5.0, 3.5, 4.0])  # row2 (y=3) NOT in [5,6]
     upper = np.array([2.0, 2.5, 6.0, 4.5, 6.0])
@@ -93,11 +97,13 @@ def test_interval_coverage_annotation_matches_hand_value():
 
 
 def test_interval_coverage_shape_mismatch_raises():
+    """Interval coverage shape mismatch raises."""
     with pytest.raises(ValueError):
         plot_interval_coverage(np.zeros(5), np.zeros(4), np.zeros(5))
 
 
 def test_interval_width_vs_x_constant_vs_adaptive():
+    """Interval width vs x constant vs adaptive."""
     np.random.default_rng(0)
     x = np.linspace(0, 10, 400)
     # Constant (split-like) band: width near-zero CV.
@@ -113,6 +119,7 @@ def test_interval_width_vs_x_constant_vs_adaptive():
 
 
 def test_interval_width_vs_x_subsamples_large_input():
+    """Interval width vs x subsamples large input."""
     n = 50_000
     rng = np.random.default_rng(1)
     x = rng.normal(size=n)
@@ -124,6 +131,7 @@ def test_interval_width_vs_x_subsamples_large_input():
 
 
 def test_all_builders_return_distinct_figures():
+    """All builders return distinct figures."""
     report = {
         "bin_confidence": np.array([0.6]),
         "bin_accuracy": np.array([0.6]),

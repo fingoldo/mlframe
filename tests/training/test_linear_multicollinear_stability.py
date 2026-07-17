@@ -61,11 +61,14 @@ def _make_multicollinear_data(
 
 
 def _config() -> LinearModelConfig:
+    """Config."""
     return LinearModelConfig()
 
 
 class TestMulticollinearStability:
+    """Groups tests covering multicollinear stability."""
     def test_coefficients_stay_bounded(self) -> None:
+        """Coefficients stay bounded."""
         X_train, y_train, _, _ = _make_multicollinear_data()
         model = create_linear_model("linear", _config(), use_regression=True)
         model.fit(X_train, y_train)
@@ -76,6 +79,7 @@ class TestMulticollinearStability:
         assert max_coef < 100.0 * feat_std_max, f"Coefficient blow-up: max |coef|={max_coef:.2f} vs feature std max={feat_std_max:.2f}"
 
     def test_test_mae_within_5x_train_mae(self) -> None:
+        """Test mae within 5x train mae."""
         X_train, y_train, X_test, y_test = _make_multicollinear_data()
         model = create_linear_model("linear", _config(), use_regression=True)
         model.fit(X_train, y_train)

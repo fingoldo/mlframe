@@ -94,6 +94,7 @@ def _base_params(network_params_override: dict, scale_y: bool = False) -> dict:
 
 
 def _fit_and_score(params: dict, X_tr, y_tr, X_te, y_te, seed: int = 0) -> float:
+    """Fit and score."""
     torch.manual_seed(seed)
     np.random.seed(seed)
     reg = PytorchLightningRegressor(**params)

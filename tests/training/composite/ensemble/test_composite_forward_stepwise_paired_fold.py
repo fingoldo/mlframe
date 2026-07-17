@@ -31,6 +31,7 @@ def _concentrated_signal_frame(seed: int, neutral_noise: float = 0.3):
 
 
 class TestM13PairedFoldGate:
+    """Groups tests covering m13 paired fold gate."""
     def test_paired_gate_rejects_minority_win_base_that_point_estimate_accepts(self) -> None:
         """The concentrated-signal base clears the aggregate gain gate (legacy accepts it) but wins only a MINORITY of folds, so the paired gate (default ON) rejects it."""
         splitter = KFold(n_splits=5, shuffle=False)
@@ -141,6 +142,7 @@ class TestM13PairedFoldGate:
 
 
 class TestM13OptOut:
+    """Groups tests covering m13 opt out."""
     def test_opt_out_recovers_legacy_acceptance(self) -> None:
         """``paired_fold_selection=False`` restores the point-estimate-only behaviour (accepts the concentrated-signal base)."""
         splitter = KFold(n_splits=5, shuffle=False)
@@ -196,6 +198,7 @@ class TestA20BufferBitIdentity:
 
     @pytest.mark.parametrize("seed", [0, 1, 2])
     def test_buffer_path_matches_reference_column_stack(self, seed: int) -> None:
+        """Buffer path matches reference column stack."""
         rng = np.random.default_rng(seed)
         n = 1200
         cands = {f"b{i}": rng.normal(size=n) for i in range(8)}

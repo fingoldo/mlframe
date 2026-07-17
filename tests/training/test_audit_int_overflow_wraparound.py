@@ -45,6 +45,7 @@ MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
 def _read(rel: str) -> str:
+    """Read."""
     _path = MLFRAME_ROOT / rel
     if not _path.exists() and _path.suffix == ".py":
         # Monolith-split compat: the flat module became a subpackage
@@ -83,6 +84,7 @@ def test_categorize_dataset_auto_promotes_high_cardinality() -> None:
 
 
 def test_categorize_1d_array_auto_promotes_high_cardinality() -> None:
+    """Categorize 1d array auto promotes high cardinality."""
     import pandas as pd
     from mlframe.feature_selection.filters.discretization import categorize_1d_array
 
@@ -131,6 +133,7 @@ def test_chatgpt_mutual_information_rejects_out_of_range_bins() -> None:
 
 
 def test_create_robustness_standard_bins_widens_dtype_when_needed() -> None:
+    """Create robustness standard bins widens dtype when needed."""
     from mlframe.metrics.core import create_robustness_standard_bins
 
     # cont_nbins exceeding int8 range (>127) must use int16; the int8 max bins
@@ -151,6 +154,7 @@ def test_create_robustness_standard_bins_widens_dtype_when_needed() -> None:
 
 
 def test_categorize_dataset_no_longer_silent_truncate() -> None:
+    """Categorize dataset no longer silent truncate."""
     src = _read("feature_selection/filters/discretization.py")
     assert "auto-promoting" in src.lower(), "categorize_dataset must auto-promote dtype, not silently log-and-truncate."
     # The standalone unconditional astype(dtype) AFTER the warning must be gone.
@@ -158,11 +162,13 @@ def test_categorize_dataset_no_longer_silent_truncate() -> None:
 
 
 def test_recurrent_classifier_no_hardcoded_int8_argmax() -> None:
+    """Recurrent classifier no hardcoded int8 argmax."""
     src = _read("training/neural/recurrent.py")
     assert "proba.argmax(axis=1).astype(np.int8)" not in src, "Recurrent classifier must not unconditionally cast argmax to int8."
 
 
 def test_mi_int8_cast_has_range_validation() -> None:
+    """Mi int8 cast has range validation."""
     src = _read("feature_selection/mi.py")
     assert "bin codes must be in [0, 127]" in src, "mi.py: chatgpt_compute_mutual_information must validate input range before int8 cast."
 
@@ -170,6 +176,7 @@ def test_mi_int8_cast_has_range_validation() -> None:
 def test_robustness_bins_uses_range_aware_dtype() -> None:
     # ``create_robustness_standard_bins`` was moved to ``_fairness_metrics.py``
     # when ``metrics/core.py`` was split into siblings.
+    """Robustness bins uses range aware dtype."""
     src = _read("metrics/_fairness_metrics.py")
     # The fix introduces a 3-way dispatch on cont_nbins width.
     assert "_bin_dtype = np.int8" in src and "_bin_dtype = np.int16" in src, (

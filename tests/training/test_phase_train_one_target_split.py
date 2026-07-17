@@ -10,6 +10,7 @@ from mlframe.training.core import _phase_train_one_target_dataset_cache as dc
 
 
 def test_w12b_phase_train_one_target_identity_preserved():
+    """W12b phase train one target identity preserved."""
     assert parent._DATASET_REUSE_CACHE_ATTRS is dc._DATASET_REUSE_CACHE_ATTRS
     assert parent._forward_dataset_reuse_cache is dc._forward_dataset_reuse_cache
     assert parent._release_ctx_polars_frames is dc._release_ctx_polars_frames
@@ -19,12 +20,14 @@ def test_w12b_phase_train_one_target_identity_preserved():
 
 
 def test_w12b_phase_train_one_target_facade_under_budget():
+    """W12b phase train one target facade under budget."""
     facade_loc = sum(1 for _ in Path(parent.__file__).open(encoding="utf-8"))
     assert facade_loc < 750, f"_phase_train_one_target.py LOC={facade_loc} exceeds 750 budget"
 
 
 def test_w12b_phase_train_one_target_dataset_cache_smoke():
     # ctx-shaped object whose artifacts is a fresh empty dict.
+    """W12b phase train one target dataset cache smoke."""
     ctx = SimpleNamespace(artifacts={})
     cache = parent._ensure_dataset_reuse_cache(ctx)
     assert cache == {}
@@ -33,6 +36,7 @@ def test_w12b_phase_train_one_target_dataset_cache_smoke():
 
     # capture / restore round-trip
     class _Tmpl:
+        """Groups tests covering tmpl."""
         _cached_train_dmatrix = "sentinel"
         _cached_train_key = "k1"
 
@@ -45,6 +49,7 @@ def test_w12b_phase_train_one_target_dataset_cache_smoke():
 
 
 def test_w12b_phase_train_one_target_forward_cache_skip_none():
+    """W12b phase train one target forward cache skip none."""
     src = type("S", (), {"_cached_train_dmatrix": "x", "_cached_val_dmatrix": None})()
     dst = type("D", (), {})()
     parent._forward_dataset_reuse_cache(src, dst, skip_none=True)

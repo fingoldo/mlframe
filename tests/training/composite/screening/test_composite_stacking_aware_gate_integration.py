@@ -20,6 +20,7 @@ from mlframe.training.composite.ensemble.stacking import stacking_aware_gate
 
 
 def _build_payload(noise_on_garbage: float, n: int = 500, seed: int = 0):
+    """Build payload."""
     rng = np.random.default_rng(seed)
     # Three signal predictors + one garbage predictor.
     base = rng.normal(loc=10.0, scale=2.0, size=n)
@@ -34,7 +35,9 @@ def _build_payload(noise_on_garbage: float, n: int = 500, seed: int = 0):
 
 
 class TestStackingAwareGateContract:
+    """Groups tests covering stacking aware gate contract."""
     def test_drops_garbage_predictor(self) -> None:
+        """Drops garbage predictor."""
         preds, y = _build_payload(noise_on_garbage=1.0)
         survivors, _weights = stacking_aware_gate(preds, y, min_weight=0.05)
         assert "p_garbage" not in survivors
@@ -51,6 +54,7 @@ class TestStackingAwareGateContract:
 
 
 class TestEnsembleBuildWiring:
+    """Groups tests covering ensemble build wiring."""
     def test_config_flag_exists_and_defaults_off(self) -> None:
         """``stacking_aware_gate_enabled`` must be wired into the
         CompositeTargetDiscoveryConfig with a False default so existing
@@ -64,6 +68,7 @@ class TestEnsembleBuildWiring:
         assert 0.0 < cfg.stacking_aware_gate_min_weight < 1.0
 
     def test_composite_feature_stacking_flag_exists(self) -> None:
+        """Composite feature stacking flag exists."""
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         cfg = CompositeTargetDiscoveryConfig()
@@ -91,6 +96,7 @@ class TestGateFiresOnLowImprovement:
     component adds nothing the others can't recover."""
 
     def test_near_redundant_component_dropped_at_high_threshold(self) -> None:
+        """Near redundant component dropped at high threshold."""
         rng = np.random.default_rng(42)
         n = 600
         base = rng.normal(size=n)

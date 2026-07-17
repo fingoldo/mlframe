@@ -19,6 +19,7 @@ from mlframe.training.composite import PseudoLabelingLoop
 
 
 def _make_dataset(n: int, seed: int, d: int = 6):
+    """Make dataset."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, d))
     w = np.zeros(d)
@@ -30,6 +31,7 @@ def _make_dataset(n: int, seed: int, d: int = 6):
 
 
 def test_biz_val_pseudo_labeling_loop_beats_labeled_only_baseline_mean_auc():
+    """Biz val pseudo labeling loop beats labeled only baseline mean auc."""
     aucs_base = []
     aucs_pl = []
     for seed in range(10):
@@ -59,6 +61,7 @@ def test_biz_val_pseudo_labeling_loop_beats_labeled_only_baseline_mean_auc():
 
 
 def test_pseudo_labeling_loop_confidence_filtering_rejects_low_confidence_rows():
+    """Pseudo labeling loop confidence filtering rejects low confidence rows."""
     X_labeled, y_labeled = _make_dataset(40, 1)
     X_unlabeled, _ = _make_dataset(500, 2)
     loop = PseudoLabelingLoop(
@@ -177,6 +180,7 @@ def test_pseudo_labeling_loop_default_static_threshold_bit_identical_without_new
     X_unlabeled, _ = _make_dataset(300, 2)
 
     def _factory():
+        """Factory."""
         return DecisionTreeClassifier(max_depth=4, random_state=0)
 
     old_style = PseudoLabelingLoop(
@@ -206,6 +210,7 @@ def test_pseudo_labeling_loop_default_static_threshold_bit_identical_without_new
 
 
 def test_pseudo_labeling_loop_regression_task_end_to_end():
+    """Pseudo labeling loop regression task end to end."""
     rng = np.random.default_rng(0)
     X_labeled = pd.DataFrame(rng.normal(size=(30, 3)), columns=["a", "b", "c"])
     y_labeled = X_labeled["a"].to_numpy() * 2 + rng.normal(scale=0.3, size=30)

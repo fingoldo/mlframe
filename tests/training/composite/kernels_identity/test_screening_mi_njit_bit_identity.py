@@ -35,6 +35,7 @@ def _warm_njit() -> None:
 
 
 def _codes(rng: np.random.Generator, n: int, nbins: int) -> np.ndarray:
+    """Codes."""
     dtype = np.int16 if nbins < 182 else np.int32
     return rng.integers(0, nbins, n).astype(dtype)
 
@@ -43,6 +44,7 @@ def _codes(rng: np.random.Generator, n: int, nbins: int) -> np.ndarray:
 @pytest.mark.parametrize("nbins", [8, 16, 32, 64, 181, 182, 200])
 @pytest.mark.parametrize("seed", [0, 1, 7])
 def test_njit_bit_identical_random(nbins: int, seed: int) -> None:
+    """Njit bit identical random."""
     rng = np.random.default_rng(seed)
     n = 20_000
     x = _codes(rng, n, nbins)
@@ -54,6 +56,7 @@ def test_njit_bit_identical_random(nbins: int, seed: int) -> None:
 
 @pytest.mark.skipif(not _HAS_NUMBA, reason="numba unavailable")
 def test_njit_bit_identical_tied_and_low_card() -> None:
+    """Njit bit identical tied and low card."""
     nbins = 16
     # All-constant codes -> MI exactly 0.0 on both paths.
     x0 = np.zeros(1000, dtype=np.int16)
@@ -73,6 +76,7 @@ def test_njit_bit_identical_tied_and_low_card() -> None:
 
 @pytest.mark.skipif(not _HAS_NUMBA, reason="numba unavailable")
 def test_njit_handles_empty_and_single_row() -> None:
+    """Njit handles empty and single row."""
     nbins = 16
     empty = np.empty(0, dtype=np.int16)
     assert _mi_from_binned_pair(empty, empty, nbins=nbins) == 0.0
@@ -116,6 +120,7 @@ def test_wrapper_does_not_copy_strided_input() -> None:
     orig = np.ascontiguousarray
 
     def _spy(a, *args, **kw):
+        """Spy."""
         calls["n"] += 1
         return orig(a, *args, **kw)
 
@@ -140,6 +145,7 @@ def test_njit_perf_sentinel_not_slower_than_numpy() -> None:
     y = _codes(rng, n, nbins)
 
     def _wall(fn, repeats: int = 1500) -> float:
+        """Wall."""
         fn()
         samples = []
         for _ in range(7):

@@ -107,6 +107,7 @@ class TestBorda:
     """Borda count -- per-query rank averaging, lower=better, output negated."""
 
     def test_aligned_models_preserve_top_doc(self, three_aligned_models):
+        """Aligned models preserve top doc."""
         scores_per_model, gids = three_aligned_models
         out = ensemble_ranker_scores(scores_per_model, gids, method="borda")
         for q in np.unique(gids):
@@ -143,11 +144,13 @@ class TestScoreMean:
     """
 
     def test_score_mean_without_flag_raises(self, three_aligned_models):
+        """Score mean without flag raises."""
         scores_per_model, gids = three_aligned_models
         with pytest.raises(ValueError, match="assume_comparable_scales"):
             ensemble_ranker_scores(scores_per_model, gids, method="score_mean")
 
     def test_score_mean_with_flag_returns_arithmetic_mean(self, three_aligned_models):
+        """Score mean with flag returns arithmetic mean."""
         scores_per_model, gids = three_aligned_models
         out = ensemble_ranker_scores(
             scores_per_model,
@@ -163,10 +166,12 @@ class TestValidation:
     """Input shape validation."""
 
     def test_empty_models_raises(self):
+        """Empty models raises."""
         with pytest.raises(ValueError, match="empty"):
             ensemble_ranker_scores([], np.array([0, 0]), method="rrf")
 
     def test_score_length_mismatch_raises(self):
+        """Score length mismatch raises."""
         with pytest.raises(ValueError, match="length mismatch"):
             ensemble_ranker_scores(
                 [np.array([1.0, 2.0]), np.array([1.0, 2.0, 3.0])],
@@ -175,6 +180,7 @@ class TestValidation:
             )
 
     def test_groups_length_mismatch_raises(self):
+        """Groups length mismatch raises."""
         with pytest.raises(ValueError, match="length"):
             ensemble_ranker_scores(
                 [np.array([1.0, 2.0])],
@@ -183,6 +189,7 @@ class TestValidation:
             )
 
     def test_unknown_method_raises(self, three_aligned_models):
+        """Unknown method raises."""
         scores_per_model, gids = three_aligned_models
         with pytest.raises(ValueError, match="unknown ensemble method"):
             ensemble_ranker_scores(scores_per_model, gids, method="bayes_voting")

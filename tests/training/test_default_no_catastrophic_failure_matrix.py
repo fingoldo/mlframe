@@ -119,6 +119,7 @@ def _make_dgp_noisy(n: int = 1500, n_features: int = 5, seed: int = 3) -> tuple:
 
 
 def _split(X: np.ndarray, y: np.ndarray) -> tuple:
+    """Split."""
     n = X.shape[0]
     cut = int(0.7 * n)
     return X[:cut], y[:cut], X[cut:], y[cut:]
@@ -133,6 +134,7 @@ DGPS = {
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Rmse."""
     return float(np.sqrt(np.mean((np.asarray(y_pred).reshape(-1) - y_true) ** 2)))
 
 
@@ -142,6 +144,7 @@ def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 def _factory_linear():
+    """Factory linear."""
     from sklearn.linear_model import LinearRegression
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
@@ -150,6 +153,7 @@ def _factory_linear():
 
 
 def _factory_cb():
+    """Factory cb."""
     cb = pytest.importorskip("catboost")
     return cb.CatBoostRegressor(
         iterations=100,
@@ -160,11 +164,13 @@ def _factory_cb():
 
 
 def _factory_xgb():
+    """Factory xgb."""
     xgb = pytest.importorskip("xgboost")
     return xgb.XGBRegressor(n_estimators=100, max_depth=4, verbosity=0)
 
 
 def _factory_lgb():
+    """Factory lgb."""
     lgb = pytest.importorskip("lightgbm")
     return lgb.LGBMRegressor(
         n_estimators=100,
@@ -273,6 +279,7 @@ def _factory_mlp():
         same scale (otherwise EarlyStop sees nonsense)."""
 
         def fit(self, X, y, **fit_params):
+            """Fit."""
             from sklearn.base import clone as _clone
 
             y_arr = np.asarray(y, dtype=np.float64)
@@ -299,6 +306,7 @@ _MODEL_FACTORIES = []
 
 
 def _register(name: str, factory: Callable):
+    """Register."""
     _MODEL_FACTORIES.append((name, factory))
 
 

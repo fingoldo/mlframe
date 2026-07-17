@@ -21,6 +21,7 @@ from mlframe.models.ensembling import (
 
 
 def _make_preds(M=6, N=500, K=3, seed=0):
+    """Make preds."""
     rng = np.random.default_rng(seed)
     return [rng.uniform(0.01, 0.99, size=(N, K)) for _ in range(M)]
 
@@ -32,6 +33,7 @@ def _make_preds(M=6, N=500, K=3, seed=0):
 
 @pytest.mark.parametrize("method", ["arithm", "harm", "quad", "qube", "geo"])
 def test_streaming_matches_materialised(method):
+    """Streaming matches materialised."""
     preds = _make_preds(M=6, N=500, K=3)
     mat, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method=method, verbose=False)
     str_, _, _ = ensemble_probabilistic_predictions_streaming(*preds, ensemble_method=method, verbose=False)
@@ -40,12 +42,14 @@ def test_streaming_matches_materialised(method):
 
 
 def test_streaming_median_raises():
+    """Streaming median raises."""
     preds = _make_preds()
     with pytest.raises(NotImplementedError, match="median"):
         ensemble_probabilistic_predictions_streaming(*preds, ensemble_method="median")
 
 
 def test_streaming_outlier_filter_warn(caplog):
+    """Streaming outlier filter warn."""
     import logging
 
     preds = _make_preds(M=6)
@@ -57,6 +61,7 @@ def test_streaming_outlier_filter_warn(caplog):
 def test_streaming_empty_preds_raises():
     # API27: empty member set is a caller error -- raise a clear ValueError at the source instead of returning
     # (None, None, None) which previously surfaced as a NoneType failure far from the cause.
+    """Streaming empty preds raises."""
     with pytest.raises(ValueError, match="no non-None member predictions"):
         ensemble_probabilistic_predictions_streaming(ensemble_method="arithm", verbose=False)
 
@@ -76,6 +81,7 @@ def test_streaming_1d_input_preserved():
 
 
 def test_welford_vs_numpy_mean_std():
+    """Welford vs numpy mean std."""
     preds = _make_preds(M=10, N=300, K=5)
     acc = _WelfordAccumulator(shape=(300, 5))
     for p in preds:
@@ -87,6 +93,7 @@ def test_welford_vs_numpy_mean_std():
 
 
 def test_welford_combine_exact_merge():
+    """Welford combine exact merge."""
     preds = _make_preds(M=8)
     shape = preds[0].shape
     a = _WelfordAccumulator(shape=shape)
@@ -108,12 +115,14 @@ def test_welford_combine_exact_merge():
 
 
 def test_welford_shape_mismatch_raises():
+    """Welford shape mismatch raises."""
     acc = _WelfordAccumulator(shape=(100, 3))
     with pytest.raises(ValueError, match="expected shape"):
         acc.push(np.zeros((100, 5)))
 
 
 def test_welford_empty_accumulator():
+    """Welford empty accumulator."""
     acc = _WelfordAccumulator(shape=(10, 3))
     result = acc.result()
     assert result["mean"] is None

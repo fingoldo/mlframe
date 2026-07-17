@@ -41,6 +41,7 @@ from mlframe.training.strategies import (
 
 
 def test_target_types_is_classification_predicates():
+    """Target types is classification predicates."""
     assert TargetTypes.REGRESSION.is_regression is True
     assert TargetTypes.REGRESSION.is_classification is False
     assert TargetTypes.BINARY_CLASSIFICATION.is_classification is True
@@ -72,12 +73,14 @@ def test_target_types_mutual_exclusion():
 
 
 def test_canonical_passthrough_NK():
+    """Canonical passthrough n k."""
     arr = np.array([[0.1, 0.7, 0.2], [0.5, 0.3, 0.2]])
     out = _canonical_predict_proba_shape(arr)
     np.testing.assert_array_equal(out, arr)
 
 
 def test_canonical_1d_sigmoid_to_NK():
+    """Canonical 1d sigmoid to n k."""
     arr = np.array([0.7, 0.3, 0.5])
     out = _canonical_predict_proba_shape(arr)
     assert out.shape == (3, 2)
@@ -117,30 +120,35 @@ def test_canonical_constant_label_column_emits_zeros():
 
 
 def test_predict_from_probs_binary():
+    """Predict from probs binary."""
     probs = np.array([[0.3, 0.7], [0.6, 0.4]])
     out = _predict_from_probs(probs, TargetTypes.BINARY_CLASSIFICATION)
     np.testing.assert_array_equal(out, [1, 0])
 
 
 def test_predict_from_probs_binary_with_classes():
+    """Predict from probs binary with classes."""
     probs = np.array([[0.3, 0.7], [0.6, 0.4]])
     out = _predict_from_probs(probs, TargetTypes.BINARY_CLASSIFICATION, classes_=np.array(["neg", "pos"]))
     np.testing.assert_array_equal(out, ["pos", "neg"])
 
 
 def test_predict_from_probs_multiclass_argmax():
+    """Predict from probs multiclass argmax."""
     probs = np.array([[0.1, 0.7, 0.2], [0.5, 0.3, 0.2]])
     out = _predict_from_probs(probs, TargetTypes.MULTICLASS_CLASSIFICATION)
     np.testing.assert_array_equal(out, [1, 0])
 
 
 def test_predict_from_probs_multilabel_scalar_threshold():
+    """Predict from probs multilabel scalar threshold."""
     probs = np.array([[0.6, 0.3, 0.7]])
     out = _predict_from_probs(probs, TargetTypes.MULTILABEL_CLASSIFICATION, threshold=0.5)
     np.testing.assert_array_equal(out, [[1, 0, 1]])
 
 
 def test_predict_from_probs_multilabel_per_label_threshold():
+    """Predict from probs multilabel per label threshold."""
     probs = np.array([[0.6, 0.3, 0.7]])
     out = _predict_from_probs(
         probs,
@@ -158,6 +166,7 @@ def test_predict_from_probs_multilabel_nan_safe():
 
 
 def test_predict_from_probs_regression_raises():
+    """Predict from probs regression raises."""
     probs = np.array([[0.5, 0.5]])
     with pytest.raises(ValueError, match="not a classification"):
         _predict_from_probs(probs, TargetTypes.REGRESSION)
@@ -179,6 +188,7 @@ def test_predict_from_probs_regression_raises():
     ],
 )
 def test_classif_kwargs_binary(flavor, expected):
+    """Classif kwargs binary."""
     assert _classif_objective_kwargs(flavor, TargetTypes.BINARY_CLASSIFICATION, n_classes=2) == expected
 
 
@@ -195,6 +205,7 @@ def test_classif_kwargs_binary(flavor, expected):
     ],
 )
 def test_classif_kwargs_multiclass(flavor, expected_keys):
+    """Classif kwargs multiclass."""
     out = _classif_objective_kwargs(flavor, TargetTypes.MULTICLASS_CLASSIFICATION, n_classes=5)
     assert set(out.keys()) == expected_keys
     if "num_class" in expected_keys:
@@ -202,6 +213,7 @@ def test_classif_kwargs_multiclass(flavor, expected_keys):
 
 
 def test_classif_kwargs_multilabel_cb_native_others_empty():
+    """Classif kwargs multilabel cb native others empty."""
     assert _classif_objective_kwargs("catboost", TargetTypes.MULTILABEL_CLASSIFICATION, n_classes=3) == {"loss_function": "MultiLogloss"}
     for flavor in ("xgboost", "lightgbm", "hgb", "linear"):
         assert _classif_objective_kwargs(flavor, TargetTypes.MULTILABEL_CLASSIFICATION, n_classes=3) == {}
@@ -223,12 +235,14 @@ def test_classif_kwargs_multilabel_cb_native_others_empty():
     ],
 )
 def test_strategy_native_flags(strategy_cls, native_mc, native_ml):
+    """Strategy native flags."""
     s = strategy_cls()
     assert s.supports_native_multiclass is native_mc
     assert s.supports_native_multilabel is native_ml
 
 
 def test_strategy_get_classif_objective_kwargs_dispatches():
+    """Strategy get classif objective kwargs dispatches."""
     s = CatBoostStrategy()
     out = s.get_classif_objective_kwargs(TargetTypes.MULTICLASS_CLASSIFICATION, n_classes=5)
     assert out == {"loss_function": "MultiClass"}
@@ -250,6 +264,7 @@ def test_get_training_configs_binary_default_unchanged():
 
 
 def test_get_training_configs_multiclass_injects_objectives():
+    """Get training configs multiclass injects objectives."""
     c = get_training_configs(
         iterations=10,
         early_stopping_rounds=2,
@@ -264,6 +279,7 @@ def test_get_training_configs_multiclass_injects_objectives():
 
 
 def test_get_training_configs_multilabel_cb_only_native():
+    """Get training configs multilabel cb only native."""
     c = get_training_configs(
         iterations=10,
         early_stopping_rounds=2,
@@ -283,6 +299,7 @@ def test_get_training_configs_multilabel_cb_only_native():
 
 
 def test_compute_chain_orders_random():
+    """Compute chain orders random."""
     orders = _compute_chain_orders(n_labels=5, n_chains=3, seeds=[0, 1, 2])
     assert len(orders) == 3
     for o in orders:
@@ -303,6 +320,7 @@ def test_compute_chain_orders_by_frequency():
 
 
 def test_compute_chain_orders_user():
+    """Compute chain orders user."""
     user = [[0, 1, 2], [2, 1, 0]]
     orders = _compute_chain_orders(n_labels=3, n_chains=2, order_strategy="user", user_orders=user)
     assert orders[0].tolist() == [0, 1, 2]
@@ -310,6 +328,7 @@ def test_compute_chain_orders_user():
 
 
 def test_compute_chain_orders_by_frequency_requires_y():
+    """Compute chain orders by frequency requires y."""
     with pytest.raises(ValueError, match="requires y"):
         _compute_chain_orders(n_labels=3, n_chains=2, order_strategy="by_frequency")
 
@@ -320,6 +339,7 @@ def test_compute_chain_orders_by_frequency_requires_y():
 
 
 def test_multilabel_dispatch_config_defaults():
+    """Multilabel dispatch config defaults."""
     cfg = MultilabelDispatchConfig()
     assert cfg.strategy == "auto"
     assert cfg.n_chains == 3
@@ -328,6 +348,7 @@ def test_multilabel_dispatch_config_defaults():
 
 
 def test_ensembling_config_defaults():
+    """Ensembling config defaults."""
     cfg = EnsemblingConfig()
     assert cfg.force_legacy is False
     assert cfg.quantile_budget_bytes == 500 * 1024 * 1024

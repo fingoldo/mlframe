@@ -22,6 +22,7 @@ THIN_MODULES = [
 @pytest.mark.fast
 @pytest.mark.parametrize("module_name", THIN_MODULES)
 def test_module_importable(module_name: str) -> None:
+    """Module importable."""
     mod = importlib.import_module(module_name)
     assert mod is not None
     # Every loaded module exposes at least one public symbol.

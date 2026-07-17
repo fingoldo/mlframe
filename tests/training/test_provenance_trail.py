@@ -15,6 +15,7 @@ import numpy as np
 
 
 def test_record_provenance_basic():
+    """Record provenance basic."""
     from mlframe.training.provenance import record_provenance, get_provenance, VALID_SOURCES
 
     md: dict = {}
@@ -35,12 +36,14 @@ def test_record_provenance_basic():
 
 
 def test_record_provenance_none_metadata_is_noop():
+    """Record provenance none metadata is noop."""
     from mlframe.training.provenance import record_provenance
 
     record_provenance(None, "x", source="train")
 
 
 def test_record_provenance_unknown_source_still_records_with_warning(caplog):
+    """Record provenance unknown source still records with warning."""
     from mlframe.training.provenance import record_provenance, get_provenance
 
     md: dict = {}
@@ -51,6 +54,7 @@ def test_record_provenance_unknown_source_still_records_with_warning(caplog):
 
 
 def test_record_provenance_preserves_extra_fields():
+    """Record provenance preserves extra fields."""
     from mlframe.training.provenance import record_provenance, get_provenance
 
     md: dict = {}
@@ -62,6 +66,7 @@ def test_record_provenance_preserves_extra_fields():
 
 
 def test_format_provenance_table_renders():
+    """Format provenance table renders."""
     from mlframe.training.provenance import record_provenance, format_provenance_table
 
     md: dict = {}

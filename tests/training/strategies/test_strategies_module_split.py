@@ -11,6 +11,7 @@ from pathlib import Path
 
 
 def test_all_strategy_classes_still_importable_from_facade() -> None:
+    """All strategy classes still importable from facade."""
     from mlframe.training.strategies import (
         ModelPipelineStrategy,
         TreeModelStrategy,
@@ -37,6 +38,7 @@ def test_all_strategy_classes_still_importable_from_facade() -> None:
 
 
 def test_factory_and_cache_still_importable() -> None:
+    """Factory and cache still importable."""
     from mlframe.training.strategies import get_strategy, PipelineCache
 
     assert callable(get_strategy)
@@ -44,6 +46,7 @@ def test_factory_and_cache_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """Facade below 1k line threshold."""
     pkg = Path(__file__).resolve().parents[3] / "src" / "mlframe" / "training" / "strategies"
     facade = pkg / "__init__.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())

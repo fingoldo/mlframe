@@ -19,6 +19,7 @@ from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
 
 
 def _make_imbalanced_highcard(seed):
+    """Make imbalanced highcard."""
     rng = np.random.default_rng(seed * 100 + 7)
     n, K, base = 8000, 200, 0.01
     cat_logodds = rng.normal(np.log(base / (1 - base)), 1.3, size=K)
@@ -30,6 +31,7 @@ def _make_imbalanced_highcard(seed):
 
 
 def _woe_test_auc(alpha, seed):
+    """Woe test auc."""
     ctr, ytr, cte, yte = _make_imbalanced_highcard(seed)
     enc = LeakageSafeEncoder(method="woe", woe_smoothing=alpha, random_state=0)
     enc.fit(ctr, ytr)
@@ -66,6 +68,7 @@ def test_biz_val_woe_smoothing_default_matches_explicit_half():
 
 
 def test_woe_smoothing_negative_rejected():
+    """Woe smoothing negative rejected."""
     with pytest.raises(ValueError):
         LeakageSafeEncoder(method="woe", woe_smoothing=-1.0)
 

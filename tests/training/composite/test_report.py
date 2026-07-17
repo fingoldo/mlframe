@@ -23,6 +23,7 @@ from mlframe.training.composite.report import composite_report
 
 
 def _fit_linear_residual(n=400, seed=0):
+    """Fit linear residual."""
     rng = np.random.default_rng(seed)
     base = rng.normal(10.0, 2.0, n)
     f1 = rng.normal(0.0, 1.0, n)
@@ -39,6 +40,7 @@ def _fit_linear_residual(n=400, seed=0):
 
 
 def test_report_renders_all_sections_with_data():
+    """Report renders all sections with data."""
     est, X, _y = _fit_linear_residual()
     md = composite_report(est, X)
     assert isinstance(md, str) and md.strip()
@@ -59,6 +61,7 @@ def test_report_renders_all_sections_with_data():
 
 
 def test_report_no_data_renders_static_sections():
+    """Report no data renders static sections."""
     est, _, _ = _fit_linear_residual()
     md = composite_report(est, X=None)
     assert "## Provenance" in md
@@ -70,6 +73,7 @@ def test_report_no_data_renders_static_sections():
 
 
 def test_report_html_format():
+    """Report html format."""
     est, X, _ = _fit_linear_residual()
     h = composite_report(est, X, fmt="html")
     assert h.startswith("<div")
@@ -77,12 +81,14 @@ def test_report_html_format():
 
 
 def test_report_bad_fmt_raises():
+    """Report bad fmt raises."""
     est, _, _ = _fit_linear_residual()
     with pytest.raises(ValueError):
         composite_report(est, fmt="latex")
 
 
 def test_report_includes_conformal_coverage_when_y_given():
+    """Report includes conformal coverage when y given."""
     est, X, y = _fit_linear_residual()
     # Calibrate on the same data (smoke: coverage table renders).
     est.calibrate_conformal(X, y, alpha=0.1)

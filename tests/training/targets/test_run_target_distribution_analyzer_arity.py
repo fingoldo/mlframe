@@ -16,6 +16,7 @@ from __future__ import annotations
 
 
 def test_early_return_is_four_tuple_with_frames_passed_through():
+    """Early return is four tuple with frames passed through."""
     from mlframe.training.core._main_train_suite_target_distribution import (
         _run_target_distribution_analyzer,
     )

@@ -27,6 +27,7 @@ def test_unwrap_selector_returns_input_for_bare_selector():
     from mlframe.training.core._phase_train_one_target import _unwrap_selector
 
     class _Selector:
+        """Groups tests covering selector."""
         support_ = np.array([True, False])
 
     s = _Selector()
@@ -41,6 +42,7 @@ def test_unwrap_selector_returns_last_step_of_pipeline():
     from mlframe.training.core._phase_train_one_target import _unwrap_selector
 
     class _Selector:
+        """Groups tests covering selector."""
         support_ = np.array([True])
 
     sel = _Selector()
@@ -60,6 +62,7 @@ def test_selector_kind_classifies_mrmr():
     from mlframe.training.core._phase_train_one_target import _selector_kind
 
     class MRMR:
+        """Groups tests covering m r m r."""
         pass
 
     assert _selector_kind(MRMR()) == "MRMR"
@@ -70,9 +73,11 @@ def test_selector_kind_classifies_rfecv():
     from mlframe.training.core._phase_train_one_target import _selector_kind
 
     class RFECV:
+        """Groups tests covering r f e c v."""
         pass
 
     class CatBoostRFECV:
+        """Groups tests covering cat boost r f e c v."""
         pass
 
     assert _selector_kind(RFECV()) == "RFECV"
@@ -84,6 +89,7 @@ def test_selector_kind_classifies_boruta_shap():
     from mlframe.training.core._phase_train_one_target import _selector_kind
 
     class BorutaShap:
+        """Groups tests covering boruta shap."""
         pass
 
     assert _selector_kind(BorutaShap()) == "BorutaShap"
@@ -94,6 +100,7 @@ def test_selector_kind_returns_none_on_unknown():
     from mlframe.training.core._phase_train_one_target import _selector_kind
 
     class _Other:
+        """Groups tests covering other."""
         pass
 
     assert _selector_kind(_Other()) is None
@@ -105,11 +112,13 @@ def test_selector_params_hash_is_stable_across_calls():
     from mlframe.training.core._phase_train_one_target import _selector_params_hash
 
     class _S:
+        """Groups tests covering s."""
         def __init__(self, alpha=1, beta=2):
             self.alpha = alpha
             self.beta = beta
 
         def get_params(self, deep=False):
+            """Get params."""
             return {"alpha": self.alpha, "beta": self.beta}
 
     h1 = _selector_params_hash(_S(alpha=1, beta=2))
@@ -141,10 +150,12 @@ def test_build_report_for_mrmr_emits_reason_per_feature():
     from mlframe.training.core._phase_train_one_target import _build_feature_selection_report
 
     class MRMR:
+        """Groups tests covering m r m r."""
         feature_names_in_ = ["a", "b", "c", "d"]
         support_ = np.array([0, 2])  # indices into feature_names_in_
 
         def get_params(self, deep=False):
+            """Get params."""
             return {"k": 2}
 
     report = _build_feature_selection_report(
@@ -166,6 +177,7 @@ def test_build_report_for_rfecv_emits_scores_and_rank():
     from mlframe.training.core._phase_train_one_target import _build_feature_selection_report
 
     class RFECV:
+        """Groups tests covering r f e c v."""
         feature_names_in_ = ["a", "b", "c", "d"]
         n_features_ = 2
         # Two folds at the chosen size; mean gives the score.
@@ -177,6 +189,7 @@ def test_build_report_for_rfecv_emits_scores_and_rank():
         support_ = np.array([True, False, True, False])
 
         def get_params(self, deep=False):
+            """Get params."""
             return {"step": 0.5}
 
     report = _build_feature_selection_report(
@@ -199,6 +212,7 @@ def test_build_report_for_boruta_shap_emits_history_means_and_reasons():
     from mlframe.training.core._phase_train_one_target import _build_feature_selection_report
 
     class BorutaShap:
+        """Groups tests covering boruta shap."""
         all_columns = np.array(["a", "b", "c", "d"])
         history_x = pd.DataFrame(
             np.array(
@@ -215,6 +229,7 @@ def test_build_report_for_boruta_shap_emits_history_means_and_reasons():
         support_ = np.array([True, False, True, False])
 
         def get_params(self, deep=False):
+            """Get params."""
             return {"percentile": 100}
 
     report = _build_feature_selection_report(
@@ -240,6 +255,7 @@ def test_build_report_never_raises_on_malformed_selector():
     from mlframe.training.core._phase_train_one_target import _build_feature_selection_report
 
     class _Broken:
+        """Groups tests covering broken."""
         def __getattr__(self, name):
             raise RuntimeError("nope")
 

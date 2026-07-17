@@ -222,6 +222,7 @@ def test_c4_c5_c6_weighted_loss_normalises_by_weight_sum() -> None:
     from mlframe.training.neural.recurrent import RecurrentTorchModel
 
     class _Stub:
+        """Groups tests covering stub."""
         is_regression = True
         task_type = "regression"
         _loss_fn_unreduced = staticmethod(lambda preds, targets: (preds - targets) ** 2)
@@ -242,6 +243,7 @@ def test_c4_c5_c6_weighted_loss_normalises_by_weight_sum() -> None:
 
     # Multilabel branch.
     class _StubML:
+        """Groups tests covering stub m l."""
         is_regression = False
         task_type = "multilabel"
         _loss_fn_unreduced = staticmethod(lambda logits, labels_f: (logits - labels_f) ** 2)
@@ -258,6 +260,7 @@ def test_c4_c5_c6_weighted_loss_normalises_by_weight_sum() -> None:
 
     # Multiclass CE branch.
     class _StubCE:
+        """Groups tests covering stub c e."""
         is_regression = False
         task_type = "classification"
         _loss_fn_unreduced = staticmethod(lambda logits, labels: torch.ones(logits.shape[0]))
@@ -294,27 +297,33 @@ def test_c7_predict_uses_prediction_datamodule_when_set() -> None:
     from mlframe.training.neural.base import PytorchLightningEstimator
 
     class _RecordingDM:
+        """Groups tests covering recording d m."""
         def __init__(self):
             self.setup_predict_calls = []
             self.predict_dataloader_calls = 0
             self.batch_size = 64
 
         def setup_predict(self, X, batch_size=None):
+            """Setup predict."""
             self.setup_predict_calls.append({"X_shape": getattr(X, "shape", None), "batch_size": batch_size})
 
         def predict_dataloader(self):  # pragma: no cover - reached after the fix only
+            """Predict dataloader."""
             self.predict_dataloader_calls += 1
             return []
 
     class _FakeTrainer:
+        """Groups tests covering fake trainer."""
         def __init__(self):
             self.predict_calls = 0
 
         def predict(self, model, dataloaders=None):
+            """Predict."""
             self.predict_calls += 1
             return [np.zeros((0, 1), dtype=np.float32)]
 
         class _Acc:
+            """Groups tests covering acc."""
             def __init__(self):
                 self.__class__.__name__ = "CPUAccelerator"
 

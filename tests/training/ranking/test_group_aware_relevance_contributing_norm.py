@@ -14,6 +14,7 @@ from mlframe.training.ranking._ranker_fs import group_aware_relevance
 
 
 def test_padding_tiny_queries_does_not_shrink_relevance():
+    """Padding tiny queries does not shrink relevance."""
     rng = np.random.default_rng(0)
 
     # Two large queries (size 50 each) where feature 0 is perfectly relevant within-query.

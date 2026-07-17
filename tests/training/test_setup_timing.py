@@ -36,6 +36,7 @@ def _make_timing_helper(*, verbose: bool, env_value: str | None) -> tuple:
     log = logging.getLogger("mlframe.training.core._phase_config_setup")
 
     def _step_done(label: str) -> None:
+        """Step done."""
         if not _setup_timing_on or not verbose:
             return
         now = _time.perf_counter()

@@ -29,12 +29,15 @@ class _FitStub:
     specs_: list = []
 
     def export_specs(self):
+        """Export specs."""
         return []
 
     def report(self):
+        """Report."""
         return []
 
     def filter_drops(self):
+        """Filter drops."""
         return {}
 
 
@@ -57,6 +60,7 @@ def _run_capture_rerank_groups(*, split_config, group_ids, metadata_extra=None):
     captured = {}
 
     def _spy_fit(self, *a, **kw):
+        """Spy fit."""
         captured["rerank_groups"] = getattr(self, "_group_ids_for_rerank", None)
         return _FitStub()
 

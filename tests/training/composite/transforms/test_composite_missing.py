@@ -12,6 +12,7 @@ from mlframe.training.composite.missing import MissingAwareComposite
 
 
 def _make_composite() -> CompositeTargetEstimator:
+    """Make composite."""
     return CompositeTargetEstimator(
         base_estimator=LinearRegression(),
         transform_name="diff",
@@ -20,6 +21,7 @@ def _make_composite() -> CompositeTargetEstimator:
 
 
 def _frame(n: int, seed: int = 0):
+    """Frame."""
     rng = np.random.default_rng(seed)
     base = rng.normal(10.0, 3.0, size=n)
     feat = rng.normal(0.0, 1.0, size=n)
@@ -29,6 +31,7 @@ def _frame(n: int, seed: int = 0):
 
 
 def test_nan_base_yields_finite_predict():
+    """Nan base yields finite predict."""
     X, y = _frame(300)
     est = MissingAwareComposite(composite=_make_composite()).fit(X, y)
     X_pred = X.copy()
@@ -39,6 +42,7 @@ def test_nan_base_yields_finite_predict():
 
 
 def test_missing_indicator_learned_train_only():
+    """Missing indicator learned train only."""
     X, y = _frame(300, seed=1)
     # Inject MNAR missingness in TRAIN: high-y rows get NaN base.
     thr = np.quantile(y, 0.8)
@@ -57,6 +61,7 @@ def test_missing_indicator_learned_train_only():
 
 
 def test_all_missing_base_fallback():
+    """All missing base fallback."""
     X, y = _frame(200, seed=2)
     X_all_nan = X.copy()
     X_all_nan["base"] = np.nan
@@ -69,6 +74,7 @@ def test_all_missing_base_fallback():
 
 
 def test_too_many_missing_triggers_median_fallback():
+    """Too many missing triggers median fallback."""
     X, y = _frame(300, seed=5)
     X_train = X.copy()
     # 60% missing > default max_missing_frac=0.5 -> median fallback.
@@ -82,6 +88,7 @@ def test_too_many_missing_triggers_median_fallback():
 
 
 def test_no_missing_identical_to_plain_composite():
+    """No missing identical to plain composite."""
     X, y = _frame(300, seed=3)
     plain = _make_composite().fit(X, y)
     wrapped = MissingAwareComposite(composite=_make_composite()).fit(X, y)
@@ -91,6 +98,7 @@ def test_no_missing_identical_to_plain_composite():
 
 
 def test_polars_frame_supported():
+    """Polars frame supported."""
     pl = pytest.importorskip("polars")
     X, y = _frame(200, seed=7)
     Xpl = pl.from_pandas(X)
@@ -102,6 +110,7 @@ def test_polars_frame_supported():
 
 
 def test_multi_base_rejected():
+    """Multi base rejected."""
     comp = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
         transform_name="diff",

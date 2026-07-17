@@ -129,6 +129,7 @@ def _predict_proba_pos(results):
 
 
 def _predict_labels(results):
+    """Predict labels."""
     preds = next(iter(results["predictions"].values()))
     return np.asarray(preds).astype(int)
 
@@ -167,6 +168,7 @@ def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, se
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
     def _run(model_name, behavior_config):
+        """Trains model_name through the suite with the given behavior_config and returns its group-A/B recall report."""
         data_dir = str(tmp_path / "data" / model_name)
         models, metadata = train_mlframe_models_suite(
             df=train_df,
@@ -228,6 +230,7 @@ def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, se
     # as a bonus (not required) and assert the absence in run A in either case.
     def _has_populated_fairness(meta):
         # Walk top-level keys looking for a non-empty fairness payload.
+        """Has populated fairness."""
         for key, val in meta.items():
             if "fairness" in key.lower():
                 if val is None:
@@ -282,6 +285,7 @@ def test_sample_weights_lift_minority_recall(tmp_path, common_init_params, seed,
     # methodology: fixed-threshold recall — top-k neutralizes weight effects on ranking
 
     def _run(model_name, sample_weights_dict):
+        """Trains model_name through the suite with the given per-row sample weights and returns its minority-class recall report."""
         data_dir = str(tmp_path / "data" / model_name)
         fte = TimestampedFeaturesExtractor(
             target_column="target",

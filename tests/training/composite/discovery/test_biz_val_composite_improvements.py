@@ -33,8 +33,10 @@ from mlframe.training.composite.transforms import (
 
 
 class TestBizValRobustLinres:
+    """Groups tests covering biz val robust linres."""
     @pytest.mark.parametrize("outlier_frac", [0.03, 0.05, 0.10])
     def test_robust_beats_ols_on_cauchy_outliers(self, outlier_frac: float) -> None:
+        """Robust beats ols on cauchy outliers."""
         rng = np.random.default_rng(0)
         n = 50_000
         base = rng.normal(11500.0, 600.0, n)
@@ -66,6 +68,7 @@ class TestBizValRobustLinres:
 
 
 def _sample_excess_kurt(arr: np.ndarray) -> float:
+    """Sample excess kurt."""
     arr = np.asarray(arr, dtype=np.float64)
     arr = arr[np.isfinite(arr)]
     if arr.size < 4:
@@ -79,7 +82,9 @@ def _sample_excess_kurt(arr: np.ndarray) -> float:
 
 
 class TestBizVal3StageChain:
+    """Groups tests covering biz val3 stage chain."""
     def test_3stage_compresses_tails_more_than_2stage(self) -> None:
+        """3stage compresses tails more than 2stage."""
         rng = np.random.default_rng(2)
         n = 5000
         base = rng.normal(100.0, 20.0, n)
@@ -105,6 +110,7 @@ class TestBizVal3StageChain:
         assert abs(kurt_3) < 0.5, f"3-stage residual still leptokurtic: kurt_3={kurt_3:.2f}"
 
     def test_3stage_round_trip(self) -> None:
+        """3stage round trip."""
         rng = np.random.default_rng(3)
         n = 3000
         base = rng.normal(100.0, 20.0, n)
@@ -129,6 +135,7 @@ class TestBizVal3StageChain:
 
 
 class TestBizValTimeAwareOOF:
+    """Groups tests covering biz val time aware o o f."""
     def test_time_aware_higher_rmse_than_random_kfold_on_random_walk(self) -> None:
         """A random-walk target ``y_t = y_{t-1} + N(0, 1)``. Random K-fold sees rows from BOTH past and future of any held-out row, so its train-set mean is close to the val-set mean -- CV-RMSE under-estimates the honest holdout RMSE on this non-stationary target. Time-aware (TimeSeriesSplit) trains on PAST rows only, so the train mean lags the val mean -- CV-RMSE is strictly LARGER and matches what a production rolling-forecast would actually see."""
         from mlframe.training.composite.discovery.screening import _tiny_cv_rmse_raw_y
@@ -175,11 +182,13 @@ class TestBizValTimeAwareOOF:
 
 
 def _pinball_loss(y_true: np.ndarray, y_pred: np.ndarray, alpha: float) -> float:
+    """Pinball loss."""
     diff = y_true - y_pred
     return float(np.mean(np.maximum(alpha * diff, (alpha - 1.0) * diff)))
 
 
 class TestBizValQuantileLoss:
+    """Groups tests covering biz val quantile loss."""
     def test_quantile_loss_beats_rmse_on_pinball_metric(self) -> None:
         """Train LightGBM twice on the same dataset: once with quantile(alpha=0.7), once with default regression. Quantile model MUST produce a lower 0.7-pinball loss on the held-out fold (otherwise the loss switch is not actually doing what it claims)."""
         from lightgbm import LGBMRegressor
@@ -215,6 +224,7 @@ class TestBizValQuantileLoss:
         assert pinball_q < pinball_default, f"quantile loss did NOT improve pinball: default={pinball_default:.4f}, quantile={pinball_q:.4f}"
 
     def test_rejects_quantile_outside_unit_interval(self) -> None:
+        """Rejects quantile outside unit interval."""
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
 
         with pytest.raises(ValueError, match="target_quantile must be in"):
@@ -229,6 +239,7 @@ class TestBizValQuantileLoss:
 
 
 class TestBizValStabilityCheck:
+    """Groups tests covering biz val stability check."""
     def test_unstable_specs_get_filtered(self) -> None:
         """A noise-only synthetic. Random discovery seeds may CHANCE-find a few specs (lucky split). The stability gate (3-of-5 majority) must drop them."""
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
@@ -272,6 +283,7 @@ class TestBizValStabilityCheck:
 
 
 class TestBizValStackedDiscovery:
+    """Groups tests covering biz val stacked discovery."""
     @pytest.mark.no_xdist
     def test_stacked_finds_more_specs_than_plain_on_2level_residual(self) -> None:
         """y = f(x_a) + g(x_b) + small_noise. Plain discovery absorbs f(x_a) via linres-x_a. Stacked discovery's pass 2 sees the OOF prediction of pass 1 as a new feature and should find g(x_b) on the leftover residual.
@@ -420,6 +432,7 @@ class TestBizValStackedDiscovery:
         for spec in pass1_specs[:2]:
 
             def _factory(_s=spec):
+                """Factory."""
                 return CompositeTargetEstimator(
                     base_estimator=Ridge(alpha=1e-3),
                     transform_name=_s.transform_name,

@@ -35,16 +35,19 @@ from mlframe.training.models import (
 
 @pytest.mark.parametrize("name", sorted(LINEAR_MODEL_TYPES))
 def test_is_linear_model_true_for_documented_names(name):
+    """Is linear model true for documented names."""
     assert is_linear_model(name) is True
 
 
 @pytest.mark.parametrize("name", sorted(TREE_MODEL_TYPES))
 def test_is_tree_model_true_for_documented_names(name):
+    """Is tree model true for documented names."""
     assert is_tree_model(name) is True
 
 
 @pytest.mark.parametrize("name", sorted(NEURAL_MODEL_TYPES))
 def test_is_neural_model_true_for_documented_names(name):
+    """Is neural model true for documented names."""
     assert is_neural_model(name) is True
 
 
@@ -63,6 +66,7 @@ def test_is_neural_model_true_for_documented_names(name):
     ],
 )
 def test_predicates_route_canonical_names_to_correct_family(name, linear, tree, neural):
+    """Predicates route canonical names to correct family."""
     assert is_linear_model(name) is linear
     assert is_tree_model(name) is tree
     assert is_neural_model(name) is neural
@@ -72,6 +76,7 @@ def test_predicates_route_canonical_names_to_correct_family(name, linear, tree, 
 def test_predicates_return_false_for_unknown_names(name):
     # Unknown names must NOT raise; the predicates are dispatch gates and
     # callers rely on a clean False to fall through to other branches.
+    """Predicates return false for unknown names."""
     assert is_linear_model(name) is False
     assert is_tree_model(name) is False
     assert is_neural_model(name) is False
@@ -82,6 +87,7 @@ def test_predicates_are_case_insensitive(name):
     # The docstrings explicitly document case-insensitivity ("model_type
     # is case-insensitive and normalized to lowercase"). Any of these
     # must produce the same result as the lowercase canonical name.
+    """Predicates are case insensitive."""
     assert is_linear_model(name) == is_linear_model(name.lower())
     assert is_tree_model(name) == is_tree_model(name.lower())
     assert is_neural_model(name) == is_neural_model(name.lower())
@@ -91,6 +97,7 @@ def test_predicate_sets_are_disjoint():
     # The three model families partition the canonical name space; a
     # name silently appearing in two sets would cause the dispatch to
     # collide. Pin the invariant explicitly.
+    """Predicate sets are disjoint."""
     assert not (LINEAR_MODEL_TYPES & TREE_MODEL_TYPES)
     assert not (LINEAR_MODEL_TYPES & NEURAL_MODEL_TYPES)
     assert not (TREE_MODEL_TYPES & NEURAL_MODEL_TYPES)
@@ -112,6 +119,7 @@ def test_predicate_sets_are_disjoint():
     ],
 )
 def test_create_linear_model_regression_returns_correct_estimator(model_type, expected_regressor_cls):
+    """Create linear model regression returns correct estimator."""
     config = LinearModelConfig(alpha=0.1, max_iter=500)
     model = create_linear_model(model_type, config, use_regression=True)
     assert isinstance(model, expected_regressor_cls)
@@ -123,18 +131,21 @@ def test_create_linear_model_regression_returns_correct_estimator(model_type, ex
 
 
 def test_create_linear_model_unknown_type_raises():
+    """Create linear model unknown type raises."""
     config = LinearModelConfig()
     with pytest.raises(ValueError, match="Unknown regression model type"):
         create_linear_model("not_a_model", config, use_regression=True)
 
 
 def test_create_linear_model_unknown_type_for_classification_raises():
+    """Create linear model unknown type for classification raises."""
     config = LinearModelConfig()
     with pytest.raises(ValueError, match="Unknown classification model type"):
         create_linear_model("totally_bogus", config, use_regression=False)
 
 
 def test_create_linear_model_classification_returns_classifier():
+    """Create linear model classification returns classifier."""
     config = LinearModelConfig(alpha=1.0, max_iter=300, use_calibrated_classifier=False)
     model = create_linear_model("sgd", config, use_regression=False)
     assert hasattr(model, "fit")
@@ -143,6 +154,7 @@ def test_create_linear_model_classification_returns_classifier():
 
 
 def test_create_linear_model_is_case_insensitive():
+    """Create linear model is case insensitive."""
     config = LinearModelConfig()
     upper = create_linear_model("RIDGE", config, use_regression=True)
     lower = create_linear_model("ridge", config, use_regression=True)
@@ -153,6 +165,7 @@ def test_create_linear_model_fits_on_trivial_data():
     # Smoke test: the returned estimator must actually fit + predict on a
     # tiny synthetic without raising. Validates the config knobs make it
     # through to the underlying sklearn class.
+    """Create linear model fits on trivial data."""
     import numpy as np
 
     rng = np.random.default_rng(0)

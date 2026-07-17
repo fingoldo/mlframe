@@ -31,6 +31,7 @@ def real_configs():
     # Session-scoped: get_training_configs is deterministic and idempotent;
     # building once per session avoids regenerating across every test in this
     # module.
+    """Real configs."""
     cpu = get_training_configs(iterations=10, has_gpu=False)
     # has_gpu=None lets the helper decide; for tests we want deterministic CPU
     gpu = get_training_configs(iterations=10, has_gpu=False)
@@ -38,6 +39,7 @@ def real_configs():
 
 
 def _identity(x):
+    """Identity."""
     return x
 
 
@@ -45,6 +47,7 @@ def _identity(x):
 
 
 def test_xgb_regression_cpu(real_configs):
+    """Xgb regression cpu."""
     cpu, gpu = real_configs
     out = _configure_xgboost_params(
         configs=gpu,
@@ -65,6 +68,7 @@ def test_xgb_regression_cpu(real_configs):
 
 
 def test_xgb_classification_calibrated(real_configs):
+    """Xgb classification calibrated."""
     cpu, gpu = real_configs
     out = _configure_xgboost_params(
         configs=gpu,
@@ -81,6 +85,7 @@ def test_xgb_classification_calibrated(real_configs):
 
 
 def test_xgb_classification_non_calibrated(real_configs):
+    """Xgb classification non calibrated."""
     cpu, gpu = real_configs
     out = _configure_xgboost_params(
         configs=gpu,
@@ -100,6 +105,7 @@ def test_xgb_classification_non_calibrated(real_configs):
 
 
 def test_lgb_regression(real_configs):
+    """Lgb regression."""
     cpu, gpu = real_configs
     out = _configure_lightgbm_params(
         configs=gpu,
@@ -117,6 +123,7 @@ def test_lgb_regression(real_configs):
 
 
 def test_lgb_classification_calibrated_adds_eval_metric(real_configs):
+    """Lgb classification calibrated adds eval metric."""
     cpu, gpu = real_configs
     out = _configure_lightgbm_params(
         configs=gpu,
@@ -133,6 +140,7 @@ def test_lgb_classification_calibrated_adds_eval_metric(real_configs):
 
 
 def test_lgb_classification_non_calibrated(real_configs):
+    """Lgb classification non calibrated."""
     cpu, gpu = real_configs
     out = _configure_lightgbm_params(
         configs=gpu,
@@ -149,6 +157,7 @@ def test_lgb_classification_non_calibrated(real_configs):
 
 
 def test_configure_training_params_returns_7tuple_regression():
+    """Configure training params returns 7tuple regression."""
     rng = np.random.default_rng(0)
     n = 50
     df = pd.DataFrame(
@@ -186,6 +195,7 @@ def test_configure_training_params_returns_7tuple_regression():
 
 
 def test_configure_training_params_binary_classification():
+    """Configure training params binary classification."""
     rng = np.random.default_rng(1)
     n = 60
     df = pd.DataFrame({"f": rng.standard_normal(n)})

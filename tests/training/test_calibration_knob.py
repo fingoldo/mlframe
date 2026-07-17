@@ -54,6 +54,7 @@ class _FakeInnerModel:
 
 
 def test_select_member_probs_prefers_calibrated_when_stamped_and_opt_in():
+    """Select member probs prefers calibrated when stamped and opt in."""
     raw = np.array([[0.99, 0.01], [0.99, 0.01]], dtype=np.float64)
     cal = np.array([[0.40, 0.60], [0.45, 0.55]], dtype=np.float64)
     m = _FakeMember(val_probs=raw, calibrated_val_probs=cal)
@@ -62,6 +63,7 @@ def test_select_member_probs_prefers_calibrated_when_stamped_and_opt_in():
 
 
 def test_select_member_probs_falls_back_to_raw_when_opt_out():
+    """Select member probs falls back to raw when opt out."""
     raw = np.array([[0.99, 0.01]], dtype=np.float64)
     cal = np.array([[0.40, 0.60]], dtype=np.float64)
     m = _FakeMember(val_probs=raw, calibrated_val_probs=cal)
@@ -70,6 +72,7 @@ def test_select_member_probs_falls_back_to_raw_when_opt_out():
 
 
 def test_select_member_probs_falls_back_to_raw_when_no_calibrated_stamp():
+    """Select member probs falls back to raw when no calibrated stamp."""
     raw = np.array([[0.7, 0.3]], dtype=np.float64)
     m = _FakeMember(val_probs=raw)  # no calibrated stamp at all
     out = _select_member_probs(m, "val", use_calibrated=True)
@@ -88,6 +91,7 @@ def test_select_member_probs_consults_inner_model_when_top_level_missing():
 
 
 def test_select_member_probs_returns_none_when_split_missing_entirely():
+    """Select member probs returns none when split missing entirely."""
     m = _FakeMember()
     assert _select_member_probs(m, "val", use_calibrated=True) is None
     assert _select_member_probs(m, "val", use_calibrated=False) is None
@@ -120,6 +124,7 @@ def test_rrf_unaffected_by_calibration_knob():
 
 
 def test_score_ensemble_signature_has_use_ap12_calibrated_probs_default_true():
+    """Score ensemble signature has use ap12 calibrated probs default true."""
     import inspect
 
     from mlframe.models.ensembling import score_ensemble
@@ -135,6 +140,7 @@ def test_score_ensemble_signature_has_use_ap12_calibrated_probs_default_true():
 
 
 def test_training_behavior_config_has_calibrated_blend_knob_default_true():
+    """Training behavior config has calibrated blend knob default true."""
     from mlframe.training._model_configs import TrainingBehaviorConfig
 
     fields = TrainingBehaviorConfig.model_fields

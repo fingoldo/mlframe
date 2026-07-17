@@ -23,6 +23,7 @@ from mlframe.training.pipeline import _pipeline_cache as ppc
 
 
 def test_approx_entry_bytes_positive_on_pandas_frame():
+    """Approx entry bytes positive on pandas frame."""
     df = pd.DataFrame({"a": np.arange(1000, dtype=np.float64)})
     entry = (df, df, None)
     nb = ppc._approx_entry_bytes(entry)
@@ -31,7 +32,9 @@ def test_approx_entry_bytes_positive_on_pandas_frame():
 
 
 def test_approx_entry_bytes_unknown_carrier_returns_zero():
+    """Approx entry bytes unknown carrier returns zero."""
     class _NotASizableObject:
+        """Groups tests covering not a sizable object."""
         pass
 
     entry = (_NotASizableObject(), _NotASizableObject(), None)
@@ -40,6 +43,7 @@ def test_approx_entry_bytes_unknown_carrier_returns_zero():
 
 
 def test_read_int_env_handles_typos_silently(monkeypatch):
+    """Read int env handles typos silently."""
     monkeypatch.setenv("_TEST_W11D_FAKE", "not-an-int")
     assert ppc._read_int_env("_TEST_W11D_FAKE", 42) == 42
     monkeypatch.setenv("_TEST_W11D_FAKE", "0")
@@ -54,4 +58,5 @@ def test_byte_budget_default_is_zero_disabled():
     # Default behaviour: byte gate off so the count cap is the sole eviction.
     # If a user sets MLFRAME_PRE_PIPELINE_CACHE_MAX_BYTES, it would be picked up
     # at import; pin the "no env" default.
+    """Byte budget default is zero disabled."""
     assert ppc._PRE_PIPELINE_CACHE_MAX_BYTES == 0 or ppc._PRE_PIPELINE_CACHE_MAX_BYTES > 0

@@ -23,6 +23,7 @@ lgb = pytest.importorskip("lightgbm")
 
 
 def _xor_residual_data(seed=1, n=8000):
+    """Xor residual data."""
     rng = np.random.default_rng(seed)
     s = rng.normal(0.0, 1.0, n)  # dominant linear driver
     a = rng.normal(0.0, 1.0, n)
@@ -36,7 +37,9 @@ def _xor_residual_data(seed=1, n=8000):
 
 
 class TestM7BizValue:
+    """Groups tests covering m7 biz value."""
     def test_residual_over_base_beats_base_and_matches_plain_gbdt(self) -> None:
+        """Residual over base beats base and matches plain gbdt."""
         X, y = _xor_residual_data()
         tr, te = slice(0, 5000), slice(5000, None)
         base = LogisticRegression(max_iter=1000).fit(X.iloc[tr], y[tr])
@@ -52,7 +55,9 @@ class TestM7BizValue:
 
 
 class TestM7Contract:
+    """Groups tests covering m7 contract."""
     def test_predict_proba_rows_sum_to_one(self) -> None:
+        """Predict proba rows sum to one."""
         X, y = _xor_residual_data(n=2000)
         est = CompositeClassificationEstimator(
             base_estimator=lgb.LGBMClassifier(n_estimators=50, verbose=-1),
@@ -62,6 +67,7 @@ class TestM7Contract:
         np.testing.assert_allclose(proba.sum(axis=1), 1.0, atol=1e-9)
 
     def test_precomputed_margin_column_is_stripped(self) -> None:
+        """Precomputed margin column is stripped."""
         X, y = _xor_residual_data(n=3000)
         # A precomputed (oracle-ish) base margin column.
         X = X.copy()
@@ -82,6 +88,7 @@ class TestM7Contract:
     def test_multiclass_is_supported(self) -> None:
         # Multiclass is now first-class (softmax over (n, K) base + residual
         # margins); a 3-class target fits and predicts in-range.
+        """Multiclass is supported."""
         X, _ = _xor_residual_data(n=900)
         y3 = np.tile([0, 1, 2], len(X) // 3 + 1)[: len(X)]
         est = CompositeClassificationEstimator(
@@ -92,6 +99,7 @@ class TestM7Contract:
         np.testing.assert_allclose(proba.sum(axis=1), 1.0, atol=1e-9)
 
     def test_single_class_raises(self) -> None:
+        """Single class raises."""
         X, _ = _xor_residual_data(n=300)
         with pytest.raises(ValueError, match=">= 2 classes"):
             CompositeClassificationEstimator(
@@ -99,6 +107,7 @@ class TestM7Contract:
             ).fit(X, np.zeros(len(X), dtype=int))
 
     def test_inner_without_margin_path_rejected(self) -> None:
+        """Inner without margin path rejected."""
         X, y = _xor_residual_data(n=600)
         with pytest.raises(NotImplementedError):
             CompositeClassificationEstimator(

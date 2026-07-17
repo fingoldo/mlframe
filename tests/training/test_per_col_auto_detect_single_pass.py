@@ -136,6 +136,7 @@ def test_auto_detect_polars_single_collect_bounded():
     counts = {"collect": 0}
 
     def _counting_collect(self, *a, **kw):
+        """Counting collect."""
         counts["collect"] += 1
         return orig_collect(self, *a, **kw)
 

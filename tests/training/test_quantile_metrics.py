@@ -24,6 +24,7 @@ from mlframe.metrics.quantile import (
 
 @pytest.fixture
 def std_normal_data():
+    """Std normal data."""
     rng = np.random.default_rng(0)
     n = 500
     y = rng.standard_normal(n)
@@ -40,7 +41,9 @@ def std_normal_data():
 
 
 class TestPinballLoss:
+    """Groups tests covering pinball loss."""
     def test_matches_sklearn(self, std_normal_data):
+        """Matches sklearn."""
         from sklearn.metrics import mean_pinball_loss
 
         y, preds, alphas = std_normal_data
@@ -50,6 +53,7 @@ class TestPinballLoss:
             assert abs(mine - skl) < 1e-12
 
     def test_per_alpha_dict(self, std_normal_data):
+        """Per alpha dict."""
         from sklearn.metrics import mean_pinball_loss
 
         y, preds, alphas = std_normal_data
@@ -60,6 +64,7 @@ class TestPinballLoss:
     def test_per_alpha_fused_bit_identical_to_per_column(self):
         # The fused row-major kernel must be bit-identical to scoring each alpha
         # on its own column via pinball_loss (the pre-fusion per-column path).
+        """Per alpha fused bit identical to per column."""
         rng = np.random.default_rng(7)
         for n, k in ((5000, 9), (50000, 19)):
             y = np.ascontiguousarray(rng.standard_normal(n))
@@ -70,10 +75,12 @@ class TestPinballLoss:
                 assert per_a[float(a)] == pinball_loss(y, preds[:, j], a)
 
     def test_shape_mismatch_raises(self):
+        """Shape mismatch raises."""
         with pytest.raises(ValueError, match="shape"):
             pinball_loss(np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0]), 0.5)
 
     def test_per_alpha_shape_mismatch_raises(self):
+        """Per alpha shape mismatch raises."""
         with pytest.raises(ValueError, match="shape\\[1\\]"):
             pinball_loss_per_alpha(
                 np.array([1.0, 2.0]),
@@ -83,19 +90,23 @@ class TestPinballLoss:
 
 
 class TestCoverage:
+    """Groups tests covering coverage."""
     def test_perfect_coverage_unit(self):
+        """Perfect coverage unit."""
         y = np.array([1.0, 2.0, 3.0])
         lo = np.array([0.5, 1.5, 2.5])
         hi = np.array([1.5, 2.5, 3.5])
         assert coverage(y, lo, hi) == pytest.approx(1.0)
 
     def test_zero_coverage(self):
+        """Zero coverage."""
         y = np.array([10.0, 20.0])
         lo = np.array([0.0, 0.0])
         hi = np.array([1.0, 1.0])
         assert coverage(y, lo, hi) == pytest.approx(0.0)
 
     def test_partial_coverage(self):
+        """Partial coverage."""
         y = np.array([1.0, 5.0, 10.0])
         lo = np.array([0.0, 0.0, 0.0])
         hi = np.array([2.0, 4.0, 100.0])
@@ -105,6 +116,7 @@ class TestCoverage:
         assert coverage(y, lo, hi) == pytest.approx(2.0 / 3.0)
 
     def test_empirical_coverage_close_to_nominal(self, std_normal_data):
+        """Empirical coverage close to nominal."""
         y, preds, _alphas = std_normal_data
         cov = coverage(y, preds[:, 0], preds[:, 2])
         # Nominal 80% on a fresh std-normal sample; allow 5pp slack.
@@ -112,19 +124,24 @@ class TestCoverage:
 
 
 class TestWidth:
+    """Groups tests covering width."""
     def test_constant_width(self):
+        """Constant width."""
         lo = np.array([0.0, 1.0, 2.0])
         hi = np.array([1.0, 2.0, 3.0])
         assert mean_interval_width(lo, hi) == pytest.approx(1.0)
 
     def test_shape_mismatch_raises(self):
+        """Shape mismatch raises."""
         with pytest.raises(ValueError, match="shape"):
             mean_interval_width(np.array([0.0, 1.0]), np.array([2.0]))
 
 
 class TestWinkler:
+    """Groups tests covering winkler."""
     def test_no_penalty_equals_width(self):
         # All y inside the interval -> Winkler == width.
+        """No penalty equals width."""
         y = np.array([0.5, 1.5, 2.5])
         lo = np.array([0.0, 1.0, 2.0])
         hi = np.array([1.0, 2.0, 3.0])
@@ -133,12 +150,14 @@ class TestWinkler:
     def test_below_penalty(self):
         # Single row: y=-1, lo=0, hi=1, alpha_miscov=0.2
         # width=1; below penalty = (2/0.2) * (0 - (-1)) = 10 * 1 = 10
+        """Below penalty."""
         y = np.array([-1.0])
         lo = np.array([0.0])
         hi = np.array([1.0])
         assert winkler_score(y, lo, hi, alpha_miscov=0.2) == pytest.approx(11.0)
 
     def test_above_penalty(self):
+        """Above penalty."""
         y = np.array([5.0])
         lo = np.array([0.0])
         hi = np.array([1.0])
@@ -146,24 +165,29 @@ class TestWinkler:
         assert winkler_score(y, lo, hi, alpha_miscov=0.2) == pytest.approx(41.0)
 
     def test_invalid_alpha_miscov_rejected(self):
+        """Invalid alpha miscov rejected."""
         with pytest.raises(ValueError, match=r"\(0, 1\)"):
             winkler_score(np.array([0.5]), np.array([0.0]), np.array([1.0]), alpha_miscov=0.0)
 
 
 class TestPIT:
+    """Groups tests covering p i t."""
     def test_y_at_median_maps_to_0_5(self):
+        """Y at median maps to 0 5."""
         y = np.array([0.0])
         preds = np.array([[-1.28, 0.0, 1.28]])
         pit = pit_values(y, preds, (0.1, 0.5, 0.9))
         assert pit[0] == pytest.approx(0.5)
 
     def test_left_tail_clips_to_alpha_min(self):
+        """Left tail clips to alpha min."""
         y = np.array([-100.0])
         preds = np.array([[-1.28, 0.0, 1.28]])
         pit = pit_values(y, preds, (0.1, 0.5, 0.9))
         assert pit[0] == 0.1
 
     def test_right_tail_clips_to_alpha_max(self):
+        """Right tail clips to alpha max."""
         y = np.array([100.0])
         preds = np.array([[-1.28, 0.0, 1.28]])
         pit = pit_values(y, preds, (0.1, 0.5, 0.9))
@@ -172,6 +196,7 @@ class TestPIT:
     def test_pit_uniform_for_well_calibrated_model(self):
         # Synthetic well-calibrated: y from std-normal, preds at theoretical
         # quantiles -> PIT should be approximately uniform over [0.1, 0.9].
+        """Pit uniform for well calibrated model."""
         rng = np.random.default_rng(0)
         n = 5000
         y = rng.standard_normal(n)
@@ -193,6 +218,7 @@ class TestPIT:
     def test_pit_robust_to_micro_crossings(self):
         # Tiny crossing in input -> sort-internal handling makes pit_values
         # still produce sensible output (no crash).
+        """Pit robust to micro crossings."""
         y = np.array([0.5])
         preds = np.array([[-0.1, 0.0, -0.05]])  # q_0.5 < q_0.9 violated
         pit = pit_values(y, preds, (0.1, 0.5, 0.9))
@@ -208,6 +234,7 @@ class TestPIT:
         alphas = np.array([0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95])
 
         def reference(y, P, a_arr):
+            """Reference."""
             out = np.empty(y.shape[0], dtype=np.float64)
             for i in range(y.shape[0]):
                 order = np.argsort(P[i])
@@ -237,7 +264,9 @@ class TestPIT:
 
 
 class TestSummary:
+    """Groups tests covering summary."""
     def test_summary_shape(self, std_normal_data):
+        """Summary shape."""
         y, preds, alphas = std_normal_data
         s = quantile_summary(y, preds, alphas, coverage_pairs=[(0.1, 0.9)])
         assert "pinball_per_alpha" in s
@@ -248,6 +277,7 @@ class TestSummary:
         assert set(s["pinball_per_alpha"]) == set(alphas)
 
     def test_unknown_coverage_pair_silently_skipped(self, std_normal_data):
+        """Unknown coverage pair silently skipped."""
         y, preds, alphas = std_normal_data
         s = quantile_summary(y, preds, alphas, coverage_pairs=[(0.05, 0.95)])
         # Asked for a pair not in alphas -> not in summary.

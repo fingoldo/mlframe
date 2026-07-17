@@ -29,6 +29,7 @@ import pytest
 
 
 def test_argmax_classes_safe_all_finite():
+    """Argmax classes safe all finite."""
     from mlframe.utils.nan_safe import argmax_classes_safe
 
     p = np.array([[0.1, 0.7, 0.2], [0.4, 0.3, 0.3]])
@@ -37,6 +38,7 @@ def test_argmax_classes_safe_all_finite():
 
 
 def test_argmax_classes_safe_with_all_nan_row_uses_fallback(caplog):
+    """Argmax classes safe with all nan row uses fallback."""
     from mlframe.utils.nan_safe import argmax_classes_safe
 
     p = np.array(
@@ -67,6 +69,7 @@ def test_argmax_classes_safe_mixed_finite_nan_row():
 
 
 def test_argmax_classes_safe_1d_array():
+    """Argmax classes safe 1d array."""
     from mlframe.utils.nan_safe import argmax_classes_safe
 
     p = np.array([0.1, 0.7, 0.2])
@@ -75,6 +78,7 @@ def test_argmax_classes_safe_1d_array():
 
 
 def test_argmax_classes_safe_1d_all_nan(caplog):
+    """Argmax classes safe 1d all nan."""
     from mlframe.utils.nan_safe import argmax_classes_safe
 
     p = np.array([np.nan, np.nan, np.nan])
@@ -84,6 +88,7 @@ def test_argmax_classes_safe_1d_all_nan(caplog):
 
 
 def test_quantile_safe_finite_input():
+    """Quantile safe finite input."""
     from mlframe.utils.nan_safe import quantile_safe
 
     arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
@@ -91,6 +96,7 @@ def test_quantile_safe_finite_input():
 
 
 def test_quantile_safe_with_nan_input():
+    """Quantile safe with nan input."""
     from mlframe.utils.nan_safe import quantile_safe
 
     arr = np.array([1.0, 2.0, np.nan, 4.0])
@@ -99,6 +105,7 @@ def test_quantile_safe_with_nan_input():
 
 
 def test_quantile_safe_all_nan_returns_fallback(caplog):
+    """Quantile safe all nan returns fallback."""
     from mlframe.utils.nan_safe import quantile_safe
 
     arr = np.array([np.nan, np.nan])
@@ -108,6 +115,7 @@ def test_quantile_safe_all_nan_returns_fallback(caplog):
 
 
 def test_quantile_safe_q_sequence():
+    """Quantile safe q sequence."""
     from mlframe.utils.nan_safe import quantile_safe
 
     arr = np.array([1.0, 2.0, 3.0, 4.0])
@@ -116,18 +124,21 @@ def test_quantile_safe_q_sequence():
 
 
 def test_median_safe_finite():
+    """Median safe finite."""
     from mlframe.utils.nan_safe import median_safe
 
     assert median_safe(np.array([1.0, 2.0, 3.0])) == 2.0
 
 
 def test_median_safe_with_nan():
+    """Median safe with nan."""
     from mlframe.utils.nan_safe import median_safe
 
     assert median_safe(np.array([1.0, np.nan, 3.0])) == 2.0
 
 
 def test_median_safe_all_nan_fallback(caplog):
+    """Median safe all nan fallback."""
     from mlframe.utils.nan_safe import median_safe
 
     with caplog.at_level(logging.WARNING, logger="mlframe.utils.nan_safe"):

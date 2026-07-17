@@ -27,6 +27,7 @@ from mlframe.training.slicing._slice_helpers import (
 
 @pytest.fixture
 def reg_val_df() -> tuple[pd.DataFrame, np.ndarray]:
+    """Reg val df."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame({"a": rng.normal(0, 1, 200), "b": rng.normal(0, 1, 200)})
     y = rng.normal(0, 1, 200)
@@ -35,6 +36,7 @@ def reg_val_df() -> tuple[pd.DataFrame, np.ndarray]:
 
 @pytest.fixture
 def clf_val_df() -> tuple[pd.DataFrame, np.ndarray]:
+    """Clf val df."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame({"a": rng.normal(0, 1, 300), "b": rng.normal(0, 1, 300)})
     y = (rng.uniform(0, 1, 300) < 0.3).astype(int)
@@ -42,6 +44,7 @@ def clf_val_df() -> tuple[pd.DataFrame, np.ndarray]:
 
 
 def test_random_shards_partition_regression(reg_val_df: tuple[pd.DataFrame, np.ndarray]) -> None:
+    """Random shards partition regression."""
     X, y = reg_val_df
     shards = build_slice_eval_sets(X, y, source="random", k=5, min_rows_per_shard=20, random_state=42)
     assert len(shards) == 5
@@ -56,6 +59,7 @@ def test_random_shards_partition_regression(reg_val_df: tuple[pd.DataFrame, np.n
 
 
 def test_random_shards_stratified_classification(clf_val_df: tuple[pd.DataFrame, np.ndarray]) -> None:
+    """Random shards stratified classification."""
     X, y = clf_val_df
     shards = build_slice_eval_sets(X, y, source="random", k=5, min_rows_per_shard=20, random_state=42)
     assert len(shards) == 5
@@ -70,6 +74,7 @@ def test_random_shards_with_group_ids_switches_to_groupkfold(
     reg_val_df: tuple[pd.DataFrame, np.ndarray],
     caplog,
 ) -> None:
+    """Random shards with group ids switches to groupkfold."""
     X, y = reg_val_df
     # 200 rows, 40 queries of 5 docs each
     group_ids = np.repeat(np.arange(40), 5)
@@ -91,6 +96,7 @@ def test_random_shards_with_group_ids_switches_to_groupkfold(
 
 
 def test_temporal_shards_preserve_order(reg_val_df: tuple[pd.DataFrame, np.ndarray]) -> None:
+    """Temporal shards preserve order."""
     X, y = reg_val_df
     # Time values randomly permuted so we can verify ordering happened
     rng = np.random.default_rng(42)
@@ -106,6 +112,7 @@ def test_temporal_shards_preserve_order(reg_val_df: tuple[pd.DataFrame, np.ndarr
 
 
 def test_fairness_shards_from_indexed_subgroups(reg_val_df: tuple[pd.DataFrame, np.ndarray]) -> None:
+    """Fairness shards from indexed subgroups."""
     X, y = reg_val_df
     # Two subgroups (possibly overlapping)
     indexed_subgroups = {
@@ -127,6 +134,7 @@ def test_fairness_source_empty_subgroups_returns_empty(
     reg_val_df: tuple[pd.DataFrame, np.ndarray],
     caplog,
 ) -> None:
+    """Fairness source empty subgroups returns empty."""
     X, y = reg_val_df
     with caplog.at_level(logging.WARNING):
         shards = build_slice_eval_sets(X, y, source="fairness", k=5, indexed_subgroups=None)
@@ -135,6 +143,7 @@ def test_fairness_source_empty_subgroups_returns_empty(
 
 
 def test_small_val_fallback_warns(reg_val_df: tuple[pd.DataFrame, np.ndarray], caplog) -> None:
+    """Small val fallback warns."""
     X, y = reg_val_df
     # 200 rows / K=5 = 40 rows per shard, but min_rows_per_shard=100 forces fallback
     with caplog.at_level(logging.WARNING):
@@ -144,6 +153,7 @@ def test_small_val_fallback_warns(reg_val_df: tuple[pd.DataFrame, np.ndarray], c
 
 
 def test_sample_weight_aligned(reg_val_df: tuple[pd.DataFrame, np.ndarray]) -> None:
+    """Sample weight aligned."""
     X, y = reg_val_df
     rng = np.random.default_rng(1)
     sample_weight = rng.uniform(0, 1, len(y))
@@ -154,6 +164,7 @@ def test_sample_weight_aligned(reg_val_df: tuple[pd.DataFrame, np.ndarray]) -> N
 
 
 def test_base_margin_aligned(reg_val_df: tuple[pd.DataFrame, np.ndarray]) -> None:
+    """Base margin aligned."""
     X, y = reg_val_df
     rng = np.random.default_rng(2)
     base_margin = rng.normal(0, 1, len(y))
@@ -163,6 +174,7 @@ def test_base_margin_aligned(reg_val_df: tuple[pd.DataFrame, np.ndarray]) -> Non
 
 
 def test_pandas_categorical_dtype_preserved() -> None:
+    """Pandas categorical dtype preserved."""
     cat_values = pd.Categorical.from_codes(
         np.random.default_rng(0).integers(0, 3, 150),
         categories=["a", "b", "c"],
@@ -177,6 +189,7 @@ def test_pandas_categorical_dtype_preserved() -> None:
 
 
 def test_polars_enum_dtype_preserved() -> None:
+    """Polars enum dtype preserved."""
     pl = pytest.importorskip("polars")
     cats = pl.Series("cat", ["a", "b", "c", "a", "b"] * 30, dtype=pl.Enum(["a", "b", "c"]))
     nums = pl.Series("num", np.random.default_rng(0).normal(0, 1, 150))
@@ -189,6 +202,7 @@ def test_polars_enum_dtype_preserved() -> None:
 
 
 def test_k_lt_2_returns_empty(reg_val_df: tuple[pd.DataFrame, np.ndarray], caplog) -> None:
+    """K lt 2 returns empty."""
     X, y = reg_val_df
     with caplog.at_level(logging.WARNING):
         shards = build_slice_eval_sets(X, y, source="random", k=1)
@@ -198,6 +212,7 @@ def test_k_lt_2_returns_empty(reg_val_df: tuple[pd.DataFrame, np.ndarray], caplo
 
 def test_effective_patience_formula() -> None:
     # K=5: 1 + 1/sqrt(4) = 1.5 -> ceil(50*1.5) = 75
+    """Effective patience formula."""
     assert effective_patience(50, 5) == 75
     # K=10: 1 + 1/sqrt(9) ~= 1.333 -> ceil(50*1.333) = 67
     assert effective_patience(50, 10) == 67

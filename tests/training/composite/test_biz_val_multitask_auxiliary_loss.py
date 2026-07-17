@@ -19,6 +19,7 @@ from mlframe.training.composite import MultiTaskAuxiliaryLossRegressor
 
 
 def _make_boundary_spike_dataset(n: int, seed: int):
+    """Make boundary spike dataset."""
     rng = np.random.default_rng(seed)
     x = rng.uniform(-3, 3, n)
     y = np.sin(x) + 3.0 * np.exp(-(x**2) / 0.02) + rng.normal(scale=0.05, size=n)
@@ -29,6 +30,7 @@ def _make_boundary_spike_dataset(n: int, seed: int):
 
 
 def test_biz_val_multitask_auxiliary_loss_beats_single_task_near_boundary():
+    """Biz val multitask auxiliary loss beats single task near boundary."""
     X, y, aux_binary, aux_regression, x = _make_boundary_spike_dataset(n=2000, seed=0)
     rng = np.random.default_rng(1)
     perm = rng.permutation(len(y))
@@ -54,6 +56,7 @@ def test_biz_val_multitask_auxiliary_loss_beats_single_task_near_boundary():
 
 
 def test_multitask_auxiliary_loss_works_with_only_binary_aux_head():
+    """Multitask auxiliary loss works with only binary aux head."""
     X, y, aux_binary, _, _ = _make_boundary_spike_dataset(n=300, seed=2)
     model = MultiTaskAuxiliaryLossRegressor(hidden_sizes=(8,), n_epochs=20, random_state=0)
     model.fit(X, y, y_aux_binary=aux_binary)
@@ -64,6 +67,7 @@ def test_multitask_auxiliary_loss_works_with_only_binary_aux_head():
 
 
 def test_multitask_auxiliary_loss_records_decreasing_training_loss():
+    """Multitask auxiliary loss records decreasing training loss."""
     X, y, aux_binary, aux_regression, _ = _make_boundary_spike_dataset(n=200, seed=3)
     model = MultiTaskAuxiliaryLossRegressor(hidden_sizes=(8,), n_epochs=50, lr=0.05, random_state=0)
     model.fit(X, y, y_aux_binary=aux_binary, y_aux_regression=aux_regression)

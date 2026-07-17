@@ -23,6 +23,7 @@ class _MultiQuantileMember:
         self.quantiles = tuple(float(q) for q in quantiles)
 
     def predict_quantile(self, X, alpha):
+        """Predict quantile."""
         alpha = float(alpha)
         if alpha not in self.quantiles:
             raise KeyError(f"alpha {alpha} not in member quantiles {self.quantiles}")
@@ -112,11 +113,13 @@ def test_inconsistent_n_samples_raises():
 
 
 def test_empty_members_raises():
+    """Empty members raises."""
     with pytest.raises(ValueError, match="empty"):
         predict_quantile_ensemble([], X=None, quantiles=(0.5,))
 
 
 def test_invalid_quantiles_raises():
+    """Invalid quantiles raises."""
     members, _, _, _ = _make_members_same_quantiles(n_samples=10, n_quantiles=5)
     with pytest.raises(ValueError, match="strictly between 0 and 1"):
         predict_quantile_ensemble(members[:1], X=None, quantiles=(0.0, 0.5))
@@ -125,6 +128,7 @@ def test_invalid_quantiles_raises():
 
 
 def test_weights_zero_sum_raises():
+    """Weights zero sum raises."""
     quantiles = (0.5,)
     preds = np.zeros((3, 1))
     members = [_MultiQuantileMember(preds, quantiles), _MultiQuantileMember(preds, quantiles)]
@@ -133,6 +137,7 @@ def test_weights_zero_sum_raises():
 
 
 def test_negative_weights_raise():
+    """Negative weights raise."""
     quantiles = (0.5,)
     preds = np.zeros((3, 1))
     members = [_MultiQuantileMember(preds, quantiles), _MultiQuantileMember(preds, quantiles)]
@@ -141,7 +146,9 @@ def test_negative_weights_raise():
 
 
 def test_member_lacking_predict_quantile_raises():
+    """Member lacking predict quantile raises."""
     class _Bad:
+        """Groups tests covering bad."""
         pass
 
     with pytest.raises(ValueError, match="lacks predict_quantile"):

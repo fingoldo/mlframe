@@ -35,6 +35,7 @@ def _reference_mask_fit(y, base, groups, min_group_size):
 
 @pytest.mark.parametrize("n,K,seed", [(5000, 50, 0), (20000, 300, 1), (20000, 700, 2)])
 def test_grouped_fit_segment_bit_identical(n, K, seed):
+    """Grouped fit segment bit identical."""
     rng = np.random.default_rng(seed)
     groups = rng.integers(0, K, size=n)
     base = rng.standard_normal(n)

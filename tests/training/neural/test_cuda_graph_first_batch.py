@@ -57,6 +57,7 @@ def _make_linear_regression_data(seed: int = 2, n: int = 1200, d: int = 4):
 
 
 def _build_estimator(max_epochs: int = 50) -> PytorchLightningRegressor:
+    """Build estimator."""
     return PytorchLightningRegressor(
         model_class=MLPTorchModel,
         model_params={

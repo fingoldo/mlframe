@@ -44,6 +44,7 @@ _TENSOR_ATTRS = (
 
 
 def _make_dm_with_tensors() -> SimpleNamespace:
+    """Make dm with tensors."""
     dm = SimpleNamespace()
     for _attr in _TENSOR_ATTRS:
         setattr(dm, _attr, "heavy-tensor-payload")
@@ -63,6 +64,7 @@ def _run_cleanup(estimator) -> None:
 
 
 def test_fit_drops_prediction_datamodule_tensors_by_default(monkeypatch) -> None:
+    """Fit drops prediction datamodule tensors by default."""
     monkeypatch.delenv("MLFRAME_KEEP_PREDICTION_DATAMODULE", raising=False)
     estimator = SimpleNamespace()
     estimator.trainer = "dummy-trainer-state"
@@ -81,6 +83,7 @@ def test_fit_drops_prediction_datamodule_tensors_by_default(monkeypatch) -> None
 
 
 def test_fit_keeps_prediction_datamodule_when_env_set(monkeypatch) -> None:
+    """Fit keeps prediction datamodule when env set."""
     monkeypatch.setenv("MLFRAME_KEEP_PREDICTION_DATAMODULE", "1")
     estimator = SimpleNamespace()
     estimator.trainer = "dummy"

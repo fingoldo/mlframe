@@ -34,6 +34,7 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 )
 @settings(max_examples=25, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_split_partition_invariant(n, test_size, val_size, seed):
+    """Split partition invariant."""
     from mlframe.training.splitting import make_train_test_split
 
     df = pd.DataFrame({"x": np.arange(n)})
@@ -64,6 +65,7 @@ def test_split_partition_invariant(n, test_size, val_size, seed):
 )
 @settings(max_examples=25, deadline=None)
 def test_remove_constant_keeps_varying(values):
+    """Remove constant keeps varying."""
     from mlframe.training.utils import remove_constant_columns
 
     arr = np.array(values, dtype=np.float32)
@@ -104,6 +106,7 @@ def test_remove_constant_numeric_with_nans_pandas():
 # process_infinities: NaN preservation in mixed polars columns
 # ----------------------------------------------------------------------
 def test_process_infinities_polars_mixed():
+    """Process infinities polars mixed."""
     from mlframe.training.utils import process_infinities
 
     df = pl.DataFrame({"a": [1.0, float("inf"), float("nan"), float("-inf")]})
@@ -121,6 +124,7 @@ def test_process_infinities_polars_mixed():
 # Linear model factory
 # ----------------------------------------------------------------------
 def test_create_linear_model_ridge_classifier():
+    """Create linear model ridge classifier."""
     from mlframe.training.models import create_linear_model
     from mlframe.training.configs import LinearModelConfig
     from sklearn.linear_model import RidgeClassifier, Ridge
@@ -133,6 +137,7 @@ def test_create_linear_model_ridge_classifier():
 
 
 def test_is_linear_tree_neural_model():
+    """Is linear tree neural model."""
     from mlframe.training.models import is_linear_model, is_tree_model, is_neural_model
 
     assert is_linear_model("Ridge")
@@ -152,6 +157,7 @@ def test_is_linear_tree_neural_model():
 # Save/load mlframe model round-trip
 # ----------------------------------------------------------------------
 def test_save_load_mlframe_model(tmp_path):
+    """Save load mlframe model."""
     from mlframe.training.io import save_mlframe_model, load_mlframe_model
 
     obj = SimpleNamespace(
@@ -175,6 +181,7 @@ def test_save_load_mlframe_model(tmp_path):
 # trusted_root guards
 # ----------------------------------------------------------------------
 def test_trainer_validate_trusted_path_rejects_escape(tmp_path):
+    """Trainer validate trusted path rejects escape."""
     from mlframe.training.trainer import _validate_trusted_path
 
     root = tmp_path / "allowed"
@@ -195,6 +202,7 @@ def test_trainer_validate_trusted_path_rejects_escape(tmp_path):
 
 
 def test_core_validate_trusted_path_rejects_escape(tmp_path):
+    """Core validate trusted path rejects escape."""
     from mlframe.training.core import _validate_trusted_path
 
     root = tmp_path / "ok"

@@ -15,6 +15,7 @@ from pathlib import Path
 
 
 def test_class_still_importable_from_facade() -> None:
+    """Class still importable from facade."""
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     assert CompositeCrossTargetEnsemble is not None
@@ -24,6 +25,7 @@ def test_class_still_importable_from_facade() -> None:
 
 
 def test_other_composite_ensemble_symbols_still_importable() -> None:
+    """Other composite ensemble symbols still importable."""
     from mlframe.training.composite.ensemble import (
         derive_seeds,
         detect_gpu_in_use,
@@ -41,6 +43,7 @@ def test_other_composite_ensemble_symbols_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """Facade below 1k line threshold."""
     root = Path(__file__).resolve().parents[4] / "src" / "mlframe" / "training" / "composite" / "ensemble"
     facade = root / "__init__.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())
@@ -68,6 +71,7 @@ def test_from_uniform_weights_round_trip() -> None:
             self._v = value
 
         def predict(self, X):
+            """Predict."""
             return np.full(len(X), self._v)
 
     ensemble = CompositeCrossTargetEnsemble.from_uniform_weights(

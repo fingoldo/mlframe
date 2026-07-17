@@ -38,6 +38,7 @@ from mlframe.training.utils import get_pandas_view_of_polars_df
 
 
 def _mixed_polars_frame_for_dtype_check(n=64):
+    """Mixed polars frame for dtype check."""
     return pl.DataFrame(
         {
             "f_float": np.arange(n, dtype=np.float32),
@@ -111,6 +112,7 @@ def test_f15_extractors_module_source_routes_head_tail_via_bridge():
 
 
 def test_f3_pipeline_helpers_ndarray_branch_uses_bridge_for_held():
+    """F3 pipeline helpers ndarray branch uses bridge for held."""
     from mlframe.training.pipeline import _pipeline_helpers as ph
 
     src = _module_source(ph)
@@ -137,6 +139,7 @@ def test_f4_predict_main_uses_dict_of_numpy_not_from_pandas():
 
 
 def test_f5_phase_helpers_fit_pipeline_uses_dict_of_numpy_not_from_pandas():
+    """F5 phase helpers fit pipeline uses dict of numpy not from pandas."""
     from mlframe.training.core import _phase_helpers_fit_pipeline as phfp
 
     src = _module_source(phfp)
@@ -168,6 +171,7 @@ def test_f4_f5_dict_of_numpy_back_merge_behaviour_matches_from_pandas():
 
 
 def test_f7_filter_to_numeric_uses_split_blocks_for_polars_input():
+    """F7 filter to numeric uses split blocks for polars input."""
     from mlframe.training.pipeline import _pipeline_extensions as pe
 
     # Read the module source (Path.read_text, NOT inspect.getsource per

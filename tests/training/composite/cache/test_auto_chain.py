@@ -49,6 +49,7 @@ def _synth_chain_target(seed: int, n: int = 3000):
 
 
 def test_build_chain_transform_is_wellformed_and_roundtrips():
+    """Build chain transform is wellformed and roundtrips."""
     tf = build_chain_transform("linear_residual", "cbrt")
     assert isinstance(tf, Transform)
     assert tf.name == "chain_linear_residual_cbrt"
@@ -65,6 +66,7 @@ def test_build_chain_transform_is_wellformed_and_roundtrips():
 
 
 def test_build_chain_transform_rejects_unknown_stage():
+    """Build chain transform rejects unknown stage."""
     with pytest.raises(KeyError):
         build_chain_transform("not_a_residual", "cbrt")
     with pytest.raises(KeyError):
@@ -116,6 +118,7 @@ def test_discover_chains_returns_empty_when_no_chain_wins():
 
 
 def test_discover_chains_candidates_carry_fitted_params_and_beat_singles():
+    """Discover chains candidates carry fitted params and beat singles."""
     y, base, x = _synth_chain_target(1)
     out = discover_chains(
         y=y,
@@ -137,6 +140,7 @@ def test_discover_chains_candidates_carry_fitted_params_and_beat_singles():
 
 
 def test_y_scale_cv_rmse_raw_baseline_finite():
+    """Y scale cv rmse raw baseline finite."""
     y, base, x = _synth_chain_target(2, n=1000)
     raw_rmse, vf = _y_scale_cv_rmse(
         None,

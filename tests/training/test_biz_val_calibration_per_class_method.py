@@ -24,6 +24,7 @@ N_BINS = 10
 
 
 def _heldout_ece_binary(y, p, n_bins=N_BINS):
+    """Heldout ece binary."""
     y = np.asarray(y, dtype=np.float64)
     p = np.clip(np.asarray(p, dtype=np.float64), 0.0, 1.0)
     edges = np.linspace(0.0, 1.0, n_bins + 1)
@@ -38,6 +39,7 @@ def _heldout_ece_binary(y, p, n_bins=N_BINS):
 
 
 def _overconfident_multiclass(seed, n, K, temp=2.2):
+    """Overconfident multiclass."""
     rng = np.random.default_rng(seed)
     W = rng.normal(size=(K, 4))
     Xf = rng.normal(size=(n, 4))
@@ -51,6 +53,7 @@ def _overconfident_multiclass(seed, n, K, temp=2.2):
 
 
 def _mean_per_class_heldout_ece(calibrator, s_ho, y_ho, K):
+    """Mean per class heldout ece."""
     out = calibrator.predict_proba(s_ho)
     return float(np.mean([_heldout_ece_binary((y_ho == k).astype(float), out[:, k]) for k in range(K)]))
 
@@ -72,6 +75,7 @@ def test_per_class_isotonic_method_selectable():
 
 
 def test_predict_proba_rows_sum_to_one_multiclass():
+    """Predict proba rows sum to one multiclass."""
     s, y = _overconfident_multiclass(1, 400, 5)
     c = _PerClassIsotonicCalibrator.fit(s, y, TargetTypes.MULTICLASS_CLASSIFICATION)
     out = c.predict_proba(s)

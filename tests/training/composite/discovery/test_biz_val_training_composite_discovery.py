@@ -81,6 +81,7 @@ def _make_config(**overrides):
 
 
 def _run_discovery(df, config):
+    """Run discovery."""
     from mlframe.training.composite import CompositeTargetDiscovery
 
     n = len(df)

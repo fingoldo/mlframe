@@ -19,14 +19,17 @@ class _FakeMultiOutputClassifier:
         self.classes_ = [np.array([0, 1]) for _ in range(n_labels)]
 
     def predict_proba(self, X):
+        """Predict proba."""
         rng = np.random.default_rng(0)
         return [np.column_stack([1 - p, p]) for p in (rng.uniform(size=(self.n_labels, self.n_rows)))]
 
     def predict(self, X):
+        """Predict."""
         return np.zeros((self.n_rows, self.n_labels), dtype=int)
 
 
 def test_wrap_predict_result_canonicalizes_list_proba():
+    """Wrap predict result canonicalizes list proba."""
     lst = [np.column_stack([1 - np.linspace(0, 1, 5), np.linspace(0, 1, 5)]) for _ in range(3)]
     out = _wrap_predict_result(lst, method="predict_proba", classes_=None)
     assert isinstance(out, np.ndarray)
@@ -35,6 +38,7 @@ def test_wrap_predict_result_canonicalizes_list_proba():
 
 
 def test_predict_with_fallback_multioutput_proba_is_2d():
+    """Predict with fallback multioutput proba is 2d."""
     model = _FakeMultiOutputClassifier(n_labels=3, n_rows=7)
     X = np.zeros((7, 2))
     probs = _predict_with_fallback(model, X, method="predict_proba")

@@ -55,6 +55,7 @@ class FakeCatBoost:
     def fit(self, X, y, **fit_params):
         # Record a snapshot of what arrived: types, dtypes of text columns,
         # cat_features list, eval_set shape.
+        """Fit."""
         snapshot = {
             "X_type": type(X).__name__,
             "X_shape": tuple(X.shape) if hasattr(X, "shape") else None,
@@ -225,7 +226,9 @@ def test_fallback_passes_when_polars_fastpath_succeeds(polars_frame_with_text_ca
     train_target = np.arange(train_df.height) % 2
 
     class OKModel(FakeCatBoost):
+        """Groups tests covering o k model."""
         def fit(self, X, y, **fit_params):
+            """Fit."""
             self.calls.append({"X_type": type(X).__name__})
             return self
 
@@ -297,7 +300,9 @@ def test_fallback_retry_failure_propagates(polars_frame_with_text_cats):
     val_target = np.arange(val_df.height) % 2
 
     class RaisingTwice(FakeCatBoost):
+        """Groups tests covering raising twice."""
         def fit(self, X, y, **fit_params):
+            """Fit."""
             self.calls.append({"X_type": type(X).__name__})
             if len(self.calls) == 1:
                 raise TypeError("No matching signature found")
@@ -572,12 +577,15 @@ class _FakeCBPredict:
     feature_names_ = property(lambda self: self._feat_names)
 
     def _get_cat_feature_indices(self):
+        """Get cat feature indices."""
         return list(self._cat_idx)
 
     def _get_text_feature_indices(self):
+        """Get text feature indices."""
         return list(self._text_idx)
 
     def predict(self, X):
+        """Predict."""
         self.calls.append({"method": "predict", "X_type": type(X).__name__})
         if isinstance(X, pl.DataFrame):
             raise TypeError("No matching signature found")
@@ -585,6 +593,7 @@ class _FakeCBPredict:
         return np.zeros(n, dtype=np.int64)
 
     def predict_proba(self, X):
+        """Predict proba."""
         self.calls.append({"method": "predict_proba", "X_type": type(X).__name__})
         if isinstance(X, pl.DataFrame):
             raise TypeError("No matching signature found")
@@ -595,6 +604,7 @@ class _FakeCBPredict:
 
 
 def _make_predict_polars_df(n=20):
+    """Make predict polars df."""
     cats = ["a", "b"] * (n // 2)
     return pl.DataFrame(
         {
@@ -611,6 +621,7 @@ class TestRecoverCBFeatureNames:
     (evaluation code) having to know them."""
 
     def test_recovers_names_from_indices(self):
+        """Recovers names from indices."""
         from mlframe.training._predict_guards import _recover_cb_feature_names
 
         m = _FakeCBPredict(
@@ -623,9 +634,11 @@ class TestRecoverCBFeatureNames:
         assert text == ["d"]
 
     def test_empty_on_unfitted_model(self):
+        """Empty on unfitted model."""
         from mlframe.training._predict_guards import _recover_cb_feature_names
 
         class Bare:
+            """Groups tests covering bare."""
             pass
 
         cat, text = _recover_cb_feature_names(Bare())
@@ -666,6 +679,7 @@ class TestPredictWithFallback:
     """
 
     def test_polars_typeerror_triggers_pandas_retry(self, caplog):
+        """Polars typeerror triggers pandas retry."""
         import logging
         from mlframe.training.trainer import _predict_with_fallback
 
@@ -719,7 +733,9 @@ class TestPredictWithFallback:
         from mlframe.training.trainer import _predict_with_fallback
 
         class OtherModel:
+            """Groups tests covering other model."""
             def predict(self, X):
+                """Predict."""
                 raise TypeError("No matching signature found")
 
         m = OtherModel()
@@ -733,7 +749,9 @@ class TestPredictWithFallback:
         from mlframe.training.trainer import _predict_with_fallback
 
         class CBLike:
+            """Groups tests covering c b like."""
             def predict(self, X):
+                """Predict."""
                 raise TypeError("No matching signature found")
 
         m = CBLike()
@@ -749,7 +767,9 @@ class TestPredictWithFallback:
         from mlframe.training.trainer import _predict_with_fallback
 
         class CBLike2:
+            """Groups tests covering c b like2."""
             def predict(self, X):
+                """Predict."""
                 raise TypeError("shape mismatch in eval set")
 
         m = CBLike2()
@@ -765,7 +785,9 @@ class TestPredictWithFallback:
         from mlframe.training.trainer import _predict_with_fallback
 
         class NoProba:
+            """Groups tests covering no proba."""
             def predict(self, X):
+                """Predict."""
                 return np.zeros(len(X))
 
         m = NoProba()

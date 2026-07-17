@@ -21,35 +21,42 @@ from mlframe.training.utils import coerce_to_numpy, coerce_to_1d_numpy
 
 
 class TestCoerceToNumpy:
+    """Groups tests covering coerce to numpy."""
     def test_pandas_series_returns_ndarray(self):
+        """Pandas series returns ndarray."""
         s = pd.Series([1.0, 2.0, 3.0])
         out = coerce_to_numpy(s)
         assert isinstance(out, np.ndarray)
         np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0]))
 
     def test_numpy_passthrough(self):
+        """Numpy passthrough."""
         arr = np.array([1, 2, 3])
         out = coerce_to_numpy(arr)
         assert isinstance(out, np.ndarray)
         np.testing.assert_array_equal(out, arr)
 
     def test_list_coerces(self):
+        """List coerces."""
         out = coerce_to_numpy([1, 2, 3])
         assert isinstance(out, np.ndarray)
         np.testing.assert_array_equal(out, np.array([1, 2, 3]))
 
     @pytest.mark.skipif(not HAS_POLARS, reason="polars not available")
     def test_polars_series_returns_ndarray(self):
+        """Polars series returns ndarray."""
         s = pl.Series("x", [1.0, 2.0, 3.0])
         out = coerce_to_numpy(s)
         assert isinstance(out, np.ndarray)
         np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0]))
 
     def test_none_raises_by_default(self):
+        """None raises by default."""
         with pytest.raises(TypeError, match="allow_none"):
             coerce_to_numpy(None)
 
     def test_none_allowed_when_opt_in(self):
+        """None allowed when opt in."""
         assert coerce_to_numpy(None, allow_none=True) is None
 
     def test_preserves_2d_shape(self):
@@ -60,18 +67,22 @@ class TestCoerceToNumpy:
 
 
 class TestCoerceTo1dNumpy:
+    """Groups tests covering coerce to1d numpy."""
     def test_flatten_2d(self):
+        """Flatten 2d."""
         arr = np.arange(6).reshape(2, 3)
         out = coerce_to_1d_numpy(arr)
         assert out.shape == (6,)
         np.testing.assert_array_equal(out, np.arange(6))
 
     def test_already_1d_passthrough(self):
+        """Already 1d passthrough."""
         out = coerce_to_1d_numpy(np.array([1.0, 2.0, 3.0]))
         assert out.shape == (3,)
         np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0]))
 
     def test_pandas_series_flattens(self):
+        """Pandas series flattens."""
         out = coerce_to_1d_numpy(pd.Series([1.0, 2.0, 3.0]))
         assert out.shape == (3,)
 
@@ -89,12 +100,14 @@ class TestBackwardCompatAliases:
         # drift_report uses `_to_numpy_or_none` (renamed 2026-05-15 after the
         # naming audit flagged the old `_to_1d_numpy` name as misleading -
         # the function preserves shape, doesn't reshape to 1-D).
+        """Drift report alias preserved."""
         from mlframe.training import drift_report
 
         assert drift_report._to_numpy_or_none(None) is None
         np.testing.assert_array_equal(drift_report._to_numpy_or_none([1, 2, 3]), np.array([1, 2, 3]))
 
     def test_baseline_diagnostics_alias_preserved(self):
+        """Baseline diagnostics alias preserved."""
         from mlframe.training.baselines import diagnostics as baseline_diagnostics
 
         # baseline_diagnostics uses the 1-D variant; reshape applies
@@ -102,6 +115,7 @@ class TestBackwardCompatAliases:
         assert out.shape == (4,)
 
     def test_composite_estimator_alias_preserved(self):
+        """Composite estimator alias preserved."""
         from mlframe.training.composite import estimator as composite_estimator
 
         out = composite_estimator._to_1d_numpy(np.arange(4).reshape(2, 2))
