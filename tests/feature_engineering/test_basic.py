@@ -214,6 +214,7 @@ class TestResolvePandasMethod:
         ],
     )
     def test_resolved_field_matches_direct_accessor(self, method):
+        """_resolve_pandas_method must reproduce the exact values of the direct .dt accessor for every supported method."""
         from mlframe.feature_engineering.basic import _resolve_pandas_method, _DATE_METHOD_ALIASES
 
         dt = self._dt()

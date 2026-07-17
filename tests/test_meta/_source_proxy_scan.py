@@ -19,6 +19,7 @@ from pathlib import Path
 
 
 def _contains_read_text(node: ast.AST) -> bool:
+    """True if any sub-expression of node is a call to `.read_text(...)`."""
     for sub in ast.walk(node):
         if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute) and sub.func.attr == "read_text":
             return True
@@ -26,6 +27,7 @@ def _contains_read_text(node: ast.AST) -> bool:
 
 
 def _root_name(node: ast.expr) -> str | None:
+    """Return the base `Name` id of a (possibly chained) attribute/subscript expression, or None."""
     cur = node
     while isinstance(cur, (ast.Attribute, ast.Subscript)):
         cur = cur.value
