@@ -55,14 +55,17 @@ class _SelectFirstNCols(BaseEstimator, TransformerMixin):
         self.support_ = np.ones(len(self.kept_cols), dtype=bool)
 
     def transform(self, X):
+        """Helper that transform."""
         if isinstance(X, pd.DataFrame):
             return X.loc[:, self.kept_cols]
         raise TypeError(f"unsupported X type: {type(X)}")
 
     def fit(self, X, y=None):
+        """Helper that fit."""
         return self
 
     def fit_transform(self, X, y=None):
+        """Helper that fit transform."""
         return self.transform(X)
 
 
@@ -126,6 +129,7 @@ def _build_minimal_suite():
             # how to consume. In production the text/embedding columns would
             # be processed by the model's own native text encoder; in this
             # test we just drop them.
+            """Helper that predict."""
             if isinstance(X, pd.DataFrame):
                 X_num = X.loc[:, self._numeric_features]
             else:

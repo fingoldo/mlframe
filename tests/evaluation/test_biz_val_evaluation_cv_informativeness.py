@@ -17,10 +17,12 @@ from mlframe.evaluation.cv_informativeness import cv_informativeness_check
 
 
 def _neg_rmse(y_true, y_pred):
+    """Helper that neg rmse."""
     return -float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
 def _make_group_splits(group_ids: np.ndarray):
+    """Helper that make group splits."""
     for g in np.unique(group_ids):
         test_idx = np.flatnonzero(group_ids == g)
         train_idx = np.flatnonzero(group_ids != g)
@@ -28,6 +30,7 @@ def _make_group_splits(group_ids: np.ndarray):
 
 
 def test_biz_val_cv_informativeness_flags_uninformative_groups():
+    """Cv informativeness flags uninformative groups."""
     rng = np.random.default_rng(0)
     n_groups = 8
     rows_per_group = 200
@@ -42,6 +45,7 @@ def test_biz_val_cv_informativeness_flags_uninformative_groups():
 
 
 def test_biz_val_cv_informativeness_confirms_informative_groups():
+    """Cv informativeness confirms informative groups."""
     rng = np.random.default_rng(1)
     n_groups = 8
     rows_per_group = 200
@@ -56,6 +60,7 @@ def test_biz_val_cv_informativeness_confirms_informative_groups():
 
 
 def _make_variable_size_group_splits(group_ids: np.ndarray):
+    """Helper that make variable size group splits."""
     for g in np.unique(group_ids):
         test_idx = np.flatnonzero(group_ids == g)
         train_idx = np.flatnonzero(group_ids != g)
@@ -65,6 +70,7 @@ def _make_variable_size_group_splits(group_ids: np.ndarray):
 def test_biz_val_cv_informativeness_trend_uniformly_uninformative():
     # every group's y is an independent random offset unrelated to X, REGARDLESS of group size -- there is no
     # size-informativeness relationship to find; the diagnostic must not manufacture a spurious sparsity trend.
+    """Cv informativeness trend uniformly uninformative."""
     rng = np.random.default_rng(2)
     n_groups = 10
     group_sizes = rng.integers(50, 400, n_groups)
@@ -94,6 +100,7 @@ def test_biz_val_cv_informativeness_trend_decaying_with_group_sparsity():
     # per-group offset); large held-out groups carry the genuine X->y relationship. This directly encodes the
     # remediation story: re-folding into fewer, larger groups would recover informativeness here, unlike the
     # uniformly-uninformative case above where no re-folding could help.
+    """Cv informativeness trend decaying with group sparsity."""
     rng = np.random.default_rng(3)
     group_sizes = np.array([15, 15, 15, 15, 300, 300, 300, 300])
     n_groups = len(group_sizes)
@@ -130,6 +137,7 @@ def test_biz_val_cv_informativeness_trend_decaying_with_group_sparsity():
 
 def test_cv_informativeness_check_trend_default_off_output_unchanged():
     # opt-in contract: omitting check_trend must not add a trend_diagnostic key or otherwise change the result.
+    """Cv informativeness check trend default off output unchanged."""
     rng = np.random.default_rng(4)
     n_groups = 6
     rows_per_group = 100
@@ -152,6 +160,7 @@ def test_cv_informativeness_check_trend_default_off_output_unchanged():
 
 
 def test_cv_informativeness_invalid_stat_raises():
+    """Cv informativeness invalid stat raises."""
     import pytest
 
     with pytest.raises(ValueError):

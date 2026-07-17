@@ -17,6 +17,7 @@ from mlframe.evaluation.bootstrap import auc_ci, auc_variance
 
 
 def _draw(rng, n, auc_target):
+    """Helper that draw."""
     mu = scipy.stats.norm.ppf(auc_target) * np.sqrt(2.0)
     y = (rng.random(n) < 0.5).astype(int)
     if y.sum() < 2 or (n - y.sum()) < 2:
@@ -28,6 +29,7 @@ def _draw(rng, n, auc_target):
 
 
 def test_auc_variance_matches_point_auc():
+    """Auc variance matches point auc."""
     rng = np.random.default_rng(0)
     y, s = _draw(rng, 500, 0.9)
     d = auc_variance(y, s)
@@ -36,6 +38,7 @@ def test_auc_variance_matches_point_auc():
 
 
 def test_auc_variance_degenerate_returns_nan_se():
+    """Auc variance degenerate returns nan se."""
     y = np.array([1, 1, 1, 0])  # only 1 negative
     s = np.array([0.9, 0.8, 0.7, 0.1])
     d = auc_variance(y, s)
@@ -43,11 +46,13 @@ def test_auc_variance_degenerate_returns_nan_se():
 
 
 def test_auc_variance_rejects_nonbinary():
+    """Auc variance rejects nonbinary."""
     with pytest.raises(ValueError):
         auc_variance(np.array([0, 1, 2, 1]), np.array([0.1, 0.2, 0.3, 0.4]))
 
 
 def test_auc_ci_delong_default_inside_unit_interval_and_brackets_auc():
+    """Auc ci delong default inside unit interval and brackets auc."""
     rng = np.random.default_rng(3)
     y, s = _draw(rng, 300, 0.97)
     ci = auc_ci(y, s)
@@ -56,6 +61,7 @@ def test_auc_ci_delong_default_inside_unit_interval_and_brackets_auc():
 
 
 def test_auc_ci_bootstrap_method_runs():
+    """Auc ci bootstrap method runs."""
     rng = np.random.default_rng(4)
     y, s = _draw(rng, 200, 0.9)
     ci = auc_ci(y, s, method="bootstrap", n_bootstrap=300, random_state=1)
@@ -64,6 +70,7 @@ def test_auc_ci_bootstrap_method_runs():
 
 
 def test_auc_ci_rejects_unknown_method():
+    """Auc ci rejects unknown method."""
     rng = np.random.default_rng(5)
     y, s = _draw(rng, 100, 0.9)
     with pytest.raises(ValueError):
@@ -71,6 +78,7 @@ def test_auc_ci_rejects_unknown_method():
 
 
 def _truth_sd(n, auc_t, n_truth=1500):
+    """Helper that truth sd."""
     rng = np.random.default_rng(20260615)
     a = np.empty(n_truth)
     for i in range(n_truth):

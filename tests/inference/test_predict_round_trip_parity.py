@@ -50,6 +50,7 @@ def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, dur
 
 
 def _build_polars_frame(n: int = 1_500, seed: int = 0) -> pl.DataFrame:
+    """Helper that build polars frame."""
     rng = np.random.default_rng(seed)
     return pl.DataFrame(
         {
@@ -229,6 +230,7 @@ def _train_multi_target_suite(df, target_type, tmp_path, model_name):
 
 
 def _atomic_write_bytes_threads_zero(target_path, writer_fn):
+    """Helper that atomic write bytes threads zero."""
     with open(target_path, "wb") as f:
         writer_fn(f)
     return True
@@ -297,6 +299,7 @@ def test_in_memory_and_disk_predict_agree_on_multilabel(tmp_path):
     )
 
     def _per_label(res):
+        """Helper that per label."""
         probs = res.get("probabilities", {})
         key = next(k for k in probs if k.startswith("multilabel_classification"))
         per_label = probs[key]

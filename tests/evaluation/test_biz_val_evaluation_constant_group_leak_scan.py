@@ -14,6 +14,7 @@ from mlframe.evaluation.constant_group_leak_scan import constant_group_target_sc
 
 
 def test_biz_val_constant_group_target_scan_flags_the_leaky_column():
+    """Constant group target scan flags the leaky column."""
     rng = np.random.default_rng(0)
     n_dates = 30
     rows_per_date = 50
@@ -41,6 +42,7 @@ def test_biz_val_constant_group_target_scan_flags_the_leaky_column():
 
 
 def test_constant_group_target_scan_zero_overall_variance_raises():
+    """Constant group target scan zero overall variance raises."""
     import pytest
 
     df = pd.DataFrame({"col": [1, 2, 3]})
@@ -50,6 +52,7 @@ def test_constant_group_target_scan_zero_overall_variance_raises():
 
 
 def test_constant_group_target_scan_no_eligible_groups_not_flagged():
+    """Constant group target scan no eligible groups not flagged."""
     df = pd.DataFrame({"col": list(range(5))})
     y = np.array([0.0, 1.0, 0.0, 1.0, 0.0])
     result = constant_group_target_scan(df, y, candidate_cols=["col"], min_group_size=20)
@@ -60,6 +63,7 @@ def test_biz_val_constant_group_target_scan_combo_finds_compound_key_leak_invisi
     # a leak that only shows up under the COMPOUND key (branch, weekday): the target rate is near-deterministic
     # per (branch, weekday) pair, but each column marginalized alone washes the pattern out completely, since
     # the per-branch and per-weekday deterministic rates are constructed to average out to ~0.5 individually.
+    """Constant group target scan combo finds compound key leak invisible alone."""
     rng = np.random.default_rng(1)
     n_branches = 6
     n_weekdays = 7
@@ -94,6 +98,7 @@ def test_biz_val_constant_group_target_scan_combo_finds_compound_key_leak_invisi
 def test_constant_group_target_scan_combo_max_size_one_is_bit_identical_to_default():
     # combo_max_size=1 (the implicit default) must reproduce the exact original single-column-only output --
     # the multi-column mode is strictly opt-in.
+    """Constant group target scan combo max size one is bit identical to default."""
     rng = np.random.default_rng(2)
     n = 500
     df = pd.DataFrame({"a": rng.integers(0, 10, n), "b": rng.integers(0, 5, n)})
@@ -105,6 +110,7 @@ def test_constant_group_target_scan_combo_max_size_one_is_bit_identical_to_defau
 
 
 def test_constant_group_target_scan_combo_max_cols_bounds_combination_count():
+    """Constant group target scan combo max cols bounds combination count."""
     rng = np.random.default_rng(3)
     n = 300
     cols = {f"c{i}": rng.integers(0, 4, n) for i in range(6)}

@@ -51,6 +51,7 @@ from mlframe.preprocessing.transforms import prepare_df_for_catboost
     ],
 )
 def test_pandas_dtype_preserved_or_narrowed(col_dtype, expected_out):
+    """Pandas dtype preserved or narrowed."""
     if isinstance(col_dtype, type) and issubclass(col_dtype, np.floating):
         # Non-nullable numpy floats — should pass through untouched.
         arr = np.array([1.0, 2.0, 3.0], dtype=col_dtype)
@@ -109,6 +110,7 @@ def test_pandas_nullable_float32_fills_na_but_keeps_precision():
     ],
 )
 def test_polars_dtype_preserved_or_narrowed(src_dtype, values, expected_out):
+    """Polars dtype preserved or narrowed."""
     df = pl.DataFrame({"c": pl.Series("c", values, dtype=src_dtype)})
     out = prepare_df_for_catboost(df.clone(), cat_features=[])
     assert out.dtypes[0] == expected_out, f"{src_dtype} → {out.dtypes[0]} (expected {expected_out})"
@@ -141,6 +143,7 @@ def test_polars_numeric_loop_skips_null_scan_for_noncastable_dtype(monkeypatch):
     orig_is_null = pl.Series.is_null
 
     def spy_is_null(self):
+        """Helper that spy is null."""
         if self.name:
             scanned.append(self.name)
         return orig_is_null(self)

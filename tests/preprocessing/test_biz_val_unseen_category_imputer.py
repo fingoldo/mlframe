@@ -19,6 +19,7 @@ from mlframe.preprocessing.unseen_category_imputer import UnseenCategoryImputer
 
 
 def _make_skewed_category_data(n_train: int, n_test: int, seed: int):
+    """Helper that make skewed category data."""
     rng = np.random.default_rng(seed)
     cat_means = {"A": 0.2, "B": 0.5, "C": 0.8, "D": 0.5}
     train_cat = rng.choice(list(cat_means), n_train, p=[0.1, 0.1, 0.7, 0.1])  # C (mean 0.8) is the train mode.
@@ -34,6 +35,7 @@ def _make_skewed_category_data(n_train: int, n_test: int, seed: int):
 
 
 def test_biz_val_unseen_category_imputer_beats_global_mean_fallback():
+    """Unseen category imputer beats global mean fallback."""
     train_df, train_y, test_df, test_y = _make_skewed_category_data(n_train=3000, n_test=800, seed=3)
 
     enc = train_df.assign(y=train_y).groupby("cat")["y"].mean()
@@ -53,6 +55,7 @@ def test_biz_val_unseen_category_imputer_beats_global_mean_fallback():
 
 
 def _make_non_dominant_category_data(n_train: int, n_test: int, seed: int):
+    """Helper that make non dominant category data."""
     rng = np.random.default_rng(seed)
     cat_means = {"A": 0.8, "B": 0.5, "C": 0.2, "D": 0.15}  # A (mean 0.8) is the dominant train mode.
     train_cat = rng.choice(list(cat_means), n_train, p=[0.7, 0.1, 0.1, 0.1])
@@ -70,6 +73,7 @@ def _make_non_dominant_category_data(n_train: int, n_test: int, seed: int):
 
 
 def test_biz_val_unseen_category_imputer_nearest_beats_mode_for_non_dominant_unseen_category():
+    """Unseen category imputer nearest beats mode for non dominant unseen category."""
     train_df, train_y, test_df, test_y = _make_non_dominant_category_data(n_train=3000, n_test=800, seed=7)
     enc = train_df.assign(y=train_y).groupby("cat")["y"].mean()
 
@@ -89,6 +93,7 @@ def test_biz_val_unseen_category_imputer_nearest_beats_mode_for_non_dominant_uns
 
 
 def test_unseen_category_imputer_maps_rare_and_unseen_to_train_mode():
+    """Unseen category imputer maps rare and unseen to train mode."""
     train_df = pd.DataFrame({"cat": ["A"] * 90 + ["B"] * 5 + ["C"] * 5})
     imputer = UnseenCategoryImputer(columns=["cat"], min_count=10).fit(train_df)
     assert imputer.mode_["cat"] == "A"
@@ -100,6 +105,7 @@ def test_unseen_category_imputer_maps_rare_and_unseen_to_train_mode():
 
 
 def test_unseen_category_imputer_leaves_known_frequent_categories_untouched():
+    """Unseen category imputer leaves known frequent categories untouched."""
     train_df = pd.DataFrame({"cat": ["A"] * 50 + ["B"] * 50})
     imputer = UnseenCategoryImputer(columns=["cat"]).fit(train_df)
     test_df = pd.DataFrame({"cat": ["A", "B", "A", "B"]})
@@ -110,6 +116,7 @@ def test_unseen_category_imputer_leaves_known_frequent_categories_untouched():
 def test_unseen_category_imputer_default_transform_unaffected_by_fallback_stats_flag():
     # track_fallback_stats is a pure diagnostic add-on: default (False) must produce bit-identical output,
     # and fallback_stats_ must stay empty, regardless of whether transform() is even called.
+    """Unseen category imputer default transform unaffected by fallback stats flag."""
     train_df, _, test_df, _ = _make_skewed_category_data(n_train=500, n_test=200, seed=5)
 
     baseline = UnseenCategoryImputer(columns=["cat"]).fit(train_df)
@@ -127,6 +134,7 @@ def test_biz_val_unseen_category_imputer_fallback_stats_flags_drifted_column():
     # rate is elevated. A rising fallback rate on a column signals category drift (schema change, new
     # category rollout, upstream bug) worth investigating -- this test proves the opt-in tracker actually
     # separates a drifted column from a stable one by a wide, alertable margin.
+    """Unseen category imputer fallback stats flags drifted column."""
     rng = np.random.default_rng(11)
     n = 2000
 

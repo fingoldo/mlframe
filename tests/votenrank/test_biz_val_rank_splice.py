@@ -20,6 +20,7 @@ from mlframe.votenrank.rank_splice import segment_rank_splice
 
 
 def _make_miscalibrated_specialist_dataset(n_main: int, n_segment: int, seed: int):
+    """Helper that make miscalibrated specialist dataset."""
     rng = np.random.default_rng(seed)
     y_main = rng.integers(0, 2, n_main)
     main_scores_main = rng.uniform(0.3, 0.7, n_main) + 0.2 * y_main  # well-calibrated main-model scores
@@ -40,6 +41,7 @@ def _make_miscalibrated_specialist_dataset(n_main: int, n_segment: int, seed: in
 
 
 def test_biz_val_rank_splice_beats_raw_substitution_under_scale_mismatch():
+    """Rank splice beats raw substitution under scale mismatch."""
     main_scores, specialist_scores, y, segment_mask = _make_miscalibrated_specialist_dataset(n_main=800, n_segment=200, seed=0)
 
     naive_scores = main_scores.copy()
@@ -56,6 +58,7 @@ def test_biz_val_rank_splice_beats_raw_substitution_under_scale_mismatch():
 
 
 def test_segment_rank_splice_preserves_non_segment_rows_exactly():
+    """Segment rank splice preserves non segment rows exactly."""
     main_scores = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     specialist_scores = np.array([9.0, 1.0])
     segment_mask = np.array([False, True, False, True, False])
@@ -65,6 +68,7 @@ def test_segment_rank_splice_preserves_non_segment_rows_exactly():
 
 
 def test_segment_rank_splice_preserves_segment_value_multiset():
+    """Segment rank splice preserves segment value multiset."""
     main_scores = np.array([1.0, 5.0, 3.0, 8.0, 2.0])
     specialist_scores = np.array([0.1, 0.9, 0.5])
     segment_mask = np.array([True, False, True, False, True])
@@ -78,6 +82,7 @@ def test_segment_rank_splice_preserves_segment_value_multiset():
 
 
 def _make_dual_noisy_segment_dataset(n_segment: int, seed: int):
+    """Helper that make dual noisy segment dataset."""
     rng = np.random.default_rng(seed)
     y_segment = rng.integers(0, 2, n_segment)
     # Both the main model and the specialist have genuine but individually-noisy signal on this segment --
@@ -90,6 +95,7 @@ def _make_dual_noisy_segment_dataset(n_segment: int, seed: int):
 
 
 def test_biz_val_rank_splice_soft_blend_beats_hard_cutover_under_noisy_specialist():
+    """Rank splice soft blend beats hard cutover under noisy specialist."""
     main_scores, specialist_scores, y = _make_dual_noisy_segment_dataset(n_segment=400, seed=1)
     segment_mask = np.ones_like(y, dtype=bool)  # whole population is the segment for this isolated comparison
 
@@ -106,6 +112,7 @@ def test_biz_val_rank_splice_soft_blend_beats_hard_cutover_under_noisy_specialis
 
 
 def test_segment_rank_splice_blend_weight_zero_is_bit_identical_to_default():
+    """Segment rank splice blend weight zero is bit identical to default."""
     main_scores, specialist_scores, _y, segment_mask = _make_miscalibrated_specialist_dataset(n_main=800, n_segment=200, seed=0)
     default_result = segment_rank_splice(main_scores, specialist_scores, segment_mask)
     explicit_zero_result = segment_rank_splice(main_scores, specialist_scores, segment_mask, blend_weight=0.0)
@@ -113,6 +120,7 @@ def test_segment_rank_splice_blend_weight_zero_is_bit_identical_to_default():
 
 
 def test_segment_rank_splice_blend_weight_out_of_range_raises():
+    """Segment rank splice blend weight out of range raises."""
     import pytest
 
     main_scores = np.array([1.0, 2.0, 3.0])
@@ -125,6 +133,7 @@ def test_segment_rank_splice_blend_weight_out_of_range_raises():
 
 
 def test_segment_rank_splice_mismatched_lengths_raises():
+    """Segment rank splice mismatched lengths raises."""
     import pytest
 
     main_scores = np.array([1.0, 2.0, 3.0])

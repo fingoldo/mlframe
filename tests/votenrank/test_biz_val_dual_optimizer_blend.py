@@ -15,10 +15,12 @@ from mlframe.votenrank.dual_optimizer_blend import dual_optimizer_weight_blend
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Helper that rmse."""
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
 def test_biz_val_dual_optimizer_blend_low_divergence_on_clear_optimum():
+    """Dual optimizer blend low divergence on clear optimum."""
     rng = np.random.default_rng(0)
     n = 1500
     y_true = rng.standard_normal(n) * 3.0
@@ -33,6 +35,7 @@ def test_biz_val_dual_optimizer_blend_low_divergence_on_clear_optimum():
 
 
 def test_biz_val_dual_optimizer_blend_prunes_pure_noise_models():
+    """Dual optimizer blend prunes pure noise models."""
     rng = np.random.default_rng(1)
     n = 1500
     y_true = rng.standard_normal(n) * 3.0
@@ -66,6 +69,7 @@ def test_biz_val_dual_optimizer_blend_coord_descent_catches_correlated_blind_spo
     dip_depth = 0.6
 
     def _adversarial_loss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        """Helper that adversarial loss."""
         w = y_pred  # identity-trick: the "blended prediction" IS the weight vector itself
         d_true = float(np.linalg.norm(w - w_true))
         if d_true < dip_radius:
@@ -104,6 +108,7 @@ def test_biz_val_dual_optimizer_blend_coord_descent_catches_correlated_blind_spo
 
 
 def test_dual_optimizer_blend_both_optimizers_beat_equal_weight():
+    """Dual optimizer blend both optimizers beat equal weight."""
     rng = np.random.default_rng(2)
     n = 1000
     y_true = rng.standard_normal(n) * 3.0

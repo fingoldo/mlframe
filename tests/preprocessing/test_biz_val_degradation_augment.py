@@ -23,10 +23,12 @@ from mlframe.preprocessing.degradation_augment import augment_to_match_test_dist
 
 
 def _make_clean_train_noisy_test(seed: int):
+    """Helper that make clean train noisy test."""
     rng = np.random.default_rng(seed)
     n_train, n_test = 500, 400
 
     def _make(n, noise_std):
+        """Helper that make."""
         true_x1 = rng.normal(size=n)
         true_x2 = rng.normal(size=n)
         y = 2.0 * true_x1 + 1.5 * true_x2 + rng.normal(scale=0.3, size=n)
@@ -41,11 +43,13 @@ def _make_clean_train_noisy_test(seed: int):
 
 
 def _fit_and_score(X_train, y_train, X_test, y_test) -> float:
+    """Helper that fit and score."""
     reg = LinearRegression().fit(X_train, y_train)
     return float(mean_squared_error(y_test, reg.predict(X_test)))
 
 
 def test_biz_val_degradation_augment_reduces_mse_under_measurement_noise_mismatch():
+    """Degradation augment reduces mse under measurement noise mismatch."""
     rel_improvements = []
     for seed in range(5):
         X_train, y_train, X_test, y_test = _make_clean_train_noisy_test(seed=seed)
@@ -62,6 +66,7 @@ def test_biz_val_degradation_augment_reduces_mse_under_measurement_noise_mismatc
 
 
 def test_match_missingness_rate_raises_train_rate_toward_test_rate():
+    """Match missingness rate raises train rate toward test rate."""
     rng = np.random.default_rng(1)
     X_train = pd.DataFrame(rng.normal(size=(500, 3)), columns=["a", "b", "c"])
     X_test = X_train.copy()
@@ -78,6 +83,7 @@ def test_match_missingness_rate_raises_train_rate_toward_test_rate():
 
 
 def test_match_noise_level_raises_train_std_toward_test_std():
+    """Match noise level raises train std toward test std."""
     rng = np.random.default_rng(3)
     X_train = pd.DataFrame(rng.normal(scale=0.1, size=(2000, 2)), columns=["a", "b"])
     X_test = pd.DataFrame(rng.normal(scale=1.0, size=(2000, 2)), columns=["a", "b"])

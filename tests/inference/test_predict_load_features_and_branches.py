@@ -31,6 +31,7 @@ class DummyModel:
         self.feature_names_in_ = np.array(feats)
 
     def predict_proba(self, X):
+        """Helper that predict proba."""
         return np.tile([0.4, 0.6], (len(X), 1))
 
 
@@ -41,6 +42,7 @@ class DummyCatBoostModel:
         self.feature_names_ = list(feats)
 
     def predict_proba(self, X):
+        """Helper that predict proba."""
         return np.tile([0.4, 0.6], (len(X), 1))
 
 
@@ -48,6 +50,7 @@ class DummyNoFeatureNamesModel:
     """Stand-in for a model exposing neither name attribute at all."""
 
     def predict_proba(self, X):
+        """Helper that predict proba."""
         return np.tile([0.4, 0.6], (len(X), 1))
 
 
@@ -57,6 +60,7 @@ class DummyNoFeatureNamesModel:
 
 
 def test_load_features_json_list(tmp_path):
+    """Load features json list."""
     fp = tmp_path / "features.dump"
     json_path = tmp_path / "features.dump.json"
     json_path.write_text(json.dumps(["a", "b", "c"]))
@@ -66,12 +70,14 @@ def test_load_features_json_list(tmp_path):
 
 def test_load_features_json_sidecar_without_sha256_refused(tmp_path):
     # JSON features file with no .sha256 companion -> default-strict refusal -> None.
+    """Load features json sidecar without sha256 refused."""
     fp = tmp_path / "features.dump"
     (tmp_path / "features.dump.json").write_text(json.dumps(["a", "b", "c"]))
     assert _load_features_file(str(fp)) is None
 
 
 def test_load_features_json_non_list_returns_none(tmp_path):
+    """Load features json non list returns none."""
     fp = tmp_path / "features.dump"
     json_path = tmp_path / "features.dump.json"
     json_path.write_text(json.dumps({"x": 1}))
@@ -83,6 +89,7 @@ def test_load_features_invalid_json_raises(tmp_path):
     # Malformed JSON surfaces as a ValueError subclass (orjson.JSONDecodeError /
     # json.JSONDecodeError). read_trained_models wraps this call in try/except; at the
     # helper level the parse error propagates rather than being swallowed.
+    """Load features invalid json raises."""
     fp = tmp_path / "features.dump"
     json_path = tmp_path / "features.dump.json"
     json_path.write_text("{not valid json")
@@ -93,12 +100,14 @@ def test_load_features_invalid_json_raises(tmp_path):
 
 def test_load_features_dump_without_sidecar_refused(tmp_path):
     # No JSON twin + a joblib dump lacking its .sha256 sidecar -> default-strict refusal -> None.
+    """Load features dump without sidecar refused."""
     fp = tmp_path / "features.dump"
     joblib.dump(["p", "q"], str(fp))
     assert _load_features_file(str(fp)) is None
 
 
 def test_load_features_dump_with_sidecar_loads(tmp_path):
+    """Load features dump with sidecar loads."""
     fp = tmp_path / "features.dump"
     joblib.dump(["p", "q"], str(fp))
     write_sidecar(str(fp))
@@ -112,10 +121,12 @@ def test_load_features_dump_with_sidecar_loads(tmp_path):
 
 @pytest.fixture
 def X():
+    """Helper that X."""
     return pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
 
 
 def _make_featureset(tmp_path, name, feats_json, model_fname, model_feats, model_cls=DummyModel):
+    """Helper that make featureset."""
     infer = tmp_path / "infer"
     fsdir = infer / name
     fsdir.mkdir(parents=True)
@@ -132,12 +143,14 @@ def _make_featureset(tmp_path, name, feats_json, model_fname, model_feats, model
 
 
 def test_read_missing_dir_returns_empty_and_unchanged_X(tmp_path, X):
+    """Read missing dir returns empty and unchanged X."""
     models, Xo = read_trained_models("nonexistent", X, inference_folder=str(tmp_path / "infer"))
     assert models == {}
     assert Xo is X
 
 
 def test_read_feature_mismatch_skips_model(tmp_path, X):
+    """Read feature mismatch skips model."""
     infer = _make_featureset(tmp_path, "fs1", ["a", "b"], "model.pkl", ["z"])
     models, Xo = read_trained_models("fs1", X, inference_folder=infer)
     assert models == {}, "model whose feature_names_in_ differs from the featureset must be skipped"
@@ -158,6 +171,7 @@ def test_read_feature_mismatch_skips_catboost_model_via_feature_names_(tmp_path,
 
 
 def test_read_feature_match_loads_catboost_model(tmp_path, X):
+    """Read feature match loads catboost model."""
     infer = _make_featureset(tmp_path, "fscb2", ["a", "b"], "model.pkl", ["a", "b"], model_cls=DummyCatBoostModel)
     models, Xo = read_trained_models("fscb2", X, inference_folder=infer)
     assert list(models.keys()) == ["model"]
@@ -166,6 +180,7 @@ def test_read_feature_match_loads_catboost_model(tmp_path, X):
 
 
 def test_read_no_feature_names_attribute_warns_but_still_loads(tmp_path, X, caplog):
+    """Read no feature names attribute warns but still loads."""
     infer = _make_featureset(tmp_path, "fscb3", ["a", "b"], "model.pkl", None, model_cls=DummyNoFeatureNamesModel)
     with caplog.at_level("WARNING"):
         models, Xo = read_trained_models("fscb3", X, inference_folder=infer)
@@ -175,6 +190,7 @@ def test_read_no_feature_names_attribute_warns_but_still_loads(tmp_path, X, capl
 
 
 def test_read_feature_match_loads_model(tmp_path, X):
+    """Read feature match loads model."""
     infer = _make_featureset(tmp_path, "fs2", ["a", "b"], "model.pkl", ["a", "b"])
     models, Xo = read_trained_models("fs2", X, inference_folder=infer)
     assert list(models.keys()) == ["model"]
@@ -183,6 +199,7 @@ def test_read_feature_match_loads_model(tmp_path, X):
 
 
 def test_read_disallowed_extension_skipped_but_allowed_when_whitelisted(tmp_path, X):
+    """Read disallowed extension skipped but allowed when whitelisted."""
     infer = _make_featureset(tmp_path, "fs3", ["a", "b"], "model.txt", ["a", "b"])
     # .txt is outside the default allow-list -> skipped.
     models, _ = read_trained_models("fs3", X, inference_folder=infer)
@@ -193,6 +210,7 @@ def test_read_disallowed_extension_skipped_but_allowed_when_whitelisted(tmp_path
 
 
 def test_read_features_file_absent_falls_back_to_X_columns(tmp_path, X):
+    """Read features file absent falls back to X columns."""
     infer = _make_featureset(tmp_path, "fs4", None, "model.pkl", ["a", "b"])
     models, Xo = read_trained_models("fs4", X, inference_folder=infer)
     # No features sidecar -> features taken from X.columns; the matching model still loads.
@@ -206,21 +224,28 @@ def test_read_features_file_absent_falls_back_to_X_columns(tmp_path, X):
 
 
 class _BinClf:
+    """Groups tests covering BinClf."""
     def predict_proba(self, X):
+        """Helper that predict proba."""
         return np.tile([0.3, 0.7], (len(X), 1))
 
 
 class _MultiClf:
+    """Groups tests covering MultiClf."""
     def predict_proba(self, X):
+        """Helper that predict proba."""
         return np.tile([0.1, 0.2, 0.7], (len(X), 1))
 
 
 class _Reg:
+    """Groups tests covering Reg."""
     def predict(self, X):
+        """Helper that predict."""
         return np.arange(len(X), dtype=float)
 
 
 def test_raw_predictions_binary_multiclass_and_regressor(X):
+    """Raw predictions binary multiclass and regressor."""
     preds = get_models_raw_predictions({"bin": _BinClf(), "multi": _MultiClf(), "reg": _Reg()}, X, None)
     # Binary -> positive-class column only.
     assert preds["bin"].shape == (3,)

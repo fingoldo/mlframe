@@ -18,6 +18,7 @@ from mlframe.preprocessing.temporal_drift_augment import augment_temporal_drift
 
 
 def _make_panel(n_entities: int, seed: int):
+    """Helper that make panel."""
     rng = np.random.default_rng(seed)
     rows = []
     labels = {}
@@ -36,6 +37,7 @@ def _make_panel(n_entities: int, seed: int):
 
 
 def test_biz_val_temporal_drift_augment_improves_early_vintage_generalization():
+    """Temporal drift augment improves early vintage generalization."""
     train_df, _ = _make_panel(n_entities=600, seed=0)
     test_df, _ = _make_panel(n_entities=300, seed=1)
 
@@ -118,6 +120,7 @@ def _make_long_noisy_history_panel(n_entities: int, n_periods: int, seed: int, i
 
 
 def _last_row_standardized(df: pd.DataFrame) -> pd.DataFrame:
+    """Helper that last row standardized."""
     out = []
     for _entity_id, grp in df.sort_values(["entity_id", "t"]).groupby("entity_id"):
         z = (grp["x"].iloc[-1] - grp["x"].mean()) / (grp["x"].std(ddof=1) + 1e-9)
@@ -126,6 +129,7 @@ def _last_row_standardized(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def test_biz_val_temporal_drift_augment_weight_by_recency_beats_naive_equal_weight():
+    """Temporal drift augment weight by recency beats naive equal weight."""
     normal_entities = _make_normal_history_panel(n_entities=500, seed=0)
     # a small minority (100 of 600, ~17%) of entities with a much longer, much noisier history --
     # they numerically dominate the naive augmented pool (many eligible n_drop depths each) despite
@@ -182,6 +186,7 @@ def test_biz_val_temporal_drift_augment_weight_by_recency_beats_naive_equal_weig
 
 
 def test_augment_temporal_drift_weight_by_recency_default_off_is_bit_identical():
+    """Augment temporal drift weight by recency default off is bit identical."""
     df = pd.DataFrame(
         {
             "entity_id": [1, 1, 1, 1, 2, 2, 2, 2, 2],
@@ -197,6 +202,7 @@ def test_augment_temporal_drift_weight_by_recency_default_off_is_bit_identical()
 
 
 def test_augment_temporal_drift_marks_augmented_rows_and_preserves_originals():
+    """Augment temporal drift marks augmented rows and preserves originals."""
     df = pd.DataFrame(
         {
             "entity_id": [1, 1, 1, 2, 2, 2, 2],
@@ -211,6 +217,7 @@ def test_augment_temporal_drift_marks_augmented_rows_and_preserves_originals():
 
 
 def test_augment_temporal_drift_no_eligible_entities_returns_originals_only():
+    """Augment temporal drift no eligible entities returns originals only."""
     df = pd.DataFrame({"entity_id": [1, 2], "t": [0, 0], "x": [1.0, 2.0], "y": [0, 1]})
     result = augment_temporal_drift(df, entity_col="entity_id", time_col="t", feature_cols=["x"], n_drop_options=(1,), min_history=2)
     assert len(result) == len(df)

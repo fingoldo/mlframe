@@ -55,6 +55,7 @@ def test_get_nunique_float_fastpath_bit_identical_to_npunique():
     from mlframe.preprocessing.cleaning import _get_nunique
 
     def reference(vals, skip_vals=None):
+        """Helper that reference."""
         u = np.unique(vals)
         if u.dtype.kind in ("f", "c"):
             u = u[~np.isnan(u)]
@@ -120,6 +121,7 @@ def test_fract_digits_probe_single_sort_matches_per_digit_round(monkeypatch):
     orig_kernel = kernel
 
     def spy_kernel(sv, ndig, s0, s1):
+        """Helper that spy kernel."""
         calls["kernel"] += 1
         return orig_kernel(sv, ndig, s0, s1)
 
@@ -156,6 +158,7 @@ def test_rareval_merge_uses_vectorized_isin_not_per_value_replace():
     orig_replace = pd.Series.replace
 
     def _spy(self, *args, **kwargs):
+        """Helper that spy."""
         replace_calls["n"] += 1
         return orig_replace(self, *args, **kwargs)
 
@@ -191,6 +194,7 @@ def test_suggest_non_outlying_uses_fused_njit_kernel_and_matches_numpy():
     real = cln._get_outlier_mask_njit
 
     def spy():
+        """Helper that spy."""
         calls["n"] += 1
         return real()
 
