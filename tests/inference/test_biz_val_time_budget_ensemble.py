@@ -7,6 +7,7 @@ strictly better average accuracy than the conservative-fixed baseline while STIL
 wall-clock budget on any individual request -- unlike a fixed FULL ensemble, which blows the budget whenever
 per-model latency is on the slow side of its distribution.
 """
+
 from __future__ import annotations
 
 import time
@@ -51,7 +52,7 @@ def test_biz_val_time_budget_ensemble_beats_conservative_fixed_size_within_budge
     conservative_errors = []
     max_wall_time = 0.0
 
-    for trial in range(n_trials):
+    for _trial in range(n_trials):
         models = _make_models(rng)
         ensemble = TimeBudgetEnsemble(models, time_budget_seconds=time_budget_seconds)
 
@@ -71,7 +72,9 @@ def test_biz_val_time_budget_ensemble_beats_conservative_fixed_size_within_budge
     mean_conservative_mse = float(np.mean(conservative_errors))
     rel_improvement = (mean_conservative_mse - mean_budget_mse) / mean_conservative_mse
 
-    assert rel_improvement > 0.3, f"expected >30% MSE reduction vs conservative fixed-size baseline, got {rel_improvement:.4f} (budget_mse={mean_budget_mse:.4f}, conservative_mse={mean_conservative_mse:.4f})"
+    assert rel_improvement > 0.3, (
+        f"expected >30% MSE reduction vs conservative fixed-size baseline, got {rel_improvement:.4f} (budget_mse={mean_budget_mse:.4f}, conservative_mse={mean_conservative_mse:.4f})"
+    )
     assert max_wall_time < time_budget_seconds * 2.5, f"expected wall time to stay near the budget, got {max_wall_time:.4f}s vs budget {time_budget_seconds}s"
 
 
@@ -99,7 +102,7 @@ def test_biz_val_time_budget_ensemble_value_per_ms_avoids_starving_accurate_mode
     def _make_cheap_first(rng):
         cheap = [_LatencyModel(true_offset=3.0, noise_scale=1.0, latency_seconds=0.001, rng=rng) for _ in range(4)]
         accurate = _LatencyModel(true_offset=0.0, noise_scale=0.05, latency_seconds=0.01, rng=rng)
-        return cheap + [accurate]
+        return [*cheap, accurate]
 
     naive_errors = []
     valuemode_errors = []

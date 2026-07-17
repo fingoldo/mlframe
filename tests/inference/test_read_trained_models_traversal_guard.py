@@ -4,6 +4,7 @@ Pre-fix the commonpath containment check ran only when trusted_root was explicit
 (it defaults to None), so a malicious featureset ("../.." / absolute path) escaped inference_folder
 and reached the joblib.load pickle. Now the check always runs, defaulting the root to inference_folder.
 """
+
 import pandas as pd
 import pytest
 

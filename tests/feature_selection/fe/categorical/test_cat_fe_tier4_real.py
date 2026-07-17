@@ -15,11 +15,10 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters import MRMR, CatFEConfig
-from mlframe.feature_selection.filters.cat_fe_state import CatFEState
 from mlframe.feature_selection.filters.cat_interactions import (
-    _column_signature, _kl_divergence,
+    _column_signature,
+    _kl_divergence,
     _restore_cached_marginal_mis,
-    _confirm_pairs_bandit_ucb1,
     _full_conditional_shuffle_ipf,
     run_cat_interaction_step,
 )
@@ -41,8 +40,11 @@ class TestBanditUCB1Real:
         data = np.column_stack([x1, x2, noise, y]).astype(np.int32)
         nbins = np.array([2, 2] + [4] * n_noise + [2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([n_noise + 2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([n_noise + 2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         return data, nbins, cls_y, fq_y, n_noise + 2
 
@@ -53,7 +55,8 @@ class TestBanditUCB1Real:
         allocates enough shuffles to confirm)."""
         data, nbins, cls_y, fq_y, tgt = self._make_xor()
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=4,
+            enable=True,
+            top_k_pairs=4,
             min_interaction_information=0.1,
             full_npermutations=100,  # enough for bandit phase 1 + 95% conf
             fwer_correction="none",
@@ -61,16 +64,19 @@ class TestBanditUCB1Real:
         )
         cols = ["x1", "x2"] + [f"n{k}" for k in range(4)] + ["y"]
         _, _, _, state = run_cat_interaction_step(
-            data=data, cols=cols, nbins=nbins,
+            data=data,
+            cols=cols,
+            nbins=nbins,
             target_indices=np.array([tgt], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=list(range(6)),
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         recipe_srcs = {r.src_names for r in state.recipes}
-        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, (
-            f"Bandit UCB1 should confirm XOR pair; got {recipe_srcs}"
-        )
+        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, f"Bandit UCB1 should confirm XOR pair; got {recipe_srcs}"
 
     def test_bandit_rejects_independent_pair(self):
         """Construct independent (X1, X2, Y) -- bandit should reject."""
@@ -82,11 +88,15 @@ class TestBanditUCB1Real:
         data = np.column_stack([x1, x2, y]).astype(np.int32)
         nbins = np.array([4, 4, 2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=1,
+            enable=True,
+            top_k_pairs=1,
             min_interaction_information=-100,  # accept any from search
             max_combined_nbins=200,
             full_npermutations=30,
@@ -94,15 +104,18 @@ class TestBanditUCB1Real:
             fwer_correction="none",
         )
         _, _, _, state = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "y"],
+            nbins=nbins,
             target_indices=np.array([2], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
-        assert state.recipes == [], (
-            f"Bandit should reject independent pair; got {state.recipes}"
-        )
+        assert state.recipes == [], f"Bandit should reject independent pair; got {state.recipes}"
 
 
 # ============================================================================
@@ -123,17 +136,19 @@ class TestStreamingCacheReal:
     def test_column_signature_normalises(self):
         vals = np.array([0, 0, 1, 1, 1, 2], dtype=np.int32)
         sig = _column_signature(vals, nbins=3)
-        np.testing.assert_allclose(sig, [2/6, 3/6, 1/6], rtol=1e-6)
+        np.testing.assert_allclose(sig, [2 / 6, 3 / 6, 1 / 6], rtol=1e-6)
 
     def test_restore_cached_mis_returns_correct_mask(self):
         """When current signature matches cache (KL=0), the cached MI
         is restored. When signature differs significantly, cache miss."""
         rng = np.random.default_rng(0)
         n = 500
-        data = np.column_stack([
-            rng.integers(0, 2, n),
-            rng.integers(0, 2, n),
-        ]).astype(np.int32)
+        data = np.column_stack(
+            [
+                rng.integers(0, 2, n),
+                rng.integers(0, 2, n),
+            ]
+        ).astype(np.int32)
         nbins = np.array([2, 2], dtype=np.int64)
         sig0 = _column_signature(data[:, 0], 2)
         # Column 1 in the cache uses a deliberately drifted signature (0.99/0.01 vs the actual
@@ -145,7 +160,7 @@ class TestStreamingCacheReal:
             "marginal_mis": {0: 0.05, 1: 0.03},
             "target_sig": "tgt",
         }
-        mask, mi_reused, new_sigs = _restore_cached_marginal_mis(
+        mask, mi_reused, _new_sigs = _restore_cached_marginal_mis(
             factors_data=data,
             candidate_idxs=np.array([0, 1], dtype=np.int64),
             nbins=nbins,
@@ -176,12 +191,16 @@ class TestStreamingCacheReal:
         y_s = pd.Series(y, name="target")
 
         mrmr = MRMR(
-            full_npermutations=2, baseline_npermutations=2,
-            verbose=0, n_jobs=1,
+            full_npermutations=2,
+            baseline_npermutations=2,
+            verbose=0,
+            n_jobs=1,
             cat_fe_config=CatFEConfig(
-                enable=True, top_k_pairs=4,
+                enable=True,
+                top_k_pairs=4,
                 min_interaction_information=0.1,
-                full_npermutations=0, fwer_correction="none",
+                full_npermutations=0,
+                fwer_correction="none",
                 enable_streaming_cache=True,
             ),
         )
@@ -240,11 +259,15 @@ class TestFullConditionalIPF:
         data = np.column_stack([x1, x2, y]).astype(np.int32)
         nbins = np.array([2, 2, 2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
-            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         cfg = CatFEConfig(
-            enable=True, top_k_pairs=2,
+            enable=True,
+            top_k_pairs=2,
             min_interaction_information=0.1,
             full_npermutations=10,
             fwer_correction="none",
@@ -252,11 +275,16 @@ class TestFullConditionalIPF:
             enable_full_conditional_perm=True,
         )
         _, _, _, state = run_cat_interaction_step(
-            data=data, cols=["x1", "x2", "y"], nbins=nbins,
+            data=data,
+            cols=["x1", "x2", "y"],
+            nbins=nbins,
             target_indices=np.array([2], dtype=np.int64),
-            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            classes_y=cls_y,
+            classes_y_safe=cls_y,
+            freqs_y=fq_y,
             categorical_vars=[0, 1],
-            cfg=cfg, dtype=np.int32,
+            cfg=cfg,
+            dtype=np.int32,
         )
         # Smoke: path completes without crashing. XOR may or may not
         # survive the stricter null on this perm budget.

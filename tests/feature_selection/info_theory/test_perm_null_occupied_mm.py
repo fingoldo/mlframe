@@ -7,6 +7,7 @@ bias for empty cells that contribute no plug-in inflation, OVER-correcting the
 estimator. Occupied-K is the statistically correct Miller-Madow and tracks the
 true (null=0) MI several-fold tighter on such columns.
 """
+
 import numpy as np
 
 from mlframe.feature_selection.filters._permutation_null import (
@@ -30,14 +31,18 @@ def _occupied_mm_residual(use_occupied: bool, n: int, nb: int, seeds: int = 20) 
         rng = np.random.default_rng(seed)
         a = rng.normal(size=n)
         b = rng.normal(size=n)
-        xc = _disc(a ** 2 / b, nb)            # heavy-tailed engineered col
-        yc = _disc(rng.normal(size=n), nb)    # independent target -> true MI 0
+        xc = _disc(a**2 / b, nb)  # heavy-tailed engineered col
+        yc = _disc(rng.normal(size=n), nb)  # independent target -> true MI 0
         inv = 1.0 / n
-        xb = np.bincount(xc).astype(float); px = xb[xb > 0] * inv
-        yb = np.bincount(yc).astype(float); py = yb[yb > 0] * inv
-        hx = -(px * np.log(px)).sum(); hy = -(py * np.log(py)).sum()
+        xb = np.bincount(xc).astype(float)
+        px = xb[xb > 0] * inv
+        yb = np.bincount(yc).astype(float)
+        py = yb[yb > 0] * inv
+        hx = -(px * np.log(px)).sum()
+        hy = -(py * np.log(py)).sum()
         j = xc * nb + yc
-        jc = np.bincount(j).astype(float); pj = jc[jc > 0] * inv
+        jc = np.bincount(j).astype(float)
+        pj = jc[jc > 0] * inv
         hxy = -(pj * np.log(pj)).sum()
         mi_plug = hx + hy - hxy
         kx = len(px) if use_occupied else nb
@@ -60,21 +65,24 @@ def test_floor_stays_nonneg_and_finite_with_occupied_mm():
     """The integrated floor is non-negative and finite (no negative-entropy leak)."""
     n, nb = 4000, 16
     rng = np.random.default_rng(1)
-    cols = [
-        _disc(rng.normal(size=n) ** 2 / rng.normal(size=n), nb) for _ in range(8)
-    ]
+    cols = [_disc(rng.normal(size=n) ** 2 / rng.normal(size=n), nb) for _ in range(8)]
     y = _disc(rng.normal(size=n), nb)
-    data = np.column_stack(cols + [y]).astype(np.int64)
+    data = np.column_stack([*cols, y]).astype(np.int64)
     nbins = np.array([nb] * 9)
-    f = pooled_permutation_null_gain_floor(
-        data, nbins, np.arange(8), 8, n_permutations=25, random_seed=0
-    )
+    f = pooled_permutation_null_gain_floor(data, nbins, np.arange(8), 8, n_permutations=25, random_seed=0)
     assert np.isfinite(f) and f >= 0.0
 
 
 def _legacy_gain_floor_python(
-    factors_data, factors_nbins, candidate_indices, y_index,
-    *, n_permutations=25, quantile=0.95, cardinality_bias_correction=True, random_seed=None,
+    factors_data,
+    factors_nbins,
+    candidate_indices,
+    y_index,
+    *,
+    n_permutations=25,
+    quantile=0.95,
+    cardinality_bias_correction=True,
+    random_seed=None,
 ):
     """Pure-Python reference for the order-1 maxT gain floor (the pre-njit body).
 

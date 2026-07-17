@@ -6,6 +6,7 @@ issues two array-valued searchsorted calls. This pins bit-identity: same
 counts on continuous, tied, and edge inputs, and unchanged MI from
 mixed_ksg_mi. Also guards that the dead ColumnKNNCache stays removed.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -11,11 +11,11 @@ model wouldn't benefit from a residual composite -- an assumption that
 holds for the Ridge/CB/XGB/LGB baseline but breaks for model-mix
 suites that include neural / pathological configs.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
@@ -59,23 +59,31 @@ class TestDiscoveryHonoursSkipFlag:
 
     def test_discovery_with_skip_flag_does_not_crash(self) -> None:
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
+
         rng = np.random.default_rng(2)
         n = 1500
         x_a = rng.normal(50.0, 10.0, n)
         x_b = rng.normal(0.0, 5.0, n)
         # Mild multi-feature signal so raw is good but not trivial.
         y = 0.5 * x_a + 0.3 * x_b + rng.normal(0.0, 1.0, n)
-        df = pd.DataFrame({
-            "x_a": x_a, "x_b": x_b,
-            "n0": rng.standard_normal(n), "n1": rng.standard_normal(n),
-            "y": y,
-        })
+        df = pd.DataFrame(
+            {
+                "x_a": x_a,
+                "x_b": x_b,
+                "n0": rng.standard_normal(n),
+                "n1": rng.standard_normal(n),
+                "y": y,
+            }
+        )
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=1000,
+            enabled=True,
+            mi_sample_n=1000,
             composite_skip_when_raw_dominates_ratio=0.5,  # very lenient
         )
         disc = CompositeTargetDiscovery(config=cfg).fit(
-            df=df, target_col="y", feature_cols=["x_a", "x_b", "n0", "n1"],
+            df=df,
+            target_col="y",
+            feature_cols=["x_a", "x_b", "n0", "n1"],
             train_idx=np.arange(int(0.8 * n)),
         )
         # Just verify the discovery completed (no crash on the new code path).

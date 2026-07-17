@@ -11,6 +11,7 @@ Covers:
            * skip the internal ``np.ascontiguousarray(phi.T)`` copy when a
              precomputed transpose is supplied (the actual perf win).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -73,6 +74,7 @@ def test_proxy_trust_guard_passes_precomputed_phi_t(monkeypatch):
     # subset_redundancy_many is imported lazily inside proxy_trust_guard from the calibrate module;
     # patch it there so the call inside the guard is observed.
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_calibrate as calib_mod
+
     real_calib_fn = calib_mod.subset_redundancy_many
 
     def _spy(phi, idx_list, *, phi_T=None):
@@ -99,8 +101,17 @@ def test_proxy_trust_guard_passes_precomputed_phi_t(monkeypatch):
     y_hold = (X_hold.iloc[:, 0] + 0.2 * rng.normal(size=80) > 0).astype(int).to_numpy()
 
     reval_mod.proxy_trust_guard(
-        phi, base, y_search, LogisticRegression(max_iter=200), X_search, X_hold, y_hold,
-        classification=True, n_anchors=8, rng=np.random.default_rng(1), n_jobs=1,
+        phi,
+        base,
+        y_search,
+        LogisticRegression(max_iter=200),
+        X_search,
+        X_hold,
+        y_hold,
+        classification=True,
+        n_anchors=8,
+        rng=np.random.default_rng(1),
+        n_jobs=1,
     )
 
     assert seen.get("phi_T_is_array") is True

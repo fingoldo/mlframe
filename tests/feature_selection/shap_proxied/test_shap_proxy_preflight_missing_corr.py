@@ -33,6 +33,4 @@ def test_highly_correlated_but_missing_pair_detected_as_redundant():
     X = pd.DataFrame({"a": a, "b": b_missing})
 
     d = dataset_diagnostics(X, y, classification=True)
-    assert d["max_abs_corr"] >= 0.9, (
-        f"highly-correlated-but-missing pair not detected as redundant: max_abs_corr={d['max_abs_corr']:.3f}"
-    )
+    assert d["max_abs_corr"] >= 0.9, f"highly-correlated-but-missing pair not detected as redundant: max_abs_corr={d['max_abs_corr']:.3f}"

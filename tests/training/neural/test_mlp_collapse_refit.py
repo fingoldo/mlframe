@@ -10,13 +10,12 @@ activation removed.
 
 These tests pin the policy on a minimal Lightning-shaped stand-in.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import numpy as np
-import pytest
 
 
 class _StubLightning:
@@ -62,6 +61,7 @@ class _StubLightning:
 
 def _call_helper(stub, model_type_name: str, train_df, train_target):
     from mlframe.training._training_loop import _maybe_refit_on_collapsed_predictions
+
     # The helper inspects ``model_obj.network_params`` directly; pass
     # the stub as both ``model`` (predict surface) and ``model_obj``
     # (network_params surface) which mirrors the Lightning path
@@ -109,11 +109,15 @@ class TestCollapseDetection:
         y = rng.standard_normal(500) * 10.0 + 11500.0
         # Make predictions that vary like y (no collapse).
         n = 500
+
         class _HealthyStub(_StubLightning):
             def predict(self, X):
                 return rng.standard_normal(n) * 9.0 + 11500.0
+
         stub = _HealthyStub(
-            initial_pred_value=0, post_refit_pred_value=0, n_rows=n,
+            initial_pred_value=0,
+            post_refit_pred_value=0,
+            n_rows=n,
         )
         result = _call_helper(stub, "PytorchLightningRegressor", train_df=list(range(n)), train_target=y)
         assert result is False
@@ -159,12 +163,12 @@ class TestCollapseDetection:
     def test_no_network_params_no_refit(self):
         """Non-Lightning model (no ``network_params`` attribute) is
         skipped -- the helper has no knob to tweak."""
+
         class _Plain:
             def predict(self, X):
                 return np.zeros(500)
-        result = _call_helper(_Plain(), "Ridge",
-                              train_df=list(range(500)),
-                              train_target=np.arange(500, dtype=np.float64))
+
+        result = _call_helper(_Plain(), "Ridge", train_df=list(range(500)), train_target=np.arange(500, dtype=np.float64))
         assert result is False
 
     def test_constant_y_train_no_refit(self):
@@ -188,9 +192,11 @@ class TestCollapseDetection:
         all 3 should raise here, and the helper should still gracefully
         return False without propagating the exception."""
         y = np.random.default_rng(4).standard_normal(500) * 10.0 + 11500.0
+
         class _RaisingStub(_StubLightning):
             def fit(self, X, y, **kwargs):
                 raise RuntimeError("simulated rebuild error")
+
         stub = _RaisingStub(
             initial_pred_value=11500.0,
             post_refit_pred_value=11500.0,

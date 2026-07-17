@@ -13,6 +13,7 @@ Pins two invariants of _bin_with_train_edges_batched / _fold_test_bins:
    bin code. This is the property that makes the K-fold OOF estimate honest, and
    it is the exact reason the full-frame batched siblings could not be reused.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -48,11 +49,15 @@ def test_batched_train_edge_binning_bit_identical_to_scalar():
     train_idx = np.where(train_mask)[0]
 
     tb_b, te_b = _bin_with_train_edges_batched(
-        arr[train_idx, :], arr[test_idx, :], nbins=10,
+        arr[train_idx, :],
+        arr[test_idx, :],
+        nbins=10,
     )
     for j in range(arr.shape[1]):
         tb_s, te_s = _bin_with_train_edges(
-            arr[train_idx, j], arr[test_idx, j], nbins=10,
+            arr[train_idx, j],
+            arr[test_idx, j],
+            nbins=10,
         )
         assert np.array_equal(tb_b[:, j], tb_s), f"train bins differ col {j}"
         assert np.array_equal(te_b[:, j], te_s), f"test bins differ col {j}"

@@ -9,6 +9,7 @@ fragments) is what the residual-aware FE step exists to fix.
 
 Reuses the shared multi-distribution operand generator (tests/feature_selection/_synthetic_distributions.py).
 """
+
 from __future__ import annotations
 
 import re
@@ -177,6 +178,7 @@ def _make(profile: str, n: int, seed: int):
         ops = sample_operands(seed, n, _DOMAINS, profile=profile)
         f = sample_operands(seed + 991, n, {"f": "any"}, profile=profile)["f"]
     import pandas as pd
+
     df = pd.DataFrame({k: ops[k].astype(np.float64) for k in ("a", "b", "c", "d", "e")})
     y = ops["a"] ** 2 / ops["b"] + f / 5.0 + np.log(np.abs(ops["c"]) + 1e-9) * np.sin(ops["d"])
     return df, y
@@ -205,8 +207,7 @@ def test_f2_one_compound_under_distribution(profile):
     df, y = _make(profile, n=10_000, seed=42)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2,
-                  fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
+        fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
     names = [str(s) for s in fs.get_feature_names_out()]
     full, frag_ab, frag_cd = _classify(names)
     assert all("e" not in _cols(nm) for nm in names), f"[{profile}] noise 'e' referenced: {names}"
@@ -248,8 +249,7 @@ def test_f2_exactly_one_compound_at_scale(n):
     df, y = _make("uniform", n=n, seed=42)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2,
-                  fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
+        fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
     names = [str(s) for s in fs.get_feature_names_out()]
     full, frag_ab, frag_cd = _classify(names)
     assert all("e" not in _cols(nm) for nm in names), f"[n={n}] noise 'e' referenced: {names}"
@@ -284,8 +284,7 @@ def test_f2_single_step_one_compound(n, seed):
     df, y = _make("uniform", n=n, seed=seed)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=1,
-                  fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
+        fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=1, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
     names = [str(s) for s in fs.get_feature_names_out()]
     full, frag_ab, frag_cd = _classify(names)
     assert len(full) == 1, f"[n={n},seed={seed}] expected exactly ONE fused compound, got {len(full)}: {full} :: {names}"

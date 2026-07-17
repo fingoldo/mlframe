@@ -7,6 +7,7 @@ file pins:
 - `validate_load_meta_sidecar` returns None on missing sidecar, returns the
   parsed payload when present, and warns / raises on library-version drift.
 """
+
 from __future__ import annotations
 
 import orjson
@@ -118,6 +119,7 @@ def test_validate_load_meta_sidecar_matching_versions_returns_payload(tmp_path, 
     bundle_path = str(tmp_path / "model.bundle")
     # Use a library that's guaranteed installed and matches its live version.
     import numpy
+
     payload = {
         "sidecar_version": 1,
         "saved_at_utc": "2026-05-24T00:00:00Z",

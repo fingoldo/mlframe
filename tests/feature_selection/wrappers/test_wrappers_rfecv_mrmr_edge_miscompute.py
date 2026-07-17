@@ -4,6 +4,7 @@ Each test corresponds to one finding from the audit report. P0 = silent
 miscompute / confusion that production pipelines could hit. Fixes were
 landed in the same commit; tests below pin the new behaviour.
 """
+
 from __future__ import annotations
 
 import logging
@@ -11,7 +12,6 @@ import logging
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.datasets import make_classification, make_regression
 from sklearn.exceptions import NotFittedError
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
@@ -87,7 +87,9 @@ class TestC18_LeakageAction:
         X, y = self._make_problem_with_leak()
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=3, max_refits=2, verbose=0,
+            cv=3,
+            max_refits=2,
+            verbose=0,
             leakage_corr_threshold=0.9,
             leakage_action="exclude",
         )
@@ -99,7 +101,9 @@ class TestC18_LeakageAction:
         with pytest.raises(ValueError, match="leakage"):
             RFECV(
                 estimator=LogisticRegression(max_iter=200),
-                cv=3, max_refits=2, verbose=0,
+                cv=3,
+                max_refits=2,
+                verbose=0,
                 leakage_corr_threshold=0.9,
                 leakage_action="raise",
             ).fit(X, y)
@@ -109,7 +113,9 @@ class TestC18_LeakageAction:
         with caplog.at_level(logging.WARNING):
             rfecv = RFECV(
                 estimator=LogisticRegression(max_iter=200),
-                cv=3, max_refits=2, verbose=0,
+                cv=3,
+                max_refits=2,
+                verbose=0,
                 leakage_corr_threshold=0.9,
                 # leakage_action default is 'warn'
             )
@@ -123,8 +129,7 @@ class TestC18_LeakageAction:
 # ----------------------------------------------------------------------------
 class TestF30_MustIncludeExcludeIntersection:
     def test_intersection_raises_with_both_param_names(self):
-        X = pd.DataFrame(np.random.default_rng(0).standard_normal((100, 5)),
-                         columns=list("abcde"))
+        X = pd.DataFrame(np.random.default_rng(0).standard_normal((100, 5)), columns=list("abcde"))
         y = (X["a"] > 0).astype(int).values
         with pytest.raises(ValueError, match="must_include and must_exclude"):
             RFECV(
@@ -155,8 +160,7 @@ class TestG34_NotFittedError:
 class TestG35_MRMRTransformColumnDrift:
     def test_drift_raises_runtime_error(self):
         rng = np.random.default_rng(0)
-        X = pd.DataFrame(rng.standard_normal((200, 6)),
-                         columns=[f"f{i}" for i in range(6)])
+        X = pd.DataFrame(rng.standard_normal((200, 6)), columns=[f"f{i}" for i in range(6)])
         y = (X["f0"] > 0).astype(int).values
         mrmr = MRMR()
         mrmr.fit(X, y)

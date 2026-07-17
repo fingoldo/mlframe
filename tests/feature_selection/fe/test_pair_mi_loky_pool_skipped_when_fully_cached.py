@@ -10,6 +10,7 @@ found nothing to do -- wasting up to 300s per FE round for zero benefit. The fix
 fully-covered pool to the cheap serial branch (a fast no-op scan, not a compute pass) instead of ever
 reaching the loky pool.
 """
+
 from __future__ import annotations
 
 from itertools import combinations
@@ -80,15 +81,25 @@ def test_loky_pool_never_constructed_when_pool_fully_precomputed(monkeypatch):
 
     step_pairmi_mod.compute_pair_mis_and_floor(
         _Fake(),
-        data=data, cols=cols, nbins=nbins, X=None,
-        classes_y=classes_y, classes_y_safe=classes_y, freqs_y=freqs_y,
+        data=data,
+        cols=cols,
+        nbins=nbins,
+        X=None,
+        classes_y=classes_y,
+        classes_y_safe=classes_y,
+        freqs_y=freqs_y,
         target_indices=target_indices,
-        cached_MIs=cached_MIs, cached_confident_MIs=cached_confident_MIs,
+        cached_MIs=cached_MIs,
+        cached_confident_MIs=cached_confident_MIs,
         numeric_vars_to_consider=numeric_vars_to_consider,
         _prevalence_debias_auto=False,
-        n_jobs=16, prefetch_factor=2, parallel_kwargs={"backend": "threading"},
-        fe_min_nonzero_confidence=0.99, fe_npermutations=10,
-        fe_min_pair_mi=0.001, fe_min_pair_mi_prevalence=1.05,
+        n_jobs=16,
+        prefetch_factor=2,
+        parallel_kwargs={"backend": "threading"},
+        fe_min_nonzero_confidence=0.99,
+        fe_npermutations=10,
+        fe_min_pair_mi=0.001,
+        fe_min_pair_mi_prevalence=1.05,
         verbose=0,
     )
     assert calls == [], "LokyBackend was constructed despite full pair-MI cache coverage"

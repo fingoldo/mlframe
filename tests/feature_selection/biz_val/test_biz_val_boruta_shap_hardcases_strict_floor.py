@@ -24,9 +24,9 @@ Measured dev numbers (seeds 0,1 unless noted):
       0.9819 / 0.9811 vs SHAP-top-k(same size) 0.9815 / 0.9812 (delta +0.0004 / -0.0001,
       within the -0.02 contract) and vs random-same-size mean 0.659 / 0.733 (delta +0.32 / +0.25).
 """
+
 from __future__ import annotations
 
-import os
 
 import numpy as np
 import pandas as pd
@@ -37,7 +37,7 @@ from tests.feature_selection._biz_val_synth import make_imbalanced
 
 pytest.importorskip("shap")
 
-from mlframe.feature_selection.boruta_shap import BorutaShap  # noqa: E402
+from mlframe.feature_selection.boruta_shap import BorutaShap
 
 # Small configs keep each fit ~1-10s: n_trials<=20, RF n_estimators<=60. Fast mode halves both.
 _N_TRIALS = 10 if is_fast_mode() else 20
@@ -99,7 +99,7 @@ def test_biz_val_boruta_imbalanced_keeps_signal_drops_noise(seed: int):
     informative_kept = selected & sig_names
     noise_kept = [c for c in selected if c not in sig_names]
 
-    assert len(informative_kept) >= 2, f"recall floor 2/3 on 5%-imbalance; got informative_kept={sorted(informative_kept)}, " f"selected={sorted(selected)}"
+    assert len(informative_kept) >= 2, f"recall floor 2/3 on 5%-imbalance; got informative_kept={sorted(informative_kept)}, selected={sorted(selected)}"
     assert len(noise_kept) <= 3, f"noise floor 3 on 5%-imbalance; got {len(noise_kept)} noise cols {sorted(noise_kept)}"
 
 
@@ -134,7 +134,7 @@ def test_biz_val_boruta_regression_keeps_both_informative(seed: int):
     informative_kept = selected & {"x0", "x1"}
 
     assert informative_kept == {"x0", "x1"}, (
-        f"regression must keep both informative numerics; got informative_kept={sorted(informative_kept)}, " f"selected={sorted(selected)}"
+        f"regression must keep both informative numerics; got informative_kept={sorted(informative_kept)}, selected={sorted(selected)}"
     )
 
 
@@ -176,7 +176,7 @@ def test_biz_val_boruta_multiclass_3class_keeps_informative_no_crash(seed: int):
     informative_kept = selected & {"x0", "x1"}
 
     assert informative_kept == {"x0", "x1"}, (
-        f"multiclass must keep both informative numerics; got informative_kept={sorted(informative_kept)}, " f"selected={sorted(selected)}"
+        f"multiclass must keep both informative numerics; got informative_kept={sorted(informative_kept)}, selected={sorted(selected)}"
     )
     # support_ aligned to the full input width regardless of the 3D shap axis.
     assert sel.support_.shape == (df.shape[1],)
@@ -221,7 +221,7 @@ def test_biz_val_boruta_xor_operands_survive(seed: int):
     operands_kept = selected & {"x0", "x1"}
     noise_kept = [c for c in selected if c.startswith("noise_")]
 
-    assert operands_kept == {"x0", "x1"}, f"both XOR operands must survive; got operands_kept={sorted(operands_kept)}, " f"selected={sorted(selected)}"
+    assert operands_kept == {"x0", "x1"}, f"both XOR operands must survive; got operands_kept={sorted(operands_kept)}, selected={sorted(selected)}"
     assert len(noise_kept) <= 4, f"noise floor 4 on XOR; got {len(noise_kept)} noise cols {sorted(noise_kept)}"
 
 
@@ -263,7 +263,7 @@ def test_biz_val_boruta_highcard_object_categorical_rejected(seed: int):
     selected = set(sel.selected_features_)
 
     assert {"x0", "x1"} <= selected, f"both informative numerics must survive next to high-card noise; selected={sorted(selected)}"
-    assert "cat_noise" not in selected, f"300-level random object categorical must be rejected by the gini shadow defence; " f"selected={sorted(selected)}"
+    assert "cat_noise" not in selected, f"300-level random object categorical must be rejected by the gini shadow defence; selected={sorted(selected)}"
 
 
 @pytest.mark.slow
@@ -285,8 +285,7 @@ def test_biz_val_boruta_id_column_rejected_majority_of_seeds():
         if "id_col" not in selected:
             rejected += 1
     assert rejected > len(seeds) / 2, (
-        f"unique-int ID column must be rejected by a strict majority of seeds "
-        f"(gini cardinality-preserving shadow defence); rejected {rejected}/{len(seeds)}"
+        f"unique-int ID column must be rejected by a strict majority of seeds (gini cardinality-preserving shadow defence); rejected {rejected}/{len(seeds)}"
     )
 
 
@@ -367,7 +366,7 @@ def test_biz_val_boruta_downstream_beats_random_ties_shap_topk(seed: int):
     rand_aucs = [_cv_auc(df, ys, list(rr.choice(cols, size=k, replace=False))) for _ in range(5)]
     auc_rand = float(np.mean(rand_aucs))
 
-    assert auc_boruta >= auc_shap - 0.02, f"boruta-accepted AUC must tie SHAP-top-k within 0.02; " f"auc_boruta={auc_boruta:.4f} auc_shap_topk={auc_shap:.4f}"
+    assert auc_boruta >= auc_shap - 0.02, f"boruta-accepted AUC must tie SHAP-top-k within 0.02; auc_boruta={auc_boruta:.4f} auc_shap_topk={auc_shap:.4f}"
     assert auc_boruta >= auc_rand + 0.05, (
-        f"boruta-accepted AUC must beat random-same-size mean by >=0.05; " f"auc_boruta={auc_boruta:.4f} auc_rand_mean={auc_rand:.4f}"
+        f"boruta-accepted AUC must beat random-same-size mean by >=0.05; auc_boruta={auc_boruta:.4f} auc_rand_mean={auc_rand:.4f}"
     )

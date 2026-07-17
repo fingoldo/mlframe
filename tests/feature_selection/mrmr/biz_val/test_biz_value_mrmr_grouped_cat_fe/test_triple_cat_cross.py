@@ -28,6 +28,7 @@ Contracts pinned (real numbers, Bayes-feasible fixtures, never xfail):
 
 Consolidated verbatim from test_biz_value_mrmr_layer94.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -75,11 +76,13 @@ def _build_cat_xor3(seed: int, n: int = 6000, n_decoys: int = 2):
 def _build_independent3(seed: int, n: int = 6000):
     """Three independent cats, none related to y -> II3 ~ 0."""
     rng = np.random.default_rng(int(seed))
-    X = pd.DataFrame({
-        "cat_a": rng.integers(0, 3, n).astype(str),
-        "cat_b": rng.integers(0, 3, n).astype(str),
-        "cat_c": rng.integers(0, 3, n).astype(str),
-    })
+    X = pd.DataFrame(
+        {
+            "cat_a": rng.integers(0, 3, n).astype(str),
+            "cat_b": rng.integers(0, 3, n).astype(str),
+            "cat_c": rng.integers(0, 3, n).astype(str),
+        }
+    )
     y = rng.integers(0, 2, n)
     return X, y.astype(int)
 
@@ -100,19 +103,24 @@ class TestTripleSynergyVsPairwise:
         from mlframe.feature_selection.filters._cat_pair_fe import (
             score_cat_pairs_by_interaction_information,
         )
+
         ii3_vals = []
         max_pair_ii = []
         for s in SEEDS:
             X, y = _build_cat_xor3(s)
             ii3 = triple_interaction_information(
-                X["cat_a"].to_numpy(), X["cat_b"].to_numpy(),
-                X["cat_c"].to_numpy(), y,
+                X["cat_a"].to_numpy(),
+                X["cat_b"].to_numpy(),
+                X["cat_c"].to_numpy(),
+                y,
             )
             ii3_vals.append(ii3)
             # Pairwise II among the three signal cats must all be ~ 0 (the signal
             # is genuinely three-way -- no pair predicts y).
             sc = score_cat_pairs_by_interaction_information(
-                X, y, ["cat_a", "cat_b", "cat_c"],
+                X,
+                y,
+                ["cat_a", "cat_b", "cat_c"],
             )
             pair_ii = {tuple(sorted((r["cat_i"], r["cat_j"]))): r["ii"] for _, r in sc.iterrows()}
             signal_pairs = [pair_ii[tuple(sorted(p))] for p in combinations(["cat_a", "cat_b", "cat_c"], 2)]
@@ -130,7 +138,7 @@ class TestTripleSynergyVsPairwise:
             f"(per-seed max {[round(v, 4) for v in max_pair_ii]})."
         )
         assert mean_ii3 > 4.0 * worst_pair, (
-            f"II3 ({mean_ii3:.4f}) should dwarf the best pairwise II " f"({worst_pair:.4f}); the genuine signal is third-order only."
+            f"II3 ({mean_ii3:.4f}) should dwarf the best pairwise II ({worst_pair:.4f}); the genuine signal is third-order only."
         )
 
 
@@ -148,18 +156,23 @@ class TestBeamRecoversTriple:
             score_cat_triples_by_interaction_information,
             engineered_name_cat_triple_cross,
         )
+
         wins = 0
         for s in SEEDS:
             X, y = _build_cat_xor3(s)
             cat_cols = ["cat_a", "cat_b", "cat_c", "decoy_0", "decoy_1"]
             sc = score_cat_triples_by_interaction_information(
-                X, y, cat_cols, beam_width=3, top_k_pairs=3,
+                X,
+                y,
+                cat_cols,
+                beam_width=3,
+                top_k_pairs=3,
             )
             target = engineered_name_cat_triple_cross("cat_a", "cat_b", "cat_c")
             if not sc.empty and str(sc.iloc[0]["engineered_col"]) == target:
                 if float(sc.iloc[0]["ii3"]) > 0.2:
                     wins += 1
-        assert wins >= 4, f"beam recovered the 3-way XOR triple as top-1 on only " f"{wins}/{len(SEEDS)} seeds; expected >= 4."
+        assert wins >= 4, f"beam recovered the 3-way XOR triple as top-1 on only {wins}/{len(SEEDS)} seeds; expected >= 4."
 
 
 # ---------------------------------------------------------------------------
@@ -175,13 +188,18 @@ class TestBeamEfficiency:
         from mlframe.feature_selection.filters._cat_triple_fe import (
             score_cat_triples_by_interaction_information,
         )
+
         # Wider cat set so C(p,3) is materially larger than the beam budget.
         X, y = _build_cat_xor3(7, n=5000, n_decoys=7)  # 3 signal + 7 decoy = 10
         cat_cols = ["cat_a", "cat_b", "cat_c"] + [f"decoy_{d}" for d in range(7)]
         p = len(cat_cols)
         beam_width, top_k_pairs = 3, 3
         sc = score_cat_triples_by_interaction_information(
-            X, y, cat_cols, beam_width=beam_width, top_k_pairs=top_k_pairs,
+            X,
+            y,
+            cat_cols,
+            beam_width=beam_width,
+            top_k_pairs=top_k_pairs,
         )
         n_eval = int(sc.attrs["n_triples_evaluated"])
         n_exhaustive = int(sc.attrs["n_triples_exhaustive"])
@@ -190,11 +208,11 @@ class TestBeamEfficiency:
         # beam_width) seed pairs sweeps the remaining (p-2) cats. With 2 rounds:
         n_rounds = 2
         budget = n_rounds * max(top_k_pairs, beam_width) * (p - 2)
-        assert n_eval <= budget, f"beam evaluated {n_eval} triples > budget {budget} " f"(n_rounds * max(top_k_pairs, beam_width) * (p-2))."
-        assert n_eval < n_exhaustive, f"beam evaluated {n_eval} triples, NOT fewer than the exhaustive " f"C({p},3)={n_exhaustive}."
+        assert n_eval <= budget, f"beam evaluated {n_eval} triples > budget {budget} (n_rounds * max(top_k_pairs, beam_width) * (p-2))."
+        assert n_eval < n_exhaustive, f"beam evaluated {n_eval} triples, NOT fewer than the exhaustive C({p},3)={n_exhaustive}."
         reduction = 1.0 - n_eval / float(n_exhaustive)
         # p=10: C(10,3)=120; beam budget=2*3*8=48 -> materially fewer.
-        assert reduction >= 0.5, f"beam candidate reduction only {reduction:.1%} " f"({n_eval}/{n_exhaustive}); expected >= 50%."
+        assert reduction >= 0.5, f"beam candidate reduction only {reduction:.1%} ({n_eval}/{n_exhaustive}); expected >= 50%."
 
 
 # ---------------------------------------------------------------------------
@@ -213,18 +231,24 @@ class TestAucLift:
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         all_cols = ["cat_a", "cat_b", "cat_c", "decoy_0", "decoy_1"]
         lifts = []
         for s in SEEDS:
             X, y = _build_cat_xor3(s)
             Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
 
             def _onehot(df):
                 """One-hot encode the raw categorical columns for the baseline model."""
                 return pd.get_dummies(
-                    df[all_cols].astype(str), drop_first=False,
+                    df[all_cols].astype(str),
+                    drop_first=False,
                 ).astype(float)
 
             Xtr_oh = _onehot(Xtr)
@@ -234,9 +258,14 @@ class TestAucLift:
             auc_raw = roc_auc_score(yte, base.predict_proba(Xte_oh)[:, 1])
 
             _, appended, recipes, _ = hybrid_cat_triple_fe(
-                Xtr, ytr, cat_cols=all_cols,
-                min_interaction_info=0.001, top_k=3,
-                beam_width=3, top_k_pairs=3, random_state=s,
+                Xtr,
+                ytr,
+                cat_cols=all_cols,
+                min_interaction_info=0.001,
+                top_k=3,
+                beam_width=3,
+                top_k_pairs=3,
+                random_state=s,
             )
             assert appended, f"seed={s}: no cat-triple survivors."
             Xtr_aug = Xtr_oh.copy()
@@ -245,10 +274,12 @@ class TestAucLift:
                 tr_codes = apply_recipe(r, Xtr)
                 te_codes = apply_recipe(r, Xte)
                 oh_tr = pd.get_dummies(
-                    pd.Series(tr_codes).astype(str), prefix=r.name,
+                    pd.Series(tr_codes).astype(str),
+                    prefix=r.name,
                 ).astype(float)
                 oh_te = pd.get_dummies(
-                    pd.Series(te_codes).astype(str), prefix=r.name,
+                    pd.Series(te_codes).astype(str),
+                    prefix=r.name,
                 ).astype(float)
                 oh_te = oh_te.reindex(columns=oh_tr.columns, fill_value=0.0)
                 Xtr_aug = pd.concat(
@@ -284,14 +315,18 @@ class TestNonSynergisticExcluded:
         from mlframe.feature_selection.filters._cat_triple_fe import (
             hybrid_cat_triple_fe,
         )
+
         for s in SEEDS:
             X, y = _build_independent3(s)
             _, appended, recipes, scores = hybrid_cat_triple_fe(
-                X, y, cat_cols=["cat_a", "cat_b", "cat_c"],
-                min_interaction_info=0.001, top_k=3,
+                X,
+                y,
+                cat_cols=["cat_a", "cat_b", "cat_c"],
+                min_interaction_info=0.001,
+                top_k=3,
             )
             assert appended == [], (
-                f"seed={s}: independent cats produced engineered columns " f"{appended} (II3={scores['ii3'].tolist() if not scores.empty else []})."
+                f"seed={s}: independent cats produced engineered columns {appended} (II3={scores['ii3'].tolist() if not scores.empty else []})."
             )
             assert recipes == []
 
@@ -312,6 +347,7 @@ class TestCardinalityControl:
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         rng = np.random.default_rng(7)
         n = 4000
         cat_a = rng.integers(0, 20, n)
@@ -320,23 +356,27 @@ class TestCardinalityControl:
         # 3-way synergy: parity of the sum needs the joint triple.
         y = ((cat_a + cat_b + cat_c) % 2).astype(int)
         y = y ^ (rng.random(n) < 0.02).astype(int)
-        X = pd.DataFrame({
-            "cat_a": cat_a.astype(str),
-            "cat_b": cat_b.astype(str),
-            "cat_c": cat_c.astype(str),
-        })
+        X = pd.DataFrame(
+            {
+                "cat_a": cat_a.astype(str),
+                "cat_b": cat_b.astype(str),
+                "cat_c": cat_c.astype(str),
+            }
+        )
         _, appended, recipes, _ = hybrid_cat_triple_fe(
-            X, y, cat_cols=["cat_a", "cat_b", "cat_c"],
-            min_interaction_info=-1.0, top_k=3, random_state=7,
+            X,
+            y,
+            cat_cols=["cat_a", "cat_b", "cat_c"],
+            min_interaction_info=-1.0,
+            top_k=3,
+            random_state=7,
         )
         assert appended, "high-card synergy triple produced no survivor."
         for r in recipes:
             n_cells = len(r.extra["mapping"])
-            assert n_cells > 0.5 * len(X), (
-                f"recipe {r.name!r} has only {n_cells} cells; the high-card " f"fixture should exceed the 0.5*n pre-screen threshold."
-            )
+            assert n_cells > 0.5 * len(X), f"recipe {r.name!r} has only {n_cells} cells; the high-card fixture should exceed the 0.5*n pre-screen threshold."
             assert str(r.extra.get("encoding")) == "target", (
-                f"recipe {r.name!r} encoding is {r.extra.get('encoding')!r}; " f"high-card triple must route through target encoding."
+                f"recipe {r.name!r} encoding is {r.extra.get('encoding')!r}; high-card triple must route through target encoding."
             )
             col = apply_recipe(r, X)
             assert col.dtype == np.float64
@@ -360,10 +400,15 @@ class TestNoYLeak:
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         X, y = _build_cat_xor3(7)
         _, _appended, recipes, _ = hybrid_cat_triple_fe(
-            X, y, cat_cols=["cat_a", "cat_b", "cat_c"],
-            min_interaction_info=0.001, top_k=3, random_state=7,
+            X,
+            y,
+            cat_cols=["cat_a", "cat_b", "cat_c"],
+            min_interaction_info=0.001,
+            top_k=3,
+            random_state=7,
         )
         assert recipes, "no recipes produced for leakage test."
         for r in recipes:
@@ -379,22 +424,30 @@ class TestNoYLeak:
             generate_cat_triple_crosses,
         )
         from mlframe.feature_selection.filters.engineered_recipes import (
-            build_cat_triple_cross_recipe, apply_recipe,
+            build_cat_triple_cross_recipe,
+            apply_recipe,
         )
+
         X, _y = _build_cat_xor3(42)
         cols = ["cat_a", "cat_b", "cat_c"]
         _enc_a, raw_a = generate_cat_triple_crosses(X, cols)
         _enc_b, raw_b = generate_cat_triple_crosses(X, cols)
         for name in raw_a:
             ra = build_cat_triple_cross_recipe(
-                name=name, cat_a=raw_a[name]["cat_a"],
-                cat_b=raw_a[name]["cat_b"], cat_c=raw_a[name]["cat_c"],
-                mapping=raw_a[name]["mapping"], encoding="raw",
+                name=name,
+                cat_a=raw_a[name]["cat_a"],
+                cat_b=raw_a[name]["cat_b"],
+                cat_c=raw_a[name]["cat_c"],
+                mapping=raw_a[name]["mapping"],
+                encoding="raw",
             )
             rb = build_cat_triple_cross_recipe(
-                name=name, cat_a=raw_b[name]["cat_a"],
-                cat_b=raw_b[name]["cat_b"], cat_c=raw_b[name]["cat_c"],
-                mapping=raw_b[name]["mapping"], encoding="raw",
+                name=name,
+                cat_a=raw_b[name]["cat_a"],
+                cat_b=raw_b[name]["cat_b"],
+                cat_c=raw_b[name]["cat_c"],
+                mapping=raw_b[name]["mapping"],
+                encoding="raw",
             )
             assert ra == rb
             np.testing.assert_array_equal(apply_recipe(ra, X), apply_recipe(rb, X))
@@ -411,6 +464,7 @@ class TestDefaultDisabledByteIdentical:
     def test_mrmr_default_off_does_not_add_cat_triple(self):
         """With the family disabled by default, MRMR.fit adds no cat_triple_features_."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_cat_xor3(42, n=2000)
         Xi = X.copy()
         for c in Xi.columns:
@@ -432,6 +486,7 @@ class TestDefaultDisabledByteIdentical:
         # engineered feature in the final support.
         import mlframe.feature_selection.filters._cat_triple_fe as _ctmod
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_cat_xor3(42, n=3000)
         Xi = X.copy()
         for c in Xi.columns:
@@ -454,13 +509,13 @@ class TestDefaultDisabledByteIdentical:
             fe_cat_triple_top_k=3,
         )
         m.fit(Xi, pd.Series(y, name="y"))
-        assert any(
-            str(c).startswith("cross3_") for c in appended.get("cols", [])
-        ), "cat_triple FE did not fire (no cross3_ column appended) on the 3-way cat-XOR fixture."
+        assert any(str(c).startswith("cross3_") for c in appended.get("cols", [])), (
+            "cat_triple FE did not fire (no cross3_ column appended) on the 3-way cat-XOR fixture."
+        )
         picks = list(m.get_feature_names_out())
-        assert any(
-            ("cat_a" in p and "cat_b" in p and "cat_c" in p) for p in picks
-        ), f"3-way cat-XOR signal not recovered by any engineered feature; picks={picks}"
+        assert any(("cat_a" in p and "cat_b" in p and "cat_c" in p) for p in picks), (
+            f"3-way cat-XOR signal not recovered by any engineered feature; picks={picks}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +534,7 @@ class TestPickleClone:
         from mlframe.feature_selection.filters.engineered_recipes import (
             apply_recipe,
         )
+
         # Raw (low-card 2x2x2) + target-encoded (high-card) payloads.
         X_raw, y_raw = _build_cat_xor3(1)
         rng = np.random.default_rng(1)
@@ -487,16 +543,24 @@ class TestPickleClone:
         b = rng.integers(0, 20, n)
         c = rng.integers(0, 20, n)
         y_hc = ((a + b + c) % 2).astype(int)
-        X_hc = pd.DataFrame({
-            "cat_a": a.astype(str), "cat_b": b.astype(str), "cat_c": c.astype(str),
-        })
+        X_hc = pd.DataFrame(
+            {
+                "cat_a": a.astype(str),
+                "cat_b": b.astype(str),
+                "cat_c": c.astype(str),
+            }
+        )
         cases = [
             (X_raw, y_raw, ["cat_a", "cat_b", "cat_c"], 0.001),
             (X_hc, y_hc, ["cat_a", "cat_b", "cat_c"], -1.0),
         ]
         for X, y, cols, thr in cases:
             _, _appended, recipes, _ = hybrid_cat_triple_fe(
-                X, y, cat_cols=cols, min_interaction_info=thr, top_k=3,
+                X,
+                y,
+                cat_cols=cols,
+                min_interaction_info=thr,
+                top_k=3,
                 random_state=1,
             )
             assert recipes, "no recipes for pickle test."
@@ -505,13 +569,15 @@ class TestPickleClone:
                 r2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
                 assert r2 == r, f"recipe {r.name!r} != its pickle round-trip."
                 np.testing.assert_array_equal(
-                    apply_recipe(r, X), apply_recipe(r2, X),
+                    apply_recipe(r, X),
+                    apply_recipe(r2, X),
                 )
 
     def test_mrmr_clone_preserves_params(self):
         """sklearn clone() copies every fe_cat_triple_* ctor param without fitted state."""
         from sklearn.base import clone
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(
             fe_cat_triple_enable=True,
             fe_cat_triple_cat_cols=("cat_a", "cat_b", "cat_c"),

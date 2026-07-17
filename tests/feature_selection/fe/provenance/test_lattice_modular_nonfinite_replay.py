@@ -12,6 +12,7 @@ undefined there) while leaving clean rows byte-identical.
 These tests pin: (1) a non-finite operand -> NaN output, never the INT64_MIN-derived garbage, and (2)
 clean rows are byte-identical whether or not other rows are non-finite (the mask does not perturb them).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -28,8 +29,10 @@ _INT64_MIN = np.int64(np.iinfo(np.int64).min)
 
 class _DictX:
     """Minimal column-addressable X (apply_* index columns by name)."""
+
     def __init__(self, cols):
         self._c = {k: np.asarray(v, dtype=np.float64) for k, v in cols.items()}
+
     def __getitem__(self, k):
         return self._c[k]
 

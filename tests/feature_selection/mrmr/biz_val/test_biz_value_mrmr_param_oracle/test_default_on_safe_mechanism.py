@@ -40,6 +40,8 @@ SEEDS = (1, 7, 13)
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
+
 def _build_bounded_many_cat_signal(seed: int, n: int = 3000, n_noise_cats: int = 40):
     """One genuinely predictive categorical (its COUNT drives y) plus
     ``n_noise_cats`` independent random categoricals whose count carries no
@@ -72,6 +74,7 @@ class TestFlippedDefaults:
     def test_fe_local_mi_gate_default_true(self):
         """MRMR() ctor default for fe_local_mi_gate is True with top_k unchanged at 20."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR()
         assert m.fe_local_mi_gate is True, "Layer 97: fe_local_mi_gate must default to True (corrective gate)"
         # top_k unchanged.
@@ -81,6 +84,7 @@ class TestFlippedDefaults:
         """The Tier-2 unified CMI pass is NOT a pure corrective (it has a
         min_gain cost and CAN drop columns), so it must stay default-False."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR()
         assert m.fe_unified_second_pass_gate is False
 
@@ -108,6 +112,7 @@ class TestRecommendEnabledFe:
     def test_local_mi_gate_classified_flip_safe(self):
         """fe_local_mi_gate is classified flip_safe and never flip_risky."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rec = MRMR.recommend_enabled_fe()
         assert "fe_local_mi_gate" in rec["flip_safe"]
         # A pure corrective is never a risky generator.
@@ -116,16 +121,21 @@ class TestRecommendEnabledFe:
     def test_generators_classified_risky(self):
         """Every accuracy-affecting FE generator is classified flip_risky."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rec = MRMR.recommend_enabled_fe()
         for gen in (
-            "fe_grouped_agg_enable", "fe_cat_pair_enable", "fe_hybrid_orth_enable",
-            "fe_count_encoding_enable", "fe_unified_second_pass_gate",
+            "fe_grouped_agg_enable",
+            "fe_cat_pair_enable",
+            "fe_hybrid_orth_enable",
+            "fe_count_encoding_enable",
+            "fe_unified_second_pass_gate",
         ):
             assert gen in rec["flip_risky"], f"{gen} should be flip_risky"
 
     def test_already_default_listed(self):
         """Flags already default-on (dcd_enable, cardinality_bias_correction) appear in already_default."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rec = MRMR.recommend_enabled_fe()
         assert "dcd_enable" in rec["already_default"]
         assert "cardinality_bias_correction" in rec["already_default"]
@@ -133,15 +143,19 @@ class TestRecommendEnabledFe:
     def test_recommended_enable_is_stub(self):
         """L98 Param-Oracle deliverable; the L97 stub returns an empty list."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rec = MRMR.recommend_enabled_fe(X=None, y=None)
         assert rec["recommended_enable"] == []
 
     def test_no_flag_in_two_buckets(self):
         """The flip_safe, already_default, and flip_risky buckets are mutually exclusive."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rec = MRMR.recommend_enabled_fe()
         safe, default, risky = (
-            set(rec["flip_safe"]), set(rec["already_default"]), set(rec["flip_risky"]),
+            set(rec["flip_safe"]),
+            set(rec["already_default"]),
+            set(rec["flip_risky"]),
         )
         assert not (safe & risky)
         assert not (safe & default)
@@ -165,21 +179,23 @@ class TestSignalSurvivesNewDefault:
 
         # Explicit OFF (pre-Layer-97 behaviour).
         m_off = _make_mrmr(
-            fe_count_encoding_enable=True, fe_local_mi_gate=False,
+            fe_count_encoding_enable=True,
+            fe_local_mi_gate=False,
             fe_ntop_features=5,
         )
         m_off.fit(X, y)
 
         # NEW default (gate True, not passed explicitly).
         m_def = _make_mrmr(
-            fe_count_encoding_enable=True, fe_ntop_features=5,
+            fe_count_encoding_enable=True,
+            fe_ntop_features=5,
         )
         m_def.fit(X, y)
         assert m_def.fe_local_mi_gate is True
 
         assert "pred_cat__count" in m_off.count_encoding_features_, f"seed={seed}: ungated path should select the predictive count"
         assert "pred_cat__count" in m_def.count_encoding_features_, (
-            f"seed={seed}: NEW-default gate dropped the real signal " f"pred_cat__count; survivors={m_def.count_encoding_features_}"
+            f"seed={seed}: NEW-default gate dropped the real signal pred_cat__count; survivors={m_def.count_encoding_features_}"
         )
 
 
@@ -206,6 +222,7 @@ class TestPoolShrinksUnderNewDefault:
         appended pool size from the genuine in-fit ``count_encode_with_recipes``
         call."""
         import mlframe.feature_selection.filters._count_freq_interaction_fe as _cfi
+
         X, y = _build_bounded_many_cat_signal(seed, n=3000, n_noise_cats=40)
 
         _orig_count_enc = _cfi.count_encode_with_recipes
@@ -219,11 +236,13 @@ class TestPoolShrinksUnderNewDefault:
                 res = _orig_count_enc(Xarg, **kw)
                 _pool[tag] = len(res[1])
                 return res
+
             return _wrapped
 
         monkeypatch.setattr(_cfi, "count_encode_with_recipes", _capture("off"))
         m_off = _make_mrmr(
-            fe_count_encoding_enable=True, fe_local_mi_gate=False,
+            fe_count_encoding_enable=True,
+            fe_local_mi_gate=False,
             fe_ntop_features=5,
         )
         m_off.fit(X, y)
@@ -231,13 +250,14 @@ class TestPoolShrinksUnderNewDefault:
 
         monkeypatch.setattr(_cfi, "count_encode_with_recipes", _capture("def"))
         m_def = _make_mrmr(
-            fe_count_encoding_enable=True, fe_ntop_features=5,
+            fe_count_encoding_enable=True,
+            fe_ntop_features=5,
         )
         m_def.fit(X, y)
         n_def = _pool["def"]
 
         assert n_def <= m_def.fe_local_mi_gate_top_k, f"seed={seed}: default-gated pool {n_def} exceeds top_k"
-        assert n_def < n_off, f"seed={seed}: default gate did NOT shrink the pool " f"(off={n_off}, default={n_def})"
+        assert n_def < n_off, f"seed={seed}: default gate did NOT shrink the pool (off={n_off}, default={n_def})"
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +271,7 @@ class TestRepresentativeLayersSmoke:
     def test_representative_layer_modules_import(self):
         """Representative layer test modules import cleanly under the new fe_local_mi_gate default."""
         import importlib
+
         # Representative layers, now relocated into themed subpackages (the flat
         # test_biz_value_mrmr_layer<N>.py files were consolidated).
         modules = (
@@ -269,11 +290,13 @@ class TestRepresentativeLayersSmoke:
         n = 1500
         x_sig = rng.standard_normal(n)
         y = (x_sig + 0.3 * rng.standard_normal(n) > 0).astype(int)
-        X = pd.DataFrame({
-            "sig": x_sig,
-            "noise0": rng.standard_normal(n),
-            "noise1": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "sig": x_sig,
+                "noise0": rng.standard_normal(n),
+                "noise1": rng.standard_normal(n),
+            }
+        )
         ys = pd.Series(y, name="y")
         m = _make_mrmr(fe_ntop_features=3)
         m.fit(X, ys)

@@ -9,9 +9,9 @@ Run tests:
 import pytest
 import torch
 import torch.nn as nn
-from torch.optim import Adam, SGD, AdamW
+from torch.optim import SGD, AdamW
 from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingLR
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 import warnings
 
 import sys
@@ -20,7 +20,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from mlframe.training.neural import MLPTorchModel, generate_mlp, MetricSpec
+from mlframe.training.neural import MLPTorchModel, MetricSpec
 
 
 # ================================================================================================
@@ -31,11 +31,7 @@ from mlframe.training.neural import MLPTorchModel, generate_mlp, MetricSpec
 @pytest.fixture
 def simple_network():
     """Create a simple neural network."""
-    return nn.Sequential(
-        nn.Linear(10, 20),
-        nn.ReLU(),
-        nn.Linear(20, 3)
-    )
+    return nn.Sequential(nn.Linear(10, 20), nn.ReLU(), nn.Linear(20, 3))
 
 
 @pytest.fixture
@@ -55,18 +51,12 @@ def sample_batch():
 @pytest.fixture
 def sample_metrics():
     """Create sample metrics."""
+
     def accuracy(y_true, y_score):
         predictions = y_score.argmax(axis=1)
         return float((predictions == y_true).sum()) / len(y_true)
 
-    return [
-        MetricSpec(
-            name='accuracy',
-            fcn=accuracy,
-            requires_argmax=True,
-            requires_cpu=True
-        )
-    ]
+    return [MetricSpec(name="accuracy", fcn=accuracy, requires_argmax=True, requires_cpu=True)]
 
 
 # ================================================================================================
@@ -79,12 +69,7 @@ class TestMLPTorchModelInit:
 
     def test_basic_initialization(self, simple_network, loss_function):
         """Test basic initialization with required parameters."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         assert model.network is simple_network
         assert model.loss_fn is loss_function
@@ -93,120 +78,63 @@ class TestMLPTorchModelInit:
 
     def test_initialization_with_metrics(self, simple_network, loss_function, sample_metrics):
         """Test initialization with metrics."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=sample_metrics
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=sample_metrics)
 
         assert len(model.metrics) == 1
-        assert model.metrics[0].name == 'accuracy'
+        assert model.metrics[0].name == "accuracy"
 
     def test_initialization_network_none_raises_error(self, loss_function):
         """Test that network=None raises ValueError."""
         with pytest.raises(ValueError, match="network must be provided"):
-            MLPTorchModel(
-                network=None,
-                loss_fn=loss_function,
-                learning_rate=0.001,
-                metrics=[]
-            )
+            MLPTorchModel(network=None, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
     def test_initialization_loss_fn_none_raises_error(self, simple_network):
         """Test that loss_fn=None raises ValueError."""
         with pytest.raises(ValueError, match="loss_fn must be provided"):
-            MLPTorchModel(
-                network=simple_network,
-                loss_fn=None,
-                learning_rate=0.001,
-                metrics=[]
-            )
+            MLPTorchModel(network=simple_network, loss_fn=None, learning_rate=0.001, metrics=[])
 
     def test_initialization_with_l1_alpha(self, simple_network, loss_function):
         """Test initialization with L1 regularization."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            l1_alpha=0.01,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, l1_alpha=0.01, metrics=[])
 
         assert model.hparams.l1_alpha == 0.01
 
     def test_initialization_with_custom_optimizer(self, simple_network, loss_function):
         """Test initialization with custom optimizer."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            optimizer=SGD,
-            optimizer_kwargs={'momentum': 0.9},
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, optimizer=SGD, optimizer_kwargs={"momentum": 0.9}, metrics=[])
 
         assert model.optimizer == SGD
-        assert model.hparams.optimizer_kwargs['momentum'] == 0.9
+        assert model.hparams.optimizer_kwargs["momentum"] == 0.9
 
     def test_initialization_with_lr_scheduler(self, simple_network, loss_function):
         """Test initialization with learning rate scheduler."""
         model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            lr_scheduler=CosineAnnealingLR,
-            lr_scheduler_kwargs={'T_max': 10},
-            metrics=[]
+            network=simple_network, loss_fn=loss_function, learning_rate=0.001, lr_scheduler=CosineAnnealingLR, lr_scheduler_kwargs={"T_max": 10}, metrics=[]
         )
 
         assert model.lr_scheduler == CosineAnnealingLR
-        assert model.hparams.lr_scheduler_kwargs['T_max'] == 10
+        assert model.hparams.lr_scheduler_kwargs["T_max"] == 10
 
     def test_initialization_lr_scheduler_interval(self, simple_network, loss_function):
         """Test lr_scheduler_interval validation."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            lr_scheduler_interval='epoch',
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, lr_scheduler_interval="epoch", metrics=[])
 
-        assert model.hparams.lr_scheduler_interval == 'epoch'
+        assert model.hparams.lr_scheduler_interval == "epoch"
 
     def test_initialization_invalid_lr_scheduler_interval_raises_error(self, simple_network, loss_function):
         """Test that invalid lr_scheduler_interval raises ValueError."""
         with pytest.raises(ValueError, match="lr_scheduler_interval must be"):
-            MLPTorchModel(
-                network=simple_network,
-                loss_fn=loss_function,
-                learning_rate=0.001,
-                lr_scheduler_interval='invalid',
-                metrics=[]
-            )
+            MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, lr_scheduler_interval="invalid", metrics=[])
 
     def test_initialization_compute_trainset_metrics(self, simple_network, loss_function):
         """Test initialization with compute_trainset_metrics."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            compute_trainset_metrics=True,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, compute_trainset_metrics=True, metrics=[])
 
         assert model.hparams.compute_trainset_metrics is True
 
     def test_initialization_load_best_weights(self, simple_network, loss_function):
         """Test initialization with load_best_weights_on_train_end."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            load_best_weights_on_train_end=True,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, load_best_weights_on_train_end=True, metrics=[])
 
         assert model.hparams.load_best_weights_on_train_end is True
 
@@ -214,12 +142,7 @@ class TestMLPTorchModelInit:
         """Test that example_input_array is extracted from network."""
         simple_network.example_input_array = torch.randn(1, 10)
 
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         assert model.example_input_array is not None
         assert model.example_input_array.shape == (1, 10)
@@ -235,12 +158,7 @@ class TestMLPTorchModelForward:
 
     def test_forward_pass(self, simple_network, loss_function):
         """Test forward pass."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         x = torch.randn(4, 10)
         output = model(x)
@@ -249,12 +167,7 @@ class TestMLPTorchModelForward:
 
     def test_forward_delegates_to_network(self, simple_network, loss_function):
         """Test that forward delegates to network."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         x = torch.randn(4, 10)
         output1 = model(x)
@@ -273,12 +186,7 @@ class TestMLPTorchModelUnpackBatch:
 
     def test_unpack_batch_tuple_format(self, simple_network, loss_function):
         """Test unpacking batch in tuple format."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         batch = (torch.randn(4, 10), torch.randint(0, 3, (4,)))
         features, labels, sample_weight = model._unpack_batch(batch)
@@ -289,12 +197,7 @@ class TestMLPTorchModelUnpackBatch:
 
     def test_unpack_batch_list_format(self, simple_network, loss_function):
         """Test unpacking batch in list format."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         batch = [torch.randn(4, 10), torch.randint(0, 3, (4,))]
         features, labels, sample_weight = model._unpack_batch(batch)
@@ -305,17 +208,9 @@ class TestMLPTorchModelUnpackBatch:
 
     def test_unpack_batch_dict_format(self, simple_network, loss_function):
         """Test unpacking batch in dict format."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
-        batch = {
-            'features': torch.randn(4, 10),
-            'labels': torch.randint(0, 3, (4,))
-        }
+        batch = {"features": torch.randn(4, 10), "labels": torch.randint(0, 3, (4,))}
         features, labels, sample_weight = model._unpack_batch(batch)
 
         assert features.shape == (4, 10)
@@ -324,12 +219,7 @@ class TestMLPTorchModelUnpackBatch:
 
     def test_unpack_batch_invalid_format_raises_error(self, simple_network, loss_function):
         """Test that invalid batch format raises TypeError."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         batch = "invalid"
 
@@ -350,44 +240,27 @@ class TestMLPTorchModelTrainingStep:
 
     def test_training_step_basic(self, simple_network, loss_function, sample_batch):
         """Test basic training step."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         loss = model.training_step(sample_batch, batch_idx=0)
 
         assert isinstance(loss, dict)
-        assert 'loss' in loss
-        assert loss['loss'].item() > 0
+        assert "loss" in loss
+        assert loss["loss"].item() > 0
 
     def test_training_step_with_l1_regularization(self, simple_network, loss_function, sample_batch):
         """Test training step with L1 regularization."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            l1_alpha=0.01,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, l1_alpha=0.01, metrics=[])
 
         loss_dict = model.training_step(sample_batch, batch_idx=0)
 
         # Should include L1 regularization
-        assert 'loss' in loss_dict
-        assert loss_dict['loss'].item() > 0
+        assert "loss" in loss_dict
+        assert loss_dict["loss"].item() > 0
 
     def test_training_step_without_compute_metrics(self, simple_network, loss_function, sample_batch):
         """Test training step with compute_trainset_metrics=False."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            compute_trainset_metrics=False,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, compute_trainset_metrics=False, metrics=[])
 
         loss_dict = model.training_step(sample_batch, batch_idx=0)
 
@@ -395,18 +268,12 @@ class TestMLPTorchModelTrainingStep:
 
     def test_training_step_with_compute_metrics(self, simple_network, loss_function, sample_batch):
         """Test training step with compute_trainset_metrics=True."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            compute_trainset_metrics=True,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, compute_trainset_metrics=True, metrics=[])
 
         # Initialize training_step_outputs
         model.training_step_outputs = []
 
-        loss_dict = model.training_step(sample_batch, batch_idx=0)
+        model.training_step(sample_batch, batch_idx=0)
 
         # Should store outputs
         assert len(model.training_step_outputs) == 1
@@ -422,12 +289,7 @@ class TestMLPTorchModelValidationStep:
 
     def test_validation_step_basic(self, simple_network, loss_function, sample_batch):
         """Test basic validation step."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         # Initialize validation_step_outputs
         model.validation_step_outputs = []
@@ -435,8 +297,8 @@ class TestMLPTorchModelValidationStep:
         output = model.validation_step(sample_batch, batch_idx=0)
 
         assert isinstance(output, dict)
-        assert 'raw_predictions' in output
-        assert 'labels' in output
+        assert "raw_predictions" in output
+        assert "labels" in output
         assert len(model.validation_step_outputs) == 1
 
     def test_validation_step_no_l1_regularization(self, simple_network, loss_function, sample_batch):
@@ -446,7 +308,7 @@ class TestMLPTorchModelValidationStep:
             loss_fn=loss_function,
             learning_rate=0.001,
             l1_alpha=0.01,  # L1 enabled
-            metrics=[]
+            metrics=[],
         )
 
         model.validation_step_outputs = []
@@ -454,7 +316,7 @@ class TestMLPTorchModelValidationStep:
         output = model.validation_step(sample_batch, batch_idx=0)
 
         # L1 should not be applied in validation
-        assert 'raw_predictions' in output
+        assert "raw_predictions" in output
 
 
 # ================================================================================================
@@ -467,12 +329,7 @@ class TestMLPTorchModelConfigureOptimizers:
 
     def test_configure_optimizers_no_scheduler(self, simple_network, loss_function):
         """Test optimizer configuration without scheduler."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         optimizer = model.configure_optimizers()
 
@@ -480,14 +337,7 @@ class TestMLPTorchModelConfigureOptimizers:
 
     def test_configure_optimizers_with_custom_optimizer(self, simple_network, loss_function):
         """Test with custom optimizer."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            optimizer=SGD,
-            optimizer_kwargs={'momentum': 0.9},
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, optimizer=SGD, optimizer_kwargs={"momentum": 0.9}, metrics=[])
 
         optimizer = model.configure_optimizers()
 
@@ -496,12 +346,7 @@ class TestMLPTorchModelConfigureOptimizers:
     def test_configure_optimizers_with_onecyclelr(self, simple_network, loss_function):
         """Test with OneCycleLR scheduler."""
         model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            lr_scheduler=OneCycleLR,
-            lr_scheduler_kwargs={'max_lr': 0.01},
-            metrics=[]
+            network=simple_network, loss_fn=loss_function, learning_rate=0.001, lr_scheduler=OneCycleLR, lr_scheduler_kwargs={"max_lr": 0.01}, metrics=[]
         )
 
         # Mock trainer with proper attributes for OneCycleLR
@@ -517,24 +362,19 @@ class TestMLPTorchModelConfigureOptimizers:
 
         config = model.configure_optimizers()
 
-        assert 'optimizer' in config
-        assert 'lr_scheduler' in config
+        assert "optimizer" in config
+        assert "lr_scheduler" in config
 
     def test_configure_optimizers_with_other_scheduler(self, simple_network, loss_function):
         """Test with other scheduler (not OneCycleLR)."""
         model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            lr_scheduler=CosineAnnealingLR,
-            lr_scheduler_kwargs={'T_max': 10},
-            metrics=[]
+            network=simple_network, loss_fn=loss_function, learning_rate=0.001, lr_scheduler=CosineAnnealingLR, lr_scheduler_kwargs={"T_max": 10}, metrics=[]
         )
 
         config = model.configure_optimizers()
 
-        assert 'optimizer' in config
-        assert 'lr_scheduler' in config
+        assert "optimizer" in config
+        assert "lr_scheduler" in config
 
 
 # ================================================================================================
@@ -547,12 +387,7 @@ class TestMLPTorchModelPredictStep:
 
     def test_predict_step_with_labels(self, simple_network, loss_function, sample_batch):
         """Test predict step with labels in batch."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         model.eval()
         predictions = model.predict_step(sample_batch, batch_idx=0)
@@ -561,12 +396,7 @@ class TestMLPTorchModelPredictStep:
 
     def test_predict_step_without_labels(self, simple_network, loss_function):
         """Test predict step without labels."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         batch = torch.randn(8, 10)
         model.eval()
@@ -576,12 +406,7 @@ class TestMLPTorchModelPredictStep:
 
     def test_predict_step_multiclass_returns_softmax(self, simple_network, loss_function):
         """Test that multiclass prediction returns softmax probabilities."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         batch = torch.randn(8, 10)
         model.eval()
@@ -592,17 +417,12 @@ class TestMLPTorchModelPredictStep:
 
     def test_predict_step_warns_if_training_mode(self, simple_network, loss_function):
         """Test that predict_step warns if model is in training mode."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         model.train()  # Set to training mode
         batch = torch.randn(8, 10)
 
-        with warnings.catch_warnings(record=True) as w:
+        with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
             predictions = model.predict_step(batch, batch_idx=0)
 
@@ -621,20 +441,14 @@ class TestMLPTorchModelOnTrainEpochEnd:
 
     def test_on_train_epoch_end_without_outputs(self, simple_network, loss_function):
         """Test on_train_epoch_end without outputs."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            compute_trainset_metrics=False,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, compute_trainset_metrics=False, metrics=[])
 
         model.training_step_outputs = []
 
         # Mock trainer for epoch_end method
         mock_trainer = Mock()
         mock_optimizer = Mock()
-        mock_optimizer.param_groups = [{'lr': 0.001}]
+        mock_optimizer.param_groups = [{"lr": 0.001}]
         mock_trainer.optimizers = [mock_optimizer]
         model.trainer = mock_trainer
 
@@ -643,23 +457,15 @@ class TestMLPTorchModelOnTrainEpochEnd:
 
     def test_on_train_epoch_end_with_outputs(self, simple_network, loss_function):
         """Test on_train_epoch_end with outputs."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            compute_trainset_metrics=True,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, compute_trainset_metrics=True, metrics=[])
 
         # Add mock outputs (use 'raw_predictions' not 'predictions')
-        model.training_step_outputs = [
-            {'raw_predictions': torch.randn(8, 3), 'labels': torch.randint(0, 3, (8,))}
-        ]
+        model.training_step_outputs = [{"raw_predictions": torch.randn(8, 3), "labels": torch.randint(0, 3, (8,))}]
 
         # Mock trainer for epoch_end method
         mock_trainer = Mock()
         mock_optimizer = Mock()
-        mock_optimizer.param_groups = [{'lr': 0.001}]
+        mock_optimizer.param_groups = [{"lr": 0.001}]
         mock_trainer.optimizers = [mock_optimizer]
         model.trainer = mock_trainer
 
@@ -679,17 +485,10 @@ class TestMLPTorchModelOnValidationEpochEnd:
 
     def test_on_validation_epoch_end_with_outputs(self, simple_network, loss_function):
         """Test on_validation_epoch_end with outputs."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         # Add mock outputs (use 'raw_predictions' not 'predictions')
-        model.validation_step_outputs = [
-            {'raw_predictions': torch.randn(8, 3), 'labels': torch.randint(0, 3, (8,))}
-        ]
+        model.validation_step_outputs = [{"raw_predictions": torch.randn(8, 3), "labels": torch.randint(0, 3, (8,))}]
 
         model.on_validation_epoch_end()
 
@@ -707,13 +506,7 @@ class TestMLPTorchModelOnTrainEnd:
 
     def test_on_train_end_without_load_best_weights(self, simple_network, loss_function):
         """Test on_train_end when load_best_weights_on_train_end=False."""
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            load_best_weights_on_train_end=False,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, load_best_weights_on_train_end=False, metrics=[])
 
         # Should not crash
         model.on_train_end()
@@ -734,20 +527,15 @@ class TestMLPTorchModelMutationTests:
         """
         # Single output network (regression)
         network = nn.Sequential(nn.Linear(10, 1))
-        model = MLPTorchModel(
-            network=network,
-            loss_fn=nn.MSELoss(),
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=network, loss_fn=nn.MSELoss(), learning_rate=0.001, metrics=[])
 
         # Labels are 1D for regression
         batch = (torch.randn(8, 10), torch.randn(8))
         loss_dict = model.training_step(batch, batch_idx=0)
 
         # Should not crash - squeeze handles [8, 1] -> [8] to match labels
-        assert 'loss' in loss_dict
-        assert loss_dict['loss'].item() >= 0
+        assert "loss" in loss_dict
+        assert loss_dict["loss"].item() >= 0
 
     def test_training_step_no_squeeze_for_multi_output(self, loss_function):
         """Test predictions NOT squeezed for multi-output.
@@ -756,18 +544,13 @@ class TestMLPTorchModelMutationTests:
         """
         # Multi-output network (5 outputs)
         network = nn.Sequential(nn.Linear(10, 5))
-        model = MLPTorchModel(
-            network=network,
-            loss_fn=nn.MSELoss(),
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=network, loss_fn=nn.MSELoss(), learning_rate=0.001, metrics=[])
 
         # Labels are 2D for multi-output
         batch = (torch.randn(8, 10), torch.randn(8, 5))
         loss_dict = model.training_step(batch, batch_idx=0)
 
-        assert 'loss' in loss_dict
+        assert "loss" in loss_dict
 
     def test_l1_regularization_not_applied_when_zero(self, simple_network, loss_function, sample_batch):
         """Test L1 regularization not applied when l1_alpha=0.
@@ -779,15 +562,11 @@ class TestMLPTorchModelMutationTests:
             loss_fn=loss_function,
             learning_rate=0.001,
             l1_alpha=0.0,  # Disabled
-            metrics=[]
+            metrics=[],
         )
 
         # Create identical network for comparison
-        network_copy = nn.Sequential(
-            nn.Linear(10, 20),
-            nn.ReLU(),
-            nn.Linear(20, 3)
-        )
+        network_copy = nn.Sequential(nn.Linear(10, 20), nn.ReLU(), nn.Linear(20, 3))
         # Copy weights
         network_copy.load_state_dict(simple_network.state_dict())
 
@@ -796,11 +575,11 @@ class TestMLPTorchModelMutationTests:
             loss_fn=nn.CrossEntropyLoss(),
             learning_rate=0.001,
             l1_alpha=0.1,  # Enabled
-            metrics=[]
+            metrics=[],
         )
 
-        loss_no_l1 = model_no_l1.training_step(sample_batch, 0)['loss']
-        loss_with_l1 = model_with_l1.training_step(sample_batch, 0)['loss']
+        loss_no_l1 = model_no_l1.training_step(sample_batch, 0)["loss"]
+        loss_with_l1 = model_with_l1.training_step(sample_batch, 0)["loss"]
 
         # L1 should increase loss
         assert loss_with_l1 > loss_no_l1, "L1 regularization should increase loss"
@@ -815,11 +594,11 @@ class TestMLPTorchModelMutationTests:
             loss_fn=loss_function,
             learning_rate=0.001,
             l1_alpha=0.01,  # Small positive value
-            metrics=[]
+            metrics=[],
         )
 
         loss_dict = model.training_step(sample_batch, 0)
-        assert 'loss' in loss_dict
+        assert "loss" in loss_dict
         # Just verify it runs without error
 
     def test_unpack_batch_accepts_three_elements(self, simple_network, loss_function):
@@ -827,12 +606,7 @@ class TestMLPTorchModelMutationTests:
 
         Kills mutation: `len(batch) == 3` to other conditions.
         """
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         # Batch with 3 elements (features, labels, sample_weight)
         batch = (torch.randn(4, 10), torch.randint(0, 3, (4,)), torch.ones(4))
@@ -847,12 +621,7 @@ class TestMLPTorchModelMutationTests:
 
         Kills mutation: boundary on len(batch) check.
         """
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         batch = (torch.randn(4, 10), torch.randint(0, 3, (4,)))
         features, labels, sample_weight = model._unpack_batch(batch)
@@ -867,12 +636,7 @@ class TestMLPTorchModelMutationTests:
         Kills mutation: `total_steps = max_epochs * steps_per_epoch` to `**`.
         """
         model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            lr_scheduler=OneCycleLR,
-            lr_scheduler_kwargs={'max_lr': 0.01},
-            metrics=[]
+            network=simple_network, loss_fn=loss_function, learning_rate=0.001, lr_scheduler=OneCycleLR, lr_scheduler_kwargs={"max_lr": 0.01}, metrics=[]
         )
 
         # Mock trainer with specific values
@@ -890,7 +654,7 @@ class TestMLPTorchModelMutationTests:
         config = model.configure_optimizers()
 
         # Expected: 10 * 20 = 200 steps (not 10**20)
-        scheduler = config['lr_scheduler']['scheduler']
+        scheduler = config["lr_scheduler"]["scheduler"]
         assert scheduler.total_steps == 200, f"Expected 200, got {scheduler.total_steps}"
 
     def test_predict_step_regression_squeeze(self, loss_function):
@@ -899,12 +663,7 @@ class TestMLPTorchModelMutationTests:
         Kills mutation: dimension checks in predict_step.
         """
         network = nn.Sequential(nn.Linear(10, 1))
-        model = MLPTorchModel(
-            network=network,
-            loss_fn=nn.MSELoss(),
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=network, loss_fn=nn.MSELoss(), learning_rate=0.001, metrics=[])
 
         batch = torch.randn(8, 10)
         model.eval()
@@ -927,15 +686,8 @@ class TestMLPTorchModelPhase2:
 
         Kills mutation: `not self.trainer.is_global_zero` to `self.trainer.is_global_zero`.
         """
-        from lightning.pytorch.callbacks import ModelCheckpoint
 
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            load_best_weights_on_train_end=True,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, load_best_weights_on_train_end=True, metrics=[])
 
         # Mock trainer as NOT rank 0
         mock_trainer = Mock()
@@ -955,19 +707,13 @@ class TestMLPTorchModelPhase2:
         import tempfile
         import os
 
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            load_best_weights_on_train_end=True,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, load_best_weights_on_train_end=True, metrics=[])
 
         # Create a temporary checkpoint file
         with tempfile.TemporaryDirectory() as tmpdir:
-            ckpt_path = os.path.join(tmpdir, 'best.ckpt')
+            ckpt_path = os.path.join(tmpdir, "best.ckpt")
             # Save model state to checkpoint
-            torch.save({'state_dict': model.state_dict()}, ckpt_path)
+            torch.save({"state_dict": model.state_dict()}, ckpt_path)
 
             # Mock ModelCheckpoint
             mock_checkpoint = Mock(spec=ModelCheckpoint)
@@ -991,18 +737,13 @@ class TestMLPTorchModelPhase2:
 
         Kills mutation: output format changes.
         """
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, metrics=[])
 
         model.validation_step_outputs = []
         output = model.validation_step(sample_batch, batch_idx=0)
 
-        assert 'raw_predictions' in output
-        assert 'labels' in output
+        assert "raw_predictions" in output
+        assert "labels" in output
         assert len(model.validation_step_outputs) == 1
 
     def test_training_step_with_metrics_stores_outputs(self, simple_network, loss_function, sample_batch):
@@ -1010,18 +751,12 @@ class TestMLPTorchModelPhase2:
 
         Kills mutation: conditional output storage.
         """
-        model = MLPTorchModel(
-            network=simple_network,
-            loss_fn=loss_function,
-            learning_rate=0.001,
-            compute_trainset_metrics=True,
-            metrics=[]
-        )
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, compute_trainset_metrics=True, metrics=[])
 
         model.training_step_outputs = []
         loss_dict = model.training_step(sample_batch, batch_idx=0)
 
-        assert 'loss' in loss_dict
+        assert "loss" in loss_dict
         assert len(model.training_step_outputs) == 1
 
     def test_lr_scheduler_step_interval(self, simple_network, loss_function):
@@ -1034,13 +769,13 @@ class TestMLPTorchModelPhase2:
             loss_fn=loss_function,
             learning_rate=0.001,
             lr_scheduler=CosineAnnealingLR,
-            lr_scheduler_kwargs={'T_max': 10},
-            lr_scheduler_interval='step',
-            metrics=[]
+            lr_scheduler_kwargs={"T_max": 10},
+            lr_scheduler_interval="step",
+            metrics=[],
         )
 
         config = model.configure_optimizers()
-        assert config['lr_scheduler']['interval'] == 'step'
+        assert config["lr_scheduler"]["interval"] == "step"
 
 
 if __name__ == "__main__":

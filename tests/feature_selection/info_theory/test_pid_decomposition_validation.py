@@ -24,6 +24,7 @@ raise) explicit-raise pattern: validate both lower bound (>= 0) and
 upper bound (< K) before tabulation; raise ``ValueError`` with the
 offending values for diagnostics.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,6 +43,7 @@ def _setup_valid_xor():
 def test_negative_x1_raises():
     """``x1[i] = -1`` (NaN sentinel) must raise, not silently wrap."""
     from mlframe.feature_selection.filters._pid_decomposition import pid_decomposition
+
     x1, x2, y = _setup_valid_xor()
     x1[0] = -1
     with pytest.raises(ValueError, match="negative integer indices"):
@@ -50,6 +52,7 @@ def test_negative_x1_raises():
 
 def test_negative_x2_raises():
     from mlframe.feature_selection.filters._pid_decomposition import pid_decomposition
+
     x1, x2, y = _setup_valid_xor()
     x2[3] = -1
     with pytest.raises(ValueError, match="negative integer indices"):
@@ -58,6 +61,7 @@ def test_negative_x2_raises():
 
 def test_negative_y_raises():
     from mlframe.feature_selection.filters._pid_decomposition import pid_decomposition
+
     x1, x2, y = _setup_valid_xor()
     y[5] = -1
     with pytest.raises(ValueError, match="negative integer indices"):
@@ -70,6 +74,7 @@ def test_upper_overflow_x1_raises_valueerror():
     pins to ValueError per the iter-24 contract.
     """
     from mlframe.feature_selection.filters._pid_decomposition import pid_decomposition
+
     x1, x2, y = _setup_valid_xor()
     x1[0] = 5  # K_x1=2 means valid range 0..1
     with pytest.raises(ValueError, match="exceeds declared cardinality"):
@@ -81,10 +86,10 @@ def test_valid_inputs_succeed():
     succeed and produce all four PID components.
     """
     from mlframe.feature_selection.filters._pid_decomposition import pid_decomposition
+
     x1, x2, y = _setup_valid_xor()
     result = pid_decomposition(x1, x2, y, 2, 2, 2)
-    assert set(result.keys()) == {"redundant", "unique_x1", "unique_x2",
-                                    "synergistic", "total"}
+    assert set(result.keys()) == {"redundant", "unique_x1", "unique_x2", "synergistic", "total"}
     # XOR has high synergistic, low everything else.
     assert result["synergistic"] > 0.5
     assert result["total"] > 0.5
@@ -93,6 +98,7 @@ def test_valid_inputs_succeed():
 def test_empty_input_returns_zeros():
     """Edge case: empty arrays return all-zero PID."""
     from mlframe.feature_selection.filters._pid_decomposition import pid_decomposition
+
     empty = np.array([], dtype=np.int64)
     result = pid_decomposition(empty, empty, empty, 2, 2, 2)
     for v in result.values():

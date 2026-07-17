@@ -19,7 +19,7 @@ constraint (no claim made → nothing to verify).
 from __future__ import annotations
 
 import inspect
-from typing import Literal, Union, get_args, get_origin
+from typing import Literal, get_args, get_origin
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -48,8 +48,8 @@ def _config_classes() -> list[type[BaseModel]]:
         f"{configs_module.__package__}._training_runtime_configs",
         f"{configs_module.__package__}._composite_target_discovery_config",
         f"{configs_module.__package__}._reporting_configs",
-            f"{configs_module.__package__}._configs_base",
-            f"{configs_module.__package__}._feature_selection_config",
+        f"{configs_module.__package__}._configs_base",
+        f"{configs_module.__package__}._feature_selection_config",
     }
     out = []
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
@@ -161,17 +161,11 @@ def test_numeric_bound_violations_rejected():
                 # Some other error — likely an unrelated required field
                 # we didn't sentinel. Treat as inconclusive.
                 continue
-            not_enforced.append(
-                f"{cls.__name__}.{field_name} declares {kind}={bound} but "
-                f"accepted {bad_value}"
-            )
+            not_enforced.append(f"{cls.__name__}.{field_name} declares {kind}={bound} but accepted {bad_value}")
 
     assert audited > 0, "no numeric-constrained fields found — extraction broken?"
     if not_enforced:
-        pytest.fail(
-            f"{len(not_enforced)} numeric constraint(s) not enforced at runtime:\n  "
-            + "\n  ".join(not_enforced)
-        )
+        pytest.fail(f"{len(not_enforced)} numeric constraint(s) not enforced at runtime:\n  " + "\n  ".join(not_enforced))
 
 
 def test_literal_value_outside_set_rejected():
@@ -200,14 +194,8 @@ def test_literal_value_outside_set_rejected():
                 continue
             except Exception:
                 continue
-            not_enforced.append(
-                f"{cls.__name__}.{field_name}: Literal{values} accepted "
-                f"unrelated string {bad_value!r}"
-            )
+            not_enforced.append(f"{cls.__name__}.{field_name}: Literal{values} accepted unrelated string {bad_value!r}")
 
     assert audited > 0, "no Literal-typed fields found"
     if not_enforced:
-        pytest.fail(
-            f"{len(not_enforced)} Literal-typed field(s) accept values "
-            f"outside the declared set:\n  " + "\n  ".join(not_enforced)
-        )
+        pytest.fail(f"{len(not_enforced)} Literal-typed field(s) accept values outside the declared set:\n  " + "\n  ".join(not_enforced))

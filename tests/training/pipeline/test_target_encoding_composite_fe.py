@@ -7,6 +7,7 @@ encoding; val/test/predict rows use ONLY the train-fitted lookup, with a global-
 unseen entities) plus a biz_value test proving the wired encoding recovers per-entity target signal
 a raw-categorical baseline can't.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,8 +35,18 @@ def _entity_target_frame(n=400, n_entities=30, seed=0):
 def test_apply_target_encoding_composite_fe_noop_when_columns_unset():
     df, group_ids, ts, y, _ = _entity_target_frame()
     cfg = PreprocessingExtensionsConfig()
-    train, val, test = apply_target_encoding_composite_fe(
-        df.iloc[:300], df.iloc[300:], None, cfg, group_ids, ts, y[:300], np.arange(300), np.arange(300, 400), None, verbose=0,
+    train, _val, _test = apply_target_encoding_composite_fe(
+        df.iloc[:300],
+        df.iloc[300:],
+        None,
+        cfg,
+        group_ids,
+        ts,
+        y[:300],
+        np.arange(300),
+        np.arange(300, 400),
+        None,
+        verbose=0,
     )
     assert list(train.columns) == list(df.columns)
 
@@ -55,8 +66,18 @@ def test_apply_target_encoding_composite_fe_builds_entity_lookup():
     cfg = PreprocessingExtensionsConfig(two_step_target_encode_columns=["cat_col"], two_step_target_encode_decay_half_life=20.0)
     metadata: dict = {}
     train, val, test = apply_target_encoding_composite_fe(
-        df.iloc[train_idx].reset_index(drop=True), df.iloc[val_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True),
-        cfg, group_ids, ts, y[train_idx], train_idx, val_idx, test_idx, metadata=metadata, verbose=0,
+        df.iloc[train_idx].reset_index(drop=True),
+        df.iloc[val_idx].reset_index(drop=True),
+        df.iloc[test_idx].reset_index(drop=True),
+        cfg,
+        group_ids,
+        ts,
+        y[train_idx],
+        train_idx,
+        val_idx,
+        test_idx,
+        metadata=metadata,
+        verbose=0,
     )
     out_col = "cat_col__two_step_target_encode"
     assert out_col in train.columns and out_col in val.columns and out_col in test.columns
@@ -81,7 +102,18 @@ def test_replay_target_encoding_composite_fe_uses_train_only_lookup_no_target_ne
     cfg = PreprocessingExtensionsConfig(two_step_target_encode_columns=["cat_col"])
     metadata: dict = {}
     apply_target_encoding_composite_fe(
-        df.iloc[train_idx].reset_index(drop=True), None, None, cfg, group_ids, ts, y[train_idx], train_idx, None, None, metadata=metadata, verbose=0,
+        df.iloc[train_idx].reset_index(drop=True),
+        None,
+        None,
+        cfg,
+        group_ids,
+        ts,
+        y[train_idx],
+        train_idx,
+        None,
+        None,
+        metadata=metadata,
+        verbose=0,
     )
     fresh_idx = np.arange(300, 320)  # entities seen in train (group_ids range 0-29, all present in 300 train rows w/ 30 entities)
     fresh = df.iloc[fresh_idx][["cat_col"]].reset_index(drop=True)
@@ -133,8 +165,18 @@ def test_biz_val_target_encoding_composite_wiring_recovers_entity_signal():
     cfg = PreprocessingExtensionsConfig(two_step_target_encode_columns=["cat_col"], two_step_target_encode_decay_half_life=1000.0)
     metadata: dict = {}
     train_out, _, test_out = apply_target_encoding_composite_fe(
-        df.iloc[train_idx].reset_index(drop=True), None, df.iloc[test_idx].reset_index(drop=True),
-        cfg, group_ids, ts, y[train_idx], train_idx, None, test_idx, metadata=metadata, verbose=0,
+        df.iloc[train_idx].reset_index(drop=True),
+        None,
+        df.iloc[test_idx].reset_index(drop=True),
+        cfg,
+        group_ids,
+        ts,
+        y[train_idx],
+        train_idx,
+        None,
+        test_idx,
+        metadata=metadata,
+        verbose=0,
     )
 
     enc = OneHotEncoder(handle_unknown="ignore")

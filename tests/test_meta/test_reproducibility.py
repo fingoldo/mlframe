@@ -64,8 +64,7 @@ def test_linear_regression_is_bit_reproducible(model_type, regression_data):
     from mlframe.training.models import create_linear_model
 
     X, y = regression_data
-    cfg = LinearModelConfig(model_type=model_type, alpha=1.0,
-                            random_state=42, max_iter=2000)
+    cfg = LinearModelConfig(model_type=model_type, alpha=1.0, random_state=42, max_iter=2000)
 
     m1 = create_linear_model(model_type, cfg, use_regression=True)
     m1.fit(X, y)
@@ -75,10 +74,7 @@ def test_linear_regression_is_bit_reproducible(model_type, regression_data):
     m2.fit(X, y)
     p2 = m2.predict(X)
 
-    np.testing.assert_array_equal(p1, p2, err_msg=(
-        f"{model_type} predictions differ between two fits with "
-        f"identical seed — non-deterministic state pollution"
-    ))
+    np.testing.assert_array_equal(p1, p2, err_msg=(f"{model_type} predictions differ between two fits with identical seed — non-deterministic state pollution"))
 
 
 # ---------------------------------------------------------------------------
@@ -95,8 +91,7 @@ def test_sgd_classification_is_bit_reproducible(binary_data):
 
     X, y = binary_data
     # SGD is for classification on binary data here.
-    cfg = LinearModelConfig(model_type="sgd", random_state=42,
-                            max_iter=200, loss="log_loss")
+    cfg = LinearModelConfig(model_type="sgd", random_state=42, max_iter=200, loss="log_loss")
 
     m1 = create_linear_model("sgd", cfg, use_regression=False)
     m1.fit(X, y)
@@ -106,10 +101,7 @@ def test_sgd_classification_is_bit_reproducible(binary_data):
     m2.fit(X, y)
     p2 = m2.predict(X)
 
-    np.testing.assert_array_equal(p1, p2, err_msg=(
-        "SGDClassifier predictions differ between two fits with "
-        "identical random_state — seed plumbing broken"
-    ))
+    np.testing.assert_array_equal(p1, p2, err_msg=("SGDClassifier predictions differ between two fits with identical random_state — seed plumbing broken"))
 
 
 # ---------------------------------------------------------------------------
@@ -128,10 +120,14 @@ def test_predict_from_probs_is_pure(regression_data):
     rng = np.random.default_rng(42)
     probs = rng.random((50, 4))
     out_a = _predict_from_probs(
-        probs.copy(), TargetTypes.MULTILABEL_CLASSIFICATION, threshold=0.5,
+        probs.copy(),
+        TargetTypes.MULTILABEL_CLASSIFICATION,
+        threshold=0.5,
     )
     out_b = _predict_from_probs(
-        probs.copy(), TargetTypes.MULTILABEL_CLASSIFICATION, threshold=0.5,
+        probs.copy(),
+        TargetTypes.MULTILABEL_CLASSIFICATION,
+        threshold=0.5,
     )
     np.testing.assert_array_equal(out_a, out_b)
 
@@ -152,8 +148,7 @@ def test_apply_preprocessing_extensions_is_reproducible():
     from mlframe.training.pipeline import apply_preprocessing_extensions
 
     rng = np.random.default_rng(42)
-    df = pd.DataFrame(rng.random((100, 6)),
-                      columns=[f"f{i}" for i in range(6)])
+    df = pd.DataFrame(rng.random((100, 6)), columns=[f"f{i}" for i in range(6)])
     cfg = PreprocessingExtensionsConfig(
         scaler="StandardScaler",
         polynomial_degree=2,

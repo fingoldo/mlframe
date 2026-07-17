@@ -7,6 +7,7 @@ early_stopping is stripped, and a UniversalCallback is registered with ``slice_k
 assert the callback's per-iteration shard history is populated and the aggregator drove the
 best_iter selection.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -17,12 +18,14 @@ import pytest
 def _make_tiny_data(n_train=400, n_val=200, n_test=200, d=5, seed=42):
     """Heteroscedastic regression so slice-stable has signal to chew on."""
     rng = np.random.default_rng(seed)
+
     def gen(n):
         X = rng.uniform(0, 1, (n, d))
         sigma = 0.05 + 1.5 * np.mean((X - 0.5) ** 2, axis=1)
         y_true = np.sum(np.sin(2 * np.pi * X), axis=1)
         y = y_true + rng.normal(0, sigma)
         return pd.DataFrame(X, columns=[f"f{i}" for i in range(d)]), y
+
     return gen(n_train), gen(n_val), gen(n_test)
 
 
@@ -40,13 +43,18 @@ def test_lgb_with_slice_callback_records_shard_history() -> None:
 
     fit_params: dict = {}
     cb = LightGBMCallback(
-        patience=10, min_delta=0.0,
-        monitor_dataset="valid_0", monitor_metric="l2", mode="min",
-        slice_k=4, slice_aggregate_mode="mean", slice_persist_history=True, verbose=0,
+        patience=10,
+        min_delta=0.0,
+        monitor_dataset="valid_0",
+        monitor_metric="l2",
+        mode="min",
+        slice_k=4,
+        slice_aggregate_mode="mean",
+        slice_persist_history=True,
+        verbose=0,
     )
     fit_params["callbacks"] = [cb]
-    _setup_eval_set("LGBMRegressor", fit_params, X_val, y_val,
-                    model_category="lgb", extra_eval_sets=shards)
+    _setup_eval_set("LGBMRegressor", fit_params, X_val, y_val, model_category="lgb", extra_eval_sets=shards)
     # The eval_set must be a list of K+1 tuples
     assert isinstance(fit_params["eval_set"], list)
     assert len(fit_params["eval_set"]) == 5
@@ -72,9 +80,13 @@ def test_lgb_slice_off_bit_identical_to_baseline() -> None:
 
     fit_params: dict = {}
     cb = LightGBMCallback(
-        patience=10, min_delta=0.0,
-        monitor_dataset="valid_0", monitor_metric="l2", mode="min",
-        slice_k=0, verbose=0,
+        patience=10,
+        min_delta=0.0,
+        monitor_dataset="valid_0",
+        monitor_metric="l2",
+        mode="min",
+        slice_k=0,
+        verbose=0,
     )
     fit_params["callbacks"] = [cb]
     _setup_eval_set("LGBMRegressor", fit_params, X_val, y_val, model_category="lgb")

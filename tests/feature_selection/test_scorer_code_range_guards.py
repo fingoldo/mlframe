@@ -2,6 +2,7 @@
 the input codes (no bounds check), so a -1 NaN-sentinel wrapped to the last bin and an over-range code wrote out
 of bounds -- silent histogram corruption. PID already guards this class; the three siblings now do too.
 """
+
 import numpy as np
 import pytest
 

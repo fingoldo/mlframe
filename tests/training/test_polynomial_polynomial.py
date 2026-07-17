@@ -8,7 +8,6 @@ disposition 2026-05-16) was "auto-tune, not ValueError".
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.feature_handling.polynomial import (
     PolynomialFeatureExpander,
@@ -52,9 +51,7 @@ def test_tier1_flip_interaction_only_when_full_exceeds_cap(caplog):
     cap = 215
     full_projected = _projected_output_cols(n_features, 2, False)
     inter_projected = _projected_output_cols(n_features, 2, True)
-    assert full_projected > cap > inter_projected, (
-        f"sanity: full={full_projected}, inter={inter_projected}, cap={cap}"
-    )
+    assert full_projected > cap > inter_projected, f"sanity: full={full_projected}, inter={inter_projected}, cap={cap}"
 
     exp = PolynomialFeatureExpander(degree=2, interaction_only=False, max_features_out=cap)
     with caplog.at_level("WARNING"):

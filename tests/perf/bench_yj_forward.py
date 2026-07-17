@@ -9,6 +9,7 @@ Variants benchmarked:
 - ``where``: compute both branches over the full array + ``np.where``.
 - ``numba_par``: numba @njit(parallel=True) per-element scalar branches.
 """
+
 from __future__ import annotations
 
 import time
@@ -129,10 +130,7 @@ def main() -> None:
         wh = _bench(_yj_forward_where)
         nb_s = _bench(_yj_forward_numba_serial)
         nb_p = _bench(_yj_forward_numba_par)
-        print(
-            f"{n:>10,}  {cur:>10.1f}  {wh:>10.1f}  {nb_s:>12.1f}  {nb_p:>12.1f}"
-            f"   (par speedup vs cur = {cur/nb_p:.2f}x)"
-        )
+        print(f"{n:>10,}  {cur:>10.1f}  {wh:>10.1f}  {nb_s:>12.1f}  {nb_p:>12.1f}   (par speedup vs cur = {cur / nb_p:.2f}x)")
 
 
 if __name__ == "__main__":

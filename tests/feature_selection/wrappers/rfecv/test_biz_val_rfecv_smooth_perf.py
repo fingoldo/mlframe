@@ -11,6 +11,7 @@ Two locked facts (measured by ``_benchmarks/fs_hybrid/round5_smooth_perf_bench.p
 
 Exercises the REAL ``select_optimal_nfeatures_`` kernel (bound onto RFECV) via a minimal carrier of the attrs it reads.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,28 +39,25 @@ class _Mock:
 def _peak_curve():
     nf = np.array(NGRID, dtype=float)
     x = nf / nf.max()
-    return nf, 0.5 + 0.30 * np.exp(-((x - 0.4) ** 2) / (2 * 0.12 ** 2))
+    return nf, 0.5 + 0.30 * np.exp(-((x - 0.4) ** 2) / (2 * 0.12**2))
 
 
 def _pick(rule, smooth_perf, obs, std):
     m = _Mock(smooth_perf, rule)
-    select_optimal_nfeatures_(m, np.array(NGRID, dtype=float), obs.copy(), std.copy(),
-                              smooth_perf=smooth_perf, verbose=False, show_plot=False)
+    select_optimal_nfeatures_(m, np.array(NGRID, dtype=float), obs.copy(), std.copy(), smooth_perf=smooth_perf, verbose=False, show_plot=False)
     return int(m.n_features_)
 
 
 def test_smooth_perf_inert_under_auto_default_rule():
     """Production default rule auto(->one_se_max): smooth_perf must NOT change the selected N. Guards the default 0."""
-    nf, t = _peak_curve()
+    _nf, t = _peak_curve()
     std = np.full_like(t, 0.06)
     for sd in range(25):
         rng = np.random.default_rng(sd)
         obs = t + rng.normal(0.0, 0.06, size=t.shape)
         base = _pick("auto", 0, obs, std)
         for sp in (1, 3, 5):
-            assert _pick("auto", sp, obs, std) == base, (
-                f"smooth_perf={sp} altered the auto-rule pick (seed {sd}): one_se_max band must read raw cv_mean_perf"
-            )
+            assert _pick("auto", sp, obs, std) == base, f"smooth_perf={sp} altered the auto-rule pick (seed {sd}): one_se_max band must read raw cv_mean_perf"
 
 
 def test_smooth_perf_denoises_argmax_pick():
@@ -68,7 +66,7 @@ def test_smooth_perf_denoises_argmax_pick():
     Measured (40 seeds, noise 0.05): sp=0 0.7831 -> sp=3 0.7919 on the peak curve. Floor the delta at +0.004 (well below
     the ~0.009 measured margin) so a real regression in the smoothing path trips while seed noise does not.
     """
-    nf, t = _peak_curve()
+    _nf, t = _peak_curve()
     std = np.full_like(t, 0.05)
     true_sp0, true_sp3 = [], []
     for sd in range(40):

@@ -5,6 +5,7 @@ devices and CP-SAT is never worse than greedy. CUDA-gated: the multi-GPU executo
 MI table as the single-GPU path regardless of how columns are spread across devices (per-column MI is
 assignment-invariant) -- validated by injecting two distinct device profiles onto the one physical GPU.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -12,7 +13,9 @@ import pytest
 
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import DeviceProfile
 from mlframe.feature_selection.filters._fe_gpu_batch._packer import (
-    _cpsat_pack, _greedy_lpt, pack_blocks_to_devices,
+    _cpsat_pack,
+    _greedy_lpt,
+    pack_blocks_to_devices,
 )
 
 
@@ -65,6 +68,7 @@ def test_device_profile_speed_is_proportional():
 def _need_cuda() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         return False
@@ -72,8 +76,9 @@ def _need_cuda() -> bool:
 
 def _fixture(seed=9, n=4000, k=50, nbins=10):
     rng = np.random.default_rng(seed)
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n)
-    cols = [a ** 2 / b, np.log(a) * b]
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    cols = [a**2 / b, np.log(a) * b]
     while len(cols) < k:
         cols.append(rng.uniform(0, 1, n))
     X = np.column_stack([np.nan_to_num(c.astype(np.float64)) for c in cols])
@@ -88,11 +93,12 @@ def test_multi_gpu_matches_single_gpu():
     pack + per-device-thread + reassemble must reproduce the single-GPU MI table exactly."""
     import cupy as cp
     from mlframe.feature_selection.filters._fe_gpu_batch._executor import (
-        gpu_fe_batch_mi, multi_gpu_fe_batch_mi,
+        gpu_fe_batch_mi,
+        multi_gpu_fe_batch_mi,
     )
 
     X, y, nb = _fixture()
-    base = dict(device=0, free_vram=2 ** 31, total_vram=2 ** 32, shared_per_block=49152, cc_major=6, cc_minor=1)
+    base = dict(device=0, free_vram=2**31, total_vram=2**32, shared_per_block=49152, cc_major=6, cc_minor=1)
     profs = [
         DeviceProfile(sm_count=6, clock_khz=1_000_000, **base),
         DeviceProfile(sm_count=12, clock_khz=1_400_000, **base),  # "faster" -> gets more columns
@@ -100,9 +106,7 @@ def test_multi_gpu_matches_single_gpu():
     single = gpu_fe_batch_mi(X, y, nb)
     multi = multi_gpu_fe_batch_mi(X, y, nb, profiles=profs)
     cp.get_default_memory_pool().free_all_blocks()
-    assert np.allclose(single, multi, atol=1e-9, rtol=0), (
-        f"multi-GPU MI table diverged from single-GPU: max|d|={np.max(np.abs(single - multi)):.3e}"
-    )
+    assert np.allclose(single, multi, atol=1e-9, rtol=0), f"multi-GPU MI table diverged from single-GPU: max|d|={np.max(np.abs(single - multi)):.3e}"
 
 
 @pytest.mark.gpu
@@ -110,11 +114,11 @@ def test_multi_gpu_matches_single_gpu():
 def test_multi_gpu_collapses_to_single_profile():
     import cupy as cp
     from mlframe.feature_selection.filters._fe_gpu_batch._executor import (
-        gpu_fe_batch_mi, multi_gpu_fe_batch_mi,
+        gpu_fe_batch_mi,
+        multi_gpu_fe_batch_mi,
     )
 
     X, y, nb = _fixture()
-    one = [DeviceProfile(device=0, free_vram=2 ** 31, total_vram=2 ** 32, sm_count=6,
-                         clock_khz=1_000_000, shared_per_block=49152, cc_major=6, cc_minor=1)]
+    one = [DeviceProfile(device=0, free_vram=2**31, total_vram=2**32, sm_count=6, clock_khz=1_000_000, shared_per_block=49152, cc_major=6, cc_minor=1)]
     assert np.array_equal(multi_gpu_fe_batch_mi(X, y, nb, profiles=one), gpu_fe_batch_mi(X, y, nb))
     cp.get_default_memory_pool().free_all_blocks()

@@ -16,6 +16,7 @@ Pre-fix: ``set(preds) == {0, 1}`` -> assertion fails.
 Post-fix (``return self.classes_[np.argmax(proba, axis=1)]``): ``set(preds)
 == {10, 20}`` -> assertion passes.
 """
+
 from __future__ import annotations
 
 import sys
@@ -35,7 +36,6 @@ from mlframe.training.neural import (
     MLPTorchModel,
     PytorchLightningClassifier,
     TorchDataModule,
-    generate_mlp,
 )
 
 
@@ -55,7 +55,11 @@ def binary_data_nondense_labels():
     # Map {0, 1} -> {10, 20}: argmax(softmax) can only emit 0/1, never 10/20.
     y = np.where(y01 == 0, 10, 20).astype(np.int64)
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=42, stratify=y,
+        X,
+        y,
+        test_size=0.3,
+        random_state=42,
+        stratify=y,
     )
     return {
         "X_train": X_train.astype(np.float32),
@@ -106,7 +110,8 @@ def tiny_classifier_params():
 
 
 def test_predict_returns_class_labels_not_argmax_indices(
-    binary_data_nondense_labels, tiny_classifier_params,
+    binary_data_nondense_labels,
+    tiny_classifier_params,
 ):
     """F-01 regression: ``predict`` output must be a subset of ``classes_``.
 
@@ -132,7 +137,8 @@ def test_predict_returns_class_labels_not_argmax_indices(
 
 
 def test_predict_consistent_with_predict_proba_argmax(
-    binary_data_nondense_labels, tiny_classifier_params,
+    binary_data_nondense_labels,
+    tiny_classifier_params,
 ):
     """``predict`` and ``classes_[predict_proba.argmax]`` must agree
     sample-by-sample. Holds independently of model quality (works even on a
@@ -150,7 +156,8 @@ def test_predict_consistent_with_predict_proba_argmax(
 
 
 def test_accuracy_score_against_predict_matches_manual_remap(
-    binary_data_nondense_labels, tiny_classifier_params,
+    binary_data_nondense_labels,
+    tiny_classifier_params,
 ):
     """``sklearn.metrics.accuracy_score(y_test, clf.predict(X_test))``
     must equal the same metric computed on the manually re-mapped argmax.
@@ -184,8 +191,12 @@ def test_accuracy_score_against_predict_matches_manual_remap(
 def _build_binary(y0_label, y1_label, dtype=None, n=120):
     """Build binary classification data with custom label values."""
     X, y01 = make_classification(
-        n_samples=n, n_features=5, n_informative=4, n_redundant=0,
-        n_classes=2, random_state=7,
+        n_samples=n,
+        n_features=5,
+        n_informative=4,
+        n_redundant=0,
+        n_classes=2,
+        random_state=7,
     )
     y_dtype = dtype if dtype is not None else object
     y = np.empty(y01.shape, dtype=y_dtype)
@@ -239,11 +250,16 @@ def test_fit_and_predict_with_multiclass_non_dense_labels(tiny_classifier_params
     """Multiclass K=3 with labels {100, 200, 300}. Verifies the fix
     generalises past binary -- the same code path handles K classes."""
     X, y012 = make_classification(
-        n_samples=180, n_features=6, n_informative=5, n_redundant=0,
-        n_classes=3, n_clusters_per_class=1, random_state=11,
+        n_samples=180,
+        n_features=6,
+        n_informative=5,
+        n_redundant=0,
+        n_classes=3,
+        n_clusters_per_class=1,
+        random_state=11,
     )
     y = np.where(y012 == 0, 100, np.where(y012 == 1, 200, 300)).astype(np.int64)
-    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=11, stratify=y012)
+    Xtr, Xte, ytr, _yte = train_test_split(X, y, test_size=0.3, random_state=11, stratify=y012)
     clf = PytorchLightningClassifier(**tiny_classifier_params)
     clf.fit(Xtr.astype(np.float32), ytr)
     assert set(clf.classes_.tolist()) == {100, 200, 300}
@@ -259,6 +275,7 @@ def test_fit_with_pandas_series_y_train(tiny_classifier_params):
     """y delivered as pd.Series should produce the same classes_ / predict
     semantics as ndarray-y."""
     import pandas as pd
+
     data = _build_binary(10, 20, dtype=np.int64)
     y_series = pd.Series(data["y_train"], name="target")
     clf = PytorchLightningClassifier(**tiny_classifier_params)
@@ -271,6 +288,7 @@ def test_fit_with_pandas_series_y_train(tiny_classifier_params):
 def test_fit_with_pandas_dataframe_single_col_y_train(tiny_classifier_params):
     """(N, 1) pd.DataFrame y must be ravel'd, not treated as multilabel."""
     import pandas as pd
+
     data = _build_binary(10, 20, dtype=np.int64)
     y_df = pd.DataFrame(data["y_train"], columns=["target"])
     clf = PytorchLightningClassifier(**tiny_classifier_params)
@@ -296,7 +314,11 @@ def test_eval_set_with_nondense_labels_is_encoded(tiny_classifier_params):
     also crashed with ``IndexError: Target N is out of bounds``."""
     data = _build_binary(10, 20, dtype=np.int64)
     X_tr2, X_val, y_tr2, y_val = train_test_split(
-        data["X_train"], data["y_train"], test_size=0.3, random_state=3, stratify=data["y_train"],
+        data["X_train"],
+        data["y_train"],
+        test_size=0.3,
+        random_state=3,
+        stratify=data["y_train"],
     )
     clf = PytorchLightningClassifier(**tiny_classifier_params)
     clf.fit(X_tr2, y_tr2, eval_set=(X_val, y_val))
@@ -346,7 +368,9 @@ _HYP_SETTINGS = settings(
 @given(
     label_pair=st.lists(
         st.integers(min_value=-1000, max_value=1000),
-        min_size=2, max_size=2, unique=True,
+        min_size=2,
+        max_size=2,
+        unique=True,
     ),
 )
 def test_property_binary_int_labels_round_trip(tiny_classifier_params, label_pair):
@@ -358,9 +382,7 @@ def test_property_binary_int_labels_round_trip(tiny_classifier_params, label_pai
     clf.fit(data["X_train"], data["y_train"])
     np.testing.assert_array_equal(clf.classes_, np.sort(np.array([a, b])))
     preds = set(np.asarray(clf.predict(data["X_test"])).tolist())
-    assert preds.issubset({a, b}), (
-        f"preds={sorted(preds)} not subset of {{{a},{b}}}; F-01 regression"
-    )
+    assert preds.issubset({a, b}), f"preds={sorted(preds)} not subset of {{{a},{b}}}; F-01 regression"
 
 
 @_HYP_SETTINGS
@@ -368,9 +390,12 @@ def test_property_binary_int_labels_round_trip(tiny_classifier_params, label_pai
     label_pair=st.lists(
         st.text(
             alphabet=st.characters(whitelist_categories=("Ll", "Lu", "Nd")),
-            min_size=1, max_size=8,
+            min_size=1,
+            max_size=8,
         ),
-        min_size=2, max_size=2, unique=True,
+        min_size=2,
+        max_size=2,
+        unique=True,
     ),
 )
 def test_property_binary_string_labels_round_trip(tiny_classifier_params, label_pair):
@@ -389,7 +414,9 @@ def test_property_binary_string_labels_round_trip(tiny_classifier_params, label_
 @given(
     labels=st.lists(
         st.integers(min_value=-10_000, max_value=10_000),
-        min_size=2, max_size=4, unique=True,
+        min_size=2,
+        max_size=4,
+        unique=True,
     ),
 )
 def test_property_multiclass_int_labels_round_trip(tiny_classifier_params, labels):
@@ -397,12 +424,17 @@ def test_property_multiclass_int_labels_round_trip(tiny_classifier_params, label
     set, classes_ is sorted, predict_proba has K columns."""
     K = len(labels)
     X, y_dense = make_classification(
-        n_samples=60 * K, n_features=6, n_informative=5, n_redundant=0,
-        n_classes=K, n_clusters_per_class=1, random_state=23,
+        n_samples=60 * K,
+        n_features=6,
+        n_informative=5,
+        n_redundant=0,
+        n_classes=K,
+        n_clusters_per_class=1,
+        random_state=23,
     )
     label_arr = np.asarray(labels, dtype=np.int64)
     y = label_arr[y_dense]
-    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=23, stratify=y_dense)
+    Xtr, Xte, ytr, _yte = train_test_split(X, y, test_size=0.3, random_state=23, stratify=y_dense)
     clf = PytorchLightningClassifier(**tiny_classifier_params)
     clf.fit(Xtr.astype(np.float32), ytr)
     np.testing.assert_array_equal(clf.classes_, np.sort(label_arr))
@@ -416,7 +448,9 @@ def test_property_multiclass_int_labels_round_trip(tiny_classifier_params, label
 @given(
     label_pair=st.lists(
         st.integers(min_value=-1000, max_value=1000),
-        min_size=2, max_size=2, unique=True,
+        min_size=2,
+        max_size=2,
+        unique=True,
     ),
 )
 def test_property_predict_consistent_with_proba_argmax(tiny_classifier_params, label_pair):

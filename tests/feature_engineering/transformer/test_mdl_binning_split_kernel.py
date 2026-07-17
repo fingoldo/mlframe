@@ -4,6 +4,7 @@
 loop with the single-pass `_best_mdl_split_kernel` (running prefix class counts). These tests pin (1) the kernel exists and is routed
 through, and (2) the produced edges are bit-identical to the reference O(n^2) double-bincount logic.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -51,7 +52,7 @@ def _mdl_bin_edges_ref(x, y_class, n_classes, max_bins=8, min_size=20):
     if best_idx < 0:
         return edges
     k = n_classes
-    delta = np.log2(3 ** k - 2) - (
+    delta = np.log2(3**k - 2) - (
         k * H_S
         - 2 * _entropy_multi_ref(y_sorted[:best_idx], n_classes) * (best_idx / n)
         - (n - best_idx) / n * 2 * _entropy_multi_ref(y_sorted[best_idx:], n_classes)

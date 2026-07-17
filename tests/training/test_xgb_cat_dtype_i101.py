@@ -24,6 +24,7 @@ cols are cast to pl.Categorical / pd.Categorical respectively before
 the model.predict call. Unknown vocab values map to the polars/pandas
 unknown sentinel which XGB tolerates.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -73,10 +74,12 @@ def _xgb_polars_cat_cast(input_for_model, cat_features):
 
 
 def test_pandas_object_cat_col_is_cast_to_categorical():
-    df = pd.DataFrame({
-        "num0": [1.0, 2.0, 3.0],
-        "cat_low": pd.Series(["A", "B", "A"], dtype=object),
-    })
+    df = pd.DataFrame(
+        {
+            "num0": [1.0, 2.0, 3.0],
+            "cat_low": pd.Series(["A", "B", "A"], dtype=object),
+        }
+    )
     out = _xgb_pandas_cat_cast(df, ["cat_low"])
     assert out["cat_low"].dtype.name == "category"
     assert out["num0"].dtype == np.float64
@@ -97,10 +100,12 @@ def test_pandas_unknown_cat_col_name_is_skipped():
 
 @pytest.mark.skipif(pl is None, reason="polars not installed")
 def test_polars_string_cat_col_is_cast_to_categorical():
-    df = pl.DataFrame({
-        "num0": [1.0, 2.0, 3.0],
-        "cat_low": pl.Series(["A", "B", "A"], dtype=pl.String),
-    })
+    df = pl.DataFrame(
+        {
+            "num0": [1.0, 2.0, 3.0],
+            "cat_low": pl.Series(["A", "B", "A"], dtype=pl.String),
+        }
+    )
     out = _xgb_polars_cat_cast(df, ["cat_low"])
     assert out.schema["cat_low"] == pl.Categorical
     assert out.schema["num0"] == pl.Float64
@@ -108,9 +113,11 @@ def test_polars_string_cat_col_is_cast_to_categorical():
 
 @pytest.mark.skipif(pl is None, reason="polars not installed")
 def test_polars_already_categorical_is_a_noop():
-    df = pl.DataFrame({
-        "cat_low": pl.Series(["A", "B"], dtype=pl.Categorical),
-    })
+    df = pl.DataFrame(
+        {
+            "cat_low": pl.Series(["A", "B"], dtype=pl.Categorical),
+        }
+    )
     out = _xgb_polars_cat_cast(df, ["cat_low"])
     assert out.schema["cat_low"] == pl.Categorical
 
@@ -149,7 +156,5 @@ def test_predict_py_xgb_cat_cast_block_lives_in_predict_module():
     names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
     attrs = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
 
-    assert "XGB cat dtype coercion" in raw_src, (
-        "predict module must keep the 'XGB cat dtype coercion' marker in the cast block"
-    )
+    assert "XGB cat dtype coercion" in raw_src, "predict module must keep the 'XGB cat dtype coercion' marker in the cast block"
     assert any("_xgb" in n for n in names) or any("_is_xgb" in n for n in names) or any("_xgb" in a for a in attrs)

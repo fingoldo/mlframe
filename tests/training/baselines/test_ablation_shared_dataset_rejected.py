@@ -16,6 +16,7 @@ bin once and reuse across fits -- BOTH rejected (see
 These tests pin BOTH non-equivalences so a future "just reuse the binned
 Dataset" optimization cannot silently change the ablation verdict.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -56,8 +57,7 @@ def test_ignore_column_not_bit_identical_to_drop():
     non-equivalence so nobody ships ignore_column as a binning shortcut.
     """
     Xdf, y, cols = _data()
-    base = dict(num_leaves=31, learning_rate=0.05, verbose=-1, seed=42,
-                force_col_wise=True, deterministic=True)
+    base = dict(num_leaves=31, learning_rate=0.05, verbose=-1, seed=42, force_col_wise=True, deterministic=True)
     keep = [c for c in cols if c != cols[0]]
     m = lgb.LGBMClassifier(n_estimators=40, **base)
     m.fit(Xdf[keep], y)
@@ -70,6 +70,5 @@ def test_ignore_column_not_bit_identical_to_drop():
     max_abs_div = float(np.max(np.abs(p_drop - p_ignore)))
     # Selection/score-altering divergence (>> 1e-9 reduction-order noise).
     assert max_abs_div > 1e-2, (
-        "ignore_column unexpectedly matched column-drop; if a LightGBM version "
-        "makes this bit-identical, re-open the amortization lead with a bench."
+        "ignore_column unexpectedly matched column-drop; if a LightGBM version makes this bit-identical, re-open the amortization lead with a bench."
     )

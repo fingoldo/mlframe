@@ -10,6 +10,7 @@ Coverage:
 - Provenance dict carries parent names + op + finite counts + constant flag.
 - Biz_value: on a multiplicative-interaction DGP ``y = b1 * b2 + eps``, the synthetic ``b1__mul__b2`` has STRICTLY higher correlation with y than either parent alone.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -69,7 +70,10 @@ class TestBasic:
         rng = np.random.default_rng(3)
         candidates = {"b1": rng.normal(size=100), "b2": rng.normal(size=100)}
         synthetics, _ = generate_interaction_bases(
-            candidates, ops=("mul",), top_k=2, forbid_self_pairs=False,
+            candidates,
+            ops=("mul",),
+            top_k=2,
+            forbid_self_pairs=False,
         )
         # 2*2 = 4 (a,a), (a,b), (b,a), (b,b).
         assert len(synthetics) == 4
@@ -90,12 +94,12 @@ class TestSafety:
             "b": np.array([0.0, 1e-15, 1.0, 2.0]),  # near-zero first two
         }
         synthetics, provenance = generate_interaction_bases(
-            candidates, ops=("div",), top_k=2,
+            candidates,
+            ops=("div",),
+            top_k=2,
         )
         out = synthetics["a__div__b"]
-        assert np.all(np.isfinite(out)), (
-            f"div synthetic should be finite via eps-floor; got {out}"
-        )
+        assert np.all(np.isfinite(out)), f"div synthetic should be finite via eps-floor; got {out}"
         # Eps floor recorded.
         assert provenance["a__div__b"]["scale_eps_b"] > 0
 
@@ -105,8 +109,10 @@ class TestSafety:
             "a": np.array([1.0, 2.0, 3.0, 4.0]),
             "b": np.array([4.0, 3.0, 2.0, 1.0]),  # a + b == 5 for every row
         }
-        synthetics, provenance = generate_interaction_bases(
-            candidates, ops=("add",), top_k=2,
+        _synthetics, provenance = generate_interaction_bases(
+            candidates,
+            ops=("add",),
+            top_k=2,
         )
         assert provenance["a__add__b"]["constant"] is True
         # And the symmetric one (b + a == 5).
@@ -142,8 +148,7 @@ class TestBizValueMultiplicativeDGP:
         corr_b1 = abs(float(np.corrcoef(b1, y)[0, 1]))
         corr_b2 = abs(float(np.corrcoef(b2, y)[0, 1]))
         assert corr_synth > max(corr_b1, corr_b2), (
-            f"mul-synthetic must correlate more strongly with y than either parent; "
-            f"got synth={corr_synth:.3f}, b1={corr_b1:.3f}, b2={corr_b2:.3f}"
+            f"mul-synthetic must correlate more strongly with y than either parent; got synth={corr_synth:.3f}, b1={corr_b1:.3f}, b2={corr_b2:.3f}"
         )
         # And the corr is high (the DGP IS the synthetic).
         assert corr_synth > 0.95

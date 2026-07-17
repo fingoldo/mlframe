@@ -24,7 +24,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.metrics.ranking import ndcg_at_k
 from mlframe.training import (
     LearningToRankConfig,
     TargetTypes,
@@ -87,10 +86,7 @@ class TestLTREndToEndSuite:
         assert meta["target_type"] == "learning_to_rank"
         for flavor in ["cb", "xgb", "lgb"]:
             ndcg = models[flavor]["test_metrics"]["ndcg@10"]
-            assert ndcg >= 0.75, (
-                f"{flavor} test NDCG@10={ndcg:.4f} below 0.75 baseline; "
-                "ranker is not learning the planted signal — plumbing broken?"
-            )
+            assert ndcg >= 0.75, f"{flavor} test NDCG@10={ndcg:.4f} below 0.75 baseline; ranker is not learning the planted signal — plumbing broken?"
 
     def test_ensemble_not_worse_than_best_individual_minus_2pp(self, synthetic_search_data):
         with warnings.catch_warnings():
@@ -154,6 +150,7 @@ class TestLTREndToEndSuite:
 
         # Manually save+load via joblib (mirrors the save_dir path).
         import joblib
+
         for flavor in ["cb", "xgb", "lgb"]:
             path = os.path.join(save_dir, f"roundtrip_{flavor}.joblib")
             os.makedirs(save_dir, exist_ok=True)
@@ -166,8 +163,7 @@ class TestLTREndToEndSuite:
             )
             preds_orig = models_a[flavor]["model"].predict(X_te)
             preds_loaded = loaded.predict(X_te)
-            np.testing.assert_allclose(preds_orig, preds_loaded, atol=1e-6,
-                err_msg=f"{flavor}: save/load drifted predictions")
+            np.testing.assert_allclose(preds_orig, preds_loaded, atol=1e-6, err_msg=f"{flavor}: save/load drifted predictions")
 
 
 class TestLTRSuiteValidation:
@@ -177,6 +173,7 @@ class TestLTRSuiteValidation:
         class _BadFTE(FeaturesAndTargetsExtractor):
             def __init__(self):
                 super().__init__(group_field=None)  # MISSING
+
             def build_targets(self, df):
                 relevance = df["relevance"]
                 if hasattr(relevance, "to_numpy"):

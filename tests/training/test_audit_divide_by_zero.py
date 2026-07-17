@@ -21,13 +21,13 @@ category, user-supplied zero temperature). Either crashes the njit kernel
     9. feature_selection/filters/batch_pair_mi_gpu.py:365 (sibling host-side inv_n; CUDA kernel inv_n at :194 protected via the host guard)
     10. feature_engineering/transformer/_kernels_njit.py:189 (row_attention softmax_temp inv guard)
 """
+
 from __future__ import annotations
 
 import importlib
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
@@ -53,9 +53,7 @@ def test_numerical_weighted_arithmetic_mean_guards_zero_sum() -> None:
     """The numba kernels for weighted_arithmetic_mean / quadratic / std moved
     into the sibling _numerical_numba.py during the 2026-05-21 monolith
     split (numerical.py re-exports via from ._numerical_numba import ...)."""
-    src = _read("feature_engineering/numerical.py") + "\n" + _read(
-        "feature_engineering/_numerical_numba.py"
-    )
+    src = _read("feature_engineering/numerical.py") + "\n" + _read("feature_engineering/_numerical_numba.py")
     assert "if sum_weights == 0.0:\n            weighted_arithmetic_mean = np.nan" in src
     # Two more sites in the same kernel family (quadratic + std) must also
     # have the guard.
@@ -134,7 +132,6 @@ def test_batch_pair_mi_gpu_host_module_loads() -> None:
     """The host-side guard is asserted source-level above; this confirms the
     module imports cleanly (no syntax regression from the fix edit)."""
     import importlib
-    mod = importlib.import_module(
-        "mlframe.feature_selection.filters.batch_pair_mi_gpu"
-    )
+
+    mod = importlib.import_module("mlframe.feature_selection.filters.batch_pair_mi_gpu")
     assert mod is not None

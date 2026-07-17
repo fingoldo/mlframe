@@ -6,6 +6,7 @@ This sensor:
   1. Asserts the wired default is an ordered encoder (CatBoostEncoder), not the naive ``TargetEncoder``-with-no-CV.
   2. Quantifies the leak: a naive mean encoder's train encoding correlates ~1.0 with y on a one-row-per-category column, whereas the ordered default stays well below a safe threshold.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -5,6 +5,7 @@ STRICT GPU-resident FE is measured selection-equivalent to the CPU path once n i
 the current fit's row count (set via ``set_auto_fit_n``) is at/above ``MLFRAME_FE_GPU_STRICT_AUTO_MIN_N`` AND a CUDA
 device is usable. Small-n and no-GPU stay on the exact CPU path (byte-identical legacy).
 """
+
 import pytest
 
 import mlframe.feature_selection.filters._fe_gpu_strict as S

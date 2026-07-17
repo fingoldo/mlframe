@@ -19,6 +19,7 @@ Scope is deliberately ``np.median`` ONLY: it is the one with direct CI evidence.
 The check is a structural ``ast`` walk over the installed package source, so it
 matches CALLS only -- mentions in docstrings/comments are ignored.
 """
+
 from __future__ import annotations
 
 import ast

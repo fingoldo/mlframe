@@ -5,6 +5,7 @@ The OLD reference recomputes sorted(set(...)) from scratch every fold; the NEW c
 agree exactly (same int64 dtype, same values, same order) across all folds, including the interleaved-group case
 where a group's index list is not a contiguous slice, and including max_train_size slicing.
 """
+
 from __future__ import annotations
 
 import numpy as np

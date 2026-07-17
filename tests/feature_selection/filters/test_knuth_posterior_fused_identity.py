@@ -6,9 +6,9 @@ Pins the perf optimisation in discretization/_benchmarks/bench_knuth_posterior_f
 (6-47x faster) to its bit-identity guarantee, so a future change to the kernel cannot silently
 shift bin counts (and hence MI-plugin selection) downstream.
 """
+
 from __future__ import annotations
 
-import math
 
 import numpy as np
 import pytest

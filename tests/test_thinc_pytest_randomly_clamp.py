@@ -17,12 +17,14 @@ Fix: session-scoped autouse fixture monkey-patches
 calling the original. This file verifies the shim is in place and
 the clamp actually happens.
 """
+
 from __future__ import annotations
 
 import pytest
 
 try:
     import thinc.util as _thinc_util
+
     THINC_INSTALLED = True
 except (ImportError, OSError) as _thinc_import_err:  # pragma: no cover
     # OSError covers thinc transitively importing torch on Windows boxes with broken
@@ -67,11 +69,5 @@ def test_shim_is_wrapper_not_original():
     fn = _thinc_util.fix_random_seed
     # Can either check name differs OR check __closure__ is set
     # (our wrapper has a closure; the original function doesn't).
-    is_wrapped = (
-        fn.__name__ != "fix_random_seed"
-        or (fn.__closure__ is not None and len(fn.__closure__) > 0)
-    )
-    assert is_wrapped, (
-        "thinc.util.fix_random_seed is not the session shim — "
-        "pytest-randomly seed overflow protection regressed"
-    )
+    is_wrapped = fn.__name__ != "fix_random_seed" or (fn.__closure__ is not None and len(fn.__closure__) > 0)
+    assert is_wrapped, "thinc.util.fix_random_seed is not the session shim — pytest-randomly seed overflow protection regressed"

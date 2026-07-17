@@ -20,6 +20,7 @@ These tests cover regression bucket-stratify + binary classification +
 multiclass + back-compat for the legacy paths (groups-only, stratify-
 only, neither).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -72,6 +73,7 @@ def _groups_contained(groups, *index_arrays) -> bool:
 
 def _bucket_fractions(bins: np.ndarray, idx_train, idx_val, idx_test):
     """Per-split per-bucket fraction; used to assert proportions match."""
+
     def _frac(idx):
         if len(idx) == 0:
             return None
@@ -80,12 +82,14 @@ def _bucket_fractions(bins: np.ndarray, idx_train, idx_val, idx_test):
         out = np.zeros(int(bins.max()) + 1, dtype=np.float64)
         out[u] = c / c.sum()
         return out
+
     return _frac(idx_train), _frac(idx_val), _frac(idx_test)
 
 
 # ---------------------------------------------------------------------------
 # Regression bucket-stratify + groups
 # ---------------------------------------------------------------------------
+
 
 class TestRegressionBucketStratifyWithGroups:
     def _make_task(self, n=5000, n_groups=200):
@@ -101,16 +105,17 @@ class TestRegressionBucketStratifyWithGroups:
         return df, y, groups, bins
 
     def test_both_invariants_honoured(self):
-        df, y, groups, bins = self._make_task()
+        df, _y, groups, bins = self._make_task()
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, val_size=0.2, test_size=0.2,
-            groups=groups, stratify_y=bins,
+            df,
+            val_size=0.2,
+            test_size=0.2,
+            groups=groups,
+            stratify_y=bins,
             random_seed=0,
         )
         # 1) Group containment: zero overlap of group ids across splits.
-        assert _groups_contained(groups, train_idx, val_idx, test_idx), (
-            "groups must not cross train/val/test boundaries"
-        )
+        assert _groups_contained(groups, train_idx, val_idx, test_idx), "groups must not cross train/val/test boundaries"
         # 2) Bucket proportions match: max abs diff between any pair of
         # splits' per-bucket fraction must stay small (< 0.05 on n=5000,
         # 10 buckets, 200 groups -- empirical bound, would be ~0.10+ for
@@ -121,17 +126,18 @@ class TestRegressionBucketStratifyWithGroups:
             np.max(np.abs(ft - fte)),
             np.max(np.abs(fv - fte)),
         )
-        assert max_diff < 0.06, (
-            f"per-bucket proportion drift across splits too large: {max_diff:.3f}"
-        )
+        assert max_diff < 0.06, f"per-bucket proportion drift across splits too large: {max_diff:.3f}"
 
     def test_falls_back_when_only_groups(self):
         """No stratify_y -> plain GroupShuffleSplit; just group
         containment, no bucket-proportion guarantee."""
         df, _y, groups, _bins = self._make_task()
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, val_size=0.2, test_size=0.2,
-            groups=groups, stratify_y=None,
+            df,
+            val_size=0.2,
+            test_size=0.2,
+            groups=groups,
+            stratify_y=None,
             random_seed=0,
         )
         assert _groups_contained(groups, train_idx, val_idx, test_idx)
@@ -141,8 +147,11 @@ class TestRegressionBucketStratifyWithGroups:
         bucket proportions, no group containment."""
         df, _y, _groups, bins = self._make_task()
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, val_size=0.2, test_size=0.2,
-            groups=None, stratify_y=bins,
+            df,
+            val_size=0.2,
+            test_size=0.2,
+            groups=None,
+            stratify_y=bins,
             random_seed=0,
         )
         # Bucket proportions should match (existing behaviour).
@@ -159,6 +168,7 @@ class TestRegressionBucketStratifyWithGroups:
 # Binary classification + groups
 # ---------------------------------------------------------------------------
 
+
 class TestBinaryClassificationWithGroups:
     def test_class_balance_preserved_under_group_constraint(self):
         n = 4000
@@ -168,8 +178,11 @@ class TestBinaryClassificationWithGroups:
         # easily land all-positive groups in one split.
         y = ((groups % 5) >= 3).astype(np.int64)
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, val_size=0.2, test_size=0.2,
-            groups=groups, stratify_y=y,
+            df,
+            val_size=0.2,
+            test_size=0.2,
+            groups=groups,
+            stratify_y=y,
             random_seed=0,
         )
         assert _groups_contained(groups, train_idx, val_idx, test_idx)
@@ -187,14 +200,13 @@ class TestBinaryClassificationWithGroups:
         global_rate = y.mean()
         for idx, name in [(train_idx, "train"), (val_idx, "val"), (test_idx, "test")]:
             rate = y[idx].mean()
-            assert abs(rate - global_rate) < 0.10, (
-                f"{name} positive rate {rate:.3f} drifted from global {global_rate:.3f}"
-            )
+            assert abs(rate - global_rate) < 0.10, f"{name} positive rate {rate:.3f} drifted from global {global_rate:.3f}"
 
 
 # ---------------------------------------------------------------------------
 # Multiclass + groups
 # ---------------------------------------------------------------------------
+
 
 class TestMulticlassWithGroups:
     def test_per_class_proportions_preserved(self):
@@ -203,17 +215,22 @@ class TestMulticlassWithGroups:
         groups = _RNG.integers(0, 150, size=n)
         y = (groups % 4).astype(np.int64)  # 4-class, correlated with group
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, val_size=0.2, test_size=0.2,
-            groups=groups, stratify_y=y,
+            df,
+            val_size=0.2,
+            test_size=0.2,
+            groups=groups,
+            stratify_y=y,
             random_seed=0,
         )
         assert _groups_contained(groups, train_idx, val_idx, test_idx)
+
         # Compare per-class fractions across splits.
         def _class_fractions(idx):
             out = np.zeros(4)
             u, c = np.unique(y[idx], return_counts=True)
             out[u] = c / c.sum()
             return out
+
         ft = _class_fractions(train_idx)
         fv = _class_fractions(val_idx)
         fte = _class_fractions(test_idx)
@@ -236,13 +253,17 @@ class TestMulticlassWithGroups:
 # Back-compat: legacy code that DIDN'T pass stratify_y still works
 # ---------------------------------------------------------------------------
 
+
 class TestBackCompat:
     def test_no_stratify_no_groups(self):
         """Plain shuffled split still works."""
         df = _fake_df(500)
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, val_size=0.2, test_size=0.2,
-            groups=None, stratify_y=None,
+            df,
+            val_size=0.2,
+            test_size=0.2,
+            groups=None,
+            stratify_y=None,
             random_seed=0,
         )
         assert len(train_idx) > 0

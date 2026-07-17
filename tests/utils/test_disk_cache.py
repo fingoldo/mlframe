@@ -1,8 +1,8 @@
 """Unit tests for the shared content-addressable disk cache."""
+
 from __future__ import annotations
 
 import os
-import pickle
 import threading
 from pathlib import Path
 

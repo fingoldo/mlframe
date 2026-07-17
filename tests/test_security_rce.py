@@ -3,7 +3,6 @@
 import io
 import os
 import pickle
-import tempfile
 
 import pytest
 
@@ -36,7 +35,7 @@ def test_torch_load_rejects_malicious_pickle(tmp_path):
 # ---------------------------------------------------------------------------
 def test_safe_unpickler_rejects_os_system_accepts_numpy_ndarray():
     pytest.importorskip("dill")
-    np = pytest.importorskip("numpy")
+    pytest.importorskip("numpy")
     from mlframe.training.io import _SafeUnpickler
 
     # numpy.ndarray class should be resolvable.
@@ -45,10 +44,12 @@ def test_safe_unpickler_rejects_os_system_accepts_numpy_ndarray():
             # Just reference numpy.core.multiarray.array constructor-like callable.
             # We use np.array via __reduce__ returning (np.asarray, ([1,2,3],))
             import numpy as _np
+
             return (_np.asarray, ([1, 2, 3],))
 
     buf = io.BytesIO()
     import dill
+
     dill.dump(_AllowedRef(), buf)
     buf.seek(0)
     arr = _SafeUnpickler(buf).load()

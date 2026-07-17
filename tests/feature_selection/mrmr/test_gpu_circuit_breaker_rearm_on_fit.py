@@ -10,6 +10,7 @@ The fix re-arms all three breakers at the top of ``MRMR.fit()``, bounding the co
 GPU to one extra failed attempt per fit (the breaker still protects WITHIN a fit from repeated futile
 retries) while letting a transient fault self-heal on the next fit.
 """
+
 from __future__ import annotations
 
 import numpy as np

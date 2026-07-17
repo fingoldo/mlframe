@@ -8,6 +8,7 @@ brier_and_precision model-selection scorer, and the fused report block.
   plausible Brier/log_loss, diverging from the standalone kernels that return NaN. It must now return an all-NaN
   block on invalid scores.
 """
+
 import numpy as np
 
 from mlframe.metrics._core_auc_brier import brier_and_precision_score

@@ -94,11 +94,11 @@ matrix above is the L75 ground truth; a deviation means a regression in
 one of the L21/L65/L66/L67/L71-L74 scorer paths (or in the upstream
 ``generate_univariate_basis_features`` / preprocess code).
 """
+
 from __future__ import annotations
 
 import glob
 import os
-import re
 import warnings
 
 import numpy as np
@@ -130,11 +130,15 @@ def _linear_monotone(seed: int, n: int = 2000):
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
     x3 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2, "x3": x3,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
     y = ((1.2 * x1 + 0.8 * x2 + 0.5 * x3 + 0.3 * rng.standard_normal(n)) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -149,13 +153,16 @@ def _quadratic(seed: int, n: int = 2000):
     rng = np.random.default_rng(int(seed))
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-    })
-    signal = x1 ** 2 + 0.6 * (x2 ** 2)
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+        }
+    )
+    signal = x1**2 + 0.6 * (x2**2)
     thr = float(np.median(signal))
     y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
     return X, pd.Series(y, name="y")
@@ -172,12 +179,15 @@ def _non_monotone_cubic(seed: int, n: int = 400):
     rng = np.random.default_rng(int(seed))
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
-    signal = x1 ** 3 - 2.0 * x1 + 0.3 * (x2 ** 3 - 2.0 * x2)
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
+    signal = x1**3 - 2.0 * x1 + 0.3 * (x2**3 - 2.0 * x2)
     y = ((signal + 0.3 * rng.standard_normal(n)) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -196,11 +206,14 @@ def _heavy_tail(seed: int, n: int = 1500):
     rng = np.random.default_rng(int(seed))
     x1 = rng.pareto(1.5, n) + 1.0
     x2 = rng.pareto(1.5, n) + 1.0
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_0": rng.pareto(1.5, n) + 1.0,
-        "noise_1": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_0": rng.pareto(1.5, n) + 1.0,
+            "noise_1": rng.standard_normal(n),
+        }
+    )
     signal = np.log(x1) + 0.7 * np.log(x2)
     y = ((signal + 0.3 * rng.standard_normal(n)) > 0).astype(int)
     return X, pd.Series(y, name="y")
@@ -224,13 +237,17 @@ def _xor_redundant(seed: int, n: int = 2000):
     x_dup_b = x1 + 0.05 * rng.standard_normal(n)
     x_dup_c = x1 + 0.05 * rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x_dup_a": x_dup_a, "x_dup_b": x_dup_b, "x_dup_c": x_dup_c,
-        "x2": x2,
-        "noise_0": rng.standard_normal(n),
-    })
-    signal = x1 ** 2 + 0.6 * (x2 ** 2)
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x_dup_a": x_dup_a,
+            "x_dup_b": x_dup_b,
+            "x_dup_c": x_dup_c,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+        }
+    )
+    signal = x1**2 + 0.6 * (x2**2)
     thr = float(np.median(signal))
     y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
     return X, pd.Series(y, name="y")
@@ -264,11 +281,14 @@ def _ensure_test_aug(X_tr_aug, X_tr, X_te):
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
     )
+
     added = [c for c in X_tr_aug.columns if c not in X_tr.columns]
     if not added:
         return X_tr_aug, X_te
     eng_te_all = generate_univariate_basis_features(
-        X_te, degrees=(2, 3), basis="hermite",
+        X_te,
+        degrees=(2, 3),
+        basis="hermite",
     )
     have = [c for c in added if c in eng_te_all.columns]
     X_te_aug = pd.concat([X_te, eng_te_all[have]], axis=1) if have else X_te
@@ -280,10 +300,16 @@ def _run_plugin(X_tr, y_tr, X_te):
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         hybrid_orth_mi_fe,
     )
+
     X_aug, _ = hybrid_orth_mi_fe(
-        X_tr, y_tr.to_numpy(),
-        degrees=(2, 3), basis="hermite",
-        top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0, nbins=10,
+        X_tr,
+        y_tr.to_numpy(),
+        degrees=(2, 3),
+        basis="hermite",
+        top_k=3,
+        min_uplift=0.0,
+        min_abs_mi_frac=0.0,
+        nbins=10,
     )
     return _ensure_test_aug(X_aug, X_tr, X_te)
 
@@ -293,11 +319,17 @@ def _run_ksg(X_tr, y_tr, X_te):
     from mlframe.feature_selection.filters._orthogonal_ksg_mi_fe import (
         hybrid_orth_mi_ksg_fe,
     )
+
     X_aug, _ = hybrid_orth_mi_ksg_fe(
-        X_tr, y_tr.to_numpy(),
-        degrees=(2, 3), basis="hermite",
-        top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0,
-        n_neighbors=3, random_state=0,
+        X_tr,
+        y_tr.to_numpy(),
+        degrees=(2, 3),
+        basis="hermite",
+        top_k=3,
+        min_uplift=0.0,
+        min_abs_mi_frac=0.0,
+        n_neighbors=3,
+        random_state=0,
     )
     return _ensure_test_aug(X_aug, X_tr, X_te)
 
@@ -307,10 +339,16 @@ def _run_copula(X_tr, y_tr, X_te):
     from mlframe.feature_selection.filters._orthogonal_copula_mi_fe import (
         hybrid_orth_mi_copula_fe,
     )
+
     X_aug, _ = hybrid_orth_mi_copula_fe(
-        X_tr, y_tr.to_numpy(),
-        degrees=(2, 3), basis="hermite",
-        top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0, n_bins=20,
+        X_tr,
+        y_tr.to_numpy(),
+        degrees=(2, 3),
+        basis="hermite",
+        top_k=3,
+        min_uplift=0.0,
+        min_abs_mi_frac=0.0,
+        n_bins=20,
     )
     return _ensure_test_aug(X_aug, X_tr, X_te)
 
@@ -320,11 +358,17 @@ def _run_dcor(X_tr, y_tr, X_te):
     from mlframe.feature_selection.filters._orthogonal_dcor_fe import (
         hybrid_orth_mi_dcor_fe,
     )
+
     X_aug, _ = hybrid_orth_mi_dcor_fe(
-        X_tr, y_tr.to_numpy(),
-        degrees=(2, 3), basis="hermite",
-        top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0,
-        n_sample=500, random_state=0,
+        X_tr,
+        y_tr.to_numpy(),
+        degrees=(2, 3),
+        basis="hermite",
+        top_k=3,
+        min_uplift=0.0,
+        min_abs_mi_frac=0.0,
+        n_sample=500,
+        random_state=0,
     )
     return _ensure_test_aug(X_aug, X_tr, X_te)
 
@@ -334,11 +378,17 @@ def _run_hsic(X_tr, y_tr, X_te):
     from mlframe.feature_selection.filters._orthogonal_hsic_fe import (
         hybrid_orth_mi_hsic_fe,
     )
+
     X_aug, _ = hybrid_orth_mi_hsic_fe(
-        X_tr, y_tr.to_numpy(),
-        degrees=(2, 3), basis="hermite",
-        top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0,
-        n_sample=500, random_state=0,
+        X_tr,
+        y_tr.to_numpy(),
+        degrees=(2, 3),
+        basis="hermite",
+        top_k=3,
+        min_uplift=0.0,
+        min_abs_mi_frac=0.0,
+        n_sample=500,
+        random_state=0,
     )
     return _ensure_test_aug(X_aug, X_tr, X_te)
 
@@ -348,10 +398,16 @@ def _run_jmim(X_tr, y_tr, X_te):
     from mlframe.feature_selection.filters._orthogonal_jmim_fe import (
         hybrid_orth_mi_jmim_fe,
     )
+
     X_aug, _ = hybrid_orth_mi_jmim_fe(
-        X_tr, y_tr.to_numpy(),
-        degrees=(2, 3), basis="hermite",
-        top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0, n_bins=10,
+        X_tr,
+        y_tr.to_numpy(),
+        degrees=(2, 3),
+        basis="hermite",
+        top_k=3,
+        min_uplift=0.0,
+        min_abs_mi_frac=0.0,
+        n_bins=10,
     )
     return _ensure_test_aug(X_aug, X_tr, X_te)
 
@@ -361,10 +417,16 @@ def _run_tc(X_tr, y_tr, X_te):
     from mlframe.feature_selection.filters._orthogonal_total_correlation_fe import (
         hybrid_orth_mi_tc_fe,
     )
+
     X_aug, _ = hybrid_orth_mi_tc_fe(
-        X_tr, y_tr.to_numpy(),
-        degrees=(2, 3), basis="hermite",
-        top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0, n_bins=10,
+        X_tr,
+        y_tr.to_numpy(),
+        degrees=(2, 3),
+        basis="hermite",
+        top_k=3,
+        min_uplift=0.0,
+        min_abs_mi_frac=0.0,
+        n_bins=10,
     )
     return _ensure_test_aug(X_aug, X_tr, X_te)
 
@@ -374,10 +436,16 @@ def _run_cmim(X_tr, y_tr, X_te):
     from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
         hybrid_orth_mi_cmim_fe,
     )
+
     X_aug, _ = hybrid_orth_mi_cmim_fe(
-        X_tr, y_tr.to_numpy(),
-        degrees=(2, 3), basis="hermite",
-        top_k=3, min_uplift=0.0, min_abs_mi_frac=0.0, n_bins=10,
+        X_tr,
+        y_tr.to_numpy(),
+        degrees=(2, 3),
+        basis="hermite",
+        top_k=3,
+        min_uplift=0.0,
+        min_abs_mi_frac=0.0,
+        n_bins=10,
     )
     return _ensure_test_aug(X_aug, X_tr, X_te)
 
@@ -401,11 +469,16 @@ def _auc_for(fixture_fn, scorer_fn) -> float:
     for s in SEEDS:
         X, y = fixture_fn(s)
         X_tr, X_te, y_tr, y_te = train_test_split(
-            X, y, test_size=0.3, random_state=s, stratify=y,
+            X,
+            y,
+            test_size=0.3,
+            random_state=s,
+            stratify=y,
         )
         X_tr_aug, X_te_aug = scorer_fn(X_tr, y_tr, X_te)
         lr = LogisticRegression(max_iter=2000, solver="lbfgs").fit(
-            X_tr_aug, y_tr,
+            X_tr_aug,
+            y_tr,
         )
         proba = lr.predict_proba(X_te_aug)[:, 1]
         aucs.append(float(roc_auc_score(y_te, proba)))
@@ -509,9 +582,7 @@ class TestCmimStrongestOnRedundant:
         tc = row["TC"]
         runner_up = max(jmim, tc)
         assert cmim >= runner_up + 0.10, (
-            f"CMIM ({cmim:.4f}) does not dominate the JMIM/TC pack "
-            f"(runner_up={runner_up:.4f}) by the 0.10 absolute AUC floor "
-            f"on xor_redundant.\nrow={row!r}"
+            f"CMIM ({cmim:.4f}) does not dominate the JMIM/TC pack (runner_up={runner_up:.4f}) by the 0.10 absolute AUC floor on xor_redundant.\nrow={row!r}"
         )
 
 
@@ -602,7 +673,7 @@ class TestRosterAtLeast74:
             glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_*", "test_*.py"))
         )
         assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110); " f"a prior-layer test module was likely dropped or renamed."
+            f"biz_value test-module roster shrank to {module_count} (floor 110); a prior-layer test module was likely dropped or renamed."
         )
         # L75 (this very module) must be discoverable on disk -- pin it by path, immune to renames.
         # All test_layer<N>.py files were renamed to descriptive names, so a layer-number

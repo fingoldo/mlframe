@@ -36,6 +36,7 @@ NEVER xfail. If the composite fit raises, under-fits, or fails to
 populate fe_provenance_ for both raw + engineered, fix prod / the
 fixture -- do not relax the contract.
 """
+
 from __future__ import annotations
 
 import time
@@ -93,12 +94,21 @@ def _kitchen_sink(seed: int = 42, n: int = 2000):
     )
     p = 1.0 / (1.0 + np.exp(-logit))
     y = pd.Series((rng.random(n) < p).astype(int), name="y")
-    X = pd.DataFrame({
-        "x_num1": x_num1, "x_num2": x_num2, "x_quad": x_quad,
-        "x_periodic": x_periodic, "x_threshold": x_threshold,
-        "cat_region": cat_region, "cat_user": cat_user, "price": price,
-        "n0": noise[:, 0], "n1": noise[:, 1], "n2": noise[:, 2],
-    })
+    X = pd.DataFrame(
+        {
+            "x_num1": x_num1,
+            "x_num2": x_num2,
+            "x_quad": x_quad,
+            "x_periodic": x_periodic,
+            "x_threshold": x_threshold,
+            "cat_region": cat_region,
+            "cat_user": cat_user,
+            "price": price,
+            "n0": noise[:, 0],
+            "n1": noise[:, 1],
+            "n2": noise[:, 2],
+        }
+    )
     return X, y
 
 
@@ -160,7 +170,7 @@ class TestLayer55_CumulativeRosterSize:
         # each themed submodule is a relocated prior-layer biz_value test module.
         all_files += sorted(p.name for p in tests_dir.glob("test_biz_value_mrmr_*/test_*.py"))
         prior = [n for n in all_files if n != "test_regression_diff_vs_l52.py"]
-        assert len(prior) >= 54, f"prior biz_value layer test modules on disk = {len(prior)} " f"(< 54). Files seen: {prior!r}"
+        assert len(prior) >= 54, f"prior biz_value layer test modules on disk = {len(prior)} (< 54). Files seen: {prior!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +211,7 @@ class TestLayer55_CompositeAllOnViaPartialFit:
         fit_elapsed = time.perf_counter() - t0
 
         # C2: 60s wall-clock budget on n=2000 composite all-on.
-        assert fit_elapsed <= 60.0, f"composite all-on partial_fit must finish <= 60s; " f"got {fit_elapsed:.2f}s"
+        assert fit_elapsed <= 60.0, f"composite all-on partial_fit must finish <= 60s; got {fit_elapsed:.2f}s"
 
         # C3: L54 fe_provenance_ DataFrame must be populated and carry
         # BOTH raw and engineered rows under the all-on configuration.
@@ -212,9 +222,9 @@ class TestLayer55_CompositeAllOnViaPartialFit:
         )
         prov = m.fe_provenance_
         assert isinstance(prov, pd.DataFrame)
-        assert len(prov) >= 1, f"fe_provenance_ must contain at least one row after composite " f"all-on fit; got {len(prov)}"
+        assert len(prov) >= 1, f"fe_provenance_ must contain at least one row after composite all-on fit; got {len(prov)}"
         origins = set(prov["origin"].astype(str).tolist())
-        assert "raw" in origins, f"Composite all-on fit produced no raw-origin rows in " f"fe_provenance_; origins seen: {origins!r}"
+        assert "raw" in origins, f"Composite all-on fit produced no raw-origin rows in fe_provenance_; origins seen: {origins!r}"
         non_raw = origins - {"raw"}
         assert non_raw, (
             f"Composite all-on fit (every FE switch enabled) produced "
@@ -270,7 +280,7 @@ class TestLayer55_ProvenanceAuditTrail:
         """fe_provenance_ has a row for every recipe the FE stages produced, survivor or not."""
         m, _ = _build_layer55_all_on_fit()
         produced_names = {str(r.name) for r in (getattr(m, "_produced_recipes_", []) or []) if getattr(r, "name", None) is not None}
-        assert produced_names, "kitchen-sink all-on fit produced 0 engineered recipes; the FE " "pipeline regressed (no stage emitted a recipe)."
+        assert produced_names, "kitchen-sink all-on fit produced 0 engineered recipes; the FE pipeline regressed (no stage emitted a recipe)."
         prov_names = set(m.fe_provenance_["feature_name"].astype(str).tolist())
         missing = produced_names - prov_names
         assert not missing, (
@@ -296,14 +306,12 @@ class TestLayer55_ProvenanceAuditTrail:
         prov = m.fe_provenance_
         for name in dropped:
             row = prov[prov["feature_name"].astype(str) == name]
-            assert len(row) == 1, f"screened-out column {name!r} must have exactly one ledger " f"row; got {len(row)}"
+            assert len(row) == 1, f"screened-out column {name!r} must have exactly one ledger row; got {len(row)}"
             assert int(row["support_rank"].iloc[0]) == -1, (
-                f"screened-out column {name!r} must carry support_rank == -1 "
-                f"(it never entered the greedy selection); got "
-                f"{int(row['support_rank'].iloc[0])}"
+                f"screened-out column {name!r} must carry support_rank == -1 (it never entered the greedy selection); got {int(row['support_rank'].iloc[0])}"
             )
             assert str(row["origin"].iloc[0]) not in ("raw", "engineered_unknown"), (
-                f"screened-out column {name!r} must keep its mechanism " f"origin in the ledger; got {row['origin'].iloc[0]!r}"
+                f"screened-out column {name!r} must keep its mechanism origin in the ledger; got {row['origin'].iloc[0]!r}"
             )
 
     def test_survivor_rosters_stay_subset_of_feature_names_out(self):
@@ -313,9 +321,12 @@ class TestLayer55_ProvenanceAuditTrail:
         m, _ = _build_layer55_all_on_fit()
         names_out = set(map(str, m.get_feature_names_out()))
         for attr in (
-            "hybrid_orth_features_", "kfold_te_features_",
-            "count_encoding_features_", "frequency_encoding_features_",
-            "cat_num_interaction_features_", "pairwise_ratio_features_",
+            "hybrid_orth_features_",
+            "kfold_te_features_",
+            "count_encoding_features_",
+            "frequency_encoding_features_",
+            "cat_num_interaction_features_",
+            "pairwise_ratio_features_",
         ):
             roster = getattr(m, attr, None) or []
             leaked = [str(c) for c in roster if str(c) not in names_out]

@@ -28,6 +28,7 @@ silently corrupted class fed into the downstream model.
 Fix: add the ``(running < 0).any()`` check after EVERY chain step's
 ``running = chain_lookups[...]`` assignment, not just after the loop.
 """
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -42,11 +43,15 @@ def test_raise_on_unseen_prefix_at_chain_step_1():
     prefix); transform input that lands on that slot must raise.
     """
     from mlframe.feature_selection.filters.engineered_recipes import (
-        EngineeredRecipe, _apply_factorize_kway,
+        EngineeredRecipe,
+        _apply_factorize_kway,
     )
+
     r = EngineeredRecipe(
-        name="kway_test", kind="factorize",
-        src_names=("a", "b", "c"), factorize_nbins=(2, 2, 2),
+        name="kway_test",
+        kind="factorize",
+        src_names=("a", "b", "c"),
+        factorize_nbins=(2, 2, 2),
         unknown_strategy="raise",
         extra={
             "chain_lookups": [
@@ -66,11 +71,15 @@ def test_clip_and_sentinel_paths_still_work():
     they handle unseen combinations gracefully.
     """
     from mlframe.feature_selection.filters.engineered_recipes import (
-        EngineeredRecipe, _apply_factorize_kway,
+        EngineeredRecipe,
+        _apply_factorize_kway,
     )
+
     base = EngineeredRecipe(
-        name="kway_test", kind="factorize",
-        src_names=("a", "b", "c"), factorize_nbins=(2, 2, 2),
+        name="kway_test",
+        kind="factorize",
+        src_names=("a", "b", "c"),
+        factorize_nbins=(2, 2, 2),
         unknown_strategy="raise",
         extra={
             "chain_lookups": [
@@ -92,18 +101,21 @@ def test_raise_on_unseen_at_chain_step_2():
     class via negative-index semantics.
     """
     from mlframe.feature_selection.filters.engineered_recipes import (
-        EngineeredRecipe, _apply_factorize_kway,
+        EngineeredRecipe,
+        _apply_factorize_kway,
     )
+
     r = EngineeredRecipe(
-        name="kway_test_4way", kind="factorize",
+        name="kway_test_4way",
+        kind="factorize",
         src_names=("a", "b", "c", "d"),
         factorize_nbins=(2, 2, 2, 2),
         unknown_strategy="raise",
         extra={
             "chain_lookups": [
-                np.array([0, 1, 2, 0], dtype=np.int64),       # 2-way: 3 unique
+                np.array([0, 1, 2, 0], dtype=np.int64),  # 2-way: 3 unique
                 np.array([0, 1, -1, 0, 1, 0], dtype=np.int64),  # 3-way w/ unseen at slot 2
-                np.array([0, 1, 0, 1], dtype=np.int64),        # 4-way
+                np.array([0, 1, 0, 1], dtype=np.int64),  # 4-way
             ],
             "chain_nuniqs": [3, 2, 2],
         },

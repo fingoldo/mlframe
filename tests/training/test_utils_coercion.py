@@ -3,6 +3,7 @@
 Replaces three near-identical ``_to_1d_numpy`` definitions previously living in
 ``drift_report.py``, ``baseline_diagnostics.py`` and ``composite_estimator.py``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -11,6 +12,7 @@ import pytest
 
 try:
     import polars as pl
+
     HAS_POLARS = True
 except ImportError:
     HAS_POLARS = False
@@ -88,18 +90,19 @@ class TestBackwardCompatAliases:
         # naming audit flagged the old `_to_1d_numpy` name as misleading -
         # the function preserves shape, doesn't reshape to 1-D).
         from mlframe.training import drift_report
+
         assert drift_report._to_numpy_or_none(None) is None
-        np.testing.assert_array_equal(
-            drift_report._to_numpy_or_none([1, 2, 3]), np.array([1, 2, 3])
-        )
+        np.testing.assert_array_equal(drift_report._to_numpy_or_none([1, 2, 3]), np.array([1, 2, 3]))
 
     def test_baseline_diagnostics_alias_preserved(self):
         from mlframe.training.baselines import diagnostics as baseline_diagnostics
+
         # baseline_diagnostics uses the 1-D variant; reshape applies
         out = baseline_diagnostics._to_1d_numpy(np.arange(4).reshape(2, 2))
         assert out.shape == (4,)
 
     def test_composite_estimator_alias_preserved(self):
         from mlframe.training.composite import estimator as composite_estimator
+
         out = composite_estimator._to_1d_numpy(np.arange(4).reshape(2, 2))
         assert out.shape == (4,)

@@ -8,12 +8,12 @@ process RSS. The new ``fit_cache_max_mb`` knob (default 1024 MB; env override
 Sensor: insert two mock-instances whose ``mi_scores_`` ndarray together exceed a tiny cap;
 assert the LRU pops to enforce the cap. Behaviour-only -- no real MRMR fit needed.
 """
+
 from __future__ import annotations
 
 from collections import OrderedDict
 
 import numpy as np
-import pytest
 
 
 class _FakeMRMR:

@@ -10,6 +10,7 @@ Covers three ergonomic guarantees:
 
 Item numbers refer to the ergonomics task scope.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -36,6 +37,7 @@ def _try_import_suite():
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training import OutputConfig
         from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
+
         return train_mlframe_models_suite, OutputConfig, SimpleFeaturesAndTargetsExtractor
     except (ImportError, AttributeError) as e:  # pragma: no cover
         pytest.skip(f"suite not importable: {e}")
@@ -110,21 +112,12 @@ def test_plain_import_mlframe_does_not_load_training(monkeypatch):
     import subprocess
     import sys
 
-    code = (
-        "import sys, mlframe;"
-        "print('mlframe.training' in sys.modules);"
-        "f = mlframe.train_mlframe_models_suite;"
-        "print('mlframe.training' in sys.modules)"
-    )
+    code = "import sys, mlframe;print('mlframe.training' in sys.modules);f = mlframe.train_mlframe_models_suite;print('mlframe.training' in sys.modules)"
     env = {**__import__("os").environ, "CUDA_VISIBLE_DEVICES": ""}
-    out = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, env=env
-    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
     assert out.returncode == 0, out.stderr
     lines = [l for l in out.stdout.strip().splitlines() if l in ("True", "False")]
-    assert lines[-2:] == ["False", "True"], (
-        f"expected training NOT loaded on bare import, loaded after access; got {lines} / {out.stdout!r}"
-    )
+    assert lines[-2:] == ["False", "True"], f"expected training NOT loaded on bare import, loaded after access; got {lines} / {out.stdout!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -160,9 +153,7 @@ def test_default_extractor_regression_matches_explicit(tmp_path):
         pytest.skip(f"suite call broke: {e}")
 
     # Both paths produce the SAME regression target name (task inferred as regression)
-    assert set(r_default.models) == set(r_explicit.models), (
-        f"default vs explicit model keys differ: {set(r_default.models)} != {set(r_explicit.models)}"
-    )
+    assert set(r_default.models) == set(r_explicit.models), f"default vs explicit model keys differ: {set(r_default.models)} != {set(r_explicit.models)}"
     assert len(r_default.models) >= 1
     assert "target" in r_default.metadata.get("target_types_by_target", {}) or len(r_default.models) >= 1
 
@@ -179,9 +170,7 @@ def test_default_extractor_classification_matches_explicit(tmp_path):
     except (TypeError, ImportError) as e:  # pragma: no cover
         pytest.skip(f"suite call broke: {e}")
 
-    assert set(r_default.models) == set(r_explicit.models), (
-        f"default vs explicit model keys differ: {set(r_default.models)} != {set(r_explicit.models)}"
-    )
+    assert set(r_default.models) == set(r_explicit.models), f"default vs explicit model keys differ: {set(r_default.models)} != {set(r_explicit.models)}"
     assert len(r_default.models) >= 1
 
 

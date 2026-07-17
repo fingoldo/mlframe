@@ -6,6 +6,7 @@ a time so the float32 (n, F) plane is never materialised -- bit-identical codes,
 lower peak RAM. The eager path stays the default for ndarray / small / dedup-on /
 knn inputs.
 """
+
 from __future__ import annotations
 
 import gc
@@ -42,6 +43,7 @@ def _eager_codes(df, cols, rows, nbins):
 # ---------------------------------------------------------------------------
 # Bit-identity
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("nbins", [16, 64, 200])  # 200 crosses the int16->int32 dtype boundary.
 def test_lazy_prebin_bit_identical_to_eager(nbins):
@@ -81,6 +83,7 @@ def test_lazy_prebin_all_nan_column_is_sentinel():
 # biz_value: peak-RAM win (the whole point of the lazy path)
 # ---------------------------------------------------------------------------
 
+
 def test_biz_val_lazy_prebin_peak_ram_below_float_plane():
     """Lazy peak alloc must be well under the eager float plane it avoids.
 
@@ -111,19 +114,16 @@ def test_biz_val_lazy_prebin_peak_ram_below_float_plane():
     assert np.array_equal(eager, lazy)
     float_plane = n * f * 4
     assert lazy_peak <= 0.60 * eager_peak, (
-        f"lazy peak {lazy_peak/1e6:.1f} MB should be <=60% of eager "
-        f"{eager_peak/1e6:.1f} MB (float plane {float_plane/1e6:.1f} MB)"
+        f"lazy peak {lazy_peak / 1e6:.1f} MB should be <=60% of eager {eager_peak / 1e6:.1f} MB (float plane {float_plane / 1e6:.1f} MB)"
     )
     # Lazy must avoid materialising a full float plane's worth of transient.
-    assert lazy_peak < float_plane, (
-        f"lazy peak {lazy_peak/1e6:.1f} MB should be below the avoided "
-        f"float plane {float_plane/1e6:.1f} MB"
-    )
+    assert lazy_peak < float_plane, f"lazy peak {lazy_peak / 1e6:.1f} MB should be below the avoided float plane {float_plane / 1e6:.1f} MB"
 
 
 # ---------------------------------------------------------------------------
 # End-to-end: lazy-gated fit == eager fit (same specs, same report)
 # ---------------------------------------------------------------------------
+
 
 def _fit_frame(n=4000, seed=7):
     rng = np.random.default_rng(seed)
@@ -132,7 +132,7 @@ def _fit_frame(n=4000, seed=7):
     # Target with a learnable linear-residual structure on the base.
     y = (0.8 * base + 0.3 * feats["f0"] + 0.1 * rng.standard_normal(n)).astype(np.float32)
     data = {"y": y, "base": base, **feats}
-    return pl.DataFrame(data), list(feats.keys()) + ["base"]
+    return pl.DataFrame(data), [*list(feats.keys()), "base"]
 
 
 def _run_fit(force_lazy: str, monkeypatch):

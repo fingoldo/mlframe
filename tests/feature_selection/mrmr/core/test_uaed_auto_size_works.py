@@ -23,13 +23,13 @@ features):
   no UAED: support_=[0, 1, 2], mrmr_gains_=[0.69, 0.53, 0.39]
   UAED on: support_=[0, 1] (trimmed at elbow), uaed_elbow_=1
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _clear_elbow_frame(n=500, seed=0):
@@ -55,6 +55,7 @@ def test_mrmr_gains_attribute_populated_after_fit():
     when at least one feature was selected.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     X, y = _clear_elbow_frame()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -70,6 +71,7 @@ def test_mrmr_gains_monotone_non_increasing_in_screen_order():
     rounds (greedy mRMR selects highest-gain candidate each step).
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     X, y = _clear_elbow_frame()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -77,9 +79,7 @@ def test_mrmr_gains_monotone_non_increasing_in_screen_order():
     if sel.mrmr_gains_.size >= 2:
         # Allow tiny ties / noise; assert no large reversal.
         diffs = np.diff(sel.mrmr_gains_)
-        assert (diffs <= 0.05).all(), (
-            f"mrmr_gains_ not weakly non-increasing: {sel.mrmr_gains_}"
-        )
+        assert (diffs <= 0.05).all(), f"mrmr_gains_ not weakly non-increasing: {sel.mrmr_gains_}"
 
 
 def test_uaed_auto_size_trims_at_elbow():
@@ -88,6 +88,7 @@ def test_uaed_auto_size_trims_at_elbow():
     Pre-fix it silently no-op'd.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     X, y = _clear_elbow_frame()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -96,9 +97,7 @@ def test_uaed_auto_size_trims_at_elbow():
     # uaed_elbow_ MUST be set when at least 3 gains were available and
     # the elbow lies strictly inside the trace.
     if sel_off.mrmr_gains_.size >= 3:
-        assert hasattr(sel_on, "uaed_elbow_"), (
-            "uaed_elbow_ was not set despite >=3 gains in trace"
-        )
+        assert hasattr(sel_on, "uaed_elbow_"), "uaed_elbow_ was not set despite >=3 gains in trace"
         # And the trimmed support must be <= default support.
         assert len(sel_on.support_) <= len(sel_off.support_)
 
@@ -108,6 +107,7 @@ def test_uaed_auto_size_disabled_unchanged():
     create uaed_elbow_ and produces the full screen output.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     X, y = _clear_elbow_frame()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

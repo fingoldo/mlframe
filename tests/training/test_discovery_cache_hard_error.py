@@ -21,5 +21,5 @@ def test_one_explicit_cap_constructs_cleanly(tmp_path):
 
 
 def test_explicit_unbounded_construction_allowed(tmp_path):
-    c = DiscoveryCache(str(tmp_path), max_entries=10 ** 9, max_size_mb=None)
-    assert c.max_entries == 10 ** 9
+    c = DiscoveryCache(str(tmp_path), max_entries=10**9, max_size_mb=None)
+    assert c.max_entries == 10**9

@@ -25,11 +25,11 @@ locally re-implementing the exact subset logic from predict.py so
 behavioural divergence is caught without needing the full suite
 plumbing.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _subset_recovery(input_for_model, model):
@@ -39,10 +39,7 @@ def _subset_recovery(input_for_model, model):
     _inner_feat_names = getattr(model, "feature_names_in_", None)
     if _inner_feat_names is None:
         _inner_feat_names = getattr(model, "feature_names_", None)
-    if (
-        _inner_feat_names is not None
-        and hasattr(input_for_model, "columns")
-    ):
+    if _inner_feat_names is not None and hasattr(input_for_model, "columns"):
         try:
             _inner_list = [str(c) for c in _inner_feat_names]
             _have = {str(c) for c in input_for_model.columns}
@@ -57,12 +54,14 @@ def test_subset_recovery_uses_sklearn_feature_names_in_():
     class _Inner:
         feature_names_in_ = np.array(["num0", "num1"], dtype=object)
 
-    df = pd.DataFrame({
-        "num0": [1.0, 2.0],
-        "num1": [3.0, 4.0],
-        "num2": [5.0, 6.0],
-        "num3": [7.0, 8.0],
-    })
+    df = pd.DataFrame(
+        {
+            "num0": [1.0, 2.0],
+            "num1": [3.0, 4.0],
+            "num2": [5.0, 6.0],
+            "num3": [7.0, 8.0],
+        }
+    )
     out = _subset_recovery(df, _Inner())
     assert list(out.columns) == ["num0", "num1"]
     assert out.shape == (2, 2)
@@ -72,9 +71,15 @@ def test_subset_recovery_uses_catboost_feature_names_():
     class _Inner:
         feature_names_ = ["x0", "x1", "x2"]
 
-    df = pd.DataFrame({
-        "x0": [1.0], "x1": [2.0], "x2": [3.0], "x3": [4.0], "x4": [5.0],
-    })
+    df = pd.DataFrame(
+        {
+            "x0": [1.0],
+            "x1": [2.0],
+            "x2": [3.0],
+            "x3": [4.0],
+            "x4": [5.0],
+        }
+    )
     out = _subset_recovery(df, _Inner())
     assert list(out.columns) == ["x0", "x1", "x2"]
 
@@ -84,6 +89,7 @@ def test_subset_recovery_noop_when_some_expected_missing():
     recovery falls back to leaving the input unchanged so the downstream
     call surfaces the underlying ``shape mismatch`` error rather than
     masking with a partial subset."""
+
     class _Inner:
         feature_names_in_ = np.array(["num0", "num1", "vanished"], dtype=object)
 
@@ -120,9 +126,7 @@ def test_recovery_branch_lives_in_predict_py():
     # + siblings so the AST walker can find any of the three target functions.
     _core = Path(_predict_mod.__file__).resolve().parent
     src_combined = "\n".join(
-        (_core / nm).read_text(encoding="utf-8")
-        for nm in ("predict.py", "_predict_main.py", "_predict_pre_pipeline.py")
-        if (_core / nm).exists()
+        (_core / nm).read_text(encoding="utf-8") for nm in ("predict.py", "_predict_main.py", "_predict_pre_pipeline.py") if (_core / nm).exists()
     )
     tree = ast.parse(src_combined)
 
@@ -135,21 +139,14 @@ def test_recovery_branch_lives_in_predict_py():
         "_apply_pre_pipeline_with_passthrough",
         "predict_mlframe_models_suite",
     }
-    targets = [
-        node for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name in target_names
-    ]
+    targets = [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in target_names]
     assert targets, f"none of {target_names} found in predict.py"
 
     attrs: set[str] = set()
     str_consts: set[str] = set()
     for tgt in targets:
         attrs.update(n.attr for n in ast.walk(tgt) if isinstance(n, ast.Attribute))
-        str_consts.update(
-            n.value for n in ast.walk(tgt)
-            if isinstance(n, ast.Constant) and isinstance(n.value, str)
-        )
+        str_consts.update(n.value for n in ast.walk(tgt) if isinstance(n, ast.Constant) and isinstance(n.value, str))
 
     # The recovery refs may surface as direct ``model.feature_names_in_`` dot
     # access (ast.Attribute) OR as ``getattr(model, "feature_names_in_", ...)``
@@ -161,6 +158,5 @@ def test_recovery_branch_lives_in_predict_py():
     assert _has_ref("feature_names_in_"), "predict_from_models must reference feature_names_in_ (sklearn recovery)"
     assert _has_ref("feature_names_"), "predict_from_models must reference feature_names_ (CatBoost recovery)"
     assert any("Skipping pre_pipeline" in s for s in str_consts), (
-        "predict.py must keep the 'Skipping pre_pipeline' log-warn in the recovery "
-        "branch (iter-59 family regression marker)."
+        "predict.py must keep the 'Skipping pre_pipeline' log-warn in the recovery branch (iter-59 family regression marker)."
     )

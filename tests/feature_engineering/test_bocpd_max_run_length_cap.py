@@ -5,6 +5,7 @@ Pins two contracts:
 2. The cap actually bounds the run-length posterior: capped expected/MAP run length never exceeds the cap,
    and a small cap on a long stable stream keeps memory/run-length bounded (where uncapped grows with T).
 """
+
 import numpy as np
 import pytest
 
@@ -23,7 +24,7 @@ def _stream(seed, n):
 def test_high_cap_matches_uncapped_short_stream(seed):
     x = _stream(seed, 120)
     capped = bocpd_features(x, max_run_length=100000)  # >> stream length, never binds
-    uncapped = bocpd_features(x, max_run_length=0)     # cap disabled
+    uncapped = bocpd_features(x, max_run_length=0)  # cap disabled
     for k in ("p_change", "expected_run_length", "max_run_length"):
         np.testing.assert_array_equal(capped[k], uncapped[k], err_msg=f"{k} diverged")
 
@@ -43,6 +44,6 @@ def test_default_cap_matches_uncapped_on_typical_stream():
     # Default cap (1000) must not change results vs uncapped on a realistic-length stream whose
     # run lengths stay well under 1000 (hazard default ~1/250).
     x = _stream(7, 800)
-    default = bocpd_features(x)               # max_run_length=1000 default
+    default = bocpd_features(x)  # max_run_length=1000 default
     uncapped = bocpd_features(x, max_run_length=0)
     np.testing.assert_array_equal(default["p_change"], uncapped["p_change"])

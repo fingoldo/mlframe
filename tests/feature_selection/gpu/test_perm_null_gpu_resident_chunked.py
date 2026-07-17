@@ -9,6 +9,7 @@ chunks; because each perm's CMI is INDEPENDENT of how many perms share a batched
 equal the single-call result column-for-column. This pins that equivalence (incl. the chunk=1 path) so the
 residency win never silently changes a null value.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,6 +24,7 @@ from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu
 def _need_cuda() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         try:
@@ -48,7 +50,7 @@ def test_chunked_equals_single_batched():
     chunked = PNG._batched_cmi_resident_chunked(Xp, y, z)
     assert chunked.shape == (int(Xp.shape[1]),)
     # chunking only splits the batch -> column-for-column identical CMI (fp reduction order identical per column).
-    assert np.allclose(single, chunked, rtol=0, atol=1e-9), (single - chunked)
+    assert np.allclose(single, chunked, rtol=0, atol=1e-9), single - chunked
 
 
 def test_chunk_one_forced_matches(monkeypatch):

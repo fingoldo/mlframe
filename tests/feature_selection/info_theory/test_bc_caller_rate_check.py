@@ -25,6 +25,7 @@ budget-absolute clause stays (handles BC's other early-exit path where
 the CI is decisively below p_low). For non-BC paths the rate form is
 arithmetically equivalent so no behavioural change there.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -47,16 +48,27 @@ def _noise_corridor_data(seed: int = 8, n: int = 600):
 def test_bc_and_outer_agree_on_noise_rejection_with_tight_mnc():
     """Pre-fix: BC accepted, outer rejected. Post-fix: both reject."""
     from mlframe.feature_selection.filters.permutation import mi_direct
+
     factors, nbins = _noise_corridor_data()
     mi_outer, _ = mi_direct(
-        factors, x=(0,), y=(1,), factors_nbins=nbins,
-        npermutations=3000, min_nonzero_confidence=0.99,
-        parallelism="outer", prefer_gpu=False,
+        factors,
+        x=(0,),
+        y=(1,),
+        factors_nbins=nbins,
+        npermutations=3000,
+        min_nonzero_confidence=0.99,
+        parallelism="outer",
+        prefer_gpu=False,
     )
     mi_bc, _ = mi_direct(
-        factors, x=(0,), y=(1,), factors_nbins=nbins,
-        npermutations=3000, min_nonzero_confidence=0.99,
-        parallelism="bc", prefer_gpu=False,
+        factors,
+        x=(0,),
+        y=(1,),
+        factors_nbins=nbins,
+        npermutations=3000,
+        min_nonzero_confidence=0.99,
+        parallelism="bc",
+        prefer_gpu=False,
     )
     # Outer (always full budget) is the ground truth - if it rejects
     # at this mnc, BC must too.
@@ -75,17 +87,22 @@ def test_bc_signal_still_accepts():
     acceptance path).
     """
     from mlframe.feature_selection.filters.permutation import mi_direct
+
     rng = np.random.default_rng(7)
     n = 800
     x = rng.integers(0, 8, n).astype(np.int32)
-    y = np.where(rng.random(n) < 0.55, x % 2,
-                  rng.integers(0, 2, n)).astype(np.int32)
+    y = np.where(rng.random(n) < 0.55, x % 2, rng.integers(0, 2, n)).astype(np.int32)
     factors = np.column_stack([x, y]).astype(np.int32)
     nbins = np.array([8, 2], dtype=np.int32)
     mi_bc, conf_bc = mi_direct(
-        factors, x=(0,), y=(1,), factors_nbins=nbins,
-        npermutations=3000, min_nonzero_confidence=0.99,
-        parallelism="bc", prefer_gpu=False,
+        factors,
+        x=(0,),
+        y=(1,),
+        factors_nbins=nbins,
+        npermutations=3000,
+        min_nonzero_confidence=0.99,
+        parallelism="bc",
+        prefer_gpu=False,
     )
     assert mi_bc > 0.0, "BC must accept clearly-significant signal"
     assert conf_bc >= 0.95
@@ -97,22 +114,30 @@ def test_bc_caller_check_parametric_mnc(mnc):
     range. For each mnc, BC's accept/reject must agree with outer.
     """
     from mlframe.feature_selection.filters.permutation import mi_direct
+
     factors, nbins = _noise_corridor_data(seed=8)
     mi_outer, _ = mi_direct(
-        factors, x=(0,), y=(1,), factors_nbins=nbins,
-        npermutations=3000, min_nonzero_confidence=mnc,
-        parallelism="outer", prefer_gpu=False,
+        factors,
+        x=(0,),
+        y=(1,),
+        factors_nbins=nbins,
+        npermutations=3000,
+        min_nonzero_confidence=mnc,
+        parallelism="outer",
+        prefer_gpu=False,
     )
     mi_bc, _ = mi_direct(
-        factors, x=(0,), y=(1,), factors_nbins=nbins,
-        npermutations=3000, min_nonzero_confidence=mnc,
-        parallelism="bc", prefer_gpu=False,
+        factors,
+        x=(0,),
+        y=(1,),
+        factors_nbins=nbins,
+        npermutations=3000,
+        min_nonzero_confidence=mnc,
+        parallelism="bc",
+        prefer_gpu=False,
     )
     # Either both accept (with possibly slightly different MI values
     # from BC's smaller n_checked sample variance) or both reject.
-    outer_rejected = (mi_outer == 0.0)
-    bc_rejected = (mi_bc == 0.0)
-    assert outer_rejected == bc_rejected, (
-        f"mnc={mnc}: BC and outer must agree on accept/reject. "
-        f"outer_mi={mi_outer}, bc_mi={mi_bc}."
-    )
+    outer_rejected = mi_outer == 0.0
+    bc_rejected = mi_bc == 0.0
+    assert outer_rejected == bc_rejected, f"mnc={mnc}: BC and outer must agree on accept/reject. outer_mi={mi_outer}, bc_mi={mi_bc}."

@@ -13,6 +13,7 @@ These tests FAIL on the pre-fix ``str(label)`` keying (every level collapses to 
 global mean / global alpha-beta) and PASS once the canonical key collapses
 integral-valued int and float labels to the same key.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -28,13 +29,7 @@ from mlframe.training.composite.transforms.nonlinear import _row_alpha_beta
 
 def test_canonical_group_key_collapses_integral_dtypes() -> None:
     """``1``, ``1.0``, np.int64(1), np.float64(1.0) all map to the same key."""
-    assert (
-        _canonical_group_key(1)
-        == _canonical_group_key(1.0)
-        == _canonical_group_key(np.int64(1))
-        == _canonical_group_key(np.float64(1.0))
-        == "1"
-    )
+    assert _canonical_group_key(1) == _canonical_group_key(1.0) == _canonical_group_key(np.int64(1)) == _canonical_group_key(np.float64(1.0)) == "1"
     # Non-integral float keeps full precision; string passes through.
     assert _canonical_group_key(2.5) == repr(2.5)
     assert _canonical_group_key("well_A") == "well_A"
@@ -55,7 +50,10 @@ def test_target_encoding_lookup_robust_to_int_float_dtype_shift() -> None:
     y = cats_int * 10.0 + rng.standard_normal(n)
 
     params = _target_encoding_residual_fit(
-        y, base=np.zeros(n), groups=cats_int, smoothing=2.0,
+        y,
+        base=np.zeros(n),
+        groups=cats_int,
+        smoothing=2.0,
     )
     enc_int = _category_encoding_lookup(cats_int, params)
     enc_float = _category_encoding_lookup(cats_int.astype(np.float64), params)
@@ -83,7 +81,10 @@ def test_grouped_linear_residual_predict_robust_to_int_float_dtype_shift() -> No
     y = slopes[groups_int] * base + groups_int * 4.0 + rng.standard_normal(n) * 0.1
 
     params = _linear_residual_grouped_fit(
-        y, base, groups=groups_int, min_group_size=10,
+        y,
+        base,
+        groups=groups_int,
+        min_group_size=10,
     )
     a_int, b_int = _row_alpha_beta(groups_int, params)
     a_float, b_float = _row_alpha_beta(groups_int.astype(np.float64), params)

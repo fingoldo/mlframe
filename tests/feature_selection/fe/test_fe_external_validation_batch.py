@@ -14,6 +14,7 @@ including on candidate columns carrying NaN/inf (from div-by-zero / log of
 negatives / overflow), which the per-candidate ``discretize_array`` bins via
 NaN-ignoring ``np.nanpercentile`` + ``searchsorted`` exactly as the batch does.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -62,21 +63,20 @@ def _candidate_columns(n, K, seed):
         kind = k % 5
         with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
             if kind == 0:
-                c = a[:, 0] * b                      # mul (clean)
+                c = a[:, 0] * b  # mul (clean)
             elif kind == 1:
-                c = a[:, 0] / b                      # div -> inf where b~0
+                c = a[:, 0] / b  # div -> inf where b~0
             elif kind == 2:
-                c = np.log(b)                        # nan where b<0
+                c = np.log(b)  # nan where b<0
             elif kind == 3:
-                c = np.exp(a[:, 0] * 50.0) * b       # overflow -> inf
+                c = np.exp(a[:, 0] * 50.0) * b  # overflow -> inf
             else:
-                c = a[:, 0] + b                      # add (clean)
+                c = a[:, 0] + b  # add (clean)
         cols.append(np.asarray(c, dtype=np.float64))
     return np.column_stack(cols)
 
 
-def _per_candidate_best(raw_cols, nbins, dtype, classes_y, classes_y_safe, freqs_y,
-                        npermutations, min_nonzero_confidence):
+def _per_candidate_best(raw_cols, nbins, dtype, classes_y, classes_y_safe, freqs_y, npermutations, min_nonzero_confidence):
     """The ORIGINAL per-candidate external-validation reduction."""
     best = -1.0
     K = raw_cols.shape[1]
@@ -99,8 +99,7 @@ def _per_candidate_best(raw_cols, nbins, dtype, classes_y, classes_y_safe, freqs
     return best
 
 
-def _batched_best(raw_cols, nbins, dtype, classes_y, classes_y_safe, freqs_y,
-                  npermutations, min_nonzero_confidence):
+def _batched_best(raw_cols, nbins, dtype, classes_y, classes_y_safe, freqs_y, npermutations, min_nonzero_confidence):
     """The OPTIMIZED batched reduction (matches the in-code path)."""
     disc_2d = discretize_2d_quantile_batch(raw_cols, n_bins=nbins, dtype=dtype)
     mi = _dispatch_batch_mi_with_noise_gate(
@@ -126,18 +125,29 @@ def test_external_validation_batch_bit_identical(n, K, nbins, npermutations, min
     raw_cols = _candidate_columns(n, K, seed=4242 + n + K)
 
     ref = _per_candidate_best(
-        raw_cols, nbins, np.int32, classes_y, classes_y_safe, freqs_y,
-        npermutations, float(min_nonzero_confidence),
+        raw_cols,
+        nbins,
+        np.int32,
+        classes_y,
+        classes_y_safe,
+        freqs_y,
+        npermutations,
+        float(min_nonzero_confidence),
     )
     got = _batched_best(
-        raw_cols, nbins, np.int32, classes_y, classes_y_safe, freqs_y,
-        npermutations, float(min_nonzero_confidence),
+        raw_cols,
+        nbins,
+        np.int32,
+        classes_y,
+        classes_y_safe,
+        freqs_y,
+        npermutations,
+        float(min_nonzero_confidence),
     )
     # EXACT equality -- the external-validation MI feeds the secondary tie-break,
     # so any drift can change which engineered form MRMR keeps.
     assert got == ref, (
-        f"batched best_valid_mi != per-candidate: n={n} K={K} nbins={nbins} "
-        f"nperm={npermutations} mnc={min_nonzero_confidence}: got={got!r} ref={ref!r}"
+        f"batched best_valid_mi != per-candidate: n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}: got={got!r} ref={ref!r}"
     )
 
 
@@ -150,11 +160,13 @@ def test_external_validation_batch_handles_nan_inf_columns():
     classes_y_safe = classes_y.copy()
     rng = np.random.default_rng(3)
     a = rng.standard_normal(n)
-    cols = np.column_stack([
-        a / np.zeros(n),                       # all +-inf
-        np.log(-np.abs(a) - 1.0),              # all nan
-        a * rng.standard_normal(n),            # clean informative-ish
-    ]).astype(np.float64)
+    cols = np.column_stack(
+        [
+            a / np.zeros(n),  # all +-inf
+            np.log(-np.abs(a) - 1.0),  # all nan
+            a * rng.standard_normal(n),  # clean informative-ish
+        ]
+    ).astype(np.float64)
     ref = _per_candidate_best(cols, 10, np.int32, classes_y, classes_y_safe, freqs_y, 3, 0.99)
     got = _batched_best(cols, 10, np.int32, classes_y, classes_y_safe, freqs_y, 3, 0.99)
     assert got == ref, f"nan/inf column mismatch: got={got!r} ref={ref!r}"
@@ -184,11 +196,13 @@ def test_discretize_2d_quantile_batch_matches_per_column(n, K, nbins, buf_dtype)
 def test_discretize_2d_quantile_batch_constant_and_tie_columns():
     """Constant columns (all edges equal) and tie-heavy columns must bin identically."""
     n = 400
-    cols = np.column_stack([
-        np.full(n, 3.0),                                  # constant
-        np.where(np.arange(n) < n // 2, 0.0, 1.0),        # 2-value tie
-        np.r_[np.zeros(n - 5), np.arange(5) + 100.0],     # near-constant + outliers
-    ]).astype(np.float64)
+    cols = np.column_stack(
+        [
+            np.full(n, 3.0),  # constant
+            np.where(np.arange(n) < n // 2, 0.0, 1.0),  # 2-value tie
+            np.r_[np.zeros(n - 5), np.arange(5) + 100.0],  # near-constant + outliers
+        ]
+    ).astype(np.float64)
     got = discretize_2d_quantile_batch(cols, n_bins=10, dtype=np.int32)
     ref = np.empty_like(got)
     for k in range(cols.shape[1]):
@@ -223,12 +237,7 @@ def test_discretize_2d_quantile_batch_no_full_buffer_float64_copy(monkeypatch):
 
     def _spy_ascontiguousarray(a, dtype=None):
         arr = np.asarray(a)
-        if (
-            dtype is not None
-            and np.dtype(dtype) == np.float64
-            and arr.dtype == np.float32
-            and arr.size >= buffer_cells
-        ):
+        if dtype is not None and np.dtype(dtype) == np.float64 and arr.dtype == np.float32 and arr.size >= buffer_cells:
             forbidden["hit"] = True
         return real_ascontig(a, dtype=dtype) if dtype is not None else real_ascontig(a)
 
@@ -309,7 +318,8 @@ def _kths_for(q: np.ndarray, n_rows: int) -> np.ndarray:
         if _l >= n_rows - 1:
             s.add(n_rows - 1)
         else:
-            s.add(int(_l)); s.add(int(_l) + 1)
+            s.add(int(_l))
+            s.add(int(_l) + 1)
     return np.array(sorted(s), dtype=np.int64)
 
 
@@ -324,10 +334,7 @@ def test_quantile_edges_2d_njit_bit_identical_to_numpy(n, K, nbins, dt):
     ref = np.percentile(arr, q, axis=0)
     out = np.empty((q.shape[0], K), dtype=np.float64)
     _quantile_edges_2d_njit(np.ascontiguousarray(arr), q, _kths_for(q, n), out)
-    assert np.array_equal(ref, out), (
-        f"quantile edges != np.percentile: n={n} K={K} nbins={nbins} dtype={dt}; "
-        f"maxabs={np.abs(ref - out).max():.3e}"
-    )
+    assert np.array_equal(ref, out), f"quantile edges != np.percentile: n={n} K={K} nbins={nbins} dtype={dt}; maxabs={np.abs(ref - out).max():.3e}"
 
 
 @pytest.mark.parametrize("dt", [np.float32, np.float64])
@@ -335,15 +342,17 @@ def test_quantile_edges_2d_njit_ties_constant_heavytail(dt):
     """Tie-heavy, constant, and heavy-tailed columns must match np.percentile bit-for-bit."""
     rng = np.random.default_rng(123)
     n = 1000
-    arr = np.column_stack([
-        rng.integers(0, 5, n).astype(dt),                 # tie-heavy
-        np.full(n, 2.5, dtype=dt),                        # constant
-        rng.standard_t(2.0, n).astype(dt),                # heavy tail
-        np.r_[np.zeros(n - 3), [10.0, 20.0, 30.0]].astype(dt),  # near-constant + outliers
-    ])
+    arr = np.column_stack(
+        [
+            rng.integers(0, 5, n).astype(dt),  # tie-heavy
+            np.full(n, 2.5, dtype=dt),  # constant
+            rng.standard_t(2.0, n).astype(dt),  # heavy tail
+            np.r_[np.zeros(n - 3), [10.0, 20.0, 30.0]].astype(dt),  # near-constant + outliers
+        ]
+    )
     for nbins in (4, 10, 16):
         q = np.linspace(0, 100, nbins + 1)
         ref = np.percentile(arr, q, axis=0)
         out = np.empty((q.shape[0], arr.shape[1]), dtype=np.float64)
         _quantile_edges_2d_njit(np.ascontiguousarray(arr), q, _kths_for(q, n), out)
-        assert np.array_equal(ref, out), f"nbins={nbins} dtype={dt} maxabs={np.abs(ref-out).max():.3e}"
+        assert np.array_equal(ref, out), f"nbins={nbins} dtype={dt} maxabs={np.abs(ref - out).max():.3e}"

@@ -28,6 +28,7 @@ NEVER xfail.
 
 Consolidated verbatim from test_biz_value_mrmr_layer67.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -55,6 +56,7 @@ def _import_dcor_fe():
         hybrid_orth_mi_dcor_fe,
         hybrid_orth_mi_dcor_fe_with_recipes,
     )
+
     return (
         distance_correlation,
         score_features_by_dcor_uplift,
@@ -68,6 +70,7 @@ def _import_plug_in_fe():
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
     )
+
     return generate_univariate_basis_features
 
 
@@ -130,18 +133,23 @@ class TestDcorDetectsNonMonotone:
         """dCor clears 0.40 on y=cos(pi*x) while Pearson stays near zero (the Pearson blind spot)."""
         distance_correlation, _, _, _ = _import_dcor_fe()
         x, y = _build_sin_signal(seed, n=500)
-        dcor = float(distance_correlation(
-            x, y, n_sample=500, random_state=seed,
-        ))
+        dcor = float(
+            distance_correlation(
+                x,
+                y,
+                n_sample=500,
+                random_state=seed,
+            )
+        )
         pearson = float(np.corrcoef(x, y)[0, 1])
         # dCor must clear a 0.40 floor on the periodic dependence at n=500
         # (population dCor for y = cos(pi*x) on Uniform(-1, 1) is around
         # 0.5; the small-sample noise band is ~0.05).
-        assert dcor > 0.40, f"seed={seed}: dCor on y = cos(pi*x) = {dcor:.4f}; " f"expected > 0.40 (universal-detection contract)."
+        assert dcor > 0.40, f"seed={seed}: dCor on y = cos(pi*x) = {dcor:.4f}; expected > 0.40 (universal-detection contract)."
         # Pearson is exactly zero in the limit (cos is even on a
         # symmetric uniform support); the small-sample tail at n=500 is
         # comfortably below 0.20.
-        assert abs(pearson) < 0.20, f"seed={seed}: Pearson on y = cos(pi*x) = {pearson:.4f}; " f"expected near zero (Pearson blind spot)."
+        assert abs(pearson) < 0.20, f"seed={seed}: Pearson on y = cos(pi*x) = {pearson:.4f}; expected near zero (Pearson blind spot)."
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_dcor_above_zero_on_quadratic(self, seed):
@@ -151,17 +159,22 @@ class TestDcorDetectsNonMonotone:
         distance_correlation, _, _, _ = _import_dcor_fe()
         rng = np.random.default_rng(int(seed))
         x = rng.standard_normal(500)
-        y = x ** 2 + 0.05 * rng.standard_normal(500)
-        dcor = float(distance_correlation(
-            x, y, n_sample=500, random_state=seed,
-        ))
+        y = x**2 + 0.05 * rng.standard_normal(500)
+        dcor = float(
+            distance_correlation(
+                x,
+                y,
+                n_sample=500,
+                random_state=seed,
+            )
+        )
         pearson = float(np.corrcoef(x, y)[0, 1])
-        assert dcor > 0.40, f"seed={seed}: dCor on y = x^2 = {dcor:.4f}; expected > 0.40 " f"(quadratic dependence at n=500 is unambiguous)."
+        assert dcor > 0.40, f"seed={seed}: dCor on y = x^2 = {dcor:.4f}; expected > 0.40 (quadratic dependence at n=500 is unambiguous)."
         # Standard-normal x gives Pearson(x, x^2) = 0 by symmetry; at
         # n=500 the sample correlation tail can reach +- 0.25 on a
         # heavy-tail-x-cubed-residual seed (the x^3 term inside Cov(x, x^2)
         # = E[x^3] is zero only in the limit).
-        assert abs(pearson) < 0.25, f"seed={seed}: Pearson on y = x^2 = {pearson:.4f}; expected " f"near zero (Pearson blind spot)."
+        assert abs(pearson) < 0.25, f"seed={seed}: Pearson on y = x^2 = {pearson:.4f}; expected near zero (Pearson blind spot)."
 
 
 # ---------------------------------------------------------------------------
@@ -184,11 +197,16 @@ class TestDcorZeroOnIndependence:
         n = 500
         x = rng.standard_normal(n)
         y = rng.standard_normal(n)
-        dcor = float(distance_correlation(
-            x, y, n_sample=500, random_state=seed,
-        ))
+        dcor = float(
+            distance_correlation(
+                x,
+                y,
+                n_sample=500,
+                random_state=seed,
+            )
+        )
         # Independent N(0, 1) at n=500: dCor floor is well under 0.20.
-        assert dcor < 0.20, f"seed={seed}: dCor on independent Gaussian pair = {dcor:.4f}; " f"expected < 0.20 (independence sanity at n=500)."
+        assert dcor < 0.20, f"seed={seed}: dCor on independent Gaussian pair = {dcor:.4f}; expected < 0.20 (independence sanity at n=500)."
 
     def test_dcor_signal_above_noise(self):
         """Aggregate witness: dCor on the sin-signal fixture beats dCor
@@ -198,15 +216,25 @@ class TestDcorZeroOnIndependence:
         signals, noises = [], []
         for s in SEEDS:
             x, y = _build_sin_signal(s, n=500)
-            signals.append(distance_correlation(
-                x, y, n_sample=500, random_state=s,
-            ))
+            signals.append(
+                distance_correlation(
+                    x,
+                    y,
+                    n_sample=500,
+                    random_state=s,
+                )
+            )
             rng = np.random.default_rng(int(s) + 9000)
             xn = rng.standard_normal(500)
             yn = rng.standard_normal(500)
-            noises.append(distance_correlation(
-                xn, yn, n_sample=500, random_state=s,
-            ))
+            noises.append(
+                distance_correlation(
+                    xn,
+                    yn,
+                    n_sample=500,
+                    random_state=s,
+                )
+            )
         signal_mean = float(np.mean(signals))
         noise_mean = float(np.mean(noises))
         assert signal_mean > 3.0 * noise_mean, (
@@ -248,7 +276,7 @@ class TestDcorSymmetric:
                 random_state=seed,
             )
         )
-        assert d_xy == pytest.approx(d_yx, abs=1e-12), f"seed={seed}: dCor not symmetric; dCor(x, y) = {d_xy}, " f"dCor(y, x) = {d_yx}"
+        assert d_xy == pytest.approx(d_yx, abs=1e-12), f"seed={seed}: dCor not symmetric; dCor(x, y) = {d_xy}, dCor(y, x) = {d_yx}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_dcor_symmetric_on_noise(self, seed):
@@ -273,7 +301,7 @@ class TestDcorSymmetric:
                 random_state=seed,
             )
         )
-        assert d_xy == pytest.approx(d_yx, abs=1e-12), f"seed={seed}: dCor not symmetric on noise pair; " f"dCor(x, y) = {d_xy}, dCor(y, x) = {d_yx}"
+        assert d_xy == pytest.approx(d_yx, abs=1e-12), f"seed={seed}: dCor not symmetric on noise pair; dCor(x, y) = {d_xy}, dCor(y, x) = {d_yx}"
 
 
 # ---------------------------------------------------------------------------
@@ -298,19 +326,32 @@ class TestAucLiftOnNonMonotone:
         for s in (1, 7, 13, 42, 101, 202, 303, 404):
             X, y = _build_non_monotone_classif(s, n=1500)
             X_tr, X_te, y_tr, y_te = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             lr_raw = LogisticRegression(
-                max_iter=2000, solver="lbfgs",
+                max_iter=2000,
+                solver="lbfgs",
             ).fit(X_tr, y_tr)
-            aucs_raw.append(roc_auc_score(
-                y_te, lr_raw.predict_proba(X_te)[:, 1],
-            ))
+            aucs_raw.append(
+                roc_auc_score(
+                    y_te,
+                    lr_raw.predict_proba(X_te)[:, 1],
+                )
+            )
             X_aug_tr, _scores, _recipes = hybrid_with_recipes(
-                X_tr, y_tr.to_numpy(),
-                degrees=(2, 3), basis="hermite",
-                top_k=3, min_uplift=0.5, min_abs_mi_frac=0.0,
-                n_sample=500, random_state=s,
+                X_tr,
+                y_tr.to_numpy(),
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=3,
+                min_uplift=0.5,
+                min_abs_mi_frac=0.0,
+                n_sample=500,
+                random_state=s,
             )
             added = [c for c in X_aug_tr.columns if c not in X_tr.columns]
             eng_te = gen(X_te, degrees=(2, 3), basis="hermite")
@@ -337,7 +378,7 @@ class TestAucLiftOnNonMonotone:
             f"dcor_per_seed={aucs_dcor}"
         )
         wins = sum(d > r for d, r in zip(aucs_dcor, aucs_raw))
-        assert wins >= len(aucs_raw) - 1, f"dCor-augmented AUC beat raw on only {wins}/{len(aucs_raw)} " f"seeds; per-seed floor too soft."
+        assert wins >= len(aucs_raw) - 1, f"dCor-augmented AUC beat raw on only {wins}/{len(aucs_raw)} seeds; per-seed floor too soft."
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +395,7 @@ class TestDefaultDisabledByteIdentical:
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], f"seed={seed}: default fe_hybrid_orth_dcor_enable=False " f"should NOT append any engineered columns; got {added}"
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_dcor_enable=False should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
         """fe_hybrid_orth_dcor_enable defaults to False and fe_hybrid_orth_dcor_n_sample defaults to 500."""
@@ -382,7 +423,7 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_dcor_enable", True),
             ("fe_hybrid_orth_dcor_n_sample", 300),
         ]:
-            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_dcor_recipes(self):
         """A pickle round-trip preserves feature names, appended columns, and every orth_univariate recipe field."""
@@ -399,7 +440,7 @@ class TestPickleAndClone:
         assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, f"pickle changed hybrid_orth_features_: " f"before={added_before}, after={added_after}"
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, after={added_after}"
 
         # dCor-stage recipes are ``orth_univariate`` (engineered VALUES
         # bit-equal to Layer 21; only SCORING differs).
@@ -413,12 +454,12 @@ class TestPickleAndClone:
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
                 )

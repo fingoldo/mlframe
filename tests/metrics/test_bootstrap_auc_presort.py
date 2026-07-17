@@ -108,7 +108,7 @@ def test_perf_sentinel_presort_beats_argsort():
     new = time.perf_counter() - t1
 
     speedup = old / new
-    assert speedup >= 1.2, f"presort resampler not faster: {speedup:.2f}x (old={old*1e3:.1f}ms new={new*1e3:.1f}ms)"
+    assert speedup >= 1.2, f"presort resampler not faster: {speedup:.2f}x (old={old * 1e3:.1f}ms new={new * 1e3:.1f}ms)"
 
 
 def test_fused_kernel_bit_identical_to_exact_on_tie_free():
@@ -161,15 +161,21 @@ def test_bootstrap_metrics_skips_preslice_when_all_idx_aware():
 
     # idx-aware-only: triggers the pre-slice skip (active == [])
     r1 = bootstrap_metrics(
-        y_true, y_score, metric_fns={}, n_bootstrap=200, random_state=9,
+        y_true,
+        y_score,
+        metric_fns={},
+        n_bootstrap=200,
+        random_state=9,
         metric_fns_idx={"roc_auc": make_bootstrap_auc_resampler(y_true, y_score)},
     )
     # add a non-idx-aware metric -> forces the slice; idx sequence identical for
     # the same seed, so the idx-aware roc_auc samples must be byte-identical.
     r2 = bootstrap_metrics(
-        y_true, y_score,
+        y_true,
+        y_score,
         metric_fns={"auc_sliced": lambda yt, yp: float(fast_roc_auc_unstable(yt, yp))},
-        n_bootstrap=200, random_state=9,
+        n_bootstrap=200,
+        random_state=9,
         metric_fns_idx={"roc_auc": make_bootstrap_auc_resampler(y_true, y_score)},
     )
     assert np.array_equal(r1["roc_auc"]["samples"], r2["roc_auc"]["samples"])
@@ -204,7 +210,7 @@ def test_perf_sentinel_fused_beats_prior_resampler():
         resampler(idx)
     new = time.perf_counter() - t1
     speedup = old / new
-    assert speedup >= 1.3, f"fused resampler not faster: {speedup:.2f}x (old={old*1e3:.1f}ms new={new*1e3:.1f}ms)"
+    assert speedup >= 1.3, f"fused resampler not faster: {speedup:.2f}x (old={old * 1e3:.1f}ms new={new * 1e3:.1f}ms)"
 
 
 if __name__ == "__main__":

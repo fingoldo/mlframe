@@ -13,11 +13,11 @@ Verified invariants:
 2. ``_approx_entry_bytes`` returns 0 (skip-byte-gate) on an unfamiliar carrier.
 3. Env var ``MLFRAME_PRE_PIPELINE_CACHE_MAX`` is honoured when imported fresh.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.pipeline import _pipeline_cache as ppc
 

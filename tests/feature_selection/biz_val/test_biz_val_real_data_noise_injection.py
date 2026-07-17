@@ -34,6 +34,7 @@ WORSE of the two seeds. Measured table is in the per-case docstrings; the calibr
 BorutaShap is intentionally NOT run on diabetes: SHAP + RandomForestRegressor over ~90 augmented columns measured ~57s
 per fit, over the project's ~55s per-test budget. It runs on breast_cancer only (~5-8s).
 """
+
 from __future__ import annotations
 
 import re
@@ -133,8 +134,9 @@ def _downstream(df, y, cols, task, kind):
     if kind == "linear":
         est = LogisticRegression(C=1e6, max_iter=500) if task != "regression" else LinearRegression()
     else:
-        est = (HistGradientBoostingClassifier(max_iter=80, random_state=0) if task != "regression"
-               else HistGradientBoostingRegressor(max_iter=80, random_state=0))
+        est = (
+            HistGradientBoostingClassifier(max_iter=80, random_state=0) if task != "regression" else HistGradientBoostingRegressor(max_iter=80, random_state=0)
+        )
     return float(cross_val_score(est, X, y, cv=5, scoring=scoring).mean())
 
 
@@ -143,39 +145,52 @@ def _downstream(df, y, cols, task, kind):
 
 def _make_mrmr(task):
     from mlframe.feature_selection.filters.mrmr import MRMR
-    return MRMR(min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False,
-                full_npermutations=3, random_seed=0, min_features_fallback=1, verbose=False)
+
+    return MRMR(min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False, full_npermutations=3, random_seed=0, min_features_fallback=1, verbose=False)
 
 
 def _make_rfecv(task):
     from mlframe.feature_selection.wrappers import RFECV
+
     est = Ridge() if task == "regression" else LogisticRegression(max_iter=200, random_state=0)
     # max_nfeatures caps the argmax rule so the high-variance MBH search cannot keep most of the injected noise.
-    return RFECV(estimator=est, cv=3, max_refits=4, random_state=0, leakage_corr_threshold=None,
-                 n_features_selection_rule="argmax", max_nfeatures=12)
+    return RFECV(estimator=est, cv=3, max_refits=4, random_state=0, leakage_corr_threshold=None, n_features_selection_rule="argmax", max_nfeatures=12)
 
 
 def _make_shap_proxied(task):
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+
     cls = task != "regression"
-    model = (RandomForestClassifier(n_estimators=10, random_state=0) if cls
-             else RandomForestRegressor(n_estimators=10, random_state=0))
-    return ShapProxiedFS(model=model, classification=cls, n_splits=3, n_models=1, max_features=None,
-                         top_n=10, holdout_size=0.25, revalidate=False, trust_guard=False,
-                         prefilter_top=None, cluster_features=False, random_state=0, n_jobs=1)
+    model = RandomForestClassifier(n_estimators=10, random_state=0) if cls else RandomForestRegressor(n_estimators=10, random_state=0)
+    return ShapProxiedFS(
+        model=model,
+        classification=cls,
+        n_splits=3,
+        n_models=1,
+        max_features=None,
+        top_n=10,
+        holdout_size=0.25,
+        revalidate=False,
+        trust_guard=False,
+        prefilter_top=None,
+        cluster_features=False,
+        random_state=0,
+        n_jobs=1,
+    )
 
 
 def _make_boruta_shap(task):
     from mlframe.feature_selection.boruta_shap import BorutaShap
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+
     cls = task != "regression"
-    model = (RandomForestClassifier(n_estimators=30, random_state=0) if cls
-             else RandomForestRegressor(n_estimators=30, random_state=0))
+    model = RandomForestClassifier(n_estimators=30, random_state=0) if cls else RandomForestRegressor(n_estimators=30, random_state=0)
     # SHAP importance (not the weaker gini default) + 25 trials are what actually reject the injected noise; the 10-trial
     # gini config kept all 156 columns in dev calibration.
-    return BorutaShap(model=model, classification=cls, n_trials=25, random_state=0, train_or_test="train",
-                      verbose=False, optimistic=True, importance_measure="shap")
+    return BorutaShap(
+        model=model, classification=cls, n_trials=25, random_state=0, train_or_test="train", verbose=False, optimistic=True, importance_measure="shap"
+    )
 
 
 def _load(ds_name):
@@ -192,15 +207,15 @@ def _load(ds_name):
 # WORSE seed of a measured dev run, set 5-15% below it. Measured mins are recorded in each tuple's trailing comment.
 _CASES = [
     # MRMR returns a compact de-dup set: strong linear lift, near-zero noise, low literal recall (5-6 of 30 real cols).
-    ("MRMR", _make_mrmr, "breast_cancer", False, 0.012, 0.020, 0.13),   # LIN>=+0.0236 noise=1.00 recall=0.20 tree>=-0.0044
-    ("MRMR", _make_mrmr, "diabetes", False, 0.060, 0.090, 0.13),        # LIN>=+0.122  noise=1.00 recall=0.20 tree>=-0.055
+    ("MRMR", _make_mrmr, "breast_cancer", False, 0.012, 0.020, 0.13),  # LIN>=+0.0236 noise=1.00 recall=0.20 tree>=-0.0044
+    ("MRMR", _make_mrmr, "diabetes", False, 0.060, 0.090, 0.13),  # LIN>=+0.122  noise=1.00 recall=0.20 tree>=-0.055
     # RFECV's reliable showcase is the regression set (both seeds +0.145); breast_cancer's near-1.0 LogReg has no headroom.
-    ("RFECV", _make_rfecv, "diabetes", False, 0.090, 0.060, 0.45),      # LIN>=+0.145  noise=0.99 recall=0.60 tree>=-0.027
+    ("RFECV", _make_rfecv, "diabetes", False, 0.090, 0.060, 0.45),  # LIN>=+0.145  noise=0.99 recall=0.60 tree>=-0.027
     # ShapProxiedFS: clean two-sided proof on binary (recall clears 50%); compact OOF set on regression (low recall).
     ("ShapProxiedFS", _make_shap_proxied, "breast_cancer", True, 0.012, 0.020, 0.42),  # LIN>=+0.0221 noise=0.99 recall=0.50 tree>=+0.0001
-    ("ShapProxiedFS", _make_shap_proxied, "diabetes", True, 0.035, 0.060, 0.13),       # LIN>=+0.053  noise=0.96 recall=0.20 tree>=-0.035
+    ("ShapProxiedFS", _make_shap_proxied, "diabetes", True, 0.035, 0.060, 0.13),  # LIN>=+0.053  noise=0.96 recall=0.20 tree>=-0.035
     # BorutaShap: breast_cancer only (diabetes ~57s, over the 55s budget). Broad set -> recall clears 50% comfortably.
-    ("BorutaShap", _make_boruta_shap, "breast_cancer", True, 0.012, 0.020, 0.55),      # LIN>=+0.0219 noise=0.98 recall=0.80 tree>=+0.0005
+    ("BorutaShap", _make_boruta_shap, "breast_cancer", True, 0.012, 0.020, 0.55),  # LIN>=+0.0219 noise=0.98 recall=0.80 tree>=+0.0005
 ]
 
 
@@ -224,7 +239,7 @@ def _run_case(case):
 
     lin_deltas, tree_deltas, noise_rejs, recalls = [], [], [], []
     for seed in (0, 1):
-        df, real, noise, dup = _augment(X_real, feat_names, n_perm=n_perm, n_dup=n_dup, seed=seed)
+        df, real, noise, _dup = _augment(X_real, feat_names, n_perm=n_perm, n_dup=n_dup, seed=seed)
         all_cols = list(df.columns)
         sel = make(task)
         sel.fit(df, y)

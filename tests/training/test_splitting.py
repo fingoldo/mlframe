@@ -25,7 +25,7 @@ class TestMakeTrainTestSplitBasic:
         """Test basic random split with default parameters."""
         df = pd.DataFrame({"feature": np.random.randn(1000)})
 
-        train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
+        train_idx, val_idx, test_idx, _train_details, _val_details, _test_details = make_train_test_split(
             df, test_size=0.2, val_size=0.1, shuffle_val=True, shuffle_test=True, random_seed=42
         )
 
@@ -38,25 +38,19 @@ class TestMakeTrainTestSplitBasic:
 
         # Check approximate sizes (with tolerance for rounding)
         assert abs(len(test_idx) / len(df) - 0.2) < 0.05, "Test size should be approximately 20%"
-        assert abs(len(val_idx) / (len(df) - len(test_idx)) - 0.1) < 0.05, (
-            "Val size should be approximately 10% of remaining"
-        )
+        assert abs(len(val_idx) / (len(df) - len(test_idx)) - 0.1) < 0.05, "Val size should be approximately 10% of remaining"
 
     def test_sequential_split_no_shuffle(self):
         """Test sequential split without shuffling."""
         df = pd.DataFrame({"feature": np.arange(100)})
 
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1, shuffle_val=False, shuffle_test=False, random_seed=42
-        )
+        _train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.2, val_size=0.1, shuffle_val=False, shuffle_test=False, random_seed=42)
 
         # Sequential means test should be at the end (highest indices)
         # and val should be before test
         if len(test_idx) > 0 and len(val_idx) > 0:
             # With sequential splitting, test should have the highest indices
-            assert test_idx.max() >= val_idx.max(), (
-                "Test indices should be >= val indices in sequential split"
-            )
+            assert test_idx.max() >= val_idx.max(), "Test indices should be >= val indices in sequential split"
 
     def test_zero_test_size(self):
         """Test split with zero test size."""
@@ -65,9 +59,7 @@ class TestMakeTrainTestSplitBasic:
         # Note: The splitting function may handle zero test size differently
         # We just check it doesn't crash and returns valid train/val
         try:
-            train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-                df, test_size=0.0, val_size=0.2, random_seed=42
-            )
+            train_idx, _val_idx, _test_idx, _, _, _ = make_train_test_split(df, test_size=0.0, val_size=0.2, random_seed=42)
             # If it succeeds, check basic validity
             assert len(train_idx) > 0, "Train should not be empty"
         except (ValueError, ZeroDivisionError):
@@ -81,15 +73,9 @@ class TestMakeTrainTestSplitBasic:
         result1 = make_train_test_split(df, test_size=0.2, val_size=0.1, shuffle_val=True, random_seed=42)
         result2 = make_train_test_split(df, test_size=0.2, val_size=0.1, shuffle_val=True, random_seed=42)
 
-        np.testing.assert_array_equal(
-            result1[0], result2[0], "Train indices should be identical with same seed"
-        )
-        np.testing.assert_array_equal(
-            result1[1], result2[1], "Val indices should be identical with same seed"
-        )
-        np.testing.assert_array_equal(
-            result1[2], result2[2], "Test indices should be identical with same seed"
-        )
+        np.testing.assert_array_equal(result1[0], result2[0], "Train indices should be identical with same seed")
+        np.testing.assert_array_equal(result1[1], result2[1], "Val indices should be identical with same seed")
+        np.testing.assert_array_equal(result1[2], result2[2], "Test indices should be identical with same seed")
 
     def test_different_seeds_produce_different_splits(self):
         """Test that different seeds produce different splits."""
@@ -103,9 +89,7 @@ class TestMakeTrainTestSplitBasic:
         val_different = not np.array_equal(result1[1], result2[1])
         test_different = not np.array_equal(result1[2], result2[2])
 
-        assert train_different or val_different or test_different, (
-            "Different seeds should produce different splits"
-        )
+        assert train_different or val_different or test_different, "Different seeds should produce different splits"
 
 
 class TestMakeTrainTestSplitDateBased:
@@ -128,7 +112,7 @@ class TestMakeTrainTestSplitDateBased:
         df = timeseries_df
         timestamps = pd.to_datetime(df["timestamp"])
 
-        train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
+        train_idx, val_idx, test_idx, train_details, _val_details, _test_details = make_train_test_split(
             df, test_size=0.2, val_size=0.1, timestamps=timestamps, wholeday_splitting=True, random_seed=42
         )
 
@@ -192,7 +176,7 @@ class TestMakeTrainTestSplitSequentialFraction:
         df = pd.DataFrame({"feature": np.arange(1000)})
         timestamps = pd.Series(pd.date_range("2023-01-01", periods=1000, freq="1h"))
 
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
+        _train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
             df,
             test_size=0.2,
             val_size=0.1,
@@ -232,7 +216,7 @@ class TestMakeTrainTestSplitSequentialFraction:
         df = pd.DataFrame({"feature": np.arange(1000)})
         timestamps = pd.Series(pd.date_range("2023-01-01", periods=1000, freq="1h"))
 
-        train_idx, val_idx, test_idx, _, val_details, test_details = make_train_test_split(
+        train_idx, val_idx, test_idx, _, _val_details, _test_details = make_train_test_split(
             df,
             test_size=0.2,
             val_size=0.1,
@@ -282,19 +266,13 @@ class TestMakeTrainTestSplitAgingLimit:
         timestamps = pd.Series(pd.date_range("2023-01-01", periods=1000, freq="1h"))
 
         # Without aging limit
-        train_idx_full, _, _, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1, timestamps=timestamps, trainset_aging_limit=None, random_seed=42
-        )
+        train_idx_full, _, _, _, _, _ = make_train_test_split(df, test_size=0.2, val_size=0.1, timestamps=timestamps, trainset_aging_limit=None, random_seed=42)
 
         # With aging limit of 0.5 (keep only 50% most recent)
-        train_idx_aged, _, _, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1, timestamps=timestamps, trainset_aging_limit=0.5, random_seed=42
-        )
+        train_idx_aged, _, _, _, _, _ = make_train_test_split(df, test_size=0.2, val_size=0.1, timestamps=timestamps, trainset_aging_limit=0.5, random_seed=42)
 
         assert len(train_idx_aged) < len(train_idx_full), "Aging limit should reduce train size"
-        assert len(train_idx_aged) == pytest.approx(len(train_idx_full) * 0.5, rel=0.1), (
-            "Train should be ~50% of original"
-        )
+        assert len(train_idx_aged) == pytest.approx(len(train_idx_full) * 0.5, rel=0.1), "Train should be ~50% of original"
 
     def test_trainset_aging_limit_keeps_recent_data(self):
         """Test that aging limit keeps the most recent data."""
@@ -354,7 +332,7 @@ class TestMakeTrainTestSplitAgingLimit:
             )
 
         # Sanity: a valid in-range value (e.g. 0.5) must produce splits.
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
+        train_idx, _val_idx, _test_idx, _, _, _ = make_train_test_split(
             df,
             test_size=0.2,
             val_size=0.1,
@@ -372,9 +350,7 @@ class TestMakeTrainTestSplitEdgeCases:
         """Test splitting a small dataset."""
         df = pd.DataFrame({"feature": np.arange(10)})
 
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.2, random_seed=42
-        )
+        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.2, val_size=0.2, random_seed=42)
 
         # Should still produce valid splits
         all_idx = np.concatenate([train_idx, val_idx, test_idx])
@@ -394,9 +370,7 @@ class TestMakeTrainTestSplitEdgeCases:
         """Test that output indices are sorted."""
         df = pd.DataFrame({"feature": np.random.randn(500)})
 
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1, shuffle_val=True, shuffle_test=True, random_seed=42
-        )
+        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.2, val_size=0.1, shuffle_val=True, shuffle_test=True, random_seed=42)
 
         # All outputs should be sorted
         np.testing.assert_array_equal(train_idx, np.sort(train_idx), "Train indices should be sorted")
@@ -428,9 +402,7 @@ class TestMakeTrainTestSplitEdgeCases:
         """Test with very small split sizes."""
         df = pd.DataFrame({"feature": np.random.randn(1000)})
 
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.01, val_size=0.01, random_seed=42
-        )
+        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.01, val_size=0.01, random_seed=42)
 
         # Should produce very small but non-empty splits
         assert len(test_idx) > 0 or len(test_idx) == 0, "Test split may be tiny or empty"
@@ -440,9 +412,7 @@ class TestMakeTrainTestSplitEdgeCases:
         """Test with large test/val sizes."""
         df = pd.DataFrame({"feature": np.random.randn(100)})
 
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.4, val_size=0.4, random_seed=42
-        )
+        train_idx, _val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.4, val_size=0.4, random_seed=42)
 
         # Train should be very small
         assert len(train_idx) < len(test_idx), "Train should be smaller than test with large test_size"
@@ -483,7 +453,7 @@ class TestMakeTrainTestSplitIntegration:
 
         df = pd.DataFrame({"feature": np.random.randn(n_samples)})
 
-        train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
+        _train_idx, _val_idx, _test_idx, train_details, _val_details, _test_details = make_train_test_split(
             df,
             test_size=0.2,
             val_size=0.1,
@@ -514,9 +484,7 @@ class TestMakeTrainTestSplitValidation:
         """Test that returned indices are numpy arrays."""
         df = pd.DataFrame({"feature": np.random.randn(100)})
 
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1, random_seed=42
-        )
+        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.2, val_size=0.1, random_seed=42)
 
         assert isinstance(train_idx, np.ndarray), "Train indices should be numpy array"
         assert isinstance(val_idx, np.ndarray), "Val indices should be numpy array"
@@ -574,9 +542,7 @@ class TestValPlacementBackward:
         train_min = ts.iloc[tr].min()
         train_max = ts.iloc[tr].max()
         test_min = ts.iloc[te].min()
-        assert val_max < train_min, (
-            f"backward val must precede train: val_max={val_max}, train_min={train_min}"
-        )
+        assert val_max < train_min, f"backward val must precede train: val_max={val_max}, train_min={train_min}"
         assert train_max < test_min, f"train must precede test: train_max={train_max}, test_min={test_min}"
 
         # Forward (sanity — explicit opposite ordering)
@@ -608,9 +574,7 @@ class TestValPlacementBackward:
             random_seed=42,
         )
         union = np.sort(np.concatenate([tr, va, te]))
-        assert union.tolist() == list(range(len(df))), (
-            f"backward-placement split lost or double-assigned rows: got {len(union)}, expected {len(df)}"
-        )
+        assert union.tolist() == list(range(len(df))), f"backward-placement split lost or double-assigned rows: got {len(union)}, expected {len(df)}"
 
     def test_backward_wholeday_and_row_based_agree_on_ordering(self):
         """Both the whole-day branch and the row-based branch must honour
@@ -756,8 +720,7 @@ class TestValPlacementBackward:
         )
         msgs = [r.getMessage() for r in caplog.records if r.name == "mlframe.training.splitting"]
         assert any("val_placement='backward'" in m and "Mazzanti" in m for m in msgs), (
-            f"backward placement must emit a visible 'val_placement=...' "
-            f"INFO line; captured messages from splitting:\n  " + "\n  ".join(msgs)
+            f"backward placement must emit a visible 'val_placement=...' INFO line; captured messages from splitting:\n  " + "\n  ".join(msgs)
         )
 
     def test_backward_downgrade_emits_visible_warning(self, caplog):
@@ -777,9 +740,7 @@ class TestValPlacementBackward:
             val_placement="backward",
         )
         msgs = [r.getMessage() for r in caplog.records if r.name == "mlframe.training.splitting"]
-        assert any("downgraded" in m and "backward" in m for m in msgs), (
-            f"backward downgrade must emit a visible WARN/INFO line; captured: {msgs}"
-        )
+        assert any("downgraded" in m and "backward" in m for m in msgs), f"backward downgrade must emit a visible WARN/INFO line; captured: {msgs}"
 
     def test_forward_does_not_emit_placement_line(self, caplog):
         """Forward (default) — no *downgrade* placement-line. The downgrade-
@@ -812,9 +773,7 @@ class TestValPlacementBackward:
         # (the specific downgrade-line vocabulary), not all occurrences
         # of "val_placement=" or "Mazzanti" (which appear in the benign
         # informational "Temporal layout" line).
-        assert not any("downgraded" in m for m in msgs), (
-            f"forward (default) must NOT emit a downgrade placement-line; captured: {msgs}"
-        )
+        assert not any("downgraded" in m for m in msgs), f"forward (default) must NOT emit a downgrade placement-line; captured: {msgs}"
 
 
 # =====================================================================
@@ -936,12 +895,8 @@ class TestValPlacementBackwardIntegration:
         test_min, test_max = _parse(test_d)
 
         # Backward contract: [val] [train] [test]
-        assert val_max <= train_min, (
-            f"backward: val must precede train. val={val_min}..{val_max}, train={train_min}..{train_max}"
-        )
-        assert train_max <= test_min, (
-            f"backward: train must precede test. train={train_min}..{train_max}, test={test_min}..{test_max}"
-        )
+        assert val_max <= train_min, f"backward: val must precede train. val={val_min}..{val_max}, train={train_min}..{train_max}"
+        assert train_max <= test_min, f"backward: train must precede test. train={train_min}..{train_max}, test={test_min}..{test_max}"
 
     def test_forward_integration_still_works(self, tmp_path):
         """Regression: making ``val_placement`` configurable must NOT
@@ -978,7 +933,7 @@ class TestValPlacementBackwardIntegration:
         )
         bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
 
-        models, metadata = train_mlframe_models_suite(
+        _models, metadata = train_mlframe_models_suite(
             df=pl_df,
             target_name="forward_integration",
             model_name="fwd_int",
@@ -999,9 +954,9 @@ class TestValPlacementBackwardIntegration:
             m = iso.search(s)
             return _dt.date.fromisoformat(m.group(1)), _dt.date.fromisoformat(m.group(2))
 
-        train_min, train_max = _parse(metadata["train_details"])
+        _train_min, train_max = _parse(metadata["train_details"])
         val_min, val_max = _parse(metadata["val_details"])
-        test_min, test_max = _parse(metadata["test_details"])
+        test_min, _test_max = _parse(metadata["test_details"])
 
         # Forward contract: [train] [val] [test]
         assert train_max <= val_min
@@ -1121,21 +1076,19 @@ class TestMakeTrainTestSplitGroups:
         df, groups = grouped_df
 
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.2, groups=groups, random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            groups=groups,
+            random_seed=42,
         )
         train_groups = set(groups[train_idx].tolist())
         val_groups = set(groups[val_idx].tolist())
         test_groups = set(groups[test_idx].tolist())
 
-        assert not (train_groups & val_groups), (
-            f"train and val share groups: {sorted(train_groups & val_groups)}"
-        )
-        assert not (train_groups & test_groups), (
-            f"train and test share groups: {sorted(train_groups & test_groups)}"
-        )
-        assert not (val_groups & test_groups), (
-            f"val and test share groups: {sorted(val_groups & test_groups)}"
-        )
+        assert not (train_groups & val_groups), f"train and val share groups: {sorted(train_groups & val_groups)}"
+        assert not (train_groups & test_groups), f"train and test share groups: {sorted(train_groups & test_groups)}"
+        assert not (val_groups & test_groups), f"val and test share groups: {sorted(val_groups & test_groups)}"
 
     def test_groups_full_coverage(self, grouped_df):
         """All rows accounted for, no duplicates, every group lands
@@ -1144,32 +1097,38 @@ class TestMakeTrainTestSplitGroups:
         df, groups = grouped_df
 
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.2, groups=groups, random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            groups=groups,
+            random_seed=42,
         )
 
         all_idx = np.concatenate([train_idx, val_idx, test_idx])
         assert len(all_idx) == len(df), "row count must match"
         assert len(np.unique(all_idx)) == len(all_idx), "indices must be unique"
 
-        seen_groups = (
-            set(groups[train_idx].tolist())
-            | set(groups[val_idx].tolist())
-            | set(groups[test_idx].tolist())
-        )
+        seen_groups = set(groups[train_idx].tolist()) | set(groups[val_idx].tolist()) | set(groups[test_idx].tolist())
         expected = set(np.unique(groups).tolist())
-        assert seen_groups == expected, (
-            f"missing groups: {expected - seen_groups}"
-        )
+        assert seen_groups == expected, f"missing groups: {expected - seen_groups}"
 
     def test_groups_reproducibility(self, grouped_df):
         """Same seed + same groups → identical splits, byte-for-byte."""
         df, groups = grouped_df
 
         a = make_train_test_split(
-            df, test_size=0.2, val_size=0.2, groups=groups, random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            groups=groups,
+            random_seed=42,
         )
         b = make_train_test_split(
-            df, test_size=0.2, val_size=0.2, groups=groups, random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            groups=groups,
+            random_seed=42,
         )
 
         np.testing.assert_array_equal(a[0], b[0])
@@ -1183,17 +1142,24 @@ class TestMakeTrainTestSplitGroups:
         df, groups = grouped_df
 
         grouped = make_train_test_split(
-            df, test_size=0.2, val_size=0.2, groups=groups, random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            groups=groups,
+            random_seed=42,
         )
         iid = make_train_test_split(
-            df, test_size=0.2, val_size=0.2, groups=None,
-            shuffle_test=True, shuffle_val=True, random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            groups=None,
+            shuffle_test=True,
+            shuffle_val=True,
+            random_seed=42,
         )
         # Different test indices is the cleanest signal: GroupShuffleSplit
         # bunches whole groups together, IID does not.
-        assert not np.array_equal(np.sort(grouped[2]), np.sort(iid[2])), (
-            "groups=... should produce a different test set than IID shuffle"
-        )
+        assert not np.array_equal(np.sort(grouped[2]), np.sort(iid[2])), "groups=... should produce a different test set than IID shuffle"
 
 
 class TestTrainingSplitConfigUseGroups:
@@ -1246,11 +1212,13 @@ class TestTrainMlframeModelsSuiteUseGroups:
         """Pandas frame with feature + binary target + group_id column."""
         rng = np.random.default_rng(0)
         n = n_groups * rows_per_group
-        return pd.DataFrame({
-            "feature": rng.standard_normal(n),
-            "target": rng.integers(0, 2, n),
-            "well_id": np.repeat(np.arange(n_groups), rows_per_group),
-        })
+        return pd.DataFrame(
+            {
+                "feature": rng.standard_normal(n),
+                "target": rng.integers(0, 2, n),
+                "well_id": np.repeat(np.arange(n_groups), rows_per_group),
+            }
+        )
 
     def _spy_split(self, monkeypatch, captured):
         """Install a spy that captures the ``groups`` kwarg and returns
@@ -1327,13 +1295,8 @@ class TestTrainMlframeModelsSuiteUseGroups:
             pass
 
         assert "groups" in captured, "splitter never got called"
-        assert captured["groups"] is not None, (
-            "group_ids extracted by FTE must reach the splitter when "
-            "use_groups=True (default)"
-        )
-        assert len(captured["groups"]) == len(df), (
-            "groups array length must match the dataframe length"
-        )
+        assert captured["groups"] is not None, "group_ids extracted by FTE must reach the splitter when use_groups=True (default)"
+        assert len(captured["groups"]) == len(df), "groups array length must match the dataframe length"
 
     def test_groups_suppressed_when_use_groups_false(self, monkeypatch, tmp_path):
         """``use_groups=False`` ignores extractor groups -- IID fallback."""
@@ -1376,10 +1339,7 @@ class TestTrainMlframeModelsSuiteUseGroups:
             pass
 
         assert "groups" in captured, "splitter never got called"
-        assert captured["groups"] is None, (
-            "use_groups=False must suppress group_ids -- got "
-            f"{captured['groups']!r}"
-        )
+        assert captured["groups"] is None, f"use_groups=False must suppress group_ids -- got {captured['groups']!r}"
 
     def test_no_group_field_passes_none(self, monkeypatch, tmp_path):
         """Regression: extractor without ``group_field`` produces no
@@ -1425,6 +1385,4 @@ class TestTrainMlframeModelsSuiteUseGroups:
             pass
 
         assert "groups" in captured, "splitter never got called"
-        assert captured["groups"] is None, (
-            "no group_field on extractor → splitter must receive None"
-        )
+        assert captured["groups"] is None, "no group_field on extractor → splitter must receive None"

@@ -1,4 +1,5 @@
 from mlframe.training import OutputConfig
+
 """
 Stress and performance tests for mlframe training module.
 
@@ -23,8 +24,7 @@ from mlframe.training.configs import PreprocessingBackendConfig, TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor
 
 # Deterministic RNG (single seed per module).
-_W53_RNG = __import__('numpy').random.default_rng(0)
-
+_W53_RNG = __import__("numpy").random.default_rng(0)
 
 
 # ================================================================================================
@@ -44,8 +44,8 @@ class TestMemoryStress:
         X = np.random.randn(n_samples, n_features)
         y = 2 * X[:, 0] + np.random.randn(n_samples) * 0.5
 
-        df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(n_features)])
-        df['target'] = y
+        df = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(n_features)])
+        df["target"] = y
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
@@ -53,7 +53,7 @@ class TestMemoryStress:
         process = psutil.Process()
         mem_before = process.memory_info().rss / 1024 / 1024
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="large_pandas",
@@ -87,13 +87,13 @@ class TestMemoryStress:
         X = np.random.randn(n_samples, n_features)
         y = 2 * X[:, 0] + np.random.randn(n_samples) * 0.5
 
-        data = {f'feature_{i}': X[:, i] for i in range(n_features)}
-        data['target'] = y
+        data = {f"feature_{i}": X[:, i] for i in range(n_features)}
+        data["target"] = y
         df = pl.DataFrame(data)
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="large_polars",
@@ -118,12 +118,12 @@ class TestMemoryStress:
         X = np.random.randn(n_samples, n_features)
         y = X[:, 0] + np.random.randn(n_samples) * 0.1
 
-        df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(n_features)])
-        df['target'] = y
+        df = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(n_features)])
+        df["target"] = y
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="many_columns",
@@ -142,11 +142,13 @@ class TestMemoryStress:
     def test_repeated_training_memory_leak(self, temp_data_dir, common_init_params):
         """Test for memory leaks with repeated training."""
         np.random.seed(42)
-        df = pd.DataFrame({
-            'feature_0': np.random.randn(200),
-            'feature_1': np.random.randn(200),
-            'target': np.random.randn(200),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(200),
+                "feature_1": np.random.randn(200),
+                "target": np.random.randn(200),
+            }
+        )
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         process = psutil.Process()
@@ -155,7 +157,7 @@ class TestMemoryStress:
 
         # Train multiple times
         for i in range(5):
-            models, metadata = train_mlframe_models_suite(
+            _models, _metadata = train_mlframe_models_suite(
                 df=df.copy(),
                 target_name="test_target",
                 model_name=f"repeat_{i}",
@@ -187,7 +189,7 @@ class TestPerformance:
 
     def test_pipeline_transform_performance(self, sample_regression_data):
         """Test pipeline transform performance."""
-        df, feature_names, y = sample_regression_data
+        df, feature_names, _y = sample_regression_data
         train_df = df[feature_names].iloc[:700]
         val_df = df[feature_names].iloc[700:]
 
@@ -195,7 +197,7 @@ class TestPerformance:
 
         start = time.time()
 
-        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+        train_transformed, _val_transformed, _test_transformed, _pipeline, _cat_features = fit_and_transform_pipeline(
             train_df=train_df,
             val_df=val_df,
             test_df=None,
@@ -212,10 +214,10 @@ class TestPerformance:
 
     def test_model_save_load_performance(self, sample_regression_data, temp_data_dir, common_init_params, tmp_path):
         """Test model save/load performance."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="save_load_perf",
@@ -238,7 +240,7 @@ class TestPerformance:
 
         # Test load performance
         start = time.time()
-        loaded = load_mlframe_model(file_path)
+        load_mlframe_model(file_path)
         load_time = time.time() - start
 
         # Both should complete quickly (< 5 seconds each)
@@ -247,12 +249,12 @@ class TestPerformance:
 
     def test_multiple_models_performance(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test training multiple model types performance."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         start = time.time()
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="multi_model_perf",
@@ -277,10 +279,7 @@ class TestPerformance:
         # PYTEST_XDIST_WORKER_COUNT env var.
         _xdist_n = max(1, int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1") or "1"))
         _threshold = 30.0 * _xdist_n
-        assert elapsed < _threshold, (
-            f"Multiple models took {elapsed:.1f}s (threshold "
-            f"{_threshold:.1f}s = 30s x xdist workers={_xdist_n})"
-        )
+        assert elapsed < _threshold, f"Multiple models took {elapsed:.1f}s (threshold {_threshold:.1f}s = 30s x xdist workers={_xdist_n})"
         assert TargetTypes.REGRESSION in models
 
 
@@ -294,7 +293,7 @@ class TestConcurrency:
 
     def test_sequential_training_different_configs(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test sequential training with different configurations."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         configs = [
@@ -311,7 +310,7 @@ class TestConcurrency:
                 **config,
             )
 
-            models, metadata = train_mlframe_models_suite(
+            models, _metadata = train_mlframe_models_suite(
                 df=df.copy(),
                 target_name="test_target",
                 model_name=f"config_{i}",
@@ -333,7 +332,7 @@ class TestConcurrency:
 
     def test_gc_between_trainings(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test GC effectiveness between training runs."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         for i in range(3):
@@ -357,6 +356,7 @@ class TestConcurrency:
 
         # Loop completed without errors — verify GC actually ran and cleared refs
         import sys
+
         gc.collect()
         assert gc.isenabled()
         # No lingering huge cycles (heuristic — just ensure the process didn't explode)
@@ -384,15 +384,17 @@ class TestEdgeCaseStress:
         stratification, which is what "minimum viable" means in practice.
         """
         np.random.seed(42)
-        df = pd.DataFrame({
-            'feature_0': np.random.randn(50),
-            'feature_1': np.random.randn(50),
-            'target': np.random.randn(50),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(50),
+                "feature_1": np.random.randn(50),
+                "target": np.random.randn(50),
+            }
+        )
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="tiny_dataset",
@@ -422,12 +424,12 @@ class TestEdgeCaseStress:
 
         y = np.random.randn(n_samples)
 
-        df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(n_features)])
-        df['target'] = y
+        df = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(n_features)])
+        df["target"] = y
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="sparse_like",
@@ -446,21 +448,23 @@ class TestEdgeCaseStress:
     def test_many_nan_values(self, temp_data_dir, common_init_params):
         """Test with many NaN values (50%)."""
         np.random.seed(42)
-        df = pd.DataFrame({
-            'feature_0': np.random.randn(200),
-            'feature_1': np.random.randn(200),
-            'target': np.random.randn(200),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(200),
+                "feature_1": np.random.randn(200),
+                "target": np.random.randn(200),
+            }
+        )
 
         # Add 50% NaN values
         nan_mask = np.random.random(200) < 0.5
-        df.loc[nan_mask, 'feature_0'] = np.nan
+        df.loc[nan_mask, "feature_0"] = np.nan
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # May fail or succeed depending on imputation
         try:
-            models, metadata = train_mlframe_models_suite(
+            models, _metadata = train_mlframe_models_suite(
                 df=df,
                 target_name="test_target",
                 model_name="many_nan",
@@ -481,18 +485,20 @@ class TestEdgeCaseStress:
     def test_extreme_values(self, temp_data_dir, common_init_params):
         """Test with extreme values in data."""
         np.random.seed(42)
-        df = pd.DataFrame({
-            'feature_0': np.concatenate([np.random.randn(190), [1e10, -1e10, 1e-10, -1e-10] + [np.inf, -np.inf] + [0, 0, 0, 0]]),
-            'feature_1': np.random.randn(200),
-            'target': np.random.randn(200),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.concatenate([np.random.randn(190), [10000000000.0, -10000000000.0, 1e-10, -1e-10, np.inf, -np.inf, 0, 0, 0, 0]]),
+                "feature_1": np.random.randn(200),
+                "target": np.random.randn(200),
+            }
+        )
 
         # Replace inf with large values
         df = df.replace([np.inf, -np.inf], [1e10, -1e10])
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="extreme_values",
@@ -511,18 +517,20 @@ class TestEdgeCaseStress:
     def test_duplicate_rows(self, temp_data_dir, common_init_params):
         """Test with duplicate rows in data."""
         np.random.seed(42)
-        base_df = pd.DataFrame({
-            'feature_0': np.random.randn(50),
-            'feature_1': np.random.randn(50),
-            'target': np.random.randn(50),
-        })
+        base_df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(50),
+                "feature_1": np.random.randn(50),
+                "target": np.random.randn(50),
+            }
+        )
 
         # Create duplicates
         df = pd.concat([base_df] * 4, ignore_index=True)
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="duplicates",
@@ -554,13 +562,7 @@ class TestFileIOStress:
         large_data = {
             "arrays": [np.random.randn(1000, 100) for _ in range(5)],
             "dicts": [{f"key_{i}": np.random.randn(100) for i in range(50)}],
-            "nested": {
-                "level1": {
-                    "level2": {
-                        "data": np.random.randn(500, 50)
-                    }
-                }
-            }
+            "nested": {"level1": {"level2": {"data": np.random.randn(500, 50)}}},
         }
 
         file_path = os.path.join(tmpdir, "large_model.zst")
@@ -596,9 +598,7 @@ class TestFileIOStress:
         meta_files = [f for f in files if f.endswith(".zst.meta.json")]
         assert len(zst_files) == 10
         # Sidecar count tolerated as 0 (legacy) or 10 (post-wave-48).
-        assert len(meta_files) in (0, 10), (
-            f"unexpected sidecar count: {len(meta_files)} (expected 0 or 10)"
-        )
+        assert len(meta_files) in (0, 10), f"unexpected sidecar count: {len(meta_files)} (expected 0 or 10)"
 
     def test_save_load_different_compressions(self, tmp_path):
         """Test save/load with different compression levels."""
@@ -607,7 +607,7 @@ class TestFileIOStress:
 
         for compression in [1, 5, 10]:
             file_path = os.path.join(tmpdir, f"model_comp{compression}.zst")
-            result = save_mlframe_model(data, file_path, zstd_kwargs={'level': compression}, verbose=0)
+            result = save_mlframe_model(data, file_path, zstd_kwargs={"level": compression}, verbose=0)
             assert result is True
 
             loaded = load_mlframe_model(file_path)

@@ -6,6 +6,7 @@ This MUST propagate NaN from ``av`` in the gated-OFF region exactly like the pri
 "simplification" would silently zero those NaNs and change downstream MI binning, so the
 sensor also asserts that wrong form diverges.
 """
+
 import numpy as np
 
 
@@ -56,6 +57,7 @@ def test_njit_grid_kernels_bit_identical_to_numpy_incl_nan():
         _gate_mask_grid_njit,
         _gate_select_grid_njit,
     )
+
     rng = np.random.default_rng(2)
     n = 25000
     cv = rng.standard_normal(n)
@@ -67,15 +69,11 @@ def test_njit_grid_kernels_bit_identical_to_numpy_incl_nan():
     taus = np.round(np.linspace(0.1, 0.9, 17), 4)
 
     mask_np = _old(cv, av, taus)
-    mask_jit = _gate_mask_grid_njit(
-        np.ascontiguousarray(cv), np.ascontiguousarray(av), np.ascontiguousarray(taus)
-    )
+    mask_jit = _gate_mask_grid_njit(np.ascontiguousarray(cv), np.ascontiguousarray(av), np.ascontiguousarray(taus))
     assert np.array_equal(mask_np, mask_jit, equal_nan=True)
 
     sel_np = np.empty((n, len(taus)))
     for j, t in enumerate(taus):
         sel_np[:, j] = np.where(cv > t, av, bv)
-    sel_jit = _gate_select_grid_njit(
-        np.ascontiguousarray(cv), np.ascontiguousarray(av), np.ascontiguousarray(bv), np.ascontiguousarray(taus)
-    )
+    sel_jit = _gate_select_grid_njit(np.ascontiguousarray(cv), np.ascontiguousarray(av), np.ascontiguousarray(bv), np.ascontiguousarray(taus))
     assert np.array_equal(sel_np, sel_jit, equal_nan=True)

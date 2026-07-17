@@ -10,6 +10,7 @@ construction (only the shuffled X column changes across draws). These tests pin:
 2. The hoist matches the from-scratch recompute across many shuffles of X (the
    exact loop-body invariant the swap nulls exploit).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,9 +39,15 @@ def test_conditional_mi_precomputed_entropy_bit_identical(n_z):
     z = np.arange(1, 1 + n_z, dtype=np.int64)
 
     base = conditional_mi(
-        factors_data=data, x=x, y=y, z=z, var_is_nominal=None,
-        factors_nbins=nbins, entropy_cache=None,
-        can_use_x_cache=False, can_use_y_cache=False,
+        factors_data=data,
+        x=x,
+        y=y,
+        z=z,
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        entropy_cache=None,
+        can_use_x_cache=False,
+        can_use_y_cache=False,
     )
 
     # Hoist exactly as the swap nulls do.
@@ -50,9 +57,17 @@ def test_conditional_mi_precomputed_entropy_bit_identical(n_z):
     h_yz = float(entropy(fyz))
 
     hoisted = conditional_mi(
-        factors_data=data, x=x, y=y, z=z, var_is_nominal=None,
-        factors_nbins=nbins, entropy_z=h_z, entropy_yz=h_yz,
-        entropy_cache=None, can_use_x_cache=False, can_use_y_cache=False,
+        factors_data=data,
+        x=x,
+        y=y,
+        z=z,
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        entropy_z=h_z,
+        entropy_yz=h_yz,
+        entropy_cache=None,
+        can_use_x_cache=False,
+        can_use_y_cache=False,
     )
     assert hoisted == base, f"hoist diverged: {hoisted!r} != {base!r}"
 
@@ -79,13 +94,27 @@ def test_hoist_matches_recompute_across_shuffles():
         rng.shuffle(sh)
         perm[:, x_col] = sh
         old = conditional_mi(
-            factors_data=perm, x=x, y=y, z=z, var_is_nominal=None,
-            factors_nbins=nbins, entropy_cache=None,
-            can_use_x_cache=False, can_use_y_cache=False,
+            factors_data=perm,
+            x=x,
+            y=y,
+            z=z,
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            entropy_cache=None,
+            can_use_x_cache=False,
+            can_use_y_cache=False,
         )
         new = conditional_mi(
-            factors_data=perm, x=x, y=y, z=z, var_is_nominal=None,
-            factors_nbins=nbins, entropy_z=h_z, entropy_yz=h_yz,
-            entropy_cache=None, can_use_x_cache=False, can_use_y_cache=False,
+            factors_data=perm,
+            x=x,
+            y=y,
+            z=z,
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            entropy_z=h_z,
+            entropy_yz=h_yz,
+            entropy_cache=None,
+            can_use_x_cache=False,
+            can_use_y_cache=False,
         )
         assert new == old

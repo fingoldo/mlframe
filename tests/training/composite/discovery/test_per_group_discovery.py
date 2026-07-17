@@ -14,6 +14,7 @@ Coverage
 - Honest-holdout RMSE: per-group discovery beats a single global spec forced onto
   every group, on a per-group holdout.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -48,17 +49,25 @@ def _make_panel(n_per_group: int = 900, seed: int = 0) -> pd.DataFrame:
             y = base_2 * np.exp(0.05 * noise_extra) + rng.normal(scale=0.2, size=n)
         else:  # noise
             y = rng.normal(loc=10.0, scale=5.0, size=n)
-        return pd.DataFrame({
-            "base_1": base_1, "base_2": base_2, "x_extra": noise_extra,
-            "group_id": group_id, "y": y,
-        })
+        return pd.DataFrame(
+            {
+                "base_1": base_1,
+                "base_2": base_2,
+                "x_extra": noise_extra,
+                "group_id": group_id,
+                "y": y,
+            }
+        )
 
-    df = pd.concat([
-        _group(n_per_group, "additive", "A"),
-        _group(n_per_group, "multiplicative", "B"),
-        _group(n_per_group, "noise", "C"),
-        _group(120, "additive", "small"),
-    ], ignore_index=True)
+    df = pd.concat(
+        [
+            _group(n_per_group, "additive", "A"),
+            _group(n_per_group, "multiplicative", "B"),
+            _group(n_per_group, "noise", "C"),
+            _group(120, "additive", "small"),
+        ],
+        ignore_index=True,
+    )
     return df
 
 
@@ -143,7 +152,7 @@ def test_per_group_discovery_leakage_guard_independent_groups():
     assert corrupted_a_spec.base_column == baseline_a_spec.base_column
     assert corrupted_a_spec.transform_name == baseline_a_spec.transform_name
     assert corrupted_a_spec.fitted_params == baseline_a_spec.fitted_params, (
-        "corrupting group B's rows changed group A's fitted transform params -- " "per-group discovery is leaking rows across groups."
+        "corrupting group B's rows changed group A's fitted transform params -- per-group discovery is leaking rows across groups."
     )
 
 
@@ -209,7 +218,9 @@ def test_per_group_discovery_beats_global_forced_on_all_groups():
 
     global_spec = disc.specs_[0]
     global_est = CompositeTargetEstimator(
-        base_estimator=_mk_inner(), transform_name=global_spec.transform_name, base_column=global_spec.base_column,
+        base_estimator=_mk_inner(),
+        transform_name=global_spec.transform_name,
+        base_column=global_spec.base_column,
     )
     global_est.fit(train_df.drop(columns=["group_id"]), train_df["y"].to_numpy())
     global_pred = global_est.predict(holdout_df.drop(columns=["group_id"]))

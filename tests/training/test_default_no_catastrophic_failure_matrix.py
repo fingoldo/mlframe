@@ -55,6 +55,7 @@ catastrophic-line headroom (see comment block above the table).
 Marked ``slow`` -- the MLP rows take ~5-10s each (with early stop they
 terminate well before max_epochs). Total wall time on CPU: ~15-25s.
 """
+
 from __future__ import annotations
 
 from typing import Callable, Tuple
@@ -83,11 +84,7 @@ def _make_dgp_linear_dominant(n: int = 1500, n_features: int = 5, seed: int = 0)
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, n_features)).astype(np.float32)
     X[:, 0] = X[:, 0] * 650 + 11_500
-    y = (
-        0.95 * X[:, 0]
-        + 0.30 * X[:, 1] + 0.20 * X[:, 2] + 0.10 * X[:, 3]
-        + 575.0 + rng.normal(scale=10.0, size=n)
-    ).astype(np.float32)
+    y = (0.95 * X[:, 0] + 0.30 * X[:, 1] + 0.20 * X[:, 2] + 0.10 * X[:, 3] + 575.0 + rng.normal(scale=10.0, size=n)).astype(np.float32)
     return _split(X, y)
 
 
@@ -95,11 +92,7 @@ def _make_dgp_linear_balanced(n: int = 1500, n_features: int = 5, seed: int = 1)
     """Multi-feature additive linear -- no single dominator."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, n_features)).astype(np.float32)
-    y = (
-        0.4 * X[:, 0] + 0.3 * X[:, 1] + 0.2 * X[:, 2]
-        + 0.1 * X[:, 3] + 0.05 * X[:, 4]
-        + rng.normal(scale=0.1, size=n)
-    ).astype(np.float32)
+    y = (0.4 * X[:, 0] + 0.3 * X[:, 1] + 0.2 * X[:, 2] + 0.1 * X[:, 3] + 0.05 * X[:, 4] + rng.normal(scale=0.1, size=n)).astype(np.float32)
     return _split(X, y)
 
 
@@ -109,12 +102,7 @@ def _make_dgp_nonlinear_smooth(n: int = 1500, n_features: int = 5, seed: int = 2
     component of sin/quadratic is non-zero on average."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, n_features)).astype(np.float32)
-    y = (
-        np.sin(X[:, 0])
-        + 0.3 * X[:, 1] ** 2
-        + 0.2 * X[:, 2]
-        + rng.normal(scale=0.05, size=n)
-    ).astype(np.float32)
+    y = (np.sin(X[:, 0]) + 0.3 * X[:, 1] ** 2 + 0.2 * X[:, 2] + rng.normal(scale=0.05, size=n)).astype(np.float32)
     return _split(X, y)
 
 
@@ -125,8 +113,7 @@ def _make_dgp_noisy(n: int = 1500, n_features: int = 5, seed: int = 3) -> tuple:
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, n_features)).astype(np.float32)
     y = (
-        0.5 * X[:, 0] + 0.3 * X[:, 1]
-        + rng.normal(scale=1.5, size=n)  # noise dwarfs the signal in std
+        0.5 * X[:, 0] + 0.3 * X[:, 1] + rng.normal(scale=1.5, size=n)  # noise dwarfs the signal in std
     ).astype(np.float32)
     return _split(X, y)
 
@@ -138,10 +125,10 @@ def _split(X: np.ndarray, y: np.ndarray) -> tuple:
 
 
 DGPS = {
-    "linear_dominant":  _make_dgp_linear_dominant,
-    "linear_balanced":  _make_dgp_linear_balanced,
+    "linear_dominant": _make_dgp_linear_dominant,
+    "linear_balanced": _make_dgp_linear_balanced,
     "nonlinear_smooth": _make_dgp_nonlinear_smooth,
-    "noisy":            _make_dgp_noisy,
+    "noisy": _make_dgp_noisy,
 }
 
 
@@ -158,13 +145,17 @@ def _factory_linear():
     from sklearn.linear_model import LinearRegression
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
+
     return Pipeline([("scaler", StandardScaler()), ("lr", LinearRegression())])
 
 
 def _factory_cb():
     cb = pytest.importorskip("catboost")
     return cb.CatBoostRegressor(
-        iterations=100, depth=4, verbose=False, allow_writing_files=False,
+        iterations=100,
+        depth=4,
+        verbose=False,
+        allow_writing_files=False,
     )
 
 
@@ -176,7 +167,10 @@ def _factory_xgb():
 def _factory_lgb():
     lgb = pytest.importorskip("lightgbm")
     return lgb.LGBMRegressor(
-        n_estimators=100, num_leaves=15, verbose=-1, random_state=0,
+        n_estimators=100,
+        num_leaves=15,
+        verbose=-1,
+        random_state=0,
     )
 
 
@@ -210,7 +204,9 @@ def _factory_mlp():
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
     from mlframe.training.neural import (
-        PytorchLightningRegressor, MLPTorchModel, TorchDataModule,
+        PytorchLightningRegressor,
+        MLPTorchModel,
+        TorchDataModule,
         MLPNeuronsByLayerArchitecture,
     )
 
@@ -275,8 +271,10 @@ def _factory_mlp():
         """Mirror trainer.py::_TTRWithEvalSetScaling -- scale eval_set's y
         in lock-step with train y so val_loss and train_loss live on the
         same scale (otherwise EarlyStop sees nonsense)."""
+
         def fit(self, X, y, **fit_params):
             from sklearn.base import clone as _clone
+
             y_arr = np.asarray(y, dtype=np.float64)
             y_2d = y_arr.reshape(-1, 1) if y_arr.ndim == 1 else y_arr
             self.transformer_ = _clone(self.transformer) if self.transformer is not None else None
@@ -305,10 +303,10 @@ def _register(name: str, factory: Callable):
 
 
 _register("linear", _factory_linear)
-_register("cb",     _factory_cb)
-_register("xgb",    _factory_xgb)
-_register("lgb",    _factory_lgb)
-_register("mlp",    _factory_mlp)
+_register("cb", _factory_cb)
+_register("xgb", _factory_xgb)
+_register("lgb", _factory_lgb)
+_register("mlp", _factory_mlp)
 
 
 # ---------------------------------------------------------------------------
@@ -347,11 +345,10 @@ _THRESHOLDS = {
     # Linear / boosting hit ratio ~ 0.02-0.07. MLP at ratio ~ 0.3-0.55
     # under production wiring with eval_set + early stop.
     ("linear_dominant", "linear"): 0.15,
-    ("linear_dominant", "cb"):     0.20,
-    ("linear_dominant", "xgb"):    0.20,
-    ("linear_dominant", "lgb"):    0.25,
-    ("linear_dominant", "mlp"):    0.75,
-
+    ("linear_dominant", "cb"): 0.20,
+    ("linear_dominant", "xgb"): 0.20,
+    ("linear_dominant", "lgb"): 0.25,
+    ("linear_dominant", "mlp"): 0.75,
     # linear_balanced: y = 0.4*X[0] + 0.3*X[1] + ... + noise(0.1).
     # Boosting + linear hit ratio ~ 0.20-0.26. MLP under default wiring
     # converges to ratio ~ 0.87 on this DGP (capturing ~24% of variance)
@@ -362,36 +359,37 @@ _THRESHOLDS = {
     # bumping max_epochs / patience / batch_size does not move the
     # ratio (measured 2026-05-13).
     ("linear_balanced", "linear"): 0.30,
-    ("linear_balanced", "cb"):     0.30,
-    ("linear_balanced", "xgb"):    0.35,
-    ("linear_balanced", "lgb"):    0.30,
-    ("linear_balanced", "mlp"):    0.92,
-
+    ("linear_balanced", "cb"): 0.30,
+    ("linear_balanced", "xgb"): 0.35,
+    ("linear_balanced", "lgb"): 0.30,
+    ("linear_balanced", "mlp"): 0.92,
     # nonlinear_smooth: y = sin(X[0]) + 0.3*X[1]^2 + 0.2*X[2] + noise(0.05).
     # Linear partially captures the additive component but cannot fit
     # sin / quadratic -- ratio ~ 0.66 is healthy for linear. Trees +
     # MLP land at ratio ~ 0.15-0.30.
     ("nonlinear_smooth", "linear"): 0.80,
-    ("nonlinear_smooth", "cb"):     0.30,
-    ("nonlinear_smooth", "xgb"):    0.30,
-    ("nonlinear_smooth", "lgb"):    0.30,
-    ("nonlinear_smooth", "mlp"):    0.80,
-
+    ("nonlinear_smooth", "cb"): 0.30,
+    ("nonlinear_smooth", "xgb"): 0.30,
+    ("nonlinear_smooth", "lgb"): 0.30,
+    ("nonlinear_smooth", "mlp"): 0.80,
     # noisy: y = 0.5*X[0] + 0.3*X[1] + noise(1.5).
     # Theoretical noise floor = noise_std / y_std ~ 0.93. Linear hits
     # the floor exactly; boosting overfits slightly to ratio ~ 0.95-
     # 0.99; XGB / MLP without aggressive regularization can drift to
     # 1.05-1.10. Threshold catches catastrophic overfit (ratio > 1.20).
     ("noisy", "linear"): 1.00,
-    ("noisy", "cb"):     1.00,
-    ("noisy", "xgb"):    1.10,
-    ("noisy", "lgb"):    1.00,
-    ("noisy", "mlp"):    1.10,
+    ("noisy", "cb"): 1.00,
+    ("noisy", "xgb"): 1.10,
+    ("noisy", "lgb"): 1.00,
+    ("noisy", "mlp"): 1.10,
 }
 
 
 def _split_train_for_mlp_val(
-    X: np.ndarray, y: np.ndarray, val_frac: float = 0.15, seed: int = 0,
+    X: np.ndarray,
+    y: np.ndarray,
+    val_frac: float = 0.15,
+    seed: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Carve a tail slice off the train block to feed as MLP eval_set.
 
@@ -401,7 +399,7 @@ def _split_train_for_mlp_val(
     without an extra shuffle seed).
     """
     n = X.shape[0]
-    n_val = max(int(round(n * val_frac)), 32)
+    n_val = max(round(n * val_frac), 32)
     return X[:-n_val], y[:-n_val], X[-n_val:], y[-n_val:]
 
 
@@ -412,11 +410,14 @@ def _split_train_for_mlp_val(
 
 @pytest.mark.parametrize("dgp_name", list(DGPS.keys()))
 @pytest.mark.parametrize(
-    "model_name, factory", _MODEL_FACTORIES,
+    "model_name, factory",
+    _MODEL_FACTORIES,
     ids=[f for f, _ in _MODEL_FACTORIES],
 )
 def test_no_model_collapses_on_any_dgp_under_defaults(
-    dgp_name: str, model_name: str, factory: Callable,
+    dgp_name: str,
+    model_name: str,
+    factory: Callable,
 ) -> None:
     """Every (DGP, model-family) pair must produce test RMSE within the
     per-(DGP, model) acceptance band under the suite's DEFAULT
@@ -441,6 +442,7 @@ def test_no_model_collapses_on_any_dgp_under_defaults(
     the operator who sees this test fail knows what to inspect.
     """
     import torch
+
     torch.manual_seed(0)
     np.random.seed(0)
 
@@ -465,6 +467,7 @@ def test_no_model_collapses_on_any_dgp_under_defaults(
         # the same StandardScaler on X_in and transforming X_val to
         # match.
         from sklearn.preprocessing import StandardScaler as _StdScaler
+
         X_in, y_in, X_val, y_val = _split_train_for_mlp_val(X_tr, y_tr)
         _val_x_scaler = _StdScaler().fit(X_in)
         X_val_scaled = _val_x_scaler.transform(X_val)

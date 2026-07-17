@@ -10,6 +10,7 @@ dtypes only (pandas: ``PANDAS_CATEGORICAL_DTYPES``; polars:
 ``is_polars_categorical``), so a numeric float column can never enter
 ``cat_features``, and the CB Pool is built with that explicit numeric-safe list.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -49,7 +50,12 @@ def test_numeric_degenerate_cols_excluded_from_cat_features(with_cat, polars):
     # (CB consumes raw categoricals; ordinal/onehot would empty the list instead).
     config = PreprocessingBackendConfig(prefer_polarsds=polars, skip_categorical_encoding=True)
     _tr, _v, _t, _pipe, cat_features = fit_and_transform_pipeline(
-        df, None, None, config=config, ensure_float32=False, verbose=0,
+        df,
+        None,
+        None,
+        config=config,
+        ensure_float32=False,
+        verbose=0,
     )
     # Numeric (incl. constant / all-NaN) columns must never be resolved as
     # categorical, regardless of whether a genuine cat column is present or
@@ -69,7 +75,12 @@ def test_cb_pool_builds_and_fits_with_numeric_degenerate_cols():
     df = _frame(n=200, with_cat=True, polars=False)
     config = PreprocessingBackendConfig(prefer_polarsds=False, skip_categorical_encoding=True)
     train_df, _v, _t, _pipe, cat_features = fit_and_transform_pipeline(
-        df, None, None, config=config, ensure_float32=False, verbose=0,
+        df,
+        None,
+        None,
+        config=config,
+        ensure_float32=False,
+        verbose=0,
     )
     assert "num_const" not in cat_features and "num_null" not in cat_features
 

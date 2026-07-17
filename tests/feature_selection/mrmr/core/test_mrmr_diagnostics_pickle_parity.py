@@ -29,6 +29,7 @@ CONTRACTS PINNED
   byte-identical and keeps the pickle small (size guard so a future bloat regresses).
 * P4: sklearn.clone() preserves params; the clone refits and exposes the accessors.
 """
+
 from __future__ import annotations
 
 import os
@@ -45,10 +46,18 @@ warnings.filterwarnings("ignore")
 
 def _mrmr_fe_on():
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR(
-        verbose=0, random_seed=0, dcd_enable=False, cluster_aggregate_enable=False,
-        build_friend_graph=False, stability_selection_method="classic",
-        retain_artifacts=False, n_jobs=1, fe_hybrid_orth_enable=True, fe_auto=True,
+        verbose=0,
+        random_seed=0,
+        dcd_enable=False,
+        cluster_aggregate_enable=False,
+        build_friend_graph=False,
+        stability_selection_method="classic",
+        retain_artifacts=False,
+        n_jobs=1,
+        fe_hybrid_orth_enable=True,
+        fe_auto=True,
     )
 
 
@@ -61,13 +70,19 @@ def _canonical_frame(n=800, seed=7):
     b = rng.uniform(0.5, 2.5, n)
     c = rng.uniform(0.5, 5.0, n)
     d = rng.uniform(0.0, 2 * np.pi, n)
-    X = pd.DataFrame({
-        "a": a, "b": b, "c": c, "d": d,
-        "noise_0": rng.standard_normal(n), "noise_1": rng.standard_normal(n),
-        "const_col": np.ones(n),  # degenerate: constant
-        "dup_a": a,               # degenerate: duplicate of 'a'
-    })
-    score = a ** 2 / b + np.log(c) * np.sin(d) + 0.3 * rng.standard_normal(n)
+    X = pd.DataFrame(
+        {
+            "a": a,
+            "b": b,
+            "c": c,
+            "d": d,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "const_col": np.ones(n),  # degenerate: constant
+            "dup_a": a,  # degenerate: duplicate of 'a'
+        }
+    )
+    score = a**2 / b + np.log(c) * np.sin(d) + 0.3 * rng.standard_normal(n)
     y = pd.Series((score > np.median(score)).astype(int))
     return X, y
 
@@ -81,8 +96,11 @@ def fitted():
 
 
 _ARTIFACTS = (
-    "fe_rejection_ledger_", "fe_provenance_", "_fe_recommended_flags_",
-    "degenerate_columns_", "_stability_replay_state_",
+    "fe_rejection_ledger_",
+    "fe_provenance_",
+    "_fe_recommended_flags_",
+    "degenerate_columns_",
+    "_stability_replay_state_",
 )
 
 
@@ -154,6 +172,7 @@ def test_clone_preserves_params_and_refits(fitted):
     """P4: sklearn.clone() (params only) yields an estimator that refits and exposes
     the diagnostics -- the constructor-param contract survives the clone path too."""
     from sklearn.base import clone
+
     est, X, y = fitted
     c = clone(est)
     c.fit(X, y)

@@ -11,6 +11,7 @@ Bench numbers (D: 2026-05-20, CPU torch):
   N=256: 1.95  -> 0.69  ms/call (2.83x)
   N=512: 3.89  -> 1.39  ms/call (2.79x)
 """
+
 from __future__ import annotations
 
 import time
@@ -51,20 +52,20 @@ def test_optimised_loss_matches_dense_reference(n_docs):
     """The indexed form must produce the same loss as the dense form within
     the fp32-summation-order tolerance."""
     from mlframe.training.neural.ranker import ranknet_pairwise_loss
+
     torch.manual_seed(0)
     scores = torch.randn(n_docs, dtype=torch.float32)
     relevance = torch.randint(0, 4, (n_docs,)).float()
     ref = _ranknet_reference_dense(scores, relevance)
     opt = ranknet_pairwise_loss(scores, relevance)
-    assert torch.allclose(ref, opt, atol=_LOSS_ATOL, rtol=_LOSS_ATOL), (
-        f"N={n_docs}: optimised loss {opt.item()} != reference {ref.item()}"
-    )
+    assert torch.allclose(ref, opt, atol=_LOSS_ATOL, rtol=_LOSS_ATOL), f"N={n_docs}: optimised loss {opt.item()} != reference {ref.item()}"
 
 
 def test_optimised_gradient_matches_dense_reference():
     """Gradient w.r.t. scores must match the dense form within fp32
     summation-order tolerance so the training trajectory is unchanged."""
     from mlframe.training.neural.ranker import ranknet_pairwise_loss
+
     torch.manual_seed(0)
     n = 64
     relevance = torch.randint(0, 4, (n,)).float()
@@ -74,8 +75,7 @@ def test_optimised_gradient_matches_dense_reference():
     ranknet_pairwise_loss(s_opt, relevance).backward()
     max_abs = (s_ref.grad - s_opt.grad).abs().max().item()
     assert max_abs <= _GRAD_ATOL, (
-        f"gradient max-abs diff {max_abs:.2e} exceeds tolerance {_GRAD_ATOL:.0e}; "
-        "the indexed form should preserve gradients within fp32 summation-order noise"
+        f"gradient max-abs diff {max_abs:.2e} exceeds tolerance {_GRAD_ATOL:.0e}; the indexed form should preserve gradients within fp32 summation-order noise"
     )
 
 
@@ -98,6 +98,7 @@ def test_biz_value_speedup_at_n256():
     documented win for posterity.
     """
     from mlframe.training.neural.ranker import ranknet_pairwise_loss
+
     torch.manual_seed(0)
     n_docs = 256
     n_calls = 200
@@ -119,6 +120,5 @@ def test_biz_value_speedup_at_n256():
     t_new = _bench(ranknet_pairwise_loss)
     speedup = t_old / t_new
     assert speedup >= 1.05, (
-        f"expected >=1.05x speedup at N={n_docs}; got {speedup:.2f}x "
-        f"(old={t_old*1000:.1f}ms, new={t_new*1000:.1f}ms over {n_calls} calls)"
+        f"expected >=1.05x speedup at N={n_docs}; got {speedup:.2f}x (old={t_old * 1000:.1f}ms, new={t_new * 1000:.1f}ms over {n_calls} calls)"
     )

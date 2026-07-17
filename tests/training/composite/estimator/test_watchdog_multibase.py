@@ -27,6 +27,7 @@ These tests pin:
    positive, and -- crucially -- proves the check actually ran rather
    than silently crashing).
 """
+
 from __future__ import annotations
 
 import logging
@@ -121,10 +122,13 @@ def _setup_multibase_wrapper(*, corrupt: bool):
     val_df = df.iloc[val_idx].reset_index(drop=True)
 
     return {
-        "models": models, "target_by_type": target_by_type,
+        "models": models,
+        "target_by_type": target_by_type,
         "composite_specs": composite_specs,
-        "train_idx": train_idx, "val_idx": val_idx,
-        "train_df": train_df, "val_df": val_df,
+        "train_idx": train_idx,
+        "val_idx": val_idx,
+        "train_df": train_df,
+        "val_df": val_df,
     }
 
 
@@ -149,9 +153,7 @@ def _run_wrap(ctx):
 
 
 class TestMultiBaseWatchdogFires:
-    def test_watchdog_warns_when_multibase_predict_corrupted(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_watchdog_warns_when_multibase_predict_corrupted(self, caplog: pytest.LogCaptureFixture) -> None:
         ctx = _setup_multibase_wrapper(corrupt=True)
         with caplog.at_level(
             logging.WARNING,
@@ -159,9 +161,7 @@ class TestMultiBaseWatchdogFires:
         ):
             _run_wrap(ctx)
 
-        watchdog_records = [
-            r for r in caplog.records if "watchdog" in r.message.lower()
-        ]
+        watchdog_records = [r for r in caplog.records if "watchdog" in r.message.lower()]
         assert watchdog_records, (
             "Watchdog must fire for a corrupted linear_residual_multi wrapper. "
             "Pre-fix the watchdog built a 1-D base and the inverse/forward raised "
@@ -171,9 +171,7 @@ class TestMultiBaseWatchdogFires:
 
 
 class TestMultiBaseWatchdogQuietOnHappyPath:
-    def test_watchdog_quiet_on_consistent_multibase(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_watchdog_quiet_on_consistent_multibase(self, caplog: pytest.LogCaptureFixture) -> None:
         ctx = _setup_multibase_wrapper(corrupt=False)
         with caplog.at_level(
             logging.WARNING,
@@ -181,10 +179,5 @@ class TestMultiBaseWatchdogQuietOnHappyPath:
         ):
             _run_wrap(ctx)
 
-        watchdog_warnings = [
-            r for r in caplog.records if "watchdog" in r.message.lower()
-        ]
-        assert not watchdog_warnings, (
-            "Watchdog must stay quiet on a consistent multi-base wrapper; "
-            f"got: {[r.message[:160] for r in watchdog_warnings]}"
-        )
+        watchdog_warnings = [r for r in caplog.records if "watchdog" in r.message.lower()]
+        assert not watchdog_warnings, f"Watchdog must stay quiet on a consistent multi-base wrapper; got: {[r.message[:160] for r in watchdog_warnings]}"

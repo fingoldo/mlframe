@@ -15,19 +15,20 @@ Behaviour preserved bit-for-bit. Net effect:
       5. Fallback to inner-model ``feature_names_in_`` subset when
          ``pre_pipeline.transform`` raises ``NotFittedError``.
 """
+
 from __future__ import annotations
 
 import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.exceptions import NotFittedError
 
 
 def test_helper_is_module_level_callable() -> None:
     from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough
+
     assert callable(_apply_pre_pipeline_with_passthrough)
 
 
@@ -193,8 +194,11 @@ def test_outer_try_body_shrunk_after_wave90() -> None:
     src = "\n".join(
         (_core / nm).read_text(encoding="utf-8")
         for nm in (
-            "predict.py", "_predict_main.py", "_predict_main_from_models.py",
-            "_predict_main_suite.py", "_predict_pre_pipeline.py",
+            "predict.py",
+            "_predict_main.py",
+            "_predict_main_from_models.py",
+            "_predict_main_suite.py",
+            "_predict_pre_pipeline.py",
         )
         if (_core / nm).exists()
     )

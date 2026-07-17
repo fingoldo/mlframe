@@ -8,6 +8,7 @@ that re-deadens the knob or breaks the kernel fails the win, not just a shape ch
 Verdict (qual-21): NOT a default flip -- the default mdlp discretization + permutation null-debias already neutralize this bias end-to-end (see
 mlframe/feature_selection/_benchmarks/bench_mi_correction_miller_madow.py). Kept as an opt-in for the legacy fixed-bin / no-permutation-screen regime.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -81,6 +82,7 @@ def test_mi_correction_knob_activates_and_resets_thread_local(monkeypatch):
     monkeypatch.setattr(sd, "set_mi_miller_madow", _spy)
     # MRMR.fit imports the setter lazily from the facade, which re-exports the SAME function object; patch both the dispatch module and the facade binding.
     import mlframe.feature_selection.filters.info_theory as it
+
     monkeypatch.setattr(it, "set_mi_miller_madow", _spy)
 
     rng = np.random.default_rng(7)

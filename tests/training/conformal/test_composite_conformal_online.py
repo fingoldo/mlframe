@@ -7,6 +7,7 @@ Covers ``conformal_online`` wired onto ``CompositeTargetEstimator``:
 - alpha_t stays in [0, 1] under aggressive drift,
 - gamma=0 makes the controller inert (alpha_t never moves -> static).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,7 +30,9 @@ def _make_fitted_estimator(n=400, seed=0):
     X = pd_or_np(base, feat)
     y = base + 0.5 * feat + rng.normal(0.0, 0.3, n)
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="diff", base_column="base",
+        base_estimator=LinearRegression(),
+        transform_name="diff",
+        base_column="base",
     )
     est.fit(X, y)
     return est
@@ -37,6 +40,7 @@ def _make_fitted_estimator(n=400, seed=0):
 
 def pd_or_np(base, feat):
     import pandas as pd
+
     return pd.DataFrame({"base": base, "feat": feat})
 
 
@@ -49,6 +53,7 @@ def _coverage(est, X, y):
 # --------------------------------------------------------------------------
 # Pure helper unit tests
 # --------------------------------------------------------------------------
+
 
 def test_rolling_quantile_radius_basic():
     r = np.arange(1, 101, dtype=np.float64)  # 1..100
@@ -71,7 +76,7 @@ def test_aci_step_controller_direction():
     _aci_step(st, residual=5.0, in_interval=False)  # miss: err=1
     assert st["alpha_t"] == pytest.approx(0.1 + 0.1 * (0.1 - 1.0))
     st["alpha_t"] = 0.1
-    _aci_step(st, residual=0.1, in_interval=True)   # hit: err=0
+    _aci_step(st, residual=0.1, in_interval=True)  # hit: err=0
     assert st["alpha_t"] == pytest.approx(0.1 + 0.1 * (0.1 - 0.0))
 
 
@@ -87,6 +92,7 @@ def test_alpha_t_stays_in_unit_interval_under_drift():
 # --------------------------------------------------------------------------
 # Wired-estimator behaviour
 # --------------------------------------------------------------------------
+
 
 def test_init_required_before_use():
     est = _make_fitted_estimator()
@@ -165,7 +171,7 @@ def test_biz_val_aci_recovers_coverage_under_drift_vs_frozen():
         yc = y[s:e]
         if s >= n - 600:
             aci_hits += int(np.sum((lo <= yc) & (yc <= hi)))
-            aci_total += (e - s)
+            aci_total += e - s
         est.update_conformal(Xc, yc)
     aci_cov = aci_hits / aci_total
 

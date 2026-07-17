@@ -8,6 +8,7 @@ This module adds ONLY the missing occupancy visibility: one DEBUG log line per `
 call reporting entry count + bytes vs the cap, so a maintainer diagnosing memory pressure can see cache
 growth/eviction without reading the module globals directly.
 """
+
 from __future__ import annotations
 
 import logging

@@ -92,18 +92,17 @@ def test_collate_passes_four_tuple_through():
 
 def test_precomputed_loss_matches_original():
     from mlframe.training.neural.ranker import (
-        ranknet_pairwise_loss, ranknet_pairwise_loss_precomputed,
+        ranknet_pairwise_loss,
+        ranknet_pairwise_loss_precomputed,
     )
 
     torch.manual_seed(42)
     scores = torch.randn(12, requires_grad=True)
-    rel = torch.tensor([3., 0., 2., 1., 3., 0., 2., 1., 3., 0., 2., 1.])
+    rel = torch.tensor([3.0, 0.0, 2.0, 1.0, 3.0, 0.0, 2.0, 1.0, 3.0, 0.0, 2.0, 1.0])
     loss_a = ranknet_pairwise_loss(scores, rel)
     i_idx, j_idx = torch.where(rel.unsqueeze(1) > rel.unsqueeze(0))
     loss_b = ranknet_pairwise_loss_precomputed(scores, i_idx, j_idx)
-    assert torch.allclose(loss_a, loss_b, atol=1e-7), (
-        f"precomputed {loss_b.item()} != original {loss_a.item()}"
-    )
+    assert torch.allclose(loss_a, loss_b, atol=1e-7), f"precomputed {loss_b.item()} != original {loss_a.item()}"
 
 
 def test_precomputed_loss_zero_on_empty_pairs():
@@ -151,10 +150,7 @@ def test_batch_cache_returns_identical_tuple_across_calls():
     batch_1 = ds.__getitems__(indices)
     batch_2 = ds.__getitems__(indices)
     # Identity check: same tuple object returned from the cache.
-    assert batch_1[0] is batch_2[0], (
-        "batch cache miss: __getitems__ returned a fresh tuple instead of "
-        "the cached one"
-    )
+    assert batch_1[0] is batch_2[0], "batch cache miss: __getitems__ returned a fresh tuple instead of the cached one"
     # Sanity: contents match what the legacy non-cached path produces.
     idx_tensor = torch.as_tensor(indices, dtype=torch.long)
     assert torch.equal(batch_1[0][0], ds.X[idx_tensor])

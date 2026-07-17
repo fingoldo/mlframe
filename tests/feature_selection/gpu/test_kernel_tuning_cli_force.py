@@ -4,6 +4,7 @@
 Previously every refresh-* hard-coded ``force=True``, so ``refresh-all`` re-swept everything (minutes of
 GPU thrash) even when a valid per-host result was already cached.
 """
+
 from __future__ import annotations
 
 from unittest import mock
@@ -15,7 +16,6 @@ from mlframe.feature_selection._benchmarks.kernel_tuning_cache import cli
 
 def _parse(argv):
     # Build the same parser main() builds, but stop before dispatch so we just inspect the namespace.
-    import argparse
 
     # Reuse main() via a patched dispatch that returns the parsed args.
     captured = {}
@@ -28,12 +28,19 @@ def _parse(argv):
     handlers = {
         name: _fake_dispatch
         for name in (
-            "_cmd_refresh", "_cmd_refresh_mi", "_cmd_refresh_polyeval",
-            "_cmd_refresh_joint_hist_single_perm", "_cmd_refresh_joint_hist_multi_pair",
-            "_cmd_refresh_batch_pair_mi", "_cmd_refresh_cat_fe_perm_kernel",
-            "_cmd_refresh_rmse_partial_sum", "_cmd_refresh_unary_elementwise",
-            "_cmd_refresh_rff_matmul", "_cmd_refresh_knn_hnsw_crossover",
-            "_cmd_refresh_discretize_2d_array", "_cmd_refresh_batch_mi_noise_gate",
+            "_cmd_refresh",
+            "_cmd_refresh_mi",
+            "_cmd_refresh_polyeval",
+            "_cmd_refresh_joint_hist_single_perm",
+            "_cmd_refresh_joint_hist_multi_pair",
+            "_cmd_refresh_batch_pair_mi",
+            "_cmd_refresh_cat_fe_perm_kernel",
+            "_cmd_refresh_rmse_partial_sum",
+            "_cmd_refresh_unary_elementwise",
+            "_cmd_refresh_rff_matmul",
+            "_cmd_refresh_knn_hnsw_crossover",
+            "_cmd_refresh_discretize_2d_array",
+            "_cmd_refresh_batch_mi_noise_gate",
             "_cmd_refresh_all",
         )
     }
@@ -49,10 +56,16 @@ class TestForceFlagDefault:
     def test_refresh_all_force_true_with_flag(self):
         assert _parse(["refresh-all", "--force"]).force is True
 
-    @pytest.mark.parametrize("cmd", [
-        "refresh", "refresh-mi", "refresh-batch-pair-mi", "refresh-discretize-2d-array",
-        "refresh-batch-mi-noise-gate",
-    ])
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "refresh",
+            "refresh-mi",
+            "refresh-batch-pair-mi",
+            "refresh-discretize-2d-array",
+            "refresh-batch-mi-noise-gate",
+        ],
+    )
     def test_each_refresh_defaults_force_false(self, cmd):
         assert _parse([cmd]).force is False
 

@@ -16,19 +16,21 @@ with an inline ``_fmt_ts`` helper that falls back to ``str(value)``
 on ``ValueError`` / ``TypeError``. Datetime ts continues to format
 as ``%Y-%m-%d`` unchanged.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _build_inputs(n: int = 200, ts_kind: str = "numeric"):
     rng = np.random.default_rng(0)
-    df = pd.DataFrame({
-        "x0": rng.standard_normal(n).astype(np.float32),
-        "y": rng.standard_normal(n).astype(np.float32),
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.standard_normal(n).astype(np.float32),
+            "y": rng.standard_normal(n).astype(np.float32),
+        }
+    )
     if ts_kind == "numeric":
         ts = pd.Series(1_700_000_000 + np.arange(n, dtype=np.int64), name="ts")
     elif ts_kind == "datetime":
@@ -44,13 +46,17 @@ def test_numeric_ts_no_format_specifier_error() -> None:
     ``ValueError: Invalid format specifier '%Y-%m-%d' for object
     of type 'int'`` inside the splitter."""
     from mlframe.training.splitting import make_train_test_split
+
     df, ts = _build_inputs(200, ts_kind="numeric")
     # Use wholeday_splitting=False since numeric ts has no .dt floor
     # semantics; the row-based timestamps branch (with our _fmt_ts
     # helper inline) is what the harness actually hits.
     result = make_train_test_split(
-        df=df, test_size=0.1, val_size=0.1,
-        timestamps=ts, wholeday_splitting=False,
+        df=df,
+        test_size=0.1,
+        val_size=0.1,
+        timestamps=ts,
+        wholeday_splitting=False,
     )
     # The splitter returns at least train_idx + val_idx + test_idx.
     # Don't assert internal tuple shape (varies across versions);
@@ -62,10 +68,14 @@ def test_datetime_ts_format_unchanged() -> None:
     """Baseline: datetime ts continues through the ``%Y-%m-%d``
     path without regression."""
     from mlframe.training.splitting import make_train_test_split
+
     df, ts = _build_inputs(200, ts_kind="datetime")
     result = make_train_test_split(
-        df=df, test_size=0.1, val_size=0.1,
-        timestamps=ts, wholeday_splitting=False,
+        df=df,
+        test_size=0.1,
+        val_size=0.1,
+        timestamps=ts,
+        wholeday_splitting=False,
     )
     assert result is not None
 
@@ -76,6 +86,7 @@ def test_format_specifier_helper_contract() -> None:
     the inline helper from splitting.py so a future regression
     that changes it (e.g. swallows wider exceptions) fails this
     sensor."""
+
     def _fmt_ts(value):
         try:
             return format(value, "%Y-%m-%d")

@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 
 from mlframe.reporting.output import (
-    BACKEND_FORMATS, PlotOutputSpec, parse_plot_output_dsl,
+    BACKEND_FORMATS,
+    PlotOutputSpec,
+    parse_plot_output_dsl,
 )
 
 
@@ -93,11 +95,7 @@ class TestParseValidationErrors:
 
 class TestBackendFormatsAllowlist:
     def test_matplotlib_allowed_formats(self):
-        assert BACKEND_FORMATS["matplotlib"] == frozenset(
-            {"png", "pdf", "svg", "jpg", "jpeg"}
-        )
+        assert BACKEND_FORMATS["matplotlib"] == frozenset({"png", "pdf", "svg", "jpg", "jpeg"})
 
     def test_plotly_allowed_formats(self):
-        assert BACKEND_FORMATS["plotly"] == frozenset(
-            {"html", "png", "svg", "pdf", "json"}
-        )
+        assert BACKEND_FORMATS["plotly"] == frozenset({"html", "png", "svg", "pdf", "json"})

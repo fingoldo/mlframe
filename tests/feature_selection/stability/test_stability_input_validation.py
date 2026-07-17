@@ -25,6 +25,7 @@ boundary as sklearn convention requires). Floor sub_size at 2 so the
 inner MRMR never sees a 0-row fit; reject out-of-range params with
 informative messages.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -37,6 +38,7 @@ import pytest
 def _setup():
     from mlframe.feature_selection.filters.stability import StabilityMRMR
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = 200
     X = pd.DataFrame(rng.standard_normal((n, 3)), columns=["a", "b", "c"])
@@ -48,7 +50,8 @@ def test_n_bootstraps_zero_raises():
     StabilityMRMR, MRMR, X, y = _setup()
     with pytest.raises(ValueError, match="n_bootstraps"):
         StabilityMRMR(
-            estimator=MRMR(verbose=0), n_bootstraps=0,
+            estimator=MRMR(verbose=0),
+            n_bootstraps=0,
             sample_fraction=0.5,
         ).fit(X, y)
 
@@ -57,7 +60,8 @@ def test_n_bootstraps_negative_raises():
     StabilityMRMR, MRMR, X, y = _setup()
     with pytest.raises(ValueError, match="n_bootstraps"):
         StabilityMRMR(
-            estimator=MRMR(verbose=0), n_bootstraps=-5,
+            estimator=MRMR(verbose=0),
+            n_bootstraps=-5,
             sample_fraction=0.5,
         ).fit(X, y)
 
@@ -67,7 +71,8 @@ def test_sample_fraction_out_of_range_raises(frac):
     StabilityMRMR, MRMR, X, y = _setup()
     with pytest.raises(ValueError, match="sample_fraction"):
         StabilityMRMR(
-            estimator=MRMR(verbose=0), n_bootstraps=3,
+            estimator=MRMR(verbose=0),
+            n_bootstraps=3,
             sample_fraction=frac,
         ).fit(X, y)
 
@@ -83,8 +88,10 @@ def test_support_threshold_negative_raises():
     StabilityMRMR, MRMR, X, y = _setup()
     with pytest.raises(ValueError, match="support_threshold"):
         StabilityMRMR(
-            estimator=MRMR(verbose=0), n_bootstraps=3,
-            sample_fraction=0.5, support_threshold=-0.1,
+            estimator=MRMR(verbose=0),
+            n_bootstraps=3,
+            sample_fraction=0.5,
+            support_threshold=-0.1,
         ).fit(X, y)
 
 
@@ -94,8 +101,10 @@ def test_support_threshold_zero_keeps_all_touched():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         sel = StabilityMRMR(
-            estimator=MRMR(verbose=0), n_bootstraps=3,
-            sample_fraction=0.5, support_threshold=0.0,
+            estimator=MRMR(verbose=0),
+            n_bootstraps=3,
+            sample_fraction=0.5,
+            support_threshold=0.0,
         ).fit(X, y)
     assert len(sel.support_) == X.shape[1]
 
@@ -107,8 +116,10 @@ def test_support_threshold_above_one_yields_empty(thr):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         sel = StabilityMRMR(
-            estimator=MRMR(verbose=0), n_bootstraps=3,
-            sample_fraction=0.5, support_threshold=thr,
+            estimator=MRMR(verbose=0),
+            n_bootstraps=3,
+            sample_fraction=0.5,
+            support_threshold=thr,
         ).fit(X, y)
     assert len(sel.support_) == 0
 
@@ -119,7 +130,8 @@ def test_valid_params_still_work():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         sel = StabilityMRMR(
-            estimator=MRMR(verbose=0), n_bootstraps=3,
+            estimator=MRMR(verbose=0),
+            n_bootstraps=3,
             sample_fraction=0.5,
         ).fit(X, y)
     assert hasattr(sel, "selection_probabilities_")
@@ -137,6 +149,7 @@ def test_tiny_n_with_tiny_frac_raises_informatively():
     StabilityMRMR, MRMR, X, y = _setup()
     with pytest.raises((ValueError, RuntimeError)):
         StabilityMRMR(
-            estimator=MRMR(verbose=0), n_bootstraps=2,
+            estimator=MRMR(verbose=0),
+            n_bootstraps=2,
             sample_fraction=0.05,
         ).fit(X.iloc[:10], y.iloc[:10])

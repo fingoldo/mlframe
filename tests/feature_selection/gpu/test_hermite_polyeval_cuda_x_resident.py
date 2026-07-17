@@ -8,6 +8,7 @@ Only reachable via ``MLFRAME_POLYEVAL_BACKEND=cuda`` (never the un-forced defaul
 ``polyeval_dispatch``'s own docstring), so this test calls ``_polyeval_cuda`` directly rather than
 through the dispatcher.
 """
+
 from __future__ import annotations
 
 import numpy as np

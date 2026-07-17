@@ -14,6 +14,7 @@ import pytest
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.training.composite.estimator import _estimator
+
     return _estimator
 
 
@@ -24,6 +25,7 @@ def siblings():
         _update,
         _utils,
     )
+
     return {
         "predict": _predict,
         "update": _update,
@@ -154,11 +156,13 @@ def test_facade_loc_budget(parent_module):
 
 def test_isinstance_preserved(parent_module):
     from sklearn.linear_model import LinearRegression
+
     cls = parent_module.CompositeTargetEstimator
     inst = cls(base_estimator=LinearRegression(), transform_name="diff", base_column="b")
     assert isinstance(inst, cls)
     # sklearn BaseEstimator inheritance
     from sklearn.base import BaseEstimator
+
     assert isinstance(inst, BaseEstimator)
 
 

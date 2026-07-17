@@ -17,6 +17,7 @@ cost to 67ms/call on n=5000; the actual work is ~25us/call with the
 fastpath (1.58x faster than the prior 37us baseline on the same
 shape — micro-bench in tests/perf/results/_loop_iter_log.md iter 15).
 """
+
 from __future__ import annotations
 
 import numpy as np

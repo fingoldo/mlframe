@@ -8,13 +8,13 @@ Each test pins one fix and fails on the pre-fix code:
   B6 -- TentativeRoughFix logs (no stdout print).
   B7 -- create_shadow_features pads the shadow side to >= shadow_min_pad on narrow frames (and opts out at 0).
 """
+
 from __future__ import annotations
 
 import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -133,10 +133,7 @@ def test_b7_wide_frame_unaffected_by_pad():
 
 def test_b6_tentative_rough_fix_logs_not_prints(capsys, caplog):
     bs = BorutaShap(random_state=0, verbose=False)
-    cols = ["a", "b", "c"]
-    bs.history_x = pd.DataFrame(
-        {"a": [10.0, 11.0], "b": [0.0, 0.1], "c": [9.0, 9.5], "Max_Shadow": [1.0, 1.0]}
-    )
+    bs.history_x = pd.DataFrame({"a": [10.0, 11.0], "b": [0.0, 0.1], "c": [9.0, 9.5], "Max_Shadow": [1.0, 1.0]})
     bs.tentative = ["a", "b", "c"]
     bs.rejected = []
     bs.accepted = []

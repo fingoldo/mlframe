@@ -5,6 +5,7 @@ Hermite/Legendre basis transform, which raised ``ValueError: could not convert s
 swallowed it and silently dropped the ENTIRE triplet stage ("continuing without triplet-FE columns"). Post-fix the seed pool is restricted to numeric columns, so a
 genuine numeric 3-way interaction is still discovered while the string column is left to the dedicated categorical-encoding stages.
 """
+
 import logging
 
 import numpy as np
@@ -33,17 +34,12 @@ def test_triplet_fe_skips_string_columns_no_convert_error(caplog):
     with caplog.at_level(logging.WARNING):
         sel.fit(X, y_ser)  # must not lose the triplet stage to a string->float error
 
-    assert "could not convert string to float" not in caplog.text, (
-        "the triplet stage fed a string column into the polynomial basis: " + caplog.text
-    )
+    assert "could not convert string to float" not in caplog.text, "the triplet stage fed a string column into the polynomial basis: " + caplog.text
     assert "continuing without triplet-FE columns" not in caplog.text, (
         "the triplet stage was silently dropped (string column reached the basis): " + caplog.text
     )
     # Any emitted triplet column (3 legs joined by '*') must reference only numeric sources, never the string 'scat'.
-    triplets = [
-        c for c in (getattr(sel, "hybrid_orth_features_", None) or [])
-        if c.split("__", 1)[0].count("*") == 2
-    ]
+    triplets = [c for c in (getattr(sel, "hybrid_orth_features_", None) or []) if c.split("__", 1)[0].count("*") == 2]
     assert all("scat" not in c for c in triplets), f"string column leaked into a triplet FE column: {triplets}"
 
 
@@ -68,11 +64,6 @@ def test_quadruplet_fe_skips_string_columns_no_convert_error(caplog):
     with caplog.at_level(logging.WARNING):
         sel.fit(X, pd.Series(y))
 
-    assert "could not convert string to float" not in caplog.text, (
-        "the quadruplet stage fed a string column into the polynomial basis: " + caplog.text
-    )
-    quads = [
-        c for c in (getattr(sel, "hybrid_orth_features_", None) or [])
-        if c.split("__", 1)[0].count("*") == 3
-    ]
+    assert "could not convert string to float" not in caplog.text, "the quadruplet stage fed a string column into the polynomial basis: " + caplog.text
+    quads = [c for c in (getattr(sel, "hybrid_orth_features_", None) or []) if c.split("__", 1)[0].count("*") == 3]
     assert all("scat" not in c for c in quads), f"string column leaked into a quadruplet FE column: {quads}"

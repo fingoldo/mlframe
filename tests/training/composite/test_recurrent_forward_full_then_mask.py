@@ -21,6 +21,7 @@ Covered items:
   raised DEEP inside a weight-AWARE inner fit to "no sample_weight support" and
   silently re-fit UNWEIGHTED -- dropping the weighting AND hiding the real error.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,6 +38,7 @@ from mlframe.training.composite.transforms import get_transform
 # Inner that captures the T it was trained on (so the test can read back the
 # wrapper's fit-time t_train and compare it against the predict-time forward).
 # ----------------------------------------------------------------------
+
 
 class _CaptureTInner(BaseEstimator, RegressorMixin):
     """Stores the (T-scale) target the wrapper passed to ``fit`` so a test can
@@ -79,6 +81,7 @@ def _carry_forward_fill(arr):
 # T13: recurrent forward runs full-sequence-then-mask, matching predict
 # ----------------------------------------------------------------------
 
+
 class TestT13RecurrentForwardFullThenMask:
     """For each recurrent transform, the inner's fit-time T at valid rows must
     equal the predict-time forward (full sequence) masked to those rows -- and
@@ -114,11 +117,13 @@ class TestT13RecurrentForwardFullThenMask:
         # row positions preserved, so each centred window stays intact.
         base_seq = _carry_forward_fill(base2)
         t_predict_ref = np.asarray(
-            tr.forward(y, base_seq, params), dtype=np.float64,
+            tr.forward(y, base_seq, params),
+            dtype=np.float64,
         ).reshape(-1)[valid]
         # Old (pre-fix) reference: forward over the COMPACTED sequence.
         t_compact = np.asarray(
-            tr.forward(y[valid], base2[valid], params), dtype=np.float64,
+            tr.forward(y[valid], base2[valid], params),
+            dtype=np.float64,
         ).reshape(-1)
 
         captured = est.estimator_.t_train_
@@ -127,12 +132,8 @@ class TestT13RecurrentForwardFullThenMask:
         np.testing.assert_allclose(captured, t_predict_ref, rtol=0, atol=1e-9)
         # DISCRIMINATOR: the compacted T differs near the gaps, so a regression
         # back to compact-then-forward would break this test.
-        assert np.max(np.abs(t_predict_ref - t_compact)) > 1e-3, (
-            "fixture must produce a measurable compact-vs-full divergence"
-        )
-        assert np.max(np.abs(captured - t_compact)) > 1e-3, (
-            "captured T must NOT equal the pre-fix compacted T"
-        )
+        assert np.max(np.abs(t_predict_ref - t_compact)) > 1e-3, "fixture must produce a measurable compact-vs-full divergence"
+        assert np.max(np.abs(captured - t_compact)) > 1e-3, "captured T must NOT equal the pre-fix compacted T"
 
     def test_frac_diff_train_T_matches_predict_forward(self) -> None:
         """frac_diff: the weight tail convolves each row with its lagged
@@ -160,18 +161,18 @@ class TestT13RecurrentForwardFullThenMask:
         # the convolution stays finite and position-preserving.
         y_seq = _carry_forward_fill(y2)
         t_predict_ref = np.asarray(
-            tr.forward(y_seq, zeros, params), dtype=np.float64,
+            tr.forward(y_seq, zeros, params),
+            dtype=np.float64,
         ).reshape(-1)[valid]
         t_compact = np.asarray(
-            tr.forward(y2[valid], zeros[valid], params), dtype=np.float64,
+            tr.forward(y2[valid], zeros[valid], params),
+            dtype=np.float64,
         ).reshape(-1)
 
         captured = est.estimator_.t_train_
         assert captured.shape == t_predict_ref.shape
         np.testing.assert_allclose(captured, t_predict_ref, rtol=0, atol=1e-9)
-        assert np.max(np.abs(t_predict_ref - t_compact)) > 1e-2, (
-            "fixture must produce a measurable compact-vs-full divergence"
-        )
+        assert np.max(np.abs(t_predict_ref - t_compact)) > 1e-2, "fixture must produce a measurable compact-vs-full divergence"
         assert np.max(np.abs(captured - t_compact)) > 1e-2
 
     def test_ewma_residual_train_T_matches_predict_forward(self) -> None:
@@ -195,18 +196,18 @@ class TestT13RecurrentForwardFullThenMask:
         tr = get_transform("ewma_residual")
         params = est.fitted_params_
         t_predict_ref = np.asarray(
-            tr.forward(y2, base, params), dtype=np.float64,
+            tr.forward(y2, base, params),
+            dtype=np.float64,
         ).reshape(-1)[valid]
         t_compact = np.asarray(
-            tr.forward(y2[valid], base[valid], params), dtype=np.float64,
+            tr.forward(y2[valid], base[valid], params),
+            dtype=np.float64,
         ).reshape(-1)
 
         captured = est.estimator_.t_train_
         assert captured.shape == t_predict_ref.shape
         np.testing.assert_allclose(captured, t_predict_ref, rtol=0, atol=1e-9)
-        assert np.max(np.abs(t_predict_ref - t_compact)) > 1e-2, (
-            "fixture must produce a measurable compact-vs-full divergence"
-        )
+        assert np.max(np.abs(t_predict_ref - t_compact)) > 1e-2, "fixture must produce a measurable compact-vs-full divergence"
         assert np.max(np.abs(captured - t_compact)) > 1e-2
 
     def test_pointwise_transform_unaffected_by_full_then_mask(self) -> None:
@@ -224,15 +225,20 @@ class TestT13RecurrentForwardFullThenMask:
         tr = get_transform("diff")
         params = est.fitted_params_
         t_full_masked = np.asarray(
-            tr.forward(y, base2, params), dtype=np.float64,
+            tr.forward(y, base2, params),
+            dtype=np.float64,
         ).reshape(-1)[valid]
         t_compact = np.asarray(
-            tr.forward(y[valid], base2[valid], params), dtype=np.float64,
+            tr.forward(y[valid], base2[valid], params),
+            dtype=np.float64,
         ).reshape(-1)
         # For a pointwise transform the two orders agree exactly.
         np.testing.assert_allclose(t_full_masked, t_compact, rtol=0, atol=0)
         np.testing.assert_allclose(
-            est.estimator_.t_train_, t_compact, rtol=0, atol=0,
+            est.estimator_.t_train_,
+            t_compact,
+            rtol=0,
+            atol=0,
         )
 
     def test_biz_value_recurrent_predict_consistency_improves(self) -> None:
@@ -256,12 +262,14 @@ class TestT13RecurrentForwardFullThenMask:
         params = est.fitted_params_
         base_seq = _carry_forward_fill(base2)
         t_predict_ref = np.asarray(
-            tr.forward(y, base_seq, params), dtype=np.float64,
+            tr.forward(y, base_seq, params),
+            dtype=np.float64,
         ).reshape(-1)[valid]
         post_fix_gap = float(np.max(np.abs(est.estimator_.t_train_ - t_predict_ref)))
 
         t_compact = np.asarray(
-            tr.forward(y[valid], base2[valid], params), dtype=np.float64,
+            tr.forward(y[valid], base2[valid], params),
+            dtype=np.float64,
         ).reshape(-1)
         pre_fix_gap = float(np.max(np.abs(t_compact - t_predict_ref)))
 
@@ -274,6 +282,7 @@ class TestT13RecurrentForwardFullThenMask:
 # ----------------------------------------------------------------------
 # E7 (post_shim): signature-gated sample_weight
 # ----------------------------------------------------------------------
+
 
 class _ShimWeightAwareButBuggyInner(BaseEstimator, RegressorMixin):
     """Declares ``sample_weight`` (IS weight-aware) but raises a deep TypeError
@@ -328,13 +337,14 @@ class TestE7ShimSampleWeightSignatureGate:
         X, y, sw = self._xy()
         _ShimWeightAwareButBuggyInner.fit_call_count = 0
         shim = PrePipelinePredictShim(
-            model=_ShimWeightAwareButBuggyInner(), pre_pipeline=None, name="t",
+            model=_ShimWeightAwareButBuggyInner(),
+            pre_pipeline=None,
+            name="t",
         )
         with pytest.raises(TypeError, match="deep boom"):
             shim.fit(X, y, sample_weight=sw)
         assert _ShimWeightAwareButBuggyInner.fit_call_count == 1, (
-            f"expected 1 inner.fit call (no retry); got "
-            f"{_ShimWeightAwareButBuggyInner.fit_call_count} (pre-fix retry bug)"
+            f"expected 1 inner.fit call (no retry); got {_ShimWeightAwareButBuggyInner.fit_call_count} (pre-fix retry bug)"
         )
 
     def test_weight_aware_inner_receives_sample_weight(self) -> None:
@@ -347,7 +357,9 @@ class TestE7ShimSampleWeightSignatureGate:
     def test_weight_unaware_inner_falls_back_cleanly(self) -> None:
         X, y, sw = self._xy(seed=2)
         shim = PrePipelinePredictShim(
-            model=_ShimNoWeightInner(), pre_pipeline=None, name="t",
+            model=_ShimNoWeightInner(),
+            pre_pipeline=None,
+            name="t",
         )
         shim.fit(X, y, sample_weight=sw)  # gated OUT, no exception
         y_hat = shim.predict(X)

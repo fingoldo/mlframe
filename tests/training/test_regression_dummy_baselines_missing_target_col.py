@@ -4,6 +4,7 @@ Pre-fix ``_matching_spec["target_col"]`` was a hard index; on older/drifted cach
 KeyError, swallowed by the surrounding broad except, so the y-scale dummy baseline went silently
 missing. ``_resolve_spec_raw_target`` uses ``.get`` + explicit skip-with-log.
 """
+
 from __future__ import annotations
 
 from mlframe.training.core._phase_dummy_baselines import _resolve_spec_raw_target

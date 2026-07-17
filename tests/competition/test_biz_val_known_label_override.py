@@ -44,9 +44,7 @@ def _make_monotonic_entity_dataset(n_entities: int, rows_per_entity: int, seed: 
 
 
 def test_biz_val_monotonic_entity_override_recovers_missed_past_fraud_rows():
-    raw_preds, entity_ids, known_positive_entity_ids, y_true = _make_monotonic_entity_dataset(
-        n_entities=200, rows_per_entity=10, seed=0
-    )
+    raw_preds, entity_ids, known_positive_entity_ids, y_true = _make_monotonic_entity_dataset(n_entities=200, rows_per_entity=10, seed=0)
 
     baseline_recall = float(np.mean(raw_preds[y_true == 1.0] >= 0.5))
     baseline_auc = roc_auc_score(y_true, raw_preds)
@@ -70,9 +68,7 @@ def test_biz_val_monotonic_entity_override_recovers_missed_past_fraud_rows():
 
 
 def test_biz_val_monotonic_entity_override_noop_when_no_known_positives():
-    raw_preds, entity_ids, _known_positive_entity_ids, _y_true = _make_monotonic_entity_dataset(
-        n_entities=50, rows_per_entity=5, seed=1
-    )
+    raw_preds, entity_ids, _known_positive_entity_ids, _y_true = _make_monotonic_entity_dataset(n_entities=50, rows_per_entity=5, seed=1)
     overridden = monotonic_entity_override(raw_preds, entity_ids, known_positive_entity_ids=set())
     assert np.array_equal(overridden, raw_preds)
     assert overridden is not raw_preds  # must not mutate/alias the input
@@ -171,6 +167,6 @@ def test_biz_val_known_label_override_negative_direction_and_bounds_check():
 
     try:
         known_label_override(raw_preds, {n + 5: 1.0}, asymmetric_safe_direction="positive")
-        assert False, "expected IndexError for out-of-bounds known_label_map index"
+        raise AssertionError("expected IndexError for out-of-bounds known_label_map index")
     except IndexError:
         pass

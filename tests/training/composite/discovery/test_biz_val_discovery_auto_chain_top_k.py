@@ -7,6 +7,7 @@ stage), at least one chain qualifies; ``top_k`` is the cap on how many are retur
 A regression that ignores ``auto_chain_top_k`` (returns all candidates, or hardcodes a different count) breaks the
 bound assertion.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,12 +32,24 @@ def test_biz_val_auto_chain_top_k_caps_returned_chains():
     """top_k bounds the number of chains; a larger cap returns at least as many."""
     y, base, x_matrix = _make_heavy_tail_residual()
     chains_1 = discover_chains(
-        y=y, base=base, x_matrix=x_matrix,
-        cv_folds=3, n_estimators=30, num_leaves=8, random_state=0, top_k=1,
+        y=y,
+        base=base,
+        x_matrix=x_matrix,
+        cv_folds=3,
+        n_estimators=30,
+        num_leaves=8,
+        random_state=0,
+        top_k=1,
     )
     chains_3 = discover_chains(
-        y=y, base=base, x_matrix=x_matrix,
-        cv_folds=3, n_estimators=30, num_leaves=8, random_state=0, top_k=3,
+        y=y,
+        base=base,
+        x_matrix=x_matrix,
+        cv_folds=3,
+        n_estimators=30,
+        num_leaves=8,
+        random_state=0,
+        top_k=3,
     )
     assert len(chains_1) <= 1, "auto_chain_top_k=1 must return at most one chain"
     assert len(chains_3) >= len(chains_1), "a larger auto_chain_top_k cannot return fewer chains"

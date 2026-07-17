@@ -5,6 +5,7 @@ Both must abort cleanly and still expose a valid (possibly partial) selection
 (``support_`` / ``selected_features_``), so a runaway FS on a big frame can be bounded
 without losing the run.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -28,7 +29,10 @@ def test_boruta_shap_stop_file_aborts_with_valid_selection(tmp_path):
     stop.write_text("")  # stop-flag present -> fit must bail out of the trial loop
     b = BorutaShap(
         model=lgb.LGBMClassifier(n_estimators=10, verbose=-1),
-        importance_measure="permutation",n_trials=50, stop_file=str(stop), verbose=False,
+        importance_measure="permutation",
+        n_trials=50,
+        stop_file=str(stop),
+        verbose=False,
     )
     b.fit(X, y)
     assert b.n_trials_run_ < 50, f"stop_file must abort before all 50 trials; ran {b.n_trials_run_}"
@@ -43,7 +47,10 @@ def test_boruta_shap_runtime_budget_aborts(tmp_path):
     X, y = _data()
     b = BorutaShap(
         model=lgb.LGBMClassifier(n_estimators=50, verbose=-1),
-        importance_measure="permutation",n_trials=300, max_runtime_mins=1e-6, verbose=False,
+        importance_measure="permutation",
+        n_trials=300,
+        max_runtime_mins=1e-6,
+        verbose=False,
     )
     b.fit(X, y)
     assert b.n_trials_run_ < 300, f"tiny runtime budget must abort early; ran {b.n_trials_run_}"
@@ -60,11 +67,12 @@ def test_shap_proxied_fs_stop_file_skips_revalidation(tmp_path):
     stop.write_text("")
     s = ShapProxiedFS(
         model=lgb.LGBMClassifier(n_estimators=20, verbose=-1),
-        stop_file=str(stop), verbose=False, n_splits=2, top_n=5,
+        stop_file=str(stop),
+        verbose=False,
+        n_splits=2,
+        top_n=5,
     )
     s.fit(X, y)
     assert hasattr(s, "support_") and s.support_.any(), "must finalize with a valid proxy-best subset"
     # The expensive optional phase (honest revalidation) must have been skipped by the stop-flag.
-    assert s.shap_proxy_report_.get("budget_skipped", {}).get("phase") == "revalidation", (
-        "stop_file must skip the honest-revalidation phase"
-    )
+    assert s.shap_proxy_report_.get("budget_skipped", {}).get("phase") == "revalidation", "stop_file must skip the honest-revalidation phase"

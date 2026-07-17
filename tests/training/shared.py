@@ -32,7 +32,7 @@ class SimpleFeaturesAndTargetsExtractor:
 
     def __init__(
         self,
-        target_column='target',
+        target_column="target",
         regression=True,
         target_type=None,
         ts_field=None,
@@ -104,6 +104,7 @@ class SimpleFeaturesAndTargetsExtractor:
             if not isinstance(df, pd.DataFrame):
                 # Polars: try List/Array dtype first.
                 import polars as pl
+
                 if isinstance(col.dtype, pl.List) or (hasattr(pl, "Array") and isinstance(col.dtype, pl.Array)):
                     # Stack list-of-lists into (N, K) ndarray.
                     py_list = col.to_list()
@@ -131,6 +132,7 @@ class SimpleFeaturesAndTargetsExtractor:
         if target_type == TargetTypes.MULTI_TARGET_REGRESSION:
             if not isinstance(df, pd.DataFrame):
                 import polars as pl
+
                 if isinstance(col.dtype, pl.List) or (hasattr(pl, "Array") and isinstance(col.dtype, pl.Array)):
                     return np.asarray(col.to_list(), dtype=np.float32)
                 arr = col.to_numpy()
@@ -158,18 +160,14 @@ class SimpleFeaturesAndTargetsExtractor:
         """
         target_values = self._extract_target_values(df)
         target_type = self._resolve_target_type()
-        target_by_type = {
-            target_type: {
-                self.target_column: target_values
-            }
-        }
+        target_by_type = {target_type: {self.target_column: target_values}}
 
         # 2026-05-21 iter150 -- inject extra synthetic targets per
         # ``self.extra_targets``. Synthetic values come from a deterministic
         # RNG seeded off the primary target_column hash + N so re-running
         # the same fuzz combo produces identical extra targets.
         if self.extra_targets:
-            _n_rows = (df.shape[0] if hasattr(df, "shape") else len(df))
+            _n_rows = df.shape[0] if hasattr(df, "shape") else len(df)
             _seed = abs(hash((self.target_column, _n_rows))) % (2**32)
             _rng = np.random.default_rng(_seed)
             if self.extra_targets == "same_type_2":
@@ -200,9 +198,7 @@ class SimpleFeaturesAndTargetsExtractor:
                 # still reaches here -- and adding a binary extra alongside
                 # any non-binary primary remains a valid multi-type test.
                 _bin_vals = (_rng.random(_n_rows) > 0.5).astype(np.int8)
-                target_by_type.setdefault(
-                    TargetTypes.BINARY_CLASSIFICATION, {}
-                )[self.target_column + "_bin"] = _bin_vals
+                target_by_type.setdefault(TargetTypes.BINARY_CLASSIFICATION, {})[self.target_column + "_bin"] = _bin_vals
             elif self.extra_targets == "mixed_reg_bin_2each":
                 # Cartesian product: 2 primary-type targets AND 2 binary
                 # secondary targets. The suite trains all 4 in one
@@ -230,9 +226,7 @@ class SimpleFeaturesAndTargetsExtractor:
                 # statistical independence).
                 _bin1_vals = (_rng.random(_n_rows) > 0.5).astype(np.int8)
                 _bin2_vals = (_rng.random(_n_rows) > 0.4).astype(np.int8)
-                target_by_type.setdefault(
-                    TargetTypes.BINARY_CLASSIFICATION, {}
-                )[_bin_name1] = _bin1_vals
+                target_by_type.setdefault(TargetTypes.BINARY_CLASSIFICATION, {})[_bin_name1] = _bin1_vals
                 target_by_type[TargetTypes.BINARY_CLASSIFICATION][_bin_name2] = _bin2_vals
 
         # group_ids extraction (Session 7 batch 7): when ``group_field``
@@ -266,7 +260,7 @@ class SimpleFeaturesAndTargetsExtractor:
         # the dead ``weight_schemas`` axis active in fuzz combos.
         sample_weights: dict = {}
         if self.weight_schemas:
-            n = (df.shape[0] if hasattr(df, "shape") else len(df))
+            n = df.shape[0] if hasattr(df, "shape") else len(df)
             for name in self.weight_schemas:
                 if name == "uniform":
                     sample_weights[name] = np.ones(n, dtype=np.float32)
@@ -316,7 +310,7 @@ class SimpleFeaturesAndTargetsExtractor:
 class TimestampedFeaturesExtractor:
     """Mock FeaturesAndTargetsExtractor with timestamp support for testing sample weights."""
 
-    def __init__(self, target_column='target', regression=True, ts_field=None, group_field=None, sample_weights=None):
+    def __init__(self, target_column="target", regression=True, ts_field=None, group_field=None, sample_weights=None):
         self.target_column = target_column
         self.regression = regression
         self.ts_field = ts_field
@@ -335,11 +329,7 @@ class TimestampedFeaturesExtractor:
 
         # Create target_by_type dict
         target_type = TargetTypes.REGRESSION if self.regression else TargetTypes.BINARY_CLASSIFICATION
-        target_by_type = {
-            target_type: {
-                self.target_column: target_values
-            }
-        }
+        target_by_type = {target_type: {self.target_column: target_values}}
 
         # Extract timestamps if available
         timestamps = None
@@ -357,7 +347,7 @@ class TimestampedFeaturesExtractor:
                 group_ids_raw = df[self.group_field]
             else:
                 group_ids_raw = df[self.group_field].to_pandas()
-            unique_vals, group_ids = np.unique(group_ids_raw.values, return_inverse=True)
+            _unique_vals, group_ids = np.unique(group_ids_raw.values, return_inverse=True)
 
         # Return all expected values
         return (

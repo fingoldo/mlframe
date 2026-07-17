@@ -6,6 +6,7 @@ target the CAUSAL lag (``{y}_prev`` or an engineered ``{y}__gcausal_*`` base) tr
 there, and its inverse re-injects a REAL per-row previous value so it stays in-range on unseen groups. These tests pin the
 provenance-only exemption (a contemporaneous near-copy of y that is NOT a causal construct is still dropped).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -41,9 +42,16 @@ class TestIsCausalBaseName:
 
 def _spec(name, base_column, transform_name="diff"):
     return CompositeSpec(
-        name=name, target_col="y", transform_name=transform_name, base_column=base_column,
-        fitted_params={"alpha": 1.0, "beta": 0.0}, mi_gain=1.0, mi_y=0.0, mi_t=1.0,
-        valid_domain_frac=1.0, n_train_rows=100,
+        name=name,
+        target_col="y",
+        transform_name=transform_name,
+        base_column=base_column,
+        fitted_params={"alpha": 1.0, "beta": 0.0},
+        mi_gain=1.0,
+        mi_y=0.0,
+        mi_t=1.0,
+        valid_domain_frac=1.0,
+        n_train_rows=100,
     )
 
 
@@ -54,11 +62,13 @@ def _level_frame(n_groups=30, per=60, seed=0):
     level = rng.uniform(0.0, 50.0, n_groups)
     g = np.repeat(np.arange(n_groups), per)
     lvl = level[g] + rng.normal(0.0, 0.1, g.size)
-    df = pd.DataFrame({
-        "y": level[g] + rng.normal(0.0, 1.0, g.size),
-        "y__gcausal_lag1": lvl.copy(),   # causal provenance (engineered marker)
-        "level_base": lvl.copy(),        # identical values, NO causal provenance
-    })
+    df = pd.DataFrame(
+        {
+            "y": level[g] + rng.normal(0.0, 1.0, g.size),
+            "y__gcausal_lag1": lvl.copy(),  # causal provenance (engineered marker)
+            "level_base": lvl.copy(),  # identical values, NO causal provenance
+        }
+    )
     return df, g.astype(np.int64), df["y"].to_numpy()
 
 
@@ -121,7 +131,7 @@ def _strong_ar_frame(n_groups=25, per=80, seed=1, step=0.4):
 
 class TestNearCopyExemptionEndToEnd:
     def test_biz_val_strong_ar_lag_base_retained_when_exempt_excluded_when_off(self):
-        df, groups, y = _strong_ar_frame()
+        df, groups, _y = _strong_ar_frame()
         n = groups.size
         # Sanity: y_prev really is a near-copy of y (the gate would fire).
         corr = abs(float(np.corrcoef(df["y_prev"], df["y"])[0, 1]))
@@ -129,8 +139,14 @@ class TestNearCopyExemptionEndToEnd:
 
         def _run(exempt):
             cfg = CompositeTargetDiscoveryConfig(
-                enabled=True, screening="mi", mi_estimator="bin", base_candidates="auto",
-                transforms=("diff",), group_column="well", random_state=0, causal_base_gate_exempt=exempt,
+                enabled=True,
+                screening="mi",
+                mi_estimator="bin",
+                base_candidates="auto",
+                transforms=("diff",),
+                group_column="well",
+                random_state=0,
+                causal_base_gate_exempt=exempt,
                 engineer_causal_bases=False,  # isolate the named-lag near-copy path, not the engineered bases
             )
             df2 = df.assign(well=groups)

@@ -7,6 +7,7 @@ train target range -- to lag, transferably (a fixed train-range rule, not per-gr
 honest val RMSE. biz_value asserts the router beats BOTH all-raw and all-lag on a held-out mix of in-range and
 out-of-range groups.
 """
+
 from __future__ import annotations
 
 import math
@@ -71,8 +72,8 @@ class TestOODLagRouterUnit:
         # OOD rows exist but the trained model is ALREADY good there -> routing to lag would not improve val -> keep raw.
         n = 400
         y_val = np.concatenate([np.full(n // 2, 50.0), np.full(n // 2, 500.0)])  # half in-range, half OOD-level
-        val_lag = y_val.copy()               # lag == truth everywhere (so lag is perfect, but...)
-        raw = _Const(y_val.copy())           # ...the trained model is ALSO perfect -> routing cannot improve
+        val_lag = y_val.copy()  # lag == truth everywhere (so lag is perfect, but...)
+        raw = _Const(y_val.copy())  # ...the trained model is ALSO perfect -> routing cannot improve
         y_train = np.linspace(0.0, 100.0, 800)
         got = build_ood_lag_router(raw, _Lag(), y_train, val_lag, y_val, _Cfg())
         assert isinstance(got, _Const)  # unchanged (a plain trained component, not a router)
@@ -89,17 +90,19 @@ class TestOODLagRouterBizValue:
 
         n = 4000
         in_range = rng.uniform(lo, hi, n // 2)
-        out_range = rng.uniform(hi + 20.0, hi + 120.0, n // 2)   # levels the model never saw
+        out_range = rng.uniform(hi + 20.0, hi + 120.0, n // 2)  # levels the model never saw
         y_val = np.concatenate([in_range, out_range])
         # lag is a WEAK-ish baseline everywhere (noisier than the trained model in range) but is the ONLY thing that
         # tracks the out-of-range level at all -- so all-lag alone is mediocre, yet lag is what saves the OOD rows.
         lag_val = y_val + rng.normal(0.0, 2.5, n)
 
         # Trained model: accurate on in-range rows, but CLAMPS to hi on out-of-range rows (classic tree extrapolation).
-        raw_val = np.concatenate([
-            in_range + rng.normal(0.0, 1.0, n // 2),             # good in range
-            np.full(n // 2, hi) + rng.normal(0.0, 1.0, n // 2),  # clamped -> far from the true out-range level
-        ])
+        raw_val = np.concatenate(
+            [
+                in_range + rng.normal(0.0, 1.0, n // 2),  # good in range
+                np.full(n // 2, hi) + rng.normal(0.0, 1.0, n // 2),  # clamped -> far from the true out-range level
+            ]
+        )
 
         rmse = lambda p: float(np.sqrt(np.mean((p - y_val) ** 2)))
         rmse_raw = rmse(raw_val)

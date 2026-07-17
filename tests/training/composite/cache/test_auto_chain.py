@@ -13,6 +13,7 @@ The unit tests pin: the chain Transform is well-formed + round-trips, MI-gain is
 monotone-blind to the second stage (the documented reason MI cannot rank chains),
 the "beats both singles" gate is enforced, and an unwinnable target yields [].
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,7 +38,7 @@ def _synth_chain_target(seed: int, n: int = 3000):
     f1 = rng.normal(size=n)
     f2 = rng.normal(size=n)
     z = 0.9 * f1 + 0.7 * f2 + 0.25 * rng.normal(size=n)
-    y = 2.0 * base + z ** 3
+    y = 2.0 * base + z**3
     x_matrix = np.column_stack([f1, f2])
     return y, base, x_matrix
 
@@ -45,6 +46,7 @@ def _synth_chain_target(seed: int, n: int = 3000):
 # ----------------------------------------------------------------------
 # Unit tests
 # ----------------------------------------------------------------------
+
 
 def test_build_chain_transform_is_wellformed_and_roundtrips():
     tf = build_chain_transform("linear_residual", "cbrt")
@@ -80,16 +82,12 @@ def test_mi_gain_is_monotone_blind_to_second_stage():
     from mlframe.training.composite.discovery.screening import _mi_to_target
 
     y, base, x = _synth_chain_target(0, n=2000)
-    mi_y = _mi_to_target(x, y, n_neighbors=3, random_state=0,
-                         estimator="bin", nbins=16)
-    kw = dict(y=y, base=base, x_matrix=x, mi_y=mi_y, mi_estimator="bin",
-              mi_nbins=16, mi_n_neighbors=3, random_state=0)
+    mi_y = _mi_to_target(x, y, n_neighbors=3, random_state=0, estimator="bin", nbins=16)
+    kw = dict(y=y, base=base, x_matrix=x, mi_y=mi_y, mi_estimator="bin", mi_nbins=16, mi_n_neighbors=3, random_state=0)
     res_gain = _mi_gain_of(TRANSFORMS_REGISTRY["linear_residual"], **kw)
     chain_gain = _mi_gain_of(build_chain_transform("linear_residual", "cbrt"), **kw)
     assert np.isfinite(res_gain) and np.isfinite(chain_gain)
-    assert abs(chain_gain - res_gain) < 1e-6, (
-        "binned MI must be invariant to the monotone cbrt second stage"
-    )
+    assert abs(chain_gain - res_gain) < 1e-6, "binned MI must be invariant to the monotone cbrt second stage"
 
 
 def test_discover_chains_returns_empty_when_no_chain_wins():
@@ -106,8 +104,13 @@ def test_discover_chains_returns_empty_when_no_chain_wins():
     y = 2.0 * base + 1.5 * f1 + 0.3 * rng.normal(size=n)
     x = f1.reshape(-1, 1)
     out = discover_chains(
-        y=y, base=base, x_matrix=x, residual_names=["linear_residual"],
-        unary_names=["cbrt", "yj", "sp"], min_rmse_margin=0.05, random_state=3,
+        y=y,
+        base=base,
+        x_matrix=x,
+        residual_names=["linear_residual"],
+        unary_names=["cbrt", "yj", "sp"],
+        min_rmse_margin=0.05,
+        random_state=3,
     )
     assert out == []
 
@@ -115,8 +118,12 @@ def test_discover_chains_returns_empty_when_no_chain_wins():
 def test_discover_chains_candidates_carry_fitted_params_and_beat_singles():
     y, base, x = _synth_chain_target(1)
     out = discover_chains(
-        y=y, base=base, x_matrix=x, residual_names=["linear_residual"],
-        unary_names=["cbrt", "yj", "sp"], random_state=1,
+        y=y,
+        base=base,
+        x_matrix=x,
+        residual_names=["linear_residual"],
+        unary_names=["cbrt", "yj", "sp"],
+        random_state=1,
     )
     assert out, "expected at least one winning chain on a chain-shaped target"
     best = out[0]
@@ -132,8 +139,16 @@ def test_discover_chains_candidates_carry_fitted_params_and_beat_singles():
 def test_y_scale_cv_rmse_raw_baseline_finite():
     y, base, x = _synth_chain_target(2, n=1000)
     raw_rmse, vf = _y_scale_cv_rmse(
-        None, y=y, base=base, x_matrix=x, cv_folds=4, random_state=2,
-        family="lgb", n_estimators=40, num_leaves=15, learning_rate=0.1,
+        None,
+        y=y,
+        base=base,
+        x_matrix=x,
+        cv_folds=4,
+        random_state=2,
+        family="lgb",
+        n_estimators=40,
+        num_leaves=15,
+        learning_rate=0.1,
     )
     assert np.isfinite(raw_rmse) and raw_rmse > 0
     assert vf == 1.0
@@ -142,6 +157,7 @@ def test_y_scale_cv_rmse_raw_baseline_finite():
 # ----------------------------------------------------------------------
 # biz_value: chain beats both singles on the MAJORITY of seeds
 # ----------------------------------------------------------------------
+
 
 def test_biz_val_auto_chain_beats_both_singles_majority_of_seeds():
     """Floor: chain beats BOTH singles on >=6 of 8 seeds (measured 8/8).
@@ -156,8 +172,12 @@ def test_biz_val_auto_chain_beats_both_singles_majority_of_seeds():
     for seed in range(8):
         y, base, x = _synth_chain_target(seed)
         out = discover_chains(
-            y=y, base=base, x_matrix=x, residual_names=["linear_residual"],
-            unary_names=["cbrt", "yj", "sp"], random_state=seed,
+            y=y,
+            base=base,
+            x_matrix=x,
+            residual_names=["linear_residual"],
+            unary_names=["cbrt", "yj", "sp"],
+            random_state=seed,
         )
         if out:
             best = out[0]
@@ -167,9 +187,7 @@ def test_biz_val_auto_chain_beats_both_singles_majority_of_seeds():
             wins += 1
             margins.append(best.margin)
     assert wins >= 6, f"chain should beat both singles on >=6/8 seeds, got {wins}"
-    assert np.mean(margins) > 0.02, (
-        f"mean RMSE margin over best single too small: {np.mean(margins):.4f}"
-    )
+    assert np.mean(margins) > 0.02, f"mean RMSE margin over best single too small: {np.mean(margins):.4f}"
 
 
 def test_biz_val_chain_also_beats_raw_y():
@@ -181,11 +199,13 @@ def test_biz_val_chain_also_beats_raw_y():
     """
     y, base, x = _synth_chain_target(4)
     out = discover_chains(
-        y=y, base=base, x_matrix=x, residual_names=["linear_residual"],
-        unary_names=["cbrt", "yj", "sp"], random_state=4,
+        y=y,
+        base=base,
+        x_matrix=x,
+        residual_names=["linear_residual"],
+        unary_names=["cbrt", "yj", "sp"],
+        random_state=4,
     )
     assert out
     best = out[0]
-    assert best.rmse < 0.9 * best.raw_rmse, (
-        f"chain rmse {best.rmse:.3f} should be <0.9x raw {best.raw_rmse:.3f}"
-    )
+    assert best.rmse < 0.9 * best.raw_rmse, f"chain rmse {best.rmse:.3f} should be <0.9x raw {best.raw_rmse:.3f}"

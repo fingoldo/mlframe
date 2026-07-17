@@ -7,6 +7,7 @@ Run:
   set PYTHONPATH=<worktree>/src;.../pyutilz/src
   D:/ProgramData/anaconda3/python.exe -m pytest tests/feature_selection/test_compare_selectors.py -x -s --no-cov
 """
+
 from __future__ import annotations
 
 import cProfile
@@ -17,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.feature_selection import compare_selectors, SelectorComparison
+from mlframe.feature_selection import compare_selectors
 
 
 # --------------------------------------------------------------------------- #
@@ -183,11 +184,7 @@ def _madelon_like(n=600, n_informative=4, n_redundant=4, n_noise=20, seed=7):
     # redundant = noisy linear copies of informative features (MRMR drops these as redundant)
     redun = info[:, rng.integers(0, n_informative, n_redundant)] + 0.05 * rng.normal(size=(n, n_redundant))
     noise = rng.normal(size=(n, n_noise))
-    cols = (
-        [f"info{i}" for i in range(n_informative)]
-        + [f"red{i}" for i in range(n_redundant)]
-        + [f"noise{i}" for i in range(n_noise)]
-    )
+    cols = [f"info{i}" for i in range(n_informative)] + [f"red{i}" for i in range(n_redundant)] + [f"noise{i}" for i in range(n_noise)]
     X = pd.DataFrame(np.hstack([info, redun, noise]), columns=cols)
     return X, pd.Series(y, name="target")
 
@@ -248,10 +245,7 @@ def test_cprofile_report_assembly_is_cheap():
     names = [f"f{i}" for i in range(40)]
     X = _frame(names, n=2000)
     rng = np.random.default_rng(1)
-    selectors = {
-        f"S{j}": _SupportMaskSelector(names, list(rng.choice(names, 15, replace=False)))
-        for j in range(4)
-    }
+    selectors = {f"S{j}": _SupportMaskSelector(names, list(rng.choice(names, 15, replace=False))) for j in range(4)}
     pr = cProfile.Profile()
     pr.enable()
     for _ in range(50):

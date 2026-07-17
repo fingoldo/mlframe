@@ -10,6 +10,7 @@ BOTH the full-feature model (variance reduction from diverse subsets) and naive 
 either duplicates the same dominant cluster's signal across subsets or splits it too thin, per the source's
 own diagnosis).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -64,8 +65,12 @@ def test_biz_val_cluster_aware_bagging_beats_full_model_and_naive_random_bagging
     r2_cluster = _manual_cv_r2(_cluster_bagged, df, y)
     r2_random = _manual_cv_r2(_naive_random_bagged, df, y)
 
-    assert r2_cluster > r2_full, f"expected correlation-cluster-aware bagging to beat the full-feature model (variance reduction on a small-n, correlated-cluster dataset), got cluster={r2_cluster:.4f} full={r2_full:.4f}"
-    assert r2_cluster > r2_random + 0.1, f"expected correlation-cluster-aware bagging to materially beat naive random feature bagging (validating the source's own finding that plain random gave no gain), got cluster={r2_cluster:.4f} random={r2_random:.4f}"
+    assert r2_cluster > r2_full, (
+        f"expected correlation-cluster-aware bagging to beat the full-feature model (variance reduction on a small-n, correlated-cluster dataset), got cluster={r2_cluster:.4f} full={r2_full:.4f}"
+    )
+    assert r2_cluster > r2_random + 0.1, (
+        f"expected correlation-cluster-aware bagging to materially beat naive random feature bagging (validating the source's own finding that plain random gave no gain), got cluster={r2_cluster:.4f} random={r2_random:.4f}"
+    )
 
 
 def test_correlation_cluster_feature_subsets_covers_multiple_clusters():
@@ -119,7 +124,9 @@ def test_biz_val_weighted_aggregation_beats_uniform_mean_with_mixed_quality_subs
         return ens.predict(X_test)
 
     def _weighted(X_train, y_train, X_test):
-        ens = FeatureSubsetBaggingEnsemble(lambda: Ridge(alpha=0.1), n_subsets=12, subset_size=4, n_clusters=12, random_state=0, aggregation="weighted", weighted_cv=3)
+        ens = FeatureSubsetBaggingEnsemble(
+            lambda: Ridge(alpha=0.1), n_subsets=12, subset_size=4, n_clusters=12, random_state=0, aggregation="weighted", weighted_cv=3
+        )
         ens.fit(X_train, y_train)
         return ens.predict(X_test)
 

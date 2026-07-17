@@ -18,7 +18,7 @@ import itertools
 import numpy as np
 import pytest
 
-from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import METRIC_CODES, proxy_loss
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import proxy_loss
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_subsetrank as SR
 

@@ -6,12 +6,12 @@ predictions, then greedily forward-select raw features one at a time by CV-delta
 alone: the meta-model needs the base predictions ALWAYS present (they carry most of the signal), with raw
 features added only where they genuinely improve on top of what the base predictions already capture.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge
-from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import cross_val_score
 
 from mlframe.feature_selection.forward_select import forward_select
@@ -58,10 +58,21 @@ def test_forward_select_initial_selected_beats_base_alone_and_none_kept():
 
     base_alone_mse = -cross_val_score(Ridge(alpha=1.0), X[["base_pred"]], y, cv=5, scoring="neg_mean_squared_error").mean()
 
-    selected = forward_select(X, y, lambda: Ridge(alpha=1.0), scoring="neg_mean_squared_error", cv=5, candidate_features=raw_candidates, initial_selected=["base_pred"], min_improvement=0.001)
+    selected = forward_select(
+        X,
+        y,
+        lambda: Ridge(alpha=1.0),
+        scoring="neg_mean_squared_error",
+        cv=5,
+        candidate_features=raw_candidates,
+        initial_selected=["base_pred"],
+        min_improvement=0.001,
+    )
     augmented_mse = -cross_val_score(Ridge(alpha=1.0), X[selected], y, cv=5, scoring="neg_mean_squared_error").mean()
 
-    assert augmented_mse < base_alone_mse, f"expected the raw-augmented stacker to beat base predictions alone, got augmented={augmented_mse:.4f} base_alone={base_alone_mse:.4f}"
+    assert augmented_mse < base_alone_mse, (
+        f"expected the raw-augmented stacker to beat base predictions alone, got augmented={augmented_mse:.4f} base_alone={base_alone_mse:.4f}"
+    )
 
 
 def test_forward_select_initial_selected_none_preserves_original_behavior():

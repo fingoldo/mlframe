@@ -19,6 +19,7 @@ Covered transforms span the structurally-distinct inverse families:
 * ``linear_residual_grouped`` -- per-group coefficient table (a dict-valued
   fitted param, the easiest one to lose to a careless ``__getstate__``).
 """
+
 from __future__ import annotations
 
 import copy
@@ -133,7 +134,8 @@ def test_predict_bit_identical_after_pickle(transform: str) -> None:
     pred_after = est2.predict(X)
 
     np.testing.assert_array_equal(
-        pred_before, pred_after,
+        pred_before,
+        pred_after,
         err_msg=f"predict not bit-identical after pickle for {transform}",
     )
     # Also confirm a second predict on the restored estimator is itself stable
@@ -152,13 +154,8 @@ def test_fitted_params_survive_pickle(transform: str) -> None:
 
     est2 = pickle.loads(pickle.dumps(est))
 
-    assert hasattr(est2, "fitted_params_"), (
-        f"fitted_params_ missing after unpickle for {transform}"
-    )
-    assert _params_equal(before, est2.fitted_params_), (
-        f"fitted_params_ changed across pickle for {transform}: "
-        f"{before} != {est2.fitted_params_}"
-    )
+    assert hasattr(est2, "fitted_params_"), f"fitted_params_ missing after unpickle for {transform}"
+    assert _params_equal(before, est2.fitted_params_), f"fitted_params_ changed across pickle for {transform}: {before} != {est2.fitted_params_}"
 
 
 def test_grouped_coefficient_table_preserved() -> None:
@@ -169,9 +166,7 @@ def test_grouped_coefficient_table_preserved() -> None:
     est, X = _fit("linear_residual_grouped")
     fp = est.fitted_params_
     # The grouped fit must carry a non-scalar (table-shaped) param.
-    has_table = any(
-        isinstance(v, (dict, list, tuple, np.ndarray)) for v in fp.values()
-    )
+    has_table = any(isinstance(v, (dict, list, tuple, np.ndarray)) for v in fp.values())
     assert has_table, f"grouped fitted_params_ has no table-shaped entry: {fp}"
 
     est2 = pickle.loads(pickle.dumps(est))

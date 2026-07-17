@@ -1,4 +1,5 @@
 """Tests for ``forward_stepwise_multi_base`` (R10c follow-up OPEN-1; greedy forward-stepwise selection of additional base columns for linear_residual_multi)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,8 +27,10 @@ class TestSeedBehavior:
         b1 = rng.normal(loc=10, scale=2, size=n)
         b2 = rng.normal(size=n)
         y = b1 + b2 + rng.normal(scale=0.1, size=n)
-        kept, diag = forward_stepwise_multi_base(
-            y, candidate_bases={"b1": b1, "b2": b2}, seed_bases=["b1"],
+        kept, _diag = forward_stepwise_multi_base(
+            y,
+            candidate_bases={"b1": b1, "b2": b2},
+            seed_bases=["b1"],
         )
         # b1 in seeds + b2 greedily added. No duplicate b1.
         assert "b1" in kept
@@ -43,7 +46,9 @@ class TestSeedBehavior:
         y = b1 + rng.normal(scale=0.1, size=n)
         with pytest.raises(ValueError, match="must appear in candidate_bases"):
             forward_stepwise_multi_base(
-                y, candidate_bases={"b1": b1}, seed_bases=["missing_seed"],
+                y,
+                candidate_bases={"b1": b1},
+                seed_bases=["missing_seed"],
             )
 
 
@@ -56,9 +61,11 @@ class TestGreedyAddition:
         b2 = rng.normal(loc=0, scale=3, size=n)
         b3_noise = rng.normal(size=n)  # pure noise -> should be rejected
         y = 0.9 * b1 + 0.5 * b2 + rng.normal(scale=0.2, size=n)
-        kept, diag = forward_stepwise_multi_base(
-            y, candidate_bases={"b1": b1, "b2": b2, "b3_noise": b3_noise},
-            seed_bases=["b1"], max_k=3,
+        kept, _diag = forward_stepwise_multi_base(
+            y,
+            candidate_bases={"b1": b1, "b2": b2, "b3_noise": b3_noise},
+            seed_bases=["b1"],
+            max_k=3,
         )
         assert "b1" in kept
         assert "b2" in kept
@@ -72,9 +79,12 @@ class TestGreedyAddition:
         y = 0.9 * b1 + rng.normal(scale=0.2, size=n)
         noise_bases = {f"noise_{i}": rng.normal(size=n) for i in range(5)}
         candidates = {"b1": b1, **noise_bases}
-        kept, diag = forward_stepwise_multi_base(
-            y, candidates, seed_bases=["b1"],
-            max_k=5, min_marginal_rmse_gain=0.02,
+        kept, _diag = forward_stepwise_multi_base(
+            y,
+            candidates,
+            seed_bases=["b1"],
+            max_k=5,
+            min_marginal_rmse_gain=0.02,
         )
         # b1 in kept; noise bases should NOT add (gain < 2%).
         assert "b1" in kept
@@ -87,8 +97,11 @@ class TestGreedyAddition:
         n = 400
         candidates = {f"b{i}": rng.normal(size=n) for i in range(10)}
         y = sum(candidates.values()) + rng.normal(scale=0.1, size=n)
-        kept, diag = forward_stepwise_multi_base(
-            y, candidates, max_k=3, min_marginal_rmse_gain=0.0,
+        kept, _diag = forward_stepwise_multi_base(
+            y,
+            candidates,
+            max_k=3,
+            min_marginal_rmse_gain=0.0,
         )
         assert len(kept) <= 3
 
@@ -101,8 +114,10 @@ class TestDiagnostics:
         b2 = rng.normal(size=n)
         y = b1 + b2 + rng.normal(scale=0.1, size=n)
         _, diag = forward_stepwise_multi_base(
-            y, candidate_bases={"b1": b1, "b2": b2},
-            seed_bases=["b1"], max_k=3,
+            y,
+            candidate_bases={"b1": b1, "b2": b2},
+            seed_bases=["b1"],
+            max_k=3,
         )
         # Each entry has the expected fields.
         for entry in diag:
@@ -118,8 +133,11 @@ class TestDiagnostics:
         noise_b = rng.normal(size=n)
         y = 0.9 * b1 + rng.normal(scale=0.2, size=n)
         kept, diag = forward_stepwise_multi_base(
-            y, candidate_bases={"b1": b1, "noise_a": noise_a, "noise_b": noise_b},
-            seed_bases=["b1"], max_k=3, min_marginal_rmse_gain=0.5,  # 50% gain threshold
+            y,
+            candidate_bases={"b1": b1, "noise_a": noise_a, "noise_b": noise_b},
+            seed_bases=["b1"],
+            max_k=3,
+            min_marginal_rmse_gain=0.5,  # 50% gain threshold
         )
         # Only b1 kept (noise gates fail).
         assert kept == ["b1"]
@@ -151,8 +169,11 @@ class TestBizValue:
         noise = rng.normal(size=n)
         y = 0.9 * b1 + 0.5 * b2 + rng.normal(scale=0.1, size=n)
         kept, diag = forward_stepwise_multi_base(
-            y, candidate_bases={"b1": b1, "b2": b2, "noise": noise},
-            seed_bases=["b1"], max_k=3, min_marginal_rmse_gain=0.02,
+            y,
+            candidate_bases={"b1": b1, "b2": b2, "noise": noise},
+            seed_bases=["b1"],
+            max_k=3,
+            min_marginal_rmse_gain=0.02,
         )
         assert "b2" in kept
         # First accepted step should be b2 with significant gain.

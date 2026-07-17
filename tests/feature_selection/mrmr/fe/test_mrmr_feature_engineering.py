@@ -15,18 +15,11 @@ import numpy as np
 import pandas as pd
 import warnings
 
-from hypothesis import given, settings, strategies as st, assume, HealthCheck
-from hypothesis.extra.numpy import arrays
 
-from sklearn.datasets import make_classification, make_regression
 
 # Import the module under test
 from mlframe.feature_selection.filters import (
     MRMR,
-    entropy,
-    categorize_dataset,
-    discretize_array,
-    compute_mi_from_classes,
 )
 
 
@@ -52,6 +45,7 @@ def _referenced_columns(mrmr) -> set:
         referenced |= set(_IDENT.findall(str(nm)))
     return referenced
 
+
 class TestMRMRFeatureEngineering:
     """Test MRMR's feature engineering capabilities."""
 
@@ -73,7 +67,7 @@ class TestMRMRFeatureEngineering:
             fe_max_steps=1,  # Enable feature engineering
             fe_min_pair_mi_prevalence=1.1,
             verbose=0,
-            n_jobs=1
+            n_jobs=1,
         )
 
         with warnings.catch_warnings():
@@ -95,16 +89,12 @@ class TestMRMRFeatureEngineering:
         referenced = _referenced_columns(mrmr)
 
         # Noise feature 'e' must not be referenced by any selected feature.
-        assert 'e' not in referenced, (
-            f"Noise feature 'e' should not be selected; "
-            f"names={list(mrmr.get_feature_names_out())}"
-        )
+        assert "e" not in referenced, f"Noise feature 'e' should not be selected; names={list(mrmr.get_feature_names_out())}"
 
         # At least 3 of the 4 informative features must be referenced by a survivor.
         informative_selected = sum(1 for f in expected_features if f in referenced)
         assert informative_selected >= 3, (
-            f"Expected at least 3 informative features referenced, got "
-            f"{informative_selected}: {list(mrmr.get_feature_names_out())}"
+            f"Expected at least 3 informative features referenced, got {informative_selected}: {list(mrmr.get_feature_names_out())}"
         )
 
     @pytest.mark.slow
@@ -117,16 +107,9 @@ class TestMRMRFeatureEngineering:
         - mul(log(c), sin(d))
         - mul(sqr(a), reciproc(b))
         """
-        df, y, expected_features = feature_engineering_example_data
+        df, y, _expected_features = feature_engineering_example_data
 
-        mrmr = MRMR(
-            full_npermutations=10,
-            baseline_npermutations=20,
-            fe_max_steps=2,
-            fe_min_pair_mi_prevalence=1.05,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -142,17 +125,11 @@ class TestMRMRFeatureEngineering:
         referenced = _referenced_columns(mrmr)
 
         # Check that noise is not referenced by any selected feature.
-        assert 'e' not in referenced, (
-            f"Noise feature 'e' should not be selected; "
-            f"names={list(mrmr.get_feature_names_out())}"
-        )
+        assert "e" not in referenced, f"Noise feature 'e' should not be selected; names={list(mrmr.get_feature_names_out())}"
 
         # Check that the key source columns are referenced by a survivor (raw or engineered).
-        for feat in ['a', 'b']:
-            assert feat in referenced, (
-                f"Feature '{feat}' should be selected (raw or engineered); "
-                f"names={list(mrmr.get_feature_names_out())}"
-            )
+        for feat in ["a", "b"]:
+            assert feat in referenced, f"Feature '{feat}' should be selected (raw or engineered); names={list(mrmr.get_feature_names_out())}"
 
     def test_feature_engineering_example_single_compound(self):
         """STRENGTHENED canonical gate on the user's EXACT ticket formula INCLUDING the f/5 noise term:
@@ -169,14 +146,22 @@ class TestMRMRFeatureEngineering:
         """
         rng = np.random.default_rng(42)
         n = 10_000
-        a = rng.random(n) + 0.1; b = rng.random(n) + 0.1; c = rng.random(n) + 0.1
-        d = rng.random(n) * 2 * np.pi; e = rng.random(n); f = rng.random(n)
+        a = rng.random(n) + 0.1
+        b = rng.random(n) + 0.1
+        c = rng.random(n) + 0.1
+        d = rng.random(n) * 2 * np.pi
+        e = rng.random(n)
+        f = rng.random(n)
         df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
         y = a**2 / b + f / 5 + np.log(c) * np.sin(d)
 
         mrmr = MRMR(
-            full_npermutations=10, baseline_npermutations=20, fe_max_steps=2,
-            fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1,
+            full_npermutations=10,
+            baseline_npermutations=20,
+            fe_max_steps=2,
+            fe_min_pair_mi_prevalence=1.05,
+            verbose=0,
+            n_jobs=1,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -253,12 +238,15 @@ class TestMRMRFeatureEngineering:
         sin(d))))``). Guards the exact regression the user flagged."""
         rng = np.random.default_rng(42)
         n = 10_000
-        a = rng.random(n) + 0.1; b = rng.random(n) + 0.1; c = rng.random(n) + 0.1
-        d = rng.random(n) * 2 * np.pi; e = rng.random(n); f = rng.random(n)
+        a = rng.random(n) + 0.1
+        b = rng.random(n) + 0.1
+        c = rng.random(n) + 0.1
+        d = rng.random(n) * 2 * np.pi
+        e = rng.random(n)
+        f = rng.random(n)
         df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
         y = a**2 / b + f / 5 + np.log(c) * np.sin(d)
-        mrmr = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2,
-                    fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1)
+        mrmr = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             mrmr.fit(X=df, y=y)
@@ -276,7 +264,9 @@ class TestMRMRFeatureEngineering:
         enforcement from over-correcting into "prewarp disabled"."""
         rng = np.random.default_rng(7)
         n = 20_000
-        a = rng.uniform(-2, 2, n); b = rng.uniform(-2, 2, n); e = rng.uniform(-2, 2, n)
+        a = rng.uniform(-2, 2, n)
+        b = rng.uniform(-2, 2, n)
+        e = rng.uniform(-2, 2, n)
         df = pd.DataFrame({"a": a, "b": b, "e": e})
         y = (a**3 - 2 * a) * (b**2 - b)  # non-monotone inner in a (and b) -> library is blind, prewarp wins
         mrmr = MRMR(fe_max_steps=1, verbose=0, n_jobs=1)
@@ -293,13 +283,7 @@ class TestMRMRFeatureEngineering:
         """Test that MRMR detects multiplicative synergy: y = a * b."""
         df, y, expected_features = multiplicative_synergy_data
 
-        mrmr = MRMR(
-            full_npermutations=5,
-            baseline_npermutations=5,
-            fe_max_steps=1,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=5, baseline_npermutations=5, fe_max_steps=1, verbose=0, n_jobs=1)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -315,10 +299,7 @@ class TestMRMRFeatureEngineering:
         # appear in any survivor.
         referenced = _referenced_columns(mrmr)
         for feat in expected_features:
-            assert feat in referenced, (
-                f"Feature '{feat}' should be selected (raw or engineered); "
-                f"names={list(mrmr.get_feature_names_out())}"
-            )
+            assert feat in referenced, f"Feature '{feat}' should be selected (raw or engineered); names={list(mrmr.get_feature_names_out())}"
 
         # Noise feature should ideally not be selected
         # (though with limited permutations it might be)
@@ -327,12 +308,7 @@ class TestMRMRFeatureEngineering:
         """Test that MRMR detects additive relationships: y = a + b."""
         df, y, expected_features = additive_synergy_data
 
-        mrmr = MRMR(
-            full_npermutations=5,
-            baseline_npermutations=5,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=5, baseline_npermutations=5, verbose=0, n_jobs=1)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -346,16 +322,16 @@ class TestMRMRFeatureEngineering:
         # feature (raw or engineered). Falsifiable as above.
         referenced = _referenced_columns(mrmr)
         for feat in expected_features:
-            assert feat in referenced, (
-                f"Feature '{feat}' should be selected (raw or engineered); "
-                f"names={list(mrmr.get_feature_names_out())}"
-            )
+            assert feat in referenced, f"Feature '{feat}' should be selected (raw or engineered); names={list(mrmr.get_feature_names_out())}"
 
-    @pytest.mark.parametrize("transform_name,transform_func,feature_gen", [
-        ("squared", lambda x: x**2, lambda rng: rng.standard_normal(3000)),
-        ("log", lambda x: np.log(np.abs(x) + 1), lambda rng: rng.random(3000) + 0.1),
-        ("sin", np.sin, lambda rng: rng.random(3000) * 2 * np.pi),
-    ])
+    @pytest.mark.parametrize(
+        "transform_name,transform_func,feature_gen",
+        [
+            ("squared", lambda x: x**2, lambda rng: rng.standard_normal(3000)),
+            ("log", lambda x: np.log(np.abs(x) + 1), lambda rng: rng.random(3000) + 0.1),
+            ("sin", np.sin, lambda rng: rng.random(3000) * 2 * np.pi),
+        ],
+    )
     def test_unary_transform_detection(self, transform_name, transform_func, feature_gen):
         """Test that MRMR can detect features with unary transforms."""
         rng = np.random.default_rng(42)
@@ -365,14 +341,9 @@ class TestMRMRFeatureEngineering:
 
         y = transform_func(a) + rng.standard_normal(len(a)) * 0.1
 
-        df = pd.DataFrame({'a': a, 'b': b})
+        df = pd.DataFrame({"a": a, "b": b})
 
-        mrmr = MRMR(
-            full_npermutations=5,
-            baseline_npermutations=5,
-            verbose=0,
-            n_jobs=1
-        )
+        mrmr = MRMR(full_npermutations=5, baseline_npermutations=5, verbose=0, n_jobs=1)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -389,23 +360,25 @@ class TestMRMRFeatureEngineering:
         n = 5000
 
         # All independent features
-        df = pd.DataFrame({
-            'a': rng.standard_normal(n),
-            'b': rng.standard_normal(n),
-            'c': rng.standard_normal(n),
-            'd': rng.standard_normal(n),
-            'e': rng.standard_normal(n),
-        })
+        df = pd.DataFrame(
+            {
+                "a": rng.standard_normal(n),
+                "b": rng.standard_normal(n),
+                "c": rng.standard_normal(n),
+                "d": rng.standard_normal(n),
+                "e": rng.standard_normal(n),
+            }
+        )
 
         # Target only depends on 'a'
-        y = df['a'] + rng.standard_normal(n) * 0.1
+        y = df["a"] + rng.standard_normal(n) * 0.1
 
         mrmr = MRMR(
             full_npermutations=10,
             baseline_npermutations=10,
             min_relevance_gain=0.01,  # Higher threshold
             verbose=0,
-            n_jobs=1
+            n_jobs=1,
         )
 
         with warnings.catch_warnings():
@@ -413,8 +386,7 @@ class TestMRMRFeatureEngineering:
             mrmr.fit(X=df, y=y)
 
         # Should select very few features (ideally just 'a')
-        assert mrmr.n_features_ <= 3, \
-            f"Expected few features for simple relationship, got {mrmr.n_features_}"
+        assert mrmr.n_features_ <= 3, f"Expected few features for simple relationship, got {mrmr.n_features_}"
 
 
 # ================================================================================================
@@ -422,5 +394,5 @@ class TestMRMRFeatureEngineering:
 # ================================================================================================
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '--tb=short', '-x'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--tb=short", "-x"])

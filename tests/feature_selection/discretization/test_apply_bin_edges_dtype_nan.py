@@ -28,6 +28,7 @@ Fix at supervised_binning.py:364:
 - NaN inputs get a dedicated sentinel at ``n_codes`` (one past max
   real bin).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,15 +38,14 @@ import pytest
 def test_default_dtype_handles_large_edge_count():
     """300-edge input must not silently wrap on default dtype."""
     from mlframe.feature_selection.filters.supervised_binning import apply_bin_edges
+
     edges = np.linspace(-10, 10, 300)
     x = np.linspace(-10, 10, 8)
     out = apply_bin_edges(x, edges)
     # Monotonic in int64 (after upcast); the int8 wrap would show
     # non-monotonic codes.
     out_int64 = out.astype(np.int64)
-    assert (np.diff(out_int64) >= 0).all(), (
-        f"codes not monotonic - dtype overflow: {out.tolist()}"
-    )
+    assert (np.diff(out_int64) >= 0).all(), f"codes not monotonic - dtype overflow: {out.tolist()}"
     # Codes must reach near the max bin range, not wrap.
     assert int(out_int64.max()) > 127
 
@@ -55,6 +55,7 @@ def test_forced_narrow_dtype_raises():
     silently wrapping.
     """
     from mlframe.feature_selection.filters.supervised_binning import apply_bin_edges
+
     edges = np.linspace(-10, 10, 300)
     x = np.linspace(-10, 10, 8)
     with pytest.raises(ValueError, match="exceeds caller-forced dtype"):
@@ -66,13 +67,12 @@ def test_nan_routes_to_sentinel_not_top_bin():
     silently alias with the highest finite bin.
     """
     from mlframe.feature_selection.filters.supervised_binning import apply_bin_edges
+
     edges = np.array([-3.0, -1.0, 1.0, 3.0])
     x = np.array([-2.0, 0.0, 2.0, np.nan])
     out = apply_bin_edges(x, edges)
     n_codes = len(edges) - 1  # = 3 (bins, not edges)
-    assert int(out[3]) == n_codes, (
-        f"NaN should map to sentinel n_codes={n_codes}; got {int(out[3])}"
-    )
+    assert int(out[3]) == n_codes, f"NaN should map to sentinel n_codes={n_codes}; got {int(out[3])}"
     # Real bin codes for finite inputs unchanged.
     assert int(out[0]) == 0
     assert int(out[1]) == 1
@@ -82,6 +82,7 @@ def test_nan_routes_to_sentinel_not_top_bin():
 def test_no_nan_input_unchanged():
     """Negative control: no NaN -> behaviour identical to pre-fix."""
     from mlframe.feature_selection.filters.supervised_binning import apply_bin_edges
+
     edges = np.array([-2.0, 0.0, 2.0])
     x = np.array([-1.5, -0.5, 0.5, 1.5])
     out = apply_bin_edges(x, edges)
@@ -92,6 +93,7 @@ def test_no_nan_input_unchanged():
 def test_dtype_auto_picks_int16_at_boundary():
     """Edge count just above int8 max must auto-pick int16."""
     from mlframe.feature_selection.filters.supervised_binning import apply_bin_edges
+
     edges = np.linspace(-10, 10, 130)  # 129 bins
     x = np.linspace(-10, 10, 5)
     out = apply_bin_edges(x, edges)

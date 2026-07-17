@@ -42,6 +42,7 @@ CONTRACTS
 
 NEVER xfail.
 """
+
 from __future__ import annotations
 
 import time
@@ -99,6 +100,7 @@ def _fresh_state(factors_data, factors_nbins, distance: str = "su"):
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
         DCDState,
     )
+
     n_cols = int(factors_data.shape[1])
     return DCDState(
         pool_pruned_mask=np.zeros(n_cols, dtype=bool),
@@ -113,8 +115,10 @@ def _fresh_state(factors_data, factors_nbins, distance: str = "su"):
 def _warm_jit():
     """Pre-fit so njit + module imports do not pollute the perf budgets."""
     from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-        pair_su, pair_su_batch,
+        pair_su,
+        pair_su_batch,
     )
+
     X = _make_random_X(n=300, p=10, seed=99)
     fd, fn = _quantize_X(X)
     st = _fresh_state(fd, fn)
@@ -133,8 +137,10 @@ class TestLayer51_BitEquivalence:
     def test_batch_matches_single_pair_50_random_pairs(self):
         """Batch SU array matches loop of pair_su() within rtol 1e-12."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            pair_su, pair_su_batch,
+            pair_su,
+            pair_su_batch,
         )
+
         X = _make_random_X(n=1200, p=25, seed=7)
         fd, fn = _quantize_X(X)
         rng = np.random.default_rng(42)
@@ -155,7 +161,8 @@ class TestLayer51_BitEquivalence:
         st_single = _fresh_state(fd, fn)
         st_batch = _fresh_state(fd, fn)
         single = np.array(
-            [pair_su(st_single, a, b) for a, b in pairs], dtype=np.float64,
+            [pair_su(st_single, a, b) for a, b in pairs],
+            dtype=np.float64,
         )
         batch = pair_su_batch(st_batch, pairs)
         assert batch.shape == (50,)
@@ -165,15 +172,18 @@ class TestLayer51_BitEquivalence:
     def test_batch_matches_single_pair_distance_vi(self):
         """Bit-equivalence holds under ``distance='vi'``."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            pair_su, pair_su_batch,
+            pair_su,
+            pair_su_batch,
         )
+
         X = _make_random_X(n=1200, p=20, seed=8)
         fd, fn = _quantize_X(X)
         pairs = [(0, 5), (1, 6), (2, 7), (3, 8), (4, 9), (10, 11), (12, 13), (14, 15)]
         st_single = _fresh_state(fd, fn, distance="vi")
         st_batch = _fresh_state(fd, fn, distance="vi")
         single = np.array(
-            [pair_su(st_single, a, b) for a, b in pairs], dtype=np.float64,
+            [pair_su(st_single, a, b) for a, b in pairs],
+            dtype=np.float64,
         )
         batch = pair_su_batch(st_batch, pairs)
         np.testing.assert_allclose(batch, single, rtol=1e-12, atol=1e-12)
@@ -181,15 +191,18 @@ class TestLayer51_BitEquivalence:
     def test_batch_matches_single_pair_distance_auto(self):
         """Bit-equivalence holds under ``distance='auto'`` (max(SU, VI_sim))."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            pair_su, pair_su_batch,
+            pair_su,
+            pair_su_batch,
         )
+
         X = _make_random_X(n=1200, p=20, seed=9)
         fd, fn = _quantize_X(X)
         pairs = [(0, 3), (1, 4), (2, 5), (6, 7), (8, 9), (10, 11)]
         st_single = _fresh_state(fd, fn, distance="auto")
         st_batch = _fresh_state(fd, fn, distance="auto")
         single = np.array(
-            [pair_su(st_single, a, b) for a, b in pairs], dtype=np.float64,
+            [pair_su(st_single, a, b) for a, b in pairs],
+            dtype=np.float64,
         )
         batch = pair_su_batch(st_batch, pairs)
         np.testing.assert_allclose(batch, single, rtol=1e-12, atol=1e-12)
@@ -199,6 +212,7 @@ class TestLayer51_BitEquivalence:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             pair_su_batch,
         )
+
         X = _make_random_X(n=400, p=8, seed=10)
         fd, fn = _quantize_X(X)
         st = _fresh_state(fd, fn)
@@ -212,6 +226,7 @@ class TestLayer51_BitEquivalence:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             pair_su_batch,
         )
+
         X = _make_random_X(n=400, p=8, seed=11)
         fd, fn = _quantize_X(X)
         st = _fresh_state(fd, fn)
@@ -231,8 +246,10 @@ class TestLayer51_CacheReuse:
         """Pre-warm cache via single calls, then batch on the same pairs
         and verify the cache hit counter went up by the batch length."""
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            pair_su, pair_su_batch,
+            pair_su,
+            pair_su_batch,
         )
+
         X = _make_random_X(n=900, p=15, seed=12)
         fd, fn = _quantize_X(X)
         st = _fresh_state(fd, fn)
@@ -247,8 +264,8 @@ class TestLayer51_CacheReuse:
         assert out.shape == (len(pairs),)
         hits_after = int(st.n_cache_hits)
         misses_after = int(st.n_cache_misses)
-        assert hits_after - hits_before == len(pairs), f"every warm pair must hit the cache; " f"hits delta={hits_after - hits_before}, expected={len(pairs)}"
-        assert misses_after == misses_before, "warm pair batch must not increment the miss counter; " f"misses delta={misses_after - misses_before}"
+        assert hits_after - hits_before == len(pairs), f"every warm pair must hit the cache; hits delta={hits_after - hits_before}, expected={len(pairs)}"
+        assert misses_after == misses_before, f"warm pair batch must not increment the miss counter; misses delta={misses_after - misses_before}"
 
     def test_batch_warms_marginal_entropy_cache(self):
         """After batch, every unique column from the pairs has a marginal
@@ -256,6 +273,7 @@ class TestLayer51_CacheReuse:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             pair_su_batch,
         )
+
         X = _make_random_X(n=900, p=15, seed=13)
         fd, fn = _quantize_X(X)
         st = _fresh_state(fd, fn)
@@ -279,13 +297,17 @@ class TestLayer51_PerfBudget:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _calibrate_tau_auto,
         )
+
         _warm_jit()
         X = _make_random_X(n=1500, p=300, seed=20)
         fd, fn = _quantize_X(X)
         t0 = time.perf_counter()
         tau, diag = _calibrate_tau_auto(
-            factors_data=fd, factors_nbins=fn,
-            distance="su", n_pairs=100, seed=0,
+            factors_data=fd,
+            factors_nbins=fn,
+            distance="su",
+            n_pairs=100,
+            seed=0,
         )
         elapsed = time.perf_counter() - t0
         assert elapsed <= 5.0, f"tau-auto calibration at p=300 must finish <= 5s; got {elapsed:.3f}s"
@@ -298,6 +320,7 @@ class TestLayer51_PerfBudget:
         from mlframe.feature_selection.filters._cluster_hierarchy import (
             build_cluster_hierarchy,
         )
+
         _warm_jit()
         # 20 anchor columns + 20 member columns -- only the anchors enter
         # the hierarchy sweep.
@@ -318,7 +341,11 @@ class TestLayer51_PerfBudget:
         }
         t0 = time.perf_counter()
         hierarchy = build_cluster_hierarchy(
-            dcd_summary, X, super_tau=0.3, max_levels=2, distance="su",
+            dcd_summary,
+            X,
+            super_tau=0.3,
+            max_levels=2,
+            distance="su",
         )
         elapsed = time.perf_counter() - t0
         assert elapsed <= 2.0, f"hierarchy at 20 anchors must finish <= 2s; got {elapsed:.3f}s"
@@ -340,6 +367,7 @@ class TestLayer51_ExportSurface:
         from mlframe.feature_selection.filters import (
             _dynamic_cluster_discovery as dcd_mod,
         )
+
         assert "pair_su_batch" in dcd_mod.__all__
         assert callable(dcd_mod.pair_su_batch)
 
@@ -348,6 +376,7 @@ class TestLayer51_ExportSurface:
         from mlframe.feature_selection.filters._dcd_pair_su_batch import (
             pair_su_batch,
         )
+
         assert callable(pair_su_batch)
 
 
@@ -361,6 +390,7 @@ class TestLayer51_RegressionL41toL50:
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             _calibrate_tau_auto,
         )
+
         # Re-use the L47 bimodal fixture inline (8 dups around 2 latents
         # + 6 noise fillers).
         rng = np.random.default_rng(50)
@@ -368,26 +398,34 @@ class TestLayer51_RegressionL41toL50:
         latent_A = rng.standard_normal(n)
         latent_B = rng.standard_normal(n)
         other = rng.standard_normal(n)
-        X = pd.DataFrame({
-            "u": other,
-            "A_a": latent_A + 0.05 * rng.standard_normal(n),
-            "A_b": latent_A + 0.05 * rng.standard_normal(n),
-            "A_c": latent_A + 0.05 * rng.standard_normal(n),
-            "A_d": latent_A + 0.05 * rng.standard_normal(n),
-            "A_e": latent_A + 0.05 * rng.standard_normal(n),
-            "B_a": latent_B + 0.05 * rng.standard_normal(n),
-            "B_b": latent_B + 0.05 * rng.standard_normal(n),
-            "B_c": latent_B + 0.05 * rng.standard_normal(n),
-            "f1": rng.standard_normal(n), "f2": rng.standard_normal(n),
-            "f3": rng.standard_normal(n), "f4": rng.standard_normal(n),
-            "f5": rng.standard_normal(n), "f6": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "u": other,
+                "A_a": latent_A + 0.05 * rng.standard_normal(n),
+                "A_b": latent_A + 0.05 * rng.standard_normal(n),
+                "A_c": latent_A + 0.05 * rng.standard_normal(n),
+                "A_d": latent_A + 0.05 * rng.standard_normal(n),
+                "A_e": latent_A + 0.05 * rng.standard_normal(n),
+                "B_a": latent_B + 0.05 * rng.standard_normal(n),
+                "B_b": latent_B + 0.05 * rng.standard_normal(n),
+                "B_c": latent_B + 0.05 * rng.standard_normal(n),
+                "f1": rng.standard_normal(n),
+                "f2": rng.standard_normal(n),
+                "f3": rng.standard_normal(n),
+                "f4": rng.standard_normal(n),
+                "f5": rng.standard_normal(n),
+                "f6": rng.standard_normal(n),
+            }
+        )
         fd, fn = _quantize_X(X)
         tau, diag = _calibrate_tau_auto(
-            factors_data=fd, factors_nbins=fn,
-            distance="su", n_pairs=100, seed=0,
+            factors_data=fd,
+            factors_nbins=fn,
+            distance="su",
+            n_pairs=100,
+            seed=0,
         )
-        assert diag["mode"] == "bimodal", f"L47 bimodal data must still trigger bimodal detection under " f"the L51 batch path; got mode={diag['mode']!r}"
+        assert diag["mode"] == "bimodal", f"L47 bimodal data must still trigger bimodal detection under the L51 batch path; got mode={diag['mode']!r}"
         assert 0.3 <= tau <= 0.95
 
     def test_l48_hierarchy_unchanged_under_batch(self):
@@ -397,6 +435,7 @@ class TestLayer51_RegressionL41toL50:
         from mlframe.feature_selection.filters._cluster_hierarchy import (
             build_cluster_hierarchy,
         )
+
         rng = np.random.default_rng(51)
         n = 1500
         meta_1 = rng.standard_normal(n)
@@ -405,13 +444,15 @@ class TestLayer51_RegressionL41toL50:
         s1_b = meta_1 + 0.5 * rng.standard_normal(n)
         s2_a = meta_2 + 0.5 * rng.standard_normal(n)
         s2_b = meta_2 + 0.5 * rng.standard_normal(n)
-        X = pd.DataFrame({
-            "anc_s1_a": s1_a,
-            "anc_s1_b": s1_b,
-            "anc_s2_a": s2_a,
-            "anc_s2_b": s2_b,
-            "noise": rng.standard_normal(n),
-        })
+        X = pd.DataFrame(
+            {
+                "anc_s1_a": s1_a,
+                "anc_s1_b": s1_b,
+                "anc_s2_a": s2_a,
+                "anc_s2_b": s2_b,
+                "noise": rng.standard_normal(n),
+            }
+        )
         dcd_summary = {
             "cluster_anchors_names": {
                 "anc_s1_a": [],
@@ -421,7 +462,11 @@ class TestLayer51_RegressionL41toL50:
             },
         }
         hierarchy = build_cluster_hierarchy(
-            dcd_summary, X, super_tau=0.05, max_levels=2, distance="su",
+            dcd_summary,
+            X,
+            super_tau=0.05,
+            max_levels=2,
+            distance="su",
         )
         # The batch path is bit-equivalent to single-pair -- so the merge
         # structure must be the same as L48 produces. We assert structural
@@ -434,11 +479,15 @@ class TestLayer51_RegressionL41toL50:
         """The batch path warming caches must not break dcd_summary
         contract on a small end-to-end MRMR fit."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X = _make_random_X(n=600, p=15, seed=52)
         y = pd.Series((X.iloc[:, 0].to_numpy() > 0).astype(int))
         m = MRMR(
-            dcd_enable=True, dcd_tau_cluster="auto",
-            full_npermutations=2, verbose=0, random_seed=0,
+            dcd_enable=True,
+            dcd_tau_cluster="auto",
+            full_npermutations=2,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         assert m.dcd_ is not None
         # Layer 41 contract.

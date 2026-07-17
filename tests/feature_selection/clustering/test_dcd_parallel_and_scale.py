@@ -2,6 +2,7 @@
 (DCDState shared/serialized across workers) and at larger p. Now that the
 machine is free, stress the paths the benign benchmarks skipped.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -16,21 +17,23 @@ def _dup_frame(n=2000, seed=0):
     rng = np.random.default_rng(seed)
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "strong": other,
-        "dup_a": latent + 0.01 * rng.standard_normal(n),
-        "dup_b": latent + 0.01 * rng.standard_normal(n),
-        "dup_c": latent + 0.01 * rng.standard_normal(n),
-        "noise": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "strong": other,
+            "dup_a": latent + 0.01 * rng.standard_normal(n),
+            "dup_b": latent + 0.01 * rng.standard_normal(n),
+            "dup_c": latent + 0.01 * rng.standard_normal(n),
+            "noise": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((2 * other + latent + 0.3 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
 
 def _fit(X, y, **kw):
     from mlframe.feature_selection.filters.mrmr import MRMR
-    base = dict(dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2,
-                verbose=0, random_seed=0)
+
+    base = dict(dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2, verbose=0, random_seed=0)
     base.update(kw)
     return MRMR(**base).fit(X, y)
 
@@ -41,9 +44,7 @@ def test_dcd_result_independent_of_n_jobs():
     X, y = _dup_frame()
     m1 = _fit(X, y, n_jobs=1)
     m4 = _fit(X, y, n_jobs=4)
-    assert list(m1.get_feature_names_out()) == list(m4.get_feature_names_out()), (
-        "DCD selection depends on n_jobs -> a parallelism race in clustering"
-    )
+    assert list(m1.get_feature_names_out()) == list(m4.get_feature_names_out()), "DCD selection depends on n_jobs -> a parallelism race in clustering"
     assert (m1.dcd_ or {}).get("n_swaps") == (m4.dcd_ or {}).get("n_swaps")
     assert (m1.dcd_ or {}).get("n_pruned") == (m4.dcd_ or {}).get("n_pruned")
 

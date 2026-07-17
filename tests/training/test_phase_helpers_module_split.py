@@ -11,6 +11,7 @@ _log_cardinality_and_drift_snapshot, _build_suite_common_params_dict,
 _maybe_dispatch_to_ltr_ranker_suite) and the three NamedTuple
 result types.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,6 +23,7 @@ def test_moved_phase_functions_importable_from_facade() -> None:
         _phase_fit_pipeline,
         _phase_train_val_test_split,
     )
+
     for fn in (_phase_auto_detect_feature_types, _phase_fit_pipeline, _phase_train_val_test_split):
         assert callable(fn), fn
 
@@ -34,6 +36,7 @@ def test_other_phase_helpers_still_importable() -> None:
         _build_suite_common_params_dict,
         _maybe_dispatch_to_ltr_ranker_suite,
     )
+
     for fn in (
         _phase_load_and_preprocess,
         _phase_pandas_conversion_and_cat_prep,
@@ -54,6 +57,7 @@ def test_facade_below_1k_line_threshold() -> None:
 def test_sibling_owns_the_moved_functions() -> None:
     """Identity: facade and sibling expose the SAME function objects."""
     from mlframe.training.core import _phase_helpers, _phase_helpers_fit_split
+
     for name in (
         "_phase_auto_detect_feature_types",
         "_phase_fit_pipeline",

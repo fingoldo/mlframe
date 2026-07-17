@@ -37,14 +37,11 @@ def test_preflight_corr_gate_bit_identical_under_iter25_cap():
     # 9 redundant copies + 8 noise -> max|corr| well above 0.7 floor.
     refl = np.hstack([z[:, [k]] + 0.05 * rng.normal(size=(n, 3)) for k in range(3)])
     noise = rng.normal(size=(n, 8))
-    X = pd.DataFrame(np.column_stack([refl, noise]),
-                     columns=[f"f{i}" for i in range(refl.shape[1] + noise.shape[1])])
+    X = pd.DataFrame(np.column_stack([refl, noise]), columns=[f"f{i}" for i in range(refl.shape[1] + noise.shape[1])])
     y = (z[:, 0] + 0.5 * z[:, 1] + 0.3 * rng.normal(size=n) > 0).astype(int)
 
-    legacy = preflight(X, y, classification=True, random_state=0,
-                      max_rows=5000, n_estimators=150)
-    capped = preflight(X, y, classification=True, random_state=0,
-                      max_rows=2000, n_estimators=100)
+    legacy = preflight(X, y, classification=True, random_state=0, max_rows=5000, n_estimators=150)
+    capped = preflight(X, y, classification=True, random_state=0, max_rows=2000, n_estimators=100)
     # Redundancy gate output bit-for-bit identical (corr-pass determinism preserved).
     assert capped["diagnostics"]["max_abs_corr"] == legacy["diagnostics"]["max_abs_corr"]
     # Recommendation invariant on this small synthetic.
@@ -100,24 +97,24 @@ def test_biz_val_preflight_flags_redundancy_and_width():
 # Match the iter17 calibration regimes (additive/redundancy/interaction/xor/noise_heavy) -- these are
 # the gate's calibration anchor and must produce identical recommendations under the cap.
 _ITER17_REGIMES = (
-    dict(name="additive_highSNR",
-         kwargs=dict(n_samples=2000, n_informative=8, n_redundant=0, n_noise=400,
-                     interaction_order=0, interaction_strength=0.0, snr=5.0,
-                     task="binary", seed=0)),
-    dict(name="redundancy_heavy",
-         kwargs=dict(n_samples=1200, n_informative=8, n_redundant=24, redundancy_rho=0.9,
-                     n_noise=400, snr=2.5, task="binary", seed=1)),
-    dict(name="interaction_heavy",
-         kwargs=dict(n_samples=1200, n_informative=8, n_redundant=0, n_noise=400,
-                     interaction_order=2, interaction_strength=0.7, snr=3.0,
-                     task="binary", seed=2)),
-    dict(name="xor_interaction",
-         kwargs=dict(n_samples=1500, n_informative=6, n_redundant=0, n_noise=400,
-                     interaction_order="xor", interaction_strength=0.9, snr=3.0,
-                     task="binary", seed=4)),
-    dict(name="noise_heavy",
-         kwargs=dict(n_samples=1500, n_informative=8, n_redundant=0, n_noise=1200,
-                     snr=2.0, task="binary", seed=3)),
+    dict(
+        name="additive_highSNR",
+        kwargs=dict(n_samples=2000, n_informative=8, n_redundant=0, n_noise=400, interaction_order=0, interaction_strength=0.0, snr=5.0, task="binary", seed=0),
+    ),
+    dict(
+        name="redundancy_heavy", kwargs=dict(n_samples=1200, n_informative=8, n_redundant=24, redundancy_rho=0.9, n_noise=400, snr=2.5, task="binary", seed=1)
+    ),
+    dict(
+        name="interaction_heavy",
+        kwargs=dict(n_samples=1200, n_informative=8, n_redundant=0, n_noise=400, interaction_order=2, interaction_strength=0.7, snr=3.0, task="binary", seed=2),
+    ),
+    dict(
+        name="xor_interaction",
+        kwargs=dict(
+            n_samples=1500, n_informative=6, n_redundant=0, n_noise=400, interaction_order="xor", interaction_strength=0.9, snr=3.0, task="binary", seed=4
+        ),
+    ),
+    dict(name="noise_heavy", kwargs=dict(n_samples=1500, n_informative=8, n_redundant=0, n_noise=1200, snr=2.0, task="binary", seed=3)),
 )
 
 
@@ -133,19 +130,18 @@ def test_preflight_capped_recommendation_matches_legacy_iter17(regime):
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y, _ = make_regime_dataset(**regime["kwargs"])
-    legacy = ShapProxiedFS.preflight(X, y, classification=True, random_state=0,
-                                     max_rows=5000, n_estimators=150)
-    capped = ShapProxiedFS.preflight(X, y, classification=True, random_state=0,
-                                     max_rows=2000, n_estimators=100)
+    legacy = ShapProxiedFS.preflight(X, y, classification=True, random_state=0, max_rows=5000, n_estimators=150)
+    capped = ShapProxiedFS.preflight(X, y, classification=True, random_state=0, max_rows=2000, n_estimators=100)
 
     assert capped["recommendation"] == legacy["recommendation"], (
         f"regime {regime['name']}: cap flipped recommendation "
         f"{legacy['recommendation']!r} -> {capped['recommendation']!r}; "
         f"ratios legacy={legacy['diagnostics']['additive_ratio']:.3f} "
-        f"capped={capped['diagnostics']['additive_ratio']:.3f}")
+        f"capped={capped['diagnostics']['additive_ratio']:.3f}"
+    )
     assert sorted(capped["suggestions"]) == sorted(legacy["suggestions"]), (
-        f"regime {regime['name']}: suggestion set changed under cap "
-        f"legacy={legacy['suggestions']} capped={capped['suggestions']}")
+        f"regime {regime['name']}: suggestion set changed under cap legacy={legacy['suggestions']} capped={capped['suggestions']}"
+    )
     # max_abs_corr uses an independent ``max_rows_corr`` knob (default 5000) so the redundancy gate
     # remains bit-for-bit identical to the legacy pre-iter25 implementation.
     assert capped["diagnostics"]["max_abs_corr"] == legacy["diagnostics"]["max_abs_corr"]
@@ -159,7 +155,7 @@ def _run_diagnostics_with_deep_depth(X, y, deep_max_depth):
     """
     import os, numpy as np, pandas as pd
     from xgboost import XGBClassifier
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_preflight import _cv_score, preflight
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_preflight import _cv_score
 
     max_rows, max_rows_corr, max_corr_features, n_estimators = 2000, 5000, 400, 100
     rng = np.random.default_rng(0)
@@ -187,15 +183,13 @@ def _run_diagnostics_with_deep_depth(X, y, deep_max_depth):
         Xs, ys = Xf, y
     n_cores = os.cpu_count() or 1
     inner = max(1, n_cores // 2)
-    common = dict(n_estimators=n_estimators, learning_rate=0.1, n_jobs=inner, random_state=0,
-                  tree_method="hist")
+    common = dict(n_estimators=n_estimators, learning_rate=0.1, n_jobs=inner, random_state=0, tree_method="hist")
     deep = XGBClassifier(max_depth=deep_max_depth, eval_metric="logloss", **common)
     stump = XGBClassifier(max_depth=1, eval_metric="logloss", **common)
     if n_cores >= 2:
         from joblib import Parallel, delayed
-        deep_score, stump_score = Parallel(n_jobs=2, prefer="threads")(
-            delayed(_cv_score)(est, Xs, ys, True) for est in (deep, stump)
-        )
+
+        deep_score, stump_score = Parallel(n_jobs=2, prefer="threads")(delayed(_cv_score)(est, Xs, ys, True) for est in (deep, stump))
     else:
         deep_score = _cv_score(deep, Xs, ys, True)
         stump_score = _cv_score(stump, Xs, ys, True)
@@ -203,14 +197,22 @@ def _run_diagnostics_with_deep_depth(X, y, deep_max_depth):
     num = stump_score - base
     den = deep_score - base
     additive_ratio = float(np.clip(num / den, 0.0, 1.5)) if (np.isfinite(den) and den > 1e-6) else float("nan")
-    diag = dict(n_features=int(f), n_samples=int(n), n_over_p=float(n / max(f, 1)),
-                class_balance=balance, max_abs_corr=max_abs_corr,
-                full_model_fit=deep_score, stump_fit=stump_score,
-                additive_ratio=additive_ratio, base_score=base)
+    diag = dict(
+        n_features=int(f),
+        n_samples=int(n),
+        n_over_p=float(n / max(f, 1)),
+        class_balance=balance,
+        max_abs_corr=max_abs_corr,
+        full_model_fit=deep_score,
+        stump_fit=stump_score,
+        additive_ratio=additive_ratio,
+        base_score=base,
+    )
 
     # Re-run preflight's reason/recommendation logic on the synthetic diag (mirrors preflight() body
     # in src so the test pins the gate-decision path, not just the booster scores).
     import numpy as _np
+
     reasons, suggestions = [], []
     rec = "run"
     if not _np.isfinite(diag["full_model_fit"]) or (diag["full_model_fit"] - diag["base_score"]) < 0.03:
@@ -263,10 +265,11 @@ def test_preflight_deep_depth3_recommendation_matches_depth4_iter27(regime):
         f"regime {regime['name']}: deep d=4 -> d=3 flipped recommendation "
         f"{legacy['recommendation']!r} -> {new['recommendation']!r}; "
         f"ratios legacy(d=4)={legacy['diagnostics']['additive_ratio']:.3f} "
-        f"new(d=3)={new['diagnostics']['additive_ratio']:.3f}")
+        f"new(d=3)={new['diagnostics']['additive_ratio']:.3f}"
+    )
     assert sorted(new["suggestions"]) == sorted(legacy["suggestions"]), (
-        f"regime {regime['name']}: suggestion set changed under d=3 "
-        f"legacy={legacy['suggestions']} new={new['suggestions']}")
+        f"regime {regime['name']}: suggestion set changed under d=3 legacy={legacy['suggestions']} new={new['suggestions']}"
+    )
     # The corr-pass is depth-independent (it doesn't fit a booster) so max_abs_corr must be
     # bit-for-bit identical between the two depths.
     assert new["diagnostics"]["max_abs_corr"] == legacy["diagnostics"]["max_abs_corr"]
@@ -290,11 +293,10 @@ def test_preflight_deep_depth3_xor_guard_invariant():
     new = _run_diagnostics_with_deep_depth(X, y, 3)
 
     for label, rep in (("d=4", legacy), ("d=3", new)):
-        assert rep["recommendation"] in ("caution", "fallback"), (
-            f"XOR {label} must flag a guard recommendation, got {rep['recommendation']!r}: {rep}")
+        assert rep["recommendation"] in ("caution", "fallback"), f"XOR {label} must flag a guard recommendation, got {rep['recommendation']!r}: {rep}"
         assert rep["diagnostics"]["additive_ratio"] < 0.6, (
-            f"XOR {label} additive ratio should be interaction-low (<0.6), "
-            f"got {rep['diagnostics']['additive_ratio']}")
+            f"XOR {label} additive ratio should be interaction-low (<0.6), got {rep['diagnostics']['additive_ratio']}"
+        )
     # The corr-pass is depth-independent (it doesn't fit a booster) so max_abs_corr must be
     # bit-for-bit identical between the two depths.
     assert new["diagnostics"]["max_abs_corr"] == legacy["diagnostics"]["max_abs_corr"]
@@ -314,8 +316,13 @@ def test_biz_val_preflight_under_25s_at_width_1000_iter27():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y, _ = make_regime_dataset(
-        n_samples=5000, n_informative=12, n_redundant=8, n_noise=980,
-        snr=8.0, task="binary", seed=0,
+        n_samples=5000,
+        n_informative=12,
+        n_redundant=8,
+        n_noise=980,
+        snr=8.0,
+        task="binary",
+        seed=0,
     )
     # Warmup to absorb xgboost / joblib pool init.
     ShapProxiedFS.preflight(X, y, classification=True, random_state=0)
@@ -323,9 +330,7 @@ def test_biz_val_preflight_under_25s_at_width_1000_iter27():
     rep = ShapProxiedFS.preflight(X, y, classification=True, random_state=0)
     elapsed = time.time() - t0
     assert rep["recommendation"] in ("run", "caution"), rep
-    assert elapsed < 25.0, (
-        f"preflight at width=1000 took {elapsed:.1f}s, exceeds 25s budget; "
-        f"check deep booster max_depth is 3 (iter27 cap-the-ranker).")
+    assert elapsed < 25.0, f"preflight at width=1000 took {elapsed:.1f}s, exceeds 25s budget; check deep booster max_depth is 3 (iter27 cap-the-ranker)."
 
 
 def test_preflight_parallel_booster_byte_identical_across_calls():
@@ -363,8 +368,7 @@ def test_preflight_parallel_booster_byte_identical_across_calls():
     # the parallel path passes to xgb. The orchestration (joblib pool vs sequential) is score-neutral.
     n_cores = os.cpu_count() or 1
     inner = max(1, n_cores // 2)
-    common = dict(n_estimators=100, learning_rate=0.1, n_jobs=inner, random_state=0,
-                  tree_method="hist")
+    common = dict(n_estimators=100, learning_rate=0.1, n_jobs=inner, random_state=0, tree_method="hist")
     # Recreate the booster subsample exactly as ``dataset_diagnostics`` does: first the corr-pass
     # rng draws (none here because n=600 < max_rows_corr=5000 default), then the booster row sample
     # (none because n=600 < max_rows=2000 default). So Xs/ys == X/y. Deep ``max_depth=3`` matches
@@ -391,8 +395,13 @@ def test_biz_val_preflight_under_30s_at_width_1000():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y, _ = make_regime_dataset(
-        n_samples=5000, n_informative=12, n_redundant=8, n_noise=980,
-        snr=8.0, task="binary", seed=0,
+        n_samples=5000,
+        n_informative=12,
+        n_redundant=8,
+        n_noise=980,
+        snr=8.0,
+        task="binary",
+        seed=0,
     )
     t0 = time.time()
     rep = ShapProxiedFS.preflight(X, y, classification=True, random_state=0)
@@ -400,6 +409,4 @@ def test_biz_val_preflight_under_30s_at_width_1000():
     # Recommendation should still be "run" on this favourable wide regime (high SNR, low informative
     # density relative to noise but additive signal dominates).
     assert rep["recommendation"] in ("run", "caution"), rep
-    assert elapsed < 30.0, (
-        f"preflight at width=1000 took {elapsed:.1f}s, exceeds 30s budget; "
-        f"check booster cap (n_estimators) is in effect.")
+    assert elapsed < 30.0, f"preflight at width=1000 took {elapsed:.1f}s, exceeds 30s budget; check booster cap (n_estimators) is in effect."

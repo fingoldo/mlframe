@@ -25,6 +25,7 @@ when any ``-1`` sentinel is present, so NaN -> 0 and real categories
 become ``1..K``. Under ``missing_strategy='raise'``, refuse instead.
 Auto-promote dtype guard below catches any new-max overflow.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,19 +38,20 @@ def test_categorical_nan_does_not_emit_negative_codes():
     last real category).
     """
     from mlframe.feature_selection.filters.discretization import categorize_dataset
+
     cats = pd.Categorical(
         ["A", "B", "C", "D"] * 25 + [None] * 50,
         categories=["A", "B", "C", "D", "E"],
     )
     df = pd.DataFrame({"cat": cats})
-    data, cols, nbins = categorize_dataset(
-        df=df, n_bins=4, dtype=np.int16,
+    data, cols, _nbins = categorize_dataset(
+        df=df,
+        n_bins=4,
+        dtype=np.int16,
         missing_strategy="separate_bin",
     )
     codes = data[:, cols.index("cat")]
-    assert (codes >= 0).all(), (
-        f"categorical codes must be non-negative; got min={codes.min()}"
-    )
+    assert (codes >= 0).all(), f"categorical codes must be non-negative; got min={codes.min()}"
 
 
 def test_categorical_nan_separate_bin_disjoint_from_real():
@@ -57,35 +59,38 @@ def test_categorical_nan_separate_bin_disjoint_from_real():
     disjoint from real category codes.
     """
     from mlframe.feature_selection.filters.discretization import categorize_dataset
+
     cats = pd.Categorical(
         ["A", "B", "C", "D"] * 25 + [None] * 50,
         categories=["A", "B", "C", "D"],
     )
     df = pd.DataFrame({"cat": cats})
-    data, cols, nbins = categorize_dataset(
-        df=df, n_bins=4, dtype=np.int16,
+    data, cols, _nbins = categorize_dataset(
+        df=df,
+        n_bins=4,
+        dtype=np.int16,
         missing_strategy="separate_bin",
     )
     codes = data[:, cols.index("cat")]
     real_codes = {int(c) for c in codes[~pd.isna(cats)]}
     nan_codes = {int(c) for c in codes[pd.isna(cats)]}
-    assert not (real_codes & nan_codes), (
-        f"NaN code collides with real categories: real={sorted(real_codes)}, "
-        f"nan={nan_codes}"
-    )
+    assert not (real_codes & nan_codes), f"NaN code collides with real categories: real={sorted(real_codes)}, nan={nan_codes}"
 
 
 def test_categorical_nan_nbins_reports_correctly():
     """``nbins`` must include the dedicated NaN bin in the count."""
     from mlframe.feature_selection.filters.discretization import categorize_dataset
+
     # 4 real categories + 50 NaN -> 5 distinct codes -> nbins=5
     cats = pd.Categorical(
         ["A", "B", "C", "D"] * 25 + [None] * 50,
         categories=["A", "B", "C", "D"],
     )
     df = pd.DataFrame({"cat": cats})
-    data, cols, nbins = categorize_dataset(
-        df=df, n_bins=4, dtype=np.int16,
+    _data, cols, nbins = categorize_dataset(
+        df=df,
+        n_bins=4,
+        dtype=np.int16,
         missing_strategy="separate_bin",
     )
     assert int(nbins[cols.index("cat")]) == 5
@@ -96,10 +101,13 @@ def test_categorical_no_nan_unchanged():
     as before the fix (0..K-1).
     """
     from mlframe.feature_selection.filters.discretization import categorize_dataset
+
     cats = pd.Categorical(["A", "B", "C", "D"] * 25, categories=["A", "B", "C", "D"])
     df = pd.DataFrame({"cat": cats})
     data, cols, nbins = categorize_dataset(
-        df=df, n_bins=4, dtype=np.int16,
+        df=df,
+        n_bins=4,
+        dtype=np.int16,
         missing_strategy="separate_bin",
     )
     codes_set = {int(c) for c in data[:, cols.index("cat")]}
@@ -112,10 +120,13 @@ def test_categorical_raise_strategy_fires_on_nan():
     categoricals.
     """
     from mlframe.feature_selection.filters.discretization import categorize_dataset
+
     cats = pd.Categorical(["A", "B"] * 5 + [None] * 2, categories=["A", "B"])
     df = pd.DataFrame({"cat": cats})
     with pytest.raises(ValueError, match="NaN"):
         categorize_dataset(
-            df=df, n_bins=4, dtype=np.int16,
+            df=df,
+            n_bins=4,
+            dtype=np.int16,
             missing_strategy="raise",
         )

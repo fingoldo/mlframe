@@ -8,6 +8,7 @@ passthrough RMSE is materially lower than the drop-it RMSE.
 Measured (seed 0, n=600, 8 epochs): passthrough test-RMSE ~0.46 vs drop ~1.02 -> ratio ~0.45. Floor set at 0.80 (drop must beat passthrough by >=20%), well inside the
 5-15% margin band below the measured 55% gap so seed/epoch jitter never trips it but a regression that re-drops the column (passthrough broken) fails immediately.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -29,10 +30,22 @@ def _mlp():
         model_params={"loss_fn": torch.nn.MSELoss(), "learning_rate": 5e-3},
         network_params={"nlayers": 2, "first_layer_num_neurons": 32, "dropout_prob": 0.0, "activation_function": torch.nn.ReLU},
         datamodule_class=TorchDataModule,
-        datamodule_params={"read_fcn": None, "data_placement_device": None, "features_dtype": torch.float32,
-                           "labels_dtype": torch.float32, "dataloader_params": {"batch_size": 32, "num_workers": 0}},
-        trainer_params={"max_epochs": 8, "enable_model_summary": False, "default_root_dir": None,
-                        "log_every_n_steps": 1, "devices": 1, "logger": False, "accelerator": "cpu"},
+        datamodule_params={
+            "read_fcn": None,
+            "data_placement_device": None,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
+            "dataloader_params": {"batch_size": 32, "num_workers": 0},
+        },
+        trainer_params={
+            "max_epochs": 8,
+            "enable_model_summary": False,
+            "default_root_dir": None,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "logger": False,
+            "accelerator": "cpu",
+        },
     )
 
 

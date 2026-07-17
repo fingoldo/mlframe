@@ -12,6 +12,7 @@ Stability: the legacy ``use_simple_mode=True`` path segfaults on this Python 3.1
 all FE generators disabled) -> support maps directly to raw input columns. n=2000, seed=0 for almost everything; raw-mode fits are ~0.5-1.5s so the file runs well
 under ~5 min.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -26,11 +27,21 @@ warnings.filterwarnings("ignore")
 
 # FE-off raw preset: support maps to raw input columns. ``use_simple_mode=True`` segfaults on this py3.14 host under load, so we always run full-mode FE-off.
 _RAW = dict(
-    use_simple_mode=False, fe_max_steps=0, interactions_max_order=1,
-    fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False, fe_hinge_enable=False,
-    fe_wavelet_enable=False, fe_conditional_dispersion_enable=False, fe_discrete_structural_operators_enable=False,
-    fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False, fe_row_argmax_enable=False,
-    fe_conditional_gate_enable=False, fe_kfold_te_enable=False, fe_binned_numeric_agg_enable=False,
+    use_simple_mode=False,
+    fe_max_steps=0,
+    interactions_max_order=1,
+    fe_univariate_basis_enable=False,
+    fe_univariate_fourier_enable=False,
+    fe_hinge_enable=False,
+    fe_wavelet_enable=False,
+    fe_conditional_dispersion_enable=False,
+    fe_discrete_structural_operators_enable=False,
+    fe_pairwise_modular_enable=False,
+    fe_integer_lattice_enable=False,
+    fe_row_argmax_enable=False,
+    fe_conditional_gate_enable=False,
+    fe_kfold_te_enable=False,
+    fe_binned_numeric_agg_enable=False,
 )
 
 
@@ -48,11 +59,16 @@ def _make_exact_dup(seed: int = 0, n: int = 2000):
     """signal + an exact copy signal_dup + 4 pure-noise columns; binary y=(signal>0)."""
     rng = np.random.default_rng(seed)
     sig = rng.normal(size=n)
-    X = pd.DataFrame({
-        "signal": sig, "signal_dup": sig.copy(),
-        "noise0": rng.normal(size=n), "noise1": rng.normal(size=n),
-        "noise2": rng.normal(size=n), "noise3": rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "signal": sig,
+            "signal_dup": sig.copy(),
+            "noise0": rng.normal(size=n),
+            "noise1": rng.normal(size=n),
+            "noise2": rng.normal(size=n),
+            "noise3": rng.normal(size=n),
+        }
+    )
     y = (sig > 0).astype(int)
     return X, y
 
@@ -65,10 +81,16 @@ def _make_confounder(seed: int = 0, n: int = 2000):
     noise = rng.normal(size=n)
     conf = (a + 0.8 * b + 0.3 * noise) + 1.5 * noise
     y = (a + b + 0.5 * rng.normal(size=n) > 0).astype(int)
-    X = pd.DataFrame({
-        "sig_a": a, "sig_b": b, "conf": conf,
-        "noise0": rng.normal(size=n), "noise1": rng.normal(size=n), "noise2": rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "sig_a": a,
+            "sig_b": b,
+            "conf": conf,
+            "noise0": rng.normal(size=n),
+            "noise1": rng.normal(size=n),
+            "noise2": rng.normal(size=n),
+        }
+    )
     return X, y
 
 
@@ -133,8 +155,7 @@ def test_oat_mi_correction(mi_correction):
 
 @pytest.mark.parametrize("cardinality_bias_correction", [True, False])
 def test_oat_cardinality_bias_correction(cardinality_bias_correction):
-    _assert_both_contracts(f"cardinality_bias_correction={cardinality_bias_correction}",
-                           cardinality_bias_correction=cardinality_bias_correction)
+    _assert_both_contracts(f"cardinality_bias_correction={cardinality_bias_correction}", cardinality_bias_correction=cardinality_bias_correction)
 
 
 # 'optimal_joint' admits a confounder noise col so it is exercised on exact_dup only (where it is clean); the rest run both contracts.
@@ -217,6 +238,7 @@ def _build_pairwise_rows():
     """Return (rows, source) where rows is a list of dicts; allpairspy if importable else the hand-authored covering set."""
     try:
         from allpairspy import AllPairs
+
         values = [_PAIRWISE_AXES[name] for name in _PAIRWISE_NAMES]
         rows = [dict(zip(_PAIRWISE_NAMES, combo)) for combo in AllPairs(values)]
         return rows, "allpairspy"

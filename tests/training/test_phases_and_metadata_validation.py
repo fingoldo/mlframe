@@ -15,11 +15,11 @@
    crashed opaquely inside sklearn or produced garbage predictions.
    Now: critical missing → ``ValueError``; non-critical missing → WARN.
 """
+
 from __future__ import annotations
 
 import logging
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -28,15 +28,17 @@ import pytest
 # _format_ctx — truncation sensor
 # ---------------------------------------------------------------------------
 
-class TestFormatCtxTruncation:
 
+class TestFormatCtxTruncation:
     def test_short_values_are_not_truncated(self):
         from mlframe.training.phases import _format_ctx
+
         out = _format_ctx({"model": "CatBoost", "n_rows": 810_000})
         assert out == "model=CatBoost n_rows=810000"
 
     def test_none_values_dropped(self):
         from mlframe.training.phases import _format_ctx
+
         out = _format_ctx({"a": 1, "b": None, "c": 2})
         assert "b" not in out
         assert "a=1" in out and "c=2" in out
@@ -46,13 +48,14 @@ class TestFormatCtxTruncation:
         ~120 chars (truncation cap). Pre-fix would let 5000 chars
         through, and on a wide phase context that hit MB+."""
         from mlframe.training.phases import _format_ctx
+
         huge = "x" * 5000
         out = _format_ctx({"big_arg": huge})
         # The key remains intact + some truncation suffix
         assert out.startswith("big_arg=")
         assert out.endswith("...")
         # Value portion should be ≤ 120 chars (the default max_val_len)
-        val_portion = out[len("big_arg="):]
+        val_portion = out[len("big_arg=") :]
         assert len(val_portion) <= 120
 
     def test_huge_list_repr_truncated(self):
@@ -60,20 +63,23 @@ class TestFormatCtxTruncation:
         context kwarg. ``str(list(10_000 items))`` is ~120k chars.
         Truncation caps it so one log line doesn't drown a screen."""
         from mlframe.training.phases import _format_ctx
+
         out = _format_ctx({"eval_set": list(range(10_000))})
-        val_portion = out[len("eval_set="):]
+        val_portion = out[len("eval_set=") :]
         assert len(val_portion) <= 120
 
     def test_empty_context_returns_empty_string(self):
         from mlframe.training.phases import _format_ctx
+
         assert _format_ctx({}) == ""
         assert _format_ctx(None or {}) == ""
 
     def test_custom_max_val_len(self):
         """Caller can tune max_val_len for a specific site."""
         from mlframe.training.phases import _format_ctx
+
         out = _format_ctx({"k": "v" * 500}, max_val_len=50)
-        val_portion = out[len("k="):]
+        val_portion = out[len("k=") :]
         assert len(val_portion) <= 50
 
 
@@ -94,23 +100,32 @@ def minimal_metadata():
 
 
 class TestValidateInputColumnsAgainstMetadata:
-
     def test_happy_path_identical_columns(self, minimal_metadata):
         from mlframe.training.core import _validate_input_columns_against_metadata
-        df = pd.DataFrame({
-            "a": [1, 2], "b": [3, 4],
-            "cat_x": ["p", "q"], "text_y": ["hello", "world"],
-        })
+
+        df = pd.DataFrame(
+            {
+                "a": [1, 2],
+                "b": [3, 4],
+                "cat_x": ["p", "q"],
+                "text_y": ["hello", "world"],
+            }
+        )
         out = _validate_input_columns_against_metadata(df, minimal_metadata)
         assert list(out.columns) == ["a", "b", "cat_x", "text_y"]
 
     def test_extra_columns_are_dropped(self, minimal_metadata):
         from mlframe.training.core import _validate_input_columns_against_metadata
-        df = pd.DataFrame({
-            "a": [1, 2], "b": [3, 4],
-            "cat_x": ["p", "q"], "text_y": ["hello", "world"],
-            "unused_extra": [0.1, 0.2],  # not in metadata.columns
-        })
+
+        df = pd.DataFrame(
+            {
+                "a": [1, 2],
+                "b": [3, 4],
+                "cat_x": ["p", "q"],
+                "text_y": ["hello", "world"],
+                "unused_extra": [0.1, 0.2],  # not in metadata.columns
+            }
+        )
         out = _validate_input_columns_against_metadata(df, minimal_metadata)
         assert "unused_extra" not in out.columns
 
@@ -121,12 +136,14 @@ class TestValidateInputColumnsAgainstMetadata:
         later inside sklearn. Post-fix: loud ValueError naming the
         column."""
         from mlframe.training.core import _validate_input_columns_against_metadata
+
         df = pd.DataFrame({"a": [1, 2], "b": [3, 4], "text_y": ["x", "y"]})
         with pytest.raises(ValueError, match="cat_x"):
             _validate_input_columns_against_metadata(df, minimal_metadata)
 
     def test_missing_text_feature_raises(self, minimal_metadata):
         from mlframe.training.core import _validate_input_columns_against_metadata
+
         df = pd.DataFrame({"a": [1, 2], "b": [3, 4], "cat_x": ["p", "q"]})
         with pytest.raises(ValueError, match="text_y"):
             _validate_input_columns_against_metadata(df, minimal_metadata)
@@ -136,21 +153,26 @@ class TestValidateInputColumnsAgainstMetadata:
         is missing, WARN but proceed — some callers drop reconstructable
         derived columns intentionally."""
         from mlframe.training.core import _validate_input_columns_against_metadata
-        df = pd.DataFrame({
-            "a": [1, 2],
-            # 'b' missing
-            "cat_x": ["p", "q"], "text_y": ["hello", "world"],
-        })
+
+        df = pd.DataFrame(
+            {
+                "a": [1, 2],
+                # 'b' missing
+                "cat_x": ["p", "q"],
+                "text_y": ["hello", "world"],
+            }
+        )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
-            out = _validate_input_columns_against_metadata(df, minimal_metadata)
+            _validate_input_columns_against_metadata(df, minimal_metadata)
         warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
-        assert any("'b'" in m or "b'" in m or "b\"" in m or "b]" in m for m in warns), warns
+        assert any("'b'" in m or "b'" in m or 'b"' in m or "b]" in m for m in warns), warns
 
     def test_error_message_lists_all_critical_missing(self, minimal_metadata):
         """Diagnostic: all missing critical columns should be named,
         not just the first one. Operator fixing the upstream extraction
         needs the full list."""
         from mlframe.training.core import _validate_input_columns_against_metadata
+
         df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
         with pytest.raises(ValueError) as excinfo:
             _validate_input_columns_against_metadata(df, minimal_metadata)
@@ -162,6 +184,7 @@ class TestValidateInputColumnsAgainstMetadata:
     def test_empty_columns_in_metadata_is_no_op(self):
         """No expected columns recorded → no validation, return df as-is."""
         from mlframe.training.core import _validate_input_columns_against_metadata
+
         df = pd.DataFrame({"a": [1], "b": [2]})
         out = _validate_input_columns_against_metadata(df, {"columns": []})
         assert list(out.columns) == ["a", "b"]
@@ -170,6 +193,7 @@ class TestValidateInputColumnsAgainstMetadata:
         """The critical-features check must cover embedding_features
         too, not just cat+text."""
         from mlframe.training.core import _validate_input_columns_against_metadata
+
         meta = {
             "columns": ["a", "emb"],
             "cat_features": [],

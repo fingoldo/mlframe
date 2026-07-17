@@ -9,13 +9,13 @@ All four default to a no-op (alpha=0 / bonus=0 / stop=False / test=False) so the
 changes the selected support (the standalone kernel checks below additionally prove the underlying capability). RelaxMRMR and CMI-perm-stop act on the conditional-MI
 redundancy term that only exists in complex mode, so their activation tests run with ``use_simple_mode=False``.
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _patch_no_ktc_sweep():
@@ -23,7 +23,7 @@ def _patch_no_ktc_sweep():
     try:
         import pyutilz.performance.kernel_tuning.cache as _M
 
-        _M.KernelTuningCache.get_or_tune = lambda self, k, *, dims, tuner, axes, fallback, **kw: (fallback() if callable(fallback) else fallback)
+        _M.KernelTuningCache.get_or_tune = lambda self, k, *, dims, tuner, axes, fallback, **kw: fallback() if callable(fallback) else fallback
         _im = _M.KernelTuningCache(in_memory=True)
         _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _im)
     except Exception:
@@ -86,8 +86,8 @@ def test_cmi_permutation_stop_kernel_discriminates_signal_from_noise():
     y = rng.integers(0, 2, n)
     x_sig = (y + rng.integers(0, 2, n)) % 4  # depends on y
     x_noise = rng.integers(0, 4, n)
-    sig_is_sig, _, sig_p = cmi_permutation_stop(x_sig, y, [], 4, 2, [], n_permutations=60, alpha=0.05, seed=0)
-    noise_is_sig, _, noise_p = cmi_permutation_stop(x_noise, y, [], 4, 2, [], n_permutations=60, alpha=0.05, seed=0)
+    _sig_is_sig, _, sig_p = cmi_permutation_stop(x_sig, y, [], 4, 2, [], n_permutations=60, alpha=0.05, seed=0)
+    _noise_is_sig, _, noise_p = cmi_permutation_stop(x_noise, y, [], 4, 2, [], n_permutations=60, alpha=0.05, seed=0)
     assert sig_p < noise_p, f"CMI-perm p-value must be smaller for the real signal (sig_p={sig_p:.3f} vs noise_p={noise_p:.3f})"
 
 

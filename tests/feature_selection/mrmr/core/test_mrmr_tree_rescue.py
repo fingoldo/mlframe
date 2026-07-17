@@ -3,6 +3,7 @@
 Wide interaction frame (zero-marginal a*b operands) -> MRMR's marginal greedy under-selects -> the rescue fires and
 unions the shallow-GBM importance top-K (recovering the operands). Narrow frames + tree_rescue=False -> exact no-op.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,7 +37,7 @@ def test_rescue_fires_on_wide_underselection_and_recovers_operands():
 
 @pytest.mark.timeout(300)
 def test_rescue_noop_on_narrow_frame():
-    X, y = _wide_interaction(p_noise=25)            # 28 cols <= tree_rescue_min_p (60) -> gate cannot fire
+    X, y = _wide_interaction(p_noise=25)  # 28 cols <= tree_rescue_min_p (60) -> gate cannot fire
     m0 = MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
     m1 = MRMRTreeRescued(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
     assert list(m1.support_) == list(m0.support_), "narrow frame must be a byte-identical no-op vs MRMR"
@@ -53,12 +54,13 @@ def test_rescue_off_equals_mrmr():
 @pytest.mark.timeout(300)
 def test_rescue_transform_pickle_and_support_consistency():
     import pickle
+
     X, y = _wide_interaction()
     m = MRMRTreeRescued(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
     Z = m.transform(X.iloc[:10])
-    assert len(Z.columns) == len(m.support_)                       # support_ extension flows through transform
-    assert m.get_support().sum() == len(m.support_)                # mask matches the extended support
-    m2 = pickle.loads(pickle.dumps(m))                             # rescue extends support_ only -> pickle-clean
+    assert len(Z.columns) == len(m.support_)  # support_ extension flows through transform
+    assert m.get_support().sum() == len(m.support_)  # mask matches the extended support
+    m2 = pickle.loads(pickle.dumps(m))  # rescue extends support_ only -> pickle-clean
     assert list(m2.transform(X.iloc[:10]).columns) == list(Z.columns)
 
 
@@ -69,8 +71,15 @@ def test_varargs_ctor_get_params_and_clone_preserve_tree_rescue_params():
 
     sel = MRMRTreeRescued(tree_rescue_top_k=7, verbose=0)
     params = sel.get_params(deep=False)
-    for name in ("tree_rescue", "tree_rescue_top_k", "tree_rescue_min_p", "tree_rescue_min_ratio",
-                 "tree_rescue_min_features", "tree_rescue_n_estimators", "tree_rescue_max_depth"):
+    for name in (
+        "tree_rescue",
+        "tree_rescue_top_k",
+        "tree_rescue_min_p",
+        "tree_rescue_min_ratio",
+        "tree_rescue_min_features",
+        "tree_rescue_n_estimators",
+        "tree_rescue_max_depth",
+    ):
         assert name in params, f"get_params must expose {name}"
     assert params["tree_rescue_top_k"] == 7
     cloned = clone(sel)
@@ -84,7 +93,8 @@ def test_bizvalue_rescue_lifts_downstream_auc_on_interaction_data():
     from sklearn.model_selection import train_test_split
     from sklearn.metrics import roc_auc_score
     import lightgbm as lgb
-    X, y = _wide_interaction(n=3000, p_noise=120, seed=1)          # 123 cols, strong a*b interaction
+
+    X, y = _wide_interaction(n=3000, p_noise=120, seed=1)  # 123 cols, strong a*b interaction
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=1, stratify=y)
 
     def auc(sel):
@@ -101,4 +111,5 @@ def test_bizvalue_rescue_lifts_downstream_auc_on_interaction_data():
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "-v", "--no-cov", "-p", "no:randomly", "-p", "no:cacheprovider"]))

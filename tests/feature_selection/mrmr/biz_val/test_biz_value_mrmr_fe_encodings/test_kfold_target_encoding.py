@@ -43,6 +43,7 @@ Contracts pinned
 
 NEVER xfail. Real LogReg AUC numbers.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -66,6 +67,8 @@ SEEDS = (1, 7, 13)
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
+
 def _build_cat_signal(seed: int, n: int = 3000):
     """y depends on which subset of 50 region levels the row belongs to.
 
@@ -88,11 +91,13 @@ def _build_cat_signal(seed: int, n: int = 3000):
     noise_a = rng.standard_normal(n)
     noise_b = rng.standard_normal(n)
     y = (rng.random(n) < p).astype(int)
-    X = pd.DataFrame({
-        "cat_region": cat_region,
-        "noise_a": noise_a,
-        "noise_b": noise_b,
-    })
+    X = pd.DataFrame(
+        {
+            "cat_region": cat_region,
+            "noise_a": noise_a,
+            "noise_b": noise_b,
+        }
+    )
     return X, pd.Series(y, name="y")
 
 
@@ -111,12 +116,18 @@ class TestKFoldEncoder:
         from mlframe.feature_selection.filters._target_encoding_fe import (
             kfold_target_encode_fit,
         )
+
         rng = np.random.default_rng(0)
         n = 200
         X = pd.DataFrame({"region": rng.choice(["A", "B", "C", "D"], size=n)})
         y = (X["region"].isin(["A", "B"])).astype(int).to_numpy()
         te_df, recipes = kfold_target_encode_fit(
-            X, y, ["region"], n_folds=5, smoothing=1.0, random_state=0,
+            X,
+            y,
+            ["region"],
+            n_folds=5,
+            smoothing=1.0,
+            random_state=0,
         )
         assert te_df.shape == (n, 1)
         assert "region__te" in te_df.columns
@@ -139,6 +150,7 @@ class TestKFoldEncoder:
         from mlframe.feature_selection.filters._target_encoding_fe import (
             kfold_target_encode_fit,
         )
+
         X = pd.DataFrame({"a": ["x", "y"] * 5})
         y = np.array([0, 1] * 5)
         with pytest.raises(ValueError, match="n_folds"):
@@ -149,6 +161,7 @@ class TestKFoldEncoder:
         from mlframe.feature_selection.filters._target_encoding_fe import (
             kfold_target_encode_fit,
         )
+
         X = pd.DataFrame({"a": ["x"] * 4})
         y = np.array([0, 1, 0, 1])
         with pytest.raises(ValueError, match="missing"):
@@ -168,12 +181,15 @@ class TestAutoDetectTeCols:
         from mlframe.feature_selection.filters._target_encoding_fe import (
             auto_detect_te_cols,
         )
-        X = pd.DataFrame({
-            "cat10": [f"L{i % 10}" for i in range(100)],
-            "cat2": ["A", "B"] * 50,        # below band
-            "num": np.arange(100),
-            "cat1000": [f"X{i}" for i in range(100)],  # would be > 500 if larger
-        })
+
+        X = pd.DataFrame(
+            {
+                "cat10": [f"L{i % 10}" for i in range(100)],
+                "cat2": ["A", "B"] * 50,  # below band
+                "num": np.arange(100),
+                "cat1000": [f"X{i}" for i in range(100)],  # would be > 500 if larger
+            }
+        )
         picked = auto_detect_te_cols(X, min_card=5, max_card=500)
         assert "cat10" in picked
         # cat2 has cardinality 2 -> below min_card.
@@ -202,11 +218,17 @@ class TestMultiCategorySignalAUCLift:
 
         # TE-augmented baseline: fit TE on train, transform holdout.
         from mlframe.feature_selection.filters._target_encoding_fe import (
-            kfold_target_encode_fit, apply_target_encoding,
+            kfold_target_encode_fit,
+            apply_target_encoding,
         )
+
         te_tr_df, recipes = kfold_target_encode_fit(
-            X_tr, y_tr.to_numpy(), ["cat_region"],
-            n_folds=5, smoothing=10.0, random_state=seed,
+            X_tr,
+            y_tr.to_numpy(),
+            ["cat_region"],
+            n_folds=5,
+            smoothing=10.0,
+            random_state=seed,
         )
         te_ho = apply_target_encoding(X_ho, "cat_region", recipes["cat_region"])
         X_tr_aug = X_tr.copy()
@@ -237,13 +259,19 @@ class TestNoLeakage:
         category + the fitted lookup. Shuffling holdout-y must NOT change
         transform output -- transform has no y reference at all."""
         from mlframe.feature_selection.filters._target_encoding_fe import (
-            kfold_target_encode_fit, apply_target_encoding,
+            kfold_target_encode_fit,
+            apply_target_encoding,
         )
+
         X, y = _build_cat_signal(seed)
         X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
         _te_tr, recipes = kfold_target_encode_fit(
-            X_tr, y_tr.to_numpy(), ["cat_region"],
-            n_folds=5, smoothing=10.0, random_state=seed,
+            X_tr,
+            y_tr.to_numpy(),
+            ["cat_region"],
+            n_folds=5,
+            smoothing=10.0,
+            random_state=seed,
         )
         te_ho_orig = apply_target_encoding(X_ho, "cat_region", recipes["cat_region"])
         # Shuffle holdout-y and re-call -- transform takes no y.
@@ -270,6 +298,7 @@ class TestSmoothingShrinksRareCategories:
         from mlframe.feature_selection.filters._target_encoding_fe import (
             kfold_target_encode_fit,
         )
+
         rng = np.random.default_rng(0)
         n_common = 200
         # Common category 'C' gets P(y=1)=0.9 ; rare 'R' gets P(y=1)=1.0 (forced)
@@ -282,7 +311,12 @@ class TestSmoothingShrinksRareCategories:
         y = np.concatenate([y_common, y_rare])
         # Smoothing=100 is heavier than n_c=1 -> rare cat pulled hard.
         _, recipes = kfold_target_encode_fit(
-            X, y, ["cat"], n_folds=2, smoothing=100.0, random_state=0,
+            X,
+            y,
+            ["cat"],
+            n_folds=2,
+            smoothing=100.0,
+            random_state=0,
         )
         rec = recipes["cat"]
         global_mean = rec["global_mean"]
@@ -305,12 +339,19 @@ class TestRecipeReplayUnseenCategories:
     def test_unseen_category_maps_to_global_mean_no_nan(self):
         """Unseen categories and NaN both map to global_mean with no NaN propagation."""
         from mlframe.feature_selection.filters._target_encoding_fe import (
-            kfold_target_encode_fit, apply_target_encoding,
+            kfold_target_encode_fit,
+            apply_target_encoding,
         )
+
         X_tr = pd.DataFrame({"cat": ["A", "B", "C", "A", "B", "C"] * 10})
         y_tr = np.array([1, 0, 1, 1, 0, 1] * 10)
         _, recipes = kfold_target_encode_fit(
-            X_tr, y_tr, ["cat"], n_folds=3, smoothing=1.0, random_state=0,
+            X_tr,
+            y_tr,
+            ["cat"],
+            n_folds=3,
+            smoothing=1.0,
+            random_state=0,
         )
         rec = recipes["cat"]
         X_ho = pd.DataFrame({"cat": ["A", "Z", "QQ", "B", None]})
@@ -336,12 +377,16 @@ class TestPickleCloneRoundTrip:
     def test_recipe_survives_pickle(self):
         """A standalone TE recipe round-trips through pickle bit-identically, including unseen-category fallback."""
         from mlframe.feature_selection.filters.engineered_recipes import (
-            build_kfold_target_encoded_recipe, apply_recipe,
+            build_kfold_target_encoded_recipe,
+            apply_recipe,
         )
+
         rec = build_kfold_target_encoded_recipe(
-            name="region__te", src_name="region",
+            name="region__te",
+            src_name="region",
             lookup={"A": 0.8, "B": 0.2, "C": 0.5},
-            global_mean=0.5, smoothing=10.0,
+            global_mean=0.5,
+            smoothing=10.0,
         )
         rec_pkl = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert rec_pkl == rec
@@ -426,7 +471,9 @@ class TestDefaultDisabledByteIdentical:
         for c in out1.columns:
             if pd.api.types.is_numeric_dtype(out1[c]):
                 np.testing.assert_allclose(
-                    out1[c].to_numpy(), out2[c].to_numpy(), atol=1e-12,
+                    out1[c].to_numpy(),
+                    out2[c].to_numpy(),
+                    atol=1e-12,
                 )
 
 

@@ -9,11 +9,12 @@ Also handles the hnswlib-segfault-on-Windows case: ``pytest.importorskip("hnswli
 loader (a known Windows MSVC runtime issue), pytest collection dies before the skip fires. We subprocess-check hnswlib at session collection start and tag test
 files that require it for collection-time skipping via ``pytest_collection_modifyitems``.
 """
+
 from __future__ import annotations
 
 import subprocess
 import sys
-from typing import Generator
+from collections.abc import Generator
 
 import numpy as np
 import pytest
@@ -35,7 +36,8 @@ def _ann_backend_safely_importable() -> bool:
     """Return True iff ``pynndescent`` imports cleanly in the current process. Memoised."""
     if "ok" not in _ANN_PROBE_CACHE:
         try:
-            import pynndescent  # noqa: F401
+            import pynndescent
+
             _ANN_PROBE_CACHE["ok"] = True
         except ImportError:
             _ANN_PROBE_CACHE["ok"] = False
@@ -49,7 +51,9 @@ def pytest_collection_modifyitems(config, items):
     needs_probe = any("row_attention" in str(item.fspath).replace("\\", "/") for item in items)
     if not needs_probe or _ann_backend_safely_importable():
         return
-    skip_marker = pytest.mark.skip(reason="pynndescent (default ANN backend) not importable; install via `pip install pynndescent>=0.5` or `pip install 'mlframe[transformer_ann]'`.")
+    skip_marker = pytest.mark.skip(
+        reason="pynndescent (default ANN backend) not importable; install via `pip install pynndescent>=0.5` or `pip install 'mlframe[transformer_ann]'`."
+    )
     for item in items:
         if "row_attention" in str(item.fspath).replace("\\", "/"):
             item.add_marker(skip_marker)

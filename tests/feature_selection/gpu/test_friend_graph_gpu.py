@@ -15,6 +15,7 @@ drops. Covers, per the project rule (unit + biz_value + dispatch):
 
 GPU tests auto-skip when cupy / numba.cuda are unavailable (CI without a GPU).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -53,11 +54,7 @@ def _synthetic_selected_set(n=4000, k=20, seed=7):
 
 
 def _graph_fingerprint(graph):
-    nodes = sorted(
-        (n.name, n.entropy, n.relevance, n.weighted_degree, n.shared_frac,
-         n.neighbors_unique_target, n.klass)
-        for n in graph.nodes
-    )
+    nodes = sorted((n.name, n.entropy, n.relevance, n.weighted_degree, n.shared_frac, n.neighbors_unique_target, n.klass) for n in graph.nodes)
     edges = sorted((e.a, e.b, e.mi) for e in graph.edges)
     return nodes, edges, sorted(graph.suspected_garbage)
 
@@ -112,8 +109,13 @@ def test_cuda_backend_does_not_reupload_sub_for_node_codes(monkeypatch):
     orig_to_device = fgg._nb_cuda.to_device
 
     def spy(arr, *a, **kw):
-        if isinstance(arr, np.ndarray) and arr.shape == sub_expected.shape and np.array_equal(
-            np.asarray(arr, dtype=np.int64), sub_expected.astype(np.int64),
+        if (
+            isinstance(arr, np.ndarray)
+            and arr.shape == sub_expected.shape
+            and np.array_equal(
+                np.asarray(arr, dtype=np.int64),
+                sub_expected.astype(np.int64),
+            )
         ):
             calls["n"] += 1
         return orig_to_device(arr, *a, **kw)
@@ -160,7 +162,7 @@ def _redundant_hub_dataset(n=8000, seed=11):
     p = [(u[i] * 2 + v[i]).astype(np.int32) for i in range(4)]
     y = (sum(u) >= 2).astype(np.int32)
     g = sum(v).astype(np.int32)
-    data = np.column_stack(p + [g, y]).astype(np.int32)
+    data = np.column_stack([*p, g, y]).astype(np.int32)
     nbins = np.array([4, 4, 4, 4, 5, 2], dtype=np.int64)
     names = ["p1", "p2", "p3", "p4", "G", "y"]
     return data, nbins, np.array([5], dtype=np.int64), names, [0, 1, 2, 3, 4]
@@ -175,9 +177,7 @@ def test_build_friend_graph_gpu_matches_cpu_build(backend):
     g_gpu = build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1, gpu_backend=backend)
     assert _graph_fingerprint(g_cpu) == _graph_fingerprint(g_gpu)
     # The redundant hub is still flagged + pruned identically.
-    p_cpu, _ = prune_by_friend_graph(
-        build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1, gpu_backend="cpu"), sel
-    )
+    p_cpu, _ = prune_by_friend_graph(build_friend_graph(sel, data, nbins, tgt, feature_names=names, seed=1, gpu_backend="cpu"), sel)
     p_gpu, _ = prune_by_friend_graph(g_gpu, sel)
     assert p_cpu == p_gpu
 
@@ -202,9 +202,9 @@ def test_dispatch_falls_back_to_cpu_for_tiny_or_no_edge_sets():
     regardless of GPU availability -- there is no O(k^2) work to offload."""
     sel, data, nbins, tgt = _synthetic_selected_set(n=100, k=5, seed=1)
     assert dispatch_friend_graph_stats([sel[0]], data, nbins, tgt) is None  # single node
-    assert dispatch_friend_graph_stats([], data, nbins, tgt) is None        # empty
+    assert dispatch_friend_graph_stats([], data, nbins, tgt) is None  # empty
     empty = np.empty((0, data.shape[1]), dtype=np.int32)
-    assert dispatch_friend_graph_stats(sel, empty, nbins, tgt) is None      # n == 0
+    assert dispatch_friend_graph_stats(sel, empty, nbins, tgt) is None  # n == 0
 
 
 def test_force_cpu_backend_does_not_use_gpu_and_matches_default_cpu():
@@ -235,7 +235,7 @@ def test_multi_target_relevance_falls_back_to_cpu():
     """The GPU relevance fast path is single-target only; a multi-column target must
     leave ``rel=None`` (caller computes relevance on CPU) while H + edges stay GPU +
     bit-identical."""
-    sel, data, nbins, tgt = _synthetic_selected_set(n=3000, k=12, seed=8)
+    sel, data, nbins, _tgt = _synthetic_selected_set(n=3000, k=12, seed=8)
     # Use two target columns (append a second). XOR-1 only flips bit 0, so the derived
     # column's value range matches the source column's, NOT a hardcoded 2 -- declaring it
     # as binary when the source has >2 classes understates its true cardinality to the
@@ -262,11 +262,23 @@ def test_multi_target_relevance_falls_back_to_cpu():
     # njit-compile of the conditional MI (orthogonal to the GPU edge/entropy path under
     # test; exercised by the single-target hub test, which DOES classify a red sink).
     g_cpu = build_friend_graph(
-        sel, data2, nbins2, tgt2, seed=1, gpu_backend="cpu",
-        compute_layout=False, garbage_min_degree=10_000,
+        sel,
+        data2,
+        nbins2,
+        tgt2,
+        seed=1,
+        gpu_backend="cpu",
+        compute_layout=False,
+        garbage_min_degree=10_000,
     )
     g_gpu = build_friend_graph(
-        sel, data2, nbins2, tgt2, seed=1, gpu_backend=backend,
-        compute_layout=False, garbage_min_degree=10_000,
+        sel,
+        data2,
+        nbins2,
+        tgt2,
+        seed=1,
+        gpu_backend=backend,
+        compute_layout=False,
+        garbage_min_degree=10_000,
     )
     assert _graph_fingerprint(g_cpu) == _graph_fingerprint(g_gpu)

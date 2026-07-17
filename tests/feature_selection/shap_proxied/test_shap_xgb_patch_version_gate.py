@@ -7,6 +7,7 @@ legacy workaround set ``shap.explainers._tree.float = _safe_float``, which
 turned that into ``dtype=<function _safe_float>`` and raised
 ``TypeError: Cannot interpret ... as a data type`` for every TreeExplainer.
 """
+
 import builtins
 
 import pytest
@@ -34,8 +35,7 @@ def test_patch_is_noop_on_shap_ge_052():
         _shap_tree.__dict__.pop("float", None)
         spe._maybe_patch_shap_xgb_base_score()
         assert _shap_tree.__dict__.get("float", builtins.float) is builtins.float, (
-            "patch clobbered shap._tree.float on shap >= 0.52; "
-            "np.asarray(base_score, dtype=float) will break"
+            "patch clobbered shap._tree.float on shap >= 0.52; np.asarray(base_score, dtype=float) will break"
         )
     finally:
         if had_attr:

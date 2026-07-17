@@ -7,6 +7,7 @@ missing values truly meant "on"), zero-filling gets the early regime right and t
 producing wildly unstable CV scores across time-ordered folds -- while filling with the column's own mean
 stays consistently (if imperfectly) neutral across both regimes, giving much more stable fold-to-fold scores.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,14 +47,16 @@ def test_biz_val_flags_regime_sensitive_imputation_as_risky():
 
     assert result.loc["zero_fill", "is_risky"], "expected the regime-sensitive zero-fill to be flagged risky"
     assert not result.loc["mean_fill", "is_risky"], "expected the regime-robust mean-fill to NOT be flagged risky"
-    assert result.loc["zero_fill", "fold_std"] > result.loc["mean_fill", "fold_std"] * 3, f"expected zero-fill's fold-to-fold variance to be much higher than mean-fill's, got zero={result.loc['zero_fill', 'fold_std']:.4f} mean={result.loc['mean_fill', 'fold_std']:.4f}"
+    assert result.loc["zero_fill", "fold_std"] > result.loc["mean_fill", "fold_std"] * 3, (
+        f"expected zero-fill's fold-to-fold variance to be much higher than mean-fill's, got zero={result.loc['zero_fill', 'fold_std']:.4f} mean={result.loc['mean_fill', 'fold_std']:.4f}"
+    )
 
 
 def test_imputation_sensitivity_check_sorted_riskiest_first():
-    X_zero, X_mean, X_mode, y = _make_regime_shift_missingness_data(n=800, seed=1)
+    X_zero, X_mean, _X_mode, y = _make_regime_shift_missingness_data(n=800, seed=1)
     cv = KFold(n_splits=5, shuffle=False)
     result = imputation_sensitivity_check(Ridge(alpha=0.1), {"mean_fill": X_mean, "zero_fill": X_zero}, y, r2_score, cv=cv)
-    assert list(result.index)[0] == "zero_fill"  # highest fold_std sorted first.
+    assert next(iter(result.index)) == "zero_fill"  # highest fold_std sorted first.
 
 
 def _make_shift_blind_spot_data(n: int, seed: int):
@@ -97,7 +100,9 @@ def test_biz_val_shift_split_catches_instability_fold_cv_misses():
     assert shift_aware.loc["zero_fill", "is_shift_risky"], "expected the shift-aware check to flag zero_fill as risky"
     assert not shift_aware.loc["mean_fill", "is_shift_risky"], "expected the regime-robust mean-fill to NOT be flagged shift-risky"
     assert shift_aware.loc["zero_fill", "shift_gap"] > 0.5, f"expected zero_fill's shift_gap to clear 0.5, got {shift_aware.loc['zero_fill', 'shift_gap']:.4f}"
-    assert shift_aware.loc["zero_fill", "shift_gap"] > shift_aware.loc["mean_fill", "shift_gap"] * 2, "expected zero_fill's shift_gap to be much larger than mean_fill's"
+    assert shift_aware.loc["zero_fill", "shift_gap"] > shift_aware.loc["mean_fill", "shift_gap"] * 2, (
+        "expected zero_fill's shift_gap to be much larger than mean_fill's"
+    )
 
 
 def test_imputation_sensitivity_check_shift_split_omitted_is_bit_identical():

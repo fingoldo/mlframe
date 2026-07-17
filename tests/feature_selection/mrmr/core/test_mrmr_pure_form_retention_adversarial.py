@@ -19,6 +19,7 @@ These tests try to BREAK it on:
 All datasets n<=3000, single-fit per test where possible. Heavy fits are kept off the default fast
 lane via @pytest.mark.slow only when they exceed ~30s; most run in one fit.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -192,9 +193,7 @@ def test_pickle_roundtrip_transform_matches():
         out0 = fs.transform(fresh)
         fs2 = pickle.loads(pickle.dumps(fs))
         out1 = fs2.transform(fresh)
-    assert list(out0.columns) == list(out1.columns), (
-        f"pickle changed transform columns:\n {list(out0.columns)}\n vs\n {list(out1.columns)}"
-    )
+    assert list(out0.columns) == list(out1.columns), f"pickle changed transform columns:\n {list(out0.columns)}\n vs\n {list(out1.columns)}"
     pd.testing.assert_frame_equal(out0.reset_index(drop=True), out1.reset_index(drop=True), check_dtype=False)
 
 
@@ -222,8 +221,7 @@ def test_no_cross_term_operand_mixing_on_case2():
     cross = [
         (nm, tuple(sorted(getattr(r, "src_names", ()) or ())))
         for r, nm in added
-        if frozenset(getattr(r, "src_names", ()) or ()) not in legit
-        and len(frozenset(getattr(r, "src_names", ()) or ())) == 2
+        if frozenset(getattr(r, "src_names", ()) or ()) not in legit and len(frozenset(getattr(r, "src_names", ()) or ())) == 2
     ]
     assert not cross, (
         f"retention appended CROSS-TERM pure-pair form(s) whose operands belong to DIFFERENT additive "
@@ -243,16 +241,12 @@ def test_n_features_equals_support_plus_recipes():
     fs = _fit(df, y, seed=0)
     n_sup = len(np.asarray(fs.support_).ravel())
     n_rec = len(getattr(fs, "_engineered_recipes_", []) or [])
-    assert int(fs.n_features_) == n_sup + n_rec, (
-        f"n_features_={fs.n_features_} != support({n_sup}) + recipes({n_rec})"
-    )
+    assert int(fs.n_features_) == n_sup + n_rec, f"n_features_={fs.n_features_} != support({n_sup}) + recipes({n_rec})"
     # and that matches the transform width
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         out = fs.transform(df)
-    assert out.shape[1] == int(fs.n_features_), (
-        f"transform width {out.shape[1]} != n_features_ {fs.n_features_}"
-    )
+    assert out.shape[1] == int(fs.n_features_), f"transform width {out.shape[1]} != n_features_ {fs.n_features_}"
 
 
 def test_retention_respects_max_added_cap():

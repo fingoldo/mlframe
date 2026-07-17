@@ -11,6 +11,7 @@ features should carry strong signal about the current row's target -- demonstrat
 why the trick was informative on Kaggle, even though it must never be shipped as a
 production feature.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -64,16 +65,12 @@ def test_biz_val_check_target_persistence_distinguishes_persistent_from_control(
 
     # persistent panel: very low flip rate, very high lag-1 autocorrelation.
     assert result_persistent.flip_rate < 0.1, f"persistent-panel flip rate should be low, got {result_persistent.flip_rate:.4f}"
-    assert result_persistent.lag1_autocorrelation > 0.7, (
-        f"persistent-panel lag-1 autocorr should be high, got {result_persistent.lag1_autocorrelation:.4f}"
-    )
+    assert result_persistent.lag1_autocorrelation > 0.7, f"persistent-panel lag-1 autocorr should be high, got {result_persistent.lag1_autocorrelation:.4f}"
     assert result_persistent.is_persistent is True
 
     # control panel: flip rate near 0.5 (random binary), near-zero autocorrelation.
     assert result_control.flip_rate > 0.35, f"control-panel flip rate should be near-random, got {result_control.flip_rate:.4f}"
-    assert abs(result_control.lag1_autocorrelation) < 0.15, (
-        f"control-panel lag-1 autocorr should be near zero, got {result_control.lag1_autocorrelation:.4f}"
-    )
+    assert abs(result_control.lag1_autocorrelation) < 0.15, f"control-panel lag-1 autocorr should be near zero, got {result_control.lag1_autocorrelation:.4f}"
     assert result_control.is_persistent is False
 
     # the diagnostic must separate the two scenarios by a wide, real margin -- not just cross an
@@ -104,8 +101,7 @@ def test_biz_val_lag_lead_target_within_group_carry_strong_signal_when_persisten
     base_rate = float(np.mean(y_p))
     majority_baseline_acc = max(base_rate, 1 - base_rate)
     assert lag_agreement > majority_baseline_acc + 0.05, (
-        f"lag-based accuracy ({lag_agreement:.4f}) should beat the majority-class baseline "
-        f"({majority_baseline_acc:.4f}) by a real margin"
+        f"lag-based accuracy ({lag_agreement:.4f}) should beat the majority-class baseline ({majority_baseline_acc:.4f}) by a real margin"
     )
 
     # control: on a non-persistent panel, lag(target) carries no such signal.

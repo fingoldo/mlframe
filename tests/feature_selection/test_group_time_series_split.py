@@ -4,6 +4,7 @@ Fixes the wave-6 P2 leak: with groups + a temporal signal RFECV previously chose
 entities but can train on a future group and test on a past one. GroupTimeSeriesSplit forward-chains at the group
 level so every test group is strictly later than every train group and no group straddles the boundary.
 """
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -55,7 +56,7 @@ def test_gap_embargoes_groups_between_train_and_test():
 
 def test_max_train_groups_is_a_rolling_window():
     groups = _time_ordered_groups(12, 4)
-    for tr, te in GroupTimeSeriesSplit(n_splits=3, max_train_groups=2).split(np.zeros((len(groups), 1)), groups=groups):
+    for tr, _te in GroupTimeSeriesSplit(n_splits=3, max_train_groups=2).split(np.zeros((len(groups), 1)), groups=groups):
         assert len(set(groups[tr])) <= 2
 
 
@@ -74,9 +75,17 @@ def test_rfecv_auto_routes_to_group_time_series_on_groups_plus_temporal():
     groups = np.repeat(np.arange(12), 5)
     ts = np.arange(n)  # monotonic timestamps hint
     cv, _val, _es = _resolve_cv_and_val_cv(
-        cv=3, estimator=RandomForestRegressor(n_estimators=3), X=X, y=np.arange(n, dtype=float),
-        groups=groups, cv_shuffle=False, random_state=0, verbose=False,
-        fit_params={"timestamps": ts}, early_stopping_val_nsplits=0, early_stopping_rounds=None,
+        cv=3,
+        estimator=RandomForestRegressor(n_estimators=3),
+        X=X,
+        y=np.arange(n, dtype=float),
+        groups=groups,
+        cv_shuffle=False,
+        random_state=0,
+        verbose=False,
+        fit_params={"timestamps": ts},
+        early_stopping_val_nsplits=0,
+        early_stopping_rounds=None,
         _polars_time_series_hint=False,
     )
     assert isinstance(cv, GroupTimeSeriesSplit), f"expected GroupTimeSeriesSplit, got {type(cv).__name__}"

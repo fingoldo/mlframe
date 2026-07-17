@@ -23,11 +23,11 @@ Fix: define ``transform`` as a thin class-body delegator in
 class definition. Drop the late ``MRMR.transform =`` rebind at the
 bottom of the module.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_set_output_pandas_returns_dataframe_for_ndarray_input():
@@ -35,19 +35,20 @@ def test_set_output_pandas_returns_dataframe_for_ndarray_input():
     produce a DataFrame even when transform() is given an ndarray.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(42)
     n = 200
-    df = pd.DataFrame({
-        "a": rng.normal(size=n),
-        "b": rng.normal(size=n),
-        "c": rng.normal(size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "a": rng.normal(size=n),
+            "b": rng.normal(size=n),
+            "c": rng.normal(size=n),
+        }
+    )
     y = pd.Series(rng.integers(0, 2, size=n))
     sel = MRMR(verbose=0).set_output(transform="pandas").fit(df, y)
     out = sel.transform(df.to_numpy())
-    assert isinstance(out, pd.DataFrame), (
-        f"set_output(transform='pandas') must return DataFrame; got {type(out).__name__}"
-    )
+    assert isinstance(out, pd.DataFrame), f"set_output(transform='pandas') must return DataFrame; got {type(out).__name__}"
 
 
 def test_set_output_default_returns_dataframe_for_dataframe_input():
@@ -55,11 +56,16 @@ def test_set_output_default_returns_dataframe_for_dataframe_input():
     (unchanged by iter-34).
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = 200
-    df = pd.DataFrame({
-        "a": rng.normal(size=n), "b": rng.normal(size=n), "c": rng.normal(size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "a": rng.normal(size=n),
+            "b": rng.normal(size=n),
+            "c": rng.normal(size=n),
+        }
+    )
     y = pd.Series(rng.integers(0, 2, size=n))
     sel = MRMR(verbose=0).fit(df, y)
     out = sel.transform(df)
@@ -71,11 +77,16 @@ def test_set_output_default_returns_ndarray_for_ndarray_input():
     output (sklearn default 'default' behaviour).
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(1)
     n = 200
-    df = pd.DataFrame({
-        "a": rng.normal(size=n), "b": rng.normal(size=n), "c": rng.normal(size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "a": rng.normal(size=n),
+            "b": rng.normal(size=n),
+            "c": rng.normal(size=n),
+        }
+    )
     y = pd.Series(rng.integers(0, 2, size=n))
     sel = MRMR(verbose=0).fit(df, y)
     out = sel.transform(df.to_numpy())
@@ -87,11 +98,16 @@ def test_set_output_pandas_columns_named():
     must have column names matching ``get_feature_names_out``.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(2)
     n = 200
-    df = pd.DataFrame({
-        "a": rng.normal(size=n), "b": rng.normal(size=n), "c": rng.normal(size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "a": rng.normal(size=n),
+            "b": rng.normal(size=n),
+            "c": rng.normal(size=n),
+        }
+    )
     y = pd.Series(rng.integers(0, 2, size=n))
     sel = MRMR(verbose=0).set_output(transform="pandas").fit(df, y)
     out = sel.transform(df.to_numpy())

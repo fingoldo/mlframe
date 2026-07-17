@@ -17,6 +17,7 @@ without any signal that something was off.
 Fix: early ``n_features_in_`` shape check in ``transform()``, mirroring
 sklearn's canonical ``BaseEstimator._check_n_features`` behaviour.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,6 +27,7 @@ import pytest
 
 def _fit():
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = 200
     X = pd.DataFrame(rng.standard_normal((n, 4)), columns=["a", "b", "c", "d"])

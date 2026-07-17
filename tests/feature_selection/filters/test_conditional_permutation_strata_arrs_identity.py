@@ -11,6 +11,7 @@ This test reconstructs the pre-optimization reference inline (the per-permutatio
 ``np.asarray`` rebuild) and asserts the live function reproduces it EXACTLY across
 several shapes / seeds / stratum counts, including a case with singleton strata.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -69,9 +70,7 @@ def test_cpt_strata_hoist_bit_identical(n, nbx, nby, nbz, B, seed):
     y = rng.integers(0, nby, n)
     z = rng.integers(0, nbz, n)
 
-    obs_new, p_new = conditional_permutation_test(
-        x, y, z, nbx, nby, nbz, n_permutations=B, seed=seed
-    )
+    obs_new, p_new = conditional_permutation_test(x, y, z, nbx, nby, nbz, n_permutations=B, seed=seed)
     obs_ref, p_ref = _reference(x, y, z, nbx, nby, nbz, B, seed)
 
     assert obs_new == obs_ref, "observed statistic diverged"

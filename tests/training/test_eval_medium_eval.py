@@ -41,7 +41,6 @@ The ten fixes covered (one test each) are the most behavior-impacting:
 
 from __future__ import annotations
 
-import inspect
 import warnings
 
 import numpy as np
@@ -61,20 +60,20 @@ def test_pick_per_group_categorical_alphabetical_tiebreaker():
 
     n = 200
     rng = np.random.default_rng(0)
-    df = pd.DataFrame({
-        "z_cat": rng.integers(0, 5, size=n),
-        "a_cat": rng.integers(0, 5, size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "z_cat": rng.integers(0, 5, size=n),
+            "a_cat": rng.integers(0, 5, size=n),
+        }
+    )
 
     # Force exactly the same nunique on both
-    df["a_cat"] = (np.arange(n) % 5)
-    df["z_cat"] = (np.arange(n) % 5)
+    df["a_cat"] = np.arange(n) % 5
+    df["z_cat"] = np.arange(n) % 5
 
     forward = _pick_per_group_categorical(df, ["z_cat", "a_cat"], n_train=n, max_cardinality_ratio=0.5)
     reverse = _pick_per_group_categorical(df, ["a_cat", "z_cat"], n_train=n, max_cardinality_ratio=0.5)
-    assert forward == reverse == "a_cat", (
-        f"alphabetical tiebreaker broken: forward={forward!r} reverse={reverse!r}"
-    )
+    assert forward == reverse == "a_cat", f"alphabetical tiebreaker broken: forward={forward!r} reverse={reverse!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -97,9 +96,7 @@ def test_compute_metric_accepts_2d_binary_probabilities():
     two_d_val = _compute_metric("roc_auc", y_true, two_d)
 
     assert np.isfinite(one_d_val) and np.isfinite(two_d_val)
-    assert one_d_val == pytest.approx(two_d_val, abs=1e-12), (
-        f"2-D (N,2) handling diverged from 1-D: {one_d_val} vs {two_d_val}"
-    )
+    assert one_d_val == pytest.approx(two_d_val, abs=1e-12), f"2-D (N,2) handling diverged from 1-D: {one_d_val} vs {two_d_val}"
 
 
 def test_normalize_pandas_offset_alias_maps_legacy_aliases():
@@ -137,14 +134,9 @@ def test_compute_ml_perf_by_time_no_futurewarning_on_M_alias():
         out = compute_ml_perf_by_time(y_true, y_pred, ts, freq="M", metric="roc_auc", min_samples=10)
 
     deprecation_hits = [
-        w for w in caught
-        if issubclass(w.category, FutureWarning)
-        and ("'M' is deprecated" in str(w.message) or "month-end" in str(w.message).lower())
+        w for w in caught if issubclass(w.category, FutureWarning) and ("'M' is deprecated" in str(w.message) or "month-end" in str(w.message).lower())
     ]
-    assert not deprecation_hits, (
-        f"expected no pandas 'M' deprecation FutureWarning, got: "
-        f"{[str(w.message) for w in deprecation_hits]}"
-    )
+    assert not deprecation_hits, f"expected no pandas 'M' deprecation FutureWarning, got: {[str(w.message) for w in deprecation_hits]}"
     assert len(out) >= 1
     assert "roc_auc" in out.columns
 
@@ -170,8 +162,12 @@ def _build_minimal_report(primary_metric, strongest, trivial, primary_val, trivi
         ts_period_used=None,
         plot_path=None,
         elapsed_s=0.0,
-        n_train=100, n_val=20, n_test=20,
-        n_train_finite=100, n_val_finite=20, n_test_finite=20,
+        n_train=100,
+        n_val=20,
+        n_test=20,
+        n_train_finite=100,
+        n_val_finite=20,
+        n_test_finite=20,
         extras={"strongest_pick_excluded": []},
     )
 
@@ -179,8 +175,11 @@ def _build_minimal_report(primary_metric, strongest, trivial, primary_val, trivi
 def test_baseline_report_lift_direction_aware_maximize_metric():
     """For maximize-metrics (NDCG/AUC) lift = (primary - trivial) / |trivial|."""
     rep = _build_minimal_report(
-        primary_metric="val_NDCG@10", strongest="strong", trivial="prior",
-        primary_val=0.75, trivial_val=0.50,
+        primary_metric="val_NDCG@10",
+        strongest="strong",
+        trivial="prior",
+        primary_val=0.75,
+        trivial_val=0.50,
     )
     rendered = rep.format_text()
     assert "lift_vs_prior=+50.0%" in rendered, rendered
@@ -189,8 +188,11 @@ def test_baseline_report_lift_direction_aware_maximize_metric():
 def test_baseline_report_lift_direction_aware_minimize_metric():
     """For minimize-metrics (log_loss/RMSE) lift = (trivial - primary) / |trivial|."""
     rep = _build_minimal_report(
-        primary_metric="val_log_loss", strongest="strong", trivial="prior",
-        primary_val=0.30, trivial_val=0.60,
+        primary_metric="val_log_loss",
+        strongest="strong",
+        trivial="prior",
+        primary_val=0.30,
+        trivial_val=0.60,
     )
     rendered = rep.format_text()
     # positive lift = strongest improved over prior
@@ -218,15 +220,25 @@ def test_pick_strongest_alphabetical_tiebreaker_on_minimize():
     y_test = np.array([0, 1] * 50)
 
     strongest_fwd, _ = _pick_strongest(
-        "binary", table_fwd, y_val, y_test, primary_metric, extras, config=None,
+        "binary",
+        table_fwd,
+        y_val,
+        y_test,
+        primary_metric,
+        extras,
+        config=None,
     )
     strongest_rev, _ = _pick_strongest(
-        "binary", table_rev, y_val, y_test, primary_metric, extras, config=None,
+        "binary",
+        table_rev,
+        y_val,
+        y_test,
+        primary_metric,
+        extras,
+        config=None,
     )
 
-    assert strongest_fwd == strongest_rev == "alpha", (
-        f"deterministic tiebreaker broken: fwd={strongest_fwd!r} rev={strongest_rev!r}"
-    )
+    assert strongest_fwd == strongest_rev == "alpha", f"deterministic tiebreaker broken: fwd={strongest_fwd!r} rev={strongest_rev!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -260,8 +272,8 @@ def test_multilabel_split_summary_well_formed_object_array_stacks():
     def _ki(*a, **kw):
         raise KeyboardInterrupt("simulated")
 
-    import builtins
     import unittest.mock as _mock
+
     # Patch a function the helper uses internally - asarray is a safe
     # entrypoint that runs before any tuple-arithmetic.
     with _mock.patch("numpy.asarray", side_effect=_ki):
@@ -314,6 +326,7 @@ def test_baseline_diagnostics_outer_try_does_not_swallow_keyboard_interrupt(monk
     # mlframe API regression that should fail loudly rather than skip silently. The companion compat-import via
     # ``BaselineDiagnosticsConfig`` is kept inline.
     from mlframe.training.configs import BaselineDiagnosticsConfig
+
     instance = bd_cls(BaselineDiagnosticsConfig())
     fit_method = getattr(instance, "fit_and_report", None)
     assert fit_method is not None, (
@@ -347,12 +360,14 @@ def test_reporting_classification_report_fallback_narrow(monkeypatch):
     # the report path (the test would then silently pass with the
     # original swallow regression undetected).
     import sklearn.metrics as _skm
+
     monkeypatch.setattr(_skm, "classification_report", _ki)
     monkeypatch.setattr(_rp, "classification_report", _ki)
     # Also patch the metrics.core fast path so the try-branch itself
     # raises KI (the test pre-condition: KI must propagate through any
     # path in report_probabilistic_model_perf, fast OR fallback).
     from mlframe.metrics import core as _metrics_core
+
     monkeypatch.setattr(_metrics_core, "format_classification_report", _ki)
     fn = getattr(_reporting, "report_probabilistic_model_perf", None)
     assert fn is not None, "report_probabilistic_model_perf must be importable"
@@ -362,6 +377,7 @@ def test_reporting_classification_report_fallback_narrow(monkeypatch):
     # threshold. Without this the test never reaches the classification-
     # report call site and KI never has a chance to propagate.
     import logging
+
     monkeypatch.setattr(_rp.logger, "level", logging.INFO)
     # 2026-05-24: switched from the legacy ``(y_true=, y_proba=)`` call
     # to the current ``(targets=, columns=, model_name=, model=, ...)``
@@ -371,6 +387,7 @@ def test_reporting_classification_report_fallback_narrow(monkeypatch):
     # was supposed to catch. KI is raised inside the patched
     # ``classification_report`` callable and MUST propagate up to here.
     import numpy as _np
+
     raised = False
     try:
         fn(
@@ -418,6 +435,7 @@ def test_dummy_baselines_numba_log_loss_kernel_narrow_catch(monkeypatch):
     assert fn is not None, "_compute_metrics_table must be importable"
     # Tiny inputs that exercise the log_loss branch.
     import numpy as _np
+
     _yval = _np.array([0, 1, 0, 1])
     _ytest = _np.array([0, 1, 0, 1])
     _pval = _np.array([[0.5, 0.5]] * 4)

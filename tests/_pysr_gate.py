@@ -24,6 +24,7 @@ Usage pattern (paste at the top of any PySR-using test file):
 The slow_only marker keeps these out of --fast runs; the subprocess gate
 keeps them off hosts where Julia / PythonCall.jl don't load cleanly.
 """
+
 from __future__ import annotations
 
 import os
@@ -93,7 +94,7 @@ def pysr_works() -> bool:
             capture_output=True,
             timeout=240,
         )
-        _PROBE_CACHE = (r.returncode == 0)
+        _PROBE_CACHE = r.returncode == 0
     except (subprocess.TimeoutExpired, OSError):
         _PROBE_CACHE = False
     return _PROBE_CACHE

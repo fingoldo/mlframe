@@ -6,6 +6,7 @@ Covers:
   A2-04  _filter_to_numeric cross-split column parity via keep_cols.
   A2-13  deepcopy (not shallow copy.copy) fallback for the auto-tune config rewrite.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,7 +32,7 @@ def test_a2_02_no_active_stage_returns_polars_unchanged() -> None:
     # matching this test's actual subject (the zero-active-stage fastpath).
     cfg = PreprocessingExtensionsConfig(row_wise_summary_stats_enabled=False, row_wise_extreme_columns_enabled=False)
     assert _has_active_extension_stage(cfg) is False
-    train, val, test, pipe = apply_preprocessing_extensions(df, None, None, cfg)
+    train, _val, _test, pipe = apply_preprocessing_extensions(df, None, None, cfg)
     assert pipe is None
     assert train is df, "fastpath must return the identical polars object (no conversion)"
     assert isinstance(train, pl.DataFrame)

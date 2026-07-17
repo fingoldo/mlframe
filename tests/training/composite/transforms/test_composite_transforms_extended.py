@@ -14,6 +14,7 @@ This file asserts transform-specific math + edge cases:
 * geometric_mean_residual: multi-base geomean math + 2D base accepted.
 * pairwise_interaction_residual: bilinear residual + 2D base.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,7 +25,6 @@ from mlframe.training.composite.transforms.extended import (
     _asinh_residual_fit,
     _asinh_residual_forward,
     _asinh_residual_inverse,
-    _centered_ratio_domain,
     _centered_ratio_fit,
     _centered_ratio_forward,
     _centered_ratio_inverse,
@@ -36,20 +36,16 @@ from mlframe.training.composite.transforms.extended import (
     _pairwise_interaction_residual_fit,
     _pairwise_interaction_residual_forward,
     _pairwise_interaction_residual_inverse,
-    _polynomial_residual_deg2_domain,
     _polynomial_residual_deg2_fit,
     _polynomial_residual_deg2_forward,
-    _polynomial_residual_deg2_inverse,
     _rank_residual_fit,
     _rank_residual_forward,
     _rank_residual_inverse,
     _reciprocal_residual_domain,
     _reciprocal_residual_fit,
     _reciprocal_residual_forward,
-    _reciprocal_residual_inverse,
     _smoothing_spline_residual_fit,
     _smoothing_spline_residual_forward,
-    _smoothing_spline_residual_inverse,
 )
 
 
@@ -59,6 +55,7 @@ _RNG = np.random.default_rng(20260526)
 # ---------------------------------------------------------------------------
 # asinh_residual
 # ---------------------------------------------------------------------------
+
 
 class TestAsinhResidual:
     def test_accepts_signed_base(self):
@@ -95,6 +92,7 @@ class TestAsinhResidual:
 # centered_ratio
 # ---------------------------------------------------------------------------
 
+
 class TestCenteredRatio:
     def test_signed_base_shifts_above_zero(self):
         base = np.linspace(-2.0, 5.0, 300)
@@ -118,6 +116,7 @@ class TestCenteredRatio:
 # ---------------------------------------------------------------------------
 # polynomial_residual_deg2
 # ---------------------------------------------------------------------------
+
 
 class TestPolynomialResidualDeg2:
     def test_recovers_quadratic_coefficients(self):
@@ -153,6 +152,7 @@ class TestPolynomialResidualDeg2:
 # rank_residual
 # ---------------------------------------------------------------------------
 
+
 class TestRankResidual:
     def test_t_is_centered_rank_space(self):
         base = _RNG.uniform(-5.0, 5.0, size=500)
@@ -178,6 +178,7 @@ class TestRankResidual:
 # smoothing_spline_residual
 # ---------------------------------------------------------------------------
 
+
 class TestSmoothingSplineResidual:
     def test_tracks_smooth_nonmonotone_curve(self):
         base = np.linspace(-3.0, 3.0, 500)
@@ -190,8 +191,9 @@ class TestSmoothingSplineResidual:
 
     def test_pickle_safe_params(self):
         import pickle
+
         base = np.linspace(0.0, 10.0, 200)
-        y = base ** 1.3 + 0.05 * _RNG.standard_normal(200)
+        y = base**1.3 + 0.05 * _RNG.standard_normal(200)
         params = _smoothing_spline_residual_fit(y, base)
         blob = pickle.dumps(params)
         loaded = pickle.loads(blob)
@@ -204,6 +206,7 @@ class TestSmoothingSplineResidual:
 # ---------------------------------------------------------------------------
 # reciprocal_residual
 # ---------------------------------------------------------------------------
+
 
 class TestReciprocalResidual:
     def test_forward_math(self):
@@ -233,6 +236,7 @@ class TestReciprocalResidual:
 # ---------------------------------------------------------------------------
 # geometric_mean_residual (multi-base)
 # ---------------------------------------------------------------------------
+
 
 class TestGeometricMeanResidual:
     def test_accepts_2d_base(self):
@@ -264,6 +268,7 @@ class TestGeometricMeanResidual:
 # ---------------------------------------------------------------------------
 # pairwise_interaction_residual (multi-base)
 # ---------------------------------------------------------------------------
+
 
 class TestPairwiseInteractionResidual:
     def test_recovers_bilinear_relation(self):

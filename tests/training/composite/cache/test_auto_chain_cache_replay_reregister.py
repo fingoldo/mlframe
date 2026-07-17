@@ -2,6 +2,7 @@
 on a CACHE replay that registration never runs, so a cached spec naming such a chain crashed get_transform /
 predict-time inversion with UnknownTransformError (prod TVT 2026-06: cache HIT -> 'chain_linear_residual_yj' KeyError).
 reregister_auto_chain_transforms rebuilds + registers them from the spec names."""
+
 from __future__ import annotations
 
 import pytest

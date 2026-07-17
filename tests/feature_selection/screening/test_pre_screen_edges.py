@@ -15,6 +15,7 @@ strict-``>`` null boundary) by covering the POLARS-side edges of
 All frames are tiny (n<=100) so every test is sub-second; fixed seeds throughout. Polars is a
 hard dep of the suite, but importorskip keeps the file collectable on a polars-less checkout.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -29,6 +30,7 @@ pl = pytest.importorskip("polars")
 # ---------------------------------------------------------------------------------------------
 # (a) polars non-numeric columns survive; only the constant numeric column is dropped
 # ---------------------------------------------------------------------------------------------
+
 
 def test_polars_string_and_categorical_not_dropped():
     """Utf8 + Categorical columns must not be dropped by the variance rule (variance is undefined
@@ -66,6 +68,7 @@ def test_polars_constant_string_not_dropped_by_variance_rule():
 # ---------------------------------------------------------------------------------------------
 # (b) polars null-fraction boundary is strict ``>``
 # ---------------------------------------------------------------------------------------------
+
 
 def test_polars_null_fraction_boundary_strict_greater_string():
     """POLARS half of the strict-``>`` null boundary at the DEFAULT 0.99 threshold, isolated on a
@@ -131,6 +134,7 @@ def test_polars_numeric_99_null_dropped_via_variance_not_null_rule():
 # ---------------------------------------------------------------------------------------------
 # (c) single-row frame contract: numeric dropped as constant, strings kept (pandas + polars)
 # ---------------------------------------------------------------------------------------------
+
 
 def test_single_row_frame_drops_all_numeric_documented():
     """PINNED CONTRACT for the 1-row frame on both backends.

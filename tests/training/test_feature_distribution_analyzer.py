@@ -8,6 +8,7 @@ Five pathology classes (positive + negative cases each):
 - Redundant numeric pairs
 - Suspected target leakage
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,17 +45,15 @@ class TestCleanFeatures:
         # array with column names; every column will be categorical because object
         # is not numeric.
         import logging
+
         n, k = 200, 3
         arr = np.full((n, k), "a", dtype=object)
         with caplog.at_level(logging.WARNING):
-            rep = analyze_feature_distribution(arr, feature_names=[f"f{i}" for i in range(k)])
+            analyze_feature_distribution(arr, feature_names=[f"f{i}" for i in range(k)])
         msgs = " | ".join(r.getMessage() for r in caplog.records)
         # The post-conversion guard should WARN-log so test runs catch the
         # misclassification even if the analyzer returns silently.
-        assert "classified ALL" in msgs and "categorical" in msgs, (
-            f"E3.2 misclassification WARN missing on object-dtype numpy input; "
-            f"got msgs: {msgs[:300]}"
-        )
+        assert "classified ALL" in msgs and "categorical" in msgs, f"E3.2 misclassification WARN missing on object-dtype numpy input; got msgs: {msgs[:300]}"
 
     def test_polars_series_input_handled(self):
         """P0 #3 follow-up: polars.Series should produce a 1-column frame, not
@@ -74,11 +73,13 @@ class TestCleanFeatures:
         pl = pytest.importorskip("polars")
         rng = np.random.default_rng(51)
         n = 500
-        lf = pl.LazyFrame({
-            "f0": rng.normal(0, 1, n).astype(np.float32),
-            "f1": rng.normal(0, 1, n).astype(np.float32),
-            "well_id": [f"w{i % 50}" for i in range(n)],
-        })
+        lf = pl.LazyFrame(
+            {
+                "f0": rng.normal(0, 1, n).astype(np.float32),
+                "f1": rng.normal(0, 1, n).astype(np.float32),
+                "well_id": [f"w{i % 50}" for i in range(n)],
+            }
+        )
         rep = analyze_feature_distribution(lf)
         assert rep.diagnostics["n_numeric"] == 2, rep.diagnostics
         assert rep.diagnostics["n_categorical"] == 1, rep.diagnostics
@@ -172,12 +173,14 @@ class TestHighCardinalityCategorical:
     def test_string_feature_with_many_levels_flagged(self):
         rng = np.random.default_rng(30)
         n = 500
-        df = pd.DataFrame({
-            "num0": rng.standard_normal(n),
-            # 200 unique string levels -> above the 100 threshold
-            "user_id": [f"user_{i % 200}" for i in range(n)],
-            "cat_lowcard": rng.choice(["A", "B", "C"], size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "num0": rng.standard_normal(n),
+                # 200 unique string levels -> above the 100 threshold
+                "user_id": [f"user_{i % 200}" for i in range(n)],
+                "cat_lowcard": rng.choice(["A", "B", "C"], size=n),
+            }
+        )
         rep = analyze_feature_distribution(df)
         assert any("high_cardinality_categorical" in p for p in rep.pathologies), rep.pathologies
         assert "user_id" in rep.feature_warnings
@@ -204,19 +207,14 @@ class TestRedundantPairs:
         assert "f4" in rep.feature_warnings
         # And the diagnostic table records the pair with its correlation.
         pairs = rep.diagnostics.get("redundant_feature_pairs", [])
-        assert any(
-            (p["a"] == "f0" and p["b"] == "f4") or (p["a"] == "f4" and p["b"] == "f0")
-            for p in pairs
-        )
+        assert any((p["a"] == "f0" and p["b"] == "f4") or (p["a"] == "f4" and p["b"] == "f0") for p in pairs)
 
     def test_diagonal_self_correlation_does_not_self_pair(self):
         rng = np.random.default_rng(41)
         X = rng.standard_normal((500, 4))
         rep = analyze_feature_distribution(X)
         # Diagonal correlations are 1.0 by definition; the detector skips i==j by construction.
-        assert rep.diagnostics.get("redundant_feature_pairs", []) == [] or not any(
-            p["a"] == p["b"] for p in rep.diagnostics.get("redundant_feature_pairs", [])
-        )
+        assert rep.diagnostics.get("redundant_feature_pairs", []) == [] or not any(p["a"] == p["b"] for p in rep.diagnostics.get("redundant_feature_pairs", []))
 
     def test_redundancy_skipped_when_feature_count_too_high(self):
         rng = np.random.default_rng(42)
@@ -224,8 +222,7 @@ class TestRedundantPairs:
         X = rng.standard_normal((100, 600))
         rep = analyze_feature_distribution(X)
         # Even if random pairs incidentally exceed 0.95, the function logs the skip + does not stamp pathologies.
-        assert any("redundant" in str(k).lower() for k in rep.diagnostics.keys()) or \
-               not any("redundant_feature_pairs" in p for p in rep.pathologies)
+        assert any("redundant" in str(k).lower() for k in rep.diagnostics.keys()) or not any("redundant_feature_pairs" in p for p in rep.pathologies)
 
 
 # ---------------------------------------------------------------------------
@@ -276,11 +273,13 @@ class TestEmbeddingColumn:
         fuzz c0030). The column must be skipped from the cardinality check, not crash it."""
         rng = np.random.default_rng(60)
         n = 60
-        df = pd.DataFrame({
-            "num_0": rng.standard_normal(n),
-            "cat_0": np.array(["a", "b"] * (n // 2)),
-            "emb_0": [rng.standard_normal(4) for _ in range(n)],
-        })
+        df = pd.DataFrame(
+            {
+                "num_0": rng.standard_normal(n),
+                "cat_0": np.array(["a", "b"] * (n // 2)),
+                "emb_0": [rng.standard_normal(4) for _ in range(n)],
+            }
+        )
         y = rng.integers(0, 2, size=n)
         rep = analyze_feature_distribution(df, y=y, target_type="classification")
         assert rep.n_features == 3

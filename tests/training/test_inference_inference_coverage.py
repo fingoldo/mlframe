@@ -13,12 +13,8 @@ composite inverse-transform replay.
 
 from __future__ import annotations
 
-import logging
-from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import numpy as np
-import pandas as pd
 import pytest
 
 
@@ -93,6 +89,7 @@ def test_cb_val_pool_cache_only_used_at_fit_time():
     # helper (e.g. ``_concat_probs_dicts``) that lives in core/predict and assert the cache is
     # untouched.
     from mlframe.training.core.predict import _concat_probs_dicts
+
     _concat_probs_dicts([{"m": np.zeros(3)}])
     assert dict(cache) == snapshot
 

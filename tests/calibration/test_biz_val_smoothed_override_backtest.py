@@ -6,6 +6,7 @@ in the low-confidence tail even though the source looks great on average. ``back
 recover a safe confidence threshold from history such that blending ONLY at/above that threshold beats
 both blending everywhere and the model alone.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,8 +39,12 @@ def test_biz_val_backtest_override_recovers_safe_confidence_threshold():
     assert 0.35 <= result.safe_threshold <= 0.65, f"expected safe_threshold near 0.5, got {result.safe_threshold:.4f}"
 
     # thresholding on the recovered value must beat both blending everywhere and the model alone.
-    assert result.mae_blend_safe < result.mae_blend_all, f"expected thresholded blend to beat blend-everywhere, got safe={result.mae_blend_safe:.4f} all={result.mae_blend_all:.4f}"
-    assert result.mae_blend_safe < result.mae_model_overall, f"expected thresholded blend to beat model alone, got safe={result.mae_blend_safe:.4f} model={result.mae_model_overall:.4f}"
+    assert result.mae_blend_safe < result.mae_blend_all, (
+        f"expected thresholded blend to beat blend-everywhere, got safe={result.mae_blend_safe:.4f} all={result.mae_blend_all:.4f}"
+    )
+    assert result.mae_blend_safe < result.mae_model_overall, (
+        f"expected thresholded blend to beat model alone, got safe={result.mae_blend_safe:.4f} model={result.mae_model_overall:.4f}"
+    )
 
     # applying the recovered threshold through the real production API must reproduce mae_blend_safe.
     override_mask = confidence >= result.safe_threshold
@@ -59,7 +64,9 @@ def test_biz_val_backtest_override_flags_uniformly_bad_source_as_unsafe():
 
     result = backtest_override(y_true, model_pred, override_pred, confidence, a=0.9, n_buckets=5)
 
-    assert result.safe_threshold >= 0.99, f"expected an uninformative override source to be flagged unsafe (threshold near 1.0), got {result.safe_threshold:.4f}"
+    assert result.safe_threshold >= 0.99, (
+        f"expected an uninformative override source to be flagged unsafe (threshold near 1.0), got {result.safe_threshold:.4f}"
+    )
     assert result.mae_blend_safe <= result.mae_model_overall + 1e-9
 
 

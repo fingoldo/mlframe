@@ -7,6 +7,7 @@ canonical kwargs (the suite-integration that auto-wires this at
 fit-time is a separate phase; this test pins the per-strategy
 building blocks).
 """
+
 from __future__ import annotations
 
 import sys
@@ -32,6 +33,7 @@ def test_sklearn_linear_native_multi_target_works():
     from sklearn.linear_model import LinearRegression
 
     from mlframe.training.strategies import LinearModelStrategy
+
     X, y = _make_mtr_data()
     strat = LinearModelStrategy()
     assert strat.supports_native_multi_target is True
@@ -59,7 +61,10 @@ def test_catboost_multirmse_native_multi_target_works():
     # is enough to converge on a clean linear synthetic target (tree
     # ensemble needs more depth than LinearRegression on linear data).
     est = catboost.CatBoostRegressor(
-        iterations=100, learning_rate=0.1, verbose=False, **kwargs,
+        iterations=100,
+        learning_rate=0.1,
+        verbose=False,
+        **kwargs,
     )
     est = strat.wrap_multi_target(est)  # native -> identity
     est.fit(X, y)
@@ -67,6 +72,7 @@ def test_catboost_multirmse_native_multi_target_works():
     assert preds.shape == (X.shape[0], y.shape[1])
     # MultiRMSE should reach a non-trivial fit on this clean target.
     from sklearn.metrics import r2_score
+
     r2 = r2_score(y, preds, multioutput="uniform_average")
     assert r2 > 0.5, f"CatBoost MultiRMSE R^2={r2:+.4f}; expected >0.5"
 
@@ -98,6 +104,7 @@ def test_xgboost_multi_output_tree_native_works():
     xgboost = pytest.importorskip("xgboost")
     # XGBoost multi_output_tree requires >=2.0
     from packaging.version import Version
+
     if Version(xgboost.__version__) < Version("2.0"):
         pytest.skip(f"XGBoost {xgboost.__version__} < 2.0; native MTR unavailable")
 

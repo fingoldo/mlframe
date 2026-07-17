@@ -17,6 +17,7 @@ Three protect-against-revert tests:
   shorten ``optimise_hermite_pair`` wall time vs an effectively-infinite
   value on a target where the warm-start finds the optimum early.
 """
+
 from __future__ import annotations
 
 import time
@@ -55,15 +56,16 @@ class TestNewATrivialBaselineHoist:
         with patch.object(fe_baselines, "best_trivial_pair", _spy_without):
             for s in range(5):
                 optimise_hermite_pair(
-                    x_a=x_a, x_b=x_b, y=y,
-                    n_trials=10, max_degree=2,
-                    multi_fidelity=False, sweep_degrees=False,
+                    x_a=x_a,
+                    x_b=x_b,
+                    y=y,
+                    n_trials=10,
+                    max_degree=2,
+                    multi_fidelity=False,
+                    sweep_degrees=False,
                     seed=42 + s,
                 )
-        assert call_count_without["n"] == 5, (
-            f"expected 5 best_trivial_pair calls (one per restart) "
-            f"without precompute; got {call_count_without['n']}"
-        )
+        assert call_count_without["n"] == 5, f"expected 5 best_trivial_pair calls (one per restart) without precompute; got {call_count_without['n']}"
 
         # WITH precomputed baseline: the caller pre-runs best_trivial_pair
         # ONCE then feeds the result via precomputed_trivial_baseline.
@@ -71,9 +73,15 @@ class TestNewATrivialBaselineHoist:
         from mlframe.feature_selection.filters.fe_baselines import (
             best_trivial_pair,
         )
+
         trivial = best_trivial_pair(
-            x_a, x_b, y, discrete_target=True,
-            mi_estimator="plugin", plugin_n_bins=20, n_neighbors=None,
+            x_a,
+            x_b,
+            y,
+            discrete_target=True,
+            mi_estimator="plugin",
+            plugin_n_bins=20,
+            n_neighbors=None,
         )
         assert trivial is not None
         trivial_name, _, trivial_mi = trivial
@@ -87,16 +95,19 @@ class TestNewATrivialBaselineHoist:
         with patch.object(fe_baselines, "best_trivial_pair", _spy_with):
             for s in range(5):
                 optimise_hermite_pair(
-                    x_a=x_a, x_b=x_b, y=y,
-                    n_trials=10, max_degree=2,
-                    multi_fidelity=False, sweep_degrees=False,
+                    x_a=x_a,
+                    x_b=x_b,
+                    y=y,
+                    n_trials=10,
+                    max_degree=2,
+                    multi_fidelity=False,
+                    sweep_degrees=False,
                     seed=42 + s,
                     precomputed_trivial_baseline=trivial_mi,
                     precomputed_trivial_name=trivial_name,
                 )
         assert call_count_with["n"] == 0, (
-            f"precomputed_trivial_baseline did NOT elide internal call: "
-            f"got {call_count_with['n']} calls (expected 0). NEW-A regressed."
+            f"precomputed_trivial_baseline did NOT elide internal call: got {call_count_with['n']} calls (expected 0). NEW-A regressed."
         )
 
 
@@ -142,25 +153,28 @@ class TestNewBBasisMatrixGate:
 
         def _spy_eval(*args, **kwargs):
             captured["calls"] += 1
-            if (kwargs.get("B_a") is not None
-                    and kwargs.get("B_b") is not None):
+            if kwargs.get("B_a") is not None and kwargs.get("B_b") is not None:
                 captured["saw_non_none_B"] = True
             return original_eval(*args, **kwargs)
 
         def _spy_eval_batch(*args, **kwargs):
             captured["calls"] += 1
-            if (kwargs.get("B_a") is not None
-                    and kwargs.get("B_b") is not None):
+            if kwargs.get("B_a") is not None and kwargs.get("B_b") is not None:
                 captured["saw_non_none_B"] = True
             return original_eval_batch(*args, **kwargs)
 
-        with patch.object(_opt_mod, "_eval_coef_pair", _spy_eval), \
-             patch.object(_opt_mod, "_eval_coef_pair_batch", _spy_eval_batch):
+        with patch.object(_opt_mod, "_eval_coef_pair", _spy_eval), patch.object(_opt_mod, "_eval_coef_pair_batch", _spy_eval_batch):
             hermite_fe.optimise_hermite_pair(
-                x_a=x_a, x_b=x_b, y=y,
-                n_trials=20, max_degree=3,
-                multi_fidelity=True, sweep_degrees=False,
-                seed=42, basis=basis, warm_start=False,
+                x_a=x_a,
+                x_b=x_b,
+                y=y,
+                n_trials=20,
+                max_degree=3,
+                multi_fidelity=True,
+                sweep_degrees=False,
+                seed=42,
+                basis=basis,
+                warm_start=False,
             )
 
         assert captured["calls"] > 0, "spy did not capture any _eval_coef_pair* calls"
@@ -196,10 +210,15 @@ class TestNewDPlateauEarlyStop:
 
         # Warmup
         optimise_hermite_pair(
-            x_a=x_a[:1000], x_b=x_b[:1000], y=y[:1000],
-            n_trials=20, max_degree=2,
-            multi_fidelity=False, sweep_degrees=False,
-            basis="chebyshev", use_trivial_baseline=False,
+            x_a=x_a[:1000],
+            x_b=x_b[:1000],
+            y=y[:1000],
+            n_trials=20,
+            max_degree=2,
+            multi_fidelity=False,
+            sweep_degrees=False,
+            basis="chebyshev",
+            use_trivial_baseline=False,
             baseline_uplift_threshold=0.5,
         )
 
@@ -208,9 +227,15 @@ class TestNewDPlateauEarlyStop:
         for s in range(3):
             t0 = time.perf_counter()
             optimise_hermite_pair(
-                x_a=x_a, x_b=x_b, y=y, n_trials=300, max_degree=3,
-                multi_fidelity=False, sweep_degrees=False,
-                seed=42 + s, basis="chebyshev",
+                x_a=x_a,
+                x_b=x_b,
+                y=y,
+                n_trials=300,
+                max_degree=3,
+                multi_fidelity=False,
+                sweep_degrees=False,
+                seed=42 + s,
+                basis="chebyshev",
                 use_trivial_baseline=False,
                 baseline_uplift_threshold=0.5,
                 early_stop_no_improve=20,
@@ -218,9 +243,15 @@ class TestNewDPlateauEarlyStop:
             t_on.append(time.perf_counter() - t0)
             t0 = time.perf_counter()
             optimise_hermite_pair(
-                x_a=x_a, x_b=x_b, y=y, n_trials=300, max_degree=3,
-                multi_fidelity=False, sweep_degrees=False,
-                seed=42 + s, basis="chebyshev",
+                x_a=x_a,
+                x_b=x_b,
+                y=y,
+                n_trials=300,
+                max_degree=3,
+                multi_fidelity=False,
+                sweep_degrees=False,
+                seed=42 + s,
+                basis="chebyshev",
                 use_trivial_baseline=False,
                 baseline_uplift_threshold=0.5,
                 early_stop_no_improve=10000,

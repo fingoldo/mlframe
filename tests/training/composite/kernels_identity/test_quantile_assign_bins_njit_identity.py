@@ -6,6 +6,7 @@ Perf win measured in
 ``training/composite/transforms/_benchmarks/bench_quantile_assign_bins_searchsorted.py``
 (3.9x@10k / 6.6x@200k / 8.9x@1M).
 """
+
 import numpy as np
 import pytest
 

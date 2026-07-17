@@ -14,6 +14,7 @@ Fits are memoized by config key (identical fits reuse one result) and kept few +
 max_runtime_mins=1, modest n / p) so each test runs well under ~60s. Thresholds are pinned to measured
 behaviour with a 5-15% margin; majority-of-seeds is used for the high-variance recovery assertions.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -31,13 +32,21 @@ _FIT_CACHE: dict = {}
 # Full-mode path with all feature-engineering disabled + order-1 interactions selects exactly the raw input
 # columns (no engineered tail), giving a stable stand-in for the crash-prone legacy ``use_simple_mode=True``.
 _RAW_FE_OFF = dict(
-    use_simple_mode=False, fe_max_steps=0, interactions_max_order=1,
-    fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False,
-    fe_hinge_enable=False, fe_wavelet_enable=False,
-    fe_conditional_dispersion_enable=False, fe_discrete_structural_operators_enable=False,
-    fe_pairwise_modular_enable=False, fe_integer_lattice_enable=False,
-    fe_row_argmax_enable=False, fe_conditional_gate_enable=False,
-    fe_kfold_te_enable=False, fe_binned_numeric_agg_enable=False,
+    use_simple_mode=False,
+    fe_max_steps=0,
+    interactions_max_order=1,
+    fe_univariate_basis_enable=False,
+    fe_univariate_fourier_enable=False,
+    fe_hinge_enable=False,
+    fe_wavelet_enable=False,
+    fe_conditional_dispersion_enable=False,
+    fe_discrete_structural_operators_enable=False,
+    fe_pairwise_modular_enable=False,
+    fe_integer_lattice_enable=False,
+    fe_row_argmax_enable=False,
+    fe_conditional_gate_enable=False,
+    fe_kfold_te_enable=False,
+    fe_binned_numeric_agg_enable=False,
 )
 
 
@@ -53,8 +62,7 @@ def _fit_cached(key, build, *, mode, nbins, seed, **kw):
     X, y = build
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        common = dict(verbose=0, max_runtime_mins=1, n_workers=1, quantization_nbins=nbins,
-                      random_seed=seed)
+        common = dict(verbose=0, max_runtime_mins=1, n_workers=1, quantization_nbins=nbins, random_seed=seed)
         if mode == "raw":
             sel = MRMR(**common, **_RAW_FE_OFF, **kw).fit(X, pd.Series(y))
         else:
@@ -182,8 +190,7 @@ def test_synergy_recovers_both_factors(nbins):
     """
     recovered = 0
     for seed in SEEDS:
-        names = _fit_cached(("synergy", seed), _make_synergy(seed, n=2000), mode="full", nbins=nbins,
-                            seed=seed, interactions_max_order=2)
+        names = _fit_cached(("synergy", seed), _make_synergy(seed, n=2000), mode="full", nbins=nbins, seed=seed, interactions_max_order=2)
         if all(any(tok in nm for nm in names) for tok in ("x0", "x1")):
             recovered += 1
     assert recovered >= 2, (
@@ -204,13 +211,9 @@ def test_exact_duplicate_keeps_one(nbins, n):
     seeds, both nbins in {5,10}, and small (n=2000) + medium (n=20000) sample sizes. The exact-duplicate fit
     is near-instant (identity shortcut). Measured: exactly one in every cell."""
     for seed in SEEDS:
-        names = _fit_cached(("exact_dup", seed, n), _make_exact_dup(seed, n=n), mode="raw",
-                            nbins=nbins, seed=seed)
+        names = _fit_cached(("exact_dup", seed, n), _make_exact_dup(seed, n=n), mode="raw", nbins=nbins, seed=seed)
         sigs = _signal_cols(names)
-        assert len(sigs) == 1, (
-            f"exact-dup n={n} seed={seed} nbins={nbins}: expected exactly ONE of (signal, signal_dup), "
-            f"got {sigs}; full={names}"
-        )
+        assert len(sigs) == 1, f"exact-dup n={n} seed={seed} nbins={nbins}: expected exactly ONE of (signal, signal_dup), got {sigs}; full={names}"
         # Strengthened: the survivor must be the SIGNAL (or a signal-derived engineered col), and NO pure-noise
         # column may leak in. Just collapsing the pair is not enough -- a selector that drops both duplicates and
         # picks noise would pass the count check; this catches that.
@@ -218,9 +221,7 @@ def test_exact_duplicate_keeps_one(nbins, n):
             f"exact-dup n={n} seed={seed} nbins={nbins}: a signal(-derived) column must be selected; got {names}"
         )
         leaked_noise = [nm for nm in names if nm.startswith("noise")]
-        assert not leaked_noise, (
-            f"exact-dup n={n} seed={seed} nbins={nbins}: pure-noise columns leaked into selection: {leaked_noise}; full={names}"
-        )
+        assert not leaked_noise, f"exact-dup n={n} seed={seed} nbins={nbins}: pure-noise columns leaked into selection: {leaked_noise}; full={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -237,13 +238,9 @@ def test_near_duplicate_at_most_one(nbins):
     selection but is stable on this host.
     """
     for seed in SEEDS:
-        names = _fit_cached(("near_dup", seed), _make_near_dup(seed, n=2000), mode="raw", nbins=nbins,
-                            seed=seed)
+        names = _fit_cached(("near_dup", seed), _make_near_dup(seed, n=2000), mode="raw", nbins=nbins, seed=seed)
         sigs = [nm for nm in names if nm in ("signal", "signal_near")]
-        assert len(sigs) == 1, (
-            f"near-dup full mode seed={seed} nbins={nbins}: expected exactly ONE of (signal, signal_near), "
-            f"got {sigs}; full={names}"
-        )
+        assert len(sigs) == 1, f"near-dup full mode seed={seed} nbins={nbins}: expected exactly ONE of (signal, signal_near), got {sigs}; full={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -260,14 +257,10 @@ def test_confounder_keeps_genuine_signal(n):
     """
     recovered = 0
     for seed in SEEDS:
-        names = _fit_cached(("confounder", seed, n), _make_confounder(seed, n=n), mode="raw",
-                            nbins=10, seed=seed)
+        names = _fit_cached(("confounder", seed, n), _make_confounder(seed, n=n), mode="raw", nbins=10, seed=seed)
         if any(s in names for s in ("sig_a", "sig_b")):
             recovered += 1
-    assert recovered >= 2, (
-        f"confounder n={n}: genuine signal recovered on only {recovered}/{len(SEEDS)} seeds "
-        f"(measured all; floor 2/3)"
-    )
+    assert recovered >= 2, f"confounder n={n}: genuine signal recovered on only {recovered}/{len(SEEDS)} seeds (measured all; floor 2/3)"
 
 
 # ---------------------------------------------------------------------------
@@ -285,13 +278,9 @@ def test_collinear_cluster_collapses(nbins):
     all 6 (no collapse); raw mode runs the same core selection and is stable.
     """
     for seed in SEEDS:
-        names = _fit_cached(("collinear", seed), _make_collinear_cluster(seed, n=2000), mode="raw",
-                            nbins=nbins, seed=seed)
+        names = _fit_cached(("collinear", seed), _make_collinear_cluster(seed, n=2000), mode="raw", nbins=nbins, seed=seed)
         cluster = [nm for nm in names if nm == "driver" or nm.startswith("clone")]
-        assert 1 <= len(cluster) <= 2, (
-            f"collinear cluster seed={seed} nbins={nbins} did not collapse: kept {len(cluster)}/6 members "
-            f"{cluster}; full={names}"
-        )
+        assert 1 <= len(cluster) <= 2, f"collinear cluster seed={seed} nbins={nbins} did not collapse: kept {len(cluster)}/6 members {cluster}; full={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -306,13 +295,10 @@ def test_heavy_tail_recovers_signals():
     """
     recovered = 0
     for seed in SEEDS:
-        names = _fit_cached(("heavy_tail", seed), _make_heavy_tail(seed, n=2000), mode="raw",
-                            nbins=10, seed=seed)
+        names = _fit_cached(("heavy_tail", seed), _make_heavy_tail(seed, n=2000), mode="raw", nbins=10, seed=seed)
         if "x0" in names or "x1" in names:
             recovered += 1
-    assert recovered >= 2, (
-        f"heavy-tail: signal recovered on only {recovered}/{len(SEEDS)} seeds (measured all; floor 2/3)"
-    )
+    assert recovered >= 2, f"heavy-tail: signal recovered on only {recovered}/{len(SEEDS)} seeds (measured all; floor 2/3)"
 
 
 # ---------------------------------------------------------------------------
@@ -330,14 +316,12 @@ def test_large_p_noise_exclusion(seed, n, p):
     are kept modest so each fit runs in a few seconds; a larger p=80 / n=20000 fit is ~40s+ on this
     single-threaded host.
     """
-    names = _fit_cached(("large_p", seed, n, p), _make_large_p(seed, n=n, p=p), mode="raw",
-                        nbins=10, seed=seed)
+    names = _fit_cached(("large_p", seed, n, p), _make_large_p(seed, n=n, p=p), mode="raw", nbins=10, seed=seed)
     n_noise_total = p - 2
     n_noise_kept = sum(1 for nm in names if nm.startswith("noise"))
     excl_frac = 1.0 - n_noise_kept / n_noise_total
     assert excl_frac >= 0.85, (
-        f"large-p n={n} seed={seed}: noise-exclusion frac {excl_frac:.2f} too low ({n_noise_kept}/"
-        f"{n_noise_total} noise kept); floor 0.85; full={names}"
+        f"large-p n={n} seed={seed}: noise-exclusion frac {excl_frac:.2f} too low ({n_noise_kept}/{n_noise_total} noise kept); floor 0.85; full={names}"
     )
 
 
@@ -355,12 +339,9 @@ def test_exact_duplicate_keeps_one_jmim_vs_default(aggregator):
     assert "redundancy_aggregator" in inspect.signature(MRMR.__init__).parameters, (
         "redundancy_aggregator is a documented MRMR ctor param; a missing kwarg is a real regression, not a skip"
     )
-    names = _fit_cached(("exact_dup_agg", aggregator), _make_exact_dup(0, n=2000), mode="raw",
-                        nbins=8, seed=0, redundancy_aggregator=aggregator)
+    names = _fit_cached(("exact_dup_agg", aggregator), _make_exact_dup(0, n=2000), mode="raw", nbins=8, seed=0, redundancy_aggregator=aggregator)
     sigs = _signal_cols(names)
-    assert len(sigs) == 1, (
-        f"exact-dup under aggregator={aggregator!r}: expected ONE of the pair, got {sigs}; full={names}"
-    )
+    assert len(sigs) == 1, f"exact-dup under aggregator={aggregator!r}: expected ONE of the pair, got {sigs}; full={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -377,11 +358,25 @@ def test_signal_recovery_robust_across_binning(nbins_strategy, quantization_meth
     """Across {None (legacy quantile), mdlp (supervised default)} x {quantile, uniform} cut methods: the
     exact-duplicate pair collapses to one signal with no noise leak, and on the confounder case at least one
     genuine signal is kept. Selection must not be an artifact of one binning configuration."""
-    dup = _fit_cached(("bin_dup", nbins_strategy, quantization_method), _make_exact_dup(0, n=2000), mode="raw",
-                      nbins=8, seed=0, nbins_strategy=nbins_strategy, quantization_method=quantization_method)
+    dup = _fit_cached(
+        ("bin_dup", nbins_strategy, quantization_method),
+        _make_exact_dup(0, n=2000),
+        mode="raw",
+        nbins=8,
+        seed=0,
+        nbins_strategy=nbins_strategy,
+        quantization_method=quantization_method,
+    )
     assert len(_signal_cols(dup)) == 1, f"exact-dup ns={nbins_strategy} qm={quantization_method}: pair should collapse to one; got {dup}"
     assert not [nm for nm in dup if nm.startswith("noise")], f"exact-dup ns={nbins_strategy} qm={quantization_method}: noise leaked; got {dup}"
 
-    conf = _fit_cached(("bin_conf", nbins_strategy, quantization_method), _make_confounder(0, n=2000), mode="raw",
-                       nbins=8, seed=0, nbins_strategy=nbins_strategy, quantization_method=quantization_method)
+    conf = _fit_cached(
+        ("bin_conf", nbins_strategy, quantization_method),
+        _make_confounder(0, n=2000),
+        mode="raw",
+        nbins=8,
+        seed=0,
+        nbins_strategy=nbins_strategy,
+        quantization_method=quantization_method,
+    )
     assert {"sig_a", "sig_b"} & set(conf), f"confounder ns={nbins_strategy} qm={quantization_method}: a genuine signal must be kept; got {conf}"

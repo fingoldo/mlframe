@@ -9,8 +9,8 @@ Covers two bugs found in the niche-estimator class sweep:
 2. ``ranking._rank01`` claimed average (tie-shared) ranks but assigned distinct
    positional ranks, fabricating a within-group order on tied relevance values.
 """
+
 import numpy as np
-import pytest
 from sklearn.linear_model import LinearRegression
 
 from mlframe.training.composite.simplex import (

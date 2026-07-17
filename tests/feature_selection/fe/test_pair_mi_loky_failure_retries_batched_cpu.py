@@ -13,9 +13,9 @@ This test forces the loky dispatch to fail and asserts the batched CPU retry is 
 ``cached_MIs`` -- not the legacy per-pair sweep (which would still technically "work" but is the thing
 being fixed away from).
 """
+
 from __future__ import annotations
 
-from itertools import combinations
 
 import numpy as np
 import pytest
@@ -79,15 +79,25 @@ def test_loky_failure_retries_batched_cpu_before_legacy_sweep(monkeypatch, caplo
     with caplog.at_level(logging.WARNING):
         result = step_pairmi_mod.compute_pair_mis_and_floor(
             _Fake(),
-            data=data, cols=cols, nbins=nbins, X=None,
-            classes_y=classes_y, classes_y_safe=classes_y, freqs_y=freqs_y,
+            data=data,
+            cols=cols,
+            nbins=nbins,
+            X=None,
+            classes_y=classes_y,
+            classes_y_safe=classes_y,
+            freqs_y=freqs_y,
             target_indices=target_indices,
-            cached_MIs={}, cached_confident_MIs={},
+            cached_MIs={},
+            cached_confident_MIs={},
             numeric_vars_to_consider=numeric_vars_to_consider,
             _prevalence_debias_auto=False,
-            n_jobs=16, prefetch_factor=2, parallel_kwargs={"backend": "threading"},
-            fe_min_nonzero_confidence=0.99, fe_npermutations=10,
-            fe_min_pair_mi=0.001, fe_min_pair_mi_prevalence=1.05,
+            n_jobs=16,
+            prefetch_factor=2,
+            parallel_kwargs={"backend": "threading"},
+            fe_min_nonzero_confidence=0.99,
+            fe_npermutations=10,
+            fe_min_pair_mi=0.001,
+            fe_min_pair_mi_prevalence=1.05,
             verbose=0,
         )
 

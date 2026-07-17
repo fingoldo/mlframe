@@ -35,10 +35,7 @@ def test_attribute_only_random_state_changes_signature():
     pb = _ToyPipeline([("scaler", b)])
     sig_a = _pipeline_signature_for_cache(pa)
     sig_b = _pipeline_signature_for_cache(pb)
-    assert sig_a != sig_b, (
-        "Differing random_state attributes must produce different cache signatures "
-        f"(got identical: {sig_a!r})"
-    )
+    assert sig_a != sig_b, f"Differing random_state attributes must produce different cache signatures (got identical: {sig_a!r})"
 
 
 def test_no_random_state_signatures_remain_stable():

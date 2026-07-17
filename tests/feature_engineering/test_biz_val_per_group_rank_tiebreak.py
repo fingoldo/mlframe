@@ -14,6 +14,7 @@ Metric: per-group Spearman correlation between the assigned rank and the (unobse
 scoring-time) true continuous merit, averaged across groups -- the realistic "does this
 ranking feature actually track quality" check, not a raw identity assertion.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -64,7 +65,7 @@ def test_biz_val_per_group_rank_tiebreak_recovers_merit_ordering():
 
 
 def test_biz_val_per_group_rank_tiebreak_omitted_is_bit_identical_to_baseline():
-    groups, score, tiebreak, _merit = _make_coarse_score_dataset(n_groups=50, group_size=12, seed=7)
+    groups, score, _tiebreak, _merit = _make_coarse_score_dataset(n_groups=50, group_size=12, seed=7)
 
     baseline = per_group_rank(score, groups, method="ordinal")
     without_kw = per_group_rank(score, groups, method="ordinal", tiebreak_values=None)

@@ -8,6 +8,7 @@ reflections cancelled to a near-constant (dead) aggregate. The fix sign-aligns
 members to the reference before combining, so reflections add constructively
 (matching the canonical filters._cluster_aggregate path).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -21,11 +22,13 @@ from mlframe.feature_selection.filters._orthogonal_cluster_basis_fe import (
 def _anticorrelated_reflections(seed=0, n=500):
     rng = np.random.default_rng(seed)
     z = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "a": z + 0.05 * rng.standard_normal(n),
-        "b": -z + 0.05 * rng.standard_normal(n),   # anticorrelated reflection
-        "c": z + 0.05 * rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": z + 0.05 * rng.standard_normal(n),
+            "b": -z + 0.05 * rng.standard_normal(n),  # anticorrelated reflection
+            "c": z + 0.05 * rng.standard_normal(n),
+        }
+    )
     return X, z
 
 
@@ -39,12 +42,9 @@ def test_mean_z_does_not_cancel_anticorrelated_members():
 
 
 def test_two_member_anticorrelated_not_dead():
-    X, z = _anticorrelated_reflections()
+    X, _z = _anticorrelated_reflections()
     agg = compute_cluster_aggregate(X, ["a", "b"], aggregator="mean_z")
-    assert float(np.std(agg)) > 0.5, (
-        f"2-member anticorrelated cluster cancelled to a dead column "
-        f"(std={np.std(agg):.4f})"
-    )
+    assert float(np.std(agg)) > 0.5, f"2-member anticorrelated cluster cancelled to a dead column (std={np.std(agg):.4f})"
 
 
 def test_pc1_recovers_latent_for_anticorrelated_cluster():

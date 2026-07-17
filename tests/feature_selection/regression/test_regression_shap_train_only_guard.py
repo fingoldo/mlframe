@@ -15,6 +15,7 @@ The guard:
 This sensor patches ``shap.TreeExplainer.shap_values`` with a captor and
 verifies the call basis has the same row count as the train X handed to fit().
 """
+
 from __future__ import annotations
 
 import logging
@@ -54,8 +55,11 @@ def test_d1_p2_8_shap_explainer_uses_train_only_basis(boruta_train_basis_captor,
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X_full, y_full = make_classification(
-        n_samples=80, n_features=4, n_informative=2,
-        n_redundant=0, random_state=42,
+        n_samples=80,
+        n_features=4,
+        n_informative=2,
+        n_redundant=0,
+        random_state=42,
     )
     X_train_df = pd.DataFrame(X_full, columns=[f"f{i}" for i in range(4)])
     y_train = pd.Series(y_full)
@@ -91,13 +95,9 @@ def test_d1_p2_8_shap_explainer_uses_train_only_basis(boruta_train_basis_captor,
 
     assert "n_rows_basis" in boruta_train_basis_captor, "shap_values should have been called"
     # 80 train rows; basis = X_boruta has same n_rows
-    assert boruta_train_basis_captor["n_rows_basis"] == 80, (
-        f"Expected SHAP basis n_rows={80} (train-only); got {boruta_train_basis_captor['n_rows_basis']}"
-    )
+    assert boruta_train_basis_captor["n_rows_basis"] == 80, f"Expected SHAP basis n_rows={80} (train-only); got {boruta_train_basis_captor['n_rows_basis']}"
     info_msgs = [r.message for r in caplog.records if r.levelno >= logging.INFO]
-    assert any("train background" in m and "n_train=80" in m for m in info_msgs), (
-        f"Expected INFO log mentioning train background + n_train; got: {info_msgs}"
-    )
+    assert any("train background" in m and "n_train=80" in m for m in info_msgs), f"Expected INFO log mentioning train background + n_train; got: {info_msgs}"
 
 
 def test_d1_p2_8_shap_explainer_assertion_fires_on_size_mismatch():
@@ -105,8 +105,11 @@ def test_d1_p2_8_shap_explainer_assertion_fires_on_size_mismatch():
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     X_full, y_full = make_classification(
-        n_samples=80, n_features=4, n_informative=2,
-        n_redundant=0, random_state=42,
+        n_samples=80,
+        n_features=4,
+        n_informative=2,
+        n_redundant=0,
+        random_state=42,
     )
     X_train_df = pd.DataFrame(X_full[:60], columns=[f"f{i}" for i in range(4)])
     # Bad: X_boruta contains all 80 rows but X only has 60 (=> val leaked in)

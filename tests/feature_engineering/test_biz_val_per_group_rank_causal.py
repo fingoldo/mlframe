@@ -11,6 +11,7 @@ almost-perfect (near-1.0 AUC) predictor of a label that is itself defined from F
 while the ``causal=True`` expanding-window rank, which by construction only sees rows up to
 and including the scored row, degrades to a realistic, still genuinely useful, AUC.
 """
+
 from __future__ import annotations
 
 import numpy as np

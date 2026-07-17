@@ -11,6 +11,7 @@ N-F3 worried the full-budget denominator overstates confidence on early-break pi
 These tests pin that invariant so a future change to the early-break condition (that could make full_budget engage on a KEPT
 candidate) trips here.
 """
+
 import numpy as np
 from numba.core import types
 from numba.typed import Dict as NumbaDict
@@ -28,8 +29,12 @@ def _observed_gain(data, nbins):
     """Observed conditional gain I(x1; y | x0) the confirm loop tests against; under a true null it sits inside the
     permutation distribution so failures accrue and the loop hits max_failed (the early-break pile-up N-F3 is about)."""
     return conditional_mi(
-        factors_data=data, x=np.asarray([1], dtype=np.int64), y=np.asarray([3], dtype=np.int64),
-        z=np.asarray([0], dtype=np.int64), var_is_nominal=None, factors_nbins=nbins,
+        factors_data=data,
+        x=np.asarray([1], dtype=np.int64),
+        y=np.asarray([3], dtype=np.int64),
+        z=np.asarray([0], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
     )
 
 
@@ -51,10 +56,21 @@ def test_early_break_implies_rejected_so_full_budget_is_selection_inert():
     for seed in range(120):
         data, nbins = _true_null(1500, seed)
         nfailed, nchecked = get_fleuret_criteria_confidence(
-            data_copy=data.copy(), factors_nbins=nbins, x=(1,), y=y_arr, selected_vars=[0],
-            npermutations=npermutations, bootstrapped_gain=_observed_gain(data, nbins), max_failed=max_failed, nexisting=0,
-            mrmr_relevance_algo="fleuret", mrmr_redundancy_algo="fleuret", max_veteranes_interactions_order=1,
-            cached_cond_MIs=_cache(), entropy_cache=_cache(), extra_x_shuffling=True,
+            data_copy=data.copy(),
+            factors_nbins=nbins,
+            x=(1,),
+            y=y_arr,
+            selected_vars=[0],
+            npermutations=npermutations,
+            bootstrapped_gain=_observed_gain(data, nbins),
+            max_failed=max_failed,
+            nexisting=0,
+            mrmr_relevance_algo="fleuret",
+            mrmr_redundancy_algo="fleuret",
+            max_veteranes_interactions_order=1,
+            cached_cond_MIs=_cache(),
+            entropy_cache=_cache(),
+            extra_x_shuffling=True,
             base_seed=np.uint64(seed * 2654435761 + 1),
         )
         if nchecked < npermutations:

@@ -13,6 +13,7 @@ Core pins:
   precheck is orthogonal to the legacy flag), pinned both at the precheck-function level and end-to-end through the phase;
 * degenerate inputs (no lag column, no groups, tiny n) never crash and PROCEED (never a low-confidence skip).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -31,7 +32,13 @@ from mlframe.training.core._achievable_ceiling import (
 from mlframe.training.core._phase_composite_discovery import run_composite_target_discovery
 
 _VERDICT_KEYS = {
-    "raw_rmse", "lag_rmse", "best_composite_rmse", "headroom_vs_min", "decision", "reason", "method",
+    "raw_rmse",
+    "lag_rmse",
+    "best_composite_rmse",
+    "headroom_vs_min",
+    "decision",
+    "reason",
+    "method",
 }
 
 
@@ -161,12 +168,15 @@ class TestAchievableCeilingBizValue:
         df, g, y = _ar_frame()
         cfg = CompositeTargetDiscoveryConfig(enabled=True, random_state=0, extreme_ar_group_aware_skip=False)
         v = run_achievable_ceiling_precheck(
-            config=cfg, df=df, target_col="y", feature_cols=["x1", "y_prev"], y_train=y, group_ids_train=g,
+            config=cfg,
+            df=df,
+            target_col="y",
+            feature_cols=["x1", "y_prev"],
+            y_train=y,
+            group_ids_train=g,
         )
         assert v is not None, "the measured precheck must run regardless of extreme_ar_group_aware_skip"
-        assert v["decision"] == "skip", (
-            f"extreme_ar_group_aware_skip=False must NOT disable the measured ceiling skip; got {v['reason']}"
-        )
+        assert v["decision"] == "skip", f"extreme_ar_group_aware_skip=False must NOT disable the measured ceiling skip; got {v['reason']}"
 
     def test_biz_val_composable_proceeds_with_large_headroom(self):
         """Composable: the optimistic composite crushes both the raw model (staircase underfit of the wide linear base)
@@ -184,7 +194,12 @@ class TestAchievableCeilingConfigWiring:
         df, g, y = _ar_frame()
         cfg = CompositeTargetDiscoveryConfig(enabled=True, random_state=0, composite_achievable_ceiling_precheck=False)
         v = run_achievable_ceiling_precheck(
-            config=cfg, df=df, target_col="y", feature_cols=["x1", "y_prev"], y_train=y, group_ids_train=g,
+            config=cfg,
+            df=df,
+            target_col="y",
+            feature_cols=["x1", "y_prev"],
+            y_train=y,
+            group_ids_train=g,
         )
         assert v is None, "composite_achievable_ceiling_precheck=False must disable the measured precheck"
 
@@ -193,11 +208,18 @@ class TestAchievableCeilingConfigWiring:
         margin flows from config into the decision."""
         df, g, y = _composable_frame()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, random_state=0, composite_achievable_ceiling_margin=0.99,
+            enabled=True,
+            random_state=0,
+            composite_achievable_ceiling_margin=0.99,
             composite_achievable_ceiling_strong_floor_frac=1.0,
         )
         v = run_achievable_ceiling_precheck(
-            config=cfg, df=df, target_col="y", feature_cols=["x1", "base", "y_prev"], y_train=y, group_ids_train=g,
+            config=cfg,
+            df=df,
+            target_col="y",
+            feature_cols=["x1", "base", "y_prev"],
+            y_train=y,
+            group_ids_train=g,
         )
         assert v["decision"] == "skip", f"a 99% margin must force a skip; got {v['reason']}"
 
@@ -239,9 +261,7 @@ class TestAchievableCeilingPhaseIntegration:
 
         verdict = metadata.get("composite_precheck_verdict", {}).get(str(TargetTypes.REGRESSION), {}).get("y")
         assert verdict is not None, "the phase must record composite_precheck_verdict in metadata"
-        assert verdict["decision"] == "skip", (
-            f"phase must SKIP the strong-AR target even with extreme_ar_group_aware_skip=False; got {verdict['reason']}"
-        )
+        assert verdict["decision"] == "skip", f"phase must SKIP the strong-AR target even with extreme_ar_group_aware_skip=False; got {verdict['reason']}"
         specs = metadata.get("composite_target_specs", {}).get(str(TargetTypes.REGRESSION), {}).get("y", [])
         assert not specs, f"no composite specs must be added when the ceiling precheck skips; got {specs}"
 
@@ -252,6 +272,4 @@ class TestAchievableCeilingPhaseIntegration:
 
         verdict = metadata.get("composite_precheck_verdict", {}).get(str(TargetTypes.REGRESSION), {}).get("y")
         assert verdict is not None
-        assert verdict["decision"] == "proceed", (
-            f"phase must PROCEED on a composable target; got {verdict['reason']}"
-        )
+        assert verdict["decision"] == "proceed", f"phase must PROCEED on a composable target; got {verdict['reason']}"

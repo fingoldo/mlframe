@@ -12,6 +12,7 @@ hindsight about the entity's future behavior -- a real deployment could never ha
 time. ``causal=True`` restricts each row to only its own entity's PAST events, so a row scored before the
 recent era exists correctly reflects "nothing is knowable yet" instead of leaking the future answer.
 """
+
 from __future__ import annotations
 
 import numpy as np

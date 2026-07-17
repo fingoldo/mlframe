@@ -30,6 +30,7 @@ Sensors:
    numpy reference. A future change that disables numba (e.g. by
    raising _YJ_NUMBA_MIN_N too high) trips this sensor.
 """
+
 from __future__ import annotations
 
 import time
@@ -90,17 +91,12 @@ def test_tiny_input_falls_back_to_numpy(monkeypatch) -> None:
     def _spy(y, lam):  # type: ignore[no-untyped-def]
         calls.append(len(y))
         # Delegate to the real kernel so output is correct.
-        return cut._yj_forward_numba_kernel.py_func(y, lam) \
-            if hasattr(cut._yj_forward_numba_kernel, "py_func") \
-            else cut._yj_forward_numba_kernel(y, lam)
+        return cut._yj_forward_numba_kernel.py_func(y, lam) if hasattr(cut._yj_forward_numba_kernel, "py_func") else cut._yj_forward_numba_kernel(y, lam)
 
     monkeypatch.setattr(cut, "_yj_forward_numba_kernel", _spy)
     y = np.linspace(-2.0, 2.0, 100).astype(np.float64)
     _ = _yj_forward(y, 0.5)
-    assert calls == [], (
-        f"expected numba kernel skipped on n=100 < {cut._YJ_NUMBA_MIN_N}; "
-        f"but got {len(calls)} call(s)"
-    )
+    assert calls == [], f"expected numba kernel skipped on n=100 < {cut._YJ_NUMBA_MIN_N}; but got {len(calls)} call(s)"
 
 
 def test_yj_forward_speedup_gate() -> None:
@@ -129,7 +125,4 @@ def test_yj_forward_speedup_gate() -> None:
     numpy_s = _time(_yj_forward_numpy)
     disp_s = _time(_yj_forward)
     speedup = numpy_s / max(disp_s, 1e-9)
-    assert speedup >= 2.0, (
-        f"expected >= 2x speedup at n=100k; got numpy={numpy_s*1000:.1f}ms "
-        f"dispatcher={disp_s*1000:.1f}ms speedup={speedup:.2f}x"
-    )
+    assert speedup >= 2.0, f"expected >= 2x speedup at n=100k; got numpy={numpy_s * 1000:.1f}ms dispatcher={disp_s * 1000:.1f}ms speedup={speedup:.2f}x"

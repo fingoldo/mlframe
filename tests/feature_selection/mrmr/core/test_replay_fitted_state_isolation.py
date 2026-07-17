@@ -37,6 +37,7 @@ Current contract in ``_replay_fitted_state``:
    (the density win): shared read-only so an accidental write raises
    instead of silently corrupting the shared cache entry.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -51,12 +52,15 @@ def _fit_pair():
     the _FIT_CACHE and replays from the first.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = 200
-    X = pd.DataFrame({
-        "a": rng.standard_normal(n),
-        "b": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": rng.standard_normal(n),
+            "b": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((X["a"] > 0).astype(np.int64))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -68,9 +72,7 @@ def _fit_pair():
 def test_engineered_features_list_isolated():
     """List containers must be deep-copied on replay."""
     A, B = _fit_pair()
-    assert B._engineered_features_ is not A._engineered_features_, (
-        "_engineered_features_ is shared by reference - mutations leak"
-    )
+    assert B._engineered_features_ is not A._engineered_features_, "_engineered_features_ is shared by reference - mutations leak"
     if isinstance(B._engineered_features_, list):
         B._engineered_features_.append("phantom_audit")
         assert "phantom_audit" not in A._engineered_features_
@@ -79,9 +81,7 @@ def test_engineered_features_list_isolated():
 def test_engineered_recipes_isolated():
     """Recipes container (list or dict) must be deep-copied."""
     A, B = _fit_pair()
-    assert B._engineered_recipes_ is not A._engineered_recipes_, (
-        "_engineered_recipes_ is shared by reference"
-    )
+    assert B._engineered_recipes_ is not A._engineered_recipes_, "_engineered_recipes_ is shared by reference"
 
 
 def test_support_writeable_on_replay_and_isolated_from_source():
@@ -96,10 +96,7 @@ def test_support_writeable_on_replay_and_isolated_from_source():
     A, B = _fit_pair()
     sig = getattr(B, "signature", "") or ""
     if isinstance(sig, str) and sig.startswith("_mrmr_identity_shortcut"):
-        pytest.skip(
-            "identity-shortcut path produced a fresh writable support_; "
-            "the writeable-and-isolated assertion targets the FIT_CACHE replay path"
-        )
+        pytest.skip("identity-shortcut path produced a fresh writable support_; the writeable-and-isolated assertion targets the FIT_CACHE replay path")
     assert B.support_.flags.writeable, "replayed support_ must be writeable like a cold-fit instance's"
     a_first = int(A.support_[0])
     if not np.shares_memory(B.support_, A.support_):
@@ -115,19 +112,14 @@ def test_large_internal_ndarrays_still_shared_for_density():
     A, B = _fit_pair()
     sig = getattr(B, "signature", "") or ""
     if isinstance(sig, str) and sig.startswith("_mrmr_identity_shortcut"):
-        pytest.skip(
-            "identity-shortcut path produced fresh arrays; the sharing "
-            "assertion only applies to the FIT_CACHE replay path"
-        )
+        pytest.skip("identity-shortcut path produced fresh arrays; the sharing assertion only applies to the FIT_CACHE replay path")
     _public_writeable_copies = {"support_", "ranking_"}
     for k, v in B.__dict__.items():
         if k in _public_writeable_copies or not isinstance(v, np.ndarray):
             continue
         a_v = A.__dict__.get(k)
         if isinstance(a_v, np.ndarray) and np.shares_memory(v, a_v):
-            assert v.flags.writeable is False, (
-                f"shared internal ndarray {k!r} must be read-only to protect the cache entry"
-            )
+            assert v.flags.writeable is False, f"shared internal ndarray {k!r} must be read-only to protect the cache entry"
 
 
 def test_replay_count_unchanged_after_fix():
@@ -144,8 +136,5 @@ def test_replay_count_unchanged_after_fix():
     missing_from_b = a_keys - b_keys
     # Constructor params can legitimately differ between instances; the
     # important thing is that fitted state is on both.
-    fitted_only = {k for k in missing_from_b
-                    if k.endswith("_") and not k.startswith("_")}
-    assert not fitted_only, (
-        f"Fitted attrs missing from B after replay: {fitted_only}"
-    )
+    fitted_only = {k for k in missing_from_b if k.endswith("_") and not k.startswith("_")}
+    assert not fitted_only, f"Fitted attrs missing from B after replay: {fitted_only}"

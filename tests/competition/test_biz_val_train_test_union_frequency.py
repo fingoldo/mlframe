@@ -120,9 +120,7 @@ def test_biz_val_train_test_union_frequency_beats_train_only_under_drift():
 
     assert corr_train_only < 0.55, f"expected degraded train-only correlation, got {corr_train_only:.3f}"
     assert corr_union >= 0.70, f"expected union correlation >= 0.70, got {corr_union:.3f}"
-    assert corr_union > corr_train_only + 0.15, (
-        f"expected union to beat train-only by a real margin: union={corr_union:.3f} train_only={corr_train_only:.3f}"
-    )
+    assert corr_union > corr_train_only + 0.15, f"expected union to beat train-only by a real margin: union={corr_union:.3f} train_only={corr_train_only:.3f}"
 
     # sanity: train-side encoding also aligns with the same union counts used for test
     assert len(union_train_encoded) == len(train_series)
@@ -157,7 +155,7 @@ def test_biz_val_hierarchical_split_helps_novel_full_version_strings():
         # test only has a handful of brand-new-patch rows (noisy small-sample signal) - the
         # flat full-string feature can only ever see the noisy test-only count for a novel
         # string, while the hierarchical major.minor level also inherits train's precise count
-        n_train_reps = max(5, int(round(weight * 800 * rng.uniform(0.97, 1.03))))
+        n_train_reps = max(5, round(weight * 800 * rng.uniform(0.97, 1.03)))
         # train only ever sees patch "0" for this family
         train_rows += [f"{major}.{minor}.0"] * n_train_reps
 
@@ -175,15 +173,13 @@ def test_biz_val_hierarchical_split_helps_novel_full_version_strings():
 
     # flat full-string union frequency: all test values are novel-to-train, so it collapses
     # to (near-)constant test-side counts and cannot rank-order families by true weight
-    flat_train_encoded, flat_test_encoded = train_test_union_frequency_encode(train_series, test_series)
+    _flat_train_encoded, flat_test_encoded = train_test_union_frequency_encode(train_series, test_series)
     corr_flat = spearmanr(flat_test_encoded.to_numpy(), y_true_test).statistic
 
     # the combined (geometric-mean-of-all-levels) feature still folds in the noisy
     # full-patch level, so check it against a weaker bar - the strong bar belongs to the
     # raw major_minor component, which is exactly where the precise train history lives
-    hier_train_encoded, hier_test_encoded = train_test_union_frequency_encode(
-        train_series, test_series, hierarchical_split_sep="."
-    )
+    hier_train_encoded, hier_test_encoded = train_test_union_frequency_encode(train_series, test_series, hierarchical_split_sep=".")
     corr_hier_combined = spearmanr(hier_test_encoded.to_numpy(), y_true_test).statistic
 
     components = train_test_union_frequency_encode_hierarchical_components(train_series, test_series, ".")
@@ -196,8 +192,7 @@ def test_biz_val_hierarchical_split_helps_novel_full_version_strings():
         f"expected major_minor to beat flat by a real margin: major_minor={corr_major_minor:.3f} flat={corr_flat:.3f}"
     )
     assert corr_hier_combined > abs(corr_flat), (
-        f"expected combined hierarchical feature to still beat flat: "
-        f"combined={corr_hier_combined:.3f} flat={corr_flat:.3f}"
+        f"expected combined hierarchical feature to still beat flat: combined={corr_hier_combined:.3f} flat={corr_flat:.3f}"
     )
 
     assert len(hier_train_encoded) == len(train_series)

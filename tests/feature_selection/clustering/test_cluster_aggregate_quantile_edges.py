@@ -26,6 +26,7 @@ distribution -- there is no quantile recomputation left to drift.
 at replay; the downstream MRMR fit discretises the fit-time column for its OWN MI
 matrix via ``_mrmr_fe_step`` (a separate path).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -37,17 +38,21 @@ import pandas as pd
 def _frames():
     rng = np.random.default_rng(0)
     n = 200
-    train = pd.DataFrame({
-        "c1": rng.standard_normal(n),
-        "c2": rng.standard_normal(n),
-        "c3": rng.standard_normal(n),
-    })
+    train = pd.DataFrame(
+        {
+            "c1": rng.standard_normal(n),
+            "c2": rng.standard_normal(n),
+            "c3": rng.standard_normal(n),
+        }
+    )
     # 10x stddev shift -> the drift that flipped bin codes in the pre-iter-29 leak.
-    test = pd.DataFrame({
-        "c1": rng.standard_normal(n) * 10,
-        "c2": rng.standard_normal(n) * 10,
-        "c3": rng.standard_normal(n) * 10,
-    })
+    test = pd.DataFrame(
+        {
+            "c1": rng.standard_normal(n) * 10,
+            "c2": rng.standard_normal(n) * 10,
+            "c3": rng.standard_normal(n) * 10,
+        }
+    )
     train.loc[0] = [0.5, 0.5, 0.5]
     test.loc[0] = [0.5, 0.5, 0.5]
     return train, test
@@ -55,11 +60,14 @@ def _frames():
 
 def _build_recipe_with_edges(train, member_names):
     from mlframe.feature_selection.filters._cluster_aggregate import (
-        _continuous_cols, _standardize_align, _derive_weights,
+        _continuous_cols,
+        _standardize_align,
+        _derive_weights,
     )
     from mlframe.feature_selection.filters.engineered_recipes import (
         build_cluster_aggregate_recipe,
     )
+
     M = _continuous_cols(train, member_names)
     Z, mean, std, signs = _standardize_align(M, 0)
     weights = _derive_weights(Z, "mean_z")
@@ -67,32 +75,48 @@ def _build_recipe_with_edges(train, member_names):
     nbins = 8
     edges = np.nanpercentile(agg, np.linspace(0, 100, nbins + 1))
     q = {
-        "nbins": nbins, "method": "quantile",
+        "nbins": nbins,
+        "method": "quantile",
         "dtype": np.dtype(np.int16).str,
         "edges": edges.tolist(),
     }
     return build_cluster_aggregate_recipe(
-        name="ca_test", src_names=tuple(member_names), method="mean_z",
-        member_mean=mean, member_std=std, signs=signs, weights=weights,
-        quantization=q, diagnostics={"representative": member_names[0]},
+        name="ca_test",
+        src_names=tuple(member_names),
+        method="mean_z",
+        member_mean=mean,
+        member_std=std,
+        signs=signs,
+        weights=weights,
+        quantization=q,
+        diagnostics={"representative": member_names[0]},
     ), (mean, std, signs, weights)
 
 
 def _build_recipe_no_edges(train, member_names):
     from mlframe.feature_selection.filters._cluster_aggregate import (
-        _continuous_cols, _standardize_align, _derive_weights,
+        _continuous_cols,
+        _standardize_align,
+        _derive_weights,
     )
     from mlframe.feature_selection.filters.engineered_recipes import (
         build_cluster_aggregate_recipe,
     )
+
     M = _continuous_cols(train, member_names)
     Z, mean, std, signs = _standardize_align(M, 0)
     weights = _derive_weights(Z, "mean_z")
     q = {"nbins": 8, "method": "quantile", "dtype": np.dtype(np.int16).str}
     return build_cluster_aggregate_recipe(
-        name="ca_legacy", src_names=tuple(member_names), method="mean_z",
-        member_mean=mean, member_std=std, signs=signs, weights=weights,
-        quantization=q, diagnostics={"representative": member_names[0]},
+        name="ca_legacy",
+        src_names=tuple(member_names),
+        method="mean_z",
+        member_mean=mean,
+        member_std=std,
+        signs=signs,
+        weights=weights,
+        quantization=q,
+        diagnostics={"representative": member_names[0]},
     )
 
 
@@ -100,13 +124,13 @@ def test_replay_output_is_continuous_not_quantized():
     """Replay emits the continuous mean-z aggregate, not a low-cardinality bin code:
     high cardinality and floating dtype, not integers confined to ``[0, nbins)``."""
     from mlframe.feature_selection.filters.engineered_recipes import _apply_cluster_aggregate
+
     train, _ = _frames()
     recipe, _ = _build_recipe_with_edges(train, ["c1", "c2", "c3"])
     out = np.asarray(_apply_cluster_aggregate(recipe, train), dtype=np.float64)
     assert np.issubdtype(out.dtype, np.floating)
     assert np.unique(out).size > recipe.quantization["nbins"], (
-        f"replay output has only {np.unique(out).size} distinct values -- looks "
-        f"quantized to ~{recipe.quantization['nbins']} bins, not continuous."
+        f"replay output has only {np.unique(out).size} distinct values -- looks quantized to ~{recipe.quantization['nbins']} bins, not continuous."
     )
 
 
@@ -118,13 +142,12 @@ def test_identical_row_same_value_under_drift():
     nothing left to drift.
     """
     from mlframe.feature_selection.filters.engineered_recipes import _apply_cluster_aggregate
+
     train, test = _frames()
     recipe, _ = _build_recipe_with_edges(train, ["c1", "c2", "c3"])
     out_train = _apply_cluster_aggregate(recipe, train)
     out_test = _apply_cluster_aggregate(recipe, test)
-    assert out_train[0] == out_test[0], (
-        f"identical row got different values: train={out_train[0]}, test={out_test[0]}"
-    )
+    assert out_train[0] == out_test[0], f"identical row got different values: train={out_train[0]}, test={out_test[0]}"
 
 
 def test_legacy_recipe_without_edges_also_continuous_and_drift_free():
@@ -133,6 +156,7 @@ def test_legacy_recipe_without_edges_also_continuous_and_drift_free():
     warning is emitted (there is no replay-time quantiser left to warn about).
     """
     from mlframe.feature_selection.filters.engineered_recipes import _apply_cluster_aggregate
+
     train, test = _frames()
     recipe = _build_recipe_no_edges(train, ["c1", "c2", "c3"])
     with warnings.catch_warnings(record=True) as caught:
@@ -140,10 +164,6 @@ def test_legacy_recipe_without_edges_also_continuous_and_drift_free():
         out_train = _apply_cluster_aggregate(recipe, train)
         out_test = _apply_cluster_aggregate(recipe, test)
     assert not any("fit-time quantile edges" in str(w.message) for w in caught), (
-        f"replay no longer quantises, so the legacy-edge leak warning must be gone; "
-        f"got {[str(w.message) for w in caught]}"
+        f"replay no longer quantises, so the legacy-edge leak warning must be gone; got {[str(w.message) for w in caught]}"
     )
-    assert out_train[0] == out_test[0], (
-        f"continuous replay must give the identical row the same value under drift; "
-        f"train={out_train[0]}, test={out_test[0]}"
-    )
+    assert out_train[0] == out_test[0], f"continuous replay must give the identical row the same value under drift; train={out_train[0]}, test={out_test[0]}"

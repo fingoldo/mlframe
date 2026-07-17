@@ -6,12 +6,12 @@ stack's sqrt-weight row-scaling must yield the same minimiser as the weighted-LS
 
 Naming: ``test_biz_val_<solver>_sample_weight_<scenario>``.
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
-import pytest
 
 warnings.filterwarnings("ignore")
 

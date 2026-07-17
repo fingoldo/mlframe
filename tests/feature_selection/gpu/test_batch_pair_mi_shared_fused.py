@@ -31,6 +31,7 @@ Two bugs were found and fixed en route (both regression-tested here):
    that ``batch_pair_mi_cuda`` received on 2026-07-12 -- it re-uploaded ``factors_data`` via a raw
    ``cp.asarray`` on every call. Fixed by routing it through the same content-hash-keyed cache.
 """
+
 from __future__ import annotations
 
 import numpy as np

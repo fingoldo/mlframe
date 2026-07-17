@@ -7,6 +7,7 @@ predict equals the per-perturbation predict EXACTLY. These tests pin that identi
 frozen pre-optimization baseline snapshot under _benchmarks/_cpx36_baseline/ — they FAIL if the
 current (batched) code diverges by even one ULP from the original per-perturbation code.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,4 +59,4 @@ def test_batched_predict_bit_identical(old_fn, new_fn, task):
     a = df_old.to_numpy()
     b = df_new.to_numpy()
     assert a.shape == b.shape
-    assert np.array_equal(a, b), f"batched predict diverged from per-perturbation: max|d|={np.max(np.abs(a-b)):.3e}"
+    assert np.array_equal(a, b), f"batched predict diverged from per-perturbation: max|d|={np.max(np.abs(a - b)):.3e}"

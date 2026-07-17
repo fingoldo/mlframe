@@ -4,6 +4,7 @@ Unit coverage: contrast construction, BH correction, t-test edge cases, masking 
 input guards. biz_value: ACE must accept the genuine signal features and reject pure-noise columns on a
 synthetic where the answer is known, with a quantitative floor on the signal-vs-noise selection gap.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -172,9 +173,7 @@ def test_biz_val_ace_signal_pvalues_beat_noise_pvalues():
     res = ace_select(X, y, n_replicates=20, contrast_percentile=100.0, alpha=0.05, random_state=0)
     max_signal_p = res.p_values[signal_idx].max()
     min_noise_p = res.p_values[noise_idx].min()
-    assert max_signal_p < min_noise_p, (
-        f"signal p-values (max {max_signal_p:.3g}) must all beat noise p-values (min {min_noise_p:.3g})"
-    )
+    assert max_signal_p < min_noise_p, f"signal p-values (max {max_signal_p:.3g}) must all beat noise p-values (min {min_noise_p:.3g})"
 
 
 def test_biz_val_ace_masking_recovers_correlated_signal():
@@ -258,8 +257,14 @@ def test_use_ace_fs_routes_through_pre_pipeline_builder():
     from mlframe.feature_selection.ace import ACESelector
 
     pipelines, names = _build_pre_pipelines(
-        use_ordinary_models=False, rfecv_models=[], rfecv_models_params={},
-        use_mrmr_fs=False, mrmr_kwargs={}, use_ace_fs=True, ace_kwargs={"n_replicates": 5}, fs_random_seed=7,
+        use_ordinary_models=False,
+        rfecv_models=[],
+        rfecv_models_params={},
+        use_mrmr_fs=False,
+        mrmr_kwargs={},
+        use_ace_fs=True,
+        ace_kwargs={"n_replicates": 5},
+        fs_random_seed=7,
     )
     ace_objs = [p for p in pipelines if isinstance(p, ACESelector)]
     assert len(ace_objs) == 1
@@ -269,8 +274,12 @@ def test_use_ace_fs_routes_through_pre_pipeline_builder():
     assert ace_objs[0].random_state == 7
 
     pipelines_off, _ = _build_pre_pipelines(
-        use_ordinary_models=False, rfecv_models=[], rfecv_models_params={},
-        use_mrmr_fs=False, mrmr_kwargs={}, use_ace_fs=False,
+        use_ordinary_models=False,
+        rfecv_models=[],
+        rfecv_models_params={},
+        use_mrmr_fs=False,
+        mrmr_kwargs={},
+        use_ace_fs=False,
     )
     assert not any(isinstance(p, ACESelector) for p in pipelines_off)
 

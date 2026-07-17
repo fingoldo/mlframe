@@ -10,6 +10,7 @@ import pytest
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.training import extractors
+
     return extractors
 
 
@@ -20,6 +21,7 @@ def siblings():
         _extractors_showcase,
         _extractors_simple,
     )
+
     return {
         "dtype": _extractors_dtype_helpers,
         "showcase": _extractors_showcase,
@@ -55,6 +57,7 @@ def test_facade_loc_budget(parent_module):
 
 def test_smoke_intize_targets_round_trip(parent_module):
     import numpy as np
+
     targets = {"y": np.array([0, 1, 2, 200], dtype=np.int64)}
     parent_module.intize_targets(targets)
     # Range 0..200 -> requires int16 (since int8 max is 127); test the no-wrap promotion.
@@ -65,6 +68,7 @@ def test_smoke_intize_targets_round_trip(parent_module):
 def test_smoke_recency_weights_finite(parent_module):
     import numpy as np
     import pandas as pd
+
     dates = pd.Series(pd.date_range("2020-01-01", periods=10, freq="D"))
     w = parent_module.get_sample_weights_by_recency(dates)
     assert np.isfinite(w).all()

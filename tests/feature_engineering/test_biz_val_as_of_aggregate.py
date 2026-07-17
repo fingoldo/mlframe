@@ -5,11 +5,11 @@ can leak the label through post-event data (a real, repeatedly-reported bug per 
 producing a suspiciously high train AUC that will NOT generalize. ``leakage_safe_aggregate`` must exclude
 those rows and produce the honest (much lower, chance-level) feature instead.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
 from mlframe.feature_engineering.as_of_aggregate import leakage_safe_aggregate
@@ -55,9 +55,7 @@ def test_biz_val_leakage_safe_aggregate_avoids_label_leak_naive_aggregate_falls_
 
 
 def test_leakage_safe_aggregate_matches_manual_computation():
-    history_df = pd.DataFrame(
-        {"entity": ["a", "a", "a", "b", "b"], "t": [1, 5, 9, 2, 8], "amount": [10.0, 20.0, 30.0, 100.0, 200.0]}
-    )
+    history_df = pd.DataFrame({"entity": ["a", "a", "a", "b", "b"], "t": [1, 5, 9, 2, 8], "amount": [10.0, 20.0, 30.0, 100.0, 200.0]})
     query_df = pd.DataFrame({"entity": ["a", "b"], "as_of": [6, 9]})
 
     result = leakage_safe_aggregate(history_df, entity_col="entity", time_col="t", as_of=query_df, agg_funcs={"amount": ["mean", "count"]})

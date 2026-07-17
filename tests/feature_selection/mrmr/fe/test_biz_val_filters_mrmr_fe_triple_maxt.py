@@ -16,6 +16,7 @@ order-2 helper test uses):
   C. the gate consumer ``_gate_seeded_triples_order3`` keeps the genuine triple and drops noise-only triples ON,
      vs keeping ALL triples when the floor is disabled (perms=0).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -31,7 +32,9 @@ GENUINE = {"x1", "x2", "x3"}
 def _synergy_frame(n=1400, n_noise=40, seed=20260619):
     """One genuine 3-way XOR-sign synergy (x1,x2,x3) with ~zero marginal/pairwise MI, plus Gaussian noise columns."""
     rng = np.random.default_rng(seed)
-    x1 = rng.normal(size=n); x2 = rng.normal(size=n); x3 = rng.normal(size=n)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    x3 = rng.normal(size=n)
     s = np.sign(x1) * np.sign(x2) * np.sign(x3)  # genuine 3-way interaction, no order<=2 leakage
     p = 1.0 / (1.0 + np.exp(-2.0 * s))
     y = (rng.random(n) < p).astype(int)
@@ -44,14 +47,18 @@ def _synergy_frame(n=1400, n_noise=40, seed=20260619):
 def _discretize(X, y, n_bins=8):
     from mlframe.feature_selection.filters.discretization import categorize_dataset
     from mlframe.feature_selection.filters.info_theory import merge_vars
+
     df = X.copy()
     df["y"] = y.values if hasattr(y, "values") else y
     cols = list(df.columns)
     data, _c, nbins = categorize_dataset(df=df, method="quantile", n_bins=n_bins, dtype=np.int16)
     y_idx = cols.index("y")
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=data, vars_indices=[y_idx],
-        var_is_nominal=None, factors_nbins=nbins, dtype=np.int16,
+        factors_data=data,
+        vars_indices=[y_idx],
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=np.int16,
     )
     return data, nbins, cols, classes_y, freqs_y
 
@@ -62,6 +69,7 @@ class TestPooledTriplePermutationNullHelper:
         from mlframe.feature_selection.filters._permutation_null import (
             pooled_triple_permutation_null_joint_mi_floor,
         )
+
         X, y = _synergy_frame(n_noise=22)
         data, nbins, cols, classes_y, freqs_y = _discretize(X, y)
 
@@ -73,9 +81,16 @@ class TestPooledTriplePermutationNullHelper:
         mis = batch_triple_mi_prange(data, ta, tb, tc, nbins, classes_y, freqs_y)
 
         floor = pooled_triple_permutation_null_joint_mi_floor(
-            factors_data=data, nbins=nbins, triple_a=ta, triple_b=tb, triple_c=tc,
-            classes_y=classes_y, freqs_y=freqs_y,
-            n_permutations=25, quantile=0.95, random_seed=42,
+            factors_data=data,
+            nbins=nbins,
+            triple_a=ta,
+            triple_b=tb,
+            triple_c=tc,
+            classes_y=classes_y,
+            freqs_y=freqs_y,
+            n_permutations=25,
+            quantile=0.95,
+            random_seed=42,
         )
         assert floor > 0.0, "null floor should be positive on a non-trivial triple pool"
 
@@ -101,43 +116,67 @@ class TestPooledTriplePermutationNullHelper:
         from mlframe.feature_selection.filters._permutation_null import (
             pooled_triple_permutation_null_joint_mi_floor,
         )
+
         data = np.zeros((100, 4), dtype=np.int16)
         nbins = np.array([2, 2, 2, 2], dtype=np.int64)
         ta = np.array([0, 0], dtype=np.int64)
         tb = np.array([1, 1], dtype=np.int64)
         tc = np.array([2, 3], dtype=np.int64)
-        cy = np.zeros(100, dtype=np.int16); cy[::2] = 1
+        cy = np.zeros(100, dtype=np.int16)
+        cy[::2] = 1
         freqs_y = np.array([0.5, 0.5], dtype=np.float64)
         # n_permutations == 0 disables.
-        assert pooled_triple_permutation_null_joint_mi_floor(
-            factors_data=data, nbins=nbins, triple_a=ta, triple_b=tb, triple_c=tc,
-            classes_y=cy, freqs_y=freqs_y, n_permutations=0,
-        ) == 0.0
+        assert (
+            pooled_triple_permutation_null_joint_mi_floor(
+                factors_data=data,
+                nbins=nbins,
+                triple_a=ta,
+                triple_b=tb,
+                triple_c=tc,
+                classes_y=cy,
+                freqs_y=freqs_y,
+                n_permutations=0,
+            )
+            == 0.0
+        )
         # too few candidate triples (1) -> 0 floor.
-        assert pooled_triple_permutation_null_joint_mi_floor(
-            factors_data=data, nbins=nbins,
-            triple_a=np.array([0], dtype=np.int64),
-            triple_b=np.array([1], dtype=np.int64),
-            triple_c=np.array([2], dtype=np.int64),
-            classes_y=cy, freqs_y=freqs_y, n_permutations=25,
-        ) == 0.0
+        assert (
+            pooled_triple_permutation_null_joint_mi_floor(
+                factors_data=data,
+                nbins=nbins,
+                triple_a=np.array([0], dtype=np.int64),
+                triple_b=np.array([1], dtype=np.int64),
+                triple_c=np.array([2], dtype=np.int64),
+                classes_y=cy,
+                freqs_y=freqs_y,
+                n_permutations=25,
+            )
+            == 0.0
+        )
 
 
 class TestGateSeededTriplesOrder3Consumer:
     def _gate(self, perms):
         from mlframe.feature_selection.filters.mrmr import MRMR
         from mlframe.feature_selection.filters._mrmr_fe_step_helpers import _gate_seeded_triples_order3
+
         X, y = _synergy_frame(n_noise=22)
         data, nbins, cols, classes_y, freqs_y = _discretize(X, y)
         gk = tuple(cols.index(c) for c in ("x1", "x2", "x3"))
         noise_idx = [cols.index(c) for c in cols if c.startswith("noise_")]
         # genuine triple + several noise-only triples (>= fe_triple_maxt_min_triples default 4 so the floor fires).
-        seeded = [gk] + [tuple(noise_idx[i:i + 3]) for i in range(0, 15, 3)]
+        seeded = [gk] + [tuple(noise_idx[i : i + 3]) for i in range(0, 15, 3)]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             m = MRMR(verbose=0, random_seed=42, fe_triple_maxt_null_permutations=perms)
         kept = _gate_seeded_triples_order3(
-            m, seeded, data=data, nbins=nbins, classes_y=classes_y, freqs_y=freqs_y, verbose=0,
+            m,
+            seeded,
+            data=data,
+            nbins=nbins,
+            classes_y=classes_y,
+            freqs_y=freqs_y,
+            verbose=0,
         )
         return gk, set(kept)
 

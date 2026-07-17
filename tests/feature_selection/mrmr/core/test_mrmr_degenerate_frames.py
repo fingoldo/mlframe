@@ -6,6 +6,7 @@ with PARITY to the sibling selectors; and degenerate handling is TRANSPARENT -- 
 genuine features are selected byte-identically whether or not degenerate columns are
 present.
 """
+
 import warnings
 
 import numpy as np

@@ -7,6 +7,7 @@ Covers:
   A1-09 medoid SU corr_method: SU captures non-monotone redundancy Pearson misses.
   A1-13 fallback metadata: fallback_used_ + fallback_metadata_ populated when the count floor fires.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -26,6 +27,7 @@ def _xy(seed=0, n=600, p=6):
 
 
 # ---------------------------------------------------------------- A1-01 groups
+
 
 def test_a1_01_strict_groups_raises():
     X, y = _xy()
@@ -51,6 +53,7 @@ def test_a1_01_no_groups_metadata_false():
 
 
 # ------------------------------------------------------- A1-04 rename + alias
+
 
 def test_a1_04_alias_maps_to_content():
     """The deprecated ``skip_retraining_on_same_shape`` alias resolves to ``skip_retraining_on_same_content``
@@ -84,8 +87,7 @@ def test_a1_04_same_shape_different_y_does_not_replay_cached_fit():
     y1 = pd.Series((X["f0"] > 0).astype(int), name="t")
     y2 = pd.Series((X["f3"] > 0).astype(int), name="t")  # same shape, different signal column
 
-    m = MRMR(skip_retraining_on_same_content=True, full_npermutations=3, cv=2,
-             min_relevance_gain_relative_to_first=0.0)
+    m = MRMR(skip_retraining_on_same_content=True, full_npermutations=3, cv=2, min_relevance_gain_relative_to_first=0.0)
     m.fit(X, y1)
     sup1 = set(np.atleast_1d(m.support_).tolist())
     m.fit(X, y2)
@@ -97,8 +99,10 @@ def test_a1_04_same_shape_different_y_does_not_replay_cached_fit():
 
 # ----------------------------------------------- A1-06 identity-cache y-corr gate
 
+
 def test_a1_06_ycorr_gate_refuses_uncorrelated_target():
     from mlframe.feature_selection.filters._mrmr_fingerprints import _mrmr_y_corr, _mrmr_y_corr_sample
+
     rng = np.random.RandomState(2)
     y_cache = (rng.randn(2000) > 0).astype(int)
     y_indep = rng.randint(0, 2, 2000)
@@ -108,6 +112,7 @@ def test_a1_06_ycorr_gate_refuses_uncorrelated_target():
 
 def test_a1_06_ycorr_gate_admits_correlated_target():
     from mlframe.feature_selection.filters._mrmr_fingerprints import _mrmr_y_corr, _mrmr_y_corr_sample
+
     rng = np.random.RandomState(3)
     z = rng.randn(2000)
     y_cache = (z + 0.2 * rng.randn(2000) > 0).astype(int)
@@ -122,25 +127,29 @@ def test_a1_06_default_threshold_is_05():
 
 # --------------------------------------------------- A1-09 medoid SU corr_method
 
+
 def test_a1_09_su_captures_nonmonotone_redundancy():
     """biz_value: SU clusters z and z**2 together (non-monotone redundancy); Pearson does not."""
     from mlframe.feature_selection.filters.group_aware import (
-        cluster_features_by_correlation, _su_redundancy_matrix,
+        cluster_features_by_correlation,
+        _su_redundancy_matrix,
     )
+
     rng = np.random.RandomState(4)
     z = rng.randn(1000)
-    df = pd.DataFrame({"z0": z, "z1": z ** 2, "n0": rng.randn(1000), "n1": rng.randn(1000)})
+    df = pd.DataFrame({"z0": z, "z1": z**2, "n0": rng.randn(1000), "n1": rng.randn(1000)})
     su = _su_redundancy_matrix(df)
     pear = np.abs(df.corr(method="pearson").to_numpy())
     # SU sees the non-monotone redundancy strongly; Pearson sees only finite-sample noise (~0.1), so SU is
     # multiples larger. Assert the gap rather than a tight Pearson bound (z**2 leaves a small spurious linear corr).
-    assert su[0, 1] > 0.3, f"SU should see z0~z1 redundancy; got {su[0,1]}"
-    assert su[0, 1] > 2.0 * pear[0, 1], f"SU should dwarf Pearson on non-monotone redundancy; su={su[0,1]} pear={pear[0,1]}"
+    assert su[0, 1] > 0.3, f"SU should see z0~z1 redundancy; got {su[0, 1]}"
+    assert su[0, 1] > 2.0 * pear[0, 1], f"SU should dwarf Pearson on non-monotone redundancy; su={su[0, 1]} pear={pear[0, 1]}"
     cl_su = cluster_features_by_correlation(df, threshold=0.3, method="su")
     assert cl_su[0] == cl_su[1], "SU clustering should group z0 and z1"
 
 
 # --------------------------------------------------- A1-13 fallback metadata
+
 
 def test_a1_13_fallback_metadata_populated():
     """When screening rejects everything and the count floor fires, fallback_used_ + fallback_metadata_ are set."""

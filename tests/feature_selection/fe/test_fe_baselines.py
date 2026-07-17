@@ -149,7 +149,7 @@ class TestBestTrivialPair:
         best = best_trivial_pair(x_a, x_b, y, discrete_target=True)
 
         assert best is not None
-        name, arr, mi = best
+        _name, arr, mi = best
         assert arr.shape == (n,)
         # mi must match the top of the ranked dict.
         np.testing.assert_allclose(mi, max(scores.values()), atol=1e-12)
@@ -169,7 +169,7 @@ class TestAutoUnaryTransforms:
         y = (x > 0).astype(np.int64)
         out = auto_unary_transforms(x, y, discrete_target=True, min_uplift=1e9)
         assert "identity" in out
-        ident_arr, ident_mi = out["identity"]
+        ident_arr, _ident_mi = out["identity"]
         np.testing.assert_allclose(ident_arr, x.astype(np.float64))
 
     def test_regression_identity_mi_not_recomputed(self, monkeypatch):
@@ -221,7 +221,7 @@ class TestBestUnaryTransform:
         # y = sign(x) -> identity / cube / tanh are all monotonic in sign(x), so any of those is fine.
         x = rng.standard_normal(n)
         y = (x > 0).astype(np.int64)
-        name, arr, mi = best_unary_transform(x, y, discrete_target=True)
+        _name, arr, mi = best_unary_transform(x, y, discrete_target=True)
         assert arr.shape == (n,)
         assert mi >= 0.0
         # Brute-force max from auto_unary_transforms with no gating.

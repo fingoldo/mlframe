@@ -4,6 +4,7 @@
 accepted by ``pd.concat``), so the pandas-only shadow-construction branch raised
 ``AttributeError: 'DataFrame' object has no attribute 'reset_index'`` for any polars caller.
 """
+
 from __future__ import annotations
 
 import numpy as np

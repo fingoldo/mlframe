@@ -109,9 +109,6 @@ def _fuzz3way_cleanup():
         pass
     try:
         from mlframe.training import (
-            FeatureSelectionConfig,
-            OutlierDetectionConfig,
-            OutputConfig,
             trainer as _tr,
         )
 
@@ -248,7 +245,4 @@ def test_3way_enumerator_covers_all_triples():
     # Allow up to 0.1% uncovered (some triples can be unreachable due to
     # canonical-key dedup / model-count interactions).
     tolerance = max(1, int(len(required) * 0.001))
-    assert len(missing) <= tolerance, (
-        f"3-way coverage regressed: {len(missing)} triples uncovered "
-        f"(tolerance {tolerance}). First 5: {list(missing)[:5]}"
-    )
+    assert len(missing) <= tolerance, f"3-way coverage regressed: {len(missing)} triples uncovered (tolerance {tolerance}). First 5: {list(missing)[:5]}"

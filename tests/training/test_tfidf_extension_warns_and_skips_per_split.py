@@ -19,14 +19,13 @@
    and sklearn later raised opaquely on raw string categoricals deep
    inside model.fit. Now: WARN naming the strategy class and cat count.
 """
+
 from __future__ import annotations
 
 import logging
 
-import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 
 # =============================================================================
@@ -38,6 +37,7 @@ class _TfidfConfig:
     """Minimal duck-typed config matching PreprocessingBackendConfig's TF-IDF
     surface. Using a stand-in avoids pulling the full Pydantic stack
     for what's essentially a data bag."""
+
     def __init__(self, tfidf_columns):
         self.tfidf_columns = tfidf_columns
         self.tfidf_max_features = 10
@@ -54,6 +54,7 @@ class _TfidfConfig:
 
 def _call_apply_extensions(train, val, test, tfidf_columns, caplog):
     from mlframe.training.pipeline import apply_preprocessing_extensions
+
     cfg = _TfidfConfig(tfidf_columns=tfidf_columns)
     with caplog.at_level(logging.WARNING, logger="mlframe.training.pipeline"):
         out = apply_preprocessing_extensions(train, val, test, cfg, None)
@@ -61,7 +62,6 @@ def _call_apply_extensions(train, val, test, tfidf_columns, caplog):
 
 
 class TestTfidfSplitColumnParity:
-
     def test_column_parity_after_tfidf_all_splits(self, caplog):
         """Happy path: text col present in all three splits → TF-IDF
         expands all three symmetrically, no WARN, column counts match.
@@ -72,9 +72,7 @@ class TestTfidfSplitColumnParity:
         train = pd.DataFrame({"text": ["hello world data", "hello data"], "num": [1.0, 2.0]})
         val = pd.DataFrame({"text": ["world data science", "hello science"], "num": [3.0, 4.0]})
         test = pd.DataFrame({"text": ["science data", "hello world"], "num": [5.0, 6.0]})
-        out_train, out_val, out_test, pipes = _call_apply_extensions(
-            train, val, test, ["text"], caplog
-        )
+        out_train, out_val, out_test, _pipes = _call_apply_extensions(train, val, test, ["text"], caplog)
         assert out_train.shape[1] == out_val.shape[1] == out_test.shape[1]
         warns = [r for r in caplog.records if r.levelname == "WARNING"]
         assert not warns, f"Unexpected WARN on clean TF-IDF: {[r.message for r in warns]}"
@@ -87,14 +85,9 @@ class TestTfidfSplitColumnParity:
         train = pd.DataFrame({"text": ["hello world", "data science"], "num": [1.0, 2.0]})
         val = pd.DataFrame({"num": [3.0, 4.0]})  # no 'text'!
         test = pd.DataFrame({"text": ["hello", "world"], "num": [5.0, 6.0]})
-        out_train, out_val, out_test, pipes = _call_apply_extensions(
-            train, val, test, ["text"], caplog
-        )
+        _out_train, _out_val, _out_test, _pipes = _call_apply_extensions(train, val, test, ["text"], caplog)
         warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
-        assert any("split mismatch" in m.lower()
-                   or "missing from a non-train split" in m
-                   or ("skipping" in m and "val" in m)
-                   for m in warns), warns
+        assert any("split mismatch" in m.lower() or "missing from a non-train split" in m or ("skipping" in m and "val" in m) for m in warns), warns
         # TF-IDF was skipped entirely -> 'text' stays as-is in train
         # (and val has no 'text' column). No TF-IDF columns appended
         # to any split. Column counts must match between train and val
@@ -104,7 +97,7 @@ class TestTfidfSplitColumnParity:
         """tfidf_columns lists a name not in train at all (likely typo).
         WARN at 'typo' level, don't attempt the TF-IDF."""
         train = pd.DataFrame({"real_text": ["hello world"], "num": [1.0]})
-        out = _call_apply_extensions(train, None, None, ["fake_text"], caplog)
+        _call_apply_extensions(train, None, None, ["fake_text"], caplog)
         warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
         assert any("fake_text" in m and ("typo" in m or "not found" in m) for m in warns), warns
 
@@ -115,9 +108,9 @@ class TestTfidfSplitColumnParity:
 
 
 class TestIsPolarsCategoricalEnum:
-
     def test_categorical_dtype_detected(self):
         from mlframe.training.strategies import is_polars_categorical
+
         assert is_polars_categorical(pl.Categorical)
         assert is_polars_categorical(pl.Utf8)
         assert is_polars_categorical(pl.String)
@@ -128,27 +121,30 @@ class TestIsPolarsCategoricalEnum:
         the class-level entries. HGBStrategy silently treated Enum
         columns as numeric."""
         from mlframe.training.strategies import is_polars_categorical
+
         enum_dt = pl.Enum(["a", "b", "c"])
-        assert is_polars_categorical(enum_dt), (
-            "pl.Enum must be recognised as categorical alongside pl.Categorical"
-        )
+        assert is_polars_categorical(enum_dt), "pl.Enum must be recognised as categorical alongside pl.Categorical"
 
     def test_numeric_dtypes_rejected(self):
         """False-positive sensor: numeric dtypes must stay non-categorical.
         Recognizing Enum musn't broaden the check too far."""
         from mlframe.training.strategies import is_polars_categorical
+
         assert not is_polars_categorical(pl.Int32)
         assert not is_polars_categorical(pl.Float32)
         assert not is_polars_categorical(pl.Boolean)
 
     def test_get_polars_cat_columns_includes_enum(self):
         from mlframe.training.strategies import get_polars_cat_columns
+
         enum_dt = pl.Enum(["red", "green"])
-        df = pl.DataFrame({
-            "num": [1.0, 2.0],
-            "cat": pl.Series("cat", ["a", "b"]).cast(pl.Categorical),
-            "en":  pl.Series("en",  ["red", "green"], dtype=enum_dt),
-        })
+        df = pl.DataFrame(
+            {
+                "num": [1.0, 2.0],
+                "cat": pl.Series("cat", ["a", "b"]).cast(pl.Categorical),
+                "en": pl.Series("en", ["red", "green"], dtype=enum_dt),
+            }
+        )
         cols = get_polars_cat_columns(df)
         assert "cat" in cols
         assert "en" in cols
@@ -161,12 +157,12 @@ class TestIsPolarsCategoricalEnum:
 
 
 class TestBuildPipelineEncoderMissingWarn:
-
     def test_warn_when_encoder_none_and_cats_present(self, caplog):
         """Strategy that requires encoding + user passes cat_features
         but forgets to pass a category_encoder. Pre-fix: step silently
         skipped; downstream model.fit crashed on raw strings."""
         from mlframe.training.strategies import HGBStrategy
+
         strat = HGBStrategy()
         assert strat.requires_encoding, "HGBStrategy should require encoding"
         with caplog.at_level(logging.WARNING, logger="mlframe.training.strategies"):
@@ -186,6 +182,7 @@ class TestBuildPipelineEncoderMissingWarn:
     def test_no_warn_when_encoder_provided(self, caplog):
         from mlframe.training.strategies import HGBStrategy
         from sklearn.preprocessing import OrdinalEncoder
+
         strat = HGBStrategy()
         with caplog.at_level(logging.WARNING, logger="mlframe.training.strategies"):
             strat.build_pipeline(
@@ -202,6 +199,7 @@ class TestBuildPipelineEncoderMissingWarn:
         """If there are no cat_features at all, the missing encoder is
         not a problem — don't WARN (keeps the noise floor low)."""
         from mlframe.training.strategies import HGBStrategy
+
         strat = HGBStrategy()
         with caplog.at_level(logging.WARNING, logger="mlframe.training.strategies"):
             strat.build_pipeline(
@@ -219,6 +217,7 @@ class TestBuildPipelineEncoderMissingWarn:
         So even cat_features + encoder=None must stay silent — tree
         models handle categoricals natively."""
         from mlframe.training.strategies import TreeModelStrategy
+
         strat = TreeModelStrategy()
         assert not strat.requires_encoding
         with caplog.at_level(logging.WARNING, logger="mlframe.training.strategies"):

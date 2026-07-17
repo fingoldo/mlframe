@@ -5,6 +5,7 @@ pandas ``value_counts(dropna=False)``, hashing every ndarray cell via PyObjectHa
 (4-5s @ n=2000, did-not-finish @ n=40000). This test pins: (a) the array column is skipped fast, and
 (b) PSI for genuine categorical/numeric columns is bit-identical with vs without the array column present.
 """
+
 from __future__ import annotations
 
 import time
@@ -46,11 +47,13 @@ def test_col_value_counts_skips_array_column():
 
 
 def test_list_and_dict_cells_also_skipped():
-    df = pd.DataFrame({
-        "lst": [[1, 2], [3, 4], [5, 6]],
-        "dct": [{"x": 1}, {"x": 2}, {"x": 3}],
-        "cat": ["a", "b", "a"],
-    })
+    df = pd.DataFrame(
+        {
+            "lst": [[1, 2], [3, 4], [5, 6]],
+            "dct": [{"x": 1}, {"x": 2}, {"x": 3}],
+            "cat": ["a", "b", "a"],
+        }
+    )
     cols = _categorical_columns(df)
     assert cols == ["cat"]
     assert _col_value_counts(df, "lst") is None

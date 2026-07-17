@@ -93,12 +93,18 @@ def test_should_route_su_gpu_gate_blocks_when_below_min_features(monkeypatch):
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su as mod
 
     monkeypatch.setattr(mod, "cluster_su_gpu_available", lambda: True)
-    monkeypatch.setattr(mod, "_gpu_free_memory_bytes", lambda: 8 * 1024 ** 3)
+    monkeypatch.setattr(mod, "_gpu_free_memory_bytes", lambda: 8 * 1024**3)
     assert not _should_route_su_gpu(
-        n_features=100, n_samples=1500, max_n_bins=10, gpu_min_features=500,
+        n_features=100,
+        n_samples=1500,
+        max_n_bins=10,
+        gpu_min_features=500,
     )
     assert _should_route_su_gpu(
-        n_features=2000, n_samples=1500, max_n_bins=10, gpu_min_features=500,
+        n_features=2000,
+        n_samples=1500,
+        max_n_bins=10,
+        gpu_min_features=500,
     )
 
 
@@ -110,7 +116,10 @@ def test_should_route_su_gpu_gate_blocks_when_memory_insufficient(monkeypatch):
     # only 64 MB free vs ~2 GB needed at f=10000 / n=10000 / nb=20
     monkeypatch.setattr(mod, "_gpu_free_memory_bytes", lambda: 64 * 1024 * 1024)
     assert not _should_route_su_gpu(
-        n_features=10_000, n_samples=10_000, max_n_bins=20, gpu_min_features=500,
+        n_features=10_000,
+        n_samples=10_000,
+        max_n_bins=20,
+        gpu_min_features=500,
     )
 
 
@@ -123,17 +132,24 @@ def test_cpu_path_unchanged_when_gpu_unavailable(monkeypatch):
     monkeypatch.setattr(mod, "cluster_su_gpu_available", lambda: False)
 
     bins, names = _build_synthetic_bins(
-        n_samples=800, n_features=120, n_bins=8, seed=42,
+        n_samples=800,
+        n_features=120,
+        n_bins=8,
+        seed=42,
     )
     serial = cluster_correlated_features_su(
-        bins, threshold=0.3, feature_names=names, use_parallel=False,
+        bins,
+        threshold=0.3,
+        feature_names=names,
+        use_parallel=False,
     )
     auto = cluster_correlated_features_su(
-        bins, threshold=0.3, feature_names=names, use_gpu="auto",
+        bins,
+        threshold=0.3,
+        feature_names=names,
+        use_gpu="auto",
     )
-    assert np.array_equal(serial, auto), (
-        "GPU-unavailable auto path should match CPU serial path exactly"
-    )
+    assert np.array_equal(serial, auto), "GPU-unavailable auto path should match CPU serial path exactly"
 
 
 def test_use_gpu_false_skips_gpu_even_when_available(monkeypatch):
@@ -142,7 +158,7 @@ def test_use_gpu_false_skips_gpu_even_when_available(monkeypatch):
 
     # Pretend GPU is available; with use_gpu=False the dispatcher MUST NOT touch GPU.
     monkeypatch.setattr(mod, "cluster_su_gpu_available", lambda: True)
-    monkeypatch.setattr(mod, "_gpu_free_memory_bytes", lambda: 8 * 1024 ** 3)
+    monkeypatch.setattr(mod, "_gpu_free_memory_bytes", lambda: 8 * 1024**3)
 
     # Sentinel: if the GPU kernel is invoked the test errors with the import
     # because cupy import would fail; we instead replace it with a raise-on-call.
@@ -152,11 +168,17 @@ def test_use_gpu_false_skips_gpu_even_when_available(monkeypatch):
     monkeypatch.setattr(mod, "_pairwise_su_edges_gpu", _explode)
 
     bins, names = _build_synthetic_bins(
-        n_samples=600, n_features=120, n_bins=8, seed=11,
+        n_samples=600,
+        n_features=120,
+        n_bins=8,
+        seed=11,
     )
     # Must not raise.
     cluster_correlated_features_su(
-        bins, threshold=0.3, feature_names=names, use_gpu=False,
+        bins,
+        threshold=0.3,
+        feature_names=names,
+        use_gpu=False,
     )
 
 
@@ -165,17 +187,26 @@ def test_use_gpu_false_skips_gpu_even_when_available(monkeypatch):
 def test_gpu_kernel_parity_against_cpu():
     """When a real GPU is present the GPU kernel labels must equal the CPU kernel labels."""
     bins, names = _build_synthetic_bins(
-        n_samples=1200, n_features=200, n_bins=10, seed=7,
+        n_samples=1200,
+        n_features=200,
+        n_bins=10,
+        seed=7,
     )
     cpu = cluster_correlated_features_su(
-        bins, threshold=0.35, feature_names=names, use_gpu=False,
+        bins,
+        threshold=0.35,
+        feature_names=names,
+        use_gpu=False,
     )
     gpu = cluster_correlated_features_su(
-        bins, threshold=0.35, feature_names=names, use_gpu=True, gpu_min_features=10,
+        bins,
+        threshold=0.35,
+        feature_names=names,
+        use_gpu=True,
+        gpu_min_features=10,
     )
     assert np.array_equal(cpu, gpu), (
-        f"GPU SU clustering diverges from CPU at width=200: "
-        f"first diff at index {int(np.where(cpu != gpu)[0][0]) if (cpu != gpu).any() else -1}"
+        f"GPU SU clustering diverges from CPU at width=200: first diff at index {int(np.where(cpu != gpu)[0][0]) if (cpu != gpu).any() else -1}"
     )
 
 
@@ -184,7 +215,10 @@ def test_gpu_kernel_parity_against_cpu():
 def test_gpu_kernel_speedup_at_width_2000():
     """At width=2000 the GPU path should be >=2x faster than the CPU prange kernel."""
     bins, names = _build_synthetic_bins(
-        n_samples=1500, n_features=2000, n_bins=10, seed=5,
+        n_samples=1500,
+        n_features=2000,
+        n_bins=10,
+        seed=5,
     )
 
     # GPU-capability gate (matches test_perf_regression.py): the 2x speedup
@@ -195,6 +229,7 @@ def test_gpu_kernel_speedup_at_width_2000():
     # Skip cleanly on weaker hardware rather than churning the sensor.
     try:
         import cupy as _cp_gate
+
         _dev = _cp_gate.cuda.Device(0)
         _major, _minor = _dev.compute_capability[0], _dev.compute_capability[1]
         _vram_total = int(_dev.mem_info[1])
@@ -206,36 +241,44 @@ def test_gpu_kernel_speedup_at_width_2000():
                 f"workload, dominated by H2D + launch overhead."
             )
         if _vram_total < 8 * 1024 * 1024 * 1024:
-            pytest.skip(
-                f"GPU VRAM {_vram_total / 1e9:.1f} GB below 8 GB threshold; "
-                f"width=2000 SU-cluster kernel speedup floor does not apply."
-            )
+            pytest.skip(f"GPU VRAM {_vram_total / 1e9:.1f} GB below 8 GB threshold; width=2000 SU-cluster kernel speedup floor does not apply.")
     except Exception as _gpu_info_err:
         pytest.skip(f"GPU capability probe failed: {_gpu_info_err}")
 
     # Warm-up so cupy + kernel compile do not pollute the timing.
     cluster_correlated_features_su(
-        bins, threshold=0.4, feature_names=names, use_gpu=True, gpu_min_features=10,
+        bins,
+        threshold=0.4,
+        feature_names=names,
+        use_gpu=True,
+        gpu_min_features=10,
     )
     cluster_correlated_features_su(
-        bins, threshold=0.4, feature_names=names, use_gpu=False,
+        bins,
+        threshold=0.4,
+        feature_names=names,
+        use_gpu=False,
     )
 
     t0 = time.perf_counter()
     cpu_labels = cluster_correlated_features_su(
-        bins, threshold=0.4, feature_names=names, use_gpu=False,
+        bins,
+        threshold=0.4,
+        feature_names=names,
+        use_gpu=False,
     )
     t_cpu = time.perf_counter() - t0
 
     t0 = time.perf_counter()
     gpu_labels = cluster_correlated_features_su(
-        bins, threshold=0.4, feature_names=names, use_gpu=True, gpu_min_features=10,
+        bins,
+        threshold=0.4,
+        feature_names=names,
+        use_gpu=True,
+        gpu_min_features=10,
     )
     t_gpu = time.perf_counter() - t0
 
     assert np.array_equal(cpu_labels, gpu_labels), "labels diverge at width=2000"
     ratio = t_cpu / max(t_gpu, 1e-9)
-    assert ratio >= 2.0, (
-        f"GPU not fast enough at width=2000: cpu={t_cpu:.3f}s, gpu={t_gpu:.3f}s, "
-        f"ratio={ratio:.2f}x (need >= 2x)"
-    )
+    assert ratio >= 2.0, f"GPU not fast enough at width=2000: cpu={t_cpu:.3f}s, gpu={t_gpu:.3f}s, ratio={ratio:.2f}x (need >= 2x)"

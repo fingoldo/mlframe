@@ -9,8 +9,6 @@ Tests MRMR, RFECV, and combined pipeline functionality.
 import pytest
 import numpy as np
 import pandas as pd
-import polars as pl
-import warnings
 
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import TargetTypes
@@ -21,8 +19,7 @@ from catboost import CatBoostClassifier, CatBoostRegressor
 from .shared import SimpleFeaturesAndTargetsExtractor
 
 # Deterministic RNG (single seed per module).
-_W53_RNG = __import__('numpy').random.default_rng(0)
-
+_W53_RNG = __import__("numpy").random.default_rng(0)
 
 
 # ================================================================================================
@@ -310,17 +307,15 @@ class TestRFECVFeatureSelection:
 class TestFeatureSelectionIntegration:
     """Test feature selection integration with training suite."""
 
-    def test_rfecv_classification(
-        self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations
-    ):
+    def test_rfecv_classification(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test RFECV with classification task."""
-        df, feature_names, cat_features, y = sample_classification_data
+        df, feature_names, cat_features, _y = sample_classification_data
         # Remove categorical for simplicity
         numeric_df = df[[f for f in feature_names if f not in cat_features] + ["target"]]
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=numeric_df,
             target_name="test_target",
             model_name="rfecv_classification",
@@ -347,7 +342,7 @@ class TestFeatureSelectionIntegration:
         check_lgb_gpu_available,
     ):
         """Test training with multiple RFECV estimators."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Use models that are available
@@ -355,7 +350,7 @@ class TestFeatureSelectionIntegration:
         if check_lgb_gpu_available:
             rfecv_models.append("lgb_rfecv")
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="multi_rfecv",
@@ -373,14 +368,12 @@ class TestFeatureSelectionIntegration:
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
 
-    def test_use_mrmr_fs_true(
-        self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations
-    ):
+    def test_use_mrmr_fs_true(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test training with MRMR feature selection enabled."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="with_mrmr",
@@ -407,17 +400,15 @@ class TestFeatureSelectionIntegration:
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
 
-    def test_mrmr_with_classification(
-        self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations
-    ):
+    def test_mrmr_with_classification(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test MRMR feature selection with classification task."""
-        df, feature_names, cat_features, y = sample_classification_data
+        df, feature_names, cat_features, _y = sample_classification_data
         # Use only numeric features
         numeric_df = df[[f for f in feature_names if f not in cat_features] + ["target"]]
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=numeric_df,
             target_name="test_target",
             model_name="mrmr_classification",
@@ -430,8 +421,7 @@ class TestFeatureSelectionIntegration:
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
             feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True,
-                mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1, "quantization_nbins": 5}
+                use_mrmr_fs=True, mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1, "quantization_nbins": 5}
             ),
         )
 
@@ -447,15 +437,13 @@ class TestFeatureSelectionIntegration:
 class TestCombinedPipelines:
     """Test combined feature selection and pipeline scenarios."""
 
-    def test_mrmr_combined_with_rfecv(
-        self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations
-    ):
+    def test_mrmr_combined_with_rfecv(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test using MRMR + RFECV together in the same training run."""
-        df, feature_names, y = sample_regression_data
+        df, _feature_names, _y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Train with both MRMR (filter) and RFECV (wrapper) feature selection
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="mrmr_plus_rfecv",
@@ -502,7 +490,7 @@ class TestCombinedPipelines:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="fs_with_fairness",
@@ -515,10 +503,7 @@ class TestCombinedPipelines:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True,
-                mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1}
-            ),
+            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1}),
         )
 
         assert TargetTypes.REGRESSION in models
@@ -526,10 +511,10 @@ class TestCombinedPipelines:
 
     def test_rfecv_with_polars(self, sample_polars_data, temp_data_dir, common_init_params, fast_iterations):
         """Test RFECV with Polars DataFrame input."""
-        pl_df, feature_names, y = sample_polars_data
+        pl_df, _feature_names, _y = sample_polars_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=pl_df,
             target_name="test_target",
             model_name="rfecv_polars",
@@ -548,10 +533,10 @@ class TestCombinedPipelines:
 
     def test_mrmr_with_polars(self, sample_polars_data, temp_data_dir, common_init_params, fast_iterations):
         """Test MRMR with Polars DataFrame input."""
-        pl_df, feature_names, y = sample_polars_data
+        pl_df, _feature_names, _y = sample_polars_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=pl_df,
             target_name="test_target",
             model_name="mrmr_polars",
@@ -563,10 +548,7 @@ class TestCombinedPipelines:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True,
-                mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1}
-            ),
+            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1}),
         )
 
         assert TargetTypes.REGRESSION in models
@@ -586,7 +568,7 @@ class TestCombinedPipelines:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="rfecv_small",
@@ -617,7 +599,7 @@ class TestCombinedPipelines:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
+        models, _metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="rfecv_many_features",
@@ -744,9 +726,7 @@ class TestModelCloningInTrainingSuite:
         # Create simple dataset
         np.random.seed(42)
         n_samples, n_features = 200, 20
-        X = pd.DataFrame(
-            np.random.randn(n_samples, n_features), columns=[f"feat_{i}" for i in range(n_features)]
-        )
+        X = pd.DataFrame(np.random.randn(n_samples, n_features), columns=[f"feat_{i}" for i in range(n_features)])
         y = np.random.randint(0, 2, n_samples)
 
         # Test with CatBoostClassifier which is commonly used
@@ -767,9 +747,7 @@ class TestModelCloningInTrainingSuite:
         pred2 = cb2.predict(X2)
 
         assert cb1 is not cb2, "clone() must produce a distinct object"
-        assert not np.array_equal(pred1, pred2), (
-            "models fit on disjoint feature blocks should differ on >=1 sample"
-        )
+        assert not np.array_equal(pred1, pred2), "models fit on disjoint feature blocks should differ on >=1 sample"
 
     def test_mrmr_not_prefitted_after_creation(self):
         """Test that MRMR is not detected as pre-fitted after creation.

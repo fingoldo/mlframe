@@ -9,6 +9,7 @@ The ``_ranking_extras`` siblings (dcg_at_k / hit_at_k / precision_at_k /
 expected_reciprocal_rank) already validate ``k>=1``; ranking.py did not.
 A bad config must raise clearly, not silently misbehave or crash opaquely.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -5,6 +5,7 @@ time (~20s for target_mean, ~40s for woe at n=10M). The vectorised path computes
 and gathers it back. These tests pin (a) bit-identity vectorised-vs-per-row across methods/edge cases and (b) that `transform`
 actually routes through the vectorised helper (a spy catches a regression that reverts to the full-length per-row loop).
 """
+
 from __future__ import annotations
 
 import numpy as np

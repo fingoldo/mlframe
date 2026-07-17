@@ -8,6 +8,7 @@ Each test pins ONE confirmed bug so the failure mode cannot return:
 - T3: smoothing_spline_residual smoothing factor had wrong units
   (m*std(signal) instead of m*var(noise)) -> systematic oversmoothing.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,10 +36,7 @@ class TestYeoJohnsonInverseFinite:
         returned NaN, which np.clip could not repair."""
         t = np.linspace(-50.0, 50.0, 1001)
         y = _yj_inverse_numpy(t, lam)
-        assert np.all(np.isfinite(y)), (
-            f"YJ inverse produced non-finite output for lam={lam}: "
-            f"{int((~np.isfinite(y)).sum())} of {y.size} rows"
-        )
+        assert np.all(np.isfinite(y)), f"YJ inverse produced non-finite output for lam={lam}: {int((~np.isfinite(y)).sum())} of {y.size} rows"
 
     def test_scalar_matches_numpy_past_asymptote(self) -> None:
         lam = -0.87
@@ -72,10 +70,7 @@ class TestLinearResidualMultiScaleInvariance:
         base = np.column_stack([b1, b2])
         y = 1.5 * b1 + 2.0e-6 * b2 + rng.normal(0.0, 0.01, size=n)
         params = _linear_residual_multi_fit(y, base)
-        assert not params["collinear_fallback"], (
-            f"independent mixed-unit bases falsely flagged collinear; "
-            f"cond={params['condition_number']}"
-        )
+        assert not params["collinear_fallback"], f"independent mixed-unit bases falsely flagged collinear; cond={params['condition_number']}"
         # Both slopes recovered (not the all-zero fallback).
         alphas = params["alphas"]
         np.testing.assert_allclose(alphas[0], 1.5, rtol=0.05)
@@ -91,10 +86,7 @@ class TestLinearResidualMultiScaleInvariance:
         base = np.column_stack([b1, b2])
         y = b1 + rng.normal(0.0, 0.1, size=n)
         params = _linear_residual_multi_fit(y, base)
-        assert params["collinear_fallback"], (
-            f"genuinely collinear bases not flagged; "
-            f"cond={params['condition_number']}"
-        )
+        assert params["collinear_fallback"], f"genuinely collinear bases not flagged; cond={params['condition_number']}"
 
 
 class TestSmoothingSplineNoiseUnits:
@@ -111,10 +103,7 @@ class TestSmoothingSplineNoiseUnits:
         m = int(params["knots_b"].size)
         # var(noise)=0.01 -> s ~= m*0.01; allow generous headroom but well
         # below the m*std(signal) ~= m*3.5 the bug produced.
-        assert params["s"] < 0.2 * m, (
-            f"smoothing factor s={params['s']:.1f} is in signal-std units "
-            f"(m={m}); expected ~m*var(noise) << {0.2 * m:.0f}"
-        )
+        assert params["s"] < 0.2 * m, f"smoothing factor s={params['s']:.1f} is in signal-std units (m={m}); expected ~m*var(noise) << {0.2 * m:.0f}"
 
     def test_residual_approaches_noise_floor(self) -> None:
         """T3: with the correct s = m*var(noise), the spline recovers the
@@ -129,11 +118,6 @@ class TestSmoothingSplineNoiseUnits:
         params = _smoothing_spline_residual_fit(y, base)
         g = _smoothing_spline_g(base, params)
         resid_sd = float(np.std(y - g))
-        assert resid_sd < 0.5, (
-            f"spline oversmoothed: residual std={resid_sd:.3f} (noise "
-            f"floor={noise_sd}); the bug left ~1.9"
-        )
+        assert resid_sd < 0.5, f"spline oversmoothed: residual std={resid_sd:.3f} (noise floor={noise_sd}); the bug left ~1.9"
         signal_recovery_corr = float(np.corrcoef(g, signal)[0, 1])
-        assert signal_recovery_corr > 0.99, (
-            f"spline did not recover the signal: corr={signal_recovery_corr:.3f}"
-        )
+        assert signal_recovery_corr > 0.99, f"spline did not recover the signal: corr={signal_recovery_corr:.3f}"

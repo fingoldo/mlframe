@@ -3,6 +3,7 @@
 These are additive read-outs over cv_results_ + the stability curve; they change NO default (the knee
 was benchmarked and LOST 0/6 on downstream AUC vs argmax/one_se_max, so it is a parsimony diagnostic only).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,9 +21,12 @@ def test_rfecv_pareto_front_and_knee():
     X = pd.DataFrame(X, columns=[f"f{i}" for i in range(16)])
     r = RFECV(
         estimator=RandomForestClassifier(n_estimators=40, max_depth=6, random_state=0),
-        cv=3, scoring=None, verbose=0,
+        cv=3,
+        scoring=None,
+        verbose=0,
         fi_config=FIConfig(importance_getter="feature_importances_", n_features_selection_rule="one_se_max"),
-        search_config=SearchConfig(max_refits=12, max_runtime_mins=2), random_state=0,
+        search_config=SearchConfig(max_refits=12, max_runtime_mins=2),
+        random_state=0,
     )
     r.fit(X, pd.Series(y))
 
@@ -36,8 +40,7 @@ def test_rfecv_pareto_front_and_knee():
         for b in front:
             if a is b:
                 continue
-            assert not (b["mean"] >= a["mean"] and b["n"] <= a["n"] and (b["mean"] > a["mean"] or b["n"] < a["n"])), \
-                "front contains a dominated point"
+            assert not (b["mean"] >= a["mean"] and b["n"] <= a["n"] and (b["mean"] > a["mean"] or b["n"] < a["n"])), "front contains a dominated point"
     knee = r.pareto_knee_()
     assert knee in ns, "knee must be one of the front's N values"
     # Read-only: default selection rule unaffected (support_ came from one_se_max, not the knee).
@@ -57,9 +60,13 @@ def test_rfecv_plateau_rule_selectable():
     X = pd.DataFrame(X, columns=[f"f{i}" for i in range(16)])
     mk = lambda rule: RFECV(
         estimator=RandomForestClassifier(n_estimators=40, max_depth=6, random_state=0),
-        cv=3, scoring=None, verbose=0,
+        cv=3,
+        scoring=None,
+        verbose=0,
         fi_config=FIConfig(importance_getter="feature_importances_", n_features_selection_rule=rule),
-        search_config=SearchConfig(max_refits=12, max_runtime_mins=2), random_state=0,
+        search_config=SearchConfig(max_refits=12, max_runtime_mins=2),
+        random_state=0,
     ).fit(X, pd.Series(y))
-    rp = mk("plateau"); rmax = mk("one_se_max")
+    rp = mk("plateau")
+    rmax = mk("one_se_max")
     assert 1 <= rp.n_features_ <= rmax.n_features_  # plateau is parsimonious: never larger than one_se_max

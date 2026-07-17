@@ -60,6 +60,7 @@ except Exception as exc:  # pragma: no cover
 try:
     from tests.conftest import fast_subset
 except ImportError:  # pragma: no cover
+
     def fast_subset(values, **_):
         return list(values)
 
@@ -114,8 +115,13 @@ def _split(X: pd.DataFrame, y: pd.Series, seed: int):
 
 
 def _apply(cfg, X_tr, X_te, y_tr=None):
-    train, val, test, _ = apply_preprocessing_extensions(
-        X_tr, None, X_te, cfg, verbose=0, y_train=y_tr,
+    train, _val, test, _ = apply_preprocessing_extensions(
+        X_tr,
+        None,
+        X_te,
+        cfg,
+        verbose=0,
+        y_train=y_tr,
     )
     return train, test
 
@@ -140,7 +146,9 @@ def test_polynomial_degree_lifts_xor(seed):
     base = _auroc(X_tr, y_tr, X_te, y_te, seed=seed)
 
     cfg = PreprocessingExtensionsConfig(
-        scaler="StandardScaler", polynomial_degree=2, polynomial_interaction_only=True,
+        scaler="StandardScaler",
+        polynomial_degree=2,
+        polynomial_interaction_only=True,
     )
     Xt_tr, Xt_te = _apply(cfg, X_tr, X_te)
     lifted = _auroc(Xt_tr, y_tr, Xt_te, y_te, seed=seed)
@@ -182,7 +190,7 @@ def test_nonlinear_features_lift_on_circles(seed, variant):
 def test_chi2_samplers_reject_negative_inputs(variant):
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((200, 4)), columns=[f"f{i}" for i in range(4)])
-    y = pd.Series((X["f0"] > 0).astype(int))
+    pd.Series((X["f0"] > 0).astype(int))
     cfg = PreprocessingExtensionsConfig(nonlinear_features=variant, nonlinear_n_components=20)
     with pytest.raises(ValueError):
         apply_preprocessing_extensions(X, None, None, cfg, verbose=0)
@@ -201,15 +209,15 @@ def test_pca_like_dim_reducer_preserves_auroc(seed, reducer):
     base = _auroc(X_tr, y_tr, X_te, y_te, seed=seed)
 
     cfg = PreprocessingExtensionsConfig(
-        scaler="StandardScaler", dim_reducer=reducer, dim_n_components=10,
+        scaler="StandardScaler",
+        dim_reducer=reducer,
+        dim_n_components=10,
     )
     Xt_tr, Xt_te = _apply(cfg, X_tr, X_te)
     reduced = _auroc(Xt_tr, y_tr, Xt_te, y_te, seed=seed)
     # 20x narrower.
     assert Xt_tr.shape[1] == 10
-    assert reduced >= base - 0.02, (
-        f"{reducer}(10) should preserve AUROC within 0.02 of full ({base:.3f}); got {reduced:.3f}"
-    )
+    assert reduced >= base - 0.02, f"{reducer}(10) should preserve AUROC within 0.02 of full ({base:.3f}); got {reduced:.3f}"
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +243,9 @@ def test_lda_dim_reducer_supervised(seed):
 
     # LDA requires y at fit time — now wired via y_train kwarg.
     cfg = PreprocessingExtensionsConfig(
-        scaler="StandardScaler", dim_reducer="LDA", dim_n_components=2,
+        scaler="StandardScaler",
+        dim_reducer="LDA",
+        dim_n_components=2,
     )
     Xt_tr, Xt_te = _apply(cfg, X_tr, X_te, y_tr=y_tr)
     assert Xt_tr.shape[1] == 2, f"LDA should reduce to 2 dims for 3-class: got {Xt_tr.shape[1]}"
@@ -254,18 +264,19 @@ def test_lda_dim_reducer_supervised(seed):
 @pytest.mark.parametrize(
     "reducer",
     fast_subset(
-        ["KernelPCA", "FastICA", "Isomap",
-         "GaussianRandomProjection", "SparseRandomProjection", "BernoulliRBM"],
+        ["KernelPCA", "FastICA", "Isomap", "GaussianRandomProjection", "SparseRandomProjection", "BernoulliRBM"],
         representative="KernelPCA",
     ),
 )
 def test_dim_reducer_variants_smoke_and_shape(reducer):
     X, y = _rank_r_wide_dataset(seed=42, n=500, p=60, rank=8)
-    X_tr, X_te, y_tr, y_te = _split(X, y, seed=42)
+    X_tr, X_te, _y_tr, _y_te = _split(X, y, seed=42)
     # BernoulliRBM expects inputs in [0,1]; scale via MinMax.
     scaler = "MinMaxScaler" if reducer == "BernoulliRBM" else "StandardScaler"
     cfg = PreprocessingExtensionsConfig(
-        scaler=scaler, dim_reducer=reducer, dim_n_components=10,
+        scaler=scaler,
+        dim_reducer=reducer,
+        dim_n_components=10,
     )
     Xt_tr, Xt_te = _apply(cfg, X_tr, X_te)
     assert Xt_tr.shape[0] == X_tr.shape[0]
@@ -277,22 +288,23 @@ def test_dim_reducer_nmf_requires_positive():
     # NMF needs non-negative inputs; pre-clip to absolute values.
     X, y = _rank_r_wide_dataset(seed=42, n=500, p=40, rank=6)
     X = X.abs()
-    X_tr, X_te, y_tr, y_te = _split(X, y, seed=42)
+    X_tr, X_te, _y_tr, _y_te = _split(X, y, seed=42)
     cfg = PreprocessingExtensionsConfig(dim_reducer="NMF", dim_n_components=6)
-    Xt_tr, Xt_te = _apply(cfg, X_tr, X_te)
+    Xt_tr, _Xt_te = _apply(cfg, X_tr, X_te)
     assert Xt_tr.shape[1] == 6
     assert (Xt_tr.values >= 0).all()
 
 
 def test_dim_reducer_random_trees_embedding():
     X, y = _rank_r_wide_dataset(seed=42, n=500, p=30, rank=5)
-    X_tr, X_te, y_tr, y_te = _split(X, y, seed=42)
+    X_tr, X_te, _y_tr, _y_te = _split(X, y, seed=42)
     # dim_n_components becomes n_estimators for RandomTreesEmbedding — output is
     # a sparse one-hot encoding of tree leaves; we just assert shape and nonzero.
     cfg = PreprocessingExtensionsConfig(
-        dim_reducer="RandomTreesEmbedding", dim_n_components=10,
+        dim_reducer="RandomTreesEmbedding",
+        dim_n_components=10,
     )
-    Xt_tr, Xt_te = _apply(cfg, X_tr, X_te)
+    Xt_tr, _Xt_te = _apply(cfg, X_tr, X_te)
     assert Xt_tr.shape[0] == X_tr.shape[0]
     assert Xt_tr.shape[1] >= 10  # at least 1 leaf per tree
 
@@ -300,12 +312,14 @@ def test_dim_reducer_random_trees_embedding():
 def test_dim_reducer_umap_optional():
     pytest.importorskip("umap")
     X, y = _rank_r_wide_dataset(seed=42, n=400, p=40, rank=6)
-    X_tr, X_te, y_tr, y_te = _split(X, y, seed=42)
+    X_tr, X_te, _y_tr, _y_te = _split(X, y, seed=42)
     cfg = PreprocessingExtensionsConfig(
-        scaler="StandardScaler", dim_reducer="UMAP", dim_n_components=4,
+        scaler="StandardScaler",
+        dim_reducer="UMAP",
+        dim_n_components=4,
     )
     try:
-        Xt_tr, Xt_te = _apply(cfg, X_tr, X_te)
+        Xt_tr, _Xt_te = _apply(cfg, X_tr, X_te)
     except TypeError as e:
         # UMAP <=0.5.x calls sklearn's check_array(force_all_finite=...) which
         # was renamed to `ensure_all_finite` in sklearn 1.8. Until UMAP catches
@@ -342,9 +356,7 @@ def test_kbins_lifts_linear_regression_on_sine(seed):
     r2_binned = r2_score(y_te, binned_lr.predict(Xt_te))
 
     assert r2_raw < 0.2, f"Raw linear R^2 on sine expected near 0: {r2_raw:.3f}"
-    assert r2_binned > r2_raw + 0.5, (
-        f"KBins(10) should lift linear R^2 substantially: raw={r2_raw:.3f} binned={r2_binned:.3f}"
-    )
+    assert r2_binned > r2_raw + 0.5, f"KBins(10) should lift linear R^2 substantially: raw={r2_raw:.3f} binned={r2_binned:.3f}"
 
 
 # ---------------------------------------------------------------------------
@@ -381,9 +393,7 @@ def test_binarization_threshold_on_sign_signal(seed):
 
     # Binarizer collapses all numeric features to {0,1} using threshold=0.
     unique_vals = np.unique(Xt_tr.values)
-    assert set(unique_vals.tolist()).issubset({0.0, 1.0}), (
-        f"Binarizer output must be strictly {{0,1}}: {unique_vals[:10]}"
-    )
+    assert set(unique_vals.tolist()).issubset({0.0, 1.0}), f"Binarizer output must be strictly {{0,1}}: {unique_vals[:10]}"
     # And the sign-driven signal is preserved (near-perfect AUROC).
     assert binarized >= 0.99, f"Binarizer should give ~perfect AUROC on sign signal: {binarized:.3f}"
     # Keep the baseline reference for diagnosis without making it a hard gate
@@ -400,7 +410,7 @@ def test_memory_safety_guard_blocks_poly_explosion():
     rng = np.random.default_rng(0)
     n, p = 100, 500
     X = pd.DataFrame(rng.standard_normal((n, p)), columns=[f"f{i}" for i in range(p)])
-    y = pd.Series((X["f0"] > 0).astype(int))
+    pd.Series((X["f0"] > 0).astype(int))
     # 500**3 == 1.25e8 >> default guard of 1e5.
     cfg = PreprocessingExtensionsConfig(polynomial_degree=3)
     with pytest.raises(ValueError, match="memory_safety_max_features"):

@@ -11,7 +11,6 @@ must not see a weight-aware refit silently invalidate every cached selection.
 
 from __future__ import annotations
 
-import pytest
 
 
 def _rfecv_selectors(pipelines):
@@ -55,7 +54,7 @@ def test_build_pre_pipelines_marker_on_when_flag_flipped():
     # RFECV instance must come from rfecv_models_params (locked construction path in production); for unit
     # purposes we construct one directly and pass it through the params dict.
     rfecv_instance = RFECV(estimator=LogisticRegression(max_iter=100), cv=2, verbose=0, max_runtime_mins=0.01)
-    pipelines, names = _build_pre_pipelines(
+    pipelines, _names = _build_pre_pipelines(
         use_ordinary_models=False,
         rfecv_models=["lr"],
         rfecv_models_params={"lr": rfecv_instance},

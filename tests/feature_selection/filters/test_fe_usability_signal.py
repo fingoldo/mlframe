@@ -4,6 +4,7 @@ Focus: the 2026-07-03 strided-subsample optimisation of ``abs_pearson`` must est
 to well within every consumer's decision margin (min_corr 0.6; tail-concentration gaps ~0.99 vs ~0.06),
 and must PRESERVE the outlier-inflated correlation the tail-concentration signal depends on.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -30,8 +31,8 @@ def test_abs_pearson_subsample_matches_fulln_within_margin():
     for _ in range(8):
         y = rng.normal(size=n)
         v = 0.4 * y + rng.normal(size=n)  # a real, moderate correlation
-        got = m.abs_pearson(y, v)         # subsampled (default cap _ABS_PEARSON_MAX_ROWS, now 30k)
-        exp = _full_abs_pearson(y, v)     # full-n
+        got = m.abs_pearson(y, v)  # subsampled (default cap _ABS_PEARSON_MAX_ROWS, now 30k)
+        exp = _full_abs_pearson(y, v)  # full-n
         # Contract is SELECTION-equivalence, not a tight absolute match: every consumer compares |corr| against
         # WIDE margins (min_corr 0.6; tail-concentration gap ~0.99 vs ~0.06). At the 30k cap (lowered from 250k to
         # match UNIFIED_FE_SUBSAMPLE_N) a 30k-of-1M estimate of a ~0.37 corr lands within ~1e-2 worst-of-8 -- still
@@ -52,7 +53,7 @@ def test_abs_pearson_preserves_outlier_inflated_corr():
     idx = rng.choice(n, size=int(0.03 * n), replace=False)
     a[idx] *= 15.0
     b[idx] /= 15.0
-    y = a ** 2 / b
+    y = a**2 / b
     form = a * a / np.where(np.abs(b) < 1e-12, np.nan, b)
     got = m.abs_pearson(y, form)
     assert got > 0.9, f"outlier-inflated |corr| collapsed under subsample: {got:.4f}"

@@ -4,6 +4,7 @@ new frame B allocated at the same address with the same shape collided, so B got
 digest -> a wrong _FIT_CACHE key (could serve A's selection for B). The fix folds the cheap
 strided content signature into the memo key.
 """
+
 from __future__ import annotations
 
 import numpy as np

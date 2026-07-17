@@ -6,6 +6,7 @@ prefix may differ in the middle when multiple cells share equal cost
 (ties resolved by backtrace policy differently across backends).
 Distance values agree within float32 tolerance.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,6 +24,7 @@ class TestDtwCpuBaseline:
     def test_dtaidistance_available(self):
         pytest.importorskip("dtaidistance")
         from mlframe.signal.dtw import dtw_cpu
+
         x, y = _gen_pair()
         d, path = dtw_cpu(x, y, window=50)
         assert np.isfinite(d)
@@ -36,8 +38,9 @@ class TestDtwCpuBaseline:
         start at (0, 0) or end at (n-1, m-1)."""
         pytest.importorskip("dtaidistance")
         from mlframe.signal.dtw import dtw_cpu
+
         x, y = _gen_pair(n=200, m=300)
-        _, path_strict = dtw_cpu(x, y, window=50, psi=0)
+        _, _path_strict = dtw_cpu(x, y, window=50, psi=0)
         _, path_psi = dtw_cpu(x, y, window=50, psi=30)
         # With psi, endpoints can drift; this is a soft check (we just
         # assert the path is non-degenerate).
@@ -50,6 +53,7 @@ class TestDtwGpuBackends:
         pytest.importorskip("cupy")
         pytest.importorskip("dtaidistance")
         from mlframe.signal.dtw import dtw_cpu, dtw_cupy
+
         n, m = shape
         # Window must be >= |n-m| so the band admits the (n,m) endpoint.
         window = max(50, abs(n - m) + 20)
@@ -61,7 +65,7 @@ class TestDtwGpuBackends:
         # kernel (root once at the end). Compare relative agreement:
         # the relative gap should be < 5% on random data.
         rel = abs(d_cpu - d_gpu) / max(d_cpu, 1e-9)
-        assert rel < 0.05, f"distance disagreement {rel*100:.2f}%"
+        assert rel < 0.05, f"distance disagreement {rel * 100:.2f}%"
         # Path endpoints
         assert path_gpu[0] == (0, 0)
         assert path_gpu[-1] == (n - 1, m - 1)
@@ -70,10 +74,12 @@ class TestDtwGpuBackends:
     def test_numba_cuda_matches_cupy(self, shape):
         pytest.importorskip("numba")
         from numba import cuda
+
         if not cuda.is_available():
             pytest.skip("no CUDA device")
         pytest.importorskip("cupy")
         from mlframe.signal.dtw import dtw_cuda, dtw_cupy
+
         n, m = shape
         window = max(50, abs(n - m) + 20)
         x, y = _gen_pair(n=n, m=m, seed=hash(shape) & 0xFFFF)
@@ -97,22 +103,24 @@ class TestDtwBandedGpuBuffer:
     def _full_matrix_cupy(self, x, y, window):
         """The retained pre-CPX-P0-2 full-matrix cupy sweep (regression baseline)."""
         from mlframe.signal.dtw import dtw_cupy_full
+
         return dtw_cupy_full(x, y, window=window)
 
     @pytest.mark.parametrize(
         "n,m,window",
         [
-            (500, 500, 200),   # square, ample band
+            (500, 500, 200),  # square, ample band
             (1000, 800, 250),  # rectangular, band > |n-m|
-            (600, 400, 200),   # window == |n-m| (band-boundary: endpoint exactly on the edge)
-            (500, 500, 499),   # near-full band
-            (400, 400, 30),    # narrow band
+            (600, 400, 200),  # window == |n-m| (band-boundary: endpoint exactly on the edge)
+            (500, 500, 499),  # near-full band
+            (400, 400, 30),  # narrow band
         ],
     )
     def test_banded_cupy_bit_identical_to_full_matrix(self, n, m, window):
         """Banded distance + warping path == pre-fix full-matrix GPU path, exactly."""
         pytest.importorskip("cupy")
         from mlframe.signal.dtw import dtw_cupy_banded
+
         rng = np.random.default_rng(n * 7 + m * 13 + window)
         x = rng.standard_normal(n).astype(np.float32)
         y = rng.standard_normal(m).astype(np.float32)
@@ -127,6 +135,7 @@ class TestDtwBandedGpuBuffer:
         pytest.importorskip("cupy")
         pytest.importorskip("dtaidistance")
         from mlframe.signal.dtw import dtw_cupy_banded, dtw_cpu
+
         rng = np.random.default_rng(n + m + window)
         x = rng.standard_normal(n).astype(np.float32)
         y = rng.standard_normal(m).astype(np.float32)
@@ -141,6 +150,7 @@ class TestDtwBandedGpuBuffer:
         (which would allocate >= n*m*4 bytes) trips this regression sensor."""
         import cupy as cp
         from mlframe.signal.dtw import dtw_cupy_banded
+
         n, m, window = 2000, 2000, 100
         rng = np.random.default_rng(1)
         x = rng.standard_normal(n).astype(np.float32)
@@ -163,10 +173,12 @@ class TestDtwBandedGpuBuffer:
         """The numba.cuda banded path agrees with the cupy banded path to fp32 tol."""
         pytest.importorskip("numba")
         from numba import cuda
+
         if not cuda.is_available():
             pytest.skip("no CUDA device")
         pytest.importorskip("cupy")
         from mlframe.signal.dtw import dtw_cuda, dtw_cupy
+
         rng = np.random.default_rng(99)
         x = rng.standard_normal(700).astype(np.float32)
         y = rng.standard_normal(500).astype(np.float32)
@@ -187,8 +199,12 @@ class TestDispatcher:
         monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
         monkeypatch.setenv("MLFRAME_DTW_AUTOTUNE", "0")
         from mlframe.signal.dtw import (
-            dtw_dispatch, dtw_cpu, set_dtw_dispatch_threshold, _DTW_SPEC,
+            dtw_dispatch,
+            dtw_cpu,
+            set_dtw_dispatch_threshold,
+            _DTW_SPEC,
         )
+
         _DTW_SPEC._choice_cache.clear()  # drop any memoized choice from earlier tests
         set_dtw_dispatch_threshold(10_000_000)  # force CPU via the fallback
         x, y = _gen_pair(n=200, m=150)
@@ -201,8 +217,11 @@ class TestDispatcher:
     def test_large_n_routes_to_gpu_when_available(self):
         pytest.importorskip("cupy")
         from mlframe.signal.dtw import (
-            dtw_dispatch, dtw_cupy, set_dtw_dispatch_threshold,
+            dtw_dispatch,
+            dtw_cupy,
+            set_dtw_dispatch_threshold,
         )
+
         # Tiny threshold -> auto-pick GPU on any non-trivial input.
         set_dtw_dispatch_threshold(100)
         x, y = _gen_pair(n=500, m=400)
@@ -215,6 +234,7 @@ class TestDispatcher:
         when psi > 0 to preserve correctness."""
         pytest.importorskip("dtaidistance")
         from mlframe.signal.dtw import dtw_dispatch, dtw_cpu, set_dtw_dispatch_threshold
+
         set_dtw_dispatch_threshold(100)  # auto-prefer GPU otherwise
         x, y = _gen_pair(n=500, m=400)
         d_disp, path_disp = dtw_dispatch(x, y, window=150, psi=20)
@@ -225,15 +245,17 @@ class TestDispatcher:
     def test_env_var_force_override(self, monkeypatch):
         pytest.importorskip("dtaidistance")
         from mlframe.signal.dtw import dtw_dispatch, dtw_cpu
+
         monkeypatch.setenv("MLFRAME_DTW_BACKEND", "cpu")
         x, y = _gen_pair(n=500, m=400)
-        d_disp, path_disp = dtw_dispatch(x, y, window=150)
-        d_cpu, path_cpu = dtw_cpu(x, y, window=150)
+        d_disp, _path_disp = dtw_dispatch(x, y, window=150)
+        d_cpu, _path_cpu = dtw_cpu(x, y, window=150)
         assert d_disp == d_cpu
 
     def test_backend_kwarg_force(self):
         pytest.importorskip("dtaidistance")
         from mlframe.signal.dtw import dtw_dispatch, dtw_cpu
+
         x, y = _gen_pair(n=500, m=400)
         d_disp, _ = dtw_dispatch(x, y, window=150, backend="cpu")
         d_cpu, _ = dtw_cpu(x, y, window=150)
@@ -241,6 +263,7 @@ class TestDispatcher:
 
     def test_unknown_backend_raises(self):
         from mlframe.signal.dtw import dtw_dispatch
+
         x, y = _gen_pair(n=100, m=80)
         with pytest.raises(ValueError):
             dtw_dispatch(x, y, backend="opencl")

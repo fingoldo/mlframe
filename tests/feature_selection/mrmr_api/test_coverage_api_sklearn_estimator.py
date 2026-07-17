@@ -14,6 +14,7 @@ the resolved value for those two params. The lazy-resolve fix lives at the fit s
 an in-flux module, so the two tests below pin the CURRENT (resolved-in-init) behaviour
 rather than failing; flip them to assert pass-through once the fit-site lazy resolve lands.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,8 +34,7 @@ def _data(n: int = 160, m: int = 5, seed: int = 0):
 
 
 def _fast(**kw):
-    base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0,
-                fe_fast_search=False, interactions_max_order=1)
+    base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, fe_fast_search=False, interactions_max_order=1)
     base.update(kw)
     return MRMR(**base)
 
@@ -42,8 +42,7 @@ def _fast(**kw):
 @pytest.mark.fast
 def test_get_set_params_round_trip_over_ctor():
     """Every non-resolved ctor param survives a get_params -> set_params round-trip verbatim."""
-    m = MRMR(quantization_nbins=7, n_workers=3, random_seed=123, bur_lambda=0.25,
-             mi_normalization="su", nan_strategy="ffill_bfill")
+    m = MRMR(quantization_nbins=7, n_workers=3, random_seed=123, bur_lambda=0.25, mi_normalization="su", nan_strategy="ffill_bfill")
     params = m.get_params()
     assert params["quantization_nbins"] == 7
     assert params["n_workers"] == 3
@@ -108,8 +107,7 @@ def test_fit_sets_feature_names_in_and_n_features_in():
     MRMR._FIT_CACHE.clear()
     m = _fast(random_seed=7).fit(X, y)
     assert m.n_features_in_ == X.shape[1]
-    np.testing.assert_array_equal(np.asarray(m.feature_names_in_, dtype=object),
-                                  np.asarray(list(X.columns), dtype=object))
+    np.testing.assert_array_equal(np.asarray(m.feature_names_in_, dtype=object), np.asarray(list(X.columns), dtype=object))
 
 
 @pytest.mark.fast
@@ -120,8 +118,7 @@ def test_ndarray_fit_synthesizes_feature_names():
     assert m.n_features_in_ == X.shape[1]
     # ndarray input -> placeholder names, and the synthesized sentinel is set.
     assert getattr(m, "_feature_names_in_synthesized_", False) is True
-    assert all(str(n).startswith("f") or str(n).startswith("feature_")
-               for n in m.feature_names_in_)
+    assert all(str(n).startswith("f") or str(n).startswith("feature_") for n in m.feature_names_in_)
 
 
 def test_clone_reproduces_selection_behaviour():
@@ -148,6 +145,5 @@ def test_clone_preserves_all_explicit_params():
     fresh = clone(orig)
     op, fp = orig.get_params(), fresh.get_params()
     # Compare on the keys that are NOT resolved-in-init (n_jobs/parallel_kwargs excluded).
-    for k in ("quantization_nbins", "bur_lambda", "n_workers", "random_seed",
-              "mi_normalization", "nan_strategy"):
+    for k in ("quantization_nbins", "bur_lambda", "n_workers", "random_seed", "mi_normalization", "nan_strategy"):
         assert op[k] == fp[k], k

@@ -10,6 +10,7 @@ the robust Huber path, and its winsor-bound provenance is recorded for leak-safe
 replay. The env var ``MLFRAME_ROBUST_WARP_FIT`` is an independent gate from the
 axis path's ``MLFRAME_ROBUST_AXIS`` (orthogonal-knob rule).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -118,8 +119,8 @@ def test_dispatcher_clean_operand_byte_identical_to_ols():
     n = 1000
     x = rng.standard_normal(n)
     assert _detect_heavy_tail(x) is False
-    B = np.column_stack([np.ones(n), x, x ** 2])
-    y = 0.5 + 1.5 * x - 0.3 * x ** 2 + rng.normal(0, 0.1, n)
+    B = np.column_stack([np.ones(n), x, x**2])
+    y = 0.5 + 1.5 * x - 0.3 * x**2 + rng.normal(0, 0.1, n)
     coef, robust_used, winsor = fit_basis_coef_robust(B, y, x)
     assert robust_used is False and winsor is None
     np.testing.assert_array_equal(coef, _ols_lstsq(B, y))
@@ -133,9 +134,9 @@ def test_dispatcher_heavy_tailed_operand_uses_robust_and_records_winsor():
     x_clean = rng.uniform(-2.5, 2.5, n)
     x = _spike(rng, x_clean, frac=0.02, scale_iqr=15.0)
     assert _detect_heavy_tail(x) is True
-    B = np.column_stack([np.ones(n), x, x ** 2])
+    B = np.column_stack([np.ones(n), x, x**2])
     y = rng.normal(0, 1, n)
-    coef, robust_used, winsor = fit_basis_coef_robust(B, y, x)
+    _coef, robust_used, winsor = fit_basis_coef_robust(B, y, x)
     assert robust_used is True
     assert winsor is not None
     lo, hi = winsor
@@ -149,7 +150,7 @@ def test_dispatcher_gate_off_forces_ols(monkeypatch):
     rng = np.random.default_rng(4)
     n = 1500
     x = _spike(rng, rng.uniform(-2.5, 2.5, n), frac=0.02, scale_iqr=15.0)
-    B = np.column_stack([np.ones(n), x, x ** 2])
+    B = np.column_stack([np.ones(n), x, x**2])
     y = rng.normal(0, 1, n)
     coef, robust_used, winsor = fit_basis_coef_robust(B, y, x)
     assert robust_used is False and winsor is None
@@ -163,6 +164,7 @@ def test_dispatcher_gate_off_forces_ols(monkeypatch):
 
 def _fit_with_gate(x, y, on):
     import os
+
     old = os.environ.get("MLFRAME_ROBUST_WARP_FIT")
     os.environ["MLFRAME_ROBUST_WARP_FIT"] = "1" if on else "0"
     try:
@@ -181,7 +183,7 @@ def test_prewarp_clean_byte_identical(seed):
     rng = np.random.default_rng(50 + seed)
     n = 2000
     x = rng.uniform(-2.5, 2.5, n)
-    y = 0.7 * x + 0.25 * x ** 3 + rng.normal(0, 0.3, n)
+    y = 0.7 * x + 0.25 * x**3 + rng.normal(0, 0.3, n)
     s_off = _fit_with_gate(x, y, on=False)
     s_on = _fit_with_gate(x, y, on=True)
     assert s_off is not None and s_on is not None
@@ -195,7 +197,7 @@ def test_prewarp_heavy_tail_sets_robust_provenance():
     rng = np.random.default_rng(7)
     n = 2000
     x = rng.uniform(-2.5, 2.5, n)
-    y = 0.7 * x + 0.25 * x ** 3 + rng.normal(0, 0.3, n)
+    y = 0.7 * x + 0.25 * x**3 + rng.normal(0, 0.3, n)
     x_out = _spike(rng, x, frac=0.015, scale_iqr=12.0)
     spec = _fit_with_gate(x_out, y, on=True)
     assert spec is not None and spec.get("robust_fit") is True

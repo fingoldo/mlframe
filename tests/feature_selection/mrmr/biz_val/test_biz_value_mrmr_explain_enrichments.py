@@ -12,13 +12,13 @@ flag is really flipped one band and the fit re-run, restricted to the candidates
 ledger recorded (the preview's universe). Both pure-additive metadata; selection is
 byte-identical (the preview never refits, never mutates state).
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -27,10 +27,16 @@ from mlframe.feature_selection.filters._mrmr_explain import _GATE_TO_FLIP_BAND
 
 def _mrmr(**overrides):
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     defaults = dict(
-        verbose=0, random_seed=0, dcd_enable=False, cluster_aggregate_enable=False,
-        build_friend_graph=False, stability_selection_method="classic",
-        retain_artifacts=False, n_jobs=1,
+        verbose=0,
+        random_seed=0,
+        dcd_enable=False,
+        cluster_aggregate_enable=False,
+        build_friend_graph=False,
+        stability_selection_method="classic",
+        retain_artifacts=False,
+        n_jobs=1,
     )
     defaults.update(overrides)
     return MRMR(**defaults)
@@ -42,11 +48,17 @@ def _canonical_frame(n: int = 800, seed: int = 7):
     b = rng.uniform(0.5, 2.5, n)
     c = rng.uniform(0.5, 5.0, n)
     d = rng.uniform(0.0, 2.0 * np.pi, n)
-    X = pd.DataFrame({
-        "a": a, "b": b, "c": c, "d": d,
-        "noise_0": rng.standard_normal(n), "noise_1": rng.standard_normal(n),
-    })
-    score = a ** 2 / b + np.log(c) * np.sin(d) + 0.3 * rng.standard_normal(n)
+    X = pd.DataFrame(
+        {
+            "a": a,
+            "b": b,
+            "c": c,
+            "d": d,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
+    score = a**2 / b + np.log(c) * np.sin(d) + 0.3 * rng.standard_normal(n)
     y = pd.Series((score > np.median(score)).astype(int))
     return X, y
 
@@ -58,6 +70,7 @@ def _fe_on(**overrides):
 # ---------------------------------------------------------------------------
 # (a) WHAT-IF-FLIP preview: count matches the recorded ledger arithmetic.
 # ---------------------------------------------------------------------------
+
 
 def test_whatif_count_matches_ledger_margin_arithmetic():
     """The preview count for a gate == count(-delta < ledger.margin < 0) for that gate's band:
@@ -77,7 +90,7 @@ def test_whatif_count_matches_ledger_margin_arithmetic():
     gate_col = led["gate"].astype(str)
     margin_col = pd.to_numeric(led["margin"], errors="coerce")
     surfaced = False
-    for gate, (knob, delta) in _GATE_TO_FLIP_BAND.items():
+    for gate, (_knob, delta) in _GATE_TO_FLIP_BAND.items():
         n_gate = int(gate_col.eq(gate).sum())
         if n_gate == 0:
             continue
@@ -85,9 +98,7 @@ def test_whatif_count_matches_ledger_margin_arithmetic():
         # if this gate's line is in the report, its count must equal `expected`.
         if f"[{gate}]" in report:
             line = next(l for l in report.splitlines() if f"[{gate}]" in l)
-            assert f"re-admit {expected} candidate" in line, (
-                f"preview count for {gate} != ledger arithmetic {expected}:\n{line}"
-            )
+            assert f"re-admit {expected} candidate" in line, f"preview count for {gate} != ledger arithmetic {expected}:\n{line}"
             surfaced = True
     assert surfaced, f"no relaxable gate surfaced in what-if section:\n{report}"
 
@@ -103,12 +114,10 @@ def test_whatif_preview_matches_actual_flag_flip_refit():
     # The engineered_mi_prevalence gate deterministically binds on the canonical frame at
     # threshold 0.90, so it MUST appear in the ledger; absence is a gate-plumbing regression.
     assert led is not None and not led.empty, "fe_rejection_ledger_ unexpectedly empty"
-    assert "engineered_mi_prevalence" in led["gate"].astype(str).values, (
-        "engineered_mi_prevalence gate did not bind on the canonical frame"
-    )
+    assert "engineered_mi_prevalence" in led["gate"].astype(str).values, "engineered_mi_prevalence gate did not bind on the canonical frame"
 
     gate = "engineered_mi_prevalence"
-    knob, delta = _GATE_TO_FLIP_BAND[gate]
+    _knob, delta = _GATE_TO_FLIP_BAND[gate]
     g = led["gate"].astype(str).eq(gate)
     margin = pd.to_numeric(led["margin"], errors="coerce")
     # candidates the gate recorded, with their observed value (= margin + threshold).
@@ -136,14 +145,14 @@ def test_whatif_preview_matches_actual_flag_flip_refit():
     actual_readmit = len(recorded_cands - still_dropped)
 
     assert preview_count == actual_readmit, (
-        f"what-if preview {preview_count} != actual flag-flip re-admit {actual_readmit} "
-        f"(recorded={len(recorded_cands)}, still_dropped={len(still_dropped)})"
+        f"what-if preview {preview_count} != actual flag-flip re-admit {actual_readmit} (recorded={len(recorded_cands)}, still_dropped={len(still_dropped)})"
     )
 
 
 # ---------------------------------------------------------------------------
 # (b) PER-FEATURE MI/gain ATTRIBUTION.
 # ---------------------------------------------------------------------------
+
 
 def test_attribution_column_populated_and_ordered():
     """Each surviving feature line shows a gain= attribution, and they are ordered
@@ -174,9 +183,7 @@ def test_top_attribution_is_genuine_signal_feature():
     # the genuine signal columns are a,b,c,d (or engineered cols derived from them, which
     # embed those names); a pure noise_* survivor topping the list would be the failure.
     assert not feat.startswith("noise_"), f"top attribution is a noise feature: {first}\n{report}"
-    assert any(s in feat for s in ("a", "b", "c", "d")) or "[raw]" not in first, (
-        f"top attribution {first} is not a recognisable signal carrier"
-    )
+    assert any(s in feat for s in ("a", "b", "c", "d")) or "[raw]" not in first, f"top attribution {first} is not a recognisable signal carrier"
 
 
 def test_graceful_when_ledger_empty():

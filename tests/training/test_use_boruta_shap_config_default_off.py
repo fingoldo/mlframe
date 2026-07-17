@@ -54,7 +54,6 @@ def test_build_pre_pipelines_no_boruta_shap_by_default():
 
 def test_build_pre_pipelines_appends_boruta_shap_when_enabled():
     pytest.importorskip("shap")
-    from mlframe.feature_selection.boruta_shap import BorutaShap
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
 
     pipelines, names = _build_pre_pipelines(
@@ -82,7 +81,6 @@ def test_build_pre_pipelines_appends_boruta_shap_when_enabled():
 def test_build_pre_pipelines_boruta_shap_after_mrmr():
     """When both MRMR and BorutaShap are enabled, ordering must be: ordinary -> MRMR -> BorutaShap."""
     pytest.importorskip("shap")
-    from mlframe.feature_selection.boruta_shap import BorutaShap
     from mlframe.feature_selection.filters import MRMR
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
 

@@ -8,6 +8,7 @@ RFECV/BorutaShap ``__init__`` params), so the default-ON wrap was unreachable AN
 un-fuzzable through the public path. The validators now whitelist them (the same
 mechanism rfecv_kwargs already used for ``cv_n_splits``).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -33,7 +34,10 @@ def test_rfecv_cluster_reduce_reachable_via_first_class_fields():
     whitelisted in ``boruta_shap_kwargs``.) The pre-fix shape -- whitelisting cluster keys in ``rfecv_kwargs`` --
     was the stale proxy; the real reach is the first-class fields."""
     cfg = FeatureSelectionConfig(
-        rfecv_models=["lgb"], rfecv_cluster_reduce=False, rfecv_cluster_corr_threshold=0.9, rfecv_cluster_min_reduction=0.1,
+        rfecv_models=["lgb"],
+        rfecv_cluster_reduce=False,
+        rfecv_cluster_corr_threshold=0.9,
+        rfecv_cluster_min_reduction=0.1,
     )
     assert cfg.rfecv_cluster_reduce is False
     assert cfg.rfecv_cluster_corr_threshold == 0.9
@@ -66,6 +70,4 @@ def test_cluster_reduce_keys_drive_registry_wrap():
     wrapped = _instantiate_boruta_shap(cluster_reduce=True, cluster_corr_threshold=0.85, cluster_min_reduction=0.1)
     bare = _instantiate_boruta_shap(cluster_reduce=False)
     assert isinstance(wrapped, GroupAwareMRMR), "cluster_reduce=True must yield the GroupAwareMRMR medoid wrap"
-    assert isinstance(bare, BorutaShap) and not isinstance(bare, GroupAwareMRMR), (
-        "cluster_reduce=False must yield bare BorutaShap"
-    )
+    assert isinstance(bare, BorutaShap) and not isinstance(bare, GroupAwareMRMR), "cluster_reduce=False must yield bare BorutaShap"

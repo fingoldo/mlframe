@@ -2,6 +2,7 @@
 
 When first-pass FE produces 0 engineered features, retry once with thresholds scaled by ``fe_adaptive_relax_factor`` (default 0.9). Skips the expensive Hermite Optuna re-run because best_res is already injected. Default ON (Accuracy/perf over legacy).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -21,17 +22,20 @@ def _suppress_optuna_warnings():
 class TestAdaptiveFEConfig:
     def test_default_adaptive_is_on(self) -> None:
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR()
         assert m.fe_adaptive_threshold_relax is True
         assert m.fe_adaptive_relax_factor == 0.9
 
     def test_explicit_off_restores_legacy(self) -> None:
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(fe_adaptive_threshold_relax=False)
         assert m.fe_adaptive_threshold_relax is False
 
     def test_custom_relax_factor(self) -> None:
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR(fe_adaptive_relax_factor=0.85)
         assert m.fe_adaptive_relax_factor == 0.85
 
@@ -45,14 +49,17 @@ class TestAdaptiveRetryWiring:
 
         rng = np.random.default_rng(0)
         n = 400
-        df = pd.DataFrame({
-            "a": rng.normal(size=n),
-            "b": rng.normal(size=n),
-            "c": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "a": rng.normal(size=n),
+                "b": rng.normal(size=n),
+                "c": rng.normal(size=n),
+            }
+        )
         y = (rng.normal(size=n) > 0).astype(int)
         m = MRMR(
-            n_workers=1, verbose=0,
+            n_workers=1,
+            verbose=0,
             fe_max_steps=1,
             fe_npermutations=10,
             fe_ntop_features=3,
@@ -69,14 +76,17 @@ class TestAdaptiveRetryWiring:
 
         rng = np.random.default_rng(0)
         n = 400
-        df = pd.DataFrame({
-            "a": rng.normal(size=n),
-            "b": rng.normal(size=n),
-            "c": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "a": rng.normal(size=n),
+                "b": rng.normal(size=n),
+                "c": rng.normal(size=n),
+            }
+        )
         y = (rng.normal(size=n) > 0).astype(int)
         m = MRMR(
-            n_workers=1, verbose=0,
+            n_workers=1,
+            verbose=0,
             fe_max_steps=1,
             fe_npermutations=10,
             fe_ntop_features=3,

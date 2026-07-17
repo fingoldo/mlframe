@@ -4,6 +4,7 @@ SAME content (successive pair-chunks of one greedy round), instead of a fresh ``
 every call. Proves the ``resident_operand`` adoption fix in ``_batch_pair_mi_cuda_kernels.py`` /
 ``batch_pair_mi_gpu.py`` engages and stays bit-identical to the pre-fix raw-upload path.
 """
+
 from __future__ import annotations
 
 import itertools

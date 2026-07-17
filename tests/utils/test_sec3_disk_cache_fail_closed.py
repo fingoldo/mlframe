@@ -4,9 +4,9 @@ Previously DiskCache.get called safe_load(..., allow_unverified=True), forcing t
 no sidecar was unpickled silently. The fix removes allow_unverified=True so a missing sidecar is refused by default; the only opt-in is the
 MLFRAME_ALLOW_UNVERIFIED_PICKLE env var.
 """
+
 import pickle
 
-import pytest
 
 from mlframe.utils.disk_cache import DiskCache
 

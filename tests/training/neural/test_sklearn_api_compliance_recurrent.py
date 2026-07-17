@@ -8,6 +8,7 @@ SK4b: ``config`` is stored VERBATIM (None stays None across clone) and fit
 mutates only a fit-local deepcopy, never ``self.config`` nor the shared
 module-level default ``RecurrentConfig()``.
 """
+
 from __future__ import annotations
 
 import copy

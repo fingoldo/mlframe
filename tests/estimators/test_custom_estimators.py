@@ -30,6 +30,7 @@ def _seed_global_numpy_rng():
 # T1 — proba sums to 1
 # ---------------------------------------------------------------------------
 
+
 @given(
     X=arrays(
         dtype=np.float64,
@@ -65,6 +66,7 @@ def test_geom_avg_proba_sum_to_one(X):
 # ---------------------------------------------------------------------------
 # T2 — fit/predict smoke across shapes
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("n_samples,n_cols", [(5, 2), (10, 3), (50, 5), (1, 2)])
 @pytest.mark.parametrize("clf_cls", [ArithmAvgClassifier, GeomAvgClassifier])
@@ -119,11 +121,12 @@ def test_pure_random_classifier_respects_random_state():
 # alerts would just churn the CI noise budget.)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.skip(
     reason="Averager classifiers interpret X as pre-computed probability columns, "
-           "not generic features — the sklearn check_estimator synthetic data violates "
-           "that contract. check_estimator does not accept custom data, so a meaningful "
-           "API-conformance check would require a parallel custom harness."
+    "not generic features — the sklearn check_estimator synthetic data violates "
+    "that contract. check_estimator does not accept custom data, so a meaningful "
+    "API-conformance check would require a parallel custom harness."
 )
 @pytest.mark.parametrize("clf_cls", [ArithmAvgClassifier, GeomAvgClassifier, PureRandomClassifier])
 def test_check_estimator_averagers(clf_cls):
@@ -138,6 +141,7 @@ def test_check_estimator_averagers(clf_cls):
 # ---------------------------------------------------------------------------
 # Pickle roundtrip for averagers (needed for joblib/loky parallelism)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "clf",
@@ -158,6 +162,7 @@ def test_pickle_roundtrip_averagers(clf):
 # ---------------------------------------------------------------------------
 # MyDecorrelator: attribute-name regression (M6 in audit)
 # ---------------------------------------------------------------------------
+
 
 def test_my_decorrelator_uses_correlated_features_consistently():
     import pandas as pd

@@ -6,6 +6,7 @@ vectorizes the partial-NaN block via ``_pairwise_complete_abs_corr``. These test
 dropped after row-capping, (2) the vectorized partial-NaN verdict matches the legacy per-pair path, (3) the pass stays
 fast and bounded in N.
 """
+
 from __future__ import annotations
 
 import time

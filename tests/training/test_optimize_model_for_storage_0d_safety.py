@@ -12,13 +12,13 @@ The fix preserves the list / pd.Index / 1-d-ndarray paths unchanged and
 adds an explicit ``np.ndarray AND ndim == 0`` branch that unwraps via
 ``.item()`` before the equality check.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_optimize_for_storage_0d_columns_match_sets_none():

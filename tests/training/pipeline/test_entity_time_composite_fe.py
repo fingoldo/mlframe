@@ -7,12 +7,12 @@ the no-op gate when group_ids is unavailable, and predict-time replay (no fit-ti
 function of the predict frame's own group_ids/timestamps, persisted config only) -- plus one
 biz_value test proving the WIRED module recovers signal a raw-column baseline can't.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import polars as pl
-from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 
 from mlframe.training._preprocessing_configs import PreprocessingExtensionsConfig
@@ -32,8 +32,17 @@ def _entity_frame(n=300, seed=0):
 def test_apply_entity_time_composite_fe_noop_when_group_ids_none():
     df, _, ts = _entity_frame()
     cfg = PreprocessingExtensionsConfig(state_duration_columns=["state_col"], recency_aggregation_columns=["val_col"])
-    train, val, test = apply_entity_time_composite_fe(
-        df.iloc[:200], df.iloc[200:], None, cfg, None, ts, np.arange(200), np.arange(200, 300), None, verbose=0,
+    train, _val, _test = apply_entity_time_composite_fe(
+        df.iloc[:200],
+        df.iloc[200:],
+        None,
+        cfg,
+        None,
+        ts,
+        np.arange(200),
+        np.arange(200, 300),
+        None,
+        verbose=0,
     )
     assert list(train.columns) == list(df.columns)
 
@@ -51,8 +60,17 @@ def test_apply_entity_time_composite_fe_schema_aligned_across_splits():
     train_idx, val_idx, test_idx = np.arange(0, 200), np.arange(200, 250), np.arange(250, 300)
     metadata: dict = {}
     train, val, test = apply_entity_time_composite_fe(
-        df.iloc[train_idx].reset_index(drop=True), df.iloc[val_idx].reset_index(drop=True), df.iloc[test_idx].reset_index(drop=True),
-        cfg, group_ids, ts, train_idx, val_idx, test_idx, metadata=metadata, verbose=0,
+        df.iloc[train_idx].reset_index(drop=True),
+        df.iloc[val_idx].reset_index(drop=True),
+        df.iloc[test_idx].reset_index(drop=True),
+        cfg,
+        group_ids,
+        ts,
+        train_idx,
+        val_idx,
+        test_idx,
+        metadata=metadata,
+        verbose=0,
     )
     assert set(train.columns) == set(val.columns) == set(test.columns)
     expected_new = {"state_col__possession_duration", "state_col__cancellation_duration", "val_col__recency_mean"}

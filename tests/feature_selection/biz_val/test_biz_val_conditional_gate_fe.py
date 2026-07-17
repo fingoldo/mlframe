@@ -6,6 +6,7 @@ on smooth / noise / ordinary-interaction controls. Floors set ~15% below measure
 
 These pin the operators' edge over the existing catalog so a future "the gate / argmax adds nothing" regression fails the win.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -18,6 +19,7 @@ from mlframe.feature_selection.filters._conditional_gate_fe_proto import (
     scan_conditional_gate,
     scan_row_argmax,
 )
+
 NBINS = 12
 
 
@@ -43,7 +45,7 @@ def _mi(col, y, nbins: int = NBINS) -> float:
     from mlframe.feature_selection.filters.hermite_fe import plugin_mi_classif_batch_dispatch
 
     _prev = os.environ.get("MLFRAME_MI_BACKEND")
-    os.environ["MLFRAME_MI_BACKEND"] = "njit"   # bypass the STRICT percentile-edge swap; this contract is rank-MI
+    os.environ["MLFRAME_MI_BACKEND"] = "njit"  # bypass the STRICT percentile-edge swap; this contract is rank-MI
     try:
         arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
         return float(plugin_mi_classif_batch_dispatch(arr, np.asarray(y).astype(np.int64), nbins)[0])

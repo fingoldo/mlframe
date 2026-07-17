@@ -6,6 +6,7 @@ estimators raise on a same-names-different-order frame, and positional consumers
 when there are no extra columns to drop. Pre-fix the reorder only ran on the extra-columns path, so a benignly
 reordered frame crashed the whole predict call with ``all N supplied model(s) failed``.
 """
+
 from __future__ import annotations
 
 import numpy as np

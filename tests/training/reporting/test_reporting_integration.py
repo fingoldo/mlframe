@@ -12,7 +12,6 @@ import os
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.reporting import _reporting as R
 
@@ -85,8 +84,13 @@ def test_training_curve_stamps_path_and_keeps_spec(tmp_path):
 
     metrics: dict = {}
     R._render_training_curves(
-        _FakeLGB(evals, es), model_name="LGB", plot_file=base,
-        plot_outputs="matplotlib[png]", plot_dpi=None, metrics=metrics, reporting_config=_Cfg(),
+        _FakeLGB(evals, es),
+        model_name="LGB",
+        plot_file=base,
+        plot_outputs="matplotlib[png]",
+        plot_dpi=None,
+        metrics=metrics,
+        reporting_config=_Cfg(),
     )
     assert "paths" in metrics["charts"]
     assert any("training_curve" in p for p in metrics["charts"]["paths"])
@@ -103,8 +107,13 @@ def test_keep_figure_handles_off_by_default(tmp_path):
 
     metrics: dict = {}
     R._render_training_curves(
-        _FakeLGB(evals, es), model_name="LGB", plot_file=os.path.join(str(tmp_path), "m"),
-        plot_outputs="matplotlib[png]", plot_dpi=None, metrics=metrics, reporting_config=_Cfg(),
+        _FakeLGB(evals, es),
+        model_name="LGB",
+        plot_file=os.path.join(str(tmp_path), "m"),
+        plot_outputs="matplotlib[png]",
+        plot_dpi=None,
+        metrics=metrics,
+        reporting_config=_Cfg(),
     )
     assert "figure_specs" not in metrics
 
@@ -120,8 +129,13 @@ def test_kept_figure_spec_is_picklable(tmp_path):
 
     metrics: dict = {}
     R._render_training_curves(
-        _FakeLGB(evals, es), model_name="LGB", plot_file=os.path.join(str(tmp_path), "m"),
-        plot_outputs="matplotlib[png]", plot_dpi=None, metrics=metrics, reporting_config=_Cfg(),
+        _FakeLGB(evals, es),
+        model_name="LGB",
+        plot_file=os.path.join(str(tmp_path), "m"),
+        plot_outputs="matplotlib[png]",
+        plot_dpi=None,
+        metrics=metrics,
+        reporting_config=_Cfg(),
     )
     # Pure-data spec, no live figure handle -> round-trips through pickle.
     blob = pickle.dumps(metrics["figure_specs"]["training_curve"])
@@ -141,6 +155,7 @@ def test_panel_grid_suptitle_carries_shape_annotation(tmp_path, monkeypatch):
         return "multiclass"
 
     import mlframe.reporting.auto_dispatch as ad
+
     monkeypatch.setattr(ad, "render_multi_target_panels", _fake_dispatch)
 
     n, K = 300, 3
@@ -149,11 +164,21 @@ def test_panel_grid_suptitle_carries_shape_annotation(tmp_path, monkeypatch):
     probs = rng.dirichlet(np.ones(K), size=n)
     metrics: dict = {}
     R.report_model_perf(
-        targets=targets, columns=[f"f{i}" for i in range(7)], model_name="LGB", model=None,
-        classes=list(range(K)), probs=probs, preds=None,
-        plot_file=os.path.join(str(tmp_path), "m"), plot_outputs="matplotlib[png]",
-        multiclass_panels="CONFUSION", target_type="multiclass_classification",
-        n_features=7, metrics=metrics, show_fi=False, print_report=False,
+        targets=targets,
+        columns=[f"f{i}" for i in range(7)],
+        model_name="LGB",
+        model=None,
+        classes=list(range(K)),
+        probs=probs,
+        preds=None,
+        plot_file=os.path.join(str(tmp_path), "m"),
+        plot_outputs="matplotlib[png]",
+        multiclass_panels="CONFUSION",
+        target_type="multiclass_classification",
+        n_features=7,
+        metrics=metrics,
+        show_fi=False,
+        print_report=False,
     )
     assert captured.get("suptitle") is not None
     # Shape annotation appended: "<n>F/<rows> rows".

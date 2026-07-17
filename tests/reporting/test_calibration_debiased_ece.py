@@ -18,7 +18,9 @@ import pytest
 
 from mlframe.metrics.calibration._calibration_plot import fast_calibration_binning
 from mlframe.reporting.charts.calibration import (
-    build_calibration_spec, debiased_ece, standard_ece,
+    build_calibration_spec,
+    debiased_ece,
+    standard_ece,
 )
 
 
@@ -95,9 +97,9 @@ def test_debiased_ece_clamps_to_zero_when_gap_below_noise():
 @pytest.mark.parametrize(
     "fp,ft,hits",
     [
-        (np.array([]), np.array([]), np.array([])),                       # no bins
-        (np.array([np.nan]), np.array([np.nan]), np.array([0.0])),        # empty / non-finite bin
-        (np.array([0.5]), np.array([0.5]), np.array([1.0])),              # singleton bin -> no variance estimate
+        (np.array([]), np.array([]), np.array([])),  # no bins
+        (np.array([np.nan]), np.array([np.nan]), np.array([0.0])),  # empty / non-finite bin
+        (np.array([0.5]), np.array([0.5]), np.array([1.0])),  # singleton bin -> no variance estimate
     ],
 )
 def test_debiased_ece_degenerate_returns_nan(fp, ft, hits):

@@ -66,10 +66,13 @@ class TestApplyRecipeUnaryBinary:
         """``mul(identity(a), identity(b))`` == ``a * b`` element-wise."""
         recipe = build_unary_binary_recipe(
             name="mul(a,b)",
-            src_a_name="a", src_b_name="b",
-            unary_a_name="identity", unary_b_name="identity",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="identity",
+            unary_b_name="identity",
             binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,
@@ -85,10 +88,13 @@ class TestApplyRecipeUnaryBinary:
         field-driven machinery as 'add'/'mul'."""
         recipe = build_unary_binary_recipe(
             name="sub(a,b)",
-            src_a_name="a", src_b_name="b",
-            unary_a_name="identity", unary_b_name="identity",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="identity",
+            unary_b_name="identity",
             binary_name="sub",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,
@@ -103,32 +109,57 @@ class TestApplyRecipeUnaryBinary:
         byte-exactly by recursively replaying the parents -- identical machinery to the 'add' fusion."""
         rng = np.random.default_rng(7)
         n = 128
-        df = pd.DataFrame({
-            "a": rng.uniform(0.1, 10.0, n), "b": rng.uniform(0.5, 5.0, n),
-            "c": rng.uniform(0.1, 10.0, n), "d": rng.uniform(0.0, 6.28, n),
-        })
+        df = pd.DataFrame(
+            {
+                "a": rng.uniform(0.1, 10.0, n),
+                "b": rng.uniform(0.5, 5.0, n),
+                "c": rng.uniform(0.1, 10.0, n),
+                "d": rng.uniform(0.0, 6.28, n),
+            }
+        )
         parent_a = build_unary_binary_recipe(
-            name="div(sqr(a),neg(b))", src_a_name="a", src_b_name="b",
-            unary_a_name="sqr", unary_b_name="neg", binary_name="div",
-            unary_preset="minimal", binary_preset="minimal",
-            quantization_nbins=None, quantization_method=None, quantization_dtype=np.float32,
+            name="div(sqr(a),neg(b))",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="sqr",
+            unary_b_name="neg",
+            binary_name="div",
+            unary_preset="minimal",
+            binary_preset="minimal",
+            quantization_nbins=None,
+            quantization_method=None,
+            quantization_dtype=np.float32,
         )
         parent_b = build_unary_binary_recipe(
-            name="mul(log(c),sin(d))", src_a_name="c", src_b_name="d",
-            unary_a_name="log", unary_b_name="sin", binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
-            quantization_nbins=None, quantization_method=None, quantization_dtype=np.float32,
+            name="mul(log(c),sin(d))",
+            src_a_name="c",
+            src_b_name="d",
+            unary_a_name="log",
+            unary_b_name="sin",
+            binary_name="mul",
+            unary_preset="minimal",
+            binary_preset="minimal",
+            quantization_nbins=None,
+            quantization_method=None,
+            quantization_dtype=np.float32,
         )
         va = apply_recipe(parent_a, df)
         vb = apply_recipe(parent_b, df)
         fused = build_unary_binary_recipe(
             name="sub(div(sqr(a),neg(b)),mul(log(c),sin(d)))",
-            src_a_name="div(sqr(a),neg(b))", src_b_name="mul(log(c),sin(d))",
-            unary_a_name="identity", unary_b_name="identity", binary_name="sub",
-            unary_preset="minimal", binary_preset="minimal",
-            quantization_nbins=None, quantization_method=None, quantization_dtype=np.float32,
+            src_a_name="div(sqr(a),neg(b))",
+            src_b_name="mul(log(c),sin(d))",
+            unary_a_name="identity",
+            unary_b_name="identity",
+            binary_name="sub",
+            unary_preset="minimal",
+            binary_preset="minimal",
+            quantization_nbins=None,
+            quantization_method=None,
+            quantization_dtype=np.float32,
             fit_values_for_edges=(va - vb),
-            nested_parent_a=parent_a, nested_parent_b=parent_b,
+            nested_parent_a=parent_a,
+            nested_parent_b=parent_b,
         )
         out = apply_recipe(fused, df)
         expected = np.nan_to_num(va - vb, nan=0.0, posinf=0.0, neginf=0.0)
@@ -140,10 +171,13 @@ class TestApplyRecipeUnaryBinary:
         ``sin`` and ``mul`` all live in the ``"minimal"`` workhorse preset."""
         recipe = build_unary_binary_recipe(
             name="mul(log(a),sin(b))",
-            src_a_name="a", src_b_name="b",
-            unary_a_name="log", unary_b_name="sin",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="log",
+            unary_b_name="sin",
             binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,
@@ -175,10 +209,13 @@ class TestApplyRecipeUnaryBinary:
 
         recipe = build_unary_binary_recipe(
             name="mul(sqr(a),identity(b))",
-            src_a_name="a", src_b_name="b",
-            unary_a_name="sqr", unary_b_name="identity",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="sqr",
+            unary_b_name="identity",
             binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,
@@ -187,16 +224,12 @@ class TestApplyRecipeUnaryBinary:
         # Replay on FIT data first -- consistency baseline
         fit_out = apply_recipe(recipe, df_fit)
         assert fit_out.shape == (100,)
-        np.testing.assert_allclose(
-            fit_out, df_fit["a"].to_numpy() ** 2 * df_fit["b"].to_numpy(), rtol=1e-5
-        )
+        np.testing.assert_allclose(fit_out, df_fit["a"].to_numpy() ** 2 * df_fit["b"].to_numpy(), rtol=1e-5)
 
         # Replay on TEST data -- the actual contract this PR is shipping
         test_out = apply_recipe(recipe, df_test)
         assert test_out.shape == (50,)
-        np.testing.assert_allclose(
-            test_out, df_test["a"].to_numpy() ** 2 * df_test["b"].to_numpy(), rtol=1e-5
-        )
+        np.testing.assert_allclose(test_out, df_test["a"].to_numpy() ** 2 * df_test["b"].to_numpy(), rtol=1e-5)
 
     def test_replay_is_continuous_even_when_quantization_recorded(self, simple_pair_data):
         """unary_binary replay emits the CONTINUOUS value (2026-06-12), even when the
@@ -209,10 +242,13 @@ class TestApplyRecipeUnaryBinary:
         siblings, which already skip replay-time quantization."""
         recipe = build_unary_binary_recipe(
             name="mul(a,b)_quantized",
-            src_a_name="a", src_b_name="b",
-            unary_a_name="identity", unary_b_name="identity",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="identity",
+            unary_b_name="identity",
             binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
             quantization_nbins=10,
             quantization_method="uniform",
             quantization_dtype=np.int16,
@@ -223,16 +259,9 @@ class TestApplyRecipeUnaryBinary:
             warnings.simplefilter("error")  # any UserWarning here would be a regression
             out = apply_recipe(recipe, simple_pair_data)
 
-        expected = (
-            np.asarray(simple_pair_data["a"], dtype=np.float64)
-            * np.asarray(simple_pair_data["b"], dtype=np.float64)
-        )
-        assert np.issubdtype(np.asarray(out).dtype, np.floating), (
-            f"continuous replay expected a floating dtype, got {np.asarray(out).dtype}"
-        )
-        assert np.allclose(np.asarray(out, dtype=np.float64), expected, atol=1e-9), (
-            "replay should equal the continuous product a*b, not an integer bin code"
-        )
+        expected = np.asarray(simple_pair_data["a"], dtype=np.float64) * np.asarray(simple_pair_data["b"], dtype=np.float64)
+        assert np.issubdtype(np.asarray(out).dtype, np.floating), f"continuous replay expected a floating dtype, got {np.asarray(out).dtype}"
+        assert np.allclose(np.asarray(out, dtype=np.float64), expected, atol=1e-9), "replay should equal the continuous product a*b, not an integer bin code"
 
 
 # ---------------------------------------------------------------------------
@@ -247,10 +276,13 @@ class TestRecipePersistence:
     def test_pickle_round_trip_preserves_replay(self, simple_pair_data):
         original = build_unary_binary_recipe(
             name="add(neg(a),identity(b))",
-            src_a_name="a", src_b_name="b",
-            unary_a_name="neg", unary_b_name="identity",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="neg",
+            unary_b_name="identity",
             binary_name="add",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,
@@ -269,10 +301,13 @@ class TestRecipePersistence:
         open by asserting hashability today."""
         r = build_unary_binary_recipe(
             name="mul(a,b)",
-            src_a_name="a", src_b_name="b",
-            unary_a_name="identity", unary_b_name="identity",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="identity",
+            unary_b_name="identity",
             binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,
@@ -300,7 +335,8 @@ class TestRecipeErrors:
             src_names=("a", "b"),
             unary_names=("not_a_real_function", "identity"),
             binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
         )
         with pytest.raises(KeyError, match="not_a_real_function"):
             apply_recipe(recipe, simple_pair_data)
@@ -312,24 +348,29 @@ class TestRecipeErrors:
             src_names=("a", "b"),
             unary_names=("identity", "identity"),
             binary_name="not_a_real_binary",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
         )
         with pytest.raises(KeyError, match="not_a_real_binary"):
             apply_recipe(recipe, simple_pair_data)
 
     def test_wrong_arity_raises(self, simple_pair_data):
         recipe = EngineeredRecipe(
-            name="mul(a)", kind="unary_binary",
-            src_names=("a",), unary_names=("identity",),
+            name="mul(a)",
+            kind="unary_binary",
+            src_names=("a",),
+            unary_names=("identity",),
             binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
         )
         with pytest.raises(ValueError, match="must have exactly 2 src_names"):
             apply_recipe(recipe, simple_pair_data)
 
     def test_unknown_kind_raises(self, simple_pair_data):
         recipe = EngineeredRecipe(
-            name="mystery", kind="quaternary_thing",  # type: ignore[arg-type]
+            name="mystery",
+            kind="quaternary_thing",  # type: ignore[arg-type]
             src_names=("a", "b"),
         )
         with pytest.raises(ValueError, match="Unknown recipe kind"):
@@ -339,7 +380,8 @@ class TestRecipeErrors:
         """A factorize recipe needs ``recipe.extra['lookup_table']``;
         without it, replay should fail loud."""
         recipe = EngineeredRecipe(
-            name="kway(a,b)", kind="factorize",
+            name="kway(a,b)",
+            kind="factorize",
             src_names=("a", "b"),
             factorize_nbins=(4, 4),
         )
@@ -351,10 +393,13 @@ class TestRecipeErrors:
         framed input. We refuse to guess."""
         recipe = build_unary_binary_recipe(
             name="mul(a,b)",
-            src_a_name="a", src_b_name="b",
-            unary_a_name="identity", unary_b_name="identity",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="identity",
+            unary_b_name="identity",
             binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,
@@ -377,9 +422,11 @@ class TestNaNHandlingFactorize:
 
     def _build_recipe(self, unknown_strategy):
         from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
         lookup = np.array([0, 1, 2, 3], dtype=np.int64)
         return EngineeredRecipe(
-            name="kway(x1__x2)", kind="factorize",
+            name="kway(x1__x2)",
+            kind="factorize",
             src_names=("x1", "x2"),
             factorize_nbins=(2, 2),
             unknown_strategy=unknown_strategy,
@@ -388,10 +435,12 @@ class TestNaNHandlingFactorize:
 
     def test_nan_clipped_under_clip_strategy(self):
         recipe = self._build_recipe(unknown_strategy="clip")
-        df = pd.DataFrame({
-            "x1": [0.0, 1.0, np.nan, 0.0],
-            "x2": [0.0, 1.0, 0.0, np.nan],
-        })
+        df = pd.DataFrame(
+            {
+                "x1": [0.0, 1.0, np.nan, 0.0],
+                "x2": [0.0, 1.0, 0.0, np.nan],
+            }
+        )
         out = apply_recipe(recipe, df)
         # No crash, all output codes are valid
         assert out.shape == (4,)
@@ -406,10 +455,12 @@ class TestNaNHandlingFactorize:
 
     def test_all_nan_column_under_clip(self):
         recipe = self._build_recipe(unknown_strategy="clip")
-        df = pd.DataFrame({
-            "x1": [np.nan, np.nan, np.nan],
-            "x2": [0.0, 1.0, 0.0],
-        })
+        df = pd.DataFrame(
+            {
+                "x1": [np.nan, np.nan, np.nan],
+                "x2": [0.0, 1.0, 0.0],
+            }
+        )
         out = apply_recipe(recipe, df)
         assert out.shape == (3,)
 
@@ -427,7 +478,8 @@ class TestApplyRecipeFactorize:
         # are 0..3. (No pruning needed.)
         lookup = np.array([0, 1, 2, 3], dtype=np.int64)
         return EngineeredRecipe(
-            name="kway(x1__x2)", kind="factorize",
+            name="kway(x1__x2)",
+            kind="factorize",
             src_names=("x1", "x2"),
             factorize_nbins=(2, 2),
             unknown_strategy=unknown_strategy,
@@ -436,10 +488,12 @@ class TestApplyRecipeFactorize:
 
     def test_factorize_replay_recovers_pre_prune_encoding(self):
         recipe = self._build_factorize_recipe_for_xor()
-        df = pd.DataFrame({
-            "x1": [0, 1, 0, 1, 0, 1],
-            "x2": [0, 0, 1, 1, 0, 1],
-        })
+        df = pd.DataFrame(
+            {
+                "x1": [0, 1, 0, 1, 0, 1],
+                "x2": [0, 0, 1, 1, 0, 1],
+            }
+        )
         out = apply_recipe(recipe, df)
         # By the recipe lookup ([0, 1, 2, 3]):
         #   (0, 0) -> code 0 -> class 0
@@ -459,7 +513,8 @@ class TestApplyRecipeFactorize:
         lookup_filled = lookup.copy()
         lookup_filled[lookup < 0] = seen_max
         recipe = EngineeredRecipe(
-            name="kway(x1__x2)", kind="factorize",
+            name="kway(x1__x2)",
+            kind="factorize",
             src_names=("x1", "x2"),
             factorize_nbins=(2, 2),
             unknown_strategy="clip",
@@ -476,7 +531,8 @@ class TestApplyRecipeFactorize:
         # Lookup unfilled (-1 marks unseen)
         lookup = np.array([0, 1, -1, -1], dtype=np.int64)
         recipe = EngineeredRecipe(
-            name="kway(x1__x2)", kind="factorize",
+            name="kway(x1__x2)",
+            kind="factorize",
             src_names=("x1", "x2"),
             factorize_nbins=(2, 2),
             unknown_strategy="raise",
@@ -493,7 +549,8 @@ class TestApplyRecipeFactorize:
         production) is clipped to ``nbins_a - 1``, avoiding buffer overrun."""
         lookup = np.array([0, 1, 2, 3], dtype=np.int64)
         recipe = EngineeredRecipe(
-            name="kway(x1__x2)", kind="factorize",
+            name="kway(x1__x2)",
+            kind="factorize",
             src_names=("x1", "x2"),
             factorize_nbins=(2, 2),
             unknown_strategy="clip",
@@ -510,7 +567,8 @@ class TestApplyRecipeFactorize:
         pl = pytest.importorskip("polars")
         lookup = np.array([0, 1, 2, 3], dtype=np.int64)
         recipe = EngineeredRecipe(
-            name="kway(x1__x2)", kind="factorize",
+            name="kway(x1__x2)",
+            kind="factorize",
             src_names=("x1", "x2"),
             factorize_nbins=(2, 2),
             unknown_strategy="clip",
@@ -531,22 +589,25 @@ class TestPolarsInput:
         pl = pytest.importorskip("polars")
 
         rng = np.random.default_rng(0)
-        df = pl.DataFrame({
-            "a": rng.uniform(1, 10, 50),
-            "b": rng.uniform(0, 1, 50),
-        })
+        df = pl.DataFrame(
+            {
+                "a": rng.uniform(1, 10, 50),
+                "b": rng.uniform(0, 1, 50),
+            }
+        )
 
         recipe = build_unary_binary_recipe(
             name="mul(a,b)",
-            src_a_name="a", src_b_name="b",
-            unary_a_name="identity", unary_b_name="identity",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="identity",
+            unary_b_name="identity",
             binary_name="mul",
-            unary_preset="minimal", binary_preset="minimal",
+            unary_preset="minimal",
+            binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,
         )
         out = apply_recipe(recipe, df)
-        np.testing.assert_allclose(
-            out, df["a"].to_numpy() * df["b"].to_numpy(), rtol=1e-5
-        )
+        np.testing.assert_allclose(out, df["a"].to_numpy() * df["b"].to_numpy(), rtol=1e-5)

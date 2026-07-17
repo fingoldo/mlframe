@@ -72,7 +72,7 @@ def _trained_entries(models):
 def test_gated_outlier_string_key_dispatches_and_fits(tmp_path):
     from mlframe.training.composite import GatedOutlierEstimator
 
-    models, metadata = _train_suite("gated_outlier", tmp_path, run_tag="gated_outlier_run")
+    models, _metadata = _train_suite("gated_outlier", tmp_path, run_tag="gated_outlier_run")
 
     trained = _trained_entries(models)
     gated_entries = [e for e in trained if isinstance(getattr(e, "model", None), GatedOutlierEstimator)]
@@ -93,7 +93,7 @@ def test_lgb_string_key_dispatch_unaffected_by_gated_outlier_registration(tmp_pa
     """Regression test: registering 'gated_outlier' in ``models_params`` must be purely additive."""
     from lightgbm import LGBMRegressor
 
-    models, metadata = _train_suite("lgb", tmp_path, run_tag="lgb_run")
+    models, _metadata = _train_suite("lgb", tmp_path, run_tag="lgb_run")
 
     trained = _trained_entries(models)
     lgb_entries = [e for e in trained if isinstance(getattr(e, "model", None), LGBMRegressor)]

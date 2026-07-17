@@ -4,6 +4,7 @@ The must_include glue in ``_finalize`` was gated on ``len(support_)>0``, so it w
 support_ -- silently DROPPING the pinned features, leaving ``n_features_=0`` and a shape-inconsistent
 (length-0) ``support_`` despite pins being requested. The pins must always survive.
 """
+
 import warnings
 
 import numpy as np
@@ -23,7 +24,11 @@ def _data(n_samples=120, n_features=4, seed=3):
 def _fit(**overrides):
     base = dict(
         estimator=LogisticRegression(max_iter=300, random_state=0),
-        max_refits=4, max_noimproving_iters=2, verbose=0, optimizer_plotting="No", random_state=42,
+        max_refits=4,
+        max_noimproving_iters=2,
+        verbose=0,
+        optimizer_plotting="No",
+        random_state=42,
     )
     base.update(overrides)
     return RFECV(**base)

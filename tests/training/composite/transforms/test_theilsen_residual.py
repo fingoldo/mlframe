@@ -10,12 +10,12 @@ clean test rows.
 Per CLAUDE.md each new transform ships unit + a quantitative biz_value test;
 the biz_value assertions pin a measured win with margin.
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -146,8 +146,7 @@ def test_biz_val_theilsen_recovers_slope_3x_better_than_ols():
     ts_err = float(np.median(ts_errs))
     ols_err = float(np.median(ols_errs))
     assert ols_err / max(ts_err, 1e-9) >= 3.0, (
-        f"Theil-Sen slope err {ts_err:.4f} should be >=3x better than OLS "
-        f"{ols_err:.4f} (ratio {ols_err / max(ts_err, 1e-9):.2f})"
+        f"Theil-Sen slope err {ts_err:.4f} should be >=3x better than OLS {ols_err:.4f} (ratio {ols_err / max(ts_err, 1e-9):.2f})"
     )
     assert ts_err < 0.15, f"Theil-Sen slope err {ts_err:.4f} too high"
 
@@ -160,7 +159,10 @@ def test_biz_val_theilsen_lowers_clean_test_rmse_vs_ols():
     true_alpha, true_beta = 2.0, 5.0
     # Contaminated train.
     base_tr, y_tr, _ = _make_contaminated(
-        rng, n=600, true_alpha=true_alpha, true_beta=true_beta,
+        rng,
+        n=600,
+        true_alpha=true_alpha,
+        true_beta=true_beta,
     )
     p_ts = _theilsen_residual_fit(y_tr, base_tr)
     p_ols = _linear_residual_fit(y_tr, base_tr)
@@ -174,7 +176,4 @@ def test_biz_val_theilsen_lowers_clean_test_rmse_vs_ols():
 
     rmse_ts = _rmse(p_ts)
     rmse_ols = _rmse(p_ols)
-    assert rmse_ts < rmse_ols * 0.5, (
-        f"Theil-Sen clean-test RMSE {rmse_ts:.3f} should be well below OLS "
-        f"{rmse_ols:.3f}"
-    )
+    assert rmse_ts < rmse_ols * 0.5, f"Theil-Sen clean-test RMSE {rmse_ts:.3f} should be well below OLS {rmse_ols:.3f}"

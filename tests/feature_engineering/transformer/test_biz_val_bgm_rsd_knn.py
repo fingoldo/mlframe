@@ -22,6 +22,7 @@ Quantitative wins:
 Both tests use ``Mode A`` (X_query=None + splitter) to exercise the per-fold leakage-safe path that ships in the
 production shortlist.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -66,16 +67,13 @@ def _knn_recoverable_regression(n: int = 1500, seed: int = 0) -> tuple[np.ndarra
     d = 6
     X = rng.uniform(-2.0, 2.0, size=(n, d)).astype(np.float32)
     # Target: smooth bivariate non-linear interaction in the first two axes; the rest are noise dimensions.
-    y = (
-        np.sin(X[:, 0] * 1.2) * np.cos(X[:, 1] * 1.2)
-        + 0.5 * np.tanh(X[:, 0] * X[:, 1])
-        + 0.2 * rng.standard_normal(n)
-    ).astype(np.float32)
+    y = (np.sin(X[:, 0] * 1.2) * np.cos(X[:, 1] * 1.2) + 0.5 * np.tanh(X[:, 0] * X[:, 1]) + 0.2 * rng.standard_normal(n)).astype(np.float32)
     return X, y
 
 
 def _cv_auc(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: int = 42) -> float:
     from sklearn.metrics import roc_auc_score
+
     splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
     aucs = []
     for tr, va in splitter.split(X):
@@ -101,11 +99,13 @@ def _cv_r2(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: in
 
 def _logreg():
     from sklearn.linear_model import LogisticRegression
+
     return LogisticRegression(max_iter=500, solver="lbfgs", C=1.0)
 
 
 def _ridge():
     from sklearn.linear_model import Ridge
+
     return Ridge(alpha=1.0)
 
 
@@ -123,8 +123,14 @@ def test_biz_val_bgmm_density_ratio_lifts_linear_auc_on_multimodal_mixture():
 
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     feats_df = compute_bgmm_density_ratio_features(
-        X_train=X, y_train=y, X_query=None, splitter=splitter, seed=0, task="binary",
-        component_counts=(3, 5), standardize=True,
+        X_train=X,
+        y_train=y,
+        X_query=None,
+        splitter=splitter,
+        seed=0,
+        task="binary",
+        component_counts=(3, 5),
+        standardize=True,
     )
     feats_arr = feats_df.to_numpy().astype(np.float32)
     # Replace any +/-inf produced by extreme log-density estimates with a large finite floor so logistic regression
@@ -157,7 +163,13 @@ def test_biz_val_y_quintile_baseline_knn_lifts_ridge_r2_on_knn_recoverable_targe
 
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     feats_df = compute_y_quintile_baseline_knn_features(
-        X_train=X, y_train=y, X_query=None, splitter=splitter, seed=0, task="regression", standardize=True,
+        X_train=X,
+        y_train=y,
+        X_query=None,
+        splitter=splitter,
+        seed=0,
+        task="regression",
+        standardize=True,
     )
     feats_arr = feats_df.to_numpy().astype(np.float32)
     X_aug = np.concatenate([X, feats_arr], axis=1)

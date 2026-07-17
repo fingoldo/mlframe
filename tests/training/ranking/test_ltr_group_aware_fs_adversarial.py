@@ -93,9 +93,7 @@ def _multi_signal_frame(seed=0, Q=50, m=50):
         grade = ga + gb
         for i in range(m):
             rows.append((a[i], b[i], c0 * 25.0, c1 * 25.0, rng.normal(), rng.normal(), rel[i], grade[i], q))
-    df = pd.DataFrame(
-        rows, columns=["sig_a", "sig_b", "conf_0", "conf_1", "noise_0", "noise_1", "rel", "grade", "qid"]
-    )
+    df = pd.DataFrame(rows, columns=["sig_a", "sig_b", "conf_0", "conf_1", "noise_0", "noise_1", "rel", "grade", "qid"])
     return df, "qid", ["sig_a", "sig_b"], ["conf_0", "conf_1"], ["noise_0", "noise_1"]
 
 
@@ -203,9 +201,7 @@ def test_many_signals_vs_many_confounders_and_noise(seed):
     assert any(c in pooled_cols for c in confs), f"sanity: pooled MRMR must pick a confounder; got {pooled_cols}"
 
     rel = group_aware_relevance(cols, X.to_numpy(np.float64), y.astype(np.float64), g, bins=8)
-    assert min(rel[s] for s in signals) > max(rel[c] for c in confs), (
-        f"group-aware relevance must rank BOTH signals above every confounder: {rel}"
-    )
+    assert min(rel[s] for s in signals) > max(rel[c] for c in confs), f"group-aware relevance must rank BOTH signals above every confounder: {rel}"
 
     ga_cols = group_aware_mrmr_select(X, y, g, nbins=8, bins=8)
     for s in signals:
@@ -220,7 +216,7 @@ def test_simpson_paradox_sign_flip_feature(seed):
     relevance by group-aware; pooled MI ranks it high. group-aware ranks the real within-query signal above it."""
     from mlframe.training.ranking._ranker_fs import group_aware_mrmr_select, group_aware_relevance
 
-    df, gcol, signal, simpson, noise = _simpson_frame(seed)
+    df, gcol, signal, simpson, _noise = _simpson_frame(seed)
     cols = [signal, simpson, "noise_0"]
     arr = df[cols].to_numpy(np.float64)
     rel = df["rel"].to_numpy(np.float64)
@@ -276,6 +272,5 @@ def test_biz_val_group_aware_fs_beats_pooled_on_ndcg_medium_scale():
     ndcg_ga = _ndcg_for(ga_cols)
     ndcg_pw = _ndcg_for(pooled_cols)
     assert ndcg_ga >= ndcg_pw + 0.10, (
-        f"group-aware FS must beat the pooled pick on NDCG@10: group_aware={ndcg_ga:.4f} pooled={ndcg_pw:.4f} "
-        f"(ga_cols={ga_cols}, pooled_cols={pooled_cols})"
+        f"group-aware FS must beat the pooled pick on NDCG@10: group_aware={ndcg_ga:.4f} pooled={ndcg_pw:.4f} (ga_cols={ga_cols}, pooled_cols={pooled_cols})"
     )

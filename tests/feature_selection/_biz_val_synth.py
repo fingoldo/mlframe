@@ -20,10 +20,12 @@ Usage::
         df, y, signal = make_signal_plus_noise(n=1500, p_signal=3, p_noise=10)
         ...
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -31,9 +33,7 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 
-def make_signal_plus_noise(n: int = 2000, p_signal: int = 3,
-                             p_noise: int = 10, seed: int = 42,
-                             linear_only: bool = True):
+def make_signal_plus_noise(n: int = 2000, p_signal: int = 3, p_noise: int = 10, seed: int = 42, linear_only: bool = True):
     """Linear binary target with ``p_signal`` true features + ``p_noise``
     pure-noise. ``y = sign(sum(X_signal) + 0.3*noise)``.
 
@@ -59,9 +59,7 @@ def make_signal_plus_noise(n: int = 2000, p_signal: int = 3,
     return X, y, list(range(p_signal))
 
 
-def make_correlated_redundant(n: int = 2000, n_corr: int = 4,
-                                 p_noise: int = 5, corr: float = 0.95,
-                                 seed: int = 42):
+def make_correlated_redundant(n: int = 2000, n_corr: int = 4, p_noise: int = 5, corr: float = 0.95, seed: int = 42):
     """``n_corr`` features that share a base + 1 unique informative + ``p_noise``.
     Target depends on the unique informative AND one cluster member.
 
@@ -76,15 +74,12 @@ def make_correlated_redundant(n: int = 2000, n_corr: int = 4,
     """
     rng = np.random.default_rng(seed)
     base = rng.normal(size=n)
-    noise_scale = float(np.sqrt(1 - corr ** 2) / max(corr, 1e-9))
-    X_corr = np.column_stack([
-        base + noise_scale * rng.normal(size=n) for _ in range(n_corr)
-    ])
+    noise_scale = float(np.sqrt(1 - corr**2) / max(corr, 1e-9))
+    X_corr = np.column_stack([base + noise_scale * rng.normal(size=n) for _ in range(n_corr)])
     unique = rng.normal(size=(n, 1))
     X_noise = rng.normal(size=(n, p_noise))
     X = np.column_stack([X_corr, unique, X_noise])
-    y = (X_corr[:, 0] + unique[:, 0] + 0.3 * rng.normal(size=n) > 0
-         ).astype(np.int64)
+    y = (X_corr[:, 0] + unique[:, 0] + 0.3 * rng.normal(size=n) > 0).astype(np.int64)
     return X, y, n_corr
 
 
@@ -106,8 +101,7 @@ def make_3way_xor(n: int = 2000, p: int = 10, seed: int = 42):
     return X, y, [0, 1, 2]
 
 
-def make_polynomial_target(n: int = 2000, seed: int = 42,
-                              degree: int = 2):
+def make_polynomial_target(n: int = 2000, seed: int = 42, degree: int = 2):
     """``y = sign(0.7*x_a^d - 0.5*x_b^d + 0.3*x_a*x_b)`` for degree d.
 
     Useful for testing FE / polynomial-pair search. Signal is in
@@ -121,15 +115,12 @@ def make_polynomial_target(n: int = 2000, seed: int = 42,
     """
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 8))
-    score = (0.7 * X[:, 0] ** degree
-              - 0.5 * X[:, 1] ** degree
-              + 0.3 * X[:, 0] * X[:, 1])
+    score = 0.7 * X[:, 0] ** degree - 0.5 * X[:, 1] ** degree + 0.3 * X[:, 0] * X[:, 1]
     y = (score > np.median(score)).astype(np.int64)
     return X, y, [0, 1]
 
 
-def make_imbalanced(n: int = 2000, imbalance: float = 0.05,
-                      p_signal: int = 3, p_noise: int = 8, seed: int = 42):
+def make_imbalanced(n: int = 2000, imbalance: float = 0.05, p_signal: int = 3, p_noise: int = 8, seed: int = 42):
     """Class-imbalanced binary target. ``imbalance`` is the fraction
     of class-1 (default 5%).
 
@@ -178,9 +169,16 @@ def make_heavy_tail_skewed(n: int = 2000, p_noise: int = 5, seed: int = 42):
 # ---------------------------------------------------------------------------
 
 
-def make_latent_reflections(n: int = 4000, loadings=(1.0, 1.0, 1.0, 1.0), noise_sd=(0.7, 0.7, 0.7, 0.7),
-                            n_noise: int = 3, indep_weight: float = 0.4, seed: int = 42,
-                            shared_noise: float = 0.0, distinct_sd: float = 0.0):
+def make_latent_reflections(
+    n: int = 4000,
+    loadings=(1.0, 1.0, 1.0, 1.0),
+    noise_sd=(0.7, 0.7, 0.7, 0.7),
+    n_noise: int = 3,
+    indep_weight: float = 0.4,
+    seed: int = 42,
+    shared_noise: float = 0.0,
+    distinct_sd: float = 0.0,
+):
     """Hidden factor ``z`` reflected in several observed columns ``A_i = loadings_i*z + noise_i`` plus an
     independent signal and pure-noise columns. ``y = sign(z + indep_weight*indep)``.
 
@@ -216,8 +214,7 @@ def make_latent_reflections(n: int = 4000, loadings=(1.0, 1.0, 1.0, 1.0), noise_
     return X, y, info
 
 
-def make_two_latent_groups(n: int = 6000, k1: int = 4, k2: int = 4, noise: float = 0.85,
-                           n_noise: int = 3, seed: int = 42):
+def make_two_latent_groups(n: int = 6000, k1: int = 4, k2: int = 4, noise: float = 0.85, n_noise: int = 3, seed: int = 42):
     """TWO independent hidden factors z1, z2, each reflected in its own group of noisy columns, plus a
     pure-noise group. ``y = sign(z1 + z2 + small noise)`` (both factors drive the target).
 
@@ -239,7 +236,8 @@ def make_two_latent_groups(n: int = 6000, k1: int = 4, k2: int = 4, noise: float
         "groupA": list(range(k1)),
         "groupB": list(range(k1, k1 + k2)),
         "noise": list(range(k1 + k2, k1 + k2 + n_noise)),
-        "z1": z1, "z2": z2,
+        "z1": z1,
+        "z2": z2,
     }
     return X, y, info
 
@@ -279,7 +277,7 @@ def support_indices(sel):
     return [int(i) for i in arr]
 
 
-def signal_overlap(sel, signal: list, top_k: int = None) -> int:
+def signal_overlap(sel, signal: list, top_k: Optional[int] = None) -> int:
     """Count how many signal-feature indices appear in ``sel.support_``.
     If ``top_k`` given, restrict to the first ``top_k`` of the support.
 
@@ -302,8 +300,7 @@ import re as _re
 _XREF = _re.compile(r"x(\d+)")
 
 
-def signal_recovery_count(sel, signal: list, top_k: int = None,
-                           prefix: str = "x") -> int:
+def signal_recovery_count(sel, signal: list, top_k: Optional[int] = None, prefix: str = "x") -> int:
     """Count distinct signal columns RECOVERED by a fitted selector,
     crediting engineered features that reference a signal column.
 
@@ -354,7 +351,7 @@ def signal_recovery_count(sel, signal: list, top_k: int = None,
             refs = set(int(m.group(1)) for m in _re.finditer(pref + r"(\d+)", nm))
         else:
             refs = set(int(m) for m in _XREF.findall(nm))
-        recovered |= (refs & sig)
+        recovered |= refs & sig
     return len(recovered)
 
 
@@ -369,20 +366,24 @@ def downstream_auc(sel, df, ys, cv: int = 5) -> float:
     small band of the baseline AUC, regardless of which exact columns
     survived. Returns ``nan`` if the selection is empty.
     """
-    import numpy as _np
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import cross_val_score
 
     Xt = sel.transform(df)
     if getattr(Xt, "shape", (0, 0))[1] == 0:
         return float("nan")
-    return float(cross_val_score(
-        LogisticRegression(max_iter=400), Xt, ys, cv=cv, scoring="roc_auc",
-    ).mean())
+    return float(
+        cross_val_score(
+            LogisticRegression(max_iter=400),
+            Xt,
+            ys,
+            cv=cv,
+            scoring="roc_auc",
+        ).mean()
+    )
 
 
-def baseline_signal_auc(df, ys, signal: list, prefix: str = "x",
-                          cv: int = 5) -> float:
+def baseline_signal_auc(df, ys, signal: list, prefix: str = "x", cv: int = 5) -> float:
     """5-fold ``LogisticRegression`` ``roc_auc`` using ONLY the raw
     signal columns -- the "all-signal" reference a de-duplicated
     selection is compared against."""
@@ -390,10 +391,15 @@ def baseline_signal_auc(df, ys, signal: list, prefix: str = "x",
     from sklearn.model_selection import cross_val_score
 
     cols = [f"{prefix}{i}" for i in signal]
-    return float(cross_val_score(
-        LogisticRegression(max_iter=400), df[cols], ys, cv=cv,
-        scoring="roc_auc",
-    ).mean())
+    return float(
+        cross_val_score(
+            LogisticRegression(max_iter=400),
+            df[cols],
+            ys,
+            cv=cv,
+            scoring="roc_auc",
+        ).mean()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -411,13 +417,15 @@ def _build_linear(seed: int, n: int = 1500):
     rng = np.random.default_rng(int(seed))
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x1 + 0.7 * x2) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -431,7 +439,7 @@ def _build_quadratic_classif(seed: int, n: int = 1500, n_noise: int = 5):
     for k in range(n_noise):
         cols[f"noise_{k}"] = rng.standard_normal(n)
     X = pd.DataFrame(cols)
-    y = ((x1 ** 2 + 0.1 * rng.standard_normal(n)) > 1.0).astype(int)
+    y = ((x1**2 + 0.1 * rng.standard_normal(n)) > 1.0).astype(int)
     return X, pd.Series(y, name="y")
 
 
@@ -446,15 +454,17 @@ def _build_redundant_multi(seed: int, n: int = 2000):
     x_dup_b = x1 + 0.05 * rng.standard_normal(n)
     x_dup_c = x1 + 0.05 * rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x_dup_a": x_dup_a,
-        "x_dup_b": x_dup_b,
-        "x_dup_c": x_dup_c,
-        "x2": x2,
-        "noise_0": rng.standard_normal(n),
-    })
-    signal = x1 ** 2 + 0.6 * (x2 ** 2)
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x_dup_a": x_dup_a,
+            "x_dup_b": x_dup_b,
+            "x_dup_c": x_dup_c,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+        }
+    )
+    signal = x1**2 + 0.6 * (x2**2)
     thr = float(np.median(signal))
     y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
     return X, pd.Series(y, name="y")
@@ -467,20 +477,23 @@ def _build_xor_redundant(seed: int, n: int = 2000):
     x_dup_b = x1 + 0.05 * rng.standard_normal(n)
     x_dup_c = x1 + 0.05 * rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x_dup_a": x_dup_a, "x_dup_b": x_dup_b, "x_dup_c": x_dup_c,
-        "x2": x2,
-        "noise_0": rng.standard_normal(n),
-    })
-    signal = x1 ** 2 + 0.6 * (x2 ** 2)
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x_dup_a": x_dup_a,
+            "x_dup_b": x_dup_b,
+            "x_dup_c": x_dup_c,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+        }
+    )
+    signal = x1**2 + 0.6 * (x2**2)
     thr = float(np.median(signal))
     y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
     return X, pd.Series(y, name="y")
 
 
-def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *,
-                          train_frac: float = 0.6, seed: int = 0):
+def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *, train_frac: float = 0.6, seed: int = 0):
     rng = np.random.default_rng(seed)
     idx = np.arange(len(X))
     rng.shuffle(idx)
@@ -494,8 +507,7 @@ def _train_holdout_split(X: pd.DataFrame, y: pd.Series, *,
     )
 
 
-def _logreg_auc(X_tr: pd.DataFrame, y_tr: pd.Series,
-                 X_ho: pd.DataFrame, y_ho: pd.Series) -> float:
+def _logreg_auc(X_tr: pd.DataFrame, y_tr: pd.Series, X_ho: pd.DataFrame, y_ho: pd.Series) -> float:
     """LogReg AUC on numeric-only columns of (X_tr -> X_ho). Object cols are
     dropped -- the baseline is "what LogReg can do without a TE step"."""
     from sklearn.linear_model import LogisticRegression
@@ -535,5 +547,6 @@ def _mi_one(col: np.ndarray, y: np.ndarray, nbins: int = 10) -> float:
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         _mi_classif_batch,
     )
+
     arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
     return float(_mi_classif_batch(arr, np.asarray(y).astype(np.int64), nbins=nbins)[0])

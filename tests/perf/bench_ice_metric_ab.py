@@ -1,4 +1,5 @@
 """iter68 A/B: identity + warm-timing for compute_probabilistic_multiclass_error."""
+
 import time
 import numpy as np
 from mlframe.metrics._ice_metric import compute_probabilistic_multiclass_error as f
@@ -14,7 +15,8 @@ def mk_b(n, s=0):
 def mk_m(n, k, s=0):
     rng = np.random.default_rng(s)
     yt = rng.integers(0, k, n).astype(np.int64)
-    sc = rng.random((n, k)); sc /= sc.sum(1, keepdims=True)
+    sc = rng.random((n, k))
+    sc /= sc.sum(1, keepdims=True)
     return yt, sc
 
 
@@ -33,14 +35,17 @@ for name, yt, sc in cases:
     print(f"{name}: {v!r}")
 
 # timing
-yt_b, p_b = mk_b(20000); yt_m, s_m = mk_m(20000, 3)
-f(yt_b, p_b); f(yt_m, s_m)
+yt_b, p_b = mk_b(20000)
+yt_m, s_m = mk_m(20000, 3)
+f(yt_b, p_b)
+f(yt_m, s_m)
 N = 4000
 best = 1e9
 for _ in range(5):
     t = time.perf_counter()
     for _ in range(N):
-        f(yt_b, p_b); f(yt_m, s_m)
+        f(yt_b, p_b)
+        f(yt_m, s_m)
     dt = time.perf_counter() - t
     best = min(best, dt)
-print(f"best total {N} pairs: {best*1000:.1f} ms  ({best/N*1e6:.2f} us/pair)")
+print(f"best total {N} pairs: {best * 1000:.1f} ms  ({best / N * 1e6:.2f} us/pair)")

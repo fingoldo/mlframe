@@ -7,6 +7,7 @@
   per-feature MI vector must be bit-identical to re-MI'ing x_remaining.
 - A2: the Wilcoxon power threshold (1/2^n <= alpha) is computed correctly.
 """
+
 from __future__ import annotations
 
 import math
@@ -34,16 +35,19 @@ class TestSeedInvariantCollapse:
         y = rng.normal(size=n)
         X = rng.normal(size=(n, 4))
         _res, per_seed = _tiny_cv_rmse_raw_y_multiseed(
-            y, X,
-            family="linear", n_estimators=10, num_leaves=7,
-            learning_rate=0.1, cv_folds=3,
-            n_seed_repeats=5, base_random_state=0,
-            return_per_seed=True, time_aware=True,
+            y,
+            X,
+            family="linear",
+            n_estimators=10,
+            num_leaves=7,
+            learning_rate=0.1,
+            cv_folds=3,
+            n_seed_repeats=5,
+            base_random_state=0,
+            return_per_seed=True,
+            time_aware=True,
         )
-        assert per_seed.shape[0] == 1, (
-            f"seed-invariant TSS should collapse to 1 measurement, got "
-            f"{per_seed.shape[0]}"
-        )
+        assert per_seed.shape[0] == 1, f"seed-invariant TSS should collapse to 1 measurement, got {per_seed.shape[0]}"
 
     def test_shuffled_kfold_keeps_all_seeds(self) -> None:
         """Control: without a seed-invariant splitter, all seeds run."""
@@ -52,11 +56,17 @@ class TestSeedInvariantCollapse:
         y = rng.normal(size=n)
         X = rng.normal(size=(n, 4))
         _res, per_seed = _tiny_cv_rmse_raw_y_multiseed(
-            y, X,
-            family="linear", n_estimators=10, num_leaves=7,
-            learning_rate=0.1, cv_folds=3,
-            n_seed_repeats=4, base_random_state=0,
-            return_per_seed=True, time_aware=False,
+            y,
+            X,
+            family="linear",
+            n_estimators=10,
+            num_leaves=7,
+            learning_rate=0.1,
+            cv_folds=3,
+            n_seed_repeats=4,
+            base_random_state=0,
+            return_per_seed=True,
+            time_aware=False,
         )
         assert per_seed.shape[0] == 4
 
@@ -75,15 +85,16 @@ class TestMiDecomposition:
         per_feat = _mi_per_feature_prebinned(binned, y, nbins=nbins)
         for drop in range(f):
             decomposed = _aggregate_mi_per_feature(
-                np.delete(per_feat, drop), aggregation,
+                np.delete(per_feat, drop),
+                aggregation,
             )
             direct = _mi_to_target_prebinned(
-                np.delete(binned, drop, axis=1), y,
-                nbins=nbins, aggregation=aggregation,
+                np.delete(binned, drop, axis=1),
+                y,
+                nbins=nbins,
+                aggregation=aggregation,
             )
-            assert decomposed == pytest.approx(direct, rel=1e-12, abs=1e-12), (
-                f"decomposed mi_y differs from direct for drop={drop}"
-            )
+            assert decomposed == pytest.approx(direct, rel=1e-12, abs=1e-12), f"decomposed mi_y differs from direct for drop={drop}"
 
 
 class TestWilcoxonPowerThreshold:
@@ -92,6 +103,6 @@ class TestWilcoxonPowerThreshold:
         p<=alpha is ceil(log2(1/alpha)); at alpha=0.05 that is 5 (so the
         default n_seed_repeats=3 cannot pass and must be skipped)."""
         for alpha, expected in [(0.05, 5), (0.0625, 4), (0.01, 7)]:
-            min_seeds = int(math.ceil(math.log2(1.0 / alpha)))
+            min_seeds = math.ceil(math.log2(1.0 / alpha))
             assert min_seeds == expected
-        assert int(math.ceil(math.log2(1.0 / 0.05))) > 3
+        assert math.ceil(math.log2(1.0 / 0.05)) > 3

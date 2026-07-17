@@ -5,6 +5,7 @@ fraud risk is a customer attribute, not independent per transaction) but a per-r
 inconsistent predictions within the same entity, collapsing to a group statistic and broadcasting it back
 should recover a materially better score than the noisy per-row predictions.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,7 +39,9 @@ def test_biz_val_collapse_predictions_by_group_beats_noisy_per_row():
     collapsed_mean = collapse_predictions_by_group(row_predictions, entity_ids, stat="mean")
     auc_collapsed = roc_auc_score(y_row, collapsed_mean)
 
-    assert auc_collapsed > auc_per_row, f"expected group-mean collapse to beat noisy per-row predictions when the label is an entity-level property, got collapsed={auc_collapsed:.4f} per_row={auc_per_row:.4f}"
+    assert auc_collapsed > auc_per_row, (
+        f"expected group-mean collapse to beat noisy per-row predictions when the label is an entity-level property, got collapsed={auc_collapsed:.4f} per_row={auc_per_row:.4f}"
+    )
 
 
 def test_collapse_predictions_by_group_broadcasts_consistently():
@@ -94,9 +97,7 @@ def _make_mixed_reliability_dataset(n_entities: int, recent_per_entity: int, sta
 
 
 def test_biz_val_collapse_predictions_by_group_weighted_beats_unweighted_with_stale_noise():
-    row_predictions, y_row, entity_ids, weights = _make_mixed_reliability_dataset(
-        n_entities=300, recent_per_entity=3, stale_per_entity=5, seed=1
-    )
+    row_predictions, y_row, entity_ids, weights = _make_mixed_reliability_dataset(n_entities=300, recent_per_entity=3, stale_per_entity=5, seed=1)
 
     unweighted = collapse_predictions_by_group(row_predictions, entity_ids, stat="mean")
     auc_unweighted = roc_auc_score(y_row, unweighted)

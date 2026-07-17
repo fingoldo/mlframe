@@ -16,10 +16,17 @@ from mlframe.reporting.spec import FigureSpec, ScatterPanelSpec
 def trivial_spec():
     return FigureSpec(
         suptitle="t",
-        panels=((ScatterPanelSpec(
-            x=np.array([0.0, 1.0]), y=np.array([0.0, 1.0]),
-            title="s", xlabel="x", ylabel="y",
-        ),),),
+        panels=(
+            (
+                ScatterPanelSpec(
+                    x=np.array([0.0, 1.0]),
+                    y=np.array([0.0, 1.0]),
+                    title="s",
+                    xlabel="x",
+                    ylabel="y",
+                ),
+            ),
+        ),
         figsize=(4, 3),
     )
 
@@ -83,9 +90,11 @@ class TestInteractiveDisplay:
         # Patch the class method so any instance get_renderer() returns
         # honors the spy (get_renderer returns a fresh instance per call).
         from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+
         show_calls = []
         monkeypatch.setattr(
-            MatplotlibRenderer, "show",
+            MatplotlibRenderer,
+            "show",
             lambda self, fig: show_calls.append(fig),
         )
         render_and_save(trivial_spec, out, base, interactive=False)
@@ -98,9 +107,11 @@ class TestInteractiveDisplay:
         out = parse_plot_output_dsl("matplotlib[png]")
         base = str(tmp_path / "p")
         from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+
         show_calls = []
         monkeypatch.setattr(
-            MatplotlibRenderer, "show",
+            MatplotlibRenderer,
+            "show",
             lambda self, fig: show_calls.append(fig),
         )
         render_and_save(trivial_spec, out, base, interactive=True)
@@ -114,15 +125,18 @@ class TestInteractiveDisplay:
         base = str(tmp_path / "p")
         import builtins
         import sys
+
         if hasattr(builtins, "__IPYTHON__"):
             monkeypatch.delattr(builtins, "__IPYTHON__")
         if hasattr(sys, "ps1"):
             monkeypatch.delattr(sys, "ps1")
 
         from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+
         show_calls = []
         monkeypatch.setattr(
-            MatplotlibRenderer, "show",
+            MatplotlibRenderer,
+            "show",
             lambda self, fig: show_calls.append(fig),
         )
         render_and_save(trivial_spec, out, base, interactive=None)
@@ -139,6 +153,7 @@ class TestInteractiveDisplay:
 
         def _explode(self, fig):
             raise RuntimeError("simulated jupyter display backend failure")
+
         monkeypatch.setattr(MatplotlibRenderer, "show", _explode)
         # Must not raise — show failures are non-fatal.
         render_and_save(trivial_spec, out, base, interactive=True)
@@ -155,6 +170,7 @@ class TestInlineDisplayOptOut:
         """The override is thread-local and persists across tests on the same (main) thread; clear it
         before and after each test so one test's forced mode cannot leak into the next."""
         from mlframe.reporting.renderers.save import set_inline_display_mode
+
         set_inline_display_mode(None)
         yield
         set_inline_display_mode(None)
@@ -162,14 +178,17 @@ class TestInlineDisplayOptOut:
     def test_env_var_force_false_overrides_ipython(self, trivial_spec, tmp_path, monkeypatch):
         """Even with __IPYTHON__ set, env var=0 → save-only."""
         import builtins
+
         # Simulate jupyter kernel
         monkeypatch.setattr(builtins, "__IPYTHON__", True, raising=False)
         # But operator wants save-only via env
         monkeypatch.setenv("MLFRAME_PLOT_INLINE_DISPLAY", "0")
         from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+
         show_calls = []
         monkeypatch.setattr(
-            MatplotlibRenderer, "show",
+            MatplotlibRenderer,
+            "show",
             lambda self, fig: show_calls.append(fig),
         )
         out = parse_plot_output_dsl("matplotlib[png]")
@@ -183,15 +202,18 @@ class TestInlineDisplayOptOut:
         """Even outside a kernel, env var=1 → inline display fires."""
         import builtins
         import sys
+
         if hasattr(builtins, "__IPYTHON__"):
             monkeypatch.delattr(builtins, "__IPYTHON__")
         if hasattr(sys, "ps1"):
             monkeypatch.delattr(sys, "ps1")
         monkeypatch.setenv("MLFRAME_PLOT_INLINE_DISPLAY", "1")
         from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+
         show_calls = []
         monkeypatch.setattr(
-            MatplotlibRenderer, "show",
+            MatplotlibRenderer,
+            "show",
             lambda self, fig: show_calls.append(fig),
         )
         out = parse_plot_output_dsl("matplotlib[png]")
@@ -205,13 +227,17 @@ class TestInlineDisplayOptOut:
         callers manipulating ``os.environ``. The contract is the resulting ``_detect_interactive_session``
         verdict, not the storage mechanism."""
         from mlframe.reporting.renderers.save import (
-            set_inline_display_mode, get_inline_display_mode, _detect_interactive_session,
+            set_inline_display_mode,
+            get_inline_display_mode,
+            _detect_interactive_session,
         )
+
         # Clean slate
         monkeypatch.delenv("MLFRAME_PLOT_INLINE_DISPLAY", raising=False)
         # Hide IPython markers so auto-detect is False
         import builtins
         import sys
+
         if hasattr(builtins, "__IPYTHON__"):
             monkeypatch.delattr(builtins, "__IPYTHON__")
         if hasattr(sys, "ps1"):
@@ -248,6 +274,7 @@ class TestInlineDisplayOptOut:
         point of backing the override with thread-local storage instead of a process-wide env write."""
         import threading
         from mlframe.reporting.renderers.save import set_inline_display_mode, get_inline_display_mode
+
         monkeypatch.delenv("MLFRAME_PLOT_INLINE_DISPLAY", raising=False)
 
         # Main thread forces True.
@@ -273,6 +300,7 @@ class TestInlineDisplayOptOut:
     def test_env_var_fallback_when_no_override(self, monkeypatch):
         """With no per-thread override, the external MLFRAME_PLOT_INLINE_DISPLAY env var still applies."""
         from mlframe.reporting.renderers.save import get_inline_display_mode, _detect_interactive_session
+
         monkeypatch.setenv("MLFRAME_PLOT_INLINE_DISPLAY", "1")
         assert get_inline_display_mode() is True
         assert _detect_interactive_session() is True
@@ -286,6 +314,7 @@ class TestInlineDisplayOptOut:
         from mlframe.reporting.renderers.save import _detect_interactive_session
         import builtins
         import sys
+
         if hasattr(builtins, "__IPYTHON__"):
             monkeypatch.delattr(builtins, "__IPYTHON__")
         if hasattr(sys, "ps1"):

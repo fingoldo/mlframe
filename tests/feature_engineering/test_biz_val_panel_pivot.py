@@ -7,6 +7,7 @@ on a fixed column position then sees an inconsistent signal across entities. Rig
 the most recent value in the same column (``lag_0``) for every entity regardless of history length, which
 should make a "depends only on the most recent value" target far easier to learn.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -51,7 +52,9 @@ def test_biz_val_right_aligned_pivot_beats_left_aligned_pivot():
     rmse_right = _rmse(right_aligned)
     rmse_left = _rmse(left_aligned)
 
-    assert rmse_right < rmse_left * 0.7, f"expected right-aligned pivot to beat left-aligned pivot by >=30% RMSE, got right={rmse_right:.4f} left={rmse_left:.4f}"
+    assert rmse_right < rmse_left * 0.7, (
+        f"expected right-aligned pivot to beat left-aligned pivot by >=30% RMSE, got right={rmse_right:.4f} left={rmse_left:.4f}"
+    )
 
 
 def test_pivot_time_indexed_panel_right_alignment_hand_computed():

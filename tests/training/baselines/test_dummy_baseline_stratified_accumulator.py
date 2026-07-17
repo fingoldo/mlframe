@@ -68,10 +68,18 @@ def test_stratified_accumulator_matches_legacy_implementation():
 
     cfg = _Cfg()
     val_probs, test_probs, extras = _compute_classification_baselines(
-        target_name="t", train_X=None, val_X=None, test_X=None,
-        train_y=train_y, val_y=val_y, test_y=test_y,
-        timestamps_train=None, cat_features=None, config=cfg,
-        target_type="multiclass_classification", n_classes=n_classes,
+        target_name="t",
+        train_X=None,
+        val_X=None,
+        test_X=None,
+        train_y=train_y,
+        val_y=val_y,
+        test_y=test_y,
+        timestamps_train=None,
+        cat_features=None,
+        config=cfg,
+        target_type="multiclass_classification",
+        n_classes=n_classes,
     )
 
     # Replay with the legacy implementation using the same seed.
@@ -80,12 +88,8 @@ def test_stratified_accumulator_matches_legacy_implementation():
     seed = _per_target_seed(cfg.random_state, "t")
     v_old, t_old = _old_strat(n_val, n_test, n_classes, cfg.stratified_n_repeats, seed, train_prior)
 
-    assert np.allclose(val_probs["stratified"], v_old, atol=0.0), (
-        "post-refactor val stratified probs must be bit-identical to legacy"
-    )
-    assert np.allclose(test_probs["stratified"], t_old, atol=0.0), (
-        "post-refactor test stratified probs must be bit-identical to legacy"
-    )
+    assert np.allclose(val_probs["stratified"], v_old, atol=0.0), "post-refactor val stratified probs must be bit-identical to legacy"
+    assert np.allclose(test_probs["stratified"], t_old, atol=0.0), "post-refactor test stratified probs must be bit-identical to legacy"
     assert extras["stratified_n_repeats"] == cfg.stratified_n_repeats
 
 
@@ -100,10 +104,18 @@ def test_stratified_skips_when_val_test_empty():
     cfg = _Cfg()
     # n_val=0, n_test=0 -> stratified must not crash + no "stratified" entry produced.
     val_probs, test_probs, extras = _compute_classification_baselines(
-        target_name="t", train_X=None, val_X=None, test_X=None,
-        train_y=train_y, val_y=None, test_y=None,
-        timestamps_train=None, cat_features=None, config=cfg,
-        target_type="multiclass_classification", n_classes=3,
+        target_name="t",
+        train_X=None,
+        val_X=None,
+        test_X=None,
+        train_y=train_y,
+        val_y=None,
+        test_y=None,
+        timestamps_train=None,
+        cat_features=None,
+        config=cfg,
+        target_type="multiclass_classification",
+        n_classes=3,
     )
     assert "stratified" not in val_probs
     assert "stratified" not in test_probs
@@ -125,16 +137,23 @@ def test_stratified_mean_converges_to_train_prior():
         stratified_n_repeats = 100  # enough for empirical convergence
 
     val_probs, _, _ = _compute_classification_baselines(
-        target_name="t", train_X=None, val_X=None, test_X=None,
-        train_y=train_y, val_y=rng.integers(0, n_classes, size=n_val), test_y=None,
-        timestamps_train=None, cat_features=None, config=_CfgMany(),
-        target_type="multiclass_classification", n_classes=n_classes,
+        target_name="t",
+        train_X=None,
+        val_X=None,
+        test_X=None,
+        train_y=train_y,
+        val_y=rng.integers(0, n_classes, size=n_val),
+        test_y=None,
+        timestamps_train=None,
+        cat_features=None,
+        config=_CfgMany(),
+        target_type="multiclass_classification",
+        n_classes=n_classes,
     )
 
     bincounts = np.bincount(train_y, minlength=n_classes).astype(np.float64)
     train_prior = bincounts / bincounts.sum()
     mean_per_class = val_probs["stratified"].mean(axis=0)
     assert np.abs(mean_per_class - train_prior).max() < 0.01, (
-        f"empirical mean {mean_per_class} should approximate train_prior {train_prior} "
-        f"within 0.01 at n_val=10k n_repeats=100"
+        f"empirical mean {mean_per_class} should approximate train_prior {train_prior} within 0.01 at n_val=10k n_repeats=100"
     )

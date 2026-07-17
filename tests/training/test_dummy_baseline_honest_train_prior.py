@@ -36,8 +36,18 @@ def test_prior_uses_train_marginal_not_eval_marginal():
     train_prior = np.array([0.8, 0.2])
 
     val_probs, test_probs, _ = _compute_classification_baselines(
-        "t", None, None, None, train_y, val_y, test_y, None, None, _cfg(),
-        "binary_classification", 2,
+        "t",
+        None,
+        None,
+        None,
+        train_y,
+        val_y,
+        test_y,
+        None,
+        None,
+        _cfg(),
+        "binary_classification",
+        2,
     )
 
     # HONEST prior == train marginal on BOTH eval splits (not the split's own marginal).
@@ -58,8 +68,18 @@ def test_oracle_prior_exposes_eval_marginal_under_distinct_name():
     test_y = np.array([1, 1, 0, 0])
 
     val_probs, test_probs, _ = _compute_classification_baselines(
-        "t", None, None, None, train_y, val_y, test_y, None, None, _cfg(),
-        "binary_classification", 2,
+        "t",
+        None,
+        None,
+        None,
+        train_y,
+        val_y,
+        test_y,
+        None,
+        None,
+        _cfg(),
+        "binary_classification",
+        2,
     )
 
     # The label-informed reference lives ONLY under oracle_prior, and DOES reflect the

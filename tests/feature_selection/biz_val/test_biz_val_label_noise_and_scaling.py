@@ -22,6 +22,7 @@ All floors are calibrated from a measured development run, then set with
 headroom per CLAUDE.md "pin a quantitative threshold 5-15% below measured".
 ASCII-only; fixed seeds; majority-of-seeds for any cross-seed win.
 """
+
 from __future__ import annotations
 
 import re
@@ -61,7 +62,7 @@ _K = 4  # match SelectKBest's K to the true signal width
 def _flip_labels(y: np.ndarray, rate: float, rng: np.random.Generator) -> np.ndarray:
     """Flip a fixed ``rate`` fraction of binary labels (deterministic given ``rng``)."""
     y = y.copy()
-    n_flip = int(round(rate * len(y)))
+    n_flip = round(rate * len(y))
     if n_flip:
         idx = rng.choice(len(y), size=n_flip, replace=False)
         y[idx] = 1 - y[idx]
@@ -71,8 +72,13 @@ def _flip_labels(y: np.ndarray, rate: float, rng: np.random.Generator) -> np.nda
 def _make_mrmr() -> MRMR:
     """Default confirmation gates; ``full_npermutations=10`` for a stable permutation null on n=2000."""
     return MRMR(
-        min_relevance_gain=0.0, cv=3, run_additional_rfecv_minutes=False,
-        full_npermutations=10, random_seed=0, min_features_fallback=1, verbose=False,
+        min_relevance_gain=0.0,
+        cv=3,
+        run_additional_rfecv_minutes=False,
+        full_npermutations=10,
+        random_seed=0,
+        min_features_fallback=1,
+        verbose=False,
     )
 
 
@@ -92,7 +98,7 @@ def _run_label_noise_cell(rate: float, seed: int):
     ``(recall_mrmr, noise_mrmr, recall_mi, noise_mi)``."""
     X, y, signal = make_signal_plus_noise(n=2000, p_signal=_K, p_noise=16, seed=seed)
     # Fixed rng per rate (shared across seeds) so the flipped-row SET is rate-determined, per the recipe.
-    rng = np.random.default_rng(1000 + int(round(rate * 100)))
+    rng = np.random.default_rng(1000 + round(rate * 100))
     y_noisy = _flip_labels(y, rate, rng)
     df, ys = as_df(X, y_noisy)
 
@@ -131,10 +137,7 @@ def test_biz_val_label_noise_mrmr_dominates_selectkbest_across_flip_rate_sweep()
 
     # (i) dominance-or-tie at every rate, majority of seeds.
     for rate in rates:
-        wins = sum(
-            1 for seed in seeds
-            if cells[(rate, seed)][0] >= cells[(rate, seed)][2] - 0.1
-        )
+        wins = sum(1 for seed in seeds if cells[(rate, seed)][0] >= cells[(rate, seed)][2] - 0.1)
         assert wins > len(seeds) // 2, (
             f"rate={rate}: MRMR recall failed dominance-or-tie vs SelectKBest-MI on a majority of seeds "
             f"(wins={wins}/{len(seeds)}); per-seed (rec_mrmr,rec_mi)="
@@ -144,18 +147,14 @@ def test_biz_val_label_noise_mrmr_dominates_selectkbest_across_flip_rate_sweep()
     # (ii) graceful floor at the hardest rate: MRMR keeps at least half the signal on every seed.
     hardest = max(rates)
     recalls_hard = [cells[(hardest, s)][0] for s in seeds]
-    assert min(recalls_hard) >= 0.5 * _K, (
-        f"rate={hardest}: MRMR recall floor breached; per-seed recall={recalls_hard} (need >= {0.5 * _K})"
-    )
+    assert min(recalls_hard) >= 0.5 * _K, f"rate={hardest}: MRMR recall floor breached; per-seed recall={recalls_hard} (need >= {0.5 * _K})"
 
     # (iii-a) FDR stays roughly flat for MRMR: noise count at the hardest rate stays bounded
     # relative to the clean-label noise count. Measured worst was +2; bound at +3 for headroom.
     if 0.0 in rates:
         base_noise = max(cells[(0.0, s)][1] for s in seeds)
         hard_noise = max(cells[(hardest, s)][1] for s in seeds)
-        assert hard_noise <= base_noise + 3, (
-            f"MRMR FDR not held flat: noise@{hardest} (max {hard_noise}) exceeds noise@0.0 (max {base_noise}) + 3"
-        )
+        assert hard_noise <= base_noise + 3, f"MRMR FDR not held flat: noise@{hardest} (max {hard_noise}) exceeds noise@0.0 (max {base_noise}) + 3"
 
     # (iii-b) the headline: at the hardest rate MRMR recovers strictly more signal than MI on a
     # majority of seeds (measured MRMR=4 vs MI in {1,2} -> 3/3). This is the graceful-degradation win.
@@ -179,10 +178,7 @@ def test_biz_val_label_noise_and_scaling_fast_representative():
     """
     recall_mrmr, _noise_mrmr, recall_mi, _noise_mi = _run_label_noise_cell(0.3, 0)
     assert recall_mrmr >= 0.5 * _K, f"MRMR recall floor breached at rate 0.3: {recall_mrmr}"
-    assert recall_mrmr > recall_mi, (
-        f"MRMR should recover strictly more signal than SelectKBest-MI at rate 0.3 "
-        f"(rec_mrmr={recall_mrmr}, rec_mi={recall_mi})"
-    )
+    assert recall_mrmr > recall_mi, f"MRMR should recover strictly more signal than SelectKBest-MI at rate 0.3 (rec_mrmr={recall_mrmr}, rec_mi={recall_mi})"
 
     df, ys = _make_scaling_data(seed=0)
     sup_train = list(_make_scaling_rfecv("train").fit(df, ys).get_feature_names_out())
@@ -194,6 +190,7 @@ def test_biz_val_label_noise_and_scaling_fast_representative():
 # --------------------------------------------------------------------------
 # Part B: RFECV adversarial feature scaling (gaps_selection_masking-10)
 # --------------------------------------------------------------------------
+
 
 def _make_scaling_data(seed: int = 0):
     """n=400, p=6; x0 is the strongest informative; ``X[:,0] *= 1e9``.
@@ -221,7 +218,9 @@ def _make_scaling_rfecv(coef_scale_source: str) -> RFECV:
     never exercises the coef rescale branch."""
     return RFECV(
         estimator=Ridge(),
-        cv=3, max_refits=6, random_state=0,
+        cv=3,
+        max_refits=6,
+        random_state=0,
         leakage_corr_threshold=None,
         importance_getter="coef_",
         coef_scale_source=coef_scale_source,
@@ -244,9 +243,7 @@ def test_biz_val_rfecv_coef_scale_source_train_rescues_mis_scaled_informative():
     rfecv = _make_scaling_rfecv("train")
     rfecv.fit(df, ys)
     support = list(rfecv.get_feature_names_out())
-    assert "x0" in support, (
-        f"coef_scale_source='train' (default) should rescue the 1e9-scaled informative x0, but support={support}"
-    )
+    assert "x0" in support, f"coef_scale_source='train' (default) should rescue the 1e9-scaled informative x0, but support={support}"
 
 
 @pytest.mark.slow
@@ -267,6 +264,4 @@ def test_biz_val_rfecv_coef_scale_source_none_drops_mis_scaled_informative_negat
         f"but support={support}; if this fails the rescale no longer discriminates and the positive test is vacuous"
     )
     # The discriminating feature x1 (normal scale, real signal) must survive in its place.
-    assert "x1" in support, (
-        f"coef_scale_source='none': the normal-scale informative x1 should survive when x0 is dropped, support={support}"
-    )
+    assert "x1" in support, f"coef_scale_source='none': the normal-scale informative x1 should survive when x0 is dropped, support={support}"

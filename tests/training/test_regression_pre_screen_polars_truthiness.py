@@ -5,6 +5,7 @@ raises a TypeError (ambiguous truthiness); the outer except then swallowed it, s
 ``_pre_screen_dropped_cols=[]`` and latched ``_pre_screen_done=True`` -> the polars-only pre-screen was
 silently skipped (no columns ever dropped).
 """
+
 from __future__ import annotations
 
 import types
@@ -50,11 +51,13 @@ def _make_ctx(df):
 def test_pre_screen_runs_on_polars_only_frame_and_drops_constant_col():
     from mlframe.training.core._phase_train_one_target_pre_screen import _maybe_run_unsupervised_pre_screen
 
-    df = pl.DataFrame({
-        "y": [1.0, 2.0, 3.0, 4.0, 5.0],
-        "const_col": [7.0, 7.0, 7.0, 7.0, 7.0],   # variance 0 -> droppable
-        "informative": [0.1, 0.9, 0.2, 0.8, 0.3],
-    })
+    df = pl.DataFrame(
+        {
+            "y": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "const_col": [7.0, 7.0, 7.0, 7.0, 7.0],  # variance 0 -> droppable
+            "informative": [0.1, 0.9, 0.2, 0.8, 0.3],
+        }
+    )
     ctx = _make_ctx(df)
 
     _maybe_run_unsupervised_pre_screen(ctx, {"y": None})

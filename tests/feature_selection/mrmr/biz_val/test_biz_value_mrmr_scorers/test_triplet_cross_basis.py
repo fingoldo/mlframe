@@ -53,6 +53,7 @@ Contracts pinned
 
 Consolidated verbatim from test_biz_value_mrmr_layer56.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -78,6 +79,7 @@ def _import_triplet_fe():
         score_triplet_cross_basis_by_mi_uplift,
         hybrid_orth_mi_triplet_fe,
     )
+
     return (
         generate_triplet_cross_basis_features,
         score_triplet_cross_basis_by_mi_uplift,
@@ -102,13 +104,15 @@ def _build_xor3(seed: int, n: int = 3000):
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
     x3 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "x3": x3,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+        }
+    )
     y = ((x1 * x2 * x3) + 0.02 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -124,13 +128,15 @@ def _build_volume(seed: int, n: int = 3000):
     price = rng.standard_normal(n)
     quantity = rng.standard_normal(n)
     count = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "price": price,
-        "quantity": quantity,
-        "count": count,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "price": price,
+            "quantity": quantity,
+            "count": count,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+        }
+    )
     raw = price * quantity * count
     y = (raw + 0.05 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
@@ -145,14 +151,16 @@ def _build_xor3_with_noise(seed: int, n: int = 3000):
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
     x3 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "x3": x3,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x1 * x2 * x3) + 0.02 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -164,13 +172,15 @@ def _build_linear(seed: int, n: int = 1500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x1 + 0.7 * x2) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -189,8 +199,10 @@ class TestTripletGeneration:
         gen_triplet, _, _ = _import_triplet_fe()
         X, _ = _build_xor3(seed)
         eng = gen_triplet(
-            X, triplets=[("x1", "x2", "x3")],
-            max_degree=1, basis="hermite",
+            X,
+            triplets=[("x1", "x2", "x3")],
+            max_degree=1,
+            basis="hermite",
         )
         # 1 triplet * 1 cell (deg 1 only) = 1 column
         assert eng.shape == (X.shape[0], 1), f"expected 1 cell (1 triplet * 1 degree cell), got shape {eng.shape}"
@@ -203,8 +215,10 @@ class TestTripletGeneration:
         gen_triplet, _, _ = _import_triplet_fe()
         X, _ = _build_xor3(seed)
         eng = gen_triplet(
-            X, triplets=[("x1", "x2", "x3")],
-            max_degree=2, basis="hermite",
+            X,
+            triplets=[("x1", "x2", "x3")],
+            max_degree=2,
+            basis="hermite",
         )
         # 1 triplet * 2^3 cells = 8 columns
         assert eng.shape == (X.shape[0], 8), f"expected 8 cells (1 triplet * 2x2x2 degrees), got shape {eng.shape}"
@@ -221,7 +235,8 @@ class TestTripletGeneration:
                 ("x1", "x2", "does_not_exist"),  # missing -> skip
                 ("x1", "x2", "x3"),  # valid
             ],
-            max_degree=1, basis="hermite",
+            max_degree=1,
+            basis="hermite",
         )
         assert eng.shape[1] == 1, f"only the valid triplet should remain, got {list(eng.columns)}"
 
@@ -248,16 +263,18 @@ class TestXor3WayDiscovery:
         gen_triplet, score_triplet, _ = _import_triplet_fe()
         X, y = _build_xor3(seed)
         eng = gen_triplet(
-            X, triplets=[("x1", "x2", "x3")],
-            max_degree=1, basis="hermite",
+            X,
+            triplets=[("x1", "x2", "x3")],
+            max_degree=1,
+            basis="hermite",
         )
         sc = score_triplet(X[["x1", "x2", "x3"]], eng, y.values)
         assert not sc.empty, "score frame empty"
         top = sc.iloc[0]
         assert top["engineered_col"] == "x1*x2*x3__He1_He1_He1", (
-            f"seed={seed}: top triplet winner should be x1*x2*x3__He1_He1_He1, " f"got {top['engineered_col']}; full ranking:\n{sc}"
+            f"seed={seed}: top triplet winner should be x1*x2*x3__He1_He1_He1, got {top['engineered_col']}; full ranking:\n{sc}"
         )
-        assert top["engineered_mi"] >= 0.3, f"seed={seed}: 3-way XOR He_1^3 engineered_mi {top['engineered_mi']:.3f} " f"should clear 0.3 at n=3000"
+        assert top["engineered_mi"] >= 0.3, f"seed={seed}: 3-way XOR He_1^3 engineered_mi {top['engineered_mi']:.3f} should clear 0.3 at n=3000"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_xor3_term_enters_augmented_frame(self, seed):
@@ -265,7 +282,8 @@ class TestXor3WayDiscovery:
         _, _, hybrid = _import_triplet_fe()
         X, y = _build_xor3(seed)
         X_aug, _uni_sc, triplet_sc = hybrid(
-            X, y.values,
+            X,
+            y.values,
             cols=["x1", "x2", "x3", "noise_a", "noise_b"],
             degrees=(2, 3),
             basis="hermite",
@@ -288,9 +306,7 @@ class TestXor3WayDiscovery:
                 ok = True
                 break
         assert ok, (
-            f"seed={seed}: 3-way XOR triplet He_1*He_1*He_1 should be in "
-            f"augmented frame, got triplet_cols={triplet_cols}; "
-            f"triplet_sc:\n{triplet_sc.head(6)}"
+            f"seed={seed}: 3-way XOR triplet He_1*He_1*He_1 should be in augmented frame, got triplet_cols={triplet_cols}; triplet_sc:\n{triplet_sc.head(6)}"
         )
 
 
@@ -308,15 +324,17 @@ class TestVolumeDiscovery:
         gen_triplet, score_triplet, _ = _import_triplet_fe()
         X, y = _build_volume(seed)
         eng = gen_triplet(
-            X, triplets=[("price", "quantity", "count")],
-            max_degree=1, basis="hermite",
+            X,
+            triplets=[("price", "quantity", "count")],
+            max_degree=1,
+            basis="hermite",
         )
         sc = score_triplet(X[["price", "quantity", "count"]], eng, y.values)
         top = sc.iloc[0]
         assert top["engineered_col"] == "price*quantity*count__He1_He1_He1", (
-            f"seed={seed}: top volume winner should be the He_1^3 triplet, " f"got {top['engineered_col']}"
+            f"seed={seed}: top volume winner should be the He_1^3 triplet, got {top['engineered_col']}"
         )
-        assert top["engineered_mi"] >= 0.3, f"seed={seed}: volume He_1^3 engineered_mi {top['engineered_mi']:.3f} " f"should clear 0.3 at n=3000"
+        assert top["engineered_mi"] >= 0.3, f"seed={seed}: volume He_1^3 engineered_mi {top['engineered_mi']:.3f} should clear 0.3 at n=3000"
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +359,8 @@ class TestXorLogRegLift:
         auc_raw = roc_auc_score(yte.to_numpy(), m_raw.predict_proba(Xte.to_numpy())[:, 1])
         # Augmented: triplet FE on the full frame, then refit LogReg.
         X_aug_joint, _, triplet_sc = hybrid(
-            X, y.values,
+            X,
+            y.values,
             cols=["x1", "x2", "x3", "noise_a", "noise_b"],
             degrees=(2, 3),
             basis="hermite",
@@ -356,11 +375,11 @@ class TestXorLogRegLift:
         Xte_aug = X_aug_joint.iloc[n_train:]
         m_aug = LogisticRegression(max_iter=500).fit(Xtr_aug.to_numpy(), ytr.to_numpy())
         auc_aug = roc_auc_score(yte.to_numpy(), m_aug.predict_proba(Xte_aug.to_numpy())[:, 1])
-        assert auc_raw < 0.60, f"seed={seed}: raw LogReg AUC {auc_raw:.3f} should hover at " f"0.50 -- 3-way XOR is linearly unsolvable"
+        assert auc_raw < 0.60, f"seed={seed}: raw LogReg AUC {auc_raw:.3f} should hover at 0.50 -- 3-way XOR is linearly unsolvable"
         assert auc_aug >= 0.85, (
-            f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should clear " f"0.85 on 3-way XOR with triplet FE; triplet_sc:\n{triplet_sc.head(5)}"
+            f"seed={seed}: augmented LogReg AUC {auc_aug:.3f} should clear 0.85 on 3-way XOR with triplet FE; triplet_sc:\n{triplet_sc.head(5)}"
         )
-        assert auc_aug > auc_raw + 0.20, f"seed={seed}: triplet FE should lift LogReg AUC >= +0.20. " f"raw={auc_raw:.3f}, aug={auc_aug:.3f}"
+        assert auc_aug > auc_raw + 0.20, f"seed={seed}: triplet FE should lift LogReg AUC >= +0.20. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +396,8 @@ class TestNoiseTripletPruned:
         _, _, hybrid = _import_triplet_fe()
         X, y = _build_xor3_with_noise(seed)
         X_aug, _, triplet_sc = hybrid(
-            X, y.values,
+            X,
+            y.values,
             cols=list(X.columns),
             degrees=(2, 3),
             basis="hermite",
@@ -390,6 +410,7 @@ class TestNoiseTripletPruned:
         )
         new_cols = [c for c in X_aug.columns if c not in X.columns]
         triplet_added = [c for c in new_cols if c.split("__", 1)[0].count("*") == 2]
+
         # No triplet whose ALL THREE legs are noise_* may slip in.
         def _all_legs_noise(name: str) -> bool:
             """True if every one of the triplet's three legs is a noise_* column."""
@@ -398,9 +419,10 @@ class TestNoiseTripletPruned:
             if len(legs) != 3:
                 return False
             return all(leg.startswith("noise_") for leg in legs)
+
         noise_added = [c for c in triplet_added if _all_legs_noise(c)]
         assert not noise_added, (
-            f"seed={seed}: pure-noise triplets should be filtered by the " f"absolute MI floor; got {noise_added}; " f"triplet_sc:\n{triplet_sc.head(8)}"
+            f"seed={seed}: pure-noise triplets should be filtered by the absolute MI floor; got {noise_added}; triplet_sc:\n{triplet_sc.head(8)}"
         )
 
 
@@ -420,11 +442,11 @@ class TestDefaultDisabledByteIdentical:
         # No triplet columns surfaced in feature_names_in_.
         names = list(m.feature_names_in_)
         triplet_names = [n for n in names if str(n).count("*") == 2]
-        assert not triplet_names, f"seed={seed}: default fe_hybrid_orth_triplet_enable=False should " f"NOT inject triplet columns; got {triplet_names}"
+        assert not triplet_names, f"seed={seed}: default fe_hybrid_orth_triplet_enable=False should NOT inject triplet columns; got {triplet_names}"
         # ``hybrid_orth_features_`` is the standard list; with both master
         # and triplet OFF it must be empty.
         assert list(getattr(m, "hybrid_orth_features_", []) or []) == [], (
-            f"seed={seed}: hybrid_orth_features_ should be empty when " f"both master and triplet flags are off"
+            f"seed={seed}: hybrid_orth_features_ should be empty when both master and triplet flags are off"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -439,9 +461,7 @@ class TestDefaultDisabledByteIdentical:
         ).fit(X, y)
         triplet_added = [n for n in (getattr(m, "hybrid_orth_features_", None) or []) if str(n).split("__", 1)[0].count("*") == 2]
         assert triplet_added, (
-            f"seed={seed}: triplet flag ON should append at least one "
-            f"triplet column to hybrid_orth_features_; got "
-            f"{list(m.hybrid_orth_features_ or [])}"
+            f"seed={seed}: triplet flag ON should append at least one triplet column to hybrid_orth_features_; got {list(m.hybrid_orth_features_ or [])}"
         )
 
 
@@ -468,7 +488,7 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_triplet_seed_k", 5),
             ("fe_hybrid_orth_triplet_top_count", 3),
         ]:
-            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
 
     def test_pickle_roundtrip_fitted_with_triplet(self):
         """A pickle round-trip preserves feature names and hybrid_orth_features_ for a triplet-enabled fit."""
@@ -482,6 +502,6 @@ class TestPickleAndClone:
         blob = pickle.dumps(m)
         m2 = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
-        assert list(getattr(m2, "hybrid_orth_features_", []) or []) == list(
-            getattr(m, "hybrid_orth_features_", []) or []
-        ), "pickle changed hybrid_orth_features_"
+        assert list(getattr(m2, "hybrid_orth_features_", []) or []) == list(getattr(m, "hybrid_orth_features_", []) or []), (
+            "pickle changed hybrid_orth_features_"
+        )

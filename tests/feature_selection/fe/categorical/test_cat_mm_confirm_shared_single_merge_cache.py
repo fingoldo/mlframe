@@ -17,6 +17,7 @@ No caller wires these two together yet (that needs
 exercises the two functions directly, standing in for that future orchestrator
 wiring.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,8 +42,11 @@ def _setup():
     dtype = np.int32
     factors_data, nbins = _make_data()
     classes_y, freqs_y, _ = merge_vars(
-        factors_data=factors_data, vars_indices=np.array([0], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=np.array([0], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=dtype,
     )
     pairs = [(1, 2), (1, 3), (2, 4), (3, 5)]  # columns 1/2/3 recur across both functions' pair sets
     pairs_a = np.array([p[0] for p in pairs], dtype=np.int64)
@@ -59,35 +63,59 @@ def test_shared_cache_from_mm_rerank_is_bit_identical_in_confirm_pairs():
 
     # Baseline: run confirm_pairs standalone, no shared cache.
     _kept_base, conf_base = _confirm_pairs_via_permutation(
-        factors_data=factors_data, pairs_a=pairs_a, pairs_b=pairs_b,
-        selected_idx=selected_idx, ii_arr=ii_arr, nbins=nbins,
-        classes_y=classes_y, freqs_y=freqs_y, cfg=cfg,
-        n_search_pairs=len(pairs_a), dtype=dtype, verbose=0,
+        factors_data=factors_data,
+        pairs_a=pairs_a,
+        pairs_b=pairs_b,
+        selected_idx=selected_idx,
+        ii_arr=ii_arr,
+        nbins=nbins,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        cfg=cfg,
+        n_search_pairs=len(pairs_a),
+        dtype=dtype,
+        verbose=0,
     )
 
     # MM rerank populates a shared single-merge cache, then confirm_pairs consumes it.
     shared_cache: dict = {}
     _maybe_rerank_with_mm(
-        factors_data=factors_data, pairs_a=pairs_a, pairs_b=pairs_b,
-        selected_idx=selected_idx, ii_arr=ii_arr, nbins=nbins,
-        target_indices=target_indices, classes_y=classes_y, freqs_y=freqs_y,
-        cfg=cfg, dtype=dtype, verbose=0, single_merge_cache_out=shared_cache,
+        factors_data=factors_data,
+        pairs_a=pairs_a,
+        pairs_b=pairs_b,
+        selected_idx=selected_idx,
+        ii_arr=ii_arr,
+        nbins=nbins,
+        target_indices=target_indices,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        cfg=cfg,
+        dtype=dtype,
+        verbose=0,
+        single_merge_cache_out=shared_cache,
     )
     assert len(shared_cache) > 0, "MM rerank should have populated the shared cache for touched columns"
 
     _kept_shared, conf_shared = _confirm_pairs_via_permutation(
-        factors_data=factors_data, pairs_a=pairs_a, pairs_b=pairs_b,
-        selected_idx=selected_idx, ii_arr=ii_arr, nbins=nbins,
-        classes_y=classes_y, freqs_y=freqs_y, cfg=cfg,
-        n_search_pairs=len(pairs_a), dtype=dtype, verbose=0,
+        factors_data=factors_data,
+        pairs_a=pairs_a,
+        pairs_b=pairs_b,
+        selected_idx=selected_idx,
+        ii_arr=ii_arr,
+        nbins=nbins,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        cfg=cfg,
+        n_search_pairs=len(pairs_a),
+        dtype=dtype,
+        verbose=0,
         single_merge_cache=shared_cache,
     )
 
     assert set(conf_base) == set(conf_shared)
     for key in conf_base:
         assert conf_base[key] == conf_shared[key], (
-            f"shared single-merge cache changed confidence for {key}: "
-            f"{conf_shared[key]!r} != baseline {conf_base[key]!r}"
+            f"shared single-merge cache changed confidence for {key}: {conf_shared[key]!r} != baseline {conf_base[key]!r}"
         )
 
 
@@ -97,10 +125,19 @@ def test_shared_cache_avoids_recomputing_merge_vars_for_precached_columns(monkey
 
     shared_cache: dict = {}
     _maybe_rerank_with_mm(
-        factors_data=factors_data, pairs_a=pairs_a, pairs_b=pairs_b,
-        selected_idx=selected_idx, ii_arr=ii_arr, nbins=nbins,
-        target_indices=target_indices, classes_y=classes_y, freqs_y=freqs_y,
-        cfg=cfg, dtype=dtype, verbose=0, single_merge_cache_out=shared_cache,
+        factors_data=factors_data,
+        pairs_a=pairs_a,
+        pairs_b=pairs_b,
+        selected_idx=selected_idx,
+        ii_arr=ii_arr,
+        nbins=nbins,
+        target_indices=target_indices,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        cfg=cfg,
+        dtype=dtype,
+        verbose=0,
+        single_merge_cache_out=shared_cache,
     )
     precached_cols = set(shared_cache.keys())
     assert precached_cols, "expected at least one precached column from the MM rerank"
@@ -116,15 +153,22 @@ def test_shared_cache_avoids_recomputing_merge_vars_for_precached_columns(monkey
     monkeypatch.setattr(_ccp, "merge_vars", _counting_merge_vars)
 
     _confirm_pairs_via_permutation(
-        factors_data=factors_data, pairs_a=pairs_a, pairs_b=pairs_b,
-        selected_idx=selected_idx, ii_arr=ii_arr, nbins=nbins,
-        classes_y=classes_y, freqs_y=freqs_y, cfg=cfg,
-        n_search_pairs=len(pairs_a), dtype=dtype, verbose=0,
+        factors_data=factors_data,
+        pairs_a=pairs_a,
+        pairs_b=pairs_b,
+        selected_idx=selected_idx,
+        ii_arr=ii_arr,
+        nbins=nbins,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        cfg=cfg,
+        n_search_pairs=len(pairs_a),
+        dtype=dtype,
+        verbose=0,
         single_merge_cache=shared_cache,
     )
 
     single_col_calls_on_precached = [c for c in calls if len(c) == 1 and c[0] in precached_cols]
     assert not single_col_calls_on_precached, (
-        f"confirm_pairs re-derived merge_vars for column(s) already precached by the MM rerank: "
-        f"{single_col_calls_on_precached}"
+        f"confirm_pairs re-derived merge_vars for column(s) already precached by the MM rerank: {single_col_calls_on_precached}"
     )

@@ -11,6 +11,7 @@ large groups) cannot slip through: the small-group case must take the vectorized
 branch and the large-group case must take the loop, and both must match the
 reference loop.
 """
+
 import numpy as np
 import pytest
 

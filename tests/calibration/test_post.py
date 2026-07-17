@@ -3,6 +3,7 @@
 Imports the module behind importorskip for optional calibration deps,
 then verifies public helpers operate on a tiny synthetic binary task.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -56,7 +57,7 @@ def test_get_postcalibrators_returns_nonempty_list(tiny_binary):
     """
     _require_optional_calib_deps()
 
-    probs, y = tiny_binary
+    _probs, y = tiny_binary
     cals = post.get_postcalibrators(calib_target=y, num_bins=5)
     assert isinstance(cals, list)
     assert len(cals) > 0

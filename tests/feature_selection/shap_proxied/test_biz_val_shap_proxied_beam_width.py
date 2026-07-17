@@ -32,8 +32,7 @@ def _best_loss(beam_width, seed):
     from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as H
 
     phi, base, y = _phi_frame(seed)
-    res = H.beam_search(phi, base, y, classification=False, metric="rmse",
-                        beam_width=beam_width, top_n=1, min_card=1, max_card=5)
+    res = H.beam_search(phi, base, y, classification=False, metric="rmse", beam_width=beam_width, top_n=1, min_card=1, max_card=5)
     return res[0][0]
 
 

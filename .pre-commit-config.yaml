@@ -116,6 +116,11 @@ repos:
         entry: python -m py_ci_shared.black_filtered_apply --config pyproject.toml --check
         language: system
         types: [python]
+        # CI's black-filtered.yml checks src/mlframe only (check-path: src/mlframe) -- this hook's
+        # scope must match, or it silently over-applies to any staged tests/ file (bug found
+        # 2026-07-17 when a tests/-only formatting commit was blocked here despite mirroring CI,
+        # since CI never checks tests/ at all). tests/ gets its own dedicated lint job/hooks.
+        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
         stages: [pre-commit, pre-merge-commit]
 
   # Mypy: scoped to the full strict-mode beachhead per [tool.mypy.overrides] in pyproject.toml.
@@ -243,6 +248,10 @@ repos:
         language: system
         types: [python]
         pass_filenames: true
+        # CI's lint-blocking job scopes bandit to source-path: src/mlframe -- this hook must match
+        # (bug found 2026-07-17 alongside the black-filtered/interrogate/codespell scope gaps
+        # below). tests/ gets its own dedicated lint job/hooks.
+        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
         stages: [pre-commit, pre-merge-commit]
 
   # Dead-code gate: vulture --min-confidence 80. Blocking since 2026-07-09 -- triaged to 0
@@ -288,6 +297,12 @@ repos:
         language: system
         types: [python]
         pass_filenames: true
+        # CI's lint-blocking job scopes interrogate to interrogate-source-path: src/mlframe (and
+        # [tool.interrogate] in pyproject.toml explicitly excludes "tests") -- this hook must
+        # match (bug found 2026-07-17: a tests/-only commit failed here at 52.8% coverage despite
+        # CI never checking tests/ docstring coverage at all). tests/ gets its own dedicated lint
+        # job/hooks.
+        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
         stages: [pre-commit, pre-merge-commit]
 
   # Dependency-drift gate: deptry (unused/missing/transitive). Blocking since 2026-07-09,
@@ -320,6 +335,10 @@ repos:
         entry: python -m codespell_lib --toml pyproject.toml
         language: system
         pass_filenames: true
+        # CI's lint-blocking job scopes codespell to codespell-paths: src/mlframe -- this hook
+        # must match (bug found 2026-07-17 alongside the black-filtered/interrogate/bandit scope
+        # gaps above). tests/ gets its own dedicated lint job/hooks.
+        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
         stages: [pre-commit, pre-merge-commit]
 
   # Workflow-YAML style gate: yamllint. Blocking since 2026-07-09, mirroring the CI

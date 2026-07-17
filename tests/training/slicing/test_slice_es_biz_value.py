@@ -23,6 +23,7 @@ they introduce more decision noise than they remove. Those modes are knobs for n
 regimes (heavy-tail residuals, n_train < ~500, severely under-regularized boosters) that need
 their own validation studies before being made default.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,8 +31,7 @@ import pandas as pd
 import pytest
 
 
-def _gen_heteroscedastic_temporal(seed: int, n_train: int = 800, n_val: int = 120,
-                                    n_test: int = 2500, d: int = 5) -> tuple:
+def _gen_heteroscedastic_temporal(seed: int, n_train: int = 800, n_val: int = 120, n_test: int = 2500, d: int = 5) -> tuple:
     """Headline construction: temporal val with sigma ramping from 0.2 to 2.0 across rows."""
     rng = np.random.default_rng(seed)
 
@@ -52,10 +52,16 @@ def _gen_heteroscedastic_temporal(seed: int, n_train: int = 800, n_val: int = 12
     return (X_tr, y_tr), (X_val_df, y_val), (X_te, y_te), t_val
 
 
-def _fit_one(seed: int, slice_k: int = 0, source: str = "temporal",
-              aggregate: str = "mean", n_estimators: int = 1000,
-              learning_rate: float = 0.04, num_leaves: int = 31,
-              patience: int = 25) -> float:
+def _fit_one(
+    seed: int,
+    slice_k: int = 0,
+    source: str = "temporal",
+    aggregate: str = "mean",
+    n_estimators: int = 1000,
+    learning_rate: float = 0.04,
+    num_leaves: int = 31,
+    patience: int = 25,
+) -> float:
     """Fit one LGB on the heteroscedastic-temporal synthetic; return test RMSE."""
     import lightgbm as lgb
     from mlframe.training.callbacks._callbacks import LightGBMCallback
@@ -68,31 +74,42 @@ def _fit_one(seed: int, slice_k: int = 0, source: str = "temporal",
     extra_eval_sets = None
     if slice_k > 0:
         extra_eval_sets = build_slice_eval_sets(
-            X_val, y_val, source=source, k=slice_k, min_rows_per_shard=8,
-            random_state=seed, time_values=t_val if source == "temporal" else None,
+            X_val,
+            y_val,
+            source=source,
+            k=slice_k,
+            min_rows_per_shard=8,
+            random_state=seed,
+            time_values=t_val if source == "temporal" else None,
         )
         if not extra_eval_sets:
             slice_k = 0
 
     cb = LightGBMCallback(
-        patience=patience, min_delta=0.0,
-        monitor_dataset="valid_0", monitor_metric="l2", mode="min",
+        patience=patience,
+        min_delta=0.0,
+        monitor_dataset="valid_0",
+        monitor_metric="l2",
+        mode="min",
         slice_k=slice_k if slice_k > 0 else 0,
         slice_aggregate_mode=aggregate,
-        slice_aggregate_confidence=0.5,         # zero LCB penalty -> behaviour from patience only
+        slice_aggregate_confidence=0.5,  # zero LCB penalty -> behaviour from patience only
         slice_correlation_inflation=1.0,
-        slice_persist_history=False, verbose=0,
+        slice_persist_history=False,
+        verbose=0,
     )
     fit_params["callbacks"] = [cb]
     if slice_k > 0:
-        _setup_eval_set("LGBMRegressor", fit_params, X_val, y_val,
-                        model_category="lgb", extra_eval_sets=extra_eval_sets)
+        _setup_eval_set("LGBMRegressor", fit_params, X_val, y_val, model_category="lgb", extra_eval_sets=extra_eval_sets)
     else:
         _setup_eval_set("LGBMRegressor", fit_params, X_val, y_val, model_category="lgb")
 
     model = lgb.LGBMRegressor(
-        n_estimators=n_estimators, learning_rate=learning_rate, verbose=-1,
-        num_leaves=num_leaves, random_state=seed,
+        n_estimators=n_estimators,
+        learning_rate=learning_rate,
+        verbose=-1,
+        num_leaves=num_leaves,
+        random_state=seed,
     )
     model.fit(X_tr, y_tr, **fit_params)
     best_it = cb.best_iter or model.n_estimators
@@ -102,6 +119,7 @@ def _fit_one(seed: int, slice_k: int = 0, source: str = "temporal",
 
 def _wilcoxon_one_sided(baseline: list[float], slice_es: list[float]) -> float:
     from scipy.stats import wilcoxon
+
     diffs = np.array(baseline) - np.array(slice_es)
     if np.all(diffs == 0):
         return 1.0
@@ -118,9 +136,7 @@ def test_biz_value_headline_smoke_5_seeds() -> None:
     slice_es = [_fit_one(seed, slice_k=5, source="temporal", aggregate="mean") for seed in range(5)]
     med_b = float(np.median(baseline))
     med_s = float(np.median(slice_es))
-    assert med_s < 3.0 * med_b, (
-        f"slice-stable catastrophic regression: median(slice)={med_s:.4f} vs median(baseline)={med_b:.4f}"
-    )
+    assert med_s < 3.0 * med_b, f"slice-stable catastrophic regression: median(slice)={med_s:.4f} vs median(baseline)={med_b:.4f}"
 
 
 @pytest.mark.slow
@@ -149,13 +165,14 @@ def test_biz_value_lgb_temporal_K5_mean_observed_gap_documented() -> None:
     p_value = _wilcoxon_one_sided(baseline, slice_es)
     gap_pct = (med_b - med_s) / med_b * 100.0
     wins = int(np.sum(np.array(slice_es) < np.array(baseline)))
-    print(f"\nObservability (n=30): median baseline={med_b:.4f}, median slice={med_s:.4f}, "
-          f"gap={gap_pct:+.2f}%, p_value={p_value:.4f}, wins={wins}/30 "
-          f"(NOT a value-prop gate; see test docstring)")
+    print(
+        f"\nObservability (n=30): median baseline={med_b:.4f}, median slice={med_s:.4f}, "
+        f"gap={gap_pct:+.2f}%, p_value={p_value:.4f}, wins={wins}/30 "
+        f"(NOT a value-prop gate; see test docstring)"
+    )
     # Catastrophic-regression guard only.
     assert gap_pct >= -5.0, (
-        f"slice-stable catastrophic regression on the LGB-temporal-K5-mean scenario: "
-        f"baseline median={med_b:.4f}, slice median={med_s:.4f}, gap={gap_pct:+.2f}%"
+        f"slice-stable catastrophic regression on the LGB-temporal-K5-mean scenario: baseline median={med_b:.4f}, slice median={med_s:.4f}, gap={gap_pct:+.2f}%"
     )
 
 

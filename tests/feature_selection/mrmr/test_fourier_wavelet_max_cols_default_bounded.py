@@ -13,6 +13,7 @@ problems) closes the gap without touching either cap mechanism's own tested beha
 ``test_extra_basis_fe_adaptive_max_cols.py`` / ``test_wavelet_basis_fe_max_cols.py`` suites use p<=8 and
 pass unaffected).
 """
+
 from __future__ import annotations
 
 import pytest

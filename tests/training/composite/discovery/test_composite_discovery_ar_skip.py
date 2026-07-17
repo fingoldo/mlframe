@@ -6,6 +6,7 @@ Regression sensors for:
   * _extreme_ar_discovery_skip -- gates on group_aware_ACTIVE (config OR hint), not the analyzer hint alone (the TV6
     bug: a config-only group-aware run did not skip because the gate read the recommendation flag).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -43,7 +44,7 @@ def test_recompute_lag1_detects_strong_ar_and_ignores_noise():
 def test_recompute_lag1_robust_to_degenerate_inputs():
     y, gids = _grouped_ar_target()
     assert _recompute_lag1_ar_per_group(y, gids, np.array([], dtype=np.int64)) is None  # empty train
-    assert _recompute_lag1_ar_per_group(y, gids, np.array([10 ** 9])) is None  # out-of-range index
+    assert _recompute_lag1_ar_per_group(y, gids, np.array([10**9])) is None  # out-of-range index
     assert _recompute_lag1_ar_per_group(y, gids, np.arange(10)) is None  # < 100 finite rows
 
 
@@ -63,10 +64,10 @@ def test_recomputed_lag1_makes_skip_fire_when_report_empty():
     assert lag1_eff is not None and lag1_eff >= 0.99, f"near-1 AR must clear threshold; got {lag1_eff}"
     fired = _extreme_ar_discovery_skip(
         skip_enabled=True,
-        group_aware_active=True,          # derived from group_ids is not None
+        group_aware_active=True,  # derived from group_ids is not None
         bounded_only_zoo=True,
-        lag1_ar=lag1_eff,                 # recomputed, not from the (empty) report
-        is_picked_target=True,            # recompute implies target-specific -> picked
+        lag1_ar=lag1_eff,  # recomputed, not from the (empty) report
+        is_picked_target=True,  # recompute implies target-specific -> picked
         threshold=0.99,
     )
     assert fired is True, "skip must fire on recomputed strong-AR even with an empty target_distribution_report"
@@ -85,8 +86,12 @@ def test_unbounded_zoo_neural_or_plain_linear():
 
 def _decide(**kw):
     base = dict(
-        skip_enabled=True, group_aware_active=True, bounded_only_zoo=True,
-        lag1_ar=1.0, is_picked_target=True, threshold=0.99,
+        skip_enabled=True,
+        group_aware_active=True,
+        bounded_only_zoo=True,
+        lag1_ar=1.0,
+        is_picked_target=True,
+        threshold=0.99,
     )
     base.update(kw)
     return _extreme_ar_discovery_skip(**base)

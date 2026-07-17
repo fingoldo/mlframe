@@ -13,6 +13,7 @@ identical to ``su`` (y no longer changes which candidates are pruned), including
 on a pair that is BOTH mutually redundant AND target-informative -- exactly the
 case where the old y-aware score diverged from SU.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,9 +26,13 @@ from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
 
 def _state(distance, fd, fn, target_indices=None):
     return make_dcd_state(
-        X_raw=None, factors_data=fd, factors_nbins=fn,
-        cols=[f"c{i}" for i in range(fd.shape[1])], nbins=fn,
-        target_indices=target_indices, distance=distance,
+        X_raw=None,
+        factors_data=fd,
+        factors_nbins=fn,
+        cols=[f"c{i}" for i in range(fd.shape[1])],
+        nbins=fn,
+        target_indices=target_indices,
+        distance=distance,
     )
 
 
@@ -53,10 +58,7 @@ def test_sotoca_pla_membership_score_equals_su():
     s_su = _state("su", fd, fn, target_indices=tgt)
     sc_soto = pair_su(s_soto, 0, 1, entropy_cache=None, factors_data=fd, factors_nbins=fn)
     sc_su = pair_su(s_su, 0, 1, entropy_cache=None, factors_data=fd, factors_nbins=fn)
-    assert abs(float(sc_soto) - float(sc_su)) < 1e-9, (
-        f"sotoca_pla membership must equal unsupervised SU (firewall); "
-        f"got sotoca={sc_soto} vs su={sc_su}"
-    )
+    assert abs(float(sc_soto) - float(sc_su)) < 1e-9, f"sotoca_pla membership must equal unsupervised SU (firewall); got sotoca={sc_soto} vs su={sc_su}"
 
 
 def test_sotoca_pla_score_invariant_to_target_choice():
@@ -71,6 +73,5 @@ def test_sotoca_pla_score_invariant_to_target_choice():
     sc1 = pair_su(s1, 0, 1, entropy_cache=None, factors_data=fd, factors_nbins=fn)
     sc2 = pair_su(s2, 0, 1, entropy_cache=None, factors_data=fd2, factors_nbins=fn2)
     assert abs(float(sc1) - float(sc2)) < 1e-9, (
-        f"sotoca_pla membership score changed with the target column "
-        f"({sc1} vs {sc2}) -- y is still leaking into unsupervised pruning"
+        f"sotoca_pla membership score changed with the target column ({sc1} vs {sc2}) -- y is still leaking into unsupervised pruning"
     )

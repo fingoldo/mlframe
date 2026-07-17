@@ -6,10 +6,10 @@ optimizer, dispatch ladder branch, and helper path is exercised at least once.
 Tests are deliberately small (n <= 300, n_trials in 10..40 where possible) so
 the file completes in well under a minute on CPU.
 """
+
 from __future__ import annotations
 
 import math
-import os
 import pickle
 import warnings
 
@@ -21,6 +21,7 @@ warnings.filterwarnings("ignore")
 try:
     from tests.conftest import fast_subset
 except ImportError:  # pragma: no cover
+
     def fast_subset(values, **_):
         return list(values)
 
@@ -96,7 +97,7 @@ def _uniform_pair(n=200, seed=7):
     rng = np.random.default_rng(seed)
     x_a = rng.uniform(-1, 1, size=n)
     x_b = rng.uniform(-1, 1, size=n)
-    y = (x_a ** 2 - x_b ** 2 > 0).astype(np.int64)
+    y = (x_a**2 - x_b**2 > 0).astype(np.int64)
     return x_a, x_b, y
 
 
@@ -169,10 +170,7 @@ def test_plugin_mi_batch_classif_matches_loop():
     X = rng.normal(size=(n, 3))
     y = (X[:, 0] + 0.2 * rng.normal(size=n) > 0).astype(np.int64)
     batch = _plugin_mi_classif_batch_njit(np.ascontiguousarray(X), y, 20)
-    loop = np.array(
-        [_plugin_mi_classif_njit(np.ascontiguousarray(X[:, j]), y, 20)
-         for j in range(3)]
-    )
+    loop = np.array([_plugin_mi_classif_njit(np.ascontiguousarray(X[:, j]), y, 20) for j in range(3)])
     np.testing.assert_allclose(batch, loop, rtol=1e-10, atol=1e-12)
 
 
@@ -182,24 +180,17 @@ def test_plugin_mi_batch_regression_matches_loop():
     X = rng.normal(size=(n, 2))
     y = (X[:, 0] + 0.5 * X[:, 1] + 0.1 * rng.normal(size=n)).astype(np.float64)
     batch = _plugin_mi_regression_batch_njit(np.ascontiguousarray(X), y, 20)
-    loop = np.array(
-        [_plugin_mi_regression_njit(np.ascontiguousarray(X[:, j]), y, 20)
-         for j in range(2)]
-    )
+    loop = np.array([_plugin_mi_regression_njit(np.ascontiguousarray(X[:, j]), y, 20) for j in range(2)])
     np.testing.assert_allclose(batch, loop, rtol=1e-10, atol=1e-12)
 
 
 @pytest.mark.parametrize(
     "njit_fn,par_fn,reference",
     [
-        (_hermeval_njit, _hermeval_njit_parallel,
-         lambda x, c: np.polynomial.hermite_e.hermeval(x, c)),
-        (_legval_njit, _legval_njit_parallel,
-         lambda x, c: np.polynomial.legendre.legval(x, c)),
-        (_chebval_njit, _chebval_njit_parallel,
-         lambda x, c: np.polynomial.chebyshev.chebval(x, c)),
-        (_lagval_njit, _lagval_njit_parallel,
-         lambda x, c: np.polynomial.laguerre.lagval(x, c)),
+        (_hermeval_njit, _hermeval_njit_parallel, lambda x, c: np.polynomial.hermite_e.hermeval(x, c)),
+        (_legval_njit, _legval_njit_parallel, lambda x, c: np.polynomial.legendre.legval(x, c)),
+        (_chebval_njit, _chebval_njit_parallel, lambda x, c: np.polynomial.chebyshev.chebval(x, c)),
+        (_lagval_njit, _lagval_njit_parallel, lambda x, c: np.polynomial.laguerre.lagval(x, c)),
     ],
 )
 def test_poly_njit_kernels_match_numpy(njit_fn, par_fn, reference):
@@ -213,11 +204,19 @@ def test_poly_njit_kernels_match_numpy(njit_fn, par_fn, reference):
     np.testing.assert_allclose(out_par, expected, rtol=1e-8, atol=1e-9)
 
 
-@pytest.mark.parametrize("njit_fn", [
-    _hermeval_njit, _legval_njit, _chebval_njit, _lagval_njit,
-    _hermeval_njit_parallel, _legval_njit_parallel,
-    _chebval_njit_parallel, _lagval_njit_parallel,
-])
+@pytest.mark.parametrize(
+    "njit_fn",
+    [
+        _hermeval_njit,
+        _legval_njit,
+        _chebval_njit,
+        _lagval_njit,
+        _hermeval_njit_parallel,
+        _legval_njit_parallel,
+        _chebval_njit_parallel,
+        _lagval_njit_parallel,
+    ],
+)
 def test_poly_njit_handles_zero_and_single_coef(njit_fn):
     x = np.linspace(-0.5, 0.5, 64).astype(np.float64)
     out_empty = njit_fn(np.ascontiguousarray(x), np.zeros(0, dtype=np.float64))
@@ -294,8 +293,7 @@ def test_make_dispatch_returns_callable_with_name():
     fn = _make_dispatch("chebyshev")
     assert callable(fn)
     assert "chebyshev" in fn.__name__
-    out = fn(np.array([0.1, 0.2], dtype=np.float64),
-             np.array([0.0, 1.0], dtype=np.float64))
+    out = fn(np.array([0.1, 0.2], dtype=np.float64), np.array([0.0, 1.0], dtype=np.float64))
     assert np.all(np.isfinite(out))
 
 
@@ -363,7 +361,7 @@ def test_l2_normalize_pair_unit_norm():
     a = np.array([1.0, 2.0])
     b = np.array([-1.0, 0.5])
     na, nb = _l2_normalize_pair(a, b, target_norm=1.0)
-    total = float(np.sqrt(np.sum(na ** 2) + np.sum(nb ** 2)))
+    total = float(np.sqrt(np.sum(na**2) + np.sum(nb**2)))
     assert abs(total - 1.0) < 1e-9
 
 
@@ -386,8 +384,8 @@ def test_detect_pair_symmetry_symmetric_vs_asymmetric():
     x_a = rng.normal(size=n)
     x_b = rng.normal(size=n)
     # symmetric: y = sign(a^2 + b^2 - r^2)
-    r2 = np.median(x_a ** 2 + x_b ** 2)
-    y_sym = ((x_a ** 2 + x_b ** 2) > r2).astype(np.int64)
+    r2 = np.median(x_a**2 + x_b**2)
+    y_sym = ((x_a**2 + x_b**2) > r2).astype(np.int64)
     sym_score = detect_pair_symmetry(x_a, x_b, y_sym, discrete_target=True)
     # asymmetric: y depends only on a
     y_asym = (x_a > 0).astype(np.int64)
@@ -403,29 +401,25 @@ def test_detect_pair_symmetry_symmetric_vs_asymmetric():
 
 def test_baseline_mi_pair_plugin_classif():
     x_a, x_b, y = _xor_pair(n=300)
-    mi = _baseline_mi_pair(x_a, x_b, y, discrete_target=True,
-                            mi_estimator="plugin", plugin_n_bins=15)
+    mi = _baseline_mi_pair(x_a, x_b, y, discrete_target=True, mi_estimator="plugin", plugin_n_bins=15)
     assert math.isfinite(mi) and mi >= 0.0
 
 
 def test_baseline_mi_pair_plugin_regression():
     x_a, x_b, y = _regression_pair(n=300)
-    mi = _baseline_mi_pair(x_a, x_b, y, discrete_target=False,
-                            mi_estimator="plugin")
+    mi = _baseline_mi_pair(x_a, x_b, y, discrete_target=False, mi_estimator="plugin")
     assert math.isfinite(mi) and mi >= 0.0
 
 
 def test_baseline_mi_pair_ksg_classif():
     x_a, x_b, y = _xor_pair(n=200)
-    mi = _baseline_mi_pair(x_a, x_b, y, discrete_target=True,
-                            mi_estimator="ksg", n_neighbors=5)
+    mi = _baseline_mi_pair(x_a, x_b, y, discrete_target=True, mi_estimator="ksg", n_neighbors=5)
     assert math.isfinite(mi) and mi >= 0.0
 
 
 def test_baseline_mi_pair_ksg_regression():
     x_a, x_b, y = _regression_pair(n=200)
-    mi = _baseline_mi_pair(x_a, x_b, y, discrete_target=False,
-                            mi_estimator="ksg", n_neighbors=5)
+    mi = _baseline_mi_pair(x_a, x_b, y, discrete_target=False, mi_estimator="ksg", n_neighbors=5)
     assert math.isfinite(mi) and mi >= 0.0
 
 
@@ -444,12 +438,17 @@ def _make_eval_kwargs(x_a, x_b, y, *, discrete=True):
     bf_names = ["add", "mul", "sub"]
     bf_callables = [np.add, np.multiply, np.subtract]
     return dict(
-        z_a=z_a, z_b=z_b,
+        z_a=z_a,
+        z_b=z_b,
         eval_func=_chebval_njit,
-        bf_callables=bf_callables, bf_names=bf_names,
-        y=y, y_njit=y_njit,
-        mi_estimator="plugin", plugin_n_bins=15,
-        n_neighbors=5, discrete_target=discrete,
+        bf_callables=bf_callables,
+        bf_names=bf_names,
+        y=y,
+        y_njit=y_njit,
+        mi_estimator="plugin",
+        plugin_n_bins=15,
+        n_neighbors=5,
+        discrete_target=discrete,
         l2_penalty=0.05,
     )
 
@@ -470,8 +469,11 @@ def test_eval_coef_pair_direction_only():
     kw = _make_eval_kwargs(x_a, x_b, y)
     coef_a = np.array([0.0, 5.0, 0.0], dtype=np.float64)
     coef_b = np.array([0.0, 5.0, 0.0], dtype=np.float64)
-    score, raw_mi, bf_idx = _eval_coef_pair(
-        coef_a, coef_b, direction_only=True, **kw,
+    score, _raw_mi, bf_idx = _eval_coef_pair(
+        coef_a,
+        coef_b,
+        direction_only=True,
+        **kw,
     )
     assert math.isfinite(score)
     assert bf_idx >= 0
@@ -483,8 +485,11 @@ def test_eval_coef_pair_with_eval_func_b():
     kw = _make_eval_kwargs(x_a, x_b, y)
     coef_a = np.array([0.0, 1.0], dtype=np.float64)
     coef_b = np.array([0.0, 1.0], dtype=np.float64)
-    score, raw_mi, bf_idx = _eval_coef_pair(
-        coef_a, coef_b, eval_func_b=_chebval_njit, **kw,
+    score, _raw_mi, _bf_idx = _eval_coef_pair(
+        coef_a,
+        coef_b,
+        eval_func_b=_chebval_njit,
+        **kw,
     )
     assert math.isfinite(score)
 
@@ -493,14 +498,16 @@ def test_eval_coef_pair_handles_non_finite_eval():
     """If eval_func returns nan/inf, function returns (-inf, 0, -1)."""
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
+
     def bad_eval(z, c):
         out = np.empty_like(z)
         out[:] = np.nan
         return out
+
     kw["eval_func"] = bad_eval
     coef_a = np.array([0.0, 1.0], dtype=np.float64)
     coef_b = np.array([0.0, 1.0], dtype=np.float64)
-    score, raw_mi, bf_idx = _eval_coef_pair(coef_a, coef_b, **kw)
+    score, _raw_mi, bf_idx = _eval_coef_pair(coef_a, coef_b, **kw)
     assert score == -np.inf
     assert bf_idx == -1
 
@@ -510,8 +517,10 @@ def test_eval_coef_pair_all_bin_funcs_fail():
     eval_coef_pair returns (-inf, 0, -1)."""
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
+
     def raises_bf(a, b):
         raise RuntimeError("forced failure")
+
     kw["bf_callables"] = [raises_bf, raises_bf]
     kw["bf_names"] = ["e1", "e2"]
     coef_a = np.array([0.0, 1.0], dtype=np.float64)
@@ -529,7 +538,7 @@ def test_eval_coef_pair_ksg_estimator_path():
     kw["y_njit"] = None
     coef_a = np.array([0.0, 1.0], dtype=np.float64)
     coef_b = np.array([0.0, 1.0], dtype=np.float64)
-    score, raw_mi, bf_idx = _eval_coef_pair(coef_a, coef_b, **kw)
+    score, _raw_mi, _bf_idx = _eval_coef_pair(coef_a, coef_b, **kw)
     assert math.isfinite(score)
 
 
@@ -540,7 +549,7 @@ def test_eval_coef_pair_ksg_regression_path():
     kw["y_njit"] = None
     coef_a = np.array([0.0, 1.0], dtype=np.float64)
     coef_b = np.array([0.0, 1.0], dtype=np.float64)
-    score, raw_mi, bf_idx = _eval_coef_pair(coef_a, coef_b, **kw)
+    score, _raw_mi, _bf_idx = _eval_coef_pair(coef_a, coef_b, **kw)
     assert math.isfinite(score)
 
 
@@ -588,14 +597,18 @@ def test_run_cma_search_with_warm_seeds():
     kw = _make_eval_kwargs(x_a, x_b, y)
     seeds = [np.array([0.0, 1.0, 0.0, 0.0, 1.0, 0.0])]  # ca + cb concatenated
     res = _run_cma_search(
-        ca_size=3, cb_size=3, coef_range=(-2.0, 2.0),
-        n_trials=15, seed=42, direction_only=False,
+        ca_size=3,
+        cb_size=3,
+        coef_range=(-2.0, 2.0),
+        n_trials=15,
+        seed=42,
+        direction_only=False,
         warm_start_seeds=seeds,
         eval_kwargs=kw,
         popsize=8,
     )
     assert res is not None
-    coef_a, coef_b, bf_idx, raw_mi, n_evals = res
+    coef_a, coef_b, bf_idx, _raw_mi, n_evals = res
     assert coef_a.shape == (3,)
     assert coef_b.shape == (3,)
     assert n_evals > 0
@@ -607,9 +620,15 @@ def test_run_cma_search_without_warm_seeds():
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
     res = _run_cma_search(
-        ca_size=3, cb_size=3, coef_range=(-2.0, 2.0),
-        n_trials=12, seed=7, direction_only=False,
-        warm_start_seeds=[], eval_kwargs=kw, popsize=6,
+        ca_size=3,
+        cb_size=3,
+        coef_range=(-2.0, 2.0),
+        n_trials=12,
+        seed=7,
+        direction_only=False,
+        warm_start_seeds=[],
+        eval_kwargs=kw,
+        popsize=6,
     )
     assert res is None or len(res) == 5
 
@@ -619,13 +638,19 @@ def test_run_cma_search_track_history():
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
     res = _run_cma_search(
-        ca_size=3, cb_size=3, coef_range=(-2.0, 2.0),
-        n_trials=10, seed=42, direction_only=False,
+        ca_size=3,
+        cb_size=3,
+        coef_range=(-2.0, 2.0),
+        n_trials=10,
+        seed=42,
+        direction_only=False,
         warm_start_seeds=[np.zeros(6)],
-        eval_kwargs=kw, popsize=6, track_history=True,
+        eval_kwargs=kw,
+        popsize=6,
+        track_history=True,
     )
     assert res is not None
-    coef_a, coef_b, bf_idx, raw_mi, n_evals, history = res
+    _coef_a, _coef_b, _bf_idx, _raw_mi, _n_evals, history = res
     assert isinstance(history, list)
 
 
@@ -634,10 +659,15 @@ def test_run_cma_search_direction_only():
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
     res = _run_cma_search(
-        ca_size=2, cb_size=2, coef_range=(-2.0, 2.0),
-        n_trials=10, seed=42, direction_only=True,
+        ca_size=2,
+        cb_size=2,
+        coef_range=(-2.0, 2.0),
+        n_trials=10,
+        seed=42,
+        direction_only=True,
         warm_start_seeds=[np.array([0.0, 1.0, 0.0, 1.0])],
-        eval_kwargs=kw, popsize=6,
+        eval_kwargs=kw,
+        popsize=6,
     )
     assert res is not None
 
@@ -653,11 +683,19 @@ def test_optimise_hermite_pair_each_polynomial_basis(basis):
     if basis == "laguerre":
         x_a, x_b, y = _positive_pair(n=200)
     res = optimise_hermite_pair(
-        x_a, x_b, y, discrete_target=True,
-        min_degree=2, max_degree=2, n_trials=12,
-        basis=basis, optimizer="cma",
-        sweep_degrees=False, warm_start=True,
-        multi_fidelity=False, use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        discrete_target=True,
+        min_degree=2,
+        max_degree=2,
+        n_trials=12,
+        basis=basis,
+        optimizer="cma",
+        sweep_degrees=False,
+        warm_start=True,
+        multi_fidelity=False,
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,  # accept any improvement
     )
     # Either a valid result or None when search didn't beat baseline -- both legitimate paths.
@@ -682,11 +720,19 @@ def test_optimise_hermite_pair_extra_bases(basis):
     else:
         x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
-        x_a, x_b, y, discrete_target=True,
-        min_degree=2, max_degree=2, n_trials=10,
-        basis=basis, optimizer="cma",
-        sweep_degrees=False, warm_start=True,
-        multi_fidelity=False, use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        discrete_target=True,
+        min_degree=2,
+        max_degree=2,
+        n_trials=10,
+        basis=basis,
+        optimizer="cma",
+        sweep_degrees=False,
+        warm_start=True,
+        multi_fidelity=False,
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     assert res is None or isinstance(res, HermiteResult)
@@ -705,11 +751,19 @@ def test_optimise_hermite_pair_extra_bases(basis):
 def test_optimise_hermite_pair_optuna_path():
     x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
-        x_a, x_b, y, discrete_target=True,
-        min_degree=2, max_degree=2, n_trials=12,
-        basis="chebyshev", optimizer="optuna",
-        sweep_degrees=False, warm_start=True,
-        multi_fidelity=False, use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        discrete_target=True,
+        min_degree=2,
+        max_degree=2,
+        n_trials=12,
+        basis="chebyshev",
+        optimizer="optuna",
+        sweep_degrees=False,
+        warm_start=True,
+        multi_fidelity=False,
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
         early_stop_no_improve=8,
     )
@@ -721,11 +775,19 @@ def test_optimise_hermite_pair_optuna_no_early_stop():
     """Cover the else-branch (no early_stop) of optimise_hermite_pair."""
     x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
-        x_a, x_b, y, discrete_target=True,
-        min_degree=2, max_degree=2, n_trials=10,
-        basis="chebyshev", optimizer="optuna",
-        sweep_degrees=False, warm_start=False,
-        multi_fidelity=False, use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        discrete_target=True,
+        min_degree=2,
+        max_degree=2,
+        n_trials=10,
+        basis="chebyshev",
+        optimizer="optuna",
+        sweep_degrees=False,
+        warm_start=False,
+        multi_fidelity=False,
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
         early_stop_no_improve=0,
     )
@@ -735,11 +797,19 @@ def test_optimise_hermite_pair_optuna_no_early_stop():
 def test_optimise_hermite_pair_cma_with_sweep_degrees():
     x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
-        x_a, x_b, y, discrete_target=True,
-        min_degree=2, max_degree=4, n_trials=10,
-        basis="chebyshev", optimizer="cma",
-        sweep_degrees=True, warm_start=True,
-        multi_fidelity=False, use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        discrete_target=True,
+        min_degree=2,
+        max_degree=4,
+        n_trials=10,
+        basis="chebyshev",
+        optimizer="cma",
+        sweep_degrees=True,
+        warm_start=True,
+        multi_fidelity=False,
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     if res is not None:
@@ -749,11 +819,20 @@ def test_optimise_hermite_pair_cma_with_sweep_degrees():
 def test_optimise_hermite_pair_direction_only_arg():
     x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
-        x_a, x_b, y, discrete_target=True,
-        min_degree=2, max_degree=2, n_trials=10,
-        basis="chebyshev", optimizer="cma",
-        sweep_degrees=False, warm_start=True, direction_only=True,
-        multi_fidelity=False, use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        discrete_target=True,
+        min_degree=2,
+        max_degree=2,
+        n_trials=10,
+        basis="chebyshev",
+        optimizer="cma",
+        sweep_degrees=False,
+        warm_start=True,
+        direction_only=True,
+        multi_fidelity=False,
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     assert res is None or isinstance(res, HermiteResult)
@@ -762,11 +841,19 @@ def test_optimise_hermite_pair_direction_only_arg():
 def test_optimise_hermite_pair_warm_start_false():
     x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
-        x_a, x_b, y, discrete_target=True,
-        min_degree=2, max_degree=2, n_trials=10,
-        basis="chebyshev", optimizer="cma",
-        sweep_degrees=False, warm_start=False,
-        multi_fidelity=False, use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        discrete_target=True,
+        min_degree=2,
+        max_degree=2,
+        n_trials=10,
+        basis="chebyshev",
+        optimizer="cma",
+        sweep_degrees=False,
+        warm_start=False,
+        multi_fidelity=False,
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     assert res is None or isinstance(res, HermiteResult)
@@ -781,11 +868,19 @@ def test_optimise_hermite_pair_multi_fidelity_path():
     x_b = rng.normal(size=n)
     y = (np.sign(x_a * x_b) > 0).astype(np.int64)
     res = optimise_hermite_pair(
-        x_a, x_b, y, discrete_target=True,
-        min_degree=2, max_degree=2, n_trials=10,
-        basis="chebyshev", optimizer="cma",
-        sweep_degrees=False, warm_start=True,
-        multi_fidelity=True, use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        discrete_target=True,
+        min_degree=2,
+        max_degree=2,
+        n_trials=10,
+        basis="chebyshev",
+        optimizer="cma",
+        sweep_degrees=False,
+        warm_start=True,
+        multi_fidelity=True,
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     assert res is None or isinstance(res, HermiteResult)
@@ -795,11 +890,19 @@ def test_optimise_hermite_pair_trivial_baseline_branch():
     """use_trivial_baseline=True hits the best_trivial_pair branch."""
     x_a, x_b, y = _xor_pair(n=200)
     res = optimise_hermite_pair(
-        x_a, x_b, y, discrete_target=True,
-        min_degree=2, max_degree=2, n_trials=10,
-        basis="chebyshev", optimizer="cma",
-        sweep_degrees=False, warm_start=True,
-        multi_fidelity=False, use_trivial_baseline=True,
+        x_a,
+        x_b,
+        y,
+        discrete_target=True,
+        min_degree=2,
+        max_degree=2,
+        n_trials=10,
+        basis="chebyshev",
+        optimizer="cma",
+        sweep_degrees=False,
+        warm_start=True,
+        multi_fidelity=False,
+        use_trivial_baseline=True,
         baseline_uplift_threshold=0.0,
     )
     assert res is None or isinstance(res, HermiteResult)
@@ -809,11 +912,19 @@ def test_optimise_hermite_pair_regression_target():
     """discrete_target=False exercises the regression code paths in baselines & MI estimator."""
     x_a, x_b, y = _regression_pair(n=200)
     res = optimise_hermite_pair(
-        x_a, x_b, y, discrete_target=False,
-        min_degree=2, max_degree=2, n_trials=10,
-        basis="chebyshev", optimizer="cma",
-        sweep_degrees=False, warm_start=True,
-        multi_fidelity=False, use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        discrete_target=False,
+        min_degree=2,
+        max_degree=2,
+        n_trials=10,
+        basis="chebyshev",
+        optimizer="cma",
+        sweep_degrees=False,
+        warm_start=True,
+        multi_fidelity=False,
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     assert res is None or isinstance(res, HermiteResult)
@@ -822,12 +933,21 @@ def test_optimise_hermite_pair_regression_target():
 def test_optimise_hermite_pair_ksg_estimator():
     x_a, x_b, y = _xor_pair(n=180)
     res = optimise_hermite_pair(
-        x_a, x_b, y, discrete_target=True,
-        min_degree=2, max_degree=2, n_trials=8,
-        basis="chebyshev", optimizer="cma",
-        mi_estimator="ksg", n_neighbors=5,
-        sweep_degrees=False, warm_start=True,
-        multi_fidelity=False, use_trivial_baseline=False,
+        x_a,
+        x_b,
+        y,
+        discrete_target=True,
+        min_degree=2,
+        max_degree=2,
+        n_trials=8,
+        basis="chebyshev",
+        optimizer="cma",
+        mi_estimator="ksg",
+        n_neighbors=5,
+        sweep_degrees=False,
+        warm_start=True,
+        multi_fidelity=False,
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
     assert res is None or isinstance(res, HermiteResult)
@@ -837,12 +957,20 @@ def test_optimise_hermite_pair_neighbors_auto_pick_small():
     """n < 1000 -> n_neighbors=7 branch."""
     x_a, x_b, y = _xor_pair(n=300)
     _ = optimise_hermite_pair(
-        x_a, x_b, y, discrete_target=True,
+        x_a,
+        x_b,
+        y,
+        discrete_target=True,
         n_neighbors=None,  # exercise auto
-        min_degree=2, max_degree=2, n_trials=6,
-        basis="chebyshev", optimizer="cma",
-        sweep_degrees=False, warm_start=False,
-        multi_fidelity=False, use_trivial_baseline=False,
+        min_degree=2,
+        max_degree=2,
+        n_trials=6,
+        basis="chebyshev",
+        optimizer="cma",
+        sweep_degrees=False,
+        warm_start=False,
+        multi_fidelity=False,
+        use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
 
@@ -884,9 +1012,16 @@ def test_optimise_pair_multimode_invalid_basis():
 def test_optimise_pair_multimode_basic():
     x_a, x_b, y = _xor_pair(n=200)
     results = optimise_pair_multimode(
-        x_a, x_b, y, top_m=3, min_l2_distance=0.2,
-        min_degree=2, max_degree=2, n_trials=12,
-        basis="chebyshev", warm_start=True,
+        x_a,
+        x_b,
+        y,
+        top_m=3,
+        min_l2_distance=0.2,
+        min_degree=2,
+        max_degree=2,
+        n_trials=12,
+        basis="chebyshev",
+        warm_start=True,
         sweep_degrees=False,
         baseline_uplift_threshold=0.0,
     )
@@ -899,9 +1034,16 @@ def test_optimise_pair_multimode_factory_basis_rbf():
     """Factory basis path (RBF) in multimode: covers the per-feature eval_func_b branch."""
     x_a, x_b, y = _xor_pair(n=200)
     results = optimise_pair_multimode(
-        x_a, x_b, y, top_m=2, min_l2_distance=0.2,
-        min_degree=2, max_degree=2, n_trials=10,
-        basis="rbf", warm_start=True,
+        x_a,
+        x_b,
+        y,
+        top_m=2,
+        min_l2_distance=0.2,
+        min_degree=2,
+        max_degree=2,
+        n_trials=10,
+        basis="rbf",
+        warm_start=True,
         sweep_degrees=False,
         baseline_uplift_threshold=0.0,
     )
@@ -911,9 +1053,15 @@ def test_optimise_pair_multimode_factory_basis_rbf():
 def test_optimise_pair_multimode_regression():
     x_a, x_b, y = _regression_pair(n=200)
     results = optimise_pair_multimode(
-        x_a, x_b, y, top_m=2,
-        min_degree=2, max_degree=2, n_trials=10,
-        basis="chebyshev", discrete_target=False,
+        x_a,
+        x_b,
+        y,
+        top_m=2,
+        min_degree=2,
+        max_degree=2,
+        n_trials=10,
+        basis="chebyshev",
+        discrete_target=False,
         sweep_degrees=False,
         baseline_uplift_threshold=0.0,
     )
@@ -1027,8 +1175,7 @@ def test_preprocess_constant_input_safe():
 
 
 def test_poly_bases_registry_contains_all_expected():
-    expected = {"hermite", "legendre", "chebyshev", "laguerre",
-                 "fourier", "rbf", "sigmoid", "pade"}
+    expected = {"hermite", "legendre", "chebyshev", "laguerre", "fourier", "rbf", "sigmoid", "pade"}
     assert expected.issubset(set(_POLY_BASES.keys()))
     for name in ("hermite", "legendre", "chebyshev", "laguerre"):
         info = _POLY_BASES[name]

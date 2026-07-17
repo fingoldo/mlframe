@@ -14,7 +14,6 @@ from mlframe.training._conformal_finalize import (
     conformal_regression_report,
     conformal_supports_split_guarantee,
     coverage_report,
-    cv_plus_intervals,
     infer_split_structure,
     split_conformal_intervals,
 )

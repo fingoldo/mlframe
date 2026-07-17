@@ -12,6 +12,7 @@ Fix: catch broader Exception in the set_params branch and fall back to a
 fresh-instance rebuild whose __dict__ is atomically copied back into the
 original model_obj. Caller's reference stays valid.
 """
+
 from __future__ import annotations
 
 import logging
@@ -41,9 +42,7 @@ class _FakeFittedBoosterRejectingSetParams:
     def set_params(self, **params):
         self.set_params_attempts += 1
         if self._is_fitted:
-            raise RuntimeError(
-                "You can't change params of fitted model. (sensor)"
-            )
+            raise RuntimeError("You can't change params of fitted model. (sensor)")
         self._stored.update(params)
         return self
 
@@ -98,15 +97,9 @@ def test_refit_ladder_handles_set_params_rejection() -> None:
     # The refit must have produced a new best_iter (the fallback path
     # rebuilds and fits, so best_iteration_ should now be 133 per our fake).
     assert new_best_iter == 133, (
-        f"refit ladder did not run / new_best_iter={new_best_iter}; "
-        f"set_params_attempts={model_obj.set_params_attempts}, "
-        f"fit_calls={model_obj.fit_calls}"
+        f"refit ladder did not run / new_best_iter={new_best_iter}; set_params_attempts={model_obj.set_params_attempts}, fit_calls={model_obj.fit_calls}"
     )
     # The original model_obj reference must reflect the RMSE-refit state
     # (atomic __dict__ swap from the rebuild fallback).
-    assert model_obj._stored.get("loss_function") == "RMSE", (
-        f"model_obj state not swapped to RMSE: {model_obj._stored}"
-    )
-    assert model_obj.best_iteration_ == 133, (
-        f"model_obj.best_iteration_ not refreshed: {model_obj.best_iteration_}"
-    )
+    assert model_obj._stored.get("loss_function") == "RMSE", f"model_obj state not swapped to RMSE: {model_obj._stored}"
+    assert model_obj.best_iteration_ == 133, f"model_obj.best_iteration_ not refreshed: {model_obj.best_iteration_}"

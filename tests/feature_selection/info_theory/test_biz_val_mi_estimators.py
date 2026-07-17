@@ -11,6 +11,7 @@ Per the bench-v3 leaderboard the production picks are:
   - InfoNet (best for linear signal, requires checkpoint)
   - MDLP W1 fixes (only TRUE zero noise floor)
 """
+
 from __future__ import annotations
 
 import math
@@ -19,12 +20,15 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters._adaptive_nbins import (
-    edges_freedman_diaconis, edges_qs, _plug_in_mi,
+    edges_freedman_diaconis,
+    edges_qs,
+    _plug_in_mi,
 )
 from mlframe.feature_selection.filters._ksg import mixed_ksg_mi, ksg_lnc_mi
 from mlframe.feature_selection.filters._fastmi import fastmi
 from mlframe.feature_selection.filters._mi_aggregator import (
-    median_mi_panel, genie_mi_panel,
+    median_mi_panel,
+    genie_mi_panel,
 )
 
 
@@ -132,6 +136,7 @@ class TestMistCalibration:
     @pytest.mark.skipif(True, reason="requires HuggingFace download + CUDA; gpu-marker test elsewhere")
     def test_binary_y_calibrated(self):
         from mlframe.feature_selection.filters._neural_mi import mist_mi
+
         rng = np.random.default_rng(0)
         x = rng.standard_normal(N_DEFAULT)
         y = (x > 0).astype(np.float64)
@@ -144,10 +149,11 @@ class TestNbinsStrategyEndToEnd:
     def test_categorize_dataset_respects_strategy(self):
         import pandas as pd
         from mlframe.feature_selection.filters.discretization import categorize_dataset
+
         rng = np.random.default_rng(0)
         n = 500
         X = pd.DataFrame({"a": rng.standard_normal(n), "b": rng.lognormal(size=n)})
-        data, _, nbins = categorize_dataset(X, dtype=np.int32, nbins_strategy="fd")
+        _data, _, nbins = categorize_dataset(X, dtype=np.int32, nbins_strategy="fd")
         assert nbins.size == 2
         # FD adapts per column; expect strictly different counts for skewed
         # vs gaussian.
@@ -156,6 +162,7 @@ class TestNbinsStrategyEndToEnd:
     def test_mrmr_fit_with_nbins_strategy_completes(self):
         import pandas as pd
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(0)
         n = 300
         X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(4)})
@@ -176,12 +183,15 @@ class TestMRMRNbinsStrategy:
     plumbed correctly while alternative MI estimators stay accessible via
     the standalone _ksg / _neural_mi / _fastmi / _mi_aggregator modules.
     """
+
     def test_legacy_path_still_works(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         sel = MRMR(verbose=0)
         # Construct minimal X/y to verify legacy fit completes.
         rng = np.random.default_rng(0)
         import pandas as pd
+
         X = pd.DataFrame({f"f{i}": rng.standard_normal(150) for i in range(4)})
         y = pd.Series((X["f0"] > 0).astype(np.int64), name="y")
         sel.fit(X, y)
@@ -189,6 +199,7 @@ class TestMRMRNbinsStrategy:
 
     def test_invalid_nbins_strategy_raises(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         with pytest.raises(ValueError):
             MRMR(nbins_strategy="nonsense")._validate_string_params()
 
@@ -196,6 +207,7 @@ class TestMRMRNbinsStrategy:
         # Family 2 estimators are intentionally OUT of MRMR; they remain
         # accessible via the standalone module entry points.
         from mlframe.feature_selection.filters._ksg import mixed_ksg_mi
+
         rng = np.random.default_rng(0)
         x = rng.standard_normal(N_DEFAULT)
         y = (x > 0).astype(np.float64)
@@ -222,19 +234,18 @@ class TestMixedTypeWithNbinsStrategy:
 
     def _make_mixed_frame(self, n: int = 400, seed: int = 7):
         import pandas as pd
+
         rng = np.random.default_rng(int(seed))
-        df = pd.DataFrame({
-            "cont_strong": rng.standard_normal(n),
-            "cont_weak": rng.standard_normal(n),
-            "cont_noise": rng.standard_normal(n),
-            "cat_strong": pd.Categorical(
-                rng.choice(list("ABCD"), size=n, p=[0.4, 0.3, 0.2, 0.1])
-            ),
-            "cat_noise": pd.Categorical(
-                rng.choice(list("XYZ"), size=n)
-            ),
-            "string_signal": rng.choice(["lo", "mid", "hi"], size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "cont_strong": rng.standard_normal(n),
+                "cont_weak": rng.standard_normal(n),
+                "cont_noise": rng.standard_normal(n),
+                "cat_strong": pd.Categorical(rng.choice(list("ABCD"), size=n, p=[0.4, 0.3, 0.2, 0.1])),
+                "cat_noise": pd.Categorical(rng.choice(list("XYZ"), size=n)),
+                "string_signal": rng.choice(["lo", "mid", "hi"], size=n),
+            }
+        )
         # The target depends on cont_strong + cat_strong.
         cat_strong_code = df["cat_strong"].cat.codes.astype(np.float64)
         y_sig = df["cont_strong"] + 0.7 * cat_strong_code + rng.standard_normal(n) * 0.3
@@ -243,53 +254,53 @@ class TestMixedTypeWithNbinsStrategy:
 
     def test_mixed_types_legacy_path(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = self._make_mixed_frame()
         sel = MRMR(verbose=0)
         sel.fit(X, y)
         selected = set(sel.get_feature_names_out())
         # The strong signal pair must survive.
-        assert "cont_strong" in selected or "cat_strong" in selected, \
-            f"MRMR missed both strong features on mixed data: {selected}"
+        assert "cont_strong" in selected or "cat_strong" in selected, f"MRMR missed both strong features on mixed data: {selected}"
 
     def test_mixed_types_fd_strategy(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = self._make_mixed_frame()
         sel = MRMR(nbins_strategy="fd", verbose=0)
         sel.fit(X, y)
         selected = set(sel.get_feature_names_out())
-        assert "cont_strong" in selected, \
-            f"FD-strategy MRMR missed cont_strong on mixed data: {selected}"
+        assert "cont_strong" in selected, f"FD-strategy MRMR missed cont_strong on mixed data: {selected}"
 
     def test_mixed_types_mdlp_strategy(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = self._make_mixed_frame()
         sel = MRMR(nbins_strategy="mdlp", verbose=0)
         sel.fit(X, y)
         selected = set(sel.get_feature_names_out())
         # MDLP is supervised; should home in on the strong continuous predictor.
-        assert "cont_strong" in selected, \
-            f"MDLP-strategy MRMR missed cont_strong on mixed data: {selected}"
+        assert "cont_strong" in selected, f"MDLP-strategy MRMR missed cont_strong on mixed data: {selected}"
 
     def test_demoted_knuth_emits_warning(self):
         import warnings as _w
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = self._make_mixed_frame(n=200)
         with _w.catch_warnings(record=True) as caught:
             _w.simplefilter("always")
             sel = MRMR(nbins_strategy="knuth", verbose=0)
             sel.fit(X, y)
         msgs = [str(x.message) for x in caught]
-        assert any("DEMOTED" in m and "knuth" in m for m in msgs), \
-            f"AccuracyWarning missing for nbins_strategy='knuth': {msgs}"
+        assert any("DEMOTED" in m and "knuth" in m for m in msgs), f"AccuracyWarning missing for nbins_strategy='knuth': {msgs}"
 
     def test_demoted_blocks_emits_warning(self):
         import warnings as _w
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = self._make_mixed_frame(n=200)
         with _w.catch_warnings(record=True) as caught:
             _w.simplefilter("always")
             sel = MRMR(nbins_strategy="blocks", verbose=0)
             sel.fit(X, y)
         msgs = [str(x.message) for x in caught]
-        assert any("DEMOTED" in m and "blocks" in m.lower() for m in msgs), \
-            f"AccuracyWarning missing for nbins_strategy='blocks': {msgs}"
+        assert any("DEMOTED" in m and "blocks" in m.lower() for m in msgs), f"AccuracyWarning missing for nbins_strategy='blocks': {msgs}"

@@ -10,6 +10,7 @@ absolute base share over a dataset.
 biz_value: a base-DOMINATED target has base_share > 0.7; a residual-DOMINATED
 target has base_share < 0.3.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -43,6 +44,7 @@ def _fit(transform_name, X, y, base_column="base", estimator=None):
 # Unit: decomposition reconstructs y_hat exactly
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("transform_name", ["linear_residual", "diff"])
 def test_additive_decomposition_sums_to_yhat(transform_name):
     rng = np.random.default_rng(0)
@@ -55,7 +57,10 @@ def test_additive_decomposition_sums_to_yhat(transform_name):
 
     table = explain_prediction(est, X)
     assert set(table.columns) == {
-        "base_contribution", "residual_contribution", "y_hat", "mode",
+        "base_contribution",
+        "residual_contribution",
+        "y_hat",
+        "mode",
     }
     assert (table["mode"] == "additive").all()
     recon = table["base_contribution"] + table["residual_contribution"]
@@ -102,6 +107,7 @@ def test_logratio_multiplicative_semantics():
 # Unit: error paths
 # ---------------------------------------------------------------------------
 
+
 def test_unfitted_raises():
     est = CompositeTargetEstimator(
         base_estimator=LinearRegression(),
@@ -140,6 +146,7 @@ def test_base_free_unary_raises():
 # biz_value: base-dominated vs residual-dominated targets
 # ---------------------------------------------------------------------------
 
+
 def test_biz_val_attribution_base_dominated_high_share():
     """A target that is almost ENTIRELY the base level (tiny residual) must
     report base_share > 0.7. Floor 0.7; measured ~0.97."""
@@ -150,8 +157,7 @@ def test_biz_val_attribution_base_dominated_high_share():
     # y is ~base (slope 1, intercept 0) plus a TINY residual signal.
     y = base + 0.05 * f1 + rng.normal(0.0, 0.02, n)
     X = pd.DataFrame({"base": base, "f1": f1})
-    est = _fit("linear_residual", X, pd.Series(y),
-               estimator=HistGradientBoostingRegressor(max_iter=60, random_state=0))
+    est = _fit("linear_residual", X, pd.Series(y), estimator=HistGradientBoostingRegressor(max_iter=60, random_state=0))
     summ = attribution_summary(est, X)
     assert summ["mode"] == "additive"
     assert summ["base_share"] > 0.7, summ
@@ -171,8 +177,7 @@ def test_biz_val_attribution_residual_dominated_low_share():
     f2 = rng.normal(0.0, 1.0, n)
     y = 50.0 + 8.0 * f1 - 5.0 * f2 + rng.normal(0.0, 0.3, n)
     X = pd.DataFrame({"base": base, "f1": f1, "f2": f2})
-    est = _fit("linear_residual", X, pd.Series(y),
-               estimator=HistGradientBoostingRegressor(max_iter=80, random_state=0))
+    est = _fit("linear_residual", X, pd.Series(y), estimator=HistGradientBoostingRegressor(max_iter=80, random_state=0))
     summ = attribution_summary(est, X)
     assert summ["mode"] == "additive"
     assert summ["base_share"] < 0.3, summ

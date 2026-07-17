@@ -10,6 +10,7 @@ Original re-exports them so existing
 ``from mlframe.feature_engineering.timeseries import _emit_robust``
 imports continue to work.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,6 +31,7 @@ def test_emit_symbols_still_importable_from_facade() -> None:
         _emit_robust,
         _emit_counts_regexp,
     )
+
     for fn in (
         _emit_groupby_block,
         _emit_categorical_counts,
@@ -56,6 +58,7 @@ def test_public_ts_api_still_importable() -> None:
         compute_corr,
         general_acf,
     )
+
     for fn in (
         get_numaggs_metadata,
         create_aggregated_features,
@@ -77,6 +80,7 @@ def test_facade_below_1k_line_threshold() -> None:
 def test_emit_module_owns_the_moved_symbols() -> None:
     """Identity: facade and sibling module expose the SAME object."""
     from mlframe.feature_engineering import timeseries as ts, _timeseries_emit as em
+
     for name in (
         "_emit_groupby_block",
         "_emit_categorical_counts",

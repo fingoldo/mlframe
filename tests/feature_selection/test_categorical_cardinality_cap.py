@@ -3,6 +3,7 @@ bucket. Two wins: (1) the codes matrix stays a narrow int (int8 for cap<=127 -> 
 when legit high-card categoricals exist), (2) DENSER contingency cells -> the plug-in MI/CMI on the categorical becomes
 reliable (a high-cardinality categorical's cells are otherwise too sparse for a trustworthy MI estimate).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -58,10 +59,12 @@ def test_numeric_mdlp_bins_bounded_by_max_depth():
     n = 20000
     X = pd.DataFrame({"smooth": np.linspace(0, 10, n) + rng.normal(0, 0.05, n)})
     y = (X["smooth"] * 2 + 0.3 * rng.normal(size=n)).values
-    _, _, nb_deep = categorize_dataset(df=X, method="quantile", n_bins=10, nbins_strategy="mdlp",
-                                       nbins_strategy_kwargs={"max_depth": 8}, y_for_strategy=y, dtype=np.int32)
-    _, _, nb_shallow = categorize_dataset(df=X, method="quantile", n_bins=10, nbins_strategy="mdlp",
-                                          nbins_strategy_kwargs={"max_depth": 3}, y_for_strategy=y, dtype=np.int32)
+    _, _, nb_deep = categorize_dataset(
+        df=X, method="quantile", n_bins=10, nbins_strategy="mdlp", nbins_strategy_kwargs={"max_depth": 8}, y_for_strategy=y, dtype=np.int32
+    )
+    _, _, nb_shallow = categorize_dataset(
+        df=X, method="quantile", n_bins=10, nbins_strategy="mdlp", nbins_strategy_kwargs={"max_depth": 3}, y_for_strategy=y, dtype=np.int32
+    )
     assert int(nb_deep[0]) > 16, "informative numeric should get many MDLP bins at depth 8"
     assert int(nb_shallow[0]) <= 8, "max_depth=3 must bound numeric bins to <= 2**3"
 

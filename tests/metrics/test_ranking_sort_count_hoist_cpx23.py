@@ -77,7 +77,7 @@ def _scenario(kind, seed):
         # Whole groups with zero relevance -> NDCG/MAP/MRR NaN sentinels.
         y_true = rng.integers(0, 4, size=n).astype(np.float64)
         for i in range(0, n_groups, 2):  # zero out every other group
-            y_true[group_starts[i]:group_starts[i + 1]] = 0.0
+            y_true[group_starts[i] : group_starts[i + 1]] = 0.0
     else:
         raise ValueError(kind)
     return y_true, y_score, group_starts

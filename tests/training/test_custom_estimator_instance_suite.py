@@ -10,7 +10,6 @@ by the entry object / ``id()``. This is the foundation E3 (distribution-driven e
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _reg_frame(seed=11, n=1400):
@@ -41,7 +40,7 @@ def test_e2e_custom_sklearn_instance_trains_and_roundtrips(tmp_path):
 
     custom = Ridge(alpha=0.7)
 
-    models, metadata = train_mlframe_models_suite(
+    models, _metadata = train_mlframe_models_suite(
         df=_reg_frame(),
         target_name="ce",
         model_name="ce_run",

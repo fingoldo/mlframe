@@ -11,6 +11,7 @@ copy.
 
 Requires CUDA/cupy; skipped otherwise.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -18,7 +19,7 @@ import pytest
 
 cp = pytest.importorskip("cupy")
 
-from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (  # noqa: E402
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
     _should_route_su_gpu,
     cluster_correlated_features_su,
     cluster_su_gpu_available,
@@ -33,15 +34,27 @@ pytestmark = [
 def test_gate_rejects_config_whose_joint_row_cannot_fit():
     # Absurd width: even a SINGLE i-row's joint working set (10*f*mb^2*8) dwarfs
     # GPU memory. The gate MUST route to CPU (False), not green-light an OOM.
-    assert _should_route_su_gpu(
-        n_features=200_000, n_samples=2_000, max_n_bins=64, gpu_min_features=0,
-    ) is False
+    assert (
+        _should_route_su_gpu(
+            n_features=200_000,
+            n_samples=2_000,
+            max_n_bins=64,
+            gpu_min_features=0,
+        )
+        is False
+    )
 
 
 def test_gate_accepts_feasible_config():
-    assert _should_route_su_gpu(
-        n_features=600, n_samples=1_500, max_n_bins=10, gpu_min_features=0,
-    ) is True
+    assert (
+        _should_route_su_gpu(
+            n_features=600,
+            n_samples=1_500,
+            max_n_bins=10,
+            gpu_min_features=0,
+        )
+        is True
+    )
 
 
 def _clustered_bins(n=1500, f=600, seed=0):
@@ -70,14 +83,12 @@ def test_gpu_cpu_parity_and_no_oom_on_wide_config():
     # 600*600*10*10*8 *~6 ~ 3 GB tensor at once; the auto-chunk now keeps it
     # bounded. Assert the GPU path runs (no OOM) AND its partition matches CPU.
     from sklearn.metrics import adjusted_rand_score
+
     bins, nb, names = _clustered_bins()
-    common = dict(threshold=0.3, feature_names=names, nbins_per_feature=nb,
-                  use_bitmap=False, gpu_pair_chunk_size=4096)
+    common = dict(threshold=0.3, feature_names=names, nbins_per_feature=nb, use_bitmap=False, gpu_pair_chunk_size=4096)
     labels_gpu = cluster_correlated_features_su(bins, use_gpu=True, **common)
     labels_cpu = cluster_correlated_features_su(bins, use_gpu=False, **common)
     # Single-linkage SU partitions must be identical (label-permutation invariant).
     assert adjusted_rand_score(labels_cpu, labels_gpu) == 1.0, (
-        f"GPU partition != CPU partition; "
-        f"gpu_clusters={len(set(labels_gpu.tolist()))} "
-        f"cpu_clusters={len(set(labels_cpu.tolist()))}"
+        f"GPU partition != CPU partition; gpu_clusters={len(set(labels_gpu.tolist()))} cpu_clusters={len(set(labels_cpu.tolist()))}"
     )

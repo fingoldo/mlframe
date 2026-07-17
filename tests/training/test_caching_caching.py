@@ -11,10 +11,9 @@ Covers:
     - DISC-RANDOM-STATE-DBL (random_state no longer folded a second time at make_discovery_cache_key).
     - DISC-LRU-RACE (``_touch_lru`` is wrapped by the cross-process filelock when filelock is present).
 """
+
 from __future__ import annotations
 
-import os
-import sys
 import threading
 
 import numpy as np
@@ -38,12 +37,14 @@ def _need_filelock():
 
 def test_precompute_dummy_baselines_raises_notimplementederror():
     from mlframe.training.helpers import precompute_dummy_baselines
+
     with pytest.raises(NotImplementedError, match="precompute_dummy_baselines"):
         precompute_dummy_baselines(train_df=None, target_by_type={})
 
 
 def test_precompute_composite_target_specs_raises_notimplementederror():
     from mlframe.training.helpers import precompute_composite_target_specs
+
     with pytest.raises(NotImplementedError, match="precompute_composite_target_specs"):
         precompute_composite_target_specs()
 
@@ -52,6 +53,7 @@ def test_precompute_all_only_fills_stats_slot():
     """``precompute_all`` must NOT call the raise-ing stubs; remaining slots stay None."""
     import pandas as pd
     from mlframe.training.helpers import precompute_all
+
     df = pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
     bundle = precompute_all(df)
     assert bundle.trainset_features_stats is not None
@@ -68,6 +70,7 @@ def test_feature_cache_purge_by_df_token_drops_matching_entries():
     from mlframe.training.feature_handling.cache import FeatureCache
     from mlframe.training.feature_handling.fingerprint import InMemoryKey
     from mlframe.training.feature_handling.config import CacheConfig
+
     cache = FeatureCache(CacheConfig(persistence="off"))
     k1 = InMemoryKey(
         session_id="s",
@@ -104,6 +107,7 @@ def test_fingerprint_df_memo_returns_same_object():
         fingerprint_df,
         reset_session,
     )
+
     reset_session()  # drop any leftover entries from earlier tests
     df = pl.DataFrame({"a": np.arange(1024, dtype=np.int64), "b": np.arange(1024, dtype=np.float32)})
     fp1 = fingerprint_df(df)
@@ -117,6 +121,7 @@ def test_fingerprint_df_changes_when_content_changes():
         fingerprint_df,
         reset_session,
     )
+
     reset_session()
     df1 = pl.DataFrame({"a": [1, 2, 3, 4, 5]})
     df2 = pl.DataFrame({"a": [1, 2, 3, 4, 99]})
@@ -131,6 +136,7 @@ def test_fingerprint_df_reset_session_clears_memo():
         fingerprint_df,
         reset_session,
     )
+
     df = pl.DataFrame({"a": [1, 2, 3]})
     fingerprint_df(df)
     assert len(_fingerprint_cache) >= 1
@@ -149,10 +155,12 @@ def test_data_signature_preserves_int_stats_with_nan_sentinel():
     import pandas as pd
     from mlframe.training.composite.cache import data_signature
 
-    df1 = pd.DataFrame({
-        "id": np.arange(100, dtype=np.int64),
-        "target": np.linspace(0.0, 1.0, 100).astype(np.float64),
-    })
+    df1 = pd.DataFrame(
+        {
+            "id": np.arange(100, dtype=np.int64),
+            "target": np.linspace(0.0, 1.0, 100).astype(np.float64),
+        }
+    )
     df2 = df1.copy()
     df2.loc[0, "id"] = 999999  # shift one int min->max change
     sig1 = data_signature(df1, "target", ["id"])
@@ -188,6 +196,7 @@ def test_discovery_config_signature_clips_patch_versions(monkeypatch):
             if name == "polars":
                 return version_mod
             return _real_imp(name, *args, **kwargs)
+
         return _fake_import
 
     monkeypatch.setattr("builtins.__import__", _fake_import_factory(_FakeMod))
@@ -205,6 +214,7 @@ def test_discovery_config_signature_clips_patch_versions(monkeypatch):
 def test_discovery_cache_touch_lru_uses_filelock_when_available(tmp_path):
     _need_filelock()
     from mlframe.training.composite.cache import DiscoveryCache
+
     cache = DiscoveryCache(str(tmp_path), max_entries=10)
 
     # Drive _touch_lru in parallel from two threads; without the lock the JSON file would
@@ -215,8 +225,10 @@ def test_discovery_cache_touch_lru_uses_filelock_when_available(tmp_path):
 
     t1 = threading.Thread(target=_writer, args=("a",))
     t2 = threading.Thread(target=_writer, args=("b",))
-    t1.start(); t2.start()
-    t1.join(); t2.join()
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
     # ``_touch_lru`` now mutates the in-memory ledger and flushes to disk lazily (eviction / close),
     # so flush before reading the on-disk file under the filelock.
     cache.close()

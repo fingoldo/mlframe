@@ -6,6 +6,7 @@ and the headline biz_value claim: on a synthetic where transform A genuinely
 generalises and transform B overfits the tiny screen, the WAIC score ranks A
 above B even when their in-sample MI ties. The config flag is also asserted.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -164,7 +165,10 @@ def test_biz_val_waic_ranks_generalising_transform_over_overfit_when_mi_ties():
     assert abs(mi_a - mi_b) / max(mi_a, mi_b) < 0.25, (mi_a, mi_b)
 
     scores = rank_transforms_by_waic(
-        [("A", y_a), ("B", y_b)], x, n_folds=4, random_state=0,
+        [("A", y_a), ("B", y_b)],
+        x,
+        n_folds=4,
+        random_state=0,
     )
     assert scores["A"].valid and scores["B"].valid
     # The generalising transform wins on WAIC despite the MI tie. Measured margin

@@ -13,6 +13,7 @@ is exercised via ``force_backend`` overrides.
 
 Auto-skips when CUDA / CuPy is unavailable (CI without GPU).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -99,13 +100,20 @@ def test_gpu_bit_identical_to_cpu(backend_name, backend_fn, n, K, nbins, npermut
 
     ref = _cpu_ref(disc_2d, factors_nbins, classes_y, freqs_y, npermutations, min_nonzero_confidence, False)
     got = backend_fn(
-        disc_2d, factors_nbins, classes_y, classes_y.copy(), freqs_y,
-        npermutations, np.uint64(0), float(min_nonzero_confidence), False, np.int32,
+        disc_2d,
+        factors_nbins,
+        classes_y,
+        classes_y.copy(),
+        freqs_y,
+        npermutations,
+        np.uint64(0),
+        float(min_nonzero_confidence),
+        False,
+        np.int32,
     )
     assert got.shape == ref.shape
     assert np.array_equal(got, ref), (
-        f"{backend_name} mismatch n={n} K={K} nbins={nbins} nperm={npermutations} "
-        f"mnc={min_nonzero_confidence}\n ref={ref}\n got={got}\n diff={got - ref}"
+        f"{backend_name} mismatch n={n} K={K} nbins={nbins} nperm={npermutations} mnc={min_nonzero_confidence}\n ref={ref}\n got={got}\n diff={got - ref}"
     )
 
 
@@ -115,13 +123,22 @@ def test_gpu_su_mode_bit_identical(backend_name, backend_fn, monkeypatch):
     if backend_fn is None:
         pytest.skip("no GPU backend available")
     import mlframe.feature_selection.filters.info_theory as it
+
     monkeypatch.setattr(it, "use_su_normalization", lambda: True)
     disc_2d, classes_y, freqs_y = _make_frame(400, 10, 5, seed=7)
     factors_nbins = np.full(10, 5, dtype=np.int64)
     ref = _cpu_ref(disc_2d, factors_nbins, classes_y, freqs_y, 10, 0.99, True)
     got = backend_fn(
-        disc_2d, factors_nbins, classes_y, classes_y.copy(), freqs_y,
-        10, np.uint64(0), 0.99, True, np.int32,
+        disc_2d,
+        factors_nbins,
+        classes_y,
+        classes_y.copy(),
+        freqs_y,
+        10,
+        np.uint64(0),
+        0.99,
+        True,
+        np.int32,
     )
     assert np.array_equal(got, ref)
 
@@ -143,8 +160,7 @@ def test_gpu_pure_noise_zeroed_identically():
     factors_nbins = np.array([6], dtype=np.int64)
     ref = _cpu_ref(disc_2d, factors_nbins, classes_y, freqs_y, 10, 0.99, False)
     for _name, fn in _BACKENDS:
-        got = fn(disc_2d, factors_nbins, classes_y, classes_y.copy(), freqs_y,
-                 10, np.uint64(0), 0.99, False, np.int32)
+        got = fn(disc_2d, factors_nbins, classes_y, classes_y.copy(), freqs_y, 10, np.uint64(0), 0.99, False, np.int32)
         assert np.array_equal(got, ref), _name
 
 
@@ -155,8 +171,17 @@ def test_dispatch_force_backend_bit_identical(force):
     factors_nbins = np.full(32, 8, dtype=np.int64)
     ref = _cpu_ref(disc_2d, factors_nbins, classes_y, freqs_y, 3, 0.99, False)
     out = dispatch_batch_mi_with_noise_gate_gpu(
-        disc_2d, factors_nbins, classes_y, classes_y.copy(), freqs_y,
-        3, np.uint64(0), 0.99, False, np.int32, force_backend=force,
+        disc_2d,
+        factors_nbins,
+        classes_y,
+        classes_y.copy(),
+        freqs_y,
+        3,
+        np.uint64(0),
+        0.99,
+        False,
+        np.int32,
+        force_backend=force,
     )
     assert out is not None
     fe_mi, backend_name = out
@@ -169,14 +194,32 @@ def test_empty_and_single_edge_cases():
     """K==0 and n==0 return empty/zero arrays without touching the device."""
     for _name, fn in _BACKENDS:
         # K == 0
-        out = fn(np.empty((5, 0), dtype=np.int32), np.empty(0, dtype=np.int64),
-                 np.zeros(5, dtype=np.int32), np.zeros(5, dtype=np.int32),
-                 np.array([1.0]), 3, np.uint64(0), 0.99, False, np.int32)
+        out = fn(
+            np.empty((5, 0), dtype=np.int32),
+            np.empty(0, dtype=np.int64),
+            np.zeros(5, dtype=np.int32),
+            np.zeros(5, dtype=np.int32),
+            np.array([1.0]),
+            3,
+            np.uint64(0),
+            0.99,
+            False,
+            np.int32,
+        )
         assert out.shape == (0,)
         # n == 0
-        out = fn(np.empty((0, 3), dtype=np.int32), np.full(3, 4, dtype=np.int64),
-                 np.zeros(0, dtype=np.int32), np.zeros(0, dtype=np.int32),
-                 np.array([0.25, 0.25, 0.25, 0.25]), 3, np.uint64(0), 0.99, False, np.int32)
+        out = fn(
+            np.empty((0, 3), dtype=np.int32),
+            np.full(3, 4, dtype=np.int64),
+            np.zeros(0, dtype=np.int32),
+            np.zeros(0, dtype=np.int32),
+            np.array([0.25, 0.25, 0.25, 0.25]),
+            3,
+            np.uint64(0),
+            0.99,
+            False,
+            np.int32,
+        )
         assert out.shape == (3,)
         assert np.array_equal(out, np.zeros(3))
 
@@ -190,6 +233,7 @@ def test_cupy_bincount_known_size_byte_identical(size, flatlen):
     is < size-1 (so the size-difference path is hit) and a fully-saturated one."""
     import cupy as cp
     from mlframe.feature_selection.filters.batch_mi_noise_gate_gpu import _cupy_bincount_known_size
+
     rng = np.random.default_rng(size * 7 + flatlen)
     # indices strictly < size (non-negative by construction, as in the gate)
     idx = rng.integers(0, size, size=flatlen).astype(np.int64)
@@ -222,8 +266,16 @@ def test_histgate_column_major_bit_identical(monkeypatch, n, K, nbins, npermutat
 
     def _run():
         return batch_mi_with_noise_gate_cuda(
-            disc_2d, factors_nbins, classes_y, classes_y.copy(), freqs_y,
-            npermutations, np.uint64(0), 0.99, False, np.int32,
+            disc_2d,
+            factors_nbins,
+            classes_y,
+            classes_y.copy(),
+            freqs_y,
+            npermutations,
+            np.uint64(0),
+            0.99,
+            False,
+            np.int32,
         )
 
     monkeypatch.setenv("MLFRAME_FE_GPU_HISTGATE_CM", "1")

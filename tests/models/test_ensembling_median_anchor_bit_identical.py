@@ -1,6 +1,7 @@
 """Regression sensor: the outlier-gate cross-member anchor uses ``np.median`` (fast C reduction), and it stays bit-identical to the prior
 ``np.quantile(q=0.5)`` generic-partition path. Guards a future "revert to np.quantile" from silently re-introducing the slower path, and pins
 that the swap never changes which members the gate excludes (the anchor feeds per-member MAE/STD, which drive exclusion)."""
+
 from __future__ import annotations
 
 import numpy as np

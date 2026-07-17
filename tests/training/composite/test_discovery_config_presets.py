@@ -1,4 +1,5 @@
 """Unit: ``CompositeTargetDiscoveryConfig.preset`` bundles + composition with ``suggest_discovery_config`` (G7)."""
+
 from __future__ import annotations
 
 import numpy as np

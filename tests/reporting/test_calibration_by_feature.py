@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.reporting.charts.calibration_by_feature import (
     compose_calibration_by_feature_figure,
@@ -21,7 +20,7 @@ def _calibrated(rng, n):
 
 def _overconfident(score):
     """Concave warp toward the extremes -> overconfident / miscalibrated."""
-    return np.clip(score ** 0.3, 1e-3, 1 - 1e-3)
+    return np.clip(score**0.3, 1e-3, 1 - 1e-3)
 
 
 def test_per_bin_curves_and_ece_present():
@@ -141,7 +140,9 @@ def test_figure_renders_via_matplotlib():
     score[high] = _overconfident(score[high])
     fig = compose_calibration_by_feature_figure(y, score, feature, feature_name="age", n_feature_bins=4)
     from mlframe.reporting.renderers.base import get_renderer
+
     rend = get_renderer("matplotlib")
     rendered = rend.render(fig)
     import matplotlib.pyplot as plt
+
     plt.close(rendered)

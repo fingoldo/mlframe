@@ -1,6 +1,7 @@
 """Unit tests for ``TrainingHistoryRecorder``: it must accumulate per-epoch train/val history in the
 booster ``evals_result_`` shape (so the training-curve chart auto-emits for neural) and track the best
 epoch by the monitored metric's direction."""
+
 from __future__ import annotations
 
 import types

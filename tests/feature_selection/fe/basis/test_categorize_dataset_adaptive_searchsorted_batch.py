@@ -4,6 +4,7 @@ path called ``np.searchsorted`` once per column instead of the padded-edge-matri
 originally-finite position against the pre-fix per-column ``np.searchsorted`` loop (the batching + padding
 approach is verified NOT to disturb the separate NaN-bin re-routing, which is applied on top either way).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -52,7 +53,10 @@ def test_adaptive_categorize_dataset_matches_per_column_searchsorted_at_finite_p
             _adaptive_nbins_mod.per_feature_edges = _capture_pfe
             try:
                 data_new, _cols_new, _nbins_new = categorize_dataset(
-                    df, nbins_strategy="fd", missing_strategy="separate_bin", dtype=np.int32,
+                    df,
+                    nbins_strategy="fd",
+                    missing_strategy="separate_bin",
+                    dtype=np.int32,
                 )
             finally:
                 _adaptive_nbins_mod.per_feature_edges = orig_pfe

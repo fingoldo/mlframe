@@ -9,6 +9,7 @@ isotonic on miscalibrated multiclass scores. A silent revert to an isotonic defa
 
 Bench: src/mlframe/calibration/_benchmarks/bench_per_class_method_isotonic_vs_sigmoid.py.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,7 +17,6 @@ import pytest
 
 from mlframe.training._calibration_models import (
     _PerClassIsotonicCalibrator,
-    _SigmoidLogitAdapter,
 )
 from mlframe.training.configs import TargetTypes
 

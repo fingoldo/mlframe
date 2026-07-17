@@ -33,6 +33,7 @@ All floors are calibrated from a measured dev run (CPU, seeds {0,1,2}) and pinne
 measured value. Seeds are fixed; majority-of-seeds is used everywhere (selectors are high-variance).
 CPU-only -- no GPU path. n<=80, p<=300, MRMR fe disabled -> every test fits in well under 50 s.
 """
+
 from __future__ import annotations
 
 import re
@@ -56,8 +57,8 @@ _NPS = [(40, 150), (60, 150), (60, 300), (80, 300)]
 _SEEDS = [0] if is_fast_mode() else [0, 1, 2]
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def make_p_gt_n(n: int, p: int, p_signal: int = _P_SIGNAL, seed: int = 0):
     """Linear-additive binary target on ``p_signal`` informative cols + (p - p_signal) iid N(0,1) noise.
@@ -161,7 +162,7 @@ def test_biz_val_p_gt_n_recovers_signal_above_chance(name):
         pytest.importorskip("shap")
     spec = SELECTOR_SPECS[name]
     hits, trials, detail = 0, 0, []
-    for (n, p) in _NPS:
+    for n, p in _NPS:
         for seed in _SEEDS:
             sel, signal = _fit(spec, n, p, seed)
             rec, total = _recovered_and_total(sel, signal)
@@ -201,10 +202,10 @@ def test_biz_val_p_gt_n_false_positive_rate_bounded(name):
         pytest.importorskip("shap")
     spec = SELECTOR_SPECS[name]
     bounded, trials, detail = 0, 0, []
-    for (n, p) in _NPS:
+    for n, p in _NPS:
         for seed in _SEEDS:
             sel, signal = _fit(spec, n, p, seed)
-            rec, total = _recovered_and_total(sel, signal)
+            _rec, total = _recovered_and_total(sel, signal)
             trials += 1
             if total <= _FP_CEILING(p):
                 bounded += 1
@@ -225,15 +226,22 @@ def test_rfecv_p_ge_n_below_dummy_full_set_caps_at_fp_ceiling():
     version returned empty support_ (rejected: it broke signal-bearing high-dim selection)."""
     from mlframe.feature_selection.wrappers import RFECV
     from sklearn.linear_model import LogisticRegression
+
     X, y, _ = make_p_gt_n(60, 300, seed=0)
-    sel = RFECV(estimator=LogisticRegression(max_iter=200, random_state=0), cv=3, max_refits=3,
-                random_state=0, leakage_corr_threshold=None, n_features_selection_rule="argmax")
+    sel = RFECV(
+        estimator=LogisticRegression(max_iter=200, random_state=0),
+        cv=3,
+        max_refits=3,
+        random_state=0,
+        leakage_corr_threshold=None,
+        n_features_selection_rule="argmax",
+    )
     sel.fit(X, y)
     n_sel = int(np.asarray(sel.get_support()).sum())
     ceiling = max(20, 300 // 3)
     assert 0 < n_sel <= ceiling, (
-        f"p>=n below-dummy full set must cap at the FP ceiling {ceiling}, not select all p / abstain; "
-        f"got n_features_={n_sel}; cv_results={sel.cv_results_}")
+        f"p>=n below-dummy full set must cap at the FP ceiling {ceiling}, not select all p / abstain; got n_features_={n_sel}; cv_results={sel.cv_results_}"
+    )
     assert "p_ge_n_fp_control_cap" in getattr(sel, "resolved_n_features_rule_", "")
 
 
@@ -244,17 +252,16 @@ def test_rfecv_p_lt_n_recovery_untouched_by_fp_gate():
     from mlframe.feature_selection.wrappers import RFECV
     from sklearn.linear_model import LogisticRegression
     from sklearn.datasets import make_classification
-    Xa, ya = make_classification(n_samples=1000, n_features=48, n_informative=8, n_redundant=0,
-                                 n_classes=2, n_clusters_per_class=1, class_sep=2.0, shuffle=False,
-                                 random_state=0)
+
+    Xa, ya = make_classification(
+        n_samples=1000, n_features=48, n_informative=8, n_redundant=0, n_classes=2, n_clusters_per_class=1, class_sep=2.0, shuffle=False, random_state=0
+    )
     Xdf = pd.DataFrame(Xa, columns=[f"x{i}" for i in range(48)])
-    sel = RFECV(estimator=LogisticRegression(max_iter=400, random_state=0), cv=3, max_refits=15,
-                random_state=0)
+    sel = RFECV(estimator=LogisticRegression(max_iter=400, random_state=0), cv=3, max_refits=15, random_state=0)
     sel.fit(Xdf, pd.Series(ya))
     selected = set(np.flatnonzero(np.asarray(sel.get_support())).tolist())
     recall = len(selected & set(range(8))) / 8
-    assert "p_ge_n_fp_control_cap" not in getattr(sel, "resolved_n_features_rule_", ""), (
-        "p>=n FP gate wrongly fired on a p<n problem")
+    assert "p_ge_n_fp_control_cap" not in getattr(sel, "resolved_n_features_rule_", ""), "p>=n FP gate wrongly fired on a p<n problem"
     assert recall >= 0.5, f"p<n recovery regressed: recall={recall:.2f}, selected={sorted(selected)}"
 
 
@@ -271,7 +278,7 @@ def test_biz_val_p_gt_n_mrmr_fp_control_hard_floor():
     This is the non-xfail counterpart to RFECV's select-all gap -- a real, hard, quantitative win."""
     spec = SELECTOR_SPECS["MRMR"]
     overs = []
-    for (n, p) in _NPS:
+    for n, p in _NPS:
         for seed in _SEEDS:
             sel, signal = _fit(spec, n, p, seed)
             _, total = _recovered_and_total(sel, signal)

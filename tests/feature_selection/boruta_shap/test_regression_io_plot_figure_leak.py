@@ -3,6 +3,7 @@
 Pre-fix: box_plot created a figure via plt.figure() that plot() never closed on the
 display=True path (and box_plot returned None, so plot had no handle to close).
 """
+
 from __future__ import annotations
 
 import types
@@ -25,9 +26,7 @@ def _make_fake_self():
     self.tentative = []
     self.rejected = ["f2"]
 
-    self.create_mapping_of_features_to_attribute = types.MethodType(
-        _io_plot.create_mapping_of_features_to_attribute, self
-    )
+    self.create_mapping_of_features_to_attribute = types.MethodType(_io_plot.create_mapping_of_features_to_attribute, self)
     self.filter_data = staticmethod(_io_plot.filter_data)
     self.check_if_which_features_is_correct = staticmethod(_io_plot.check_if_which_features_is_correct)
     self.box_plot = types.MethodType(_io_plot.box_plot, self)

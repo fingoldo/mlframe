@@ -4,6 +4,7 @@ to be numerically equivalent (~1e-9) to the explicit (spec*k).sum(axis=1) refere
 Guards the perf optimization: the gemv form must keep producing the same
 power-weighted-mean bin index, so the FE feature selection is unaffected.
 """
+
 import numpy as np
 import pytest
 

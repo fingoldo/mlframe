@@ -86,6 +86,7 @@ OBSERVED + DOCUMENTED (not pinned tightly)
   unchanged" because that would over-specify. We pin only that no
   noise column outranks x1 or x2.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -227,9 +228,9 @@ class TestExtremeOutliersX1SignalSurvives:
         """1%/5% 1000x-scale outliers in x1 keep x1's signal (raw or a derived child) and leak no noise column."""
         names = _build_and_fit_layer11(seed, outlier_frac=frac)
         assert names, f"seed={seed} frac={frac}: empty support"
-        assert any(
-            n == "x1" or n.split("__")[0] == "x1" for n in names
-        ), f"seed={seed} extreme_frac={frac}: x1 signal lost entirely -- neither raw x1 nor an x1-derived child survived. support={names}"
+        assert any(n == "x1" or n.split("__")[0] == "x1" for n in names), (
+            f"seed={seed} extreme_frac={frac}: x1 signal lost entirely -- neither raw x1 nor an x1-derived child survived. support={names}"
+        )
         noise_leaked = [n for n in names if n.split("__")[0].startswith("noise_")]
         assert not noise_leaked, f"seed={seed} extreme_frac={frac}: noise column(s) {noise_leaked} leaked into support under outlier injection. support={names}"
 
@@ -262,9 +263,7 @@ class TestSecondarySignalSurvivesOutliers:
     def test_x2_in_support(self, seed, mode_kw):
         """x2 (secondary signal) survives every non-inf outlier/NaN mode."""
         names = _build_and_fit_layer11(seed, **mode_kw)
-        assert "x2" in names, (
-            f"seed={seed} mode={mode_kw}: x2 (secondary signal) dropped " f"from support; outlier mode is masking weak signal. " f"support={names}"
-        )
+        assert "x2" in names, f"seed={seed} mode={mode_kw}: x2 (secondary signal) dropped from support; outlier mode is masking weak signal. support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -286,10 +285,10 @@ class TestNanClusterDoesNotDropSignal:
     def test_x1_kept_with_nan_cluster(self, seed):
         """A 5% NaN cluster in x1 must not drop x1 or demote it from rank #0."""
         names = _build_and_fit_layer11(seed, nan_frac=0.05)
-        assert "x1" in names, f"seed={seed}: x1 dropped from support after 5% NaN " f"injection; separate_bin NaN path is broken. support={names}"
+        assert "x1" in names, f"seed={seed}: x1 dropped from support after 5% NaN injection; separate_bin NaN path is broken. support={names}"
         # And x1 should still be at rank 0 -- the NaN cluster shouldn't
         # cost it the top spot to a noise column.
-        assert names[0] == "x1", f"seed={seed}: x1 demoted from rank #0 by NaN cluster; " f"support={names}"
+        assert names[0] == "x1", f"seed={seed}: x1 demoted from rank #0 by NaN cluster; support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -316,9 +315,9 @@ class TestNoiseOutlierDecoyAttack:
         """Noise-column decoy spikes must not displace x1 from rank #0 or let any noise column outrank x2."""
         names = _build_and_fit_layer11(seed, noise_outlier_frac=frac)
         assert names, f"seed={seed} nout_frac={frac}: empty support"
-        assert names[0] == "x1", f"seed={seed} nout_frac={frac}: noise outlier injection " f"displaced x1 from rank #0. support={names}"
+        assert names[0] == "x1", f"seed={seed} nout_frac={frac}: noise outlier injection displaced x1 from rank #0. support={names}"
         # x2 must outrank every noise column that made it into support.
-        assert "x2" in names, f"seed={seed} nout_frac={frac}: x2 dropped by decoy attack. " f"support={names}"
+        assert "x2" in names, f"seed={seed} nout_frac={frac}: x2 dropped by decoy attack. support={names}"
         x2_idx = names.index("x2")
         noise_in_support = [n for n in names if n.startswith("noise_")]
         for noise_name in noise_in_support:
@@ -355,8 +354,8 @@ class TestInfRaisesActionableError:
             with pytest.raises(ValueError) as exc_info:
                 MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         msg = str(exc_info.value).lower()
-        assert "inf" in msg, f"seed={seed}: ValueError raised but message doesn't " f"reference inf. Got: {exc_info.value!r}"
-        assert "replace" in msg or "drop" in msg, f"seed={seed}: ValueError missing actionable remediation " f"(replace / drop). Got: {exc_info.value!r}"
+        assert "inf" in msg, f"seed={seed}: ValueError raised but message doesn't reference inf. Got: {exc_info.value!r}"
+        assert "replace" in msg or "drop" in msg, f"seed={seed}: ValueError missing actionable remediation (replace / drop). Got: {exc_info.value!r}"
 
     def test_neg_inf_raises_valueerror(self):
         """Inject ONLY -inf (not +inf) to confirm the check catches both
@@ -374,7 +373,7 @@ class TestInfRaisesActionableError:
             warnings.simplefilter("ignore")
             with pytest.raises(ValueError) as exc_info:
                 MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
-        assert "inf" in str(exc_info.value).lower(), f"-inf-only injection: message doesn't reference inf. " f"Got: {exc_info.value!r}"
+        assert "inf" in str(exc_info.value).lower(), f"-inf-only injection: message doesn't reference inf. Got: {exc_info.value!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -406,10 +405,10 @@ class TestMixedOutlierAndNanDoesNotCrash:
         try:
             names = _fit_layer11(X, y)
         except Exception as exc:
-            pytest.fail(f"seed={seed}: mixed extreme+NaN input crashed MRMR with " f"{type(exc).__name__}: {exc}")
-        assert "x1" in names, f"seed={seed}: x1 dropped under mixed extreme+NaN; " f"support={names}"
-        assert "x2" in names, f"seed={seed}: x2 dropped under mixed extreme+NaN; " f"support={names}"
-        assert names[0] == "x1", f"seed={seed}: x1 demoted from rank #0 under mixed " f"extreme+NaN; support={names}"
+            pytest.fail(f"seed={seed}: mixed extreme+NaN input crashed MRMR with {type(exc).__name__}: {exc}")
+        assert "x1" in names, f"seed={seed}: x1 dropped under mixed extreme+NaN; support={names}"
+        assert "x2" in names, f"seed={seed}: x2 dropped under mixed extreme+NaN; support={names}"
+        assert names[0] == "x1", f"seed={seed}: x1 demoted from rank #0 under mixed extreme+NaN; support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -435,4 +434,4 @@ class TestCleanBaselineIsTheCeiling:
             f"layer-11 outlier contracts are vacuous on this seed until "
             f"the baseline is fixed. support={names}"
         )
-        assert names[0] == "x1", f"seed={seed}: CLEAN baseline did not rank x1 #0; " f"support={names}"
+        assert names[0] == "x1", f"seed={seed}: CLEAN baseline did not rank x1 #0; support={names}"

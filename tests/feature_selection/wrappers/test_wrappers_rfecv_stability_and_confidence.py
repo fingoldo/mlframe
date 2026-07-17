@@ -1,13 +1,12 @@
 """Phase 4 feature tests for RFECV: stability metrics (N1), 1-SE confidence
 interval on best N (N2), get_feature_names_out (N4), must_include hybrid (N5)."""
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.datasets import make_regression
-from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.model_selection import StratifiedKFold
+from sklearn.linear_model import LogisticRegression
 
 from mlframe.feature_selection.wrappers import RFECV
 from tests.training.synthetic import make_sklearn_classification_df
@@ -16,9 +15,15 @@ from tests.training.synthetic import make_sklearn_classification_df
 @pytest.fixture(scope="module")
 def small_clf_data():
     Xdf, y, _ = make_sklearn_classification_df(
-        n_samples=300, n_features=15, n_informative=5,
-        n_redundant=0, n_classes=2, n_clusters_per_class=1,
-        class_sep=2.0, shuffle=False, seed=0,
+        n_samples=300,
+        n_features=15,
+        n_informative=5,
+        n_redundant=0,
+        n_classes=2,
+        n_clusters_per_class=1,
+        class_sep=2.0,
+        shuffle=False,
+        seed=0,
     )
     return Xdf, y
 
@@ -42,7 +47,7 @@ def fitted_rfecv(small_clf_data):
 # ----------------------------------------------------------------------------
 class TestN4_GetFeatureNamesOut:
     def test_returns_selected_columns(self, fitted_rfecv):
-        rfecv, X, y = fitted_rfecv
+        rfecv, X, _y = fitted_rfecv
         names = rfecv.get_feature_names_out()
         assert isinstance(names, np.ndarray)
         assert len(names) == rfecv.n_features_
@@ -55,7 +60,7 @@ class TestN4_GetFeatureNamesOut:
             rfecv.get_feature_names_out()
 
     def test_aligned_with_transform_output(self, fitted_rfecv):
-        rfecv, X, y = fitted_rfecv
+        rfecv, X, _y = fitted_rfecv
         names = rfecv.get_feature_names_out()
         out = rfecv.transform(X)
         assert list(out.columns) == list(names)
@@ -66,25 +71,25 @@ class TestN4_GetFeatureNamesOut:
 # ----------------------------------------------------------------------------
 class TestN1_SelectionStability:
     def test_jaccard_in_unit_range(self, fitted_rfecv):
-        rfecv, X, y = fitted_rfecv
+        rfecv, _X, _y = fitted_rfecv
         s = rfecv.selection_stability_(metric="jaccard")
         if not np.isnan(s):
             assert 0.0 <= s <= 1.0
 
     def test_dice_in_unit_range(self, fitted_rfecv):
-        rfecv, X, y = fitted_rfecv
+        rfecv, _X, _y = fitted_rfecv
         s = rfecv.selection_stability_(metric="dice")
         if not np.isnan(s):
             assert 0.0 <= s <= 1.0
 
     def test_kuncheva_in_unit_range(self, fitted_rfecv):
-        rfecv, X, y = fitted_rfecv
+        rfecv, _X, _y = fitted_rfecv
         s = rfecv.selection_stability_(metric="kuncheva")
         if not np.isnan(s):
             assert 0.0 <= s <= 1.0
 
     def test_unknown_metric_raises(self, fitted_rfecv):
-        rfecv, X, y = fitted_rfecv
+        rfecv, _X, _y = fitted_rfecv
         with pytest.raises(ValueError, match="Unknown stability metric"):
             rfecv.selection_stability_(metric="bogus")
 
@@ -101,7 +106,7 @@ class TestN2_OneSeRule:
     def test_one_se_at_most_optimal(self, fitted_rfecv):
         """1-SE rule must return a count <= the variance-blind optimum, since
         it picks the SMALLEST N within the SE band."""
-        rfecv, X, y = fitted_rfecv
+        rfecv, _X, _y = fitted_rfecv
         n_one_se = rfecv.n_features_one_se_()
         # Find the variance-blind argmax of cv_mean_perf
         nfs = np.asarray(rfecv.cv_results_["nfeatures"])
@@ -109,12 +114,10 @@ class TestN2_OneSeRule:
         nonzero = nfs > 0
         if nonzero.any():
             argmax_n = int(nfs[nonzero][np.argmax(means[nonzero])])
-            assert n_one_se <= argmax_n, (
-                f"1-SE rule N={n_one_se} must be <= variance-blind argmax N={argmax_n}"
-            )
+            assert n_one_se <= argmax_n, f"1-SE rule N={n_one_se} must be <= variance-blind argmax N={argmax_n}"
 
     def test_one_se_returns_positive(self, fitted_rfecv):
-        rfecv, X, y = fitted_rfecv
+        rfecv, _X, _y = fitted_rfecv
         assert rfecv.n_features_one_se_() >= 1
 
 
@@ -165,7 +168,7 @@ class TestN5_MustInclude:
             cv=3,
             max_refits=4,
             verbose=0,
-            must_include=["g0", "g1", "g2"],   # half the universe pinned
+            must_include=["g0", "g1", "g2"],  # half the universe pinned
         )
         rfecv.fit(X, y)
         sel = list(rfecv.get_feature_names_out())

@@ -16,7 +16,11 @@ import pytest
 
 from mlframe.reporting.charts import drift
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec,
+    AnnotationPanelSpec,
+    BarPanelSpec,
+    FigureSpec,
+    HeatmapPanelSpec,
+    LinePanelSpec,
 )
 
 
@@ -93,7 +97,7 @@ def test_biz_value_psi_flags_drifting_feature_after_cutpoint():
     matrix, rows, _ = drift.compute_psi_matrix(X, ts, n_time_buckets=10)
     assert rows == ("f0", "f1")
     n_buckets = matrix.shape[1]
-    feat0_late = float(np.max(matrix[0, n_buckets // 2:]))
+    feat0_late = float(np.max(matrix[0, n_buckets // 2 :]))
     feat1_peak = float(np.max(matrix[1]))
     assert feat0_late > 0.25, f"drifting feat0 late PSI should exceed 0.25, got {feat0_late:.3f}"
     assert feat1_peak < 0.10, f"stationary feat1 PSI should stay under 0.10, got {feat1_peak:.3f}"
@@ -210,6 +214,7 @@ def _resid_series(n, r, delta, seed):
 def _cusum_cross_row(fig):
     """Detected change-point ordered-row parsed from the panel title, or None if none detected."""
     import re
+
     m = re.search(r"ordered-row (\d+)", fig.panels[0][0].title)
     return int(m.group(1)) if m else None
 
@@ -322,7 +327,7 @@ def test_biz_value_cusum_detects_earlier_than_per_bucket_mean():
     thr = 3.0 * ic_std / np.sqrt(bs)  # 3-sigma band of a bucket mean under the in-control regime
     bucket_alarm = None
     for i in range(nb):
-        if resid[i * bs:(i + 1) * bs].mean() > thr:
+        if resid[i * bs : (i + 1) * bs].mean() > thr:
             bucket_alarm = (i + 1) * bs  # a bucket mean is only observable once the full bucket has arrived
             break
     assert bucket_alarm is not None
@@ -351,6 +356,7 @@ def test_cprofile_cusum_at_1e6_rows():
 def _binary_time_data(n, seed, signal=0.5):
     rng = np.random.default_rng(seed)
     import pandas as pd
+
     ts = pd.date_range("2023-01-01", periods=n, freq="h").values
     y = (rng.random(n) < 0.4).astype(int)
     noise = rng.random(n)
@@ -373,8 +379,10 @@ def test_metric_over_time_returns_line_panel():
 def test_metric_over_time_regime_shading():
     pd = pytest.importorskip("pandas")
     y, p, ts = _binary_time_data(2000, 1, signal=0.6)
-    regimes = [(pd.Timestamp("2023-01-01"), pd.Timestamp("2023-01-30"), "blue", "train"),
-               (pd.Timestamp("2023-01-30"), pd.Timestamp("2023-03-01"), "orange", "test")]
+    regimes = [
+        (pd.Timestamp("2023-01-01"), pd.Timestamp("2023-01-30"), "blue", "train"),
+        (pd.Timestamp("2023-01-30"), pd.Timestamp("2023-03-01"), "orange", "test"),
+    ]
     fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=10, regimes=regimes)
     panel = fig.panels[0][0]
     assert panel.vspans is not None and len(panel.vspans) == 2
@@ -499,7 +507,7 @@ def test_biz_value_adversarial_identical_distributions_auc_near_half():
     n, d = 6000, 6
     base = rng.normal(size=(n, d))
     Xa = base[: n // 2]
-    Xb = base[n // 2:]  # same generative distribution
+    Xb = base[n // 2 :]  # same generative distribution
     auc, *_ = drift.adversarial_auc(Xa, Xb, n_splits=4, seed=1)
     assert abs(auc - 0.5) <= 0.07, f"identical distributions should give AUC ~0.5, got {auc:.3f}"
 
@@ -534,7 +542,7 @@ def test_cprofile_adversarial_subsample_bound():
     Xb = rng.normal(size=(n, d))
     pr = cProfile.Profile()
     pr.enable()
-    auc, fpr, tpr, imp, _ = drift.adversarial_auc(Xa, Xb, max_rows_per_side=5000, n_splits=3, seed=3)
+    auc, _fpr, _tpr, imp, _ = drift.adversarial_auc(Xa, Xb, max_rows_per_side=5000, n_splits=3, seed=3)
     pr.disable()
     assert imp.shape == (d,)
     assert 0.0 <= auc <= 1.0
@@ -568,9 +576,7 @@ def test_adversarial_auc_respects_feature_subset():
     n = 1500
     a = pd.DataFrame({"x": rng.normal(size=n), "leak": np.zeros(n)})
     b = pd.DataFrame({"x": rng.normal(size=n), "leak": np.ones(n)})
-    auc_sub, _, _, imp_sub, names_sub = drift.adversarial_auc(
-        a, b, feature_names=["x"], n_splits=3, seed=1
-    )
+    auc_sub, _, _, imp_sub, names_sub = drift.adversarial_auc(a, b, feature_names=["x"], n_splits=3, seed=1)
     assert names_sub == ("x",)
     assert imp_sub.shape == (1,)
     assert auc_sub < 0.6  # leak excluded => near chance

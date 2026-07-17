@@ -30,6 +30,7 @@ contract's -0.02. NEVER xfail / weaken: a linear-lift regression means the FE pa
 lost downstream value, a tree-harm regression means it started polluting tree inputs
 with junk columns -- both are prod bugs to fix, not assertions to relax.
 """
+
 from __future__ import annotations
 
 import sys
@@ -47,9 +48,9 @@ from sklearn.metrics import roc_auc_score
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 sys.path.insert(0, os.path.dirname(__file__))
-from tests.feature_selection._biz_val_synth import as_df  # noqa: E402,F401  (kept for parity with sibling biz_val files)
+from tests.feature_selection._biz_val_synth import as_df  # noqa: F401  (kept for parity with sibling biz_val files)
 
-from tests.feature_selection.conftest import is_fast_mode, fast_subset  # noqa: E402
+from tests.feature_selection.conftest import is_fast_mode, fast_subset
 
 lgb = pytest.importorskip("lightgbm")
 
@@ -64,23 +65,34 @@ _RAW_ONLY = dict(
     # baseline silently receives `x__He2`, which (being the only linear carrier of the
     # even-symmetric signal) lifts lr_raw to ~1.0 and erases the FE-vs-raw lift contract.
     fe_hybrid_orth_enable=False,
-    fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False,
-    fe_hinge_enable=False, fe_conditional_dispersion_enable=False,
-    fe_wavelet_enable=False, fe_hybrid_orth_pair_enable=False,
-    fe_auto_escalation_enable=False, fe_pair_prewarp_enable=False,
-    fe_rung_schedule_enable=False, fe_stability_vote_enable=False,
-    cluster_aggregate_enable=False, dcd_enable=False,
+    fe_univariate_basis_enable=False,
+    fe_univariate_fourier_enable=False,
+    fe_hinge_enable=False,
+    fe_conditional_dispersion_enable=False,
+    fe_wavelet_enable=False,
+    fe_hybrid_orth_pair_enable=False,
+    fe_auto_escalation_enable=False,
+    fe_pair_prewarp_enable=False,
+    fe_rung_schedule_enable=False,
+    fe_stability_vote_enable=False,
+    cluster_aggregate_enable=False,
+    dcd_enable=False,
 )
 # The MAIN univariate hermite/orth basis path at the DEFAULT depth (fe_max_steps=2);
 # the pair-cross orth basis is left on so a pair-quadratic can recover its terms.
 # Heavy auxiliary generators OFF to keep each cell < 55s.
 _FE_ON = dict(
-    fe_univariate_basis_enable=True, fe_hybrid_orth_pair_enable=True,
-    fe_hinge_enable=False, fe_conditional_dispersion_enable=False,
+    fe_univariate_basis_enable=True,
+    fe_hybrid_orth_pair_enable=True,
+    fe_hinge_enable=False,
+    fe_conditional_dispersion_enable=False,
     fe_wavelet_enable=False,
-    fe_auto_escalation_enable=False, fe_pair_prewarp_enable=False,
-    fe_rung_schedule_enable=False, fe_stability_vote_enable=False,
-    cluster_aggregate_enable=False, dcd_enable=False,
+    fe_auto_escalation_enable=False,
+    fe_pair_prewarp_enable=False,
+    fe_rung_schedule_enable=False,
+    fe_stability_vote_enable=False,
+    cluster_aggregate_enable=False,
+    dcd_enable=False,
 )
 
 
@@ -119,8 +131,7 @@ def _split(df, y, frac: float = 0.7):
     np.random.default_rng(0).shuffle(idx)
     k = int(n * frac)
     tr, te = idx[:k], idx[k:]
-    return (df.iloc[tr].reset_index(drop=True), y.iloc[tr].reset_index(drop=True),
-            df.iloc[te].reset_index(drop=True), y.iloc[te].reset_index(drop=True))
+    return (df.iloc[tr].reset_index(drop=True), y.iloc[tr].reset_index(drop=True), df.iloc[te].reset_index(drop=True), y.iloc[te].reset_index(drop=True))
 
 
 def _select_transform(kwargs, df_tr, y_tr, df_te):

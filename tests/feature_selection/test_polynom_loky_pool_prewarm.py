@@ -25,6 +25,7 @@ end-to-end: pre-warming via this function measurably speeds up a REAL ``run_poly
 afterward (the actual contract this fix exists for), (5) the idle-worker-timeout constant is shared
 correctly between the two call sites and exceeds the joblib default.
 """
+
 from __future__ import annotations
 
 import threading
@@ -98,18 +99,35 @@ def test_prewarm_speeds_up_a_real_run_polynom_pair_fe_call():
     def _run():
         t0 = time.perf_counter()
         ppfe.run_polynom_pair_fe(
-            X=X, is_polars_input=False, prospective_pairs=prospective_pairs,
-            classes_y=y, cols=cols, nbins=nbins, data=X.copy(),
-            engineered_features=set(), engineered_recipes={}, hermite_features_list=[],
+            X=X,
+            is_polars_input=False,
+            prospective_pairs=prospective_pairs,
+            classes_y=y,
+            cols=cols,
+            nbins=nbins,
+            data=X.copy(),
+            engineered_features=set(),
+            engineered_recipes={},
+            hermite_features_list=[],
             feature_names_in=cols,
-            fe_smart_polynom_iters=1, fe_smart_polynom_optimization_steps=3,
-            fe_min_polynom_degree=1, fe_max_polynom_degree=3,
-            fe_min_polynom_coeff=-2.0, fe_max_polynom_coeff=2.0,
-            fe_min_engineered_mi_prevalence=0.0, fe_hermite_l2_penalty=0.0,
-            fe_polynomial_basis="hermite", fe_mi_estimator="plugin",
-            fe_optimizer="random", fe_warm_start=False, fe_multi_fidelity=False,
-            quantization_nbins=10, quantization_method="uniform", quantization_dtype=np.int8,
-            n_jobs=16, verbose=0,
+            fe_smart_polynom_iters=1,
+            fe_smart_polynom_optimization_steps=3,
+            fe_min_polynom_degree=1,
+            fe_max_polynom_degree=3,
+            fe_min_polynom_coeff=-2.0,
+            fe_max_polynom_coeff=2.0,
+            fe_min_engineered_mi_prevalence=0.0,
+            fe_hermite_l2_penalty=0.0,
+            fe_polynomial_basis="hermite",
+            fe_mi_estimator="plugin",
+            fe_optimizer="random",
+            fe_warm_start=False,
+            fe_multi_fidelity=False,
+            quantization_nbins=10,
+            quantization_method="uniform",
+            quantization_dtype=np.int8,
+            n_jobs=16,
+            verbose=0,
         )
         return time.perf_counter() - t0
 
@@ -153,23 +171,39 @@ def test_idle_worker_timeout_exceeds_joblib_default_and_is_shared_with_real_disp
     prospective_pairs = {(i, i + 1): 1.0 for i in range(16)}  # crosses _PARALLEL_PAIR_THRESHOLD=16
 
     ppfe.run_polynom_pair_fe(
-        X=X, is_polars_input=False, prospective_pairs=prospective_pairs,
-        classes_y=y, cols=cols, nbins=nbins, data=X.copy(),
-        engineered_features=set(), engineered_recipes={}, hermite_features_list=[],
+        X=X,
+        is_polars_input=False,
+        prospective_pairs=prospective_pairs,
+        classes_y=y,
+        cols=cols,
+        nbins=nbins,
+        data=X.copy(),
+        engineered_features=set(),
+        engineered_recipes={},
+        hermite_features_list=[],
         feature_names_in=cols,
-        fe_smart_polynom_iters=1, fe_smart_polynom_optimization_steps=1,
-        fe_min_polynom_degree=1, fe_max_polynom_degree=2,
-        fe_min_polynom_coeff=-2.0, fe_max_polynom_coeff=2.0,
-        fe_min_engineered_mi_prevalence=0.0, fe_hermite_l2_penalty=0.0,
-        fe_polynomial_basis="hermite", fe_mi_estimator="plugin",
-        fe_optimizer="random", fe_warm_start=False, fe_multi_fidelity=False,
-        quantization_nbins=10, quantization_method="uniform", quantization_dtype=np.int8,
-        n_jobs=16, verbose=0,
+        fe_smart_polynom_iters=1,
+        fe_smart_polynom_optimization_steps=1,
+        fe_min_polynom_degree=1,
+        fe_max_polynom_degree=2,
+        fe_min_polynom_coeff=-2.0,
+        fe_max_polynom_coeff=2.0,
+        fe_min_engineered_mi_prevalence=0.0,
+        fe_hermite_l2_penalty=0.0,
+        fe_polynomial_basis="hermite",
+        fe_mi_estimator="plugin",
+        fe_optimizer="random",
+        fe_warm_start=False,
+        fe_multi_fidelity=False,
+        quantization_nbins=10,
+        quantization_method="uniform",
+        quantization_dtype=np.int8,
+        n_jobs=16,
+        verbose=0,
     )
 
     assert captured.get("idle_worker_timeout") == POLYNOM_LOKY_IDLE_WORKER_TIMEOUT, (
-        "run_polynom_pair_fe's real LokyBackend construction must reference the SAME shared constant "
-        f"maybe_prewarm_polynom_loky_pool uses; got {captured}"
+        f"run_polynom_pair_fe's real LokyBackend construction must reference the SAME shared constant maybe_prewarm_polynom_loky_pool uses; got {captured}"
     )
 
 

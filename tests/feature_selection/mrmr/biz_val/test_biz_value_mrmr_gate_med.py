@@ -40,13 +40,13 @@ Falsifiable pins (all measured n=4000):
 * Default fits are UNCHANGED: ``fe_gate_med_enable`` defaults to False, so a
   default MRMR never registers the pseudo-unary (no gate_med in feature names).
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -77,8 +77,8 @@ def _make_and_skew(seed: int = 707, n: int = N):
     (median ~2). Weak marginals, strong joint, skewed operands -> the median gate
     is the only representation the unary/binary path can use to recover it."""
     rng = np.random.default_rng(seed)
-    a = np.exp(0.7 * rng.normal(size=n))   # lognormal: median ~1, heavy tail
-    b = rng.normal(size=n) + 2.0           # shifted: median ~2
+    a = np.exp(0.7 * rng.normal(size=n))  # lognormal: median ~1, heavy tail
+    b = rng.normal(size=n) + 2.0  # shifted: median ~2
     c = rng.normal(0, 1, n)
     e = rng.normal(0, 1, n)
     ma, mb = float(np.median(a)), float(np.median(b))
@@ -116,13 +116,19 @@ def _unb(gate_med: bool):
     pseudo-unary by a hair in the final greedy MRMR selection and shadows it from the
     support -- exactly the shadowing reason the univariate paths above are silenced.
     Disabling it keeps this a clean single-knob A/B on ``fe_gate_med_enable``."""
-    return MRMR(verbose=0, n_jobs=1, random_seed=0,
-                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False,
-                fe_pair_prewarp_enable=False,
-                fe_univariate_basis_enable=False,
-                fe_univariate_fourier_enable=False,
-                fe_conditional_gate_enable=False,
-                fe_gate_med_enable=gate_med, **_LEAN)
+    return MRMR(
+        verbose=0,
+        n_jobs=1,
+        random_seed=0,
+        fe_smart_polynom_iters=0,
+        fe_hybrid_orth_enable=False,
+        fe_pair_prewarp_enable=False,
+        fe_univariate_basis_enable=False,
+        fe_univariate_fourier_enable=False,
+        fe_conditional_gate_enable=False,
+        fe_gate_med_enable=gate_med,
+        **_LEAN,
+    )
 
 
 def _fit(make, df, y):
@@ -160,14 +166,13 @@ def _ridge_r2(X, y):
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
     from sklearn.model_selection import cross_val_score, KFold
+
     if np.ndim(X) == 1:
         X = np.asarray(X).reshape(-1, 1)
     if X.shape[1] == 0:
         return float("nan")
     cv = KFold(n_splits=5, shuffle=True, random_state=0)
-    return float(np.mean(cross_val_score(
-        make_pipeline(StandardScaler(), Ridge(alpha=1.0)),
-        X, np.asarray(y, dtype=float), cv=cv, scoring="r2")))
+    return float(np.mean(cross_val_score(make_pipeline(StandardScaler(), Ridge(alpha=1.0)), X, np.asarray(y, dtype=float), cv=cv, scoring="r2")))
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +184,7 @@ def test_gate_med_apply_is_train_median_gate_and_leak_safe():
     the TRAIN median (leak-safe), NOT a test-recomputed one. A leaky recompute
     would flip the gate on rows straddling the (shifted) test median."""
     from mlframe.feature_selection.filters._feature_engineering_pairs import _gate_med_apply
+
     rng = np.random.default_rng(0)
     a_tr = rng.normal(3.0, 1.0, 2000)
     a_te = rng.normal(3.0, 1.0, 800)
@@ -193,10 +199,7 @@ def test_gate_med_apply_is_train_median_gate_and_leak_safe():
     # (wrong) test-recomputed median on the rows between the two medians.
     med_te_wrong = float(np.median(a_te))
     n_diff = int(np.sum(_gate_med_apply(a_te, med_tr) != _gate_med_apply(a_te, med_te_wrong)))
-    assert n_diff > 0, (
-        "train vs test median produce identical gates -- the leak-safety "
-        "distinction is untestable on this fixture (medians coincide)"
-    )
+    assert n_diff > 0, "train vs test median produce identical gates -- the leak-safety distinction is untestable on this fixture (medians coincide)"
 
 
 # ---------------------------------------------------------------------------
@@ -211,17 +214,12 @@ def test_gated_med_unary_binary_recovers_with_gate():
     fs = _fit(lambda: _unb(gate_med=True), df, y)
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, (
-        "AND-skew/UNB+gate engineered nothing; the per-operand median gate is "
-        "expected to recover the conditional signal via the unary/binary path"
+        "AND-skew/UNB+gate engineered nothing; the per-operand median gate is expected to recover the conditional signal via the unary/binary path"
     )
     assert "gate_med" in name, (
-        f"AND-skew recovery used '{name}' which does NOT involve the gate_med "
-        f"pseudo-unary; the recovery should be attributable to the median gate"
+        f"AND-skew recovery used '{name}' which does NOT involve the gate_med pseudo-unary; the recovery should be attributable to the median gate"
     )
-    assert corr >= 0.50, (
-        f"AND-skew/UNB+gate best engineered |corr|={corr:.3f} < 0.50 ({name}); "
-        f"the median-gate recovery regressed"
-    )
+    assert corr >= 0.50, f"AND-skew/UNB+gate best engineered |corr|={corr:.3f} < 0.50 ({name}); the median-gate recovery regressed"
 
 
 def test_gate_med_recovers_skewed_conjunction_via_the_median_gate():
@@ -239,8 +237,7 @@ def test_gate_med_recovers_skewed_conjunction_via_the_median_gate():
     fs_on = _fit(lambda: _unb(gate_med=True), df, y)
     _n_on, corr_on = _best_engineered_corr(fs_on, df, true)
     assert corr_on >= 0.50, (
-        f"gate ON failed to recover the skewed conjunction via the median gate "
-        f"(|corr|={corr_on:.3f}, {_n_on}); the median-gate recovery regressed"
+        f"gate ON failed to recover the skewed conjunction via the median gate (|corr|={corr_on:.3f}, {_n_on}); the median-gate recovery regressed"
     )
 
 
@@ -248,7 +245,7 @@ def test_gated_med_downstream_score_recovers_with_gate():
     """END-TO-END: the gate selection lifts downstream 5-fold Ridge R^2 over the
     all-raw baseline (raw cannot linearly express the conjunction of two skewed
     operands). The no-gate control stays stuck near the raw baseline."""
-    df, y, true = _make_and_skew()
+    df, y, _true = _make_and_skew()
     raw_r2 = _ridge_r2(df.values, y)
     fs_on = _fit(lambda: _unb(gate_med=True), df, y)
     sel_r2 = _ridge_r2(np.asarray(fs_on.transform(df)), y)
@@ -277,15 +274,11 @@ def test_noise_control_gate_med_engineers_nothing():
     fs_on = _fit(lambda: _unb(gate_med=True), df, y)
     eng_on = _eng_names(fs_on)
     gate_cols = [nm for nm in eng_on if "gate_med" in nm]
-    assert not gate_cols, (
-        f"noise control fabricated gate_med feature(s) {gate_cols}; the "
-        f"prevalence gate let a spurious median-gate feature through"
-    )
+    assert not gate_cols, f"noise control fabricated gate_med feature(s) {gate_cols}; the prevalence gate let a spurious median-gate feature through"
     raw_r2 = _ridge_r2(df.values, y)
     sel_r2 = _ridge_r2(np.asarray(fs_on.transform(df)), y)
     assert sel_r2 <= raw_r2 + 0.10, (
-        f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline "
-        f"{raw_r2:.3f}: a spurious gate_med feature is leaking signal"
+        f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline {raw_r2:.3f}: a spurious gate_med feature is leaking signal"
     )
 
 
@@ -298,16 +291,12 @@ def test_default_mrmr_does_not_register_gate_med():
     arm of the A/B) never engineers a gate_med column -- the default fit path is
     byte-unchanged by this feature."""
     assert MRMR(verbose=0).fe_gate_med_enable is False, (
-        "fe_gate_med_enable must default to False (opt-in); the median gate must "
-        "not tax the default minimal path"
+        "fe_gate_med_enable must default to False (opt-in); the median gate must not tax the default minimal path"
     )
     df, y, _ = _make_and_skew()
     fs_off = _fit(lambda: _unb(gate_med=False), df, y)
     gate_cols = [nm for nm in _eng_names(fs_off) if "gate_med" in nm]
-    assert not gate_cols, (
-        f"gate OFF unexpectedly produced gate_med column(s) {gate_cols}; the "
-        f"pseudo-unary must only register when fe_gate_med_enable is True"
-    )
+    assert not gate_cols, f"gate OFF unexpectedly produced gate_med column(s) {gate_cols}; the pseudo-unary must only register when fe_gate_med_enable is True"
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +310,7 @@ def test_gate_med_recipe_replay_is_deterministic_and_leak_free():
     applied directly to the same rows (no y consulted -- the fitted median lives
     in the EngineeredRecipe.extra). A held-out fixture from the SAME distribution
     exercises the leak-safe stored-median path (test median != train median)."""
-    df, y, true = _make_and_skew()
+    df, y, _true = _make_and_skew()
     fs = _fit(lambda: _unb(gate_med=True), df, y)
     eng = [nm for nm in _eng_names(fs) if "gate_med" in nm]
     assert eng, "no gate_med engineered feature to replay"
@@ -333,14 +322,14 @@ def test_gate_med_recipe_replay_is_deterministic_and_leak_free():
     Xt1 = np.asarray(fs.transform(df_test))
     Xt2 = np.asarray(fs.transform(df_test))
     for i in eng_idx:
-        np.testing.assert_allclose(Xt1[:, i], Xt2[:, i], rtol=0, atol=0,
-                                   err_msg=f"replay of '{names[i]}' is non-deterministic")
+        np.testing.assert_allclose(Xt1[:, i], Xt2[:, i], rtol=0, atol=0, err_msg=f"replay of '{names[i]}' is non-deterministic")
         col = Xt1[:, i]
         assert np.isfinite(col).all(), f"replayed '{names[i]}' has non-finite values"
 
     # Direct recipe-apply parity: the stored recipe reproduces the same column,
     # and the recipe carries the TRAIN median (not a test-recomputed one).
     from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
     recipes = {r.name: r for r in fs._engineered_recipes_}
     for i in eng_idx:
         nm = names[i]
@@ -349,32 +338,24 @@ def test_gate_med_recipe_replay_is_deterministic_and_leak_free():
         # The recipe must store at least one gate_med median in extra.
         med_keys = [k for k in rec.extra if k.startswith("gate_med_") and k.endswith("_median")]
         assert med_keys, (
-            f"recipe '{nm}' uses gate_med but stores no gate_med_*_median in extra; "
-            f"leak-safe replay would have to recompute the median on test data"
+            f"recipe '{nm}' uses gate_med but stores no gate_med_*_median in extra; leak-safe replay would have to recompute the median on test data"
         )
         direct = np.asarray(apply_recipe(rec, df_test)).reshape(-1)
         r = abs(float(np.corrcoef(direct, Xt1[:, i])[0, 1]))
-        assert r > 0.999, (
-            f"recipe-apply replay of '{nm}' diverges from transform() output "
-            f"(|corr|={r:.4f}); replay is not deterministic / leak-free"
-        )
+        assert r > 0.999, f"recipe-apply replay of '{nm}' diverges from transform() output (|corr|={r:.4f}); replay is not deterministic / leak-free"
 
     # The stored median is the TRAIN median, not the held-out test median: prove
     # leak-safety by showing a test-recomputed gate would differ on some rows.
     from mlframe.feature_selection.filters._feature_engineering_pairs import _gate_med_apply
+
     rec0 = recipes[eng[0]]
-    side_key = [k for k in rec0.extra if k.startswith("gate_med_") and k.endswith("_median")][0]
+    side_key = next(k for k in rec0.extra if k.startswith("gate_med_") and k.endswith("_median"))
     stored_med = float(rec0.extra[side_key])
     # Identify which source column that side maps to and re-extract it.
     src_a, src_b = rec0.src_names
-    u_a, u_b = rec0.unary_names
+    u_a, _u_b = rec0.unary_names
     src_for_gate = src_a if (u_a == "gate_med" and side_key == "gate_med_a_median") else src_b
     gate_src_vals = df_test[src_for_gate].to_numpy()
     test_med = float(np.median(gate_src_vals))
-    n_diff = int(np.sum(
-        _gate_med_apply(gate_src_vals, stored_med) != _gate_med_apply(gate_src_vals, test_med)
-    ))
-    assert n_diff > 0, (
-        "stored gate replay equals a test-recomputed-median gate on every row; "
-        "the leak-safety distinction is untestable on this fixture"
-    )
+    n_diff = int(np.sum(_gate_med_apply(gate_src_vals, stored_med) != _gate_med_apply(gate_src_vals, test_med)))
+    assert n_diff > 0, "stored gate replay equals a test-recomputed-median gate on every row; the leak-safety distinction is untestable on this fixture"

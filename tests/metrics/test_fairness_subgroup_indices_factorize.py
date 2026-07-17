@@ -4,11 +4,11 @@ The per-bin ``np.where(bins == bin_name)[0]`` loop was O(n*B) and ran a full obj
 The fast path partitions all groups with a single ``pd.factorize`` + stable argsort. These tests pin that the fast path is taken AND that it is bit-identical to the
 brute-force per-bin reference.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.metrics import _fairness_metrics as fm
 from mlframe.metrics._fairness_metrics import create_fairness_subgroups, create_fairness_subgroups_indices

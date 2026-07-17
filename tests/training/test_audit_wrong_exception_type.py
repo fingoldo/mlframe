@@ -27,11 +27,10 @@ Sites covered:
     - training/ranking.py:261
     - training/ranking.py:487
 """
+
 from __future__ import annotations
 
-import ast
 import importlib
-import inspect
 from pathlib import Path
 
 import pytest
@@ -104,9 +103,7 @@ def test_not_fitted_uses_notfittederror(rel: str) -> None:
         # Lightweight check: if phrase appears, ensure no RuntimeError on the same logical raise line.
         for line_idx, line in enumerate(src.splitlines()):
             if phrase in line and "RuntimeError" in line:
-                pytest.fail(
-                    f"{rel}: line {line_idx + 1} still raises RuntimeError for a not-fitted state: {line.strip()!r}"
-                )
+                pytest.fail(f"{rel}: line {line_idx + 1} still raises RuntimeError for a not-fitted state: {line.strip()!r}")
 
 
 def test_notfittederror_is_importable_in_each_file() -> None:
@@ -115,9 +112,7 @@ def test_notfittederror_is_importable_in_each_file() -> None:
         src = _read(rel)
         if "NotFittedError" not in src:
             continue
-        assert (
-            "from sklearn.exceptions import NotFittedError" in src
-        ), f"{rel}: NotFittedError referenced but not imported from sklearn.exceptions"
+        assert "from sklearn.exceptions import NotFittedError" in src, f"{rel}: NotFittedError referenced but not imported from sklearn.exceptions"
 
 
 # ---------------------------------------------------------------------------
@@ -141,23 +136,17 @@ def test_predict_models_path_type_is_typeerror() -> None:
     src = _read("training/core/predict.py")
     # Find the models_path isinstance str check; raise on the following line should be TypeError.
     snippet = src
-    assert (
-        'raise TypeError(f"models_path must be a str' in snippet
-    ), "predict.py: models_path type check should raise TypeError"
+    assert 'raise TypeError(f"models_path must be a str' in snippet, "predict.py: models_path type check should raise TypeError"
 
 
 def test_bruteforce_df_type_is_typeerror() -> None:
     src = _read("feature_engineering/bruteforce.py")
-    assert (
-        "raise TypeError(" in src and "pandas or polars DataFrame" in src
-    ), "bruteforce.py: df type check should raise TypeError"
+    assert "raise TypeError(" in src and "pandas or polars DataFrame" in src, "bruteforce.py: df type check should raise TypeError"
 
 
 def test_neural_base_mixin_type_is_typeerror() -> None:
     src = _read("training/neural/base.py")
-    assert (
-        'raise TypeError(f"Estimator must be a RegressorMixin or ClassifierMixin' in src
-    ), "neural/base.py: mixin dispatch failure should raise TypeError"
+    assert 'raise TypeError(f"Estimator must be a RegressorMixin or ClassifierMixin' in src, "neural/base.py: mixin dispatch failure should raise TypeError"
 
 
 def test_neural_base_period_type_is_typeerror() -> None:
@@ -168,9 +157,7 @@ def test_neural_base_period_type_is_typeerror() -> None:
     _sib = MLFRAME_ROOT / "training" / "neural" / "_base_callbacks.py"
     if _sib.exists():
         src += "\n" + _sib.read_text(encoding="utf-8")
-    assert (
-        'raise TypeError(f"period must be an int' in src
-    ), "neural/base.py: PeriodicLearningRateFinder.period type check should raise TypeError"
+    assert 'raise TypeError(f"period must be an int' in src, "neural/base.py: PeriodicLearningRateFinder.period type check should raise TypeError"
 
 
 def test_neural_flat_validation_uses_typeerror_and_valueerror() -> None:
@@ -189,7 +176,7 @@ def test_neural_flat_validation_uses_typeerror_and_valueerror() -> None:
         'raise ValueError(f"nlayers must be >= 1',
         'raise ValueError(f"min_layer_neurons must be >= 1',
         'raise ValueError(f"num_classes must be >= 0',
-        'raise ValueError(',  # first_layer_num_neurons range
+        "raise ValueError(",  # first_layer_num_neurons range
     ]
     for phrase in value_error_phrases:
         assert phrase in src, f"neural/flat.py: expected ValueError site {phrase!r}"
@@ -200,9 +187,7 @@ def test_neural_flat_batch_format_is_typeerror() -> None:
     sibling _flat_torch_module.py after the flat-module monolith split;
     concat so the source sensor still matches."""
     src = _read("training/neural/flat.py") + "\n" + _read("training/neural/_flat_torch_module.py")
-    assert (
-        'raise TypeError(f"Unexpected batch format' in src
-    ), "neural/flat.py: batch format dispatch failure should raise TypeError"
+    assert 'raise TypeError(f"Unexpected batch format' in src, "neural/flat.py: batch format dispatch failure should raise TypeError"
 
 
 # ---------------------------------------------------------------------------
@@ -223,31 +208,24 @@ def test_assertion_error_not_used_at_validation_boundary(rel: str, forbidden_ass
     # The forbidden string must NOT co-occur with raise AssertionError on the same line.
     for line in src.splitlines():
         if forbidden_assertion_substring in line and "AssertionError" in line:
-            pytest.fail(
-                f"{rel}: still raises AssertionError at validation boundary; would be stripped by python -O\n  line: {line.strip()!r}"
-            )
+            pytest.fail(f"{rel}: still raises AssertionError at validation boundary; would be stripped by python -O\n  line: {line.strip()!r}")
 
 
 def test_categorical_numaggs_count_mismatch_is_runtimeerror() -> None:
     src = _read("feature_engineering/categorical.py")
-    assert (
-        "raise RuntimeError(" in src
-        and "compute_numaggs(directional_only=True) returned" in src
-    ), "categorical.py: numaggs count mismatch should raise RuntimeError"
+    assert "raise RuntimeError(" in src and "compute_numaggs(directional_only=True) returned" in src, (
+        "categorical.py: numaggs count mismatch should raise RuntimeError"
+    )
 
 
 def test_ranking_unreachable_is_runtimeerror() -> None:
     src = _read("training/ranking.py")
-    assert (
-        'raise RuntimeError("unreachable' in src
-    ), "ranking.py: unreachable sentinel should be RuntimeError"
+    assert 'raise RuntimeError("unreachable' in src, "ranking.py: unreachable sentinel should be RuntimeError"
 
 
 def test_ranking_unknown_flavor_is_valueerror() -> None:
     src = _read("training/ranking.py")
-    assert (
-        "raise ValueError(f\"unknown ranker flavor" in src
-    ), "ranking.py: unknown flavor dispatch failure should raise ValueError (not AssertionError)"
+    assert 'raise ValueError(f"unknown ranker flavor' in src, "ranking.py: unknown flavor dispatch failure should raise ValueError (not AssertionError)"
 
 
 # ---------------------------------------------------------------------------

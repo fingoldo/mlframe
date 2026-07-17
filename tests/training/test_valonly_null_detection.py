@@ -25,9 +25,9 @@ primitives work) and then a small integration repro through
 ``train_mlframe_models_suite`` itself (proving the suite actually
 calls them correctly).
 """
+
 from __future__ import annotations
 
-import logging
 
 import polars as pl
 
@@ -46,33 +46,39 @@ class TestValOnlyNullDetection:
         """train has NO nulls; val has nulls in col_b; test has nulls
         in col_c. The pre-fix code returned an empty list on train,
         skipped the fill entirely, and nulls slipped into val/test."""
-        train = pl.DataFrame({
-            "col_a": pl.Series(["a"] * 10, dtype=pl.Categorical),
-            "col_b": pl.Series(["x"] * 10, dtype=pl.Categorical),
-            "col_c": pl.Series(["y"] * 10, dtype=pl.Categorical),
-        })
-        val = pl.DataFrame({
-            "col_a": pl.Series(["a"] * 10, dtype=pl.Categorical),
-            "col_b": pl.Series([None, "x"] * 5, dtype=pl.Categorical),  # null HERE
-            "col_c": pl.Series(["y"] * 10, dtype=pl.Categorical),
-        })
-        test = pl.DataFrame({
-            "col_a": pl.Series(["a"] * 10, dtype=pl.Categorical),
-            "col_b": pl.Series(["x"] * 10, dtype=pl.Categorical),
-            "col_c": pl.Series([None, "y"] * 5, dtype=pl.Categorical),  # null HERE
-        })
+        train = pl.DataFrame(
+            {
+                "col_a": pl.Series(["a"] * 10, dtype=pl.Categorical),
+                "col_b": pl.Series(["x"] * 10, dtype=pl.Categorical),
+                "col_c": pl.Series(["y"] * 10, dtype=pl.Categorical),
+            }
+        )
+        val = pl.DataFrame(
+            {
+                "col_a": pl.Series(["a"] * 10, dtype=pl.Categorical),
+                "col_b": pl.Series([None, "x"] * 5, dtype=pl.Categorical),  # null HERE
+                "col_c": pl.Series(["y"] * 10, dtype=pl.Categorical),
+            }
+        )
+        test = pl.DataFrame(
+            {
+                "col_a": pl.Series(["a"] * 10, dtype=pl.Categorical),
+                "col_b": pl.Series(["x"] * 10, dtype=pl.Categorical),
+                "col_c": pl.Series([None, "y"] * 5, dtype=pl.Categorical),  # null HERE
+            }
+        )
         return train, val, test
 
     def test_train_alone_misses_valtest_only_nulls(self):
         """Demonstrates the pre-Round-17 bug: inspecting train alone
         returns an empty list even though val and test have nulls."""
-        train, val, test = self._build_splits()
+        train, _val, _test = self._build_splits()
         train_only_nullable = _polars_nullable_categorical_cols(
-            train, cat_features=["col_a", "col_b", "col_c"],
+            train,
+            cat_features=["col_a", "col_b", "col_c"],
         )
         assert train_only_nullable == [], (
-            "train has no nulls, so train-only inspection returns []. "
-            "This is the exact pre-fix state that let val/test nulls escape."
+            "train has no nulls, so train-only inspection returns []. This is the exact pre-fix state that let val/test nulls escape."
         )
 
     def test_union_detects_valtest_only_nulls(self):
@@ -81,15 +87,13 @@ class TestValOnlyNullDetection:
         train, val, test = self._build_splits()
         cats = ["col_a", "col_b", "col_c"]
         tr = set(_polars_nullable_categorical_cols(train, cat_features=cats))
-        v  = set(_polars_nullable_categorical_cols(val,   cat_features=cats))
-        te = set(_polars_nullable_categorical_cols(test,  cat_features=cats))
+        v = set(_polars_nullable_categorical_cols(val, cat_features=cats))
+        te = set(_polars_nullable_categorical_cols(test, cat_features=cats))
         assert tr == set()
-        assert v  == {"col_b"}
+        assert v == {"col_b"}
         assert te == {"col_c"}
         assert sorted(tr | v | te) == ["col_b", "col_c"], (
-            "union must surface every column with nulls in ANY split "
-            "so fill_null covers them all before the model sees a raw "
-            "null in a Polars Categorical"
+            "union must surface every column with nulls in ANY split so fill_null covers them all before the model sees a raw null in a Polars Categorical"
         )
 
     def test_fill_on_union_eliminates_nulls_in_all_splits(self):
@@ -100,17 +104,17 @@ class TestValOnlyNullDetection:
         cats = ["col_a", "col_b", "col_c"]
         union = sorted(
             set(_polars_nullable_categorical_cols(train, cat_features=cats))
-            | set(_polars_nullable_categorical_cols(val,   cat_features=cats))
-            | set(_polars_nullable_categorical_cols(test,  cat_features=cats))
+            | set(_polars_nullable_categorical_cols(val, cat_features=cats))
+            | set(_polars_nullable_categorical_cols(test, cat_features=cats))
         )
         train_f = _polars_fill_null_in_categorical(train, union)
-        val_f   = _polars_fill_null_in_categorical(val,   union)
-        test_f  = _polars_fill_null_in_categorical(test,  union)
+        val_f = _polars_fill_null_in_categorical(val, union)
+        test_f = _polars_fill_null_in_categorical(test, union)
 
         for col in cats:
             assert train_f[col].null_count() == 0, f"train {col} still has nulls"
-            assert val_f[col].null_count()   == 0, f"val {col} still has nulls — round-17 bug regressed"
-            assert test_f[col].null_count()  == 0, f"test {col} still has nulls — round-17 bug regressed"
+            assert val_f[col].null_count() == 0, f"val {col} still has nulls — round-17 bug regressed"
+            assert test_f[col].null_count() == 0, f"test {col} still has nulls — round-17 bug regressed"
 
 
 class TestSuiteRunsFillOnUnion:
@@ -150,12 +154,9 @@ class TestSuiteRunsFillOnUnion:
         monkeypatch.setattr(trainer, "_polars_nullable_categorical_cols", _spy)
 
         # Three frames with disjoint null cat columns -- helper must be invoked on each.
-        train = pl.DataFrame({"x": pl.Series("x", ["a", "b"]).cast(pl.Categorical),
-                              "tn": pl.Series("tn", ["a", None]).cast(pl.Categorical)})
-        val = pl.DataFrame({"x": pl.Series("x", ["a", "b"]).cast(pl.Categorical),
-                            "vn": pl.Series("vn", ["a", None]).cast(pl.Categorical)})
-        test = pl.DataFrame({"x": pl.Series("x", ["a", "b"]).cast(pl.Categorical),
-                             "en": pl.Series("en", ["a", None]).cast(pl.Categorical)})
+        train = pl.DataFrame({"x": pl.Series("x", ["a", "b"]).cast(pl.Categorical), "tn": pl.Series("tn", ["a", None]).cast(pl.Categorical)})
+        val = pl.DataFrame({"x": pl.Series("x", ["a", "b"]).cast(pl.Categorical), "vn": pl.Series("vn", ["a", None]).cast(pl.Categorical)})
+        test = pl.DataFrame({"x": pl.Series("x", ["a", "b"]).cast(pl.Categorical), "en": pl.Series("en", ["a", None]).cast(pl.Categorical)})
 
         # Directly invoke detector on each (mirrors what core.py does in its union block).
         cat_features = ["tn", "vn", "en"]
@@ -166,8 +167,7 @@ class TestSuiteRunsFillOnUnion:
 
         # All three frame-specific null columns must be in the union.
         assert "tn" in union and "vn" in union and "en" in union, (
-            f"union detection missed a frame-specific null cat: train={train_null}, "
-            f"val={val_null}, test={test_null}"
+            f"union detection missed a frame-specific null cat: train={train_null}, val={val_null}, test={test_null}"
         )
         # Spy fired three times.
         assert calls["n"] == 3, f"expected 3 calls (train/val/test), got {calls['n']}"
@@ -183,10 +183,9 @@ class TestSuiteRunsFillOnUnion:
         # shape, the source-level sensor above catches it; this sensor
         # protects the operator-visible WARN.
         t_null = set(_polars_nullable_categorical_cols(train, cat_features=cats))
-        v_null = set(_polars_nullable_categorical_cols(val,   cat_features=cats))
-        te_null = set(_polars_nullable_categorical_cols(test,  cat_features=cats))
+        v_null = set(_polars_nullable_categorical_cols(val, cat_features=cats))
+        te_null = set(_polars_nullable_categorical_cols(test, cat_features=cats))
         val_only = sorted((v_null | te_null) - t_null)
         assert val_only == ["col_b", "col_c"], (
-            "val/test-only list must name the columns whose null-paradigm "
-            "changed between splits — that's the diagnostic signal"
+            "val/test-only list must name the columns whose null-paradigm changed between splits — that's the diagnostic signal"
         )

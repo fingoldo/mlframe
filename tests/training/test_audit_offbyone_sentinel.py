@@ -22,6 +22,7 @@
    IndexError if predict() returns an unseen value. Post-fix uses a
    dict lookup + warn-log on unseen + map-to-class-0 fallback.
 """
+
 from __future__ import annotations
 
 import logging
@@ -48,14 +49,18 @@ def _make_es_estimator(validation_fraction):
     class _SpyBase(BaseEstimator):
         def __init__(self):
             self.train_sizes = []
+
         def partial_fit(self, X, y, classes=None):
             self.train_sizes.append(len(X))
             return self
+
         def predict(self, X):
             return np.zeros(len(X))
 
     return EarlyStoppingWrapper(
-        base_model=_SpyBase(), start_iter=1, max_iter=1,
+        base_model=_SpyBase(),
+        start_iter=1,
+        max_iter=1,
         validation_fraction=validation_fraction,
     )
 
@@ -97,17 +102,18 @@ def test_probabilities_chunked_tail_no_garbage():
     nondeterministically, making the tail-row reasoning brittle. The
     no-garbage invariant is the same either way."""
     from mlframe.calibration.probabilities import generate_probs_from_outcomes
+
     y = np.array([0, 1, 0, 1, 1, 0, 0, 1, 1])
     probs = generate_probs_from_outcomes(
-        y, chunk_size=4, nbins=2, scale=0.0, bins_std=0.0, flip_percent=0.0,
+        y,
+        chunk_size=4,
+        nbins=2,
+        scale=0.0,
+        bins_std=0.0,
+        flip_percent=0.0,
     )
-    assert np.all(np.isfinite(probs)), (
-        f"Wave 24 P0 regression: probs contains non-finite values "
-        f"{probs.tolist()} - the chunked-tail garbage bug returned."
-    )
-    assert np.all((probs >= 0.0) & (probs <= 1.0)), (
-        f"Probs out of range: {probs.tolist()}"
-    )
+    assert np.all(np.isfinite(probs)), f"Wave 24 P0 regression: probs contains non-finite values {probs.tolist()} - the chunked-tail garbage bug returned."
+    assert np.all((probs >= 0.0) & (probs <= 1.0)), f"Probs out of range: {probs.tolist()}"
     # Tail row 8: outcomes[8]=1 -> freq=1.0 -> probs[8] should be 1.0
     # (or clipped to 1.0 from any noise). Pre-fix could return any
     # garbage value including 0.0.
@@ -124,9 +130,15 @@ def test_probabilities_tail_row_synthesized_not_garbage():
     outcome frequency, not left as uninitialised buffer memory. n=10, chunk=4 ->
     chunks [0:4],[4:8], tail [8:10]; the all-1 tail must land in the high bucket."""
     from mlframe.calibration.probabilities import generate_probs_from_outcomes
+
     y = np.array([0, 1, 0, 1, 1, 0, 0, 1, 1, 1])
     probs = generate_probs_from_outcomes(
-        y, chunk_size=4, nbins=2, scale=0.0, bins_std=0.0, flip_percent=0.0,
+        y,
+        chunk_size=4,
+        nbins=2,
+        scale=0.0,
+        bins_std=0.0,
+        flip_percent=0.0,
     )
     assert probs.shape == y.shape
     assert np.all(np.isfinite(probs))
@@ -143,8 +155,10 @@ def test_composite_screening_gate_on_target_only_not_col0():
     informative) columns in the batch. Pre-fix the size-gate ANDed
     ``feature_binned[:, 0] >= 0`` and silently returned 0.0 for the whole batch."""
     from mlframe.training.composite.discovery.screening import (
-        _prebin_feature_columns, _mi_to_target_prebinned,
+        _prebin_feature_columns,
+        _mi_to_target_prebinned,
     )
+
     rng = np.random.default_rng(0)
     n, nbins = 4000, 5
     target = rng.normal(size=n)
@@ -167,11 +181,14 @@ def test_reporting_unseen_predict_warns(caplog):
     classes_ must (a) not IndexError on the one-hot fill (pre-fix
     ``np.searchsorted`` returned index==n_classes -> IndexError) and (b) WARN
     about the unseen outputs, mapping them to class-0."""
+
     class _UnseenModel:
         classes_ = np.array([0, 1])
+
         def predict(self, X):
             # 2 is OUTSIDE classes_ -- the unseen value that pre-fix crashed.
             return np.array([0, 1, 2, 1])
+
         # Deliberately NO predict_proba so the fallback path is taken.
 
     targets = np.array([0, 1, 0, 1])
@@ -179,15 +196,19 @@ def test_reporting_unseen_predict_warns(caplog):
     from mlframe.training.reporting._reporting_probabilistic import (
         report_probabilistic_model_perf,
     )
+
     with caplog.at_level(logging.WARNING):
-        preds, probs = report_probabilistic_model_perf(
-            targets=targets, columns=["f0"], model_name="unseen",
-            model=_UnseenModel(), df=df,
-            print_report=False, show_perf_chart=False, verbose=False,
+        _preds, probs = report_probabilistic_model_perf(
+            targets=targets,
+            columns=["f0"],
+            model_name="unseen",
+            model=_UnseenModel(),
+            df=df,
+            print_report=False,
+            show_perf_chart=False,
+            verbose=False,
         )
     # The unseen value 2 was mapped to a valid one-hot column (no IndexError).
     assert probs.shape[0] == 4
     assert np.all((probs >= 0.0) & (probs <= 1.0))
-    assert any("were NOT in" in r.getMessage() for r in caplog.records), (
-        "unseen-class WARN not emitted"
-    )
+    assert any("were NOT in" in r.getMessage() for r in caplog.records), "unseen-class WARN not emitted"

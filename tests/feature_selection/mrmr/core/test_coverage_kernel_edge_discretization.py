@@ -12,6 +12,7 @@ are the defensible graceful-degradation contract, so a regression that starts
 emitting NaN / out-of-range codes -- or crashes on a constant / all-NaN column --
 trips here.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -35,6 +35,7 @@ forced (``CUDA_VISIBLE_DEVICES=""``, ``MLFRAME_DISABLE_HNSW=1``). n<=40000 (shar
 RAM box). Each fit is its own pytest cell under a per-cell timeout so a slow/failed
 cell is isolated.
 """
+
 from __future__ import annotations
 
 import json
@@ -96,16 +97,17 @@ def _fit_in_subprocess(body: str, *, timeout: int = 850) -> dict:
     env["MLFRAME_DISABLE_HNSW"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
     proc = subprocess.run(
-        [sys.executable, "-c", src], capture_output=True, text=True, timeout=timeout, env=env,
+        [sys.executable, "-c", src],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
     )
     res = None
     for line in proc.stdout.splitlines():
         if line.startswith("RESULT_JSON="):
-            res = json.loads(line[len("RESULT_JSON="):])
-    assert res is not None, (
-        f"subprocess fit returned no selection (rc={proc.returncode}); stderr tail:\n"
-        + "\n".join(proc.stderr.splitlines()[-20:])
-    )
+            res = json.loads(line[len("RESULT_JSON=") :])
+    assert res is not None, f"subprocess fit returned no selection (rc={proc.returncode}); stderr tail:\n" + "\n".join(proc.stderr.splitlines()[-20:])
     return res
 
 
@@ -197,8 +199,7 @@ def test_bug1_dpi_trap_self_transform_not_dropped():
     toks = _flat_tokens(sel, raw)
     assert sel, "empty support"
     assert "a" in toks, (
-        f"BUG1 DPI-TRAP BREAK: ``a`` enters via a SELF-transform (a**3) only, so the "
-        f"DPI-trap filter must NOT drop it, yet token a vanished: {sel}"
+        f"BUG1 DPI-TRAP BREAK: ``a`` enters via a SELF-transform (a**3) only, so the DPI-trap filter must NOT drop it, yet token a vanished: {sel}"
     )
     assert not res["replay_break"], f"replay regression: {res['replay_break']}"
 
@@ -223,10 +224,7 @@ def test_bug1_private_linear_at_retain_bar_kept():
     raw = {"a", "b", "c", "d", "e"}
     toks = _flat_tokens(sel, raw)
     assert sel, "empty support"
-    assert "a" in toks, (
-        f"BUG1 OVER-DROP BREAK: ``a`` has a genuine PRIVATE linear term (2*a) beyond "
-        f"the a**2/b ratio, yet its token vanished: {sel}"
-    )
+    assert "a" in toks, f"BUG1 OVER-DROP BREAK: ``a`` has a genuine PRIVATE linear term (2*a) beyond the a**2/b ratio, yet its token vanished: {sel}"
     assert not res["replay_break"], f"replay regression: {res['replay_break']}"
 
 
@@ -310,10 +308,7 @@ def test_bug2_deep_nested_two_step_survives_or_not_selected():
     """
     res = _fit_in_subprocess(body)
     assert res["sel"], "empty support"
-    assert not res["replay_break"], (
-        f"BUG2 BREAK: nested engineered survivor not byte-exact on transform: "
-        f"{res['replay_break']}; selection {res['sel']}"
-    )
+    assert not res["replay_break"], f"BUG2 BREAK: nested engineered survivor not byte-exact on transform: {res['replay_break']}; selection {res['sel']}"
 
 
 # ===========================================================================
@@ -371,10 +366,7 @@ def test_bug3_two_pure_noise_operands_not_rescued():
     raw = {"a", "b", "c", "d", "e", "g"}
     assert sel, "empty support"
     noisy = [nm for nm in sel if ({"e"} & _toks(nm, raw)) or ({"g"} & _toks(nm, raw))]
-    assert not noisy, (
-        f"BUG3 FALSE-RESCUE BREAK: pure-noise operand(s) e/g entered selection: "
-        f"{noisy}; full selection {sel}"
-    )
+    assert not noisy, f"BUG3 FALSE-RESCUE BREAK: pure-noise operand(s) e/g entered selection: {noisy}; full selection {sel}"
 
 
 # ===========================================================================
@@ -382,8 +374,7 @@ def test_bug3_two_pure_noise_operands_not_rescued():
 # ===========================================================================
 
 
-def _byte_exact_slice_replay(df: pd.DataFrame, y: np.ndarray, seed: int,
-                             slices: list[tuple[int, int]]) -> None:
+def _byte_exact_slice_replay(df: pd.DataFrame, y: np.ndarray, seed: int, slices: list[tuple[int, int]]) -> None:
     """Fit IN-PROCESS once (single fit -> no RNG contamination concern) then assert
     every engineered survivor replays byte-exactly on each adversarial row slice."""
     fs = MRMR(verbose=0, random_seed=seed)
@@ -397,8 +388,7 @@ def _byte_exact_slice_replay(df: pd.DataFrame, y: np.ndarray, seed: int,
             vs = np.asarray(out_slice[ec].values)
             bn = np.isnan(vf) & np.isnan(vs)
             assert np.array_equal(np.where(bn, 0.0, vf), np.where(bn, 0.0, vs)), (
-                f"PREWARP REPLAY BREAK: engineered col {ec!r} not byte-exact on slice "
-                f"[{lo}:{hi}] -- a global/slice-local statistic leaked into replay"
+                f"PREWARP REPLAY BREAK: engineered col {ec!r} not byte-exact on slice [{lo}:{hi}] -- a global/slice-local statistic leaked into replay"
             )
 
 
@@ -408,7 +398,7 @@ def test_prewarp_replay_extreme_outlier_slice_byte_exact():
     still replay byte-exactly (frozen axis params, no slice-local re-fit)."""
     rng = np.random.default_rng(11)
     n = 20000
-    a = rng.standard_t(2.0, n)          # heavy tail
+    a = rng.standard_t(2.0, n)  # heavy tail
     b = rng.random(n) + 0.5
     c = rng.random(n) + 0.5
     d = rng.random(n) + 0.5

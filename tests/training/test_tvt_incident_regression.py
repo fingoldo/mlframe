@@ -31,6 +31,7 @@ Layers exercised in sequence:
 
 Each assertion lists which layer it gates against.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -61,14 +62,16 @@ def _build_tvt_shape_frame(n_rows: int = 20_000, seed: int = 0):
     y[0] = 11500.0
     for i in range(1, n_rows):
         y[i] = 0.92 * y[i - 1] + 0.08 * 11500.0 + rng.standard_normal() * 50.0
-    return pd.DataFrame({
-        "MD": md,
-        "GR": rng.normal(70, 15, n_rows).astype(np.float32),
-        "TVT_prev": np.concatenate([[11500.0], y[:-1]]).astype(np.float32),
-        "f0": rng.standard_normal(n_rows).astype(np.float32),
-        "f1": rng.standard_normal(n_rows).astype(np.float32),
-        "target": y.astype(np.float32),
-    })
+    return pd.DataFrame(
+        {
+            "MD": md,
+            "GR": rng.normal(70, 15, n_rows).astype(np.float32),
+            "TVT_prev": np.concatenate([[11500.0], y[:-1]]).astype(np.float32),
+            "f0": rng.standard_normal(n_rows).astype(np.float32),
+            "f1": rng.standard_normal(n_rows).astype(np.float32),
+            "target": y.astype(np.float32),
+        }
+    )
 
 
 def _run_suite(df: pd.DataFrame, *, tmp):
@@ -79,10 +82,13 @@ def _run_suite(df: pd.DataFrame, *, tmp):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         _models, meta = train_mlframe_models_suite(
-            df=df, target_name="target", model_name="tvt_incident_regression",
+            df=df,
+            target_name="target",
+            model_name="tvt_incident_regression",
             features_and_targets_extractor=fte,
             mlframe_models=["linear", "lgb"],
-            use_ordinary_models=True, use_mlframe_ensembles=False,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
             reporting_config=ReportingConfig(show_perf_chart=False, show_fi=False),
             output_config=OutputConfig(data_dir=str(tmp), models_dir="models"),
             verbose=0,
@@ -102,8 +108,7 @@ def test_tvt_2026_05_21_incident_protective_layers_compose(tmp_path):
     # --- Layer 1 + 2 + 3: target_distribution_report stamped, AR signal detected ---
     rep = meta.get("target_distribution_report")
     assert rep is not None, (
-        "Layer 1 broken: target_distribution_analyzer didn't stamp a report "
-        "into metadata; the analyzer flag default may have been flipped off."
+        "Layer 1 broken: target_distribution_analyzer didn't stamp a report into metadata; the analyzer flag default may have been flipped off."
     )
     pathologies = rep["pathologies"]
     diag = rep["diagnostics"]
@@ -112,13 +117,8 @@ def test_tvt_2026_05_21_incident_protective_layers_compose(tmp_path):
     # even if the original data was AR(1). Either the strong_AR pathology
     # fires, OR (after split shuffling) the autocorr diagnostic is at least
     # stamped. Both signal Layer-2 worked; absence of both means it broke.
-    assert (
-        any("strong_AR_target" in p for p in pathologies)
-        or "max_abs_autocorr" in diag
-        or "lag1_autocorr" in diag
-    ), (
-        f"Layer 2 broken: no AR diagnostic stamped on MD-sorted AR-target data. "
-        f"Pathologies: {pathologies}. Diagnostics keys: {sorted(diag.keys())}."
+    assert any("strong_AR_target" in p for p in pathologies) or "max_abs_autocorr" in diag or "lag1_autocorr" in diag, (
+        f"Layer 2 broken: no AR diagnostic stamped on MD-sorted AR-target data. Pathologies: {pathologies}. Diagnostics keys: {sorted(diag.keys())}."
     )
 
     # --- Layer 3 + E5.2: use_layernorm=False recommendation lands when strong_AR fires ---
@@ -137,8 +137,7 @@ def test_tvt_2026_05_21_incident_protective_layers_compose(tmp_path):
     # --- Layer 5: feature_distribution_report stamped ---
     fdr = meta.get("feature_distribution_report")
     assert fdr is not None, (
-        "Layer 5 broken: feature_distribution_analyzer didn't stamp a report. "
-        "Polars-frame handling or analyzer-flag default may have regressed."
+        "Layer 5 broken: feature_distribution_analyzer didn't stamp a report. Polars-frame handling or analyzer-flag default may have regressed."
     )
     # Numeric features (MD, GR, TVT_prev, f0, f1) must NOT be misclassified as categorical.
     # Allow for FTE engineering adding/removing columns; the floor is 4 numeric features
@@ -150,7 +149,7 @@ def test_tvt_2026_05_21_incident_protective_layers_compose(tmp_path):
     )
 
     # --- Layer 4: group-aware split recommendation surfaces ---
-    split_overrides = rep["knob_overrides"].get("split_config", {})
+    rep["knob_overrides"].get("split_config", {})
     # clustered_target only fires if group_ids reach the analyzer. The suite passes
     # them via the FTE's group_column inference; on this synthetic the well_id is
     # NOT named group_column so the analyzer may or may not see it. Either way

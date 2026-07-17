@@ -107,7 +107,7 @@ def test_no_new_non_ascii_console_output():
             orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"),
             encoding="utf-8",
         )
-        pytest.skip(f"console-Unicode baseline refreshed at {_BASELINE_PATH.name} " f"({len(current)} call site(s) with non-ASCII string literal)")
+        pytest.skip(f"console-Unicode baseline refreshed at {_BASELINE_PATH.name} ({len(current)} call site(s) with non-ASCII string literal)")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

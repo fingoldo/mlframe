@@ -201,11 +201,11 @@ class TestDefaultIsLegacyByteIdentical:
         assert m.fe_hybrid_orth_enable is False
         # No hybrid features lifted under the explicit opt-out.
         assert m.hybrid_orth_features_ == [], (
-            f"seed={seed}: explicit fe_hybrid_orth_enable=False should " f"produce empty hybrid_orth_features_, got " f"{m.hybrid_orth_features_}"
+            f"seed={seed}: explicit fe_hybrid_orth_enable=False should produce empty hybrid_orth_features_, got {m.hybrid_orth_features_}"
         )
         # feature_names_in_ matches the raw input columns exactly.
         assert list(m.feature_names_in_) == list(X.columns), (
-            f"seed={seed}: feature_names_in_ must equal raw X.columns when " f"hybrid FE is off; got {list(m.feature_names_in_)} vs " f"{list(X.columns)}"
+            f"seed={seed}: feature_names_in_ must equal raw X.columns when hybrid FE is off; got {list(m.feature_names_in_)} vs {list(X.columns)}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -253,7 +253,7 @@ class TestEnableAddsQuadraticDetector:
         m.fit(X, y)
         appended = list(m.hybrid_orth_features_)
         assert any(("x1__He2" == c) or ("x1__He3" == c) for c in appended), (
-            f"seed={seed}: x1__He2 (the quadratic detector) should be in " f"hybrid_orth_features_={appended}"
+            f"seed={seed}: x1__He2 (the quadratic detector) should be in hybrid_orth_features_={appended}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -271,7 +271,7 @@ class TestEnableAddsQuadraticDetector:
             fe_hybrid_orth_basis="hermite",
         )
         m.fit(X, y)
-        assert len(m.hybrid_orth_features_) >= 1, f"seed={seed}: hybrid stage should append at least one " f"engineered column; got {m.hybrid_orth_features_}"
+        assert len(m.hybrid_orth_features_) >= 1, f"seed={seed}: hybrid stage should append at least one engineered column; got {m.hybrid_orth_features_}"
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +298,7 @@ class TestEnablePairDiscoversXor:
         # The XOR cross-basis term has '*' between the two source columns
         # AND 'He1_He1' suffix. Allow either ordering of legs.
         ok = any(("*" in c) and ("He1_He1" in c) and (("x1" in c) and ("x2" in c)) for c in appended)
-        assert ok, f"seed={seed}: He_1*He_1 XOR pair term should be in " f"hybrid_orth_features_={appended}"
+        assert ok, f"seed={seed}: He_1*He_1 XOR pair term should be in hybrid_orth_features_={appended}"
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +341,7 @@ class TestDownstreamLogRegLift:
             f"clear 0.80 on XOR with hybrid FE; raw AUC {auc_raw:.3f}; "
             f"hybrid_orth_features_={mrmr_h.hybrid_orth_features_}"
         )
-        assert auc_aug > auc_raw + 0.15, f"seed={seed}: hybrid FE should lift LogReg holdout AUC by " f">= +0.15 on XOR. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
+        assert auc_aug > auc_raw + 0.15, f"seed={seed}: hybrid FE should lift LogReg holdout AUC by >= +0.15 on XOR. raw={auc_raw:.3f}, aug={auc_aug:.3f}"
 
 
 # ---------------------------------------------------------------------------
@@ -399,9 +399,7 @@ class TestTransformConsistency:
                     np.asarray(ref[he_col], dtype=np.float64),
                     rtol=1e-9,
                     atol=1e-9,
-                    err_msg=(
-                        f"seed={seed}: transform-time {he_col} mismatched " f"fit-time independent computation; recipe replay " f"should be bit-equivalent."
-                    ),
+                    err_msg=(f"seed={seed}: transform-time {he_col} mismatched fit-time independent computation; recipe replay should be bit-equivalent."),
                 )
 
 
@@ -503,5 +501,5 @@ class TestPairAppendOrderStable:
         m1.fit(X, y)
         m2.fit(X, y)
         assert list(m1.hybrid_orth_features_) == list(m2.hybrid_orth_features_), (
-            f"seed={seed}: hybrid_orth_features_ should be deterministic; " f"got m1={m1.hybrid_orth_features_} vs m2={m2.hybrid_orth_features_}"
+            f"seed={seed}: hybrid_orth_features_ should be deterministic; got m1={m1.hybrid_orth_features_} vs m2={m2.hybrid_orth_features_}"
         )

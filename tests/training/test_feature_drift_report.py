@@ -5,6 +5,7 @@ wiring via a full suite call. This file pins the unit-level contracts of the
 two sklearn-MLP override translators and `compute_feature_distribution_drift`
 (numeric z-score) + `compute_categorical_drift_psi` directly.
 """
+
 from __future__ import annotations
 
 import math
@@ -37,9 +38,7 @@ def test_translate_mlp_alpha_maps_to_weight_decay():
 
 
 def test_translate_mlp_hidden_layer_sizes_populates_network_params():
-    out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
-        {"hidden_layer_sizes": (64, 32, 16)}
-    )
+    out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({"hidden_layer_sizes": (64, 32, 16)})
     assert "network_params" in out
     np_ = out["network_params"]
     assert np_["nlayers"] == 3
@@ -51,6 +50,7 @@ def test_translate_mlp_hidden_layer_sizes_populates_network_params():
 def test_translate_mlp_activation_relu_routes_to_torch_relu():
     pytest.importorskip("torch")
     import torch
+
     out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({"activation": "relu"})
     assert out["network_params"]["activation_function"] is torch.nn.ReLU
 
@@ -61,6 +61,7 @@ def test_translate_mlp_activation_identity_collapses_to_linear():
     # 2026-05-22 regression).
     pytest.importorskip("torch")
     import torch
+
     out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({"activation": "identity"})
     np_ = out["network_params"]
     assert np_["activation_function"] is torch.nn.Identity
@@ -70,18 +71,14 @@ def test_translate_mlp_activation_identity_collapses_to_linear():
 
 
 def test_translate_mlp_passes_through_unknown_keys_under_model_params():
-    out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
-        {"custom_knob": 42, "lr": 0.001}
-    )
+    out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({"custom_knob": 42, "lr": 0.001})
     assert out["model_params"]["custom_knob"] == 42
     assert out["model_params"]["lr"] == 0.001
 
 
 def test_translate_mlp_unknown_activation_recorded_in_untranslated():
     pytest.importorskip("torch")
-    out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
-        {"activation": "not_a_real_activation"}
-    )
+    out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({"activation": "not_a_real_activation"})
     assert "__untranslated__" in out
     assert any("not_a_real_activation" in s for s in out["__untranslated__"])
 
@@ -99,18 +96,14 @@ def test_translate_recurrent_alpha_maps_to_weight_decay():
 
 
 def test_translate_recurrent_hidden_layer_sizes_to_mlp_hidden_sizes():
-    out = translate_sklearn_mlp_overrides_to_recurrent_config_kwargs(
-        {"hidden_layer_sizes": (128, 64)}
-    )
+    out = translate_sklearn_mlp_overrides_to_recurrent_config_kwargs({"hidden_layer_sizes": (128, 64)})
     assert out["mlp_hidden_sizes"] == (128, 64)
 
 
 def test_translate_recurrent_activation_recorded_as_untranslated():
     # Recurrent cells have hard-coded gate activations; the translator
     # documents this and records the skip rather than silently fabricating.
-    out = translate_sklearn_mlp_overrides_to_recurrent_config_kwargs(
-        {"activation": "relu"}
-    )
+    out = translate_sklearn_mlp_overrides_to_recurrent_config_kwargs({"activation": "relu"})
     assert "__untranslated__" in out
     assert any("activation" in s for s in out["__untranslated__"])
 
@@ -120,11 +113,13 @@ def test_translate_recurrent_activation_recorded_as_untranslated():
 
 def _make_pandas_frame(seed: int, n_rows: int, shift_x: float = 0.0):
     rng = np.random.default_rng(seed)
-    df = pd.DataFrame({
-        "x": rng.normal(loc=shift_x, scale=1.0, size=n_rows),
-        "y": rng.normal(loc=0.0, scale=2.0, size=n_rows),
-        "cat": rng.choice(["a", "b", "c"], size=n_rows),
-    })
+    df = pd.DataFrame(
+        {
+            "x": rng.normal(loc=shift_x, scale=1.0, size=n_rows),
+            "y": rng.normal(loc=0.0, scale=2.0, size=n_rows),
+            "cat": rng.choice(["a", "b", "c"], size=n_rows),
+        }
+    )
     return df
 
 
@@ -185,11 +180,17 @@ def test_numeric_drift_weighted_score_uses_feature_importance():
     test = _make_pandas_frame(9, 500, shift_x=5.0)
     # Heavy weight on x (the shifted col) -> high weighted_drift_score.
     out_heavy = compute_feature_distribution_drift(
-        train, val, test, feature_importance={"x": 1.0, "y": 0.01},
+        train,
+        val,
+        test,
+        feature_importance={"x": 1.0, "y": 0.01},
     )
     # Heavy weight on y (the matched col) -> low weighted_drift_score.
     out_light = compute_feature_distribution_drift(
-        train, val, test, feature_importance={"x": 0.01, "y": 1.0},
+        train,
+        val,
+        test,
+        feature_importance={"x": 0.01, "y": 1.0},
     )
     assert out_heavy["weighted_drift_score"] is not None
     assert out_light["weighted_drift_score"] is not None
@@ -295,7 +296,11 @@ def test_drift_zstats_cache_is_bit_identical_to_fresh_recompute():
         fdr._DRIFT_INVARIANT_CACHE.clear()
         fresh_reports.append(
             compute_feature_distribution_drift(
-                train, val, test, feature_importance=fis[t], target_type="regression",
+                train,
+                val,
+                test,
+                feature_importance=fis[t],
+                target_type="regression",
             )
         )
 
@@ -303,7 +308,11 @@ def test_drift_zstats_cache_is_bit_identical_to_fresh_recompute():
     fdr._DRIFT_INVARIANT_CACHE.clear()
     cached_reports = [
         compute_feature_distribution_drift(
-            train, val, test, feature_importance=fis[t], target_type="regression",
+            train,
+            val,
+            test,
+            feature_importance=fis[t],
+            target_type="regression",
         )
         for t in range(3)
     ]

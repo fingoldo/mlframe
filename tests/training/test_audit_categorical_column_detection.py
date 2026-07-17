@@ -21,6 +21,7 @@ Comparison vs detect_group_column_candidates:
   - Group score = 1/(1+size_cv) * min(n_unique, 50)
   - Cat score   = coverage_top10 * (n_unique / log(n_unique+1))
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,11 +34,13 @@ def test_detect_cat_columns_picks_real_categoricals() -> None:
     from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     rng = np.random.default_rng(42)
-    df = pd.DataFrame({
-        "region": rng.choice(["NA", "EU", "APAC", "SA", "AF"], size=1000),
-        "uid": np.arange(1000),  # high-card int — should NOT be picked
-        "score": rng.normal(size=1000),  # float feature — never a cat candidate
-    })
+    df = pd.DataFrame(
+        {
+            "region": rng.choice(["NA", "EU", "APAC", "SA", "AF"], size=1000),
+            "uid": np.arange(1000),  # high-card int — should NOT be picked
+            "score": rng.normal(size=1000),  # float feature — never a cat candidate
+        }
+    )
     out = detect_cat_columns(df)
     cols_picked = [c for c, _ in out]
     assert "region" in cols_picked, f"region should be detected as cat; got {cols_picked}"
@@ -72,9 +75,11 @@ def test_detect_cat_columns_handles_low_card_int_as_cat() -> None:
     from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     rng = np.random.default_rng(0)
-    df = pd.DataFrame({
-        "day_of_week": rng.integers(0, 7, size=1000),  # 7 levels, ~143/each
-    })
+    df = pd.DataFrame(
+        {
+            "day_of_week": rng.integers(0, 7, size=1000),  # 7 levels, ~143/each
+        }
+    )
     out = detect_cat_columns(df)
     cols_picked = [c for c, _ in out]
     assert "day_of_week" in cols_picked
@@ -85,12 +90,14 @@ def test_detect_cat_columns_score_higher_for_better_signal() -> None:
     from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     rng = np.random.default_rng(123)
-    df = pd.DataFrame({
-        "balanced_5cat": rng.choice(["a", "b", "c", "d", "e"], size=1000),
-        # 2-cat with 998 'A' + 2 'B' would be rejected on min_per_cat=20.
-        # Use a binary signal that just passes the threshold instead.
-        "skewed_binary": np.concatenate([["A"] * 950, ["B"] * 50]),
-    })
+    df = pd.DataFrame(
+        {
+            "balanced_5cat": rng.choice(["a", "b", "c", "d", "e"], size=1000),
+            # 2-cat with 998 'A' + 2 'B' would be rejected on min_per_cat=20.
+            # Use a binary signal that just passes the threshold instead.
+            "skewed_binary": np.concatenate([["A"] * 950, ["B"] * 50]),
+        }
+    )
     out = detect_cat_columns(df)
     scores = {c: info["score"] for c, info in out}
     # Both should be picked; 5-cat balanced should outscore skewed binary
@@ -111,10 +118,12 @@ def test_detect_cat_columns_empty_dataframe() -> None:
 def test_detect_cat_columns_all_null_column_skipped() -> None:
     from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
-    df = pd.DataFrame({
-        "always_null": [None] * 100,
-        "valid_cat": np.repeat(["x", "y"], 50),
-    })
+    df = pd.DataFrame(
+        {
+            "always_null": [None] * 100,
+            "valid_cat": np.repeat(["x", "y"], 50),
+        }
+    )
     out = detect_cat_columns(df)
     cols_picked = [c for c, _ in out]
     assert "always_null" not in cols_picked
@@ -127,10 +136,12 @@ def test_detect_cat_columns_polars_input() -> None:
     from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     rng = np.random.default_rng(7)
-    df = pl.DataFrame({
-        "region": rng.choice(["NA", "EU", "APAC", "SA", "AF"], size=1000).tolist(),
-        "score": rng.normal(size=1000).tolist(),
-    })
+    df = pl.DataFrame(
+        {
+            "region": rng.choice(["NA", "EU", "APAC", "SA", "AF"], size=1000).tolist(),
+            "score": rng.normal(size=1000).tolist(),
+        }
+    )
     out = detect_cat_columns(df)
     cols_picked = [c for c, _ in out]
     assert "region" in cols_picked

@@ -38,8 +38,11 @@ def test_catboost_cat_features_raises_clear_error_at_fit_start():
     y = np.array([0, 1, 0, 1])
 
     sel = ShapProxiedFS(
-        classification=True, booster_kind="catboost", cat_features=["c0"],
-        random_state=0, verbose=False,
+        classification=True,
+        booster_kind="catboost",
+        cat_features=["c0"],
+        random_state=0,
+        verbose=False,
     )
     with pytest.raises(ValueError, match="catboost.*cat_features.*not yet supported"):
         sel.fit(X, y)
@@ -57,15 +60,16 @@ def test_catboost_without_cat_features_does_not_trip_the_guard():
     y = np.array([0, 1, 0, 1])
 
     sel = ShapProxiedFS(
-        classification=True, booster_kind="catboost", cat_features=None,
-        random_state=0, verbose=False,
+        classification=True,
+        booster_kind="catboost",
+        cat_features=None,
+        random_state=0,
+        verbose=False,
     )
     try:
         sel.fit(X, y)
     except ValueError as exc:  # may legitimately fail later (e.g. catboost not installed -> ImportError)
-        assert "cat_features" not in str(exc), (
-            "cat_features guard fired even though cat_features was unset: " + str(exc)
-        )
+        assert "cat_features" not in str(exc), "cat_features guard fired even though cat_features was unset: " + str(exc)
     except Exception:
         # Any non-ValueError (ImportError when catboost is absent, etc.) means we got PAST the
         # cat_features guard, which is exactly what this test asserts.
@@ -81,9 +85,7 @@ def test_fidelity_floor_default_is_none_sentinel():
     identity. The default must also round-trip through sklearn get_params/set_params untouched.
     """
     sel = ShapProxiedFS()
-    assert sel.fidelity_floor is None, (
-        f"fidelity_floor default must be the None sentinel, got {sel.fidelity_floor!r}"
-    )
+    assert sel.fidelity_floor is None, f"fidelity_floor default must be the None sentinel, got {sel.fidelity_floor!r}"
     assert sel.get_params()["fidelity_floor"] is None
 
 
@@ -111,13 +113,10 @@ def test_both_floors_set_conflict_detected_with_explicit_default_value():
     sel = ShapProxiedFS(fidelity_floor=0.5, spearman_floor=0.6)
     # Pre-fix this was False (0.5 != 0.5), silently skipping the conflict ValueError.
     conflict_detected = sel.spearman_floor is not None and sel.fidelity_floor is not None
-    assert conflict_detected, (
-        "explicit fidelity_floor=0.5 + spearman_floor must register as a both-set conflict"
-    )
+    assert conflict_detected, "explicit fidelity_floor=0.5 + spearman_floor must register as a both-set conflict"
 
     # And the no-conflict default path: only spearman_floor set -> the deprecated alias is honored
     # without a conflict (fidelity_floor stays the None sentinel).
     sel_alias_only = ShapProxiedFS(spearman_floor=0.6)
     assert sel_alias_only.fidelity_floor is None
-    assert not (sel_alias_only.spearman_floor is not None
-                and sel_alias_only.fidelity_floor is not None)
+    assert not (sel_alias_only.spearman_floor is not None and sel_alias_only.fidelity_floor is not None)

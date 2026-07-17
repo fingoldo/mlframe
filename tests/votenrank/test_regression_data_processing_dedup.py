@@ -4,7 +4,6 @@ no-op, leaving duplicate index labels. Also np.NaN was used (removed in NumPy>=2
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 
 from mlframe.votenrank import data_processing as dp
@@ -31,7 +30,7 @@ def test_preprocess_glue_actually_dedups_model_names():
     # Force Copy-on-Write so the pre-fix chained assignment (glue["Model"].loc[mask] += ...)
     # is a silent no-op (writes land on a throwaway temporary) and the duplicate survives.
     with pd.option_context("mode.copy_on_write", True):
-        glue, weights = dp.preprocess_glue(_make_glue())
+        glue, _weights = dp.preprocess_glue(_make_glue())
     # The index is the (now disambiguated) Model column; it must contain no duplicates.
     assert glue.index.is_unique, f"duplicate model labels survived: {list(glue.index)}"
     assert "DupModel_1" in glue.index
@@ -54,6 +53,6 @@ def test_preprocess_sglue_uses_np_nan_and_dedups():
         }
     )
     with pd.option_context("mode.copy_on_write", True):
-        out, weights = dp.preprocess_sglue(sglue)
+        out, _weights = dp.preprocess_sglue(sglue)
     assert out.index.is_unique
     assert "Dup_1" in out.index and "Dup_2" in out.index

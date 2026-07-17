@@ -63,6 +63,7 @@ NEVER xfail. Real numbers.
 
 2026-06-01 Layer 86.
 """
+
 from __future__ import annotations
 
 import time
@@ -91,22 +92,28 @@ SEEDS = (1, 7, 13, 42, 101)
 # "x49__He3"]`` by ``generate_univariate_basis_features`` so the
 # positional reference is stable across NumPy versions.
 
-JMIM_REFERENCE_FIRST_12 = np.array([
-    0.2157403875726687,
-    0.07285359934547181,
-    0.16762851827287847,
-    0.04777482473369674,
-    0.0875749934131681,
-    0.05258376676126957,
-    0.020467894719026186,
-    0.02316457379388713,
-    0.01499107376247846,
-    0.012445078098372609,
-    0.05154631925834266,
-    0.046994586668567824,
-])
+JMIM_REFERENCE_FIRST_12 = np.array(
+    [
+        0.2157403875726687,
+        0.07285359934547181,
+        0.16762851827287847,
+        0.04777482473369674,
+        0.0875749934131681,
+        0.05258376676126957,
+        0.020467894719026186,
+        0.02316457379388713,
+        0.01499107376247846,
+        0.012445078098372609,
+        0.05154631925834266,
+        0.046994586668567824,
+    ]
+)
 JMIM_REFERENCE_TOP5_NAMES = [
-    "x0__He2", "x1__He2", "x2__He2", "x0__He3", "x14__He3",
+    "x0__He2",
+    "x1__He2",
+    "x2__He2",
+    "x0__He3",
+    "x14__He3",
 ]
 
 # TC reference: many engineered columns score at the bit-2 / noise floor
@@ -114,20 +121,22 @@ JMIM_REFERENCE_TOP5_NAMES = [
 # noise-source candidates after the support has absorbed the signal),
 # so the bit-equivalence gate uses a slightly looser atol on the
 # zero-floor entries. The non-zero entries match at 1e-12.
-TC_REFERENCE_FIRST_12 = np.array([
-    0.0013862943611187006,
-    0.0013862943611187006,
-    0.0,
-    0.0013862943611187006,
-    0.0013862943611187006,
-    -1.7763568394002505e-15,
-    0.0,
-    0.0013862943611187006,
-    -1.7763568394002505e-15,
-    -1.7763568394002505e-15,
-    -1.7763568394002505e-15,
-    0.0013862943611187006,
-])
+TC_REFERENCE_FIRST_12 = np.array(
+    [
+        0.0013862943611187006,
+        0.0013862943611187006,
+        0.0,
+        0.0013862943611187006,
+        0.0013862943611187006,
+        -1.7763568394002505e-15,
+        0.0,
+        0.0013862943611187006,
+        -1.7763568394002505e-15,
+        -1.7763568394002505e-15,
+        -1.7763568394002505e-15,
+        0.0013862943611187006,
+    ]
+)
 TC_REFERENCE_TOP5_NAMES_FIRST = "x0__He2"  # top-1 is stable; ties below it
 
 # Pre-optimization mean wall times on the L86 reference fixture,
@@ -153,11 +162,14 @@ def _build_l86_fixture(n: int = 1000, p_raw: int = 50, seed: int = 0):
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
     )
+
     rng = np.random.default_rng(int(seed))
     raw_cols = {f"x{k}": rng.standard_normal(n) for k in range(p_raw)}
     X_raw = pd.DataFrame(raw_cols)
     engineered = generate_univariate_basis_features(
-        X_raw, degrees=(2, 3), basis="hermite",
+        X_raw,
+        degrees=(2, 3),
+        basis="hermite",
     )
     signal = 0.8 * (X_raw["x0"] ** 2) + 0.6 * (X_raw["x1"] ** 2) + 0.4 * (X_raw["x2"] ** 2)
     thr = float(np.median(signal))
@@ -177,16 +189,18 @@ def _build_redundant_quadratic(seed: int, n: int = 2000):
     x_dup_b = x1 + 0.05 * rng.standard_normal(n)
     x_dup_c = x1 + 0.05 * rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x_dup_a": x_dup_a,
-        "x_dup_b": x_dup_b,
-        "x_dup_c": x_dup_c,
-        "x2": x2,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
-    signal = x1 ** 2 + 0.6 * (x2 ** 2)
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x_dup_a": x_dup_a,
+            "x_dup_b": x_dup_b,
+            "x_dup_c": x_dup_c,
+            "x2": x2,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
+    signal = x1**2 + 0.6 * (x2**2)
     thr = float(np.median(signal))
     y = ((signal + 0.05 * rng.standard_normal(n)) > thr).astype(int)
     return X, pd.Series(y, name="y")
@@ -222,17 +236,26 @@ class TestJmimPerfSpeedup:
         from mlframe.feature_selection.filters._orthogonal_jmim_fe import (
             score_features_by_jmim,
         )
+
         X_raw, eng, y, support = _build_l86_fixture()
         # warm-up -- numba JIT compilation of _joint_mi_3d_njit is paid
         # by the first call; the steady-state mean below excludes it.
         _ = score_features_by_jmim(
-            X_raw, eng, y, current_support=support, n_bins=10,
+            X_raw,
+            eng,
+            y,
+            current_support=support,
+            n_bins=10,
         )
         n_runs = 10
         t0 = time.perf_counter()
         for _ in range(n_runs):
             _ = score_features_by_jmim(
-                X_raw, eng, y, current_support=support, n_bins=10,
+                X_raw,
+                eng,
+                y,
+                current_support=support,
+                n_bins=10,
             )
         elapsed_ms = (time.perf_counter() - t0) / n_runs * 1000
         speedup = JMIM_PRE_OPT_REFERENCE_MS / max(elapsed_ms, 1e-6)
@@ -277,15 +300,24 @@ class TestTcPerfSpeedup:
         from mlframe.feature_selection.filters._orthogonal_total_correlation_fe import (
             score_features_by_tc_uplift,
         )
+
         X_raw, eng, y, support = _build_l86_fixture()
         _ = score_features_by_tc_uplift(
-            X_raw, eng, y, current_support=support, n_bins=10,
+            X_raw,
+            eng,
+            y,
+            current_support=support,
+            n_bins=10,
         )
         n_runs = 10
         t0 = time.perf_counter()
         for _ in range(n_runs):
             _ = score_features_by_tc_uplift(
-                X_raw, eng, y, current_support=support, n_bins=10,
+                X_raw,
+                eng,
+                y,
+                current_support=support,
+                n_bins=10,
             )
         elapsed_ms = (time.perf_counter() - t0) / n_runs * 1000
         speedup = TC_PRE_OPT_REFERENCE_MS / max(elapsed_ms, 1e-6)
@@ -329,15 +361,22 @@ class TestJmimBitEquivalentToReference:
         from mlframe.feature_selection.filters._orthogonal_jmim_fe import (
             score_features_by_jmim,
         )
+
         X_raw, eng, y, support = _build_l86_fixture()
         df = score_features_by_jmim(
-            X_raw, eng, y, current_support=support, n_bins=10,
+            X_raw,
+            eng,
+            y,
+            current_support=support,
+            n_bins=10,
         )
         score_map = dict(zip(df["engineered_col"], df["engineered_mi"]))
         in_order = np.array([score_map[c] for c in eng.columns])
         np.testing.assert_allclose(
-            in_order[:12], JMIM_REFERENCE_FIRST_12,
-            rtol=1e-9, atol=1e-12,
+            in_order[:12],
+            JMIM_REFERENCE_FIRST_12,
+            rtol=1e-9,
+            atol=1e-12,
             err_msg=(
                 "Post-L86 JMIM scores do not match the pinned reference "
                 "vector. The batched-quantile path must produce the same "
@@ -350,12 +389,17 @@ class TestJmimBitEquivalentToReference:
         from mlframe.feature_selection.filters._orthogonal_jmim_fe import (
             score_features_by_jmim,
         )
+
         X_raw, eng, y, support = _build_l86_fixture()
         df = score_features_by_jmim(
-            X_raw, eng, y, current_support=support, n_bins=10,
+            X_raw,
+            eng,
+            y,
+            current_support=support,
+            n_bins=10,
         )
         top5 = list(df.head(5)["engineered_col"])
-        assert top5 == JMIM_REFERENCE_TOP5_NAMES, f"L86 JMIM top-5 ranking changed: got {top5}, " f"expected {JMIM_REFERENCE_TOP5_NAMES}."
+        assert top5 == JMIM_REFERENCE_TOP5_NAMES, f"L86 JMIM top-5 ranking changed: got {top5}, expected {JMIM_REFERENCE_TOP5_NAMES}."
 
 
 # ---------------------------------------------------------------------------
@@ -377,9 +421,14 @@ class TestTcBitEquivalentToReference:
         from mlframe.feature_selection.filters._orthogonal_total_correlation_fe import (
             score_features_by_tc_uplift,
         )
+
         X_raw, eng, y, support = _build_l86_fixture()
         df = score_features_by_tc_uplift(
-            X_raw, eng, y, current_support=support, n_bins=10,
+            X_raw,
+            eng,
+            y,
+            current_support=support,
+            n_bins=10,
         )
         score_map = dict(zip(df["engineered_col"], df["engineered_mi"]))
         in_order = np.array([score_map[c] for c in eng.columns])
@@ -389,8 +438,10 @@ class TestTcBitEquivalentToReference:
         # and the zero entries are at exact 0 or ~1e-15 (absolute
         # tolerance dominates).
         np.testing.assert_allclose(
-            in_order[:12], TC_REFERENCE_FIRST_12,
-            rtol=1e-9, atol=1e-12,
+            in_order[:12],
+            TC_REFERENCE_FIRST_12,
+            rtol=1e-9,
+            atol=1e-12,
             err_msg=(
                 "Post-L86 TC scores do not match the pinned reference "
                 "vector. factorize_pack must preserve the count multiset "
@@ -409,12 +460,17 @@ class TestTcBitEquivalentToReference:
         from mlframe.feature_selection.filters._orthogonal_total_correlation_fe import (
             score_features_by_tc_uplift,
         )
+
         X_raw, eng, y, support = _build_l86_fixture()
         df = score_features_by_tc_uplift(
-            X_raw, eng, y, current_support=support, n_bins=10,
+            X_raw,
+            eng,
+            y,
+            current_support=support,
+            n_bins=10,
         )
         top1 = next(iter(df.head(1)["engineered_col"]))
-        assert top1 == TC_REFERENCE_TOP5_NAMES_FIRST, f"L86 TC top-1 changed: got {top1}, " f"expected {TC_REFERENCE_TOP5_NAMES_FIRST}."
+        assert top1 == TC_REFERENCE_TOP5_NAMES_FIRST, f"L86 TC top-1 changed: got {top1}, expected {TC_REFERENCE_TOP5_NAMES_FIRST}."
 
 
 # ---------------------------------------------------------------------------
@@ -436,23 +492,26 @@ class TestL72RedundancyContractStillHolds:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             generate_univariate_basis_features,
         )
+
         jmim_picks_x2 = 0
         for s in SEEDS:
             X, y = _build_redundant_quadratic(s, n=2000)
             engineered = generate_univariate_basis_features(
-                X, degrees=(2,), basis="hermite",
+                X,
+                degrees=(2,),
+                basis="hermite",
             )
             scores = score_features_by_jmim(
-                X, engineered, y.to_numpy(),
+                X,
+                engineered,
+                y.to_numpy(),
                 current_support=X[["x1"]],
                 n_bins=10,
             )
             top2_sources = list(scores.head(2)["source_col"])
             if "x2" in top2_sources:
                 jmim_picks_x2 += 1
-        assert jmim_picks_x2 >= 3, (
-            f"Post-L86 JMIM picked x2__He2 in top-2 on only " f"{jmim_picks_x2}/{len(SEEDS)} seeds; L72 redundancy contract " f"regressed."
-        )
+        assert jmim_picks_x2 >= 3, f"Post-L86 JMIM picked x2__He2 in top-2 on only {jmim_picks_x2}/{len(SEEDS)} seeds; L72 redundancy contract regressed."
 
 
 # ---------------------------------------------------------------------------
@@ -473,13 +532,14 @@ class TestL73HigherOrderContractStillHolds:
         from mlframe.feature_selection.filters._orthogonal_total_correlation_fe import (
             total_correlation,
         )
+
         X, _y = _build_xor_triple(seed, n=4000)
         cols = X.to_numpy()
         tc = total_correlation(cols, n_bins=10)
         bins = [_quantile_bin_local(cols[:, j], nbins=10) for j in range(cols.shape[1])]
         mi_pairs = [float(mutual_info_score(bins[i], bins[j])) for i in range(3) for j in range(i + 1, 3)]
         max_pairwise = float(max(mi_pairs))
-        assert tc >= 0.3, f"seed={seed}: post-L86 TC({tc:.4f}) of XOR triple is at " f"noise floor; higher-order detection regressed."
+        assert tc >= 0.3, f"seed={seed}: post-L86 TC({tc:.4f}) of XOR triple is at noise floor; higher-order detection regressed."
         assert tc >= 3.0 * max_pairwise + 0.1, (
-            f"seed={seed}: post-L86 TC({tc:.4f}) not clearly above " f"max pairwise MI ({max_pairwise:.4f}); the higher-order-only " f"signal must dominate."
+            f"seed={seed}: post-L86 TC({tc:.4f}) not clearly above max pairwise MI ({max_pairwise:.4f}); the higher-order-only signal must dominate."
         )

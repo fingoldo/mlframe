@@ -13,6 +13,7 @@ behavior), (b) the pool IS actually reused (object identity), not silently ignor
 (c) selection is IDENTICAL whether or not the pool is reused (pure speedup, no behavior change), and
 (d) at n_workers<=1 the returned pool is always None (no pool exists to reuse).
 """
+
 from __future__ import annotations
 
 import inspect

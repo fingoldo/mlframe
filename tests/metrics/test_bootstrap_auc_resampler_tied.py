@@ -9,6 +9,7 @@ within-tie argsort order.
 These tests would FAIL if the grouped kernel emitted an AUC boundary per tied element
 (the naive rank-binning bug) instead of per distinct score group.
 """
+
 from __future__ import annotations
 
 import numpy as np

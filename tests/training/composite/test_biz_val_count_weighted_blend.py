@@ -8,6 +8,7 @@ per-entity observation count should recover a materially lower error than either
 the KKBox Music Recommendation 1st place's "rely more on user-embedding if data sufficient, more on metadata
 if not" technique.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,7 +55,9 @@ def test_biz_val_count_weighted_blend_beats_entity_only_and_global_only_mse():
     global_only = LinearRegression().fit(X_train[["x"]], y_train)
     mse_global_only = mean_squared_error(y_test, global_only.predict(X_test[["x"]]))
 
-    blend = CountWeightedBlendEnsemble(entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0)
+    blend = CountWeightedBlendEnsemble(
+        entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0
+    )
     blend.fit(X_train, y_train)
     mse_blend = mean_squared_error(y_test, blend.predict(X_test))
 
@@ -65,8 +68,10 @@ def test_biz_val_count_weighted_blend_beats_entity_only_and_global_only_mse():
 
 
 def test_count_weighted_blend_weight_increases_with_observation_count():
-    X_train, y_train, X_test, y_test = _make_skewed_entity_dataset(n_entities=300, seed=1)
-    blend = CountWeightedBlendEnsemble(entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0)
+    X_train, y_train, X_test, _y_test = _make_skewed_entity_dataset(n_entities=300, seed=1)
+    blend = CountWeightedBlendEnsemble(
+        entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0
+    )
     blend.fit(X_train, y_train)
 
     weights = blend._blend_weight(X_test)
@@ -116,7 +121,9 @@ def test_count_weighted_blend_auto_k_false_is_bit_identical_to_legacy_fixed_k():
     """
     X_train, y_train, X_test, _ = _make_skewed_entity_dataset(n_entities=150, seed=4)
 
-    blend = CountWeightedBlendEnsemble(entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0)
+    blend = CountWeightedBlendEnsemble(
+        entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0
+    )
     blend.fit(X_train, y_train)
     pred = blend.predict(X_test)
 
@@ -133,7 +140,9 @@ def test_count_weighted_blend_auto_k_false_is_bit_identical_to_legacy_fixed_k():
 
 def test_count_weighted_blend_unseen_entity_gets_zero_weight():
     X_train, y_train, _, _ = _make_skewed_entity_dataset(n_entities=50, seed=2)
-    blend = CountWeightedBlendEnsemble(entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0)
+    blend = CountWeightedBlendEnsemble(
+        entity_estimator=_entity_pipeline(), global_estimator=LinearRegression(), entity_col="entity", metadata_cols=["x"], k=10.0
+    )
     blend.fit(X_train, y_train)
 
     X_unseen = pd.DataFrame({"entity": [99999.0], "x": [0.5]})

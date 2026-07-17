@@ -13,6 +13,7 @@ tests pin:
 * ``calibrate_conformal=True`` produces a usable prediction interval on a
   held-out slice (feature).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -46,7 +47,7 @@ def _split(n: int, seed: int = 0):
     perm = rng.permutation(n)
     n_tr = int(0.6 * n)
     n_va = int(0.2 * n)
-    return perm[:n_tr], perm[n_tr:n_tr + n_va], perm[n_tr + n_va:]
+    return perm[:n_tr], perm[n_tr : n_tr + n_va], perm[n_tr + n_va :]
 
 
 def _small_inner():
@@ -56,14 +57,21 @@ def _small_inner():
         from lightgbm import LGBMRegressor
 
         return LGBMRegressor(
-            n_estimators=200, num_leaves=31, learning_rate=0.05,
-            min_child_samples=20, verbose=-1, n_jobs=1, random_state=0,
+            n_estimators=200,
+            num_leaves=31,
+            learning_rate=0.05,
+            min_child_samples=20,
+            verbose=-1,
+            n_jobs=1,
+            random_state=0,
         )
     except Exception:
         from sklearn.ensemble import HistGradientBoostingRegressor
 
         return HistGradientBoostingRegressor(
-            max_iter=200, learning_rate=0.05, random_state=0,
+            max_iter=200,
+            learning_rate=0.05,
+            random_state=0,
         )
 
 
@@ -93,8 +101,12 @@ def test_discover_and_wrap_returns_fitted_estimator_and_report():
     df = _linear_composite_df()
     train_idx, _, test_idx = _split(len(df))
     res = discover_and_wrap(
-        df, target_col="y", feature_cols=["base", "other"],
-        train_idx=train_idx, config=_config(), base_estimator=_small_inner(),
+        df,
+        target_col="y",
+        feature_cols=["base", "other"],
+        train_idx=train_idx,
+        config=_config(),
+        base_estimator=_small_inner(),
     )
     assert isinstance(res, DiscoverAndWrapResult)
     assert res.spec is not None
@@ -119,8 +131,12 @@ def test_biz_val_discover_and_wrap_beats_plain_inner_on_raw_y():
     train_idx, _, test_idx = _split(len(df))
 
     res = discover_and_wrap(
-        df, target_col="y", feature_cols=["base", "other"],
-        train_idx=train_idx, config=_config(), base_estimator=_small_inner(),
+        df,
+        target_col="y",
+        feature_cols=["base", "other"],
+        train_idx=train_idx,
+        config=_config(),
+        base_estimator=_small_inner(),
     )
     assert res.estimator is not None, "expected a discoverable composite spec"
 
@@ -135,10 +151,7 @@ def test_biz_val_discover_and_wrap_beats_plain_inner_on_raw_y():
     plain.fit(X_train, y_train)
     plain_rmse = float(np.sqrt(mean_squared_error(y_test, plain.predict(X_test))))
 
-    assert composite_rmse < plain_rmse * 0.95, (
-        f"composite RMSE {composite_rmse:.4f} should beat plain "
-        f"{plain_rmse:.4f} by >=5% on this linear-ramp synthetic"
-    )
+    assert composite_rmse < plain_rmse * 0.95, f"composite RMSE {composite_rmse:.4f} should beat plain {plain_rmse:.4f} by >=5% on this linear-ramp synthetic"
 
 
 def test_discover_and_wrap_auto_config_when_none():
@@ -149,11 +162,12 @@ def test_discover_and_wrap_auto_config_when_none():
     df = _linear_composite_df()
     train_idx, _, _ = _split(len(df))
     res = discover_and_wrap(
-        df, target_col="y", feature_cols=["base", "other"],
-        train_idx=train_idx, base_estimator=_small_inner(),
-        config_overrides={"base_candidates": ["base"], "eps_mi_gain": 0.001,
-                          "require_beats_raw_baseline": False,
-                          "fail_on_no_gain": "fallback_raw"},
+        df,
+        target_col="y",
+        feature_cols=["base", "other"],
+        train_idx=train_idx,
+        base_estimator=_small_inner(),
+        config_overrides={"base_candidates": ["base"], "eps_mi_gain": 0.001, "require_beats_raw_baseline": False, "fail_on_no_gain": "fallback_raw"},
     )
     assert res.config is not None
     assert isinstance(res.config_rationale, dict)
@@ -169,22 +183,31 @@ def test_discover_and_wrap_no_spec_returns_none_estimator_and_report():
 
     rng = np.random.default_rng(0)
     n = 1500
-    df = pd.DataFrame({
-        "base": rng.normal(size=n),
-        "other": rng.normal(size=n),
-        "y": rng.normal(size=n),  # independent of every feature
-    })
+    df = pd.DataFrame(
+        {
+            "base": rng.normal(size=n),
+            "other": rng.normal(size=n),
+            "y": rng.normal(size=n),  # independent of every feature
+        }
+    )
     train_idx, _, _ = _split(n)
     cfg = CompositeTargetDiscoveryConfig(
-        enabled=True, base_candidates=["base"],
+        enabled=True,
+        base_candidates=["base"],
         transforms=("diff", "linear_residual"),
-        mi_sample_n=1000, eps_mi_gain=0.5,  # absurdly high -> nothing passes
-        random_state=42, require_beats_raw_baseline=False,
+        mi_sample_n=1000,
+        eps_mi_gain=0.5,  # absurdly high -> nothing passes
+        random_state=42,
+        require_beats_raw_baseline=False,
         fail_on_no_gain="fallback_raw",
     )
     res = discover_and_wrap(
-        df, target_col="y", feature_cols=["base", "other"],
-        train_idx=train_idx, config=cfg, base_estimator=_small_inner(),
+        df,
+        target_col="y",
+        feature_cols=["base", "other"],
+        train_idx=train_idx,
+        config=cfg,
+        base_estimator=_small_inner(),
     )
     assert res.estimator is None
     assert res.spec is None
@@ -200,10 +223,15 @@ def test_discover_and_wrap_conformal_interval_on_holdout():
     df = _linear_composite_df()
     train_idx, val_idx, test_idx = _split(len(df))
     res = discover_and_wrap(
-        df, target_col="y", feature_cols=["base", "other"],
-        train_idx=train_idx, holdout_idx=val_idx, config=_config(),
+        df,
+        target_col="y",
+        feature_cols=["base", "other"],
+        train_idx=train_idx,
+        holdout_idx=val_idx,
+        config=_config(),
         base_estimator=_small_inner(),
-        calibrate_conformal=True, conformal_alpha=0.1,
+        calibrate_conformal=True,
+        conformal_alpha=0.1,
     )
     assert res.estimator is not None
     assert res.conformal_alpha == pytest.approx(0.1)

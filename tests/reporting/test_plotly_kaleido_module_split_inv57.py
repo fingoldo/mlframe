@@ -8,11 +8,11 @@ this sensor fails on that pre-fix state. It also EXERCISES the moved ``write_ima
 body (not import-only) via a fake figure so a sibling that compiled but referenced an unresolved
 parent name would blow up here.
 """
+
 from __future__ import annotations
 
 import os
 
-import pytest
 
 
 def test_inv57_public_kaleido_surface_reexported_from_plotly():
@@ -74,9 +74,7 @@ def test_inv57_write_image_via_kaleido_burned_path_writes_html(tmp_path):
         fig = _FakeFig()
         target = str(tmp_path / "burned.png")
         _kaleido.write_image_via_kaleido(fig, target, "png")
-        assert os.path.exists(os.path.splitext(target)[0] + ".html"), (
-            "INV-57: burned path did not write the HTML fallback"
-        )
+        assert os.path.exists(os.path.splitext(target)[0] + ".html"), "INV-57: burned path did not write the HTML fallback"
         assert fig.image_calls == 0, "INV-57: burned path must not re-enter write_image oneshot"
         assert _kaleido.get_kaleido_oneshot_stats()[0] == 0
     finally:
@@ -104,18 +102,14 @@ def test_inv57_write_image_via_kaleido_oneshot_html_fallback(tmp_path, monkeypat
     _kaleido.write_image_via_kaleido(fig, target, "png")
 
     assert fig.image_calls == 1, "INV-57: oneshot path did not call write_image"
-    assert os.path.exists(os.path.splitext(target)[0] + ".html"), (
-        "INV-57: oneshot path did not write the HTML fallback after write_image raised"
-    )
+    assert os.path.exists(os.path.splitext(target)[0] + ".html"), "INV-57: oneshot path did not write the HTML fallback after write_image raised"
     n, _ = _kaleido.get_kaleido_oneshot_stats()
     assert n == 1, f"INV-57: oneshot call not recorded by the moved write path (n={n})"
     _kaleido.reset_kaleido_oneshot_stats()
 
 
 def test_inv57_plotly_module_under_house_loc_limit():
-    here = os.path.dirname(
-        __import__("mlframe.reporting.renderers.plotly", fromlist=["__file__"]).__file__
-    )
+    here = os.path.dirname(__import__("mlframe.reporting.renderers.plotly", fromlist=["__file__"]).__file__)
     plotly_path = os.path.join(here, "plotly.py")
     with open(plotly_path, encoding="utf-8") as f:
         loc = sum(1 for _ in f)

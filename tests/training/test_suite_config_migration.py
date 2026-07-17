@@ -50,10 +50,7 @@ class TestRemovedKwargs:
         ],
     )
     def test_kwarg_removed(self, suite_params, kwarg):
-        assert kwarg not in suite_params, (
-            f"`{kwarg}` should have been removed from train_mlframe_models_suite "
-            "in the 2026-04-27 refactor"
-        )
+        assert kwarg not in suite_params, f"`{kwarg}` should have been removed from train_mlframe_models_suite in the 2026-04-27 refactor"
 
     def test_typeerror_when_calling_with_removed_kwarg(self):
         # Pass a removed kwarg via **kwargs (so the file doesn't parse-time-fail
@@ -62,7 +59,9 @@ class TestRemovedKwargs:
         legacy_kwargs = {"init_common_params": {"show_perf_chart": False}}
         with pytest.raises(TypeError) as exc_info:
             train_mlframe_models_suite(
-                df=None, target_name="x", model_name="x",
+                df=None,
+                target_name="x",
+                model_name="x",
                 features_and_targets_extractor=None,
                 **legacy_kwargs,
             )
@@ -82,9 +81,7 @@ class TestNewTypedConfigsArePresent:
         ],
     )
     def test_kwarg_present(self, suite_params, kwarg):
-        assert kwarg in suite_params, (
-            f"`{kwarg}` should be a first-class kwarg of train_mlframe_models_suite"
-        )
+        assert kwarg in suite_params, f"`{kwarg}` should be a first-class kwarg of train_mlframe_models_suite"
 
 
 class TestModelSelectionKwargsRetained:
@@ -102,10 +99,7 @@ class TestModelSelectionKwargsRetained:
         ],
     )
     def test_model_selection_kwarg_kept(self, suite_params, kwarg):
-        assert kwarg in suite_params, (
-            f"`{kwarg}` is intentionally a top-level kwarg - it answers "
-            "\"what does this suite do\" and was NOT migrated into a config"
-        )
+        assert kwarg in suite_params, f'`{kwarg}` is intentionally a top-level kwarg - it answers "what does this suite do" and was NOT migrated into a config'
 
 
 class TestConfigInstantiationDoesNotRaise:

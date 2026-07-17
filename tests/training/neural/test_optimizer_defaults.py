@@ -8,12 +8,12 @@ tabular-MLP-tuned defaults for AdamW.
 Both are SETDEFAULT — caller-supplied values win. Non-AdamW/Adam
 optimizers are untouched (no Lookahead / Lion / etc. assumption).
 """
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-import pytest
 import torch
 import torch.nn as nn
 
@@ -25,13 +25,24 @@ from mlframe.training.neural import MLPTorchModel, generate_mlp
 def _make_module(optimizer=None, optimizer_kwargs=None):
     torch.manual_seed(0)
     network = generate_mlp(
-        num_features=4, num_classes=1, nlayers=1, first_layer_num_neurons=8,
-        dropout_prob=0.0, inputs_dropout_prob=0.0, use_layernorm=False,
-        use_batchnorm=False, activation_function=nn.ReLU, verbose=0,
+        num_features=4,
+        num_classes=1,
+        nlayers=1,
+        first_layer_num_neurons=8,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_layernorm=False,
+        use_batchnorm=False,
+        activation_function=nn.ReLU,
+        verbose=0,
     )
     return MLPTorchModel(
-        loss_fn=nn.MSELoss(), metrics=[], network=network,
-        learning_rate=1e-3, optimizer=optimizer, optimizer_kwargs=optimizer_kwargs,
+        loss_fn=nn.MSELoss(),
+        metrics=[],
+        network=network,
+        learning_rate=1e-3,
+        optimizer=optimizer,
+        optimizer_kwargs=optimizer_kwargs,
     )
 
 
@@ -91,6 +102,4 @@ def test_caller_supplied_fused_false_overrides_default(monkeypatch):
     out = module.configure_optimizers()
     opt = out if not isinstance(out, dict) else out["optimizer"]
     fused = opt.param_groups[0].get("fused")
-    assert fused is False or fused is None, (
-        f"caller-supplied fused=False must NOT be overridden by default-True; got {fused}"
-    )
+    assert fused is False or fused is None, f"caller-supplied fused=False must NOT be overridden by default-True; got {fused}"

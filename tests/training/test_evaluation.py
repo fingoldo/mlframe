@@ -13,7 +13,7 @@ Covers:
 import pytest
 import numpy as np
 import pandas as pd
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from sklearn.linear_model import Ridge, LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -48,7 +48,7 @@ def trained_regressor():
     model = Ridge(alpha=1.0)
     model.fit(X, y)
 
-    columns = [f'feature_{i}' for i in range(n_features)]
+    columns = [f"feature_{i}" for i in range(n_features)]
     df = pd.DataFrame(X, columns=columns)
 
     return model, df, y, columns
@@ -69,7 +69,7 @@ def trained_classifier():
     model = LogisticRegression(max_iter=1000)
     model.fit(X, y)
 
-    columns = [f'feature_{i}' for i in range(n_features)]
+    columns = [f"feature_{i}" for i in range(n_features)]
     df = pd.DataFrame(X, columns=columns)
 
     return model, df, y, columns
@@ -88,7 +88,7 @@ def trained_tree_classifier():
     model = RandomForestClassifier(n_estimators=10, random_state=42)
     model.fit(X, y)
 
-    columns = [f'feature_{i}' for i in range(n_features)]
+    columns = [f"feature_{i}" for i in range(n_features)]
     df = pd.DataFrame(X, columns=columns)
 
     return model, df, y, columns
@@ -107,7 +107,7 @@ def trained_tree_regressor():
     model = RandomForestRegressor(n_estimators=10, random_state=42)
     model.fit(X, y)
 
-    columns = [f'feature_{i}' for i in range(n_features)]
+    columns = [f"feature_{i}" for i in range(n_features)]
     df = pd.DataFrame(X, columns=columns)
 
     return model, df, y, columns
@@ -123,7 +123,7 @@ class TestGetModelFeatureImportances:
 
     def test_tree_model_has_feature_importances(self, trained_tree_regressor):
         """Test extraction from tree-based model with feature_importances_."""
-        model, df, y, columns = trained_tree_regressor
+        model, _df, _y, columns = trained_tree_regressor
 
         importances = get_model_feature_importances(model, columns)
 
@@ -135,7 +135,7 @@ class TestGetModelFeatureImportances:
 
     def test_linear_model_has_coefficients(self, trained_regressor):
         """Test extraction from linear model with coef_."""
-        model, df, y, columns = trained_regressor
+        model, _df, _y, columns = trained_regressor
 
         importances = get_model_feature_importances(model, columns)
 
@@ -147,7 +147,7 @@ class TestGetModelFeatureImportances:
 
     def test_logistic_regression_coefficients(self, trained_classifier):
         """Test extraction from logistic regression."""
-        model, df, y, columns = trained_classifier
+        model, _df, _y, columns = trained_classifier
 
         importances = get_model_feature_importances(model, columns)
 
@@ -156,13 +156,13 @@ class TestGetModelFeatureImportances:
 
     def test_return_dataframe(self, trained_tree_regressor):
         """Test return_df=True returns DataFrame."""
-        model, df, y, columns = trained_tree_regressor
+        model, _df, _y, columns = trained_tree_regressor
 
         importances = get_model_feature_importances(model, columns, return_df=True)
 
         assert isinstance(importances, pd.DataFrame)
-        assert 'feature' in importances.columns
-        assert 'importance' in importances.columns
+        assert "feature" in importances.columns
+        assert "importance" in importances.columns
         assert len(importances) == len(columns)
 
     def test_model_without_importances(self):
@@ -170,19 +170,16 @@ class TestGetModelFeatureImportances:
         # Mock model without required attributes
         mock_model = MagicMock(spec=[])
 
-        importances = get_model_feature_importances(mock_model, ['a', 'b'])
+        importances = get_model_feature_importances(mock_model, ["a", "b"])
 
         assert importances is None
 
     def test_pipeline_extracts_from_final_estimator(self, trained_regressor):
         """Test that Pipeline extracts from final estimator."""
-        model, df, y, columns = trained_regressor
+        model, _df, _y, columns = trained_regressor
 
         # Wrap in pipeline
-        pipeline = Pipeline([
-            ('scaler', StandardScaler()),
-            ('model', model)
-        ])
+        pipeline = Pipeline([("scaler", StandardScaler()), ("model", model)])
 
         importances = get_model_feature_importances(pipeline, columns)
 
@@ -197,7 +194,7 @@ class TestGetModelFeatureImportances:
 
         model = LogisticRegression(max_iter=1000)
         model.fit(X, y)
-        columns = [f'f{i}' for i in range(5)]
+        columns = [f"f{i}" for i in range(5)]
 
         importances = get_model_feature_importances(model, columns)
 
@@ -215,16 +212,20 @@ class TestPermutationFallbackAndNestedUnwrap:
     def _custom_predict_only_regressor(self, n_features):
         """Tiny stand-in for ``PytorchLightningRegressor`` -- exposes
         ``predict`` only, no ``feature_importances_`` / ``coef_``."""
+
         class _PredictOnly:
             def __init__(self, n):
                 self.n = n
                 rng = np.random.default_rng(0)
                 self._w = rng.standard_normal(n)
+
             def fit(self, X, y):
                 return self
+
             def predict(self, X):
                 X = np.asarray(X)
                 return X @ self._w
+
         return _PredictOnly(n_features)
 
     def test_no_fi_no_xy_returns_none_back_compat(self):
@@ -240,7 +241,10 @@ class TestPermutationFallbackAndNestedUnwrap:
         model = self._custom_predict_only_regressor(4)
         y = model.predict(X) + 0.01 * rng.standard_normal(n)
         importances = get_model_feature_importances(
-            model, [f"f{i}" for i in range(4)], X=X, y=y,
+            model,
+            [f"f{i}" for i in range(4)],
+            X=X,
+            y=y,
         )
         assert importances is not None
         assert importances.shape == (4,)
@@ -252,6 +256,7 @@ class TestPermutationFallbackAndNestedUnwrap:
         ridge's ``coef_`` -- unwrap chain must find it."""
         from sklearn.compose import TransformedTargetRegressor
         from sklearn.preprocessing import StandardScaler
+
         model, df, y, columns = trained_regressor
         ttr = TransformedTargetRegressor(
             regressor=type(model)(),
@@ -266,6 +271,7 @@ class TestPermutationFallbackAndNestedUnwrap:
         """Pipeline -> final step TTR -> regressor_ unwrap chain."""
         from sklearn.compose import TransformedTargetRegressor
         from sklearn.preprocessing import StandardScaler
+
         model, df, y, columns = trained_regressor
         ttr = TransformedTargetRegressor(
             regressor=type(model)(),
@@ -298,6 +304,7 @@ class TestNativeNNFeatureImportance:
     def _build_torch_mlp(self, n_features=20):
         import torch
         import torch.nn as nn
+
         rng = np.random.default_rng(0)
         net = nn.Sequential(
             nn.BatchNorm1d(n_features),
@@ -324,8 +331,10 @@ class TestNativeNNFeatureImportance:
         class _Wrap:
             """Lightning-like wrapper: predict + ``.network`` to the
             torch Module so the unwrap chain finds it."""
+
             def __init__(self, network):
                 self.network = network
+
             # sklearn.inspection.permutation_importance hard-requires a
             # ``fit`` method on the estimator (it routes through
             # ``check_is_fitted`` even though it never trains the model);
@@ -333,8 +342,10 @@ class TestNativeNNFeatureImportance:
             # that just keeps the sklearn API happy.
             def fit(self, X, y=None):
                 return self
+
             def predict(self, X):
                 import torch as _t
+
                 self.network.eval()
                 with _t.no_grad():
                     return self.network(_t.as_tensor(np.asarray(X), dtype=_t.float32)).reshape(-1).numpy()
@@ -344,7 +355,11 @@ class TestNativeNNFeatureImportance:
     def test_first_layer_method_returns_per_feature_importance(self):
         model, X, y, columns = self._build_torch_mlp(n_features=20)
         imp = get_model_feature_importances(
-            model, columns, X=X, y=y, nn_fi_method="first_layer",
+            model,
+            columns,
+            X=X,
+            y=y,
+            nn_fi_method="first_layer",
         )
         assert imp is not None
         assert imp.shape == (20,)
@@ -354,17 +369,18 @@ class TestNativeNNFeatureImportance:
         pytest.importorskip("captum")
         model, X, y, columns = self._build_torch_mlp(n_features=20)
         imp = get_model_feature_importances(
-            model, columns, X=X, y=y, nn_fi_method="captum",
+            model,
+            columns,
+            X=X,
+            y=y,
+            nn_fi_method="captum",
         )
         assert imp is not None
         assert imp.shape == (20,)
         # Captum IG should recover most of the top-5 informative features.
         top5 = set(np.argsort(imp)[-5:].tolist())
         true_informative = set(range(5))
-        assert len(top5 & true_informative) >= 3, (
-            f"captum top5 must recover at least 3 of 5 truly informative features; "
-            f"got {top5} vs truth={true_informative}"
-        )
+        assert len(top5 & true_informative) >= 3, f"captum top5 must recover at least 3 of 5 truly informative features; got {top5} vs truth={true_informative}"
 
     def test_auto_method_prefers_captum_when_available(self):
         """``nn_fi_method='auto'`` should pick captum when installed.
@@ -374,7 +390,11 @@ class TestNativeNNFeatureImportance:
         pytest.importorskip("captum")
         model, X, y, columns = self._build_torch_mlp(n_features=20)
         imp_auto = get_model_feature_importances(
-            model, columns, X=X, y=y, nn_fi_method="auto",
+            model,
+            columns,
+            X=X,
+            y=y,
+            nn_fi_method="auto",
         )
         assert imp_auto is not None
         assert imp_auto.shape == (20,)
@@ -385,7 +405,11 @@ class TestNativeNNFeatureImportance:
         ``torch.nn.Module`` check."""
         model, X, y, columns = self._build_torch_mlp(n_features=20)
         imp = get_model_feature_importances(
-            model.network, columns, X=X, y=y, nn_fi_method="first_layer",
+            model.network,
+            columns,
+            X=X,
+            y=y,
+            nn_fi_method="first_layer",
         )
         assert imp is not None
         assert imp.shape == (20,)
@@ -395,11 +419,16 @@ class TestNativeNNFeatureImportance:
         must NOT crash -- it falls back to threading permutation so
         the chart still renders."""
         import torch
+
         if torch.cuda.is_available():
             pytest.skip("CUDA available -- this test exercises the no-CUDA path")
         model, X, y, columns = self._build_torch_mlp(n_features=20)
         imp = get_model_feature_importances(
-            model, columns, X=X, y=y, nn_fi_method="permutation_cuda",
+            model,
+            columns,
+            X=X,
+            y=y,
+            nn_fi_method="permutation_cuda",
         )
         # Either CUDA was available + ran, or it fell back -- either
         # way, an array of the right shape must come back (NOT None).
@@ -411,11 +440,16 @@ class TestNativeNNFeatureImportance:
         valid per-feature importance vector (bench shows 2-4x speedup
         but here we only assert correctness)."""
         import torch
+
         if not torch.cuda.is_available():
             pytest.skip("no CUDA")
         model, X, y, columns = self._build_torch_mlp(n_features=30)
         imp = get_model_feature_importances(
-            model, columns, X=X, y=y, nn_fi_method="permutation_cuda",
+            model,
+            columns,
+            X=X,
+            y=y,
+            nn_fi_method="permutation_cuda",
         )
         assert imp is not None
         assert imp.shape == (30,)
@@ -441,7 +475,7 @@ class TestReportRegressionModelPerf:
         preds, probs = report_regression_model_perf(
             targets=y,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=model,
             df=df,
             print_report=False,
@@ -457,10 +491,10 @@ class TestReportRegressionModelPerf:
         model, df, y, columns = trained_regressor
         precomputed_preds = model.predict(df)
 
-        preds, probs = report_regression_model_perf(
+        preds, _probs = report_regression_model_perf(
             targets=y,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=None,
             preds=precomputed_preds,
             print_report=False,
@@ -477,7 +511,7 @@ class TestReportRegressionModelPerf:
         report_regression_model_perf(
             targets=y,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=model,
             df=df,
             metrics=metrics,
@@ -485,13 +519,13 @@ class TestReportRegressionModelPerf:
             show_perf_chart=False,
         )
 
-        assert 'MAE' in metrics
-        assert 'RMSE' in metrics
-        assert 'MaxError' in metrics
-        assert 'R2' in metrics
-        assert metrics['MAE'] >= 0
-        assert metrics['RMSE'] >= 0
-        assert metrics['R2'] <= 1.0
+        assert "MAE" in metrics
+        assert "RMSE" in metrics
+        assert "MaxError" in metrics
+        assert "R2" in metrics
+        assert metrics["MAE"] >= 0
+        assert metrics["RMSE"] >= 0
+        assert metrics["R2"] <= 1.0
 
     def test_pandas_series_targets(self, trained_regressor):
         """Test with pandas Series as targets."""
@@ -501,7 +535,7 @@ class TestReportRegressionModelPerf:
         preds, _ = report_regression_model_perf(
             targets=targets_series,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=model,
             df=df,
             print_report=False,
@@ -517,10 +551,10 @@ class TestReportRegressionModelPerf:
         # Create simple subgroups with proper format
         # Each subgroup should have a dict with "bins" key containing group labels
         # The bins should be indexed by df.index so subset_index can locate them
-        group_labels = pd.Series(['A'] * 100 + ['B'] * 100, index=df.index)
+        group_labels = pd.Series(["A"] * 100 + ["B"] * 100, index=df.index)
         subgroups = {
-            'demographic_group': {
-                'bins': group_labels,
+            "demographic_group": {
+                "bins": group_labels,
             }
         }
 
@@ -528,7 +562,7 @@ class TestReportRegressionModelPerf:
         preds, _ = report_regression_model_perf(
             targets=y,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=model,
             df=df,
             subgroups=subgroups,
@@ -547,7 +581,7 @@ class TestReportRegressionModelPerf:
         preds, _ = report_regression_model_perf(
             targets=np.array([y[0]]),
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=model,
             df=df.iloc[[0]],
             print_report=False,
@@ -572,7 +606,7 @@ class TestReportProbabilisticModelPerf:
         preds, probs = report_probabilistic_model_perf(
             targets=y,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=model,
             df=df,
             print_report=False,
@@ -594,7 +628,7 @@ class TestReportProbabilisticModelPerf:
         preds, probs = report_probabilistic_model_perf(
             targets=y,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=None,
             probs=precomputed_probs,
             print_report=False,
@@ -612,7 +646,7 @@ class TestReportProbabilisticModelPerf:
         report_probabilistic_model_perf(
             targets=y,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=model,
             df=df,
             metrics=metrics,
@@ -623,12 +657,12 @@ class TestReportProbabilisticModelPerf:
         # Should have metrics for class 1 (binary classification)
         assert 1 in metrics
         class_metrics = metrics[1]
-        assert 'roc_auc' in class_metrics
-        assert 'pr_auc' in class_metrics
-        assert 'calibration_mae' in class_metrics
-        assert 'brier_loss' in class_metrics
-        assert 0 <= class_metrics['roc_auc'] <= 1
-        assert 0 <= class_metrics['brier_loss'] <= 1
+        assert "roc_auc" in class_metrics
+        assert "pr_auc" in class_metrics
+        assert "calibration_mae" in class_metrics
+        assert "brier_loss" in class_metrics
+        assert 0 <= class_metrics["roc_auc"] <= 1
+        assert 0 <= class_metrics["brier_loss"] <= 1
 
     def test_probability_sum_approximately_one(self, trained_classifier):
         """Test that probabilities sum to approximately 1."""
@@ -637,7 +671,7 @@ class TestReportProbabilisticModelPerf:
         _, probs = report_probabilistic_model_perf(
             targets=y,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=model,
             df=df,
             print_report=False,
@@ -655,15 +689,16 @@ class TestReportProbabilisticModelPerf:
         y = (X[:, 0] > 0).astype(int)
 
         from sklearn.linear_model import RidgeClassifier
+
         model = RidgeClassifier()
         model.fit(X, y)
 
-        df = pd.DataFrame(X, columns=[f'f{i}' for i in range(5)])
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
 
         preds, probs = report_probabilistic_model_perf(
             targets=y,
-            columns=[f'f{i}' for i in range(5)],
-            model_name='ridge_classifier',
+            columns=[f"f{i}" for i in range(5)],
+            model_name="ridge_classifier",
             model=model,
             df=df,
             print_report=False,
@@ -679,10 +714,10 @@ class TestReportProbabilisticModelPerf:
         """Test with custom class labels."""
         model, df, y, columns = trained_classifier
 
-        preds, probs = report_probabilistic_model_perf(
+        preds, _probs = report_probabilistic_model_perf(
             targets=y,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=model,
             df=df,
             classes=[0, 1],
@@ -708,7 +743,7 @@ class TestReportModelPerf:
         preds, probs = report_model_perf(
             targets=y,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=model,
             df=df,
             print_report=False,
@@ -726,7 +761,7 @@ class TestReportModelPerf:
         preds, probs = report_model_perf(
             targets=y,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=model,
             df=df,
             print_report=False,
@@ -745,7 +780,7 @@ class TestReportModelPerf:
         report_model_perf(
             targets=y,
             columns=columns,
-            model_name='test_model',
+            model_name="test_model",
             model=model,
             df=df,
             metrics=metrics,
@@ -754,7 +789,7 @@ class TestReportModelPerf:
             show_fi=True,
         )
 
-        assert 'feature_importances' in metrics
+        assert "feature_importances" in metrics
 
     def test_model_none_with_probs_routes_to_classification(self):
         """Test that model=None with probs routes to classification."""
@@ -764,8 +799,8 @@ class TestReportModelPerf:
 
         preds, returned_probs = report_model_perf(
             targets=y,
-            columns=['f1', 'f2'],
-            model_name='test',
+            columns=["f1", "f2"],
+            model_name="test",
             model=None,
             probs=probs,
             print_report=False,
@@ -787,12 +822,12 @@ class TestPlotModelFeatureImportances:
 
     def test_returns_importances(self, trained_tree_regressor):
         """Test that function returns feature importances."""
-        model, df, y, columns = trained_tree_regressor
+        model, _df, _y, columns = trained_tree_regressor
 
         importances = plot_model_feature_importances(
             model=model,
             columns=columns,
-            model_name='test',
+            model_name="test",
         )
 
         assert importances is not None
@@ -804,8 +839,8 @@ class TestPlotModelFeatureImportances:
 
         importances = plot_model_feature_importances(
             model=mock_model,
-            columns=['a', 'b'],
-            model_name='test',
+            columns=["a", "b"],
+            model_name="test",
         )
 
         assert importances is None
@@ -823,9 +858,9 @@ class TestEvaluateModel:
         """Test high-level regression evaluation."""
         model, df, y, columns = trained_regressor
 
-        preds, probs = evaluate_model(
+        preds, _probs = evaluate_model(
             model=model,
-            model_name='test_regressor',
+            model_name="test_regressor",
             targets=y,
             columns=columns,
             df=df,
@@ -843,7 +878,7 @@ class TestEvaluateModel:
 
         preds, probs = evaluate_model(
             model=model,
-            model_name='test_classifier',
+            model_name="test_classifier",
             targets=y,
             columns=columns,
             df=df,
@@ -866,14 +901,14 @@ class TestEdgeCases:
 
     def test_constant_predictions_regression(self, trained_regressor):
         """Test regression with constant predictions."""
-        model, df, y, columns = trained_regressor
+        _model, _df, y, columns = trained_regressor
         constant_preds = np.full_like(y, np.mean(y))
 
         metrics = {}
         preds, _ = report_regression_model_perf(
             targets=y,
             columns=columns,
-            model_name='constant_model',
+            model_name="constant_model",
             model=None,
             preds=constant_preds,
             metrics=metrics,
@@ -882,17 +917,17 @@ class TestEdgeCases:
         )
 
         assert preds is not None
-        assert metrics['R2'] <= 0  # R2 should be <= 0 for constant predictions
+        assert metrics["R2"] <= 0  # R2 should be <= 0 for constant predictions
 
     def test_perfect_predictions_regression(self, trained_regressor):
         """Test regression with perfect predictions."""
-        model, df, y, columns = trained_regressor
+        _model, _df, y, columns = trained_regressor
 
         metrics = {}
-        preds, _ = report_regression_model_perf(
+        _preds, _ = report_regression_model_perf(
             targets=y,
             columns=columns,
-            model_name='perfect_model',
+            model_name="perfect_model",
             model=None,
             preds=y.copy(),  # Perfect predictions
             metrics=metrics,
@@ -900,18 +935,18 @@ class TestEdgeCases:
             show_perf_chart=False,
         )
 
-        assert metrics['MAE'] == pytest.approx(0, abs=1e-10)
-        assert metrics['R2'] == pytest.approx(1.0, abs=1e-10)
+        assert metrics["MAE"] == pytest.approx(0, abs=1e-10)
+        assert metrics["R2"] == pytest.approx(1.0, abs=1e-10)
 
     def test_all_same_class_predictions(self):
         """Test classification with all same class predictions."""
         y = np.array([0, 0, 0, 1, 1, 1])
         probs = np.array([[1.0, 0.0]] * 6)  # All predict class 0
 
-        preds, returned_probs = report_probabilistic_model_perf(
+        preds, _returned_probs = report_probabilistic_model_perf(
             targets=y,
-            columns=['f1'],
-            model_name='all_same_class',
+            columns=["f1"],
+            model_name="all_same_class",
             model=None,
             probs=probs,
             print_report=False,
@@ -932,7 +967,7 @@ class TestEdgeCases:
         preds, _ = report_regression_model_perf(
             targets=small_y,
             columns=columns,
-            model_name='small_sample',
+            model_name="small_sample",
             model=model,
             df=small_df,
             print_report=False,
@@ -948,7 +983,7 @@ class TestEdgeCases:
         preds, _ = report_regression_model_perf(
             targets=y,
             columns=columns,
-            model_name='test',
+            model_name="test",
             model=model,
             df=df,
             print_report=False,
@@ -964,7 +999,7 @@ class TestEdgeCases:
         _, probs = report_probabilistic_model_perf(
             targets=y,
             columns=columns,
-            model_name='test',
+            model_name="test",
             model=model,
             df=df,
             print_report=False,
@@ -992,7 +1027,7 @@ class TestEvaluationIntegration:
         preds, _ = report_model_perf(
             targets=y,
             columns=columns,
-            model_name='integration_test',
+            model_name="integration_test",
             model=model,
             df=df,
             metrics=metrics,
@@ -1002,10 +1037,10 @@ class TestEvaluationIntegration:
         )
 
         # Verify all metrics present
-        assert 'MAE' in metrics
-        assert 'RMSE' in metrics
-        assert 'R2' in metrics
-        assert 'feature_importances' in metrics
+        assert "MAE" in metrics
+        assert "RMSE" in metrics
+        assert "R2" in metrics
+        assert "feature_importances" in metrics
 
         # Verify predictions are reasonable
         assert len(preds) == len(y)
@@ -1019,7 +1054,7 @@ class TestEvaluationIntegration:
         preds, probs = report_model_perf(
             targets=y,
             columns=columns,
-            model_name='integration_test',
+            model_name="integration_test",
             model=model,
             df=df,
             metrics=metrics,
@@ -1029,7 +1064,7 @@ class TestEvaluationIntegration:
         )
 
         # Verify metrics present
-        assert 'feature_importances' in metrics
+        assert "feature_importances" in metrics
         assert 1 in metrics  # Class 1 metrics
 
         # Verify predictions

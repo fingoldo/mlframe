@@ -75,9 +75,7 @@ _leaf_strategy = st.fixed_dictionaries(
 _discrete_strategy = st.fixed_dictionaries(
     {
         "input_type": st.sampled_from(["pandas", "polars_utf8", "polars_enum", "polars_nullable"]),
-        "models": st.sampled_from(
-            [("cb",), ("xgb",), ("lgb",), ("hgb",), ("linear",), ("cb", "xgb"), ("lgb", "xgb")]
-        ),
+        "models": st.sampled_from([("cb",), ("xgb",), ("lgb",), ("hgb",), ("linear",), ("cb", "xgb"), ("lgb", "xgb")]),
         "target_type": st.sampled_from(["binary_classification", "regression"]),
         "categorical_encoding_cfg": st.sampled_from(["ordinal", "onehot"]),
         "scaler_name_cfg": st.sampled_from(["standard", "robust", None]),

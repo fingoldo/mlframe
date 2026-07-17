@@ -3,7 +3,6 @@
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -78,12 +77,7 @@ def test_is_fast_mode_accepts_truthy(monkeypatch):
 def test_slow_marker_skipped_in_fast_subprocess(tmp_path):
     """End-to-end: --fast actually skips @pytest.mark.slow tests."""
     test_file = tmp_path / "test_slow_skip_demo.py"
-    test_file.write_text(
-        "import pytest\n"
-        "@pytest.mark.slow\n"
-        "def test_heavy(): assert True\n"
-        "def test_light(): assert True\n"
-    )
+    test_file.write_text("import pytest\n@pytest.mark.slow\ndef test_heavy(): assert True\ndef test_light(): assert True\n")
     conftest = tmp_path / "conftest.py"
     conftest.write_text(
         "import os\n"
@@ -107,9 +101,10 @@ def test_slow_marker_skipped_in_fast_subprocess(tmp_path):
         # tests before they can report pass/skip. This test is about --fast
         # marker skipping, NOT random ordering, so disable the plugin in the
         # controlled subprocess to isolate it from that env incompatibility.
-        [sys.executable, "-m", "pytest", str(test_file),
-         "-p", "no:cacheprovider", "-p", "no:randomly",
-         "--no-cov", "-q", "-o", "addopts="],
-        capture_output=True, text=True, cwd=tmp_path, env=env,
+        [sys.executable, "-m", "pytest", str(test_file), "-p", "no:cacheprovider", "-p", "no:randomly", "--no-cov", "-q", "-o", "addopts="],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env=env,
     )
     assert "1 passed" in result.stdout and "1 skipped" in result.stdout, result.stdout + result.stderr

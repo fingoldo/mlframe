@@ -7,6 +7,7 @@ buffer slot kept whatever a previous column / chunk had written -- silently scor
 data if the slot were ever read by index. The fix nulls the slot (``= np.nan``) and excludes
 the failed column from the candidate list.
 """
+
 import numpy as np
 import pytest
 
@@ -32,7 +33,8 @@ def test_failed_transform_nulls_slot_and_excludes_candidate(monkeypatch):
     import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_chunks as _chunks
 
     monkeypatch.setattr(
-        _chunks, "_dispatch_batch_mi_with_noise_gate",
+        _chunks,
+        "_dispatch_batch_mi_with_noise_gate",
         lambda *, disc_2d, **kw: np.zeros(disc_2d.shape[1], dtype=np.float64),
     )
 
@@ -110,9 +112,7 @@ def test_failed_transform_nulls_slot_and_excludes_candidate(monkeypatch):
     # Post-fix it was written to NaN, then the vectorised nan_to_num scrubbed it to 0.0;
     # either way it must differ from the stale good-column data it would have retained pre-fix.
     failed_slot = chunk_buffer[:, 1]
-    assert not np.array_equal(failed_slot, good_value), (
-        "failed column slot still holds a copy of a good column's data (stale buffer not nulled)"
-    )
+    assert not np.array_equal(failed_slot, good_value), "failed column slot still holds a copy of a good column's data (stale buffer not nulled)"
 
 
 if __name__ == "__main__":

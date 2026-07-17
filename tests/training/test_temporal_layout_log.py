@@ -8,6 +8,7 @@ train->prod estimated gap days) whenever timestamps are supplied AND
 Time-series users should see at-a-glance how their default split lays out
 without having to thread an extra knob.
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,7 +26,10 @@ def test_d1_p2_10_temporal_layout_info_fires_on_default_forward_placement(caplog
 
     with caplog.at_level(logging.INFO, logger="mlframe.training.splitting"):
         make_train_test_split(
-            df=df, timestamps=ts, test_size=0.2, val_size=0.2,
+            df=df,
+            timestamps=ts,
+            test_size=0.2,
+            val_size=0.2,
             random_seed=42,
         )
     msgs = [r.message for r in caplog.records if r.levelno >= logging.INFO]
@@ -41,13 +45,14 @@ def test_d1_p2_10_temporal_layout_not_emitted_when_no_timestamps(caplog):
 
     with caplog.at_level(logging.INFO, logger="mlframe.training.splitting"):
         make_train_test_split(
-            df=df, timestamps=None, test_size=0.2, val_size=0.2,
+            df=df,
+            timestamps=None,
+            test_size=0.2,
+            val_size=0.2,
             random_seed=42,
         )
     msgs = [r.message for r in caplog.records]
-    assert not any("Temporal layout" in m for m in msgs), (
-        f"Did not expect 'Temporal layout' line without timestamps; got: {msgs}"
-    )
+    assert not any("Temporal layout" in m for m in msgs), f"Did not expect 'Temporal layout' line without timestamps; got: {msgs}"
 
 
 def test_d1_p2_10_temporal_layout_not_emitted_on_backward_placement(caplog):
@@ -59,10 +64,12 @@ def test_d1_p2_10_temporal_layout_not_emitted_on_backward_placement(caplog):
 
     with caplog.at_level(logging.INFO, logger="mlframe.training.splitting"):
         make_train_test_split(
-            df=df, timestamps=ts, test_size=0.2, val_size=0.2,
-            val_placement="backward", random_seed=42,
+            df=df,
+            timestamps=ts,
+            test_size=0.2,
+            val_size=0.2,
+            val_placement="backward",
+            random_seed=42,
         )
     msgs = [r.message for r in caplog.records]
-    assert not any("Temporal layout" in m and "val->train_gap" in m for m in msgs), (
-        f"Did not expect default-forward INFO under explicit backward; got: {msgs}"
-    )
+    assert not any("Temporal layout" in m and "val->train_gap" in m for m in msgs), f"Did not expect default-forward INFO under explicit backward; got: {msgs}"

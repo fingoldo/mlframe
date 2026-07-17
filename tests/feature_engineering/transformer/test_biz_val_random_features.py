@@ -14,10 +14,10 @@ Pass thresholds:
 - LightGBM with RFF features must NOT hurt R^2 by more than 0.05 absolute vs LightGBM on raw (RFF is not a tree FE technique; it must remain neutral to be ok
   to chain in a pipeline that mixes linear and tree models).
 """
+
 from __future__ import annotations
 
 import numpy as np
-import polars as pl
 import pytest
 from sklearn.model_selection import KFold
 
@@ -62,19 +62,21 @@ def _handcrafted_polynomial(X: np.ndarray, n_signal: int = 4) -> np.ndarray:
     """5-minute polynomial FE: pairwise products and squares of the first n_signal columns."""
     pieces = [X]
     for i in range(n_signal):
-        pieces.append((X[:, i:i+1]) ** 2)
-        for j in range(i+1, n_signal):
-            pieces.append((X[:, i:i+1] * X[:, j:j+1]))
+        pieces.append((X[:, i : i + 1]) ** 2)
+        for j in range(i + 1, n_signal):
+            pieces.append(X[:, i : i + 1] * X[:, j : j + 1])
     return np.concatenate(pieces, axis=1).astype(np.float32)
 
 
 def _lgbm():
     import lightgbm as lgb
+
     return lgb.LGBMRegressor(n_estimators=200, learning_rate=0.05, num_leaves=31, min_child_samples=20, random_state=42, verbose=-1)
 
 
 def _ridge():
     from sklearn.linear_model import Ridge
+
     return Ridge(alpha=1.0)
 
 

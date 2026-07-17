@@ -4,6 +4,7 @@ The module is dominated by @njit functions whose interiors are invisible to cove
 - Triggering each Python-level function call (counts the `def` line + dispatch)
 - Exercising any non-njit code paths (probably none in this module)
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,6 +20,7 @@ from mlframe.feature_selection.filters.info_theory import (
 
 try:
     from mlframe.feature_selection.filters.info_theory import entropy_miller_madow
+
     _HAVE_MM = True
 except ImportError:
     _HAVE_MM = False
@@ -103,7 +105,7 @@ def test_merge_vars_single_column():
     rng = np.random.default_rng(4)
     factors_data = rng.integers(0, 5, size=(100, 3)).astype(np.int32)
     nbins = np.array([5, 5, 5], dtype=np.int64)
-    classes, freqs, n_bins = merge_vars(
+    classes, _freqs, _n_bins = merge_vars(
         factors_data=factors_data,
         vars_indices=np.array([0], dtype=np.int64),
         var_is_nominal=None,

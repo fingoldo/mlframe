@@ -3,10 +3,13 @@ reuses it across the 50 shuffles via _plugin_mi_from_binned_njit, instead of re-
 ~10x speedup on the null loop (the argsort is ~3/4 of a plug-in MI call) and MUST stay BIT-IDENTICAL: the guard's reject
 decision compares the real MI to the null p95, so any drift in the null distribution would flip which engineered pairs
 survive. Pins that _plugin_mi_from_binned_njit(_quantile_bin_njit(comb), y) == _plugin_mi_classif_njit(comb, y)."""
+
 import numpy as np
 
 from mlframe.feature_selection.filters.hermite_fe import (
-    _plugin_mi_classif_njit, _plugin_mi_from_binned_njit, _quantile_bin_njit,
+    _plugin_mi_classif_njit,
+    _plugin_mi_from_binned_njit,
+    _quantile_bin_njit,
 )
 
 
@@ -23,7 +26,7 @@ def test_perm_null_bin_once_is_bit_identical_to_rebinning():
         comb_binned = _quantile_bin_njit(comb, bins)
         for _p in range(50):
             yp = np.ascontiguousarray(y[rng.permutation(n)])
-            old = _plugin_mi_classif_njit(comb, yp, bins)      # re-bins comb (the pre-optimization path)
+            old = _plugin_mi_classif_njit(comb, yp, bins)  # re-bins comb (the pre-optimization path)
             new = _plugin_mi_from_binned_njit(comb_binned, yp, bins)  # bin-once path
             d = abs(old - new)
             max_abs_delta = max(max_abs_delta, d)
@@ -35,12 +38,12 @@ def test_perm_null_bin_once_is_bit_identical_to_rebinning():
 def test_optimise_hermite_pair_runs_with_noise_floor():
     """End-to-end smoke: the optimiser (which now uses the bin-once null on the discrete path) still returns a result."""
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
+
     rng = np.random.default_rng(1)
     n = 4000
     xa = rng.standard_normal(n)
     xb = rng.standard_normal(n) + 0.3
     yc = xa * xa * xb + rng.standard_normal(n) * 0.4
     y = np.digitize(yc, np.quantile(yc, np.linspace(0, 1, 11)[1:-1])).astype(np.int64)
-    r = optimise_hermite_pair(xa, xb, y, n_trials=60, min_degree=3, max_degree=5,
-                              optimizer="cma_batch", discrete_target=True, noise_floor_n_perms=30)
+    r = optimise_hermite_pair(xa, xb, y, n_trials=60, min_degree=3, max_degree=5, optimizer="cma_batch", discrete_target=True, noise_floor_n_perms=30)
     assert r is None or r.mi >= 0.0  # either rejected by the null, or a valid non-negative MI

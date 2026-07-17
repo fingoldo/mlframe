@@ -3,6 +3,7 @@ permutations to estimate. The default was raised 25 -> 200 because K=25 places o
 wobbles across permutation seeds. This pins that the floor's across-seed std at the new default is materially below the std K=25 produces, so a future revert to
 a small K (which would re-introduce a noisy, unreliable noise floor) fails here.
 """
+
 import numpy as np
 
 from mlframe.feature_selection.filters._permutation_null import (
@@ -17,10 +18,7 @@ def _floor_std_over_seeds(k: int, n_seeds: int = 30) -> float:
     data = rng.integers(0, nb, size=(n, p + 1)).astype(np.int64)
     nbins = np.full(p + 1, nb, dtype=np.int64)
     cand = np.arange(p)
-    floors = np.array([
-        pooled_permutation_null_gain_floor(data, nbins, cand, p, n_permutations=k, quantile=0.95, random_seed=1000 + s)
-        for s in range(n_seeds)
-    ])
+    floors = np.array([pooled_permutation_null_gain_floor(data, nbins, cand, p, n_permutations=k, quantile=0.95, random_seed=1000 + s) for s in range(n_seeds)])
     return float(floors.std(ddof=1))
 
 

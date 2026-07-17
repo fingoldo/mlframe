@@ -26,9 +26,10 @@ def test_calibration_cv_folds_default_is_five():
 def _mean_brier(k: int, scenarios, seeds) -> float:
     briers = []
     for n_features, n_inf, weights, seed in scenarios:
-        for s in seeds:
-            X, y = make_classification(n_samples=2000, n_features=n_features, n_informative=n_inf,
-                                       n_redundant=4, weights=weights, class_sep=0.6, random_state=seed)
+        for _s in seeds:
+            X, y = make_classification(
+                n_samples=2000, n_features=n_features, n_informative=n_inf, n_redundant=4, weights=weights, class_sep=0.6, random_state=seed
+            )
             base = GradientBoostingClassifier(n_estimators=60, max_depth=3, random_state=seed)
             X_fit, X_te, y_fit, y_te = train_test_split(X, y, test_size=0.3, stratify=y, random_state=seed)
             cv = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed)

@@ -11,14 +11,12 @@ Run with::
 The fixed scenario list below mirrors the bench scenarios but uses smaller n
 (faster capture, still covers the algorithmic surface).
 """
+
 from __future__ import annotations
 
 import argparse
-import orjson
 import logging
 import sys
-from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 import pandas as pd

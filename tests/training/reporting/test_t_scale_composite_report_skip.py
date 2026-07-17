@@ -16,6 +16,7 @@ pass; the per-model T-scale chart stays suppressed.
 Detection: ``MTRESID=`` substring in ``model_name`` (stamped by
 ``select_target`` when the target is composite).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,13 +28,11 @@ class TestTScaleCompositeReportSkip:
         env-var opt-out are wired into report_regression_model_perf
         (which lives in _reporting_regression.py)."""
         from mlframe.training.reporting import _reporting_regression as rep
+
         src = Path(rep.__file__).read_text(encoding="utf-8")
         # Skip message body changed 2026-05-27 to point at the wrap-pass
         # y-scale chart explicitly; sensor accepts either phrasing.
-        assert (
-            "T-scale chart skipped here" in src
-            or "T-scale report skipped (composite target)" in src
-        )
+        assert "T-scale chart skipped here" in src or "T-scale report skipped (composite target)" in src
         assert "MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS" in src
         # The skip must short-circuit BEFORE the chart figure block
         # builds. Signature: detection on ``MTRESID`` substring near
@@ -48,5 +47,6 @@ class TestTScaleCompositeReportSkip:
         """Opt-out env var name is stable and matches the prefix
         convention (MLFRAME_*) used by other operator overrides."""
         from mlframe.training.reporting import _reporting_regression as rep
+
         src = Path(rep.__file__).read_text(encoding="utf-8")
         assert src.count("MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS") >= 1

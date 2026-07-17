@@ -11,6 +11,7 @@ breaks a basis's build/eval/warm-start is caught by the FAILED recovery, not jus
 asserted to recover a separable cubic*quadratic inner AND to strictly beat the elementary unary/binary search (which
 cannot represent the non-monotone inner) on the same fixture -- the DELTA is the win, per the biz_value contract.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -39,16 +40,31 @@ def _make_poly(seed: int = 202, n: int = N):
 
 
 def _orth_smart_polynom(basis):
-    return MRMR(verbose=0, n_jobs=1, random_seed=0,
-                fe_smart_polynom_iters=20, fe_smart_polynom_optimization_steps=400,
-                fe_polynomial_basis=basis, fe_optimizer="cma_batch",
-                fe_hybrid_orth_enable=False, fe_auto_escalation_enable=False, **_LEAN)
+    return MRMR(
+        verbose=0,
+        n_jobs=1,
+        random_seed=0,
+        fe_smart_polynom_iters=20,
+        fe_smart_polynom_optimization_steps=400,
+        fe_polynomial_basis=basis,
+        fe_optimizer="cma_batch",
+        fe_hybrid_orth_enable=False,
+        fe_auto_escalation_enable=False,
+        **_LEAN,
+    )
 
 
 def _unb():
-    return MRMR(verbose=0, n_jobs=1, random_seed=0,
-                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False,
-                fe_pair_prewarp_enable=False, fe_auto_escalation_enable=False, **_LEAN)
+    return MRMR(
+        verbose=0,
+        n_jobs=1,
+        random_seed=0,
+        fe_smart_polynom_iters=0,
+        fe_hybrid_orth_enable=False,
+        fe_pair_prewarp_enable=False,
+        fe_auto_escalation_enable=False,
+        **_LEAN,
+    )
 
 
 def _best_engineered_corr(fs, df, true):
@@ -102,6 +118,4 @@ def test_basis_choice_beats_elementary_unary_binary(basis):
     fs_unb = _fit(_unb, df, y)
     _, corr_orth = _best_engineered_corr(fs_orth, df, true)
     _, corr_unb = _best_engineered_corr(fs_unb, df, true)
-    assert corr_orth >= corr_unb + 0.20, (
-        f"basis={basis} did not beat elementary search: orth |corr|={corr_orth:.3f} vs unb |corr|={corr_unb:.3f}"
-    )
+    assert corr_orth >= corr_unb + 0.20, f"basis={basis} did not beat elementary search: orth |corr|={corr_orth:.3f} vs unb |corr|={corr_unb:.3f}"

@@ -4,6 +4,7 @@ Existing test_fleuret.py covers the public API + 2 biz_value tests. This file ta
 the Python wrappers around the @njit core: distribute_permutations dispatch, parallel-vs-serial worker boundary,
 cached-dict propagation, custom relevance/redundancy algos.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,11 +43,18 @@ def test_get_fleuret_npermutations_zero_returns_sentinel():
     data, nbins = _make_xor_data(seed=1)
     ec, cc = _empty_dicts()
     out = get_fleuret_criteria_confidence(
-        data_copy=data, factors_nbins=nbins,
-        x=(0,), y=(2,),
+        data_copy=data,
+        factors_nbins=nbins,
+        x=(0,),
+        y=(2,),
         selected_vars=[1],
-        npermutations=0, bootstrapped_gain=0.0, max_failed=10, nexisting=1,
-        cached_cond_MIs=cc, entropy_cache=ec, dtype=np.int32,
+        npermutations=0,
+        bootstrapped_gain=0.0,
+        max_failed=10,
+        nexisting=1,
+        cached_cond_MIs=cc,
+        entropy_cache=ec,
+        dtype=np.int32,
     )
     assert out == (0, 0)
 
@@ -56,12 +64,19 @@ def test_get_fleuret_extra_x_shuffling_off():
     data, nbins = _make_xor_data(seed=2)
     ec, cc = _empty_dicts()
     out = get_fleuret_criteria_confidence(
-        data_copy=data, factors_nbins=nbins,
-        x=(0,), y=(2,),
+        data_copy=data,
+        factors_nbins=nbins,
+        x=(0,),
+        y=(2,),
         selected_vars=[1],
-        npermutations=20, bootstrapped_gain=0.0, max_failed=10, nexisting=1,
+        npermutations=20,
+        bootstrapped_gain=0.0,
+        max_failed=10,
+        nexisting=1,
         extra_x_shuffling=False,
-        cached_cond_MIs=cc, entropy_cache=ec, dtype=np.int32,
+        cached_cond_MIs=cc,
+        entropy_cache=ec,
+        dtype=np.int32,
     )
     assert isinstance(out, tuple) and len(out) == 2
 
@@ -71,12 +86,19 @@ def test_get_fleuret_pld_relevance_algo():
     data, nbins = _make_xor_data(seed=3)
     ec, cc = _empty_dicts()
     out = get_fleuret_criteria_confidence(
-        data_copy=data, factors_nbins=nbins,
-        x=(0,), y=(2,),
+        data_copy=data,
+        factors_nbins=nbins,
+        x=(0,),
+        y=(2,),
         selected_vars=[1],
-        npermutations=10, bootstrapped_gain=0.0, max_failed=10, nexisting=1,
+        npermutations=10,
+        bootstrapped_gain=0.0,
+        max_failed=10,
+        nexisting=1,
         mrmr_relevance_algo="pld",
-        cached_cond_MIs=cc, entropy_cache=ec, dtype=np.int32,
+        cached_cond_MIs=cc,
+        entropy_cache=ec,
+        dtype=np.int32,
     )
     assert isinstance(out, tuple) and len(out) == 2
 
@@ -87,12 +109,19 @@ def test_get_fleuret_pld_redundancy_algos():
     for algo in ("pld_max", "pld_mean"):
         ec, cc = _empty_dicts()
         out = get_fleuret_criteria_confidence(
-            data_copy=data, factors_nbins=nbins,
-            x=(0,), y=(2,),
+            data_copy=data,
+            factors_nbins=nbins,
+            x=(0,),
+            y=(2,),
             selected_vars=[1],
-            npermutations=10, bootstrapped_gain=0.0, max_failed=10, nexisting=1,
+            npermutations=10,
+            bootstrapped_gain=0.0,
+            max_failed=10,
+            nexisting=1,
             mrmr_redundancy_algo=algo,
-            cached_cond_MIs=cc, entropy_cache=ec, dtype=np.int32,
+            cached_cond_MIs=cc,
+            entropy_cache=ec,
+            dtype=np.int32,
         )
         assert isinstance(out, tuple) and len(out) == 2
 
@@ -102,11 +131,18 @@ def test_get_fleuret_bootstrapped_gain_positive():
     data, nbins = _make_xor_data(seed=5)
     ec, cc = _empty_dicts()
     out = get_fleuret_criteria_confidence(
-        data_copy=data, factors_nbins=nbins,
-        x=(0,), y=(2,),
+        data_copy=data,
+        factors_nbins=nbins,
+        x=(0,),
+        y=(2,),
         selected_vars=[1],
-        npermutations=20, bootstrapped_gain=0.05, max_failed=10, nexisting=1,
-        cached_cond_MIs=cc, entropy_cache=ec, dtype=np.int32,
+        npermutations=20,
+        bootstrapped_gain=0.05,
+        max_failed=10,
+        nexisting=1,
+        cached_cond_MIs=cc,
+        entropy_cache=ec,
+        dtype=np.int32,
     )
     assert isinstance(out, tuple)
 
@@ -116,11 +152,18 @@ def test_get_fleuret_max_failed_zero_short_circuit():
     data, nbins = _make_xor_data(seed=6)
     ec, cc = _empty_dicts()
     out = get_fleuret_criteria_confidence(
-        data_copy=data, factors_nbins=nbins,
-        x=(0,), y=(2,),
+        data_copy=data,
+        factors_nbins=nbins,
+        x=(0,),
+        y=(2,),
         selected_vars=[1],
-        npermutations=50, bootstrapped_gain=0.0, max_failed=0, nexisting=1,
-        cached_cond_MIs=cc, entropy_cache=ec, dtype=np.int32,
+        npermutations=50,
+        bootstrapped_gain=0.0,
+        max_failed=0,
+        nexisting=1,
+        cached_cond_MIs=cc,
+        entropy_cache=ec,
+        dtype=np.int32,
     )
     assert isinstance(out, tuple)
 
@@ -129,11 +172,17 @@ def test_parallel_fleuret_worker_returns_dict():
     """parallel_fleuret is the joblib worker; returns (nfailed, i, entropy_cache_dict). Smoke."""
     data, nbins = _make_xor_data(seed=7)
     out = parallel_fleuret(
-        data=data, factors_nbins=nbins,
-        x=(0,), y=(2,),
+        data=data,
+        factors_nbins=nbins,
+        x=(0,),
+        y=(2,),
         selected_vars=[1],
-        npermutations=15, bootstrapped_gain=0.0, max_failed=10, nexisting=1,
-        cached_cond_MIs={}, entropy_cache={},
+        npermutations=15,
+        bootstrapped_gain=0.0,
+        max_failed=10,
+        nexisting=1,
+        cached_cond_MIs={},
+        entropy_cache={},
         dtype=np.int32,
     )
     assert len(out) == 3
@@ -144,12 +193,19 @@ def test_get_fleuret_criteria_confidence_parallel_serial_path():
     """n_workers=1 with parallel_kwargs=None falls into the default Parallel(n_jobs=1) path."""
     data, nbins = _make_xor_data(seed=8)
     out = get_fleuret_criteria_confidence_parallel(
-        data_copy=data, factors_nbins=nbins,
-        x=(0,), y=(2,),
+        data_copy=data,
+        factors_nbins=nbins,
+        x=(0,),
+        y=(2,),
         selected_vars=[1],
-        bootstrapped_gain=0.0, npermutations=20, max_failed=10, nexisting=1,
-        cached_cond_MIs={}, entropy_cache={},
-        n_workers=1, dtype=np.int32,
+        bootstrapped_gain=0.0,
+        npermutations=20,
+        max_failed=10,
+        nexisting=1,
+        cached_cond_MIs={},
+        entropy_cache={},
+        n_workers=1,
+        dtype=np.int32,
     )
     # Returns (bootstrapped_gain, confidence, entropy_cache) per source line 94.
     assert len(out) == 3
@@ -163,12 +219,20 @@ def test_get_fleuret_criteria_confidence_parallel_with_explicit_pool():
     try:
         pool = Parallel(n_jobs=2)
         out = get_fleuret_criteria_confidence_parallel(
-            data_copy=data, factors_nbins=nbins,
-            x=(0,), y=(2,),
+            data_copy=data,
+            factors_nbins=nbins,
+            x=(0,),
+            y=(2,),
             selected_vars=[1],
-            bootstrapped_gain=0.0, npermutations=20, max_failed=10, nexisting=1,
-            cached_cond_MIs={}, entropy_cache={},
-            n_workers=2, workers_pool=pool, dtype=np.int32,
+            bootstrapped_gain=0.0,
+            npermutations=20,
+            max_failed=10,
+            nexisting=1,
+            cached_cond_MIs={},
+            entropy_cache={},
+            n_workers=2,
+            workers_pool=pool,
+            dtype=np.int32,
         )
     except OSError as exc:
         if "paging file" in str(exc).lower() or getattr(exc, "winerror", None) == 1455:
@@ -180,8 +244,9 @@ def test_get_fleuret_criteria_confidence_parallel_with_explicit_pool():
         # path has already been exercised - the only thing this test cares about.
         _msg = str(exc).lower()
         _name = type(exc).__name__.lower()
-        if any(s in _msg for s in ("brokenprocesspool", "terminatedworker", "pickle", "transport", "_remotetraceback")) \
-                or any(s in _name for s in ("brokenprocesspool", "terminatedworker")):
+        if any(s in _msg for s in ("brokenprocesspool", "terminatedworker", "pickle", "transport", "_remotetraceback")) or any(
+            s in _name for s in ("brokenprocesspool", "terminatedworker")
+        ):
             pytest.skip(f"loky worker transport failure under concurrent load: {type(exc).__name__}: {exc}")
         raise
     assert len(out) == 3
@@ -191,12 +256,20 @@ def test_get_fleuret_criteria_confidence_parallel_explicit_kwargs():
     """parallel_kwargs={} is the non-None branch of the if guard."""
     data, nbins = _make_xor_data(seed=10)
     out = get_fleuret_criteria_confidence_parallel(
-        data_copy=data, factors_nbins=nbins,
-        x=(0,), y=(2,),
+        data_copy=data,
+        factors_nbins=nbins,
+        x=(0,),
+        y=(2,),
         selected_vars=[1],
-        bootstrapped_gain=0.0, npermutations=15, max_failed=10, nexisting=1,
-        cached_cond_MIs={}, entropy_cache={},
-        n_workers=1, parallel_kwargs={}, dtype=np.int32,
+        bootstrapped_gain=0.0,
+        npermutations=15,
+        max_failed=10,
+        nexisting=1,
+        cached_cond_MIs={},
+        entropy_cache={},
+        n_workers=1,
+        parallel_kwargs={},
+        dtype=np.int32,
     )
     assert len(out) == 3
 
@@ -205,12 +278,19 @@ def test_get_fleuret_criteria_confidence_parallel_max_failed_zero_zeros_gain():
     """When nfailed >= max_failed, bootstrapped_gain is zeroed in the post-aggregation block."""
     data, nbins = _make_xor_data(seed=11)
     out = get_fleuret_criteria_confidence_parallel(
-        data_copy=data, factors_nbins=nbins,
-        x=(0,), y=(2,),
+        data_copy=data,
+        factors_nbins=nbins,
+        x=(0,),
+        y=(2,),
         selected_vars=[1],
-        bootstrapped_gain=0.5, npermutations=20, max_failed=0, nexisting=1,
-        cached_cond_MIs={}, entropy_cache={},
-        n_workers=1, dtype=np.int32,
+        bootstrapped_gain=0.5,
+        npermutations=20,
+        max_failed=0,
+        nexisting=1,
+        cached_cond_MIs={},
+        entropy_cache={},
+        n_workers=1,
+        dtype=np.int32,
     )
     # Either the gain is zeroed OR all perms passed (XOR is strong synergy); both are valid post-conditions.
     assert isinstance(out, tuple) and len(out) == 3
@@ -221,12 +301,19 @@ def test_get_fleuret_max_veteranes_interactions_order_two():
     data, nbins = _make_xor_data(seed=12)
     ec, cc = _empty_dicts()
     out = get_fleuret_criteria_confidence(
-        data_copy=data, factors_nbins=nbins,
-        x=(0,), y=(2,),
+        data_copy=data,
+        factors_nbins=nbins,
+        x=(0,),
+        y=(2,),
         selected_vars=[1],
-        npermutations=10, bootstrapped_gain=0.0, max_failed=10, nexisting=1,
+        npermutations=10,
+        bootstrapped_gain=0.0,
+        max_failed=10,
+        nexisting=1,
         max_veteranes_interactions_order=2,
-        cached_cond_MIs=cc, entropy_cache=ec, dtype=np.int32,
+        cached_cond_MIs=cc,
+        entropy_cache=ec,
+        dtype=np.int32,
     )
     assert isinstance(out, tuple)
 
@@ -238,10 +325,17 @@ def test_get_fleuret_entropy_cache_propagation():
     # Seed a fake entry; the inner function may read or skip it but must not crash.
     ec["preseeded_key"] = 0.123
     out = get_fleuret_criteria_confidence(
-        data_copy=data, factors_nbins=nbins,
-        x=(0,), y=(2,),
+        data_copy=data,
+        factors_nbins=nbins,
+        x=(0,),
+        y=(2,),
         selected_vars=[1],
-        npermutations=10, bootstrapped_gain=0.0, max_failed=10, nexisting=1,
-        cached_cond_MIs=cc, entropy_cache=ec, dtype=np.int32,
+        npermutations=10,
+        bootstrapped_gain=0.0,
+        max_failed=10,
+        nexisting=1,
+        cached_cond_MIs=cc,
+        entropy_cache=ec,
+        dtype=np.int32,
     )
     assert isinstance(out, tuple)

@@ -16,15 +16,18 @@ from mlframe.training.utils import compute_model_input_fingerprint
 
 
 def _df() -> pd.DataFrame:
-    return pd.DataFrame({
-        "a": np.arange(10, dtype=np.float64),
-        "b": np.arange(10, dtype=np.float32),
-    })
+    return pd.DataFrame(
+        {
+            "a": np.arange(10, dtype=np.float64),
+            "b": np.arange(10, dtype=np.float32),
+        }
+    )
 
 
 def test_fingerprint_identical_inputs_match():
     h1, _ = compute_model_input_fingerprint(
-        _df(), target_name="y",
+        _df(),
+        target_name="y",
         preprocessing_config={"scaler": "standard"},
         pipeline_config={"steps": ["a", "b"]},
         model_family="lgbm",
@@ -33,7 +36,8 @@ def test_fingerprint_identical_inputs_match():
         val_idx=np.arange(7, 10),
     )
     h2, _ = compute_model_input_fingerprint(
-        _df(), target_name="y",
+        _df(),
+        target_name="y",
         preprocessing_config={"scaler": "standard"},
         pipeline_config={"steps": ["a", "b"]},
         model_family="lgbm",
@@ -63,10 +67,12 @@ def test_fingerprint_target_name_change_invalidates():
 def test_fingerprint_preprocessing_config_change_invalidates():
     df = _df()
     h1, _ = compute_model_input_fingerprint(
-        df, preprocessing_config={"scaler": "standard"},
+        df,
+        preprocessing_config={"scaler": "standard"},
     )
     h2, _ = compute_model_input_fingerprint(
-        df, preprocessing_config={"scaler": "minmax"},
+        df,
+        preprocessing_config={"scaler": "minmax"},
     )
     assert h1 != h2
 

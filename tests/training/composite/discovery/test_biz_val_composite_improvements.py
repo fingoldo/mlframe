@@ -11,6 +11,7 @@ Coverage:
 - #2 linear_residual_robust: on a target with 5% Cauchy outliers, the robust fit recovers alpha + beta within 5% of truth, while plain OLS misses by 100%+.
 - #5 chain_linres_cbrt_qn (3-stage): on a Student-t(df=3) residual, the 3-stage chain compresses the residual closer to Gaussian than the 2-stage chain.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,7 +24,6 @@ from mlframe.training.composite.transforms import (
     get_transform,
     _linear_residual_fit,
     _linear_residual_robust_fit,
-    _linear_residual_forward,
 )
 
 
@@ -47,16 +47,15 @@ class TestBizValRobustLinres:
         rob = _linear_residual_robust_fit(y, base)
         ols_alpha_err = abs(ols["alpha"] - alpha_true) / alpha_true
         rob_alpha_err = abs(rob["alpha"] - alpha_true) / alpha_true
-        ols_beta_err = abs(ols["beta"] - beta_true) / abs(beta_true)
+        abs(ols["beta"] - beta_true) / abs(beta_true)
         rob_beta_err = abs(rob["beta"] - beta_true) / abs(beta_true)
 
         # Hard biz_val gate: robust alpha must be ≥ 5x more accurate than OLS,
         # AND robust beta error ≤ 10%. Outlier-immunity is the whole point.
-        assert rob_alpha_err < 0.05, f"robust alpha err {rob_alpha_err*100:.2f}% > 5%"
-        assert rob_beta_err < 0.10, f"robust beta err {rob_beta_err*100:.2f}% > 10%"
+        assert rob_alpha_err < 0.05, f"robust alpha err {rob_alpha_err * 100:.2f}% > 5%"
+        assert rob_beta_err < 0.10, f"robust beta err {rob_beta_err * 100:.2f}% > 10%"
         assert rob_alpha_err * 5.0 < ols_alpha_err + 1e-9, (
-            f"robust improvement over OLS too small: "
-            f"rob={rob_alpha_err*100:.2f}% vs ols={ols_alpha_err*100:.2f}%"
+            f"robust improvement over OLS too small: rob={rob_alpha_err * 100:.2f}% vs ols={ols_alpha_err * 100:.2f}%"
         )
 
 
@@ -101,13 +100,9 @@ class TestBizVal3StageChain:
 
         # 3-stage must produce a residual with smaller |excess_kurt| than 2-stage
         # (the final quantile-normal map enforces ~N(0, 1) by construction).
-        assert abs(kurt_3) < abs(kurt_2), (
-            f"3-stage chain did NOT compress tails: kurt_2={kurt_2:.2f}, kurt_3={kurt_3:.2f}"
-        )
+        assert abs(kurt_3) < abs(kurt_2), f"3-stage chain did NOT compress tails: kurt_2={kurt_2:.2f}, kurt_3={kurt_3:.2f}"
         # Hard gate: 3-stage's |excess_kurt| should be < 0.5 (near-Gaussian).
-        assert abs(kurt_3) < 0.5, (
-            f"3-stage residual still leptokurtic: kurt_3={kurt_3:.2f}"
-        )
+        assert abs(kurt_3) < 0.5, f"3-stage residual still leptokurtic: kurt_3={kurt_3:.2f}"
 
     def test_3stage_round_trip(self) -> None:
         rng = np.random.default_rng(3)
@@ -135,8 +130,7 @@ class TestBizVal3StageChain:
 
 class TestBizValTimeAwareOOF:
     def test_time_aware_higher_rmse_than_random_kfold_on_random_walk(self) -> None:
-        """A random-walk target ``y_t = y_{t-1} + N(0, 1)``. Random K-fold sees rows from BOTH past and future of any held-out row, so its train-set mean is close to the val-set mean -- CV-RMSE under-estimates the honest holdout RMSE on this non-stationary target. Time-aware (TimeSeriesSplit) trains on PAST rows only, so the train mean lags the val mean -- CV-RMSE is strictly LARGER and matches what a production rolling-forecast would actually see.
-        """
+        """A random-walk target ``y_t = y_{t-1} + N(0, 1)``. Random K-fold sees rows from BOTH past and future of any held-out row, so its train-set mean is close to the val-set mean -- CV-RMSE under-estimates the honest holdout RMSE on this non-stationary target. Time-aware (TimeSeriesSplit) trains on PAST rows only, so the train mean lags the val mean -- CV-RMSE is strictly LARGER and matches what a production rolling-forecast would actually see."""
         from mlframe.training.composite.discovery.screening import _tiny_cv_rmse_raw_y
 
         rng = np.random.default_rng(42)
@@ -145,26 +139,32 @@ class TestBizValTimeAwareOOF:
         x = rng.standard_normal((n, 3))  # noise features -- model just predicts the mean
 
         rmse_random = _tiny_cv_rmse_raw_y(
-            y_train=y, x_train_matrix=x,
+            y_train=y,
+            x_train_matrix=x,
             family="lgb",
-            n_estimators=20, num_leaves=8, learning_rate=0.1,
-            cv_folds=3, random_state=0,
+            n_estimators=20,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            random_state=0,
             time_aware=False,
         )
         rmse_time = _tiny_cv_rmse_raw_y(
-            y_train=y, x_train_matrix=x,
+            y_train=y,
+            x_train_matrix=x,
             family="lgb",
-            n_estimators=20, num_leaves=8, learning_rate=0.1,
-            cv_folds=3, random_state=0,
+            n_estimators=20,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            random_state=0,
             time_aware=True,
         )
         # Time-aware MUST give a higher (more honest) error on random-walk data
         # since the random K-fold leaks future drift into the train side. Hard
         # threshold: time-aware >= random_kfold * 1.05 (5% honest pessimism).
         assert rmse_time > rmse_random * 1.05, (
-            f"time-aware did not exceed random by >= 5%: "
-            f"random={rmse_random:.4f}, time={rmse_time:.4f} "
-            f"(ratio {rmse_time / max(rmse_random, 1e-9):.3f}x)"
+            f"time-aware did not exceed random by >= 5%: random={rmse_random:.4f}, time={rmse_time:.4f} (ratio {rmse_time / max(rmse_random, 1e-9):.3f}x)"
         )
 
 
@@ -181,8 +181,7 @@ def _pinball_loss(y_true: np.ndarray, y_pred: np.ndarray, alpha: float) -> float
 
 class TestBizValQuantileLoss:
     def test_quantile_loss_beats_rmse_on_pinball_metric(self) -> None:
-        """Train LightGBM twice on the same dataset: once with quantile(alpha=0.7), once with default regression. Quantile model MUST produce a lower 0.7-pinball loss on the held-out fold (otherwise the loss switch is not actually doing what it claims).
-        """
+        """Train LightGBM twice on the same dataset: once with quantile(alpha=0.7), once with default regression. Quantile model MUST produce a lower 0.7-pinball loss on the held-out fold (otherwise the loss switch is not actually doing what it claims)."""
         from lightgbm import LGBMRegressor
 
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
@@ -205,16 +204,15 @@ class TestBizValQuantileLoss:
         pinball_default = _pinball_loss(y_val, lgb_default.predict(X_val), alpha)
 
         lgb_q = LGBMRegressor(
-            n_estimators=50, verbose=-1,
-            objective="quantile", alpha=alpha,
+            n_estimators=50,
+            verbose=-1,
+            objective="quantile",
+            alpha=alpha,
         )
         lgb_q.fit(X_train, y_train)
         pinball_q = _pinball_loss(y_val, lgb_q.predict(X_val), alpha)
 
-        assert pinball_q < pinball_default, (
-            f"quantile loss did NOT improve pinball: default={pinball_default:.4f}, "
-            f"quantile={pinball_q:.4f}"
-        )
+        assert pinball_q < pinball_default, f"quantile loss did NOT improve pinball: default={pinball_default:.4f}, quantile={pinball_q:.4f}"
 
     def test_rejects_quantile_outside_unit_interval(self) -> None:
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
@@ -238,17 +236,25 @@ class TestBizValStabilityCheck:
 
         rng = np.random.default_rng(99)
         n = 500
-        df = pd.DataFrame({
-            "f0": rng.standard_normal(n), "f1": rng.standard_normal(n),
-            "f2": rng.standard_normal(n), "f3": rng.standard_normal(n),
-            "y": rng.standard_normal(n),
-        })
+        df = pd.DataFrame(
+            {
+                "f0": rng.standard_normal(n),
+                "f1": rng.standard_normal(n),
+                "f2": rng.standard_normal(n),
+                "f3": rng.standard_normal(n),
+                "y": rng.standard_normal(n),
+            }
+        )
         cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=300)
         disc = CompositeTargetDiscovery(config=cfg)
         disc.fit_with_stability_check(
-            df=df, target_col="y", feature_cols=["f0", "f1", "f2", "f3"],
-            train_idx=np.arange(int(0.8 * n)), val_idx=np.arange(int(0.8 * n), n),
-            n_bootstrap_runs=5, min_keep_fraction=0.6,
+            df=df,
+            target_col="y",
+            feature_cols=["f0", "f1", "f2", "f3"],
+            train_idx=np.arange(int(0.8 * n)),
+            val_idx=np.arange(int(0.8 * n), n),
+            n_bootstrap_runs=5,
+            min_keep_fraction=0.6,
         )
         # On noise-only data, NO spec should pass a 3-of-5 majority gate
         # consistently. Some seeds may produce a spec, but a stable spec
@@ -257,10 +263,7 @@ class TestBizValStabilityCheck:
         if disc.specs_:
             counts = disc.stability_counts_
             for spec in disc.specs_:
-                assert counts.get(spec.name, 0) >= 3, (
-                    f"spec '{spec.name}' kept despite stability count "
-                    f"{counts.get(spec.name, 0)} < 3 -- lucky-split survivor"
-                )
+                assert counts.get(spec.name, 0) >= 3, f"spec '{spec.name}' kept despite stability count {counts.get(spec.name, 0)} < 3 -- lucky-split survivor"
 
 
 # ----------------------------------------------------------------------
@@ -288,17 +291,23 @@ class TestBizValStackedDiscovery:
         x_b = rng.normal(50.0, 10.0, n)
         # Two distinct linear signals + small noise.
         y = 1.5 * x_a + 0.5 + 2.5 * x_b - 3.0 + rng.normal(0.0, 1.5, n)
-        df = pd.DataFrame({
-            "x_a": x_a, "x_b": x_b,
-            "n0": rng.standard_normal(n), "n1": rng.standard_normal(n),
-            "y": y,
-        })
+        df = pd.DataFrame(
+            {
+                "x_a": x_a,
+                "x_b": x_b,
+                "n0": rng.standard_normal(n),
+                "n1": rng.standard_normal(n),
+                "y": y,
+            }
+        )
 
         cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=1500)
         # Plain run.
         plain = CompositeTargetDiscovery(config=cfg)
         plain.fit(
-            df=df, target_col="y", feature_cols=["x_a", "x_b", "n0", "n1"],
+            df=df,
+            target_col="y",
+            feature_cols=["x_a", "x_b", "n0", "n1"],
             train_idx=np.arange(int(0.8 * n)),
         )
         plain_n = len(plain.specs_)
@@ -306,18 +315,19 @@ class TestBizValStackedDiscovery:
         # Stacked run.
         stacked = CompositeTargetDiscovery(config=cfg)
         stacked.fit_stacked(
-            df=df, target_col="y", feature_cols=["x_a", "x_b", "n0", "n1"],
+            df=df,
+            target_col="y",
+            feature_cols=["x_a", "x_b", "n0", "n1"],
             train_idx=np.arange(int(0.8 * n)),
-            n_oof_folds=3, max_pass1_specs_to_stack=2,
+            n_oof_folds=3,
+            max_pass1_specs_to_stack=2,
         )
         stacked_n = len(stacked.specs_)
 
         # Stacked must NOT yield fewer specs than plain (it includes pass1 as
         # a subset; if pass2 finds nothing the union is at least the same
         # size). Hard biz_val: stacked >= plain.
-        assert stacked_n >= plain_n, (
-            f"stacked yielded fewer specs ({stacked_n}) than plain ({plain_n}) -- bug"
-        )
+        assert stacked_n >= plain_n, f"stacked yielded fewer specs ({stacked_n}) than plain ({plain_n}) -- bug"
 
     @pytest.mark.no_xdist
     def test_stacked_improves_holdout_mae_on_2level_synthetic(self) -> None:
@@ -350,15 +360,19 @@ class TestBizValStackedDiscovery:
         x_a = rng.normal(50.0, 10.0, n)
         x_b = rng.normal(0.0, 1.5, n)
         # Mixed signal: linear in x_a + nonlinear (cubic) in x_b.
-        y = 1.5 * x_a + 0.5 + (x_b ** 3) + rng.normal(0.0, 1.0, n)
-        df = pd.DataFrame({
-            "x_a": x_a, "x_b": x_b,
-            "n0": rng.standard_normal(n), "n1": rng.standard_normal(n),
-            "y": y,
-        })
+        y = 1.5 * x_a + 0.5 + (x_b**3) + rng.normal(0.0, 1.0, n)
+        df = pd.DataFrame(
+            {
+                "x_a": x_a,
+                "x_b": x_b,
+                "n0": rng.standard_normal(n),
+                "n1": rng.standard_normal(n),
+                "y": y,
+            }
+        )
         n_train = int(0.7 * n)
         train_idx = np.arange(n_train)
-        val_idx = np.arange(n_train, n)
+        np.arange(n_train, n)
         feature_cols = ["x_a", "x_b", "n0", "n1"]
 
         cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=2000)
@@ -388,23 +402,30 @@ class TestBizValStackedDiscovery:
 
         stacked = CompositeTargetDiscovery(config=cfg)
         stacked.fit_stacked(
-            df=df, target_col="y", feature_cols=feature_cols, train_idx=train_idx,
-            n_oof_folds=3, max_pass1_specs_to_stack=2,
+            df=df,
+            target_col="y",
+            feature_cols=feature_cols,
+            train_idx=train_idx,
+            n_oof_folds=3,
+            max_pass1_specs_to_stack=2,
         )
         # ``df`` does not have the OOF cols pass2 used; rebuild them so the
         # holdout scorer can evaluate pass-2 specs that reference _oof_ bases.
         # We compute OOF over the ENTIRE df here (not just train) so the val
         # rows have a usable column too.
         from mlframe.training.composite.ensemble.feature_stacking import composite_oof_predictions
+
         pass1_specs = [s for s in stacked.specs_ if not s.base_column.startswith("_oof_")]
         df_aug = df.copy()
         for spec in pass1_specs[:2]:
+
             def _factory(_s=spec):
                 return CompositeTargetEstimator(
                     base_estimator=Ridge(alpha=1e-3),
                     transform_name=_s.transform_name,
                     base_column=_s.base_column,
                 )
+
             try:
                 oof = composite_oof_predictions(_factory, df, y, n_splits=3, random_state=0)
                 df_aug[f"_oof_{spec.name}"] = oof

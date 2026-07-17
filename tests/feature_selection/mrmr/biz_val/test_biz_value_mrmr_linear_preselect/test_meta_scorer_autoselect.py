@@ -197,7 +197,7 @@ class TestMetaPicksPluginOnLinear:
         X, y = _build_linear_monotone(seed)
         fp = fingerprint_signal(X, y.to_numpy(), random_state=int(seed))
         chosen = predict_best_scorer(fp)
-        assert chosen == "plug_in", f"seed={seed}: linear-monotone fixture dispatched to {chosen!r}; " f"expected 'plug_in'. fingerprint={fp!r}"
+        assert chosen == "plug_in", f"seed={seed}: linear-monotone fixture dispatched to {chosen!r}; expected 'plug_in'. fingerprint={fp!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +219,7 @@ class TestMetaPicksHsicOnQuadratic:
         X, y = _build_quadratic(seed)
         fp = fingerprint_signal(X, y.to_numpy(), random_state=int(seed))
         chosen = predict_best_scorer(fp)
-        assert chosen == "hsic", f"seed={seed}: quadratic fixture dispatched to {chosen!r}; " f"expected 'hsic'. fingerprint={fp!r}"
+        assert chosen == "hsic", f"seed={seed}: quadratic fixture dispatched to {chosen!r}; expected 'hsic'. fingerprint={fp!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ class TestMetaPicksCmimOnRedundant:
         X, y = _build_xor_redundant(seed)
         fp = fingerprint_signal(X, y.to_numpy(), random_state=int(seed))
         chosen = predict_best_scorer(fp)
-        assert chosen == "cmim", f"seed={seed}: xor_redundant fixture dispatched to {chosen!r}; " f"expected 'cmim'. fingerprint={fp!r}"
+        assert chosen == "cmim", f"seed={seed}: xor_redundant fixture dispatched to {chosen!r}; expected 'cmim'. fingerprint={fp!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +286,7 @@ class TestMetaMatchesL75OnAtLeastThree:
             if majority in accepted:
                 matches.append(f"{name}:{majority}")
             else:
-                mismatches.append(f"{name}: majority={majority!r}, accepted={accepted!r}, " f"per_seed={picks!r}")
+                mismatches.append(f"{name}: majority={majority!r}, accepted={accepted!r}, per_seed={picks!r}")
         assert len(matches) >= 3, (
             f"Meta-cascade matched L75 acceptable winners on only "
             f"{len(matches)} of 5 fixtures (floor: 3).\n"
@@ -416,7 +416,7 @@ class TestDefaultDisabledByteIdentical:
         X, y = _build_linear_monotone(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], f"seed={seed}: default fe_hybrid_orth_meta_enable=False " f"should NOT append any engineered columns; got {added}"
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_meta_enable=False should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
         """The meta ctor params default to disabled/no forced scorer."""
@@ -444,7 +444,7 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_meta_enable", True),
             ("fe_hybrid_orth_meta_force_scorer", "hsic"),
         ]:
-            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_meta_state(self):
         """pickle.dumps/loads preserves hybrid_orth_features_, chosen scorer, fingerprint, and orth_univariate recipes."""
@@ -460,14 +460,14 @@ class TestPickleAndClone:
         assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, f"pickle changed hybrid_orth_features_: " f"before={added_before}, after={added_after}"
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, after={added_after}"
         # Chosen scorer and fingerprint survive pickle.
         chosen_before = getattr(m, "hybrid_orth_meta_chosen_scorer_", None)
         chosen_after = getattr(m2, "hybrid_orth_meta_chosen_scorer_", None)
-        assert chosen_before == chosen_after, f"pickle changed hybrid_orth_meta_chosen_scorer_: " f"before={chosen_before!r}, after={chosen_after!r}"
+        assert chosen_before == chosen_after, f"pickle changed hybrid_orth_meta_chosen_scorer_: before={chosen_before!r}, after={chosen_after!r}"
         fp_before = getattr(m, "hybrid_orth_meta_fingerprint_", None)
         fp_after = getattr(m2, "hybrid_orth_meta_fingerprint_", None)
-        assert fp_before == fp_after, f"pickle changed hybrid_orth_meta_fingerprint_: " f"before={fp_before!r}, after={fp_after!r}"
+        assert fp_before == fp_after, f"pickle changed hybrid_orth_meta_fingerprint_: before={fp_before!r}, after={fp_after!r}"
 
         def _extract_orth_recipes(model):
             """Collect the model's orth_univariate-kind recipes keyed by name."""
@@ -479,14 +479,14 @@ class TestPickleAndClone:
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
                 )
 
 

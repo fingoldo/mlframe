@@ -9,6 +9,7 @@ exercises has no measured production win today. It is still applied (cheap, corr
 future/other caller that invokes this more than once per fit gets the dedup for free; this test proves the
 mechanism itself is correct and bit-identical, independent of how often production currently calls it.
 """
+
 from __future__ import annotations
 
 import numpy as np

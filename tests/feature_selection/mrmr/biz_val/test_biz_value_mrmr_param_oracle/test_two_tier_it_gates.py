@@ -43,6 +43,8 @@ SEEDS = (1, 7, 13)
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
+
 def _build_many_cat_signal(seed: int, n: int = 4000, n_noise_cats: int = 50):
     """One genuinely predictive categorical (its COUNT drives y), plus
     ``n_noise_cats`` independent random categoricals whose count carries no
@@ -110,6 +112,7 @@ class TestTier1BoundsPool:
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             count_encode_with_recipes,
         )
+
         X, y = _build_many_cat_signal(seed)
         cat_cols = [c for c in X.columns]  # 51 cats
 
@@ -117,7 +120,11 @@ class TestTier1BoundsPool:
         assert len(ungated) == 51, f"expected 51 ungated, got {len(ungated)}"
 
         _, gated, _ = count_encode_with_recipes(
-            X, cat_cols=cat_cols, mi_gate=True, mi_gate_top_k=5, y=y.to_numpy(),
+            X,
+            cat_cols=cat_cols,
+            mi_gate=True,
+            mi_gate_top_k=5,
+            y=y.to_numpy(),
         )
         assert len(gated) <= 5, f"seed={seed}: gated pool {len(gated)} exceeds top_k=5"
         assert len(gated) >= 1, f"seed={seed}: gate dropped everything"
@@ -129,18 +136,24 @@ class TestTier1BoundsPool:
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             count_encode_with_recipes,
         )
+
         X, y = _build_many_cat_signal(seed)
         cat_cols = [c for c in X.columns]
         _, gated, _ = count_encode_with_recipes(
-            X, cat_cols=cat_cols, mi_gate=True, mi_gate_top_k=5, y=y.to_numpy(),
+            X,
+            cat_cols=cat_cols,
+            mi_gate=True,
+            mi_gate_top_k=5,
+            y=y.to_numpy(),
         )
-        assert "pred_cat__count" in gated, f"seed={seed}: predictive count-encoding was dropped by the floor; " f"survivors={gated}"
+        assert "pred_cat__count" in gated, f"seed={seed}: predictive count-encoding was dropped by the floor; survivors={gated}"
 
     def test_floor_anchored_on_raw_not_engineered(self):
         """The raw-baseline noise floor is 0.0 with no numeric raw cols and a finite positive band when they exist."""
         from mlframe.feature_selection.filters._unified_fe_gate import (
             raw_mi_noise_floor,
         )
+
         X, y = _build_many_cat_signal(seed=1)
         # raw_X has only object cats -> no numeric raw cols -> floor 0.0.
         floor_obj = raw_mi_noise_floor(X, y.to_numpy())
@@ -196,20 +209,25 @@ class TestTier2CrossMechanism:
         """count(cat_a) and freq(cat_a) are identical up to affine scaling ->
         identical equi-frequency bins -> the second pass keeps only ONE."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
-            count_encode_fit, frequency_encode_fit,
+            count_encode_fit,
+            frequency_encode_fit,
         )
         from mlframe.feature_selection.filters._unified_fe_gate import (
             unified_second_pass_gate,
         )
+
         X, y = _build_two_cat_redundant(seed)
         cnt, _ = count_encode_fit(X, ["cat_a"])
         frq, _ = frequency_encode_fit(X, ["cat_a"])
         Xall = pd.concat([X, cnt, frq], axis=1)
         eng = ["cat_a__count", "cat_a__freq"]
         keep = unified_second_pass_gate(
-            Xall, y.to_numpy(), raw_cols=["cat_a", "cat_b"], engineered_cols=eng,
+            Xall,
+            y.to_numpy(),
+            raw_cols=["cat_a", "cat_b"],
+            engineered_cols=eng,
         )
-        assert len(keep) == 1, f"seed={seed}: count/freq of same col are redundant; gate kept " f"{keep} (expected exactly 1)"
+        assert len(keep) == 1, f"seed={seed}: count/freq of same col are redundant; gate kept {keep} (expected exactly 1)"
         assert keep[0] in eng
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -222,15 +240,19 @@ class TestTier2CrossMechanism:
         from mlframe.feature_selection.filters._unified_fe_gate import (
             unified_second_pass_gate,
         )
+
         X, y = _build_two_cat_redundant(seed)
         cnt, _ = count_encode_fit(X, ["cat_a", "cat_b"])
         Xall = pd.concat([X, cnt], axis=1)
         eng = ["cat_a__count", "cat_b__count"]
         keep = unified_second_pass_gate(
-            Xall, y.to_numpy(), raw_cols=["cat_a", "cat_b"], engineered_cols=eng,
+            Xall,
+            y.to_numpy(),
+            raw_cols=["cat_a", "cat_b"],
+            engineered_cols=eng,
             seed_raw_cols_count=0,  # raw cats are object -> nothing to seed anyway
         )
-        assert set(keep) == set(eng), f"seed={seed}: both complementary count-encodings should survive; " f"kept {keep}"
+        assert set(keep) == set(eng), f"seed={seed}: both complementary count-encodings should survive; kept {keep}"
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +276,7 @@ class TestMRMRIntegration:
         # appended pool size from the genuine in-fit ``count_encode_with_recipes``
         # call so the shrink (off == one-per-cat vs on <= top_k) is visible.
         import mlframe.feature_selection.filters._count_freq_interaction_fe as _cfi
+
         X, y = _build_bounded_many_cat_signal(seed, n=3000, n_noise_cats=40)
 
         _orig_count_enc = _cfi.count_encode_with_recipes
@@ -267,11 +290,13 @@ class TestMRMRIntegration:
                 res = _orig_count_enc(Xarg, **kw)
                 _pool[tag] = len(res[1])
                 return res
+
             return _wrapped
 
         monkeypatch.setattr(_cfi, "count_encode_with_recipes", _capture("off"))
         m_off = _make_mrmr(
-            fe_count_encoding_enable=True, fe_local_mi_gate=False,
+            fe_count_encoding_enable=True,
+            fe_local_mi_gate=False,
             fe_ntop_features=5,
         )
         m_off.fit(X, y)
@@ -279,21 +304,23 @@ class TestMRMRIntegration:
 
         monkeypatch.setattr(_cfi, "count_encode_with_recipes", _capture("on"))
         m_on = _make_mrmr(
-            fe_count_encoding_enable=True, fe_local_mi_gate=True,
-            fe_local_mi_gate_top_k=5, fe_ntop_features=5,
+            fe_count_encoding_enable=True,
+            fe_local_mi_gate=True,
+            fe_local_mi_gate_top_k=5,
+            fe_ntop_features=5,
         )
         m_on.fit(X, y)
         n_on = _pool["on"]
-        assert n_off > n_on, f"seed={seed}: local gate did not shrink the count pool " f"(off={n_off}, on={n_on})"
+        assert n_off > n_on, f"seed={seed}: local gate did not shrink the count pool (off={n_off}, on={n_on})"
         assert n_on <= 5
         # The count-driven signal lives in pred_cat's level frequencies. Count-encoding (MI ~0.12) is ~0.97
         # correlated with pred_cat's target-encoding (MI ~0.124), so the stronger TE sibling wins selection and
         # the redundant count-encoding is correctly pruned. The discriminating contract is that the count signal
         # is RECOVERED via some pred_cat-derived encoding (count or TE), not the specific count column.
         picks = list(m_on.get_feature_names_out())
-        assert any(
-            str(p).startswith("pred_cat") and str(p) != "pred_cat" for p in picks
-        ), f"seed={seed}: count-driven pred_cat signal not recovered by any engineered encoding; picks={picks}"
+        assert any(str(p).startswith("pred_cat") and str(p) != "pred_cat" for p in picks), (
+            f"seed={seed}: count-driven pred_cat signal not recovered by any engineered encoding; picks={picks}"
+        )
 
     def test_unified_gate_drops_count_or_freq(self):
         """With BOTH count and freq encoding enabled on the same cats, the
@@ -353,10 +380,12 @@ class TestDefaultDisabledByteIdentical:
         p = 1.0 / (1.0 + np.exp(-1.5 * z))
         yv = (rng.random(n) < p).astype(int)
         noise_levels = np.array([f"M{k:02d}" for k in range(15)])
-        X = pd.DataFrame({
-            "pred_cat": pred_cat,
-            "noise_cat": rng.choice(noise_levels, size=n),
-        })
+        X = pd.DataFrame(
+            {
+                "pred_cat": pred_cat,
+                "noise_cat": rng.choice(noise_levels, size=n),
+            }
+        )
         y = pd.Series(yv, name="y")
         Xtr, Xho = X.iloc[:1800].reset_index(drop=True), X.iloc[1800:].reset_index(drop=True)
         ytr = y.iloc[:1800].reset_index(drop=True)
@@ -365,17 +394,21 @@ class TestDefaultDisabledByteIdentical:
         # this test isolates the "gate knobs are no-ops when OFF" byte-identity
         # claim (the ctor default for fe_local_mi_gate is now True).
         m1 = _make_mrmr(
-            fe_count_encoding_enable=True, fe_count_encoding_cols=("pred_cat",),
+            fe_count_encoding_enable=True,
+            fe_count_encoding_cols=("pred_cat",),
             fe_ntop_features=4,
-            fe_local_mi_gate=False, fe_unified_second_pass_gate=False,
+            fe_local_mi_gate=False,
+            fe_unified_second_pass_gate=False,
         )
         m1.fit(Xtr, ytr)
         out1 = m1.transform(Xho)
 
         m2 = _make_mrmr(
-            fe_count_encoding_enable=True, fe_count_encoding_cols=("pred_cat",),
+            fe_count_encoding_enable=True,
+            fe_count_encoding_cols=("pred_cat",),
             fe_ntop_features=4,
-            fe_local_mi_gate=False, fe_unified_second_pass_gate=False,
+            fe_local_mi_gate=False,
+            fe_unified_second_pass_gate=False,
             fe_local_mi_gate_top_k=20,
         )
         m2.fit(Xtr, ytr)
@@ -385,7 +418,9 @@ class TestDefaultDisabledByteIdentical:
         for c in out1.columns:
             if pd.api.types.is_numeric_dtype(out1[c]):
                 np.testing.assert_allclose(
-                    out1[c].to_numpy(), out2[c].to_numpy(), atol=1e-12,
+                    out1[c].to_numpy(),
+                    out2[c].to_numpy(),
+                    atol=1e-12,
                 )
 
 
@@ -400,7 +435,8 @@ class TestPickleClone:
     def test_clone_preserves_layer91_params(self):
         """sklearn clone() copies every Layer-91 gate ctor param."""
         m = _make_mrmr(
-            fe_local_mi_gate=True, fe_local_mi_gate_top_k=7,
+            fe_local_mi_gate=True,
+            fe_local_mi_gate_top_k=7,
             fe_unified_second_pass_gate=True,
             fe_unified_second_pass_max_keep=12,
             fe_unified_second_pass_min_gain=0.01,
@@ -408,8 +444,10 @@ class TestPickleClone:
         m2 = clone(m)
         p, p2 = m.get_params(), m2.get_params()
         for k in (
-            "fe_local_mi_gate", "fe_local_mi_gate_top_k",
-            "fe_unified_second_pass_gate", "fe_unified_second_pass_max_keep",
+            "fe_local_mi_gate",
+            "fe_local_mi_gate_top_k",
+            "fe_unified_second_pass_gate",
+            "fe_unified_second_pass_max_keep",
             "fe_unified_second_pass_min_gain",
         ):
             assert p[k] == p2[k], f"clone lost {k}"
@@ -418,7 +456,8 @@ class TestPickleClone:
         """A fitted MRMR instance with both gates enabled survives a pickle round-trip byte-identically."""
         X, y = _build_bounded_many_cat_signal(seed=1, n=2000, n_noise_cats=15)
         m = _make_mrmr(
-            fe_count_encoding_enable=True, fe_local_mi_gate=True,
+            fe_count_encoding_enable=True,
+            fe_local_mi_gate=True,
             fe_local_mi_gate_top_k=5,
             fe_unified_second_pass_gate=True,
             fe_ntop_features=4,
@@ -431,5 +470,7 @@ class TestPickleClone:
         for c in out.columns:
             if pd.api.types.is_numeric_dtype(out[c]):
                 np.testing.assert_allclose(
-                    out[c].to_numpy(), out_pkl[c].to_numpy(), atol=1e-12,
+                    out[c].to_numpy(),
+                    out_pkl[c].to_numpy(),
+                    atol=1e-12,
                 )

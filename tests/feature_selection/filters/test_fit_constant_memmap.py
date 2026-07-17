@@ -2,6 +2,7 @@
 process per content, so joblib ships it to loky workers by filename instead of re-dumping the whole
 buffer on every ``Parallel(...)`` invocation (wellbore-100k profile: 45 dumps / ~315s of
 _pickle.dumps for the same ~hundreds-of-MB ``data`` matrix)."""
+
 from __future__ import annotations
 
 import numpy as np

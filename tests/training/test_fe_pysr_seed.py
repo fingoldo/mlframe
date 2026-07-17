@@ -10,6 +10,7 @@ To keep the test fast and offline (PySR/Julia is heavy and absent on CI),
 this test patches ``run_pysr_feature_engineering`` to a deterministic
 spy that records the ``random_state`` argument actually received.
 """
+
 from __future__ import annotations
 
 import sys
@@ -78,12 +79,9 @@ def test_pysr_random_state_is_forwarded_from_config(patched_pysr):
 
     cfg = PreprocessingExtensionsConfig(pysr_enabled=True, random_seed=1234)
     df, y = _make_toy()
-    _apply_pysr_fe(train_df=df, val_df=None, test_df=None,
-                   y_train=y, config=cfg, verbose=0)
+    _apply_pysr_fe(train_df=df, val_df=None, test_df=None, y_train=y, config=cfg, verbose=0)
     assert _SEEN_RANDOM_STATES, "spy was not invoked"
-    assert _SEEN_RANDOM_STATES[-1] == 1234, (
-        f"random_state forwarded as {_SEEN_RANDOM_STATES[-1]} but expected 1234"
-    )
+    assert _SEEN_RANDOM_STATES[-1] == 1234, f"random_state forwarded as {_SEEN_RANDOM_STATES[-1]} but expected 1234"
 
 
 def test_pysr_same_seed_gives_identical_predictions(patched_pysr):
@@ -94,10 +92,8 @@ def test_pysr_same_seed_gives_identical_predictions(patched_pysr):
     cfg = PreprocessingExtensionsConfig(pysr_enabled=True, random_seed=99)
     df_a, y_a = _make_toy(seed=7)
     df_b, y_b = _make_toy(seed=7)
-    cols_a = _apply_pysr_fe(train_df=df_a, val_df=None, test_df=None,
-                            y_train=y_a, config=cfg, verbose=0)
-    cols_b = _apply_pysr_fe(train_df=df_b, val_df=None, test_df=None,
-                            y_train=y_b, config=cfg, verbose=0)
+    cols_a = _apply_pysr_fe(train_df=df_a, val_df=None, test_df=None, y_train=y_a, config=cfg, verbose=0)
+    cols_b = _apply_pysr_fe(train_df=df_b, val_df=None, test_df=None, y_train=y_b, config=cfg, verbose=0)
     assert cols_a and cols_b, "spy produced no columns"
     assert set(cols_a) == set(cols_b)
     for c in cols_a:
@@ -111,8 +107,5 @@ def test_pysr_default_seed_when_config_missing_random_seed(patched_pysr):
 
     cfg = PreprocessingExtensionsConfig(pysr_enabled=True)
     df, y = _make_toy()
-    _apply_pysr_fe(train_df=df, val_df=None, test_df=None,
-                   y_train=y, config=cfg, verbose=0)
-    assert _SEEN_RANDOM_STATES[-1] == 42, (
-        f"expected default seed 42, got {_SEEN_RANDOM_STATES[-1]}"
-    )
+    _apply_pysr_fe(train_df=df, val_df=None, test_df=None, y_train=y, config=cfg, verbose=0)
+    assert _SEEN_RANDOM_STATES[-1] == 42, f"expected default seed 42, got {_SEEN_RANDOM_STATES[-1]}"

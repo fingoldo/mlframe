@@ -33,6 +33,7 @@ migration. It pins six contracts:
 6. **kernel_tuning_cache unmodified**: the bridge is import-only; exercising
    it performs no write/update against the KernelTuningCache module.
 """
+
 from __future__ import annotations
 
 import os
@@ -53,6 +54,7 @@ _BASES = ("hermite", "legendre", "chebyshev", "laguerre")
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 class _FakeKTC:
     """Minimal KernelTuningCache stand-in: only ``get_regions`` is consulted
@@ -90,18 +92,24 @@ def _fresh_oracle(tmp_path, name="poly_l103.parquet", **kw):
 # 1. Bridge imports KTC regions as cold-start observations
 # ---------------------------------------------------------------------------
 
+
 def test_bridge_imports_ktc_regions(tmp_path):
     """read_ktc_regions imports sized regions as cold-start observations, skips the catch-all, and never writes back."""
-    fake = _FakeKTC([
-        {"n_samples_max": 1000, "backend": "njit", "wall_ms": 0.05},
-        {"n_samples_max": 1_000_000, "backend": "njit_par", "wall_ms": 2.0},
-        # catch-all (no size cap) -> no representative size -> skipped.
-        {"n_samples_max": None, "backend": "njit_par"},
-    ])
+    fake = _FakeKTC(
+        [
+            {"n_samples_max": 1000, "backend": "njit", "wall_ms": 0.05},
+            {"n_samples_max": 1_000_000, "backend": "njit_par", "wall_ms": 2.0},
+            # catch-all (no size cap) -> no representative size -> skipped.
+            {"n_samples_max": None, "backend": "njit_par"},
+        ]
+    )
     oracle = _fresh_oracle(tmp_path)
     imported = oracle.read_ktc_regions(
-        "polyeval_cpu_backend", param_field="backend",
-        fixed_fp={"p": 1, "dtype_kind": "f"}, cache=fake, fn_name="poly",
+        "polyeval_cpu_backend",
+        param_field="backend",
+        fixed_fp={"p": 1, "dtype_kind": "f"},
+        cache=fake,
+        fn_name="poly",
     )
     assert imported == 2  # the catch-all region is skipped
 
@@ -122,15 +130,21 @@ def test_bridge_imports_ktc_regions(tmp_path):
 
 def test_bridge_from_classmethod(tmp_path):
     """ParamOracle.from_kernel_tuning_cache builds an oracle pre-seeded from KTC regions via the same read-only bridge."""
-    fake = _FakeKTC([
-        {"n_samples_max": 1000, "backend": "njit", "wall_ms": 0.05},
-        {"n_samples_max": 1_000_000, "backend": "njit_par", "wall_ms": 2.0},
-    ])
+    fake = _FakeKTC(
+        [
+            {"n_samples_max": 1000, "backend": "njit", "wall_ms": 0.05},
+            {"n_samples_max": 1_000_000, "backend": "njit_par", "wall_ms": 2.0},
+        ]
+    )
     oracle = ParamOracle.from_kernel_tuning_cache(
         os.path.join(str(tmp_path), "cm.parquet"),
-        "polyeval_cpu_backend", param_field="backend",
+        "polyeval_cpu_backend",
+        param_field="backend",
         param_space={"backend": ["njit", "njit_par"]},
-        cache=fake, fn_name="poly", mode="inference", min_observations=1,
+        cache=fake,
+        fn_name="poly",
+        mode="inference",
+        min_observations=1,
     )
     rows = [r for r in oracle.store.read_rows() if r.get("fn_name") == "poly"]
     assert len(rows) == 2
@@ -140,6 +154,7 @@ def test_bridge_from_classmethod(tmp_path):
 # ---------------------------------------------------------------------------
 # 2. Oracle LEARNS the njit/njit_par crossover from wall-times
 # ---------------------------------------------------------------------------
+
 
 def test_oracle_learns_cpu_crossover(tmp_path):
     """After benchmarking small/large n, the oracle learns njit wins small and njit_par wins large."""
@@ -152,7 +167,10 @@ def test_oracle_learns_cpu_crossover(tmp_path):
         )
     oracle = _fresh_oracle(tmp_path)
     res = H.benchmark_polyeval_cpu_backends(
-        "hermite", sizes=(200, 500_000), repeats=5, oracle=oracle,
+        "hermite",
+        sizes=(200, 500_000),
+        repeats=5,
+        oracle=oracle,
     )
     # njit_par must lose at small n and win at large n (the empirical signal
     # the oracle is supposed to LEARN, not be told).
@@ -192,6 +210,7 @@ def test_dispatch_uses_oracle_when_enabled(tmp_path, monkeypatch):
 # 3. Bit-equivalence regardless of oracle-picked backend (all 4 bases)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("basis", _BASES)
 def test_bit_equivalence_njit_vs_njit_par(basis, tmp_path, monkeypatch):
     """njit and njit_par compute bit-equivalent output, and the oracle-routed dispatcher matches the direct njit reference."""
@@ -216,6 +235,7 @@ def test_bit_equivalence_njit_vs_njit_par(basis, tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # 4. Default OFF -> byte-identical to the legacy CPU threshold path
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("n", [200, 100_000])
 @pytest.mark.parametrize("basis", _BASES)
@@ -252,9 +272,11 @@ def test_oracle_enabled_does_not_alter_small_n_decision(monkeypatch):
 # 5. GPU path untouched -- no cupy on CPU box; cuda branch still on KTC
 # ---------------------------------------------------------------------------
 
+
 def test_no_cupy_imported_on_cpu_box():
     """Importing + exercising the CPU dispatch path must not pull in cupy."""
     import sys
+
     # cupy may be entirely absent on this box; if it somehow got imported it
     # would only be via the (skipped) cuda branch. The POC must not add a CPU
     # import of cupy.
@@ -280,6 +302,7 @@ def test_cuda_branch_still_consults_kernel_tuning_cache():
 # ---------------------------------------------------------------------------
 # 6. kernel_tuning_cache module unmodified by the bridge
 # ---------------------------------------------------------------------------
+
 
 def test_bridge_never_writes_kernel_tuning_cache(tmp_path):
     """The read-only bridge must call only ``get_regions`` on the cache and
@@ -310,5 +333,6 @@ def test_kernel_tuning_cache_public_api_intact():
     """The KernelTuningCache public API the POC relies on (get_regions /
     lookup) is unchanged -- the migration is additive, KTC is untouched."""
     from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+
     for name in ("get_regions", "lookup", "update", "has", "reset"):
         assert hasattr(KernelTuningCache, name)

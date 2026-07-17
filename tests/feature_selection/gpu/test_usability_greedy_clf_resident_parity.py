@@ -17,6 +17,7 @@ the per-fold CV-logloss -- and the committed feature set -- match. This pins:
   * RESIDENCY: under a flag-on greedy the candidate value matrix uploads ONCE and there is
     NO per-candidate bulk D2H (the contract; audited by transfer size).
 """
+
 from __future__ import annotations
 
 import os
@@ -30,6 +31,7 @@ cp = pytest.importorskip("cupy")
 def _need_cuda() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         return False
@@ -40,6 +42,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 
 def _make_pool(n, seed, strong, n_classes=2):
     from mlframe.feature_selection.filters._usability_aware_selection import UsableCandidate
+
     rng = np.random.default_rng(seed)
     a, b, c, d, e, f = (rng.random(n) for _ in range(6))
     if strong:
@@ -54,16 +57,15 @@ def _make_pool(n, seed, strong, n_classes=2):
     else:
         qs = np.quantile(score, np.linspace(0, 1, n_classes + 1)[1:-1])
         y = np.digitize(score, qs)
-    cols = {"a": a, "b": b, "c": c, "d": d, "e": e, "f": f,
-            "cd": np.log(c * 2) * np.sin(d / 3), "ab": a * b, "noise": rng.random(n)}
-    pool = [UsableCandidate(nm, v.astype(np.float64), float(abs(np.corrcoef(v, y)[0, 1])),
-                            None, (nm,), ()) for nm, v in cols.items()]
+    cols = {"a": a, "b": b, "c": c, "d": d, "e": e, "f": f, "cd": np.log(c * 2) * np.sin(d / 3), "ab": a * b, "noise": rng.random(n)}
+    pool = [UsableCandidate(nm, v.astype(np.float64), float(abs(np.corrcoef(v, y)[0, 1])), None, (nm,), ()) for nm, v in cols.items()]
     return pool, y
 
 
 def _cpu_ref(pool, y, **kw):
     """The flag-OFF (CPU LogisticRegression) selection (names)."""
     from mlframe.feature_selection.filters._usability_aware_selection import usability_greedy
+
     saved = os.environ.get("MLFRAME_FE_GPU_STRICT_RESIDENT", "")
     os.environ["MLFRAME_FE_GPU_STRICT_RESIDENT"] = "0"
     try:
@@ -79,6 +81,7 @@ def test_binary_clf_resident_selection_equivalent_to_cpu():
     from mlframe.feature_selection.filters._usability_greedy_clf_gpu_resident import (
         usability_greedy_clf_gpu_resident,
     )
+
     kw = dict(K=6, n_folds=4, shortlist=20, mae_improve_rel=0.005)
     for strong in (True, False):
         for seed in range(6):
@@ -93,6 +96,7 @@ def test_binary_clf_resident_selection_equivalent_to_cpu():
 def test_binary_clf_flag_on_dispatch_matches_cpu():
     """The full ``usability_greedy`` dispatch under the resident flag selects the CPU set."""
     from mlframe.feature_selection.filters._usability_aware_selection import usability_greedy
+
     kw = dict(K=6, n_folds=4, shortlist=20, mae_improve_rel=0.005)
     os.environ["MLFRAME_FE_GPU_STRICT"] = "1"
     os.environ["MLFRAME_FE_GPU_STRICT_RESIDENT"] = "1"
@@ -119,6 +123,7 @@ def test_multiclass_defers_to_cpu():
     from mlframe.feature_selection.filters._usability_greedy_clf_gpu_resident import (
         usability_greedy_clf_gpu_resident,
     )
+
     kw = dict(K=4, n_folds=4, shortlist=8, mae_improve_rel=0.005)
     pool, y = _make_pool(1000, 0, True, n_classes=3)
     assert usability_greedy_clf_gpu_resident(pool, y, seed=0, **kw) is None
@@ -148,8 +153,7 @@ def test_residency_one_matrix_h2d_no_per_candidate_d2h():
         cols = {f"x{i}": rng.random(n) for i in range(P)}
         score = 2.5 * cols["x0"] - 1.8 * cols["x1"]
         y = (rng.random(n) < 1.0 / (1.0 + np.exp(-3 * (score - score.mean())))).astype(int)
-        pool = [UsableCandidate(nm, v, float(abs(np.corrcoef(v, y)[0, 1])), None, (nm,), ())
-                for nm, v in cols.items()]
+        pool = [UsableCandidate(nm, v, float(abs(np.corrcoef(v, y)[0, 1])), None, (nm,), ()) for nm, v in cols.items()]
         kw = dict(K=4, seed=0, n_folds=4, shortlist=min(P, 20), mae_improve_rel=0.005)
         _ = usability_greedy_clf_gpu_resident(pool, y, **kw)  # warm cupy/JIT outside the audit
         with residency_audit() as rep:

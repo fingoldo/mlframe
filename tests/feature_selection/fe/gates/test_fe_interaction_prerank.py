@@ -7,6 +7,7 @@ Pins the three contract guarantees the bench established:
   * the L=0.0 perfectly-balanced case is irreducible (no lift over random) -- pinned so we never claim it;
   * top_k_by_interaction_propensity is deterministic, a no-op when top_k >= n_candidates, and O(n*p) cheap.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -112,7 +113,8 @@ def test_perfectly_balanced_interaction_is_irreducible():
     # within noise of random -- explicitly NOT a recovery (allow a small slop above the baseline).
     assert mean_recall <= random_base + 0.15, (
         f"unexpected recovery of a perfectly-balanced interaction ({mean_recall:.2f} vs base {random_base:.2f}); "
-        "the irreducibility assumption no longer holds -- revisit the pre-rank claims")
+        "the irreducibility assumption no longer holds -- revisit the pre-rank claims"
+    )
 
 
 def test_top_k_deterministic_and_noop_when_k_exceeds_pool():
@@ -122,7 +124,7 @@ def test_top_k_deterministic_and_noop_when_k_exceeds_pool():
     cand = [3, 7, 11, 19, 23, 31]
     a = top_k_by_interaction_propensity(X, y, cand, top_k=3)
     b = top_k_by_interaction_propensity(X, y, cand, top_k=3)
-    assert a == b and len(a) == 3 and a == sorted(a)        # deterministic + sorted
+    assert a == b and len(a) == 3 and a == sorted(a)  # deterministic + sorted
     assert set(a).issubset(set(cand))
     # top_k >= pool size -> all candidates, sorted (a pure no-op selection)
     assert top_k_by_interaction_propensity(X, y, cand, top_k=10) == sorted(cand)
@@ -170,9 +172,9 @@ def _planted_interaction_X(p=400, seed=0, leak=0.2):
     return X, s, {ia, ib, ic, idd}
 
 
-@pytest.mark.parametrize("target_kind", ["binary", "nominal_multiclass", "ordinal_multiclass",
-                                         "regression_continuous", "regression_binned",
-                                         "boolean", "string_labels"])
+@pytest.mark.parametrize(
+    "target_kind", ["binary", "nominal_multiclass", "ordinal_multiclass", "regression_continuous", "regression_binned", "boolean", "string_labels"]
+)
 def test_all_target_types_score_finite_and_recover(target_kind):
     """second_moment_propensity must work for EVERY target type: produce finite scores AND recover the planted
     leaky-interaction operands above the random baseline, for binary / nominal / ordinal multiclass / continuous
@@ -185,25 +187,25 @@ def test_all_target_types_score_finite_and_recover(target_kind):
         y = (rng.random(n) < 1.0 / (1.0 + np.exp(-s))).astype(int)
     elif target_kind == "nominal_multiclass":
         s2 = np.sign(X[:, 33]) * np.sign(X[:, 290])
-        y = (2 * (s > 0) + (s2 > 0)).astype(int)            # 0..3, treated as nominal
+        y = (2 * (s > 0) + (s2 > 0)).astype(int)  # 0..3, treated as nominal
     elif target_kind == "ordinal_multiclass":
-        y = np.digitize(s, np.quantile(s, [0.25, 0.5, 0.75])).astype(int)   # 0..3 ordered
+        y = np.digitize(s, np.quantile(s, [0.25, 0.5, 0.75])).astype(int)  # 0..3 ordered
     elif target_kind == "regression_continuous":
-        y = (s + 0.1 * rng.standard_normal(n)).astype(float)               # >64 unique -> moment path
+        y = (s + 0.1 * rng.standard_normal(n)).astype(float)  # >64 unique -> moment path
     elif target_kind == "regression_binned":
-        y = np.digitize(s, np.quantile(s, np.linspace(0, 1, 9)[1:-1]))      # 8 bins (the synergy-site form)
+        y = np.digitize(s, np.quantile(s, np.linspace(0, 1, 9)[1:-1]))  # 8 bins (the synergy-site form)
     elif target_kind == "boolean":
-        y = (s > 0)                                                         # bool dtype
+        y = s > 0  # bool dtype
     else:  # string_labels (non-numeric nominal)
         lab = np.array(["lo", "mid", "hi"])
-        y = lab[np.digitize(s, np.quantile(s, [0.33, 0.66]))]              # object/str array
+        y = lab[np.digitize(s, np.quantile(s, [0.33, 0.66]))]  # object/str array
 
     scores = second_moment_propensity(X, y)
     assert scores.shape == (X.shape[1],)
     assert np.isfinite(scores).all(), f"{target_kind}: non-finite scores"
     top = set(np.argsort(scores)[::-1][:100])
     recall = len(operands & top) / len(operands)
-    assert recall >= 0.5, f"{target_kind}: operand recall {recall:.2f} at top-100 (random ~{100/400:.2f})"
+    assert recall >= 0.5, f"{target_kind}: operand recall {recall:.2f} at top-100 (random ~{100 / 400:.2f})"
 
 
 @pytest.mark.parametrize("nclasses", [2, 5])
@@ -235,10 +237,9 @@ def test_kernel_variants_match_per_class_loop_reference(backend, nclasses):
     except Exception as e:  # GPU OOM under concurrent load etc. -- the variant exists, just unbenchable now
         pytest.skip(f"{backend} unavailable at runtime: {e}")
 
-    assert np.allclose(got, ref, rtol=1e-8, atol=1e-10), f"{backend} score drift max={np.abs(got-ref).max():.2e}"
+    assert np.allclose(got, ref, rtol=1e-8, atol=1e-10), f"{backend} score drift max={np.abs(got - ref).max():.2e}"
     # ranking (the only thing top-k consumes) must be bit-identical to the reference
-    assert np.array_equal(np.argsort(-got, kind="stable"), np.argsort(-ref, kind="stable")), \
-        f"{backend} ranking differs from per-class-loop reference"
+    assert np.array_equal(np.argsort(-got, kind="stable"), np.argsort(-ref, kind="stable")), f"{backend} ranking differs from per-class-loop reference"
 
 
 def test_second_moment_uses_kernel_and_matches_loop_end_to_end():
@@ -301,7 +302,7 @@ def test_auto_picks_fused_when_small():
 
 
 def test_auto_picks_second_moment_when_wide():
-    """"auto" falls back to the cheap ``second_moment`` when the predicted LightGBM fit exceeds the budget
+    """ "auto" falls back to the cheap ``second_moment`` when the predicted LightGBM fit exceeds the budget
     (a WIDE frame). Monkeypatched predictor returns a huge time so NO real 100k-wide fit is run in the test."""
     import mlframe.feature_selection.filters._fe_interaction_prerank as m
     import mlframe.feature_selection.filters._fe_interaction_prerank_kernels as k
@@ -370,8 +371,11 @@ def test_gate_is_hw_calibrated_not_magic_constant():
     fallback), NOT a hardcoded threshold. measured_gbm_cols_per_second returns a (value, source) where source
     is 'cache' (HW-measured) or 'fallback', and predict_gbm_fit_seconds threads that source through."""
     from mlframe.feature_selection.filters._fe_interaction_prerank_kernels import (
-        measured_gbm_cols_per_second, predict_gbm_fit_seconds, warm_gbm_cost_cache,
+        measured_gbm_cols_per_second,
+        predict_gbm_fit_seconds,
+        warm_gbm_cost_cache,
     )
+
     warm_gbm_cost_cache()
     cps, source = measured_gbm_cols_per_second(8000)
     assert cps > 0 and source in ("cache", "fallback")
@@ -430,8 +434,9 @@ def test_high_card_nominal_target_not_squared_relabel_invariant():
 
     def _top(y_):
         return set(np.argsort(second_moment_propensity(X, y_))[::-1][:100])
+
     base_top = _top(cls)
-    perm = rng.permutation(cls.max() + 1)               # relabel the nominal classes arbitrarily
+    perm = rng.permutation(cls.max() + 1)  # relabel the nominal classes arbitrarily
     re_top = _top(perm[cls])
     # relabel-invariant up to float-summation/tie noise (NOT the wild 0.12-0.88 swing of the squared-codes bug)
     jacc = len(base_top & re_top) / len(base_top | re_top)

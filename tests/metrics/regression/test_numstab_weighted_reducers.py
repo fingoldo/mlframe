@@ -4,6 +4,7 @@ Pre-fix the weighted MAE/MSE/R2 kernels divided the accumulated sum by ``wsum`` 
 ``wsum <= 0`` guard, so an all-zero weight vector produced 0/0 == nan (MAE/MSE) or a
 nan mean propagated into R2. The guard now returns nan explicitly for an empty weight mass.
 """
+
 from __future__ import annotations
 
 import warnings

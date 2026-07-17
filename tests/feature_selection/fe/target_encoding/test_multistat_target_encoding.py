@@ -10,11 +10,11 @@ Validated contract:
 * business value: on a cell-varying-slope regression, the multi-stat columns fed alongside the raw feature
   lift a held-out GBM vs the mean-only encoding -- the regime where target-spread proxies the slope.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters._target_encoding_fe import (
     engineered_name_te,
@@ -40,7 +40,7 @@ def test_multistat_emits_one_column_and_recipe_per_stat():
     df = pd.DataFrame({"c": rng.integers(0, 10, 3000)})
     y = rng.normal(0, 1, 3000)
     stats = ("mean", "std", "skew", "kurt")
-    Xa, appended, recipes = kfold_target_encode_with_recipes(df, y, cat_cols=["c"], stats=stats)
+    _Xa, appended, recipes = kfold_target_encode_with_recipes(df, y, cat_cols=["c"], stats=stats)
     assert appended == [engineered_name_te_stat("c", s) for s in stats]
     assert len(recipes) == len(stats)
     assert all(r.kind == "kfold_target_encoded" for r in recipes)
@@ -55,7 +55,7 @@ def test_std_column_recovers_within_cell_spread():
     sigma = 0.3 + 0.4 * cat  # spread grows with the category index; mean stays 0
     y = rng.normal(0.0, sigma, n)
     df = pd.DataFrame({"c": cat})
-    te_df, recipes = kfold_target_encode_fit(df, y, ["c"], stats=("mean", "std"))
+    _te_df, recipes = kfold_target_encode_fit(df, y, ["c"], stats=("mean", "std"))
     std_lut = recipes["c"]["stat_lookups"]["std"]
     # std lookup must be monotonically increasing in the category index.
     std_by_cat = [std_lut[str(k)] for k in range(6)]
@@ -101,17 +101,21 @@ def test_biz_value_multistat_lifts_varying_slope_regression():
         def _encode(stats):
             te_df, recipes = kfold_target_encode_fit(df.iloc[tr], y[tr], ["cell"], stats=stats)
             from mlframe.feature_selection.filters.engineered_recipes import build_kfold_target_encoded_recipe
+
             cols_tr = [te_df[c].to_numpy() for c in te_df.columns]
             info = recipes["cell"]
             cols_te = []
             for s in stats:
                 rec = build_kfold_target_encoded_recipe(
-                    name=engineered_name_te_stat("cell", s), src_name="cell",
-                    lookup=info["stat_lookups"][s], global_mean=info["global_stats"][s],
-                    smoothing=info["smoothing"])
+                    name=engineered_name_te_stat("cell", s),
+                    src_name="cell",
+                    lookup=info["stat_lookups"][s],
+                    global_mean=info["global_stats"][s],
+                    smoothing=info["smoothing"],
+                )
                 cols_te.append(apply_recipe(rec, df.iloc[te]))
-            Xtr = np.column_stack([df["x_raw"].to_numpy()[tr]] + cols_tr)
-            Xte = np.column_stack([df["x_raw"].to_numpy()[te]] + cols_te)
+            Xtr = np.column_stack([df["x_raw"].to_numpy()[tr], *cols_tr])
+            Xte = np.column_stack([df["x_raw"].to_numpy()[te], *cols_te])
             m = GradientBoostingRegressor(n_estimators=120, max_depth=3, random_state=0).fit(Xtr, y[tr])
             return r2_score(y[te], m.predict(Xte))
 

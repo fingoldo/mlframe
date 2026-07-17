@@ -69,8 +69,7 @@ def test_serial_parallel_agree():
     y = base + phi[:, [2, 5, 7]].sum(axis=1) + 0.02 * rng.normal(size=250)
 
     serial = brute_force_top_n(phi, base, y, classification=False, metric="rmse", max_card=9, top_n=10, parallel=False)
-    par = brute_force_top_n(phi, base, y, classification=False, metric="rmse", max_card=9, top_n=10,
-                            parallel=True, n_chunks=4)
+    par = brute_force_top_n(phi, base, y, classification=False, metric="rmse", max_card=9, top_n=10, parallel=True, n_chunks=4)
     assert set(serial[0][1]) == set(par[0][1])
     assert {frozenset(c) for _, c in serial[:5]} == {frozenset(c) for _, c in par[:5]}
 

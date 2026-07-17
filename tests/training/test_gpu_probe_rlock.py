@@ -9,6 +9,7 @@ fast path). With an `RLock` the same thread can re-enter.
 The fuzz cell `c0097_867cf5d3-cb_hgb_lgb_mlp_xgb-pl_utf8-n1000` reliably
 surfaced the deadlock when CatBoost was the first GPU consumer.
 """
+
 from __future__ import annotations
 
 import threading
@@ -55,12 +56,11 @@ def test_cb_gpu_usable_then_cached_gpu_info_no_hang() -> None:
     crash on parallel runners.
     """
     import os
+
     if os.environ.get("PYTEST_XDIST_WORKER"):
         import pytest
-        pytest.skip(
-            "Native CatBoost GPU probe can SIGSEGV the xdist worker; "
-            "reentrant-lock contract is proven by the lock-only tests."
-        )
+
+        pytest.skip("Native CatBoost GPU probe can SIGSEGV the xdist worker; reentrant-lock contract is proven by the lock-only tests.")
     # Reset the probe state so we exercise the lock-holding path on this thread.
     _cb_pool._GPU_INFO_PROBED = False
     _cb_pool._GPU_INFO_CACHE = None
@@ -101,6 +101,7 @@ def test_cb_gpu_probe_skipped_when_devices_hidden(monkeypatch) -> None:
             probe_calls["n"] += 1  # records that the GPU probe actually ran
 
     import catboost
+
     monkeypatch.setattr(catboost, "CatBoostRegressor", _SpyRegressor)
 
     # Hidden-device signals: probe must be skipped, result False.
@@ -109,9 +110,7 @@ def test_cb_gpu_probe_skipped_when_devices_hidden(monkeypatch) -> None:
         monkeypatch.setenv("CUDA_VISIBLE_DEVICES", hidden)
         before = probe_calls["n"]
         assert _cb_pool._cb_gpu_usable() is False
-        assert probe_calls["n"] == before, (
-            f"probe must be skipped when CUDA_VISIBLE_DEVICES={hidden!r}"
-        )
+        assert probe_calls["n"] == before, f"probe must be skipped when CUDA_VISIBLE_DEVICES={hidden!r}"
 
     # Concrete device visible: guard bypassed, probe runs (spy 'succeeds').
     _cb_pool._CB_GPU_USABLE_CACHE = None

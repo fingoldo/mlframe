@@ -8,6 +8,7 @@ signature of the (discretized) target into the cache and refuses reuse when it
 changes. These tests exercise the real ``_restore_cached_marginal_mis`` /
 ``_target_signature`` helpers.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,8 +42,12 @@ def test_changed_target_invalidates_cached_marginal_mi():
     y_new = X.copy()  # X now perfectly predicts the target -> MI high
 
     cache = _build_cache(X, y_old, cached_mi=0.0)
-    mask, mi, _ = _restore_cached_marginal_mis(
-        fd, np.array([0]), nbins, cache, kl_threshold=0.01,
+    mask, _mi, _ = _restore_cached_marginal_mis(
+        fd,
+        np.array([0]),
+        nbins,
+        cache,
+        kl_threshold=0.01,
         target_sig=_target_signature(y_new),
     )
     assert not bool(mask[0]), "changed Y must invalidate the cached marginal MI"
@@ -57,7 +62,11 @@ def test_same_target_and_dist_still_reuses():
 
     cache = _build_cache(X, y, cached_mi=0.1234)
     mask, mi, _ = _restore_cached_marginal_mis(
-        fd, np.array([0]), nbins, cache, kl_threshold=0.01,
+        fd,
+        np.array([0]),
+        nbins,
+        cache,
+        kl_threshold=0.01,
         target_sig=_target_signature(y),
     )
     assert bool(mask[0])
@@ -71,6 +80,11 @@ def test_missing_target_sig_disables_reuse():
     nbins = np.array([2], dtype=np.int64)
     legacy = {"col_signatures": {0: _column_signature(X, 2)}, "marginal_mis": {0: 0.0}}
     mask, _, _ = _restore_cached_marginal_mis(
-        fd, np.array([0]), nbins, legacy, kl_threshold=0.01, target_sig=None,
+        fd,
+        np.array([0]),
+        nbins,
+        legacy,
+        kl_threshold=0.01,
+        target_sig=None,
     )
     assert not bool(mask[0])

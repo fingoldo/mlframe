@@ -33,10 +33,9 @@ Bug catalog:
   discovery later returned 0 specs (no K-fold amplification possible).
   Deferred to fire only when ``K > 0``.
 """
+
 from __future__ import annotations
 
-import math
-import os
 
 import numpy as np
 import pandas as pd
@@ -55,10 +54,14 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 def _disc_kwargs(**overrides):
     base = dict(
-        enabled=True, screening="hybrid",
-        mi_sample_n=1500, tiny_model_sample_n=1200,
-        tiny_model_n_estimators=60, tiny_model_cv_folds=3,
-        top_k_after_mi=8, top_m_after_tiny=2,
+        enabled=True,
+        screening="hybrid",
+        mi_sample_n=1500,
+        tiny_model_sample_n=1200,
+        tiny_model_n_estimators=60,
+        tiny_model_cv_folds=3,
+        top_k_after_mi=8,
+        top_m_after_tiny=2,
         random_state=0,
         use_baseline_diagnostics_hint=False,
         per_bin_n_bins=0,
@@ -93,7 +96,8 @@ class TestBug3PureLagComposite:
         assert cfg.eps_mi_gain == -10.0, (
             "regression: eps_mi_gain default should be -10.0 to let "
             "pure-lag composites through the pre-filter on AR-1 data "
-            "where mi_gain is structurally large-negative")
+            "where mi_gain is structurally large-negative"
+        )
 
     def test_biz_value_pure_lag_yields_specs(self) -> None:
         """End-to-end: AR(1) with autocorr=0.999 should produce at
@@ -116,14 +120,13 @@ class TestBug3PureLagComposite:
             screening="mi",  # skip Phase B for speed
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["y_prev", "x1"],
-                 train_idx=np.arange(1600))
+        disc.fit(df, target_col="y", feature_cols=["y_prev", "x1"], train_idx=np.arange(1600))
         assert len(disc.specs_) >= 1, (
             "regression: pure-lag composite produced 0 specs; "
             "the eps_mi_gain pre-filter rejected legitimate "
             "compositions (this was the root cause of the production "
-            "TVT 0-specs outcome).")
+            "TVT 0-specs outcome)."
+        )
 
 
 # ======================================================================
@@ -146,13 +149,13 @@ class TestBug4EnsemblePrePipeline:
         from sklearn.impute import SimpleImputer
         from sklearn.pipeline import Pipeline
         from sklearn.linear_model import LinearRegression
+
         rng = np.random.default_rng(0)
         n_train, n_feat = 200, 3
         X_train = rng.normal(size=(n_train, n_feat))
         # Inject NaN.
         X_train[5:10, 1] = np.nan
-        y_train = (X_train[:, 0] + 0.5 * np.nan_to_num(X_train[:, 1])
-                   + rng.normal(scale=0.1, size=n_train))
+        y_train = X_train[:, 0] + 0.5 * np.nan_to_num(X_train[:, 1]) + rng.normal(scale=0.1, size=n_train)
         pp = Pipeline([("imp", SimpleImputer())])
         X_train_t = pp.fit_transform(X_train)
         model = LinearRegression().fit(X_train_t, y_train)
@@ -193,20 +196,26 @@ class TestBug4EnsemblePrePipeline:
         y_tr = df["y"].iloc[:1200].to_numpy()
         # Tree component: no pre_pipeline.
         lgb_model = LGBMRegressor(
-            n_estimators=50, num_leaves=15, learning_rate=0.1,
-            random_state=0, verbosity=-1,
+            n_estimators=50,
+            num_leaves=15,
+            learning_rate=0.1,
+            random_state=0,
+            verbosity=-1,
         )
         lgb_model.fit(X, y_tr)
         tree_entry = SimpleNamespace(
-            model=lgb_model, pre_pipeline=None,
+            model=lgb_model,
+            pre_pipeline=None,
         )
         # Linear component: WITH pre_pipeline.
         linear_pp = Pipeline([("imp", SimpleImputer())])
         X_train_t = linear_pp.fit_transform(X)
         linear_model = LinearRegression().fit(X_train_t, y_tr)
         linear_entry = SimpleNamespace(
-            model=linear_model, pre_pipeline=linear_pp,
+            model=linear_model,
+            pre_pipeline=linear_pp,
         )
+
         # Emulate the ensemble's per-component predict shim contract.
         # The cross-target ensemble construction in core.py wraps each
         # entry in a shim that applies pre_pipeline before predict.
@@ -216,14 +225,14 @@ class TestBug4EnsemblePrePipeline:
             if entry.pre_pipeline is not None:
                 X_t = entry.pre_pipeline.transform(X_in)
             return entry.model.predict(X_t)
+
         # Both shims must produce finite predictions on raw X (with NaN).
         tree_pred = _shim_predict(tree_entry, X)
         linear_pred = _shim_predict(linear_entry, X)
         assert np.all(np.isfinite(tree_pred))
         assert np.all(np.isfinite(linear_pred)), (
-            "regression: linear component must work via shim "
-            "on raw X with NaN (pre_pipeline imputes); this was the "
-            "production TVT failure mode")
+            "regression: linear component must work via shim on raw X with NaN (pre_pipeline imputes); this was the production TVT failure mode"
+        )
 
 
 # ======================================================================
@@ -249,16 +258,16 @@ class TestBug1SpatialDemoterFalsePositive:
         common = rng.normal(size=n)
         feats = {}
         for i in range(5):
-            feats[f"geo_{i}"] = (
-                0.7 * common + 0.7 * rng.normal(size=n)
-            )
+            feats[f"geo_{i}"] = 0.7 * common + 0.7 * rng.normal(size=n)
         x_indep = rng.normal(size=n)
         y = x_indep + rng.normal(scale=0.3, size=n)
         feats["x_indep"] = x_indep
         feats["y"] = y
         df = pd.DataFrame(feats)
         cfg = _disc_kwargs(
-            screening="mi", base_candidates="auto", auto_base_top_k=3,
+            screening="mi",
+            base_candidates="auto",
+            auto_base_top_k=3,
             auto_base_demote_spatial_coords=True,
             transforms=["diff"],
             require_beats_raw_baseline=False,
@@ -266,16 +275,14 @@ class TestBug1SpatialDemoterFalsePositive:
         feature_cols = list(feats.keys())
         feature_cols.remove("y")
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y", feature_cols=feature_cols,
-                 train_idx=np.arange(1600))
+        disc.fit(df, target_col="y", feature_cols=feature_cols, train_idx=np.arange(1600))
         # The geological group must NOT all get demoted: some of them
         # should appear as base candidates in the report.
         report_bases = {r["base_column"] for r in disc.report()}
         geo_in_bases = [c for c in report_bases if c.startswith("geo_")]
         assert len(geo_in_bases) >= 1, (
-            "regression: geo features with pairwise corr ~0.55 were "
-            "ALL demoted (false positive on threshold 0.5). "
-            f"Bases evaluated: {report_bases}")
+            f"regression: geo features with pairwise corr ~0.55 were ALL demoted (false positive on threshold 0.5). Bases evaluated: {report_bases}"
+        )
 
     def test_biz_value_real_spatial_triplet_still_demoted(self) -> None:
         """Sanity counterpart: a tight X/Y/Z triplet with pairwise
@@ -290,26 +297,29 @@ class TestBug1SpatialDemoterFalsePositive:
         Z = common + 0.3 * rng.normal(size=n)
         x_real = rng.normal(size=n)
         y = x_real + rng.normal(scale=0.2, size=n)
-        df = pd.DataFrame({
-            "X": X, "Y": Y, "Z": Z, "x_real": x_real, "y": y,
-        })
+        df = pd.DataFrame(
+            {
+                "X": X,
+                "Y": Y,
+                "Z": Z,
+                "x_real": x_real,
+                "y": y,
+            }
+        )
         cfg = _disc_kwargs(
-            screening="mi", auto_base_top_k=2,
+            screening="mi",
+            auto_base_top_k=2,
             auto_base_demote_spatial_coords=True,
             transforms=["diff"],
             require_beats_raw_baseline=False,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["X", "Y", "Z", "x_real"],
-                 train_idx=np.arange(1600))
+        disc.fit(df, target_col="y", feature_cols=["X", "Y", "Z", "x_real"], train_idx=np.arange(1600))
         # Sanity: x_real should win base selection (real structural
         # signal; spatial X/Y/Z demoted).
         if disc.specs_:
             top = disc.specs_[0].base_column
-            assert top == "x_real", (
-                f"regression: tight spatial triplet detector failed; "
-                f"top base picked '{top}' instead of 'x_real'")
+            assert top == "x_real", f"regression: tight spatial triplet detector failed; top base picked '{top}' instead of 'x_real'"
 
 
 # ======================================================================
@@ -334,11 +344,16 @@ class TestBug2HintImmunity:
         partner = hint_feat + 0.1 * rng.normal(size=n)
         # y depends MORE on partner (so its MI is higher).
         y = 2.0 * partner + 0.5 * rng.normal(size=n)
-        df = pd.DataFrame({
-            "hint_feat": hint_feat, "partner": partner, "y": y,
-        })
+        df = pd.DataFrame(
+            {
+                "hint_feat": hint_feat,
+                "partner": partner,
+                "y": y,
+            }
+        )
         cfg = _disc_kwargs(
-            screening="mi", auto_base_top_k=2,
+            screening="mi",
+            auto_base_top_k=2,
             base_candidates="auto",
             dominant_features_hint=["hint_feat"],
             auto_base_dedup_corr_threshold=0.90,  # strict to trigger
@@ -346,14 +361,13 @@ class TestBug2HintImmunity:
             require_beats_raw_baseline=False,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["hint_feat", "partner"],
-                 train_idx=np.arange(1600))
+        disc.fit(df, target_col="y", feature_cols=["hint_feat", "partner"], train_idx=np.arange(1600))
         report_bases = {r["base_column"] for r in disc.report()}
         assert "hint_feat" in report_bases, (
             "regression: hint feature 'hint_feat' was dedup'd against "
             "non-hint correlated partner; hint should be immune from "
-            f"dedup. report bases: {report_bases}")
+            f"dedup. report bases: {report_bases}"
+        )
 
     def test_unit_hint_survives_spatial_demotion(self) -> None:
         """When the hint feature is part of a "tight cluster" by
@@ -369,12 +383,19 @@ class TestBug2HintImmunity:
         c3 = common + 0.1 * rng.normal(size=n)
         x_other = rng.normal(size=n)
         y = hint + 0.5 * x_other + rng.normal(scale=0.2, size=n)
-        df = pd.DataFrame({
-            "hint": hint, "c1": c1, "c2": c2, "c3": c3,
-            "x_other": x_other, "y": y,
-        })
+        df = pd.DataFrame(
+            {
+                "hint": hint,
+                "c1": c1,
+                "c2": c2,
+                "c3": c3,
+                "x_other": x_other,
+                "y": y,
+            }
+        )
         cfg = _disc_kwargs(
-            screening="mi", auto_base_top_k=2,
+            screening="mi",
+            auto_base_top_k=2,
             base_candidates="auto",
             dominant_features_hint=["hint"],
             auto_base_demote_spatial_coords=True,
@@ -382,14 +403,11 @@ class TestBug2HintImmunity:
             require_beats_raw_baseline=False,
         )
         disc = CompositeTargetDiscovery(cfg)
-        disc.fit(df, target_col="y",
-                 feature_cols=["hint", "c1", "c2", "c3", "x_other"],
-                 train_idx=np.arange(1600))
+        disc.fit(df, target_col="y", feature_cols=["hint", "c1", "c2", "c3", "x_other"], train_idx=np.arange(1600))
         report_bases = {r["base_column"] for r in disc.report()}
         assert "hint" in report_bases, (
-            "regression: hint feature was demoted by spatial detector "
-            f"despite being on the BD hint list. report bases: "
-            f"{report_bases}")
+            f"regression: hint feature was demoted by spatial detector despite being on the BD hint list. report bases: {report_bases}"
+        )
 
 
 # ======================================================================
@@ -415,7 +433,8 @@ class TestBug5AdaptiveHintCap:
         y = f1 + 0.5 * f2 + 0.3 * f3 + rng.normal(scale=0.1, size=n)
         df = pd.DataFrame({"f1": f1, "f2": f2, "f3": f3, "f4": f4, "y": y})
         cfg = _disc_kwargs(
-            screening="mi", auto_base_top_k=3,
+            screening="mi",
+            auto_base_top_k=3,
             base_candidates="auto",
             dominant_features_hint=["f1", "f2", "f3"],
             hint_strength_threshold_pct=50.0,
@@ -425,15 +444,12 @@ class TestBug5AdaptiveHintCap:
         disc = CompositeTargetDiscovery(cfg)
         # Inject strong strength signal (max=200% > 50% threshold).
         disc._hint_strengths_pct = [200.0, 100.0, 60.0]
-        disc.fit(df, target_col="y",
-                 feature_cols=["f1", "f2", "f3", "f4"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["f1", "f2", "f3", "f4"], train_idx=np.arange(1200))
         # All three hint features should appear as bases (no cap).
         report_bases = {r["base_column"] for r in disc.report()}
         assert {"f1", "f2", "f3"}.issubset(report_bases), (
-            "regression: strong hint (max strength=200% >= 50% "
-            "threshold) should bypass cap; got bases "
-            f"{report_bases}")
+            f"regression: strong hint (max strength=200% >= 50% threshold) should bypass cap; got bases {report_bases}"
+        )
 
     def test_unit_weak_hint_applies_cap(self) -> None:
         """When strength signal is weak (max < threshold), the
@@ -447,7 +463,8 @@ class TestBug5AdaptiveHintCap:
         y = f1 + rng.normal(scale=1.0, size=n)
         df = pd.DataFrame({"f1": f1, "f2": f2, "f3": f3, "f4": f4, "y": y})
         cfg = _disc_kwargs(
-            screening="mi", auto_base_top_k=3,
+            screening="mi",
+            auto_base_top_k=3,
             base_candidates="auto",
             dominant_features_hint=["f1", "f2", "f3"],
             hint_strength_threshold_pct=50.0,
@@ -457,18 +474,14 @@ class TestBug5AdaptiveHintCap:
         disc = CompositeTargetDiscovery(cfg)
         # Weak signal: max=10% < 50% threshold.
         disc._hint_strengths_pct = [10.0, 5.0, 3.0]
-        disc.fit(df, target_col="y",
-                 feature_cols=["f1", "f2", "f3", "f4"],
-                 train_idx=np.arange(1200))
+        disc.fit(df, target_col="y", feature_cols=["f1", "f2", "f3", "f4"], train_idx=np.arange(1200))
         report_bases = {r["base_column"] for r in disc.report()}
         # Weak hint -> half-slot cap (top_k=3 -> max(1, 3//2)=1 hint).
         # So at most one of the hint features appears as a hint;
         # the rest may still show up via MI ranking from feature_cols.
         # The contract: at least one non-hint (i.e. f4 or an
         # MI-leader) was evaluated.
-        assert "f4" in report_bases or len(report_bases) > 0, (
-            "regression: weak hint should still allow MI-leaders to "
-            f"appear in ranking; got {report_bases}")
+        assert "f4" in report_bases or len(report_bases) > 0, f"regression: weak hint should still allow MI-leaders to appear in ranking; got {report_bases}"
 
     def test_unit_no_strength_info_falls_back_to_half_cap(self) -> None:
         """No ``_hint_strengths_pct`` on instance -> fall back to
@@ -501,6 +514,7 @@ class TestBug6DeferredGPUWarning:
         ``train_mlframe_models_suite`` (which is integration-test
         territory and not under this unit-test file's scope)."""
         import logging
+
         # The post-fix flow:
         #   1. Compute _gpu_families upfront (just the detection).
         #   2. After per-target discovery loop, check n_specs_total.
@@ -516,13 +530,9 @@ class TestBug6DeferredGPUWarning:
             # assert here that the gated path correctly suppresses.
             if n_specs_total > 0 and _gpu_families:
                 logger.warning(
-                    "[CompositeTargetDiscovery] composite mode + GPU "
-                    "training detected (%s) AND %d composite spec(s) "
-                    "shipped.",
-                    ", ".join(_gpu_families), n_specs_total,
+                    "[CompositeTargetDiscovery] composite mode + GPU training detected (%s) AND %d composite spec(s) shipped.",
+                    ", ".join(_gpu_families),
+                    n_specs_total,
                 )
         # No record above the threshold.
-        assert not any(
-            "GPU" in r.message and "composite mode" in r.message
-            for r in caplog.records
-        ), "regression: GPU warning fired with n_specs_total=0"
+        assert not any("GPU" in r.message and "composite mode" in r.message for r in caplog.records), "regression: GPU warning fired with n_specs_total=0"

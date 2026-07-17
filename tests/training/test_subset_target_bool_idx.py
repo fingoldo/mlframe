@@ -16,6 +16,7 @@ rows when target.index was a sorted RangeIndex of length != mask length).
 Post-fix: bool masks are normalised to integer positions via np.flatnonzero
 at the top of the function so both branches take the integer path uniformly.
 """
+
 from __future__ import annotations
 
 import numpy as np

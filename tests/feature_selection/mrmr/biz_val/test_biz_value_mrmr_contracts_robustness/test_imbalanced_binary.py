@@ -136,6 +136,7 @@ NOT PINNED (deliberately)
   MI that the histogram estimator cannot reliably resolve above
   noise. We document the observation but do not pin.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -337,8 +338,11 @@ class TestMildImbalanceFindsBothSignals:
         )
         auc_sel = downstream_auc(sel, X, y.to_numpy(), cv=5)
         auc_base = baseline_signal_auc(
-            X, y.to_numpy(), signal=["x_signal", "x_uniform_signal"],
-            prefix="", cv=5,
+            X,
+            y.to_numpy(),
+            signal=["x_signal", "x_uniform_signal"],
+            prefix="",
+            cv=5,
         )
         assert auc_sel >= auc_base - 0.03, (
             f"seed={seed} n_pos={n_pos} (p=1%): MRMR selection {kept} lost "
@@ -421,10 +425,10 @@ class TestExtremeImbalanceDocumentedBehaviour:
         X, _y, n_pos, sel = _build_and_fit_layer13(IMBALANCE_EXTREME, seed)
         kept = _selected_names(sel)
         # Well-formed: list of strings, each a real column.
-        assert isinstance(kept, list), f"seed={seed} n_pos={n_pos} (p=0.1%): get_feature_names_out " f"returned non-list {type(kept).__name__}"
+        assert isinstance(kept, list), f"seed={seed} n_pos={n_pos} (p=0.1%): get_feature_names_out returned non-list {type(kept).__name__}"
         cols = set(X.columns)
         bogus = [name for name in kept if name not in cols]
-        assert not bogus, f"seed={seed} n_pos={n_pos} (p=0.1%): MRMR returned column " f"names not present in input: {bogus}. kept={kept}"
+        assert not bogus, f"seed={seed} n_pos={n_pos} (p=0.1%): MRMR returned column names not present in input: {bogus}. kept={kept}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_signal_in_support_at_extreme(self, seed):
@@ -550,15 +554,16 @@ class TestNoFalsePositiveBinningArtefact:
             f"collapsing at rare-class. kept={kept}"
         )
         assert "x_signal" in kept, (
-            f"seed={seed} imbalance={imbalance} n_pos={n_pos}: any noise "
-            f"leakage must sit alongside x_signal, not replace it; "
-            f"x_signal missing. kept={kept}"
+            f"seed={seed} imbalance={imbalance} n_pos={n_pos}: any noise leakage must sit alongside x_signal, not replace it; x_signal missing. kept={kept}"
         )
         # Leaked noise must not have cost real downstream signal.
         auc_sel = downstream_auc(sel, X, y.to_numpy(), cv=5)
         auc_base = baseline_signal_auc(
-            X, y.to_numpy(), signal=["x_signal", "x_uniform_signal"],
-            prefix="", cv=5,
+            X,
+            y.to_numpy(),
+            signal=["x_signal", "x_uniform_signal"],
+            prefix="",
+            cv=5,
         )
         assert auc_sel >= auc_base - 0.03, (
             f"seed={seed} imbalance={imbalance} n_pos={n_pos}: selection "
@@ -591,7 +596,7 @@ class TestNoFalsePositiveBinningArtefact:
         signals = {"x_signal", "x_uniform_signal"}
         non_signal = kept - signals
         assert "x_signal" in kept, (
-            f"seed={seed} imbalance={imbalance} n_pos={n_pos}: x_signal " f"missing from support; strong signal must be recovered. " f"kept={kept}"
+            f"seed={seed} imbalance={imbalance} n_pos={n_pos}: x_signal missing from support; strong signal must be recovered. kept={kept}"
         )
         assert len(non_signal) <= 1, (
             f"seed={seed} imbalance={imbalance} n_pos={n_pos}: support "
@@ -624,4 +629,4 @@ class TestMRMRRobustToImbalance:
         """Contract 5: MRMR completes end-to-end with non-empty support at every imbalance level."""
         _X, _y, n_pos, sel = _build_and_fit_layer13(imbalance, seed)
         kept = _selected_names(sel)
-        assert len(kept) >= 1, f"seed={seed} imbalance={imbalance} n_pos={n_pos}: MRMR " f"returned empty support; rare-class handling failure."
+        assert len(kept) >= 1, f"seed={seed} imbalance={imbalance} n_pos={n_pos}: MRMR returned empty support; rare-class handling failure."

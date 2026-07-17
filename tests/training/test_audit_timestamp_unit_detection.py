@@ -8,6 +8,7 @@ first ~2 seconds after epoch, producing a single-bin audit with no change-point
 coverage. The auto-detector now picks the COARSEST unit that lands every
 timestamp inside [1970-01-01, 2200-01-01].
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,7 +24,7 @@ from mlframe.training.targets.target_temporal_audit import (
 def test_int64_epoch_seconds_auto_detected_as_s():
     """1.7e9 must read as 2023-11-14 (s), not 1970-01-01.0000000017 (ns)."""
     n = 1000
-    ts = (1_700_000_000 + np.arange(n, dtype=np.int64))  # epoch seconds, Nov 2023
+    ts = 1_700_000_000 + np.arange(n, dtype=np.int64)  # epoch seconds, Nov 2023
     out = _coerce_timestamps_for_audit(ts)
     out_pd = pd.to_datetime(out)
     assert out_pd[0].year == 2023, f"expected 2023, got {out_pd[0]}"
@@ -35,7 +36,7 @@ def test_int64_epoch_seconds_auto_detected_as_s():
 def test_int64_epoch_milliseconds_auto_detected_as_ms():
     """1.7e12 must read as 2023-11-14 (ms)."""
     n = 500
-    ts = (1_700_000_000_000 + np.arange(n, dtype=np.int64) * 1000)  # epoch ms
+    ts = 1_700_000_000_000 + np.arange(n, dtype=np.int64) * 1000  # epoch ms
     out = _coerce_timestamps_for_audit(ts)
     out_pd = pd.to_datetime(out)
     assert out_pd[0].year == 2023
@@ -46,7 +47,7 @@ def test_int64_epoch_milliseconds_auto_detected_as_ms():
 def test_int64_epoch_microseconds_auto_detected_as_us():
     """1.7e15 must read as 2023-11-14 (us)."""
     n = 500
-    ts = (1_700_000_000_000_000 + np.arange(n, dtype=np.int64) * 1_000_000)  # epoch us
+    ts = 1_700_000_000_000_000 + np.arange(n, dtype=np.int64) * 1_000_000  # epoch us
     out = _coerce_timestamps_for_audit(ts)
     out_pd = pd.to_datetime(out)
     assert out_pd[0].year == 2023
@@ -57,7 +58,7 @@ def test_int64_epoch_microseconds_auto_detected_as_us():
 def test_int64_epoch_nanoseconds_auto_detected_as_ns():
     """1.7e18 must read as 2023-11-14 (ns) -- already in ns, no shift needed."""
     n = 500
-    ts = (1_700_000_000_000_000_000 + np.arange(n, dtype=np.int64) * 1_000_000_000)  # epoch ns
+    ts = 1_700_000_000_000_000_000 + np.arange(n, dtype=np.int64) * 1_000_000_000  # epoch ns
     out = _coerce_timestamps_for_audit(ts)
     out_pd = pd.to_datetime(out)
     assert out_pd[0].year == 2023
@@ -85,7 +86,7 @@ def test_float64_epoch_seconds_with_fractional_sub_seconds():
 
 def test_explicit_unit_override_forces_interpretation():
     """When caller passes explicit_unit='ns', the auto-detector is bypassed."""
-    ts = (1_700_000_000 + np.arange(100, dtype=np.int64))  # would auto-detect as 's'
+    ts = 1_700_000_000 + np.arange(100, dtype=np.int64)  # would auto-detect as 's'
     out_default = _coerce_timestamps_for_audit(ts)
     out_forced = _coerce_timestamps_for_audit(ts, explicit_unit="ns")
     out_default_pd = pd.to_datetime(out_default)
@@ -117,7 +118,7 @@ def test_pick_granularity_int64_epoch_seconds_picks_meaningful_bin():
     returned 'month' as the fallback. With the lib-level coerce helper threaded in,
     a 25k-row span of ~7 hours now picks a sub-day granularity (minute/hour)."""
     n = 25_000
-    ts = (1_700_000_000 + np.arange(n, dtype=np.int64))  # epoch seconds, ~7 hours span
+    ts = 1_700_000_000 + np.arange(n, dtype=np.int64)  # epoch seconds, ~7 hours span
     gran = _pick_granularity(ts)
     # 25k seconds = ~6.9 hours; sub-day granularity expected (minute, hour).
     # Old broken behaviour: span collapsed to ns scale -> "month" fallback.
@@ -127,7 +128,7 @@ def test_pick_granularity_int64_epoch_seconds_picks_meaningful_bin():
 def test_pick_granularity_int64_epoch_seconds_long_span_picks_day_or_week():
     """A 1-year epoch-seconds span (n=365*24*3600 sec) should pick day/week, not 'month' fallback."""
     span_seconds = 365 * 86_400  # ~1 year
-    ts = (1_700_000_000 + np.linspace(0, span_seconds, num=1000, dtype=np.int64))
+    ts = 1_700_000_000 + np.linspace(0, span_seconds, num=1000, dtype=np.int64)
     gran = _pick_granularity(ts)
     assert gran in ("day", "week", "month"), f"got {gran!r}"
 
@@ -139,21 +140,19 @@ def test_truly_out_of_range_negative_falls_back_with_warning(caplog):
     # All-negative values: every unit yields a datetime < 1970, so the bounds check fails.
     ts = np.array([-1_000_000_000, -500_000_000, -100_000_000], dtype=np.int64)
     import logging
+
     with caplog.at_level(logging.WARNING):
         _ = _coerce_timestamps_for_audit(ts)
-    assert any(
-        "fall outside" in (rec.getMessage() if hasattr(rec, "getMessage") else str(rec.message))
-        for rec in caplog.records
-    ), f"expected 'fall outside' warning; got records: {[rec.message for rec in caplog.records]}"
+    assert any("fall outside" in (rec.getMessage() if hasattr(rec, "getMessage") else str(rec.message)) for rec in caplog.records), (
+        f"expected 'fall outside' warning; got records: {[rec.message for rec in caplog.records]}"
+    )
 
 
 def test_max_int64_out_of_range_falls_back_with_warning(caplog):
     """Values above 7.26e18 (the ns upper bound) fall outside every unit's range."""
     ts = np.array([8_000_000_000_000_000_000, 9_000_000_000_000_000_000], dtype=np.int64)
     import logging
+
     with caplog.at_level(logging.WARNING):
         _ = _coerce_timestamps_for_audit(ts)
-    assert any(
-        "fall outside" in (rec.getMessage() if hasattr(rec, "getMessage") else str(rec.message))
-        for rec in caplog.records
-    )
+    assert any("fall outside" in (rec.getMessage() if hasattr(rec, "getMessage") else str(rec.message)) for rec in caplog.records)

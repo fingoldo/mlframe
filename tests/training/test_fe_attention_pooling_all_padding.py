@@ -12,6 +12,7 @@ Post-fix: when lengths[b] == 0 the row gets a zero context vector. The
 MLPHead then receives a deterministic "no signal" input -- still wrong
 relative to a meaningful summary, but at least not NaN.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -35,9 +36,7 @@ def test_attention_pooling_all_padding_row_returns_zero_not_nan():
     pool = AttentionPooling(hidden_size=H)
     out = pool(rnn_output, lengths)
     assert out.shape == (B, H)
-    assert torch.isfinite(out).all(), (
-        f"F-E: all-padding row produced non-finite context: {out}"
-    )
+    assert torch.isfinite(out).all(), f"F-E: all-padding row produced non-finite context: {out}"
     # The all-padding row MUST be exactly zeros.
     torch.testing.assert_close(out[2], torch.zeros(H))
     # Non-zero-length rows should NOT be zeroed.

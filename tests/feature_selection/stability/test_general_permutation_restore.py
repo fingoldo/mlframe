@@ -22,11 +22,13 @@ from mlframe.feature_selection.general import estimate_features_relevancy
 def test_estimate_features_relevancy_does_not_scramble_aliased_targets(monkeypatch):
     rng = np.random.default_rng(0)
     n = 200
-    backing = np.column_stack([
-        rng.integers(0, 4, size=n),  # f0
-        rng.integers(0, 4, size=n),  # f1
-        rng.integers(0, 4, size=n),  # targ
-    ]).astype(np.float64)
+    backing = np.column_stack(
+        [
+            rng.integers(0, 4, size=n),  # f0
+            rng.integers(0, 4, size=n),  # f1
+            rng.integers(0, 4, size=n),  # targ
+        ]
+    ).astype(np.float64)
     df = pl.DataFrame({"f0": backing[:, 0], "f1": backing[:, 1], "targ": backing[:, 2]})
     before = backing[:, 2].copy()
 

@@ -105,7 +105,7 @@ def test_fract_digits_probe_single_sort_matches_per_digit_round(monkeypatch):
         for d in range(1, 10):
             nuf = cln._get_nunique(vals=np.round(fract_part, d), skip_vals=(0.0, 1.0))
             if last > 0:
-                if (nuf - last) / last < 0.15 or nuf < 0.3 * (cln.NDIGITS ** d) ** 0.95:
+                if (nuf - last) / last < 0.15 or nuf < 0.3 * (cln.NDIGITS**d) ** 0.95:
                     if n_unique_ints > 0 or nz > 0:
                         ref_d = d
                         break

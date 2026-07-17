@@ -16,6 +16,7 @@ generic stub) and pin the new contract so a freshly-registered transform that
 forgets a formula entry trips this suite instead of silently regressing to the
 stub.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -69,18 +70,13 @@ _GENERIC_INVERSE_MARK = "= inverse("
 def test_every_registered_transform_has_a_formula_builder() -> None:
     registered = set(TRANSFORMS_REGISTRY)
     missing = registered - set(_TRANSFORM_FORMULA_BUILDERS)
-    assert not missing, (
-        "registered transforms with no provenance formula builder (would "
-        f"render the opaque generic stub): {sorted(missing)}"
-    )
+    assert not missing, f"registered transforms with no provenance formula builder (would render the opaque generic stub): {sorted(missing)}"
 
 
 def test_every_registered_transform_has_a_description() -> None:
     registered = set(TRANSFORMS_REGISTRY)
     missing = registered - set(_TRANSFORM_DESCRIPTIONS)
-    assert not missing, (
-        f"registered transforms with no stakeholder description: {sorted(missing)}"
-    )
+    assert not missing, f"registered transforms with no stakeholder description: {sorted(missing)}"
 
 
 @pytest.mark.parametrize("name", sorted(TRANSFORMS_REGISTRY))
@@ -95,12 +91,8 @@ def test_registered_transform_never_renders_generic_stub(name: str) -> None:
         target_col="y",
         fitted_params=params,
     )
-    assert _GENERIC_FORWARD_MARK not in forward, (
-        f"{name!r} rendered the generic forward stub: {forward!r}"
-    )
-    assert _GENERIC_INVERSE_MARK not in inverse, (
-        f"{name!r} rendered the generic inverse stub: {inverse!r}"
-    )
+    assert _GENERIC_FORWARD_MARK not in forward, f"{name!r} rendered the generic forward stub: {forward!r}"
+    assert _GENERIC_INVERSE_MARK not in inverse, f"{name!r} rendered the generic inverse stub: {inverse!r}"
     # A real, non-empty, target-mentioning formula on both legs.
     assert forward.startswith("T") and "y" in forward
     assert "y_hat" in inverse or inverse.startswith("T")  # chains spell sub-stages first
@@ -127,20 +119,28 @@ def test_biz_linear_residual_family_interpolates_alpha_beta() -> None:
     were stubs."""
     # linear_residual: alpha and beta both interpolated.
     fwd, inv, _ = _format_transform_formulas(
-        "linear_residual", "x", "y", {"alpha": 0.731, "beta": -2.4},
+        "linear_residual",
+        "x",
+        "y",
+        {"alpha": 0.731, "beta": -2.4},
     )
     assert _g(0.731) in fwd and _g(-2.4) in fwd
     assert _g(0.731) in inv and _g(-2.4) in inv
 
     # additive_residual: beta interpolated (alpha fixed at 1, not shown).
     fwd, inv, _ = _format_transform_formulas(
-        "additive_residual", "x", "y", {"beta": 3.14159},
+        "additive_residual",
+        "x",
+        "y",
+        {"beta": 3.14159},
     )
     assert _g(3.14159) in fwd and _g(3.14159) in inv
 
     # polynomial_residual_deg2: alpha1, alpha2, beta all interpolated.
     fwd, inv, _ = _format_transform_formulas(
-        "polynomial_residual_deg2", "x", "y",
+        "polynomial_residual_deg2",
+        "x",
+        "y",
         {"alpha1": 0.5, "alpha2": -0.03, "beta": 1.2},
     )
     for v in (0.5, -0.03, 1.2):
@@ -149,7 +149,10 @@ def test_biz_linear_residual_family_interpolates_alpha_beta() -> None:
 
     # asinh_residual: alpha, beta interpolated + arcsinh structure present.
     fwd, inv, _ = _format_transform_formulas(
-        "asinh_residual", "x", "y", {"alpha": 0.8, "beta": 0.1},
+        "asinh_residual",
+        "x",
+        "y",
+        {"alpha": 0.8, "beta": 0.1},
     )
     assert "asinh(y)" in fwd and "sinh(" in inv
     assert _g(0.8) in fwd and _g(0.1) in fwd
@@ -165,14 +168,19 @@ def test_biz_unary_and_chain_formulas_carry_their_fitted_state() -> None:
 
     # yeo_johnson_y: fitted lambda interpolated.
     fwd, inv, _ = _format_transform_formulas(
-        "yeo_johnson_y", "x", "y", {"lambda": 1.234},
+        "yeo_johnson_y",
+        "x",
+        "y",
+        {"lambda": 1.234},
     )
     assert _g(1.234) in fwd and _g(1.234) in inv
 
     # chain_linres_cbrt: nested bivariate alpha/beta surfaced from the
     # sub-params dict (pre-fix: opaque stub).
     fwd, inv, _ = _format_transform_formulas(
-        "chain_linres_cbrt", "x", "y",
+        "chain_linres_cbrt",
+        "x",
+        "y",
         {"bivariate_params": {"alpha": 0.6, "beta": 0.2}, "unary_params": {}},
     )
     assert _g(0.6) in fwd and _g(0.2) in fwd
@@ -183,7 +191,10 @@ def test_unknown_transform_still_falls_back_to_generic_stub() -> None:
     """The generic stub must remain reachable for genuinely-unknown names
     (forward-compat): the function never raises on an unregistered name."""
     fwd, inv, desc = _format_transform_formulas(
-        "totally_made_up_v99", "x", "y", {},
+        "totally_made_up_v99",
+        "x",
+        "y",
+        {},
     )
     assert "totally_made_up_v99" in fwd
     assert "totally_made_up_v99" in inv
@@ -194,19 +205,27 @@ def test_original_four_branches_are_bit_identical() -> None:
     """The pre-existing 4 transforms must render character-for-character the
     same strings as before the S12 refactor (no behaviour change for them)."""
     assert _format_transform_formulas("diff", "x", "y", {})[:2] == (
-        "T = y - x", "y_hat = T_hat + x",
+        "T = y - x",
+        "y_hat = T_hat + x",
     )
     assert _format_transform_formulas("ratio", "x", "y", {})[:2] == (
-        "T = y / x  (with |x| >= 1e-12)", "y_hat = T_hat * x",
+        "T = y / x  (with |x| >= 1e-12)",
+        "y_hat = T_hat * x",
     )
     assert _format_transform_formulas(
-        "logratio", "x", "y", {"median_t": 0.1, "mad_eff": 0.05},
+        "logratio",
+        "x",
+        "y",
+        {"median_t": 0.1, "mad_eff": 0.05},
     )[:2] == (
         "T = log(y) - log(x)  (requires y, x > 0)",
         "y_hat = x * exp(clip(T_hat, 0.1 +/- 10*0.05))",
     )
     assert _format_transform_formulas(
-        "linear_residual", "x", "y", {"alpha": 0.95, "beta": -1.5},
+        "linear_residual",
+        "x",
+        "y",
+        {"alpha": 0.95, "beta": -1.5},
     )[:2] == (
         "T = y - 0.95 * x - (-1.5)",
         "y_hat = T_hat + 0.95 * x + (-1.5)",

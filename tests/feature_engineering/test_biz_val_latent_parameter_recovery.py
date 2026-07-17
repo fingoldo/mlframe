@@ -8,6 +8,7 @@ linear model on the RAW observed columns struggles to recover the rate directly;
 features (already close to the true rate by construction) should let a simple linear model recover it far
 more accurately.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -51,7 +52,9 @@ def test_biz_val_recovery_features_beat_raw_column_baseline():
     pred_raw = model_raw.predict(df.iloc[test_idx][["amount", "n", "annuity"]])
     rmse_raw = float(np.sqrt(mean_squared_error(true_rate[test_idx], pred_raw)))
 
-    assert rmse_recovery < rmse_raw * 0.5, f"expected candidate-summary features to beat the raw-column linear baseline by >=50% RMSE, got recovery={rmse_recovery:.5f} raw={rmse_raw:.5f}"
+    assert rmse_recovery < rmse_raw * 0.5, (
+        f"expected candidate-summary features to beat the raw-column linear baseline by >=50% RMSE, got recovery={rmse_recovery:.5f} raw={rmse_raw:.5f}"
+    )
 
 
 def test_latent_parameter_recovery_features_hand_computed():
@@ -117,6 +120,5 @@ def test_biz_val_recovery_features_weight_fn_beats_uniform_under_nonuniform_prio
     mae_weighted = float(np.mean(np.abs(weighted_feats["latent_param_mean"].to_numpy() - true_rate)))
 
     assert mae_weighted < mae_uniform * 0.90, (
-        f"expected prior-weighted mean to beat uniform-candidate mean by >=15% MAE, "
-        f"got weighted={mae_weighted:.6f} uniform={mae_uniform:.6f}"
+        f"expected prior-weighted mean to beat uniform-candidate mean by >=15% MAE, got weighted={mae_weighted:.6f} uniform={mae_uniform:.6f}"
     )

@@ -8,6 +8,7 @@ label broadcast down) and averaging the row-level model's predictions back to th
 interaction-driven signal instead -- mirroring the Home Credit 3rd place's "skip aggregation, average
 predictions" technique.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,9 +55,12 @@ def test_biz_val_row_level_then_average_beats_mean_aggregation_baseline_auc():
     auc_baseline = roc_auc_score(y_entity, oof_baseline)
 
     result = compute_row_level_then_average_predictions(
-        X_rows, y_row_broadcast, entity_ids,
+        X_rows,
+        y_row_broadcast,
+        entity_ids,
         model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=100, max_depth=3),
-        n_splits=5, random_state=0,
+        n_splits=5,
+        random_state=0,
     )
     result_sorted = result.sort("entity_id")
     avg_pred = result_sorted["row_level_avg_pred"].to_numpy()
@@ -64,20 +68,22 @@ def test_biz_val_row_level_then_average_beats_mean_aggregation_baseline_auc():
 
     assert auc_row_level > 0.8, f"expected row-level-then-average AUC > 0.8, got {auc_row_level:.4f}"
     assert auc_row_level - auc_baseline > 0.25, (
-        f"expected row-level-then-average to beat the mean-aggregation baseline by >0.25 AUC, "
-        f"got row_level={auc_row_level:.4f} vs baseline={auc_baseline:.4f}"
+        f"expected row-level-then-average to beat the mean-aggregation baseline by >0.25 AUC, got row_level={auc_row_level:.4f} vs baseline={auc_baseline:.4f}"
     )
 
 
 def test_row_level_then_average_mode_b_external_query():
     X_rows, y_entity, entity_ids = _make_interaction_panel_dataset(n_entities=200, k_rows=5, seed=1)
     y_row_broadcast = y_entity[entity_ids]
-    X_query, y_query_entity, query_entity_ids = _make_interaction_panel_dataset(n_entities=50, k_rows=5, seed=2)
+    X_query, _y_query_entity, query_entity_ids = _make_interaction_panel_dataset(n_entities=50, k_rows=5, seed=2)
 
     result = compute_row_level_then_average_predictions(
-        X_rows, y_row_broadcast, entity_ids,
+        X_rows,
+        y_row_broadcast,
+        entity_ids,
         model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=50),
-        X_query_rows=X_query, query_entity_ids=query_entity_ids,
+        X_query_rows=X_query,
+        query_entity_ids=query_entity_ids,
     )
     assert result.shape[0] == 50
     assert set(result["entity_id"].to_list()) == set(range(50))
@@ -107,9 +113,13 @@ def test_biz_val_row_level_agg_stats_max_beats_mean_for_outlier_driven_label():
     y_row_broadcast = y_entity[entity_ids]
 
     result = compute_row_level_then_average_predictions(
-        X_rows, y_row_broadcast, entity_ids,
+        X_rows,
+        y_row_broadcast,
+        entity_ids,
         model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=100, max_depth=3),
-        n_splits=5, random_state=0, agg_stats=("mean", "max"),
+        n_splits=5,
+        random_state=0,
+        agg_stats=("mean", "max"),
     )
     result_sorted = result.sort("entity_id")
     assert set(result_sorted.columns) == {"entity_id", "row_level_avg_pred_mean", "row_level_avg_pred_max"}
@@ -162,9 +172,13 @@ def test_biz_val_row_level_low_confidence_flag_identifies_less_reliable_entities
     is_disagreeing_entity = np.arange(2 * n_per_group) >= n_per_group
 
     result = compute_row_level_then_average_predictions(
-        X_rows, y_row_broadcast, entity_ids,
+        X_rows,
+        y_row_broadcast,
+        entity_ids,
         model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=100, max_depth=3),
-        n_splits=5, random_state=0, flag_low_confidence_quantile=0.6,
+        n_splits=5,
+        random_state=0,
+        flag_low_confidence_quantile=0.6,
     )
     result_sorted = result.sort("entity_id")
     assert set(result_sorted.columns) == {"entity_id", "row_level_avg_pred", "row_level_avg_pred_low_confidence"}
@@ -184,8 +198,7 @@ def test_biz_val_row_level_low_confidence_flag_identifies_less_reliable_entities
     err_flagged = np.abs(pred[flagged] - y_entity[flagged])
     err_unflagged = np.abs(pred[~flagged] - y_entity[~flagged])
     assert err_flagged.mean() - err_unflagged.mean() > 0.15, (
-        f"expected flagged-entity error to exceed unflagged-entity error by >0.15, "
-        f"got flagged={err_flagged.mean():.4f} vs unflagged={err_unflagged.mean():.4f}"
+        f"expected flagged-entity error to exceed unflagged-entity error by >0.15, got flagged={err_flagged.mean():.4f} vs unflagged={err_unflagged.mean():.4f}"
     )
 
 
@@ -195,12 +208,11 @@ def test_row_level_then_average_default_flag_off_is_bit_identical():
     y_row_broadcast = y_entity[entity_ids]
     kwargs = dict(
         model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=30, max_depth=3),
-        n_splits=5, random_state=0,
+        n_splits=5,
+        random_state=0,
     )
     result_default = compute_row_level_then_average_predictions(X_rows, y_row_broadcast, entity_ids, **kwargs)
-    result_explicit_none = compute_row_level_then_average_predictions(
-        X_rows, y_row_broadcast, entity_ids, flag_low_confidence_quantile=None, **kwargs
-    )
+    result_explicit_none = compute_row_level_then_average_predictions(X_rows, y_row_broadcast, entity_ids, flag_low_confidence_quantile=None, **kwargs)
     assert result_default.columns == ["entity_id", "row_level_avg_pred"]
     assert result_default.equals(result_explicit_none)
 
@@ -236,9 +248,13 @@ def test_biz_val_row_level_then_average_feature_importance_identifies_informativ
     y_row_broadcast = y_entity[entity_ids]
 
     entity_df, importance_df = compute_row_level_then_average_predictions(
-        X_rows, y_row_broadcast, entity_ids,
+        X_rows,
+        y_row_broadcast,
+        entity_ids,
         model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=100, max_depth=3),
-        n_splits=5, random_state=0, return_row_feature_importance=True,
+        n_splits=5,
+        random_state=0,
+        return_row_feature_importance=True,
     )
     assert entity_df.columns == ["entity_id", "row_level_avg_pred"]
     assert set(importance_df.columns) == {"feature", "importance"}
@@ -267,12 +283,11 @@ def test_row_level_then_average_default_return_shape_unaffected_by_importance_pa
     y_row_broadcast = y_entity[entity_ids]
     kwargs = dict(
         model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=20, max_depth=3),
-        n_splits=5, random_state=0,
+        n_splits=5,
+        random_state=0,
     )
     result_omitted = compute_row_level_then_average_predictions(X_rows, y_row_broadcast, entity_ids, **kwargs)
-    result_explicit_false = compute_row_level_then_average_predictions(
-        X_rows, y_row_broadcast, entity_ids, return_row_feature_importance=False, **kwargs
-    )
+    result_explicit_false = compute_row_level_then_average_predictions(X_rows, y_row_broadcast, entity_ids, return_row_feature_importance=False, **kwargs)
     assert isinstance(result_omitted, pl.DataFrame)
     assert result_omitted.equals(result_explicit_false)
 
@@ -282,8 +297,11 @@ def test_row_level_then_average_entity_order_matches_first_seen():
     entity_ids = np.array([5, 5, 2, 2])
     y_row_broadcast = np.array([1.0, 1.0, 0.0, 0.0])
     result = compute_row_level_then_average_predictions(
-        X_rows, y_row_broadcast, entity_ids,
+        X_rows,
+        y_row_broadcast,
+        entity_ids,
         model_factory=lambda: GradientBoostingRegressor(random_state=0, n_estimators=5),
-        n_splits=2, random_state=0,
+        n_splits=2,
+        random_state=0,
     )
     assert result["entity_id"].to_list() == [5, 2]

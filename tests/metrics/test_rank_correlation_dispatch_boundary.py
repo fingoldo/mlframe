@@ -6,6 +6,7 @@ exact numpy<->numba crossover: with the threshold set to 100, rows < 100 must ta
 (numba kernel untouched) and rows >= 100 must take the numba path -- verified by spying on the
 ``spearmanr_batched_numba`` entry point. Also covers the scalar dispatcher at length extremes (0, 1, 2).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -86,7 +87,7 @@ def test_scalar_dispatch_degenerate_length_is_nan(n):
 @pytest.mark.parametrize(
     "y,expected",
     [
-        (np.array([1.0, 2.0]), 1.0),   # perfectly co-monotone
+        (np.array([1.0, 2.0]), 1.0),  # perfectly co-monotone
         (np.array([2.0, 1.0]), -1.0),  # perfectly anti-monotone
     ],
 )

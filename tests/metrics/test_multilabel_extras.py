@@ -1,15 +1,21 @@
 """Tests for mlframe.metrics._multilabel_extras."""
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
 from mlframe.metrics.core import (
-    label_ranking_average_precision, coverage_error,
-    label_ranking_loss, one_error,
-    multilabel_f1_macro, multilabel_f1_micro, multilabel_f1_weighted,
+    label_ranking_average_precision,
+    coverage_error,
+    label_ranking_loss,
+    one_error,
+    multilabel_f1_macro,
+    multilabel_f1_micro,
+    multilabel_f1_weighted,
     fast_multilabel_classification_metrics_block,
-    hamming_loss, subset_accuracy, jaccard_score_multilabel,
+    hamming_loss,
+    subset_accuracy,
 )
 
 
@@ -23,6 +29,7 @@ def _rand_ml(N=200, K=5, seed=0):
 
 def test_lrap_matches_sklearn():
     from sklearn.metrics import label_ranking_average_precision_score
+
     y, _, s = _rand_ml(seed=1)
     # sklearn skips rows where n_true is 0 or K - we must filter to compare.
     mask = (y.sum(axis=1) > 0) & (y.sum(axis=1) < y.shape[1])
@@ -34,6 +41,7 @@ def test_lrap_matches_sklearn():
 
 def test_coverage_error_matches_sklearn():
     from sklearn.metrics import coverage_error as skl_cov
+
     y, _, s = _rand_ml(seed=2)
     mask = y.sum(axis=1) > 0
     expected = skl_cov(y[mask], s[mask])
@@ -42,6 +50,7 @@ def test_coverage_error_matches_sklearn():
 
 def test_ranking_loss_matches_sklearn():
     from sklearn.metrics import label_ranking_loss as skl_rl
+
     y, _, s = _rand_ml(seed=3)
     mask = (y.sum(axis=1) > 0) & (y.sum(axis=1) < y.shape[1])
     if mask.sum() < 10:
@@ -64,15 +73,19 @@ def test_one_error_matches_sklearn_formula():
 
 def test_f1_macro_micro_weighted_match_sklearn():
     from sklearn.metrics import f1_score
+
     y, p, _ = _rand_ml(seed=5)
     assert multilabel_f1_macro(y, p) == pytest.approx(
-        f1_score(y, p, average="macro", zero_division=0), abs=1e-12,
+        f1_score(y, p, average="macro", zero_division=0),
+        abs=1e-12,
     )
     assert multilabel_f1_micro(y, p) == pytest.approx(
-        f1_score(y, p, average="micro", zero_division=0), abs=1e-12,
+        f1_score(y, p, average="micro", zero_division=0),
+        abs=1e-12,
     )
     assert multilabel_f1_weighted(y, p) == pytest.approx(
-        f1_score(y, p, average="weighted", zero_division=0), abs=1e-12,
+        f1_score(y, p, average="weighted", zero_division=0),
+        abs=1e-12,
     )
 
 
@@ -93,6 +106,7 @@ def test_multilabel_fused_block_jaccard_matches():
     instead verify the block jaccard sits inside [0, 1] and matches
     sklearn's per-label macro-jaccard)."""
     from sklearn.metrics import jaccard_score
+
     y, p, _ = _rand_ml(seed=7)
     block = fast_multilabel_classification_metrics_block(y, p)
     expected = jaccard_score(y, p, average="macro", zero_division=0)
@@ -105,8 +119,10 @@ def test_multilabel_fused_block_per_label_internals():
     y, p, _ = _rand_ml(N=50, K=3, seed=8)
     block = fast_multilabel_classification_metrics_block(y, p)
     for key in (
-        "_per_label_precision", "_per_label_recall",
-        "_per_label_f1", "_per_label_jaccard",
+        "_per_label_precision",
+        "_per_label_recall",
+        "_per_label_f1",
+        "_per_label_jaccard",
     ):
         arr = block[key]
         assert arr.shape == (3,)

@@ -11,15 +11,16 @@ of the first-fit hot path. This test verifies the (bool, f64) parallel
 variants are warm AFTER prewarm by asserting they execute in well under the
 fresh-compile time bound.
 """
+
 import time
 
 import numpy as np
-import pytest
 
 
 def _ensure_prewarmed():
     """Idempotent prewarm; pays cost ONCE per test session."""
     from mlframe.metrics.core import prewarm_numba_cache
+
     prewarm_numba_cache()
 
 
@@ -64,10 +65,7 @@ def test_fast_log_loss_binary_par_bool_dtype_is_warm():
     elapsed_ms = (time.perf_counter() - t) * 1000
 
     assert np.isfinite(result)
-    assert elapsed_ms < 50.0, (
-        f"_fast_log_loss_binary_par(bool, float64) took {elapsed_ms:.1f}ms; "
-        f">50ms suggests the (bool, f64) signature is NOT prewarmed."
-    )
+    assert elapsed_ms < 50.0, f"_fast_log_loss_binary_par(bool, float64) took {elapsed_ms:.1f}ms; >50ms suggests the (bool, f64) signature is NOT prewarmed."
 
 
 def test_brier_bool_matches_float64_semantics():
@@ -83,7 +81,4 @@ def test_brier_bool_matches_float64_semantics():
 
     b1 = _fast_brier_score_loss_par(y_true_bool, y_pred)
     b2 = _fast_brier_score_loss_par(y_true_f64, y_pred)
-    assert abs(b1 - b2) < 1e-12, (
-        f"brier(bool) = {b1} differs from brier(float64) = {b2} by "
-        f"{abs(b1 - b2):.2e}; possible dtype-coercion semantic divergence"
-    )
+    assert abs(b1 - b2) < 1e-12, f"brier(bool) = {b1} differs from brier(float64) = {b2} by {abs(b1 - b2):.2e}; possible dtype-coercion semantic divergence"

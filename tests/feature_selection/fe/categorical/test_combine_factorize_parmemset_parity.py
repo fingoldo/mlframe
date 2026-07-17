@@ -6,6 +6,7 @@ about the result -- the dense first-seen ids AND nclasses must equal the fully-s
 including heavy ties (low cardinality), the large-kmax cap-adjacent case that actually triggers the parallel
 fill, the empty input, and the hash-fallback (kmax over the array cap).
 """
+
 import numpy as np
 import pytest
 
@@ -28,12 +29,12 @@ def _check(joint, c, mult):
 @pytest.mark.parametrize(
     "n,jcard,ccard",
     [
-        (5000, 50, 4),          # tiny, serial-fill branch
-        (200_000, 2000, 20),    # below the parallel-memset gate
+        (5000, 50, 4),  # tiny, serial-fill branch
+        (200_000, 2000, 20),  # below the parallel-memset gate
         (1_000_000, 2000, 20),  # below gate, large n
-        (200_000, 8000, 20),    # spans the gate region
-        (1_000_000, 20000, 20), # above gate, parallel fill
-        (1_000_000, 400000, 40),# cap-adjacent kmax (~16M), heaviest parallel fill
+        (200_000, 8000, 20),  # spans the gate region
+        (1_000_000, 20000, 20),  # above gate, parallel fill
+        (1_000_000, 400000, 40),  # cap-adjacent kmax (~16M), heaviest parallel fill
     ],
 )
 def test_parmemset_matches_serial(n, jcard, ccard):

@@ -46,17 +46,29 @@ def test_biz_val_n_splits_default_recall_holds_on_c3_regime():
 
     n_informative, n_redundant, width = 20, 20, 2000
     X, y, _roles = make_regime_dataset(
-        n_samples=2000, n_informative=n_informative, n_redundant=n_redundant,
-        redundancy_rho=0.85, n_noise=width - n_informative - n_redundant, snr=8.0,
-        task="binary", seed=0,
+        n_samples=2000,
+        n_informative=n_informative,
+        n_redundant=n_redundant,
+        redundancy_rho=0.85,
+        n_noise=width - n_informative - n_redundant,
+        snr=8.0,
+        task="binary",
+        seed=0,
     )
     informative = {f"inf{i}" for i in range(n_informative)}
 
     sel = ShapProxiedFS(
-        classification=True, metric="brier", optimizer="auto",
-        prefilter_top=300, cluster_features=True,
-        top_n=15, n_revalidation_models=2, n_anchors=20,
-        random_state=0, verbose=False, n_jobs=1,
+        classification=True,
+        metric="brier",
+        optimizer="auto",
+        prefilter_top=300,
+        cluster_features=True,
+        top_n=15,
+        n_revalidation_models=2,
+        n_anchors=20,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
     )
     # Sanity: this test is meaningful only as long as the constructor really defaults to 3.
     assert sel.n_splits == 3

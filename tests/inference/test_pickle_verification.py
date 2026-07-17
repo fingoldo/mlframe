@@ -20,11 +20,11 @@ Post-fix contract:
 - ``_write_save_meta_sidecar`` populates ``bundle_sha256`` with the
   actual blake2b/sha256 of the bundle file (no more placeholder).
 """
+
 from __future__ import annotations
 
 import hashlib
 import orjson
-import os
 from pathlib import Path
 
 import pytest
@@ -70,10 +70,7 @@ def test_verify_sidecar_opt_in_escape_for_legacy_deploys(tmp_pickle: Path, monke
     from mlframe.inference.predict import _verify_sidecar
 
     monkeypatch.setenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", "1")
-    assert _verify_sidecar(str(tmp_pickle)), (
-        "MLFRAME_ALLOW_UNVERIFIED_PICKLE=1 must restore legacy "
-        "pass-through behaviour (no sidecar -> True with WARN)."
-    )
+    assert _verify_sidecar(str(tmp_pickle)), "MLFRAME_ALLOW_UNVERIFIED_PICKLE=1 must restore legacy pass-through behaviour (no sidecar -> True with WARN)."
 
 
 def test_verify_sidecar_passes_on_matching_digest(tmp_pickle: Path, monkeypatch):
@@ -110,8 +107,7 @@ def test_write_save_meta_sidecar_populates_real_bundle_sha256(tmp_pickle: Path):
     assert "bundle_sha256" in payload, "bundle_sha256 key must be present"
     expected = _sha256_hex(tmp_pickle)
     assert payload["bundle_sha256"] == expected, (
-        f"bundle_sha256 must be the actual SHA-256 of the bundle file. "
-        f"Got {payload['bundle_sha256']!r}, expected {expected!r}."
+        f"bundle_sha256 must be the actual SHA-256 of the bundle file. Got {payload['bundle_sha256']!r}, expected {expected!r}."
     )
     # Defence-in-depth: the placeholder string ``...`` must not leak through.
     assert payload["bundle_sha256"] != "...", "bundle_sha256 must not be a placeholder"

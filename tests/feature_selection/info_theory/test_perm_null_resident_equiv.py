@@ -8,6 +8,7 @@ MI from the SAME integer contingency tables; they differ only in the FP reductio
 FLOOR -- the value the caller actually uses -- to full agreement), so the downstream gain-floor selection
 is unchanged whichever path the KTC crossover picks.
 """
+
 import numpy as np
 import pytest
 

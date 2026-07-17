@@ -8,6 +8,7 @@ across model classes. Trees/boosting already average reflections via splits, so 
 not expected from them; the genuine lift is for capacity-limited linear models. We therefore assert
 no-harm uniformly and treat any lift as a bonus.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -17,12 +18,14 @@ import pytest
 
 warnings.filterwarnings("ignore")
 
-from tests.feature_selection._biz_val_synth import make_latent_reflections, make_two_latent_groups, as_df  # noqa: E402
-from sklearn.metrics import roc_auc_score  # noqa: E402
+from tests.feature_selection._biz_val_synth import make_latent_reflections, make_two_latent_groups, as_df
+from sklearn.metrics import roc_auc_score
 
 
+pytestmark = pytest.mark.timeout(
+    240
+)  # untimed biz_val real-fit tier: hang-detector, not a perf budget. The module-scoped full-mode MRMR fixture fits legitimately run ~75-90s on many-core/contended hosts; 60s killed a progressing fit mid-way. 240s stays well under the coarse 600s global backstop while still surfacing a true hang fast.
 
-pytestmark = pytest.mark.timeout(240)  # untimed biz_val real-fit tier: hang-detector, not a perf budget. The module-scoped full-mode MRMR fixture fits legitimately run ~75-90s on many-core/contended hosts; 60s killed a progressing fit mid-way. 240s stays well under the coarse 600s global backstop while still surfacing a true hang fast.
 
 def _abs_corr(a, b):
     return abs(np.corrcoef(np.asarray(a, dtype=float), np.asarray(b, dtype=float))[0, 1])
@@ -31,25 +34,34 @@ def _abs_corr(a, b):
 def _make_model(name):
     if name == "logreg":
         from sklearn.linear_model import LogisticRegression
+
         return LogisticRegression(penalty="l2", C=0.2, max_iter=1000)
     if name == "boosting":
         from sklearn.ensemble import HistGradientBoostingClassifier
+
         return HistGradientBoostingClassifier(max_iter=120, max_depth=3, learning_rate=0.1, random_state=0)
     if name == "mlp":
         from sklearn.neural_network import MLPClassifier
+
         return MLPClassifier(hidden_layer_sizes=(16,), max_iter=400, random_state=0, early_stopping=True)
     raise ValueError(name)
 
 
 DOWNSTREAM_MODELS = ["logreg", "boosting", "mlp"]
-_CA_KW = dict(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.4,
-              cluster_aggregate_homogeneity_tau=0.5, cluster_aggregate_min_cluster_size=3,
-              cluster_aggregate_methods=("mean_z", "mean_inv_var", "pca_pc1"),
-              # Wave 9.1 (mrmr.py:1294) auto-suppresses the post-hoc
-              # cluster_aggregate FE step when ``dcd_enable=True`` (new default)
-              # + ``dcd_postoc_compose=False`` (default). These tests focus on
-              # the cluster_aggregate path itself, so disable DCD.
-              dcd_enable=False)
+_CA_KW = dict(
+    verbose=0,
+    random_seed=42,
+    use_simple_mode=False,
+    cluster_aggregate_corr_threshold=0.4,
+    cluster_aggregate_homogeneity_tau=0.5,
+    cluster_aggregate_min_cluster_size=3,
+    cluster_aggregate_methods=("mean_z", "mean_inv_var", "pca_pc1"),
+    # Wave 9.1 (mrmr.py:1294) auto-suppresses the post-hoc
+    # cluster_aggregate FE step when ``dcd_enable=True`` (new default)
+    # + ``dcd_postoc_compose=False`` (default). These tests focus on
+    # the cluster_aggregate path itself, so disable DCD.
+    dcd_enable=False,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -63,14 +75,14 @@ def test_biz_val_aggregate_recovers_hidden_factor_near_theory():
     from mlframe.feature_selection.filters._cluster_aggregate import _standardize_align, _derive_weights
 
     k, sigma = 5, 1.2
-    X, y, info = make_latent_reflections(n=6000, loadings=(1.0,) * k, noise_sd=(sigma,) * k, n_noise=0, seed=1)
+    X, _y, info = make_latent_reflections(n=6000, loadings=(1.0,) * k, noise_sd=(sigma,) * k, n_noise=0, seed=1)
     z = info["z"]
     refl = X[:, info["reflections"]]
     Z, *_ = _standardize_align(refl, 0)
     agg = Z @ _derive_weights(Z, "mean_z")
     best_member = max(_abs_corr(refl[:, j], z) for j in range(k))
     rc_agg = _abs_corr(agg, z)
-    theory = 1.0 / np.sqrt(1.0 + sigma ** 2 / k)
+    theory = 1.0 / np.sqrt(1.0 + sigma**2 / k)
     assert rc_agg > best_member + 0.05, f"aggregate should beat best member clearly: {rc_agg:.3f} vs {best_member:.3f}"
     assert abs(rc_agg - theory) / theory < 0.05, f"recovery should track sigma^2/k theory {theory:.3f}; got {rc_agg:.3f}"
 
@@ -85,7 +97,7 @@ def test_biz_val_menu_beats_naive_mean_in_heterogeneous_regimes(regime):
     if regime == "hetero_loadings":
         X, y, info = make_latent_reflections(n=6000, loadings=(2.0, 1.5, 0.5, 0.2), noise_sd=(1.0,) * 4, n_noise=0, seed=2)
     else:
-        X, y, info = make_latent_reflections(n=6000, loadings=(1.0,) * 4, noise_sd=(0.3, 0.5, 2.0, 3.0), n_noise=0, seed=3)
+        X, _y, info = make_latent_reflections(n=6000, loadings=(1.0,) * 4, noise_sd=(0.3, 0.5, 2.0, 3.0), n_noise=0, seed=3)
     z = info["z"]
     Z, *_ = _standardize_align(X[:, info["reflections"]], 0)
     rc = {m: _abs_corr(Z @ _derive_weights(Z, m), z) for m in ("mean_z", "mean_inv_var", "pca_pc1")}
@@ -102,25 +114,26 @@ def test_biz_val_menu_beats_naive_mean_in_heterogeneous_regimes(regime):
 def one_group_fit(request):
     """Single hidden factor + 5 reflections + indep + noise. Parametrized over BOTH dispositions."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     mode = request.param
     X, y, info = make_latent_reflections(n=6000, loadings=(1.0,) * 5, noise_sd=(0.85,) * 5, n_noise=3, seed=10)
     df, _ = as_df(X, y)
     tr, te = (0, 4000), (4000, 6000)
-    Xtr, Xte, ytr, yte = df.iloc[tr[0]:tr[1]], df.iloc[te[0]:te[1]], y[tr[0]:tr[1]], y[te[0]:te[1]]
+    Xtr, Xte, ytr, yte = df.iloc[tr[0] : tr[1]], df.iloc[te[0] : te[1]], y[tr[0] : tr[1]], y[te[0] : te[1]]
     s_rep = MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode=mode, **_CA_KW).fit(Xtr, ytr)
     s_off = MRMR(cluster_aggregate_enable=False, verbose=0, random_seed=42, use_simple_mode=False).fit(Xtr, ytr)
-    return dict(mode=mode, s_rep=s_rep, s_off=s_off, df=df, Xtr=Xtr, Xte=Xte, ytr=ytr, yte=yte, info=info,
-                refl_names=[f"x{i}" for i in info["reflections"]])
+    return dict(mode=mode, s_rep=s_rep, s_off=s_off, df=df, Xtr=Xtr, Xte=Xte, ytr=ytr, yte=yte, info=info, refl_names=[f"x{i}" for i in info["reflections"]])
 
 
 @pytest.fixture(scope="module")
 def two_group_fit():
     """TWO hidden factors, each with its own reflection group, + a pure-noise group."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     X, y, info = make_two_latent_groups(n=6000, k1=4, k2=4, noise=0.85, n_noise=3, seed=20)
     df, _ = as_df(X, y)
     tr, te = (0, 4000), (4000, 6000)
-    Xtr, Xte, ytr, yte = df.iloc[tr[0]:tr[1]], df.iloc[te[0]:te[1]], y[tr[0]:tr[1]], y[te[0]:te[1]]
+    Xtr, Xte, ytr, yte = df.iloc[tr[0] : tr[1]], df.iloc[te[0] : te[1]], y[tr[0] : tr[1]], y[te[0] : te[1]]
     s_rep = MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode="replace", **_CA_KW).fit(Xtr, ytr)
     s_off = MRMR(cluster_aggregate_enable=False, verbose=0, random_seed=42, use_simple_mode=False).fit(Xtr, ytr)
     return dict(s_rep=s_rep, s_off=s_off, df=df, Xtr=Xtr, Xte=Xte, ytr=ytr, yte=yte, info=info)
@@ -138,7 +151,7 @@ def test_biz_val_one_group_integrated_recovery(one_group_fit):
     names = list(f["s_rep"].get_feature_names_out())
     assert any("clusteragg" in c for c in names), f"replace should build an aggregate; got {names}"
     out = f["s_rep"].transform(f["df"])
-    agg_col = [c for c in out.columns if "clusteragg" in c][0]
+    agg_col = next(c for c in out.columns if "clusteragg" in c)
     rc_agg = _abs_corr(out[agg_col].to_numpy(), f["info"]["z"])
     rc_best = max(_abs_corr(f["df"][r].to_numpy(), f["info"]["z"]) for r in f["refl_names"])
     assert rc_agg > rc_best + 0.03, f"aggregate must recover hidden z better than best reflection: {rc_agg:.3f} vs {rc_best:.3f}"
@@ -216,8 +229,7 @@ def test_biz_val_no_harm_correlated_noise():
     let an aggregate silently strip all members for no real gain."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    X, y, info = make_latent_reflections(n=5000, loadings=(1.0,) * 4, noise_sd=(1.0,) * 4, n_noise=2,
-                                         shared_noise=0.9, seed=11)
+    X, y, info = make_latent_reflections(n=5000, loadings=(1.0,) * 4, noise_sd=(1.0,) * 4, n_noise=2, shared_noise=0.9, seed=11)
     df, _ = as_df(X, y)
     s = MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode="replace", **_CA_KW).fit(df.iloc[:3500], y[:3500])
     names = list(s.get_feature_names_out())

@@ -61,8 +61,11 @@ class TestHistogramAxesCount:
         fp, ft, h = binned_data
         plot_file = str(tmp_path / "no_hist.png")
         fig = show_calibration_plot(
-            freqs_predicted=fp, freqs_true=ft, hits=h,
-            plot_file=plot_file, show_plots=False,
+            freqs_predicted=fp,
+            freqs_true=ft,
+            hits=h,
+            plot_file=plot_file,
+            show_plots=False,
             show_prob_histogram=False,
         )
         # Agg path returns a Figure; only the calibration scatter axes + colorbar exist.
@@ -77,16 +80,16 @@ class TestHistogramAxesCount:
         fp, ft, h = binned_data
         plot_file = str(tmp_path / "with_hist.png")
         fig = show_calibration_plot(
-            freqs_predicted=fp, freqs_true=ft, hits=h,
-            plot_file=plot_file, show_plots=False,
+            freqs_predicted=fp,
+            freqs_true=ft,
+            hits=h,
+            plot_file=plot_file,
+            show_plots=False,
             show_prob_histogram=True,
         )
         # GridSpec(2, 1) gives two main axes; colorbar adds a third Axes object.
         # Find the histogram axes by ylabel == "Bin population".
-        hist_axes = [
-            ax for ax in fig.axes
-            if ax.get_ylabel() == "Bin population" and ax.get_label() != "<colorbar>"
-        ]
+        hist_axes = [ax for ax in fig.axes if ax.get_ylabel() == "Bin population" and ax.get_label() != "<colorbar>"]
         assert len(hist_axes) == 1
         # And the calibration axes by ylabel == "Observed Frequency".
         calib_axes = [ax for ax in fig.axes if ax.get_ylabel() == "Observed Frequency"]
@@ -109,8 +112,11 @@ class TestInlineLabelsIndependentOfHistogram:
         fp, ft, h = binned_data
         plot_file = str(tmp_path / f"hist{show_hist}_lbl{show_labels}.png")
         fig = show_calibration_plot(
-            freqs_predicted=fp, freqs_true=ft, hits=h,
-            plot_file=plot_file, show_plots=False,
+            freqs_predicted=fp,
+            freqs_true=ft,
+            hits=h,
+            plot_file=plot_file,
+            show_plots=False,
             show_prob_histogram=show_hist,
             show_inline_population_labels=show_labels,
         )
@@ -119,15 +125,9 @@ class TestInlineLabelsIndependentOfHistogram:
         ax = calib_axes[0]
         # Population labels are added via ax.text; count Text artists with the K/M/B suffix
         # OR plain integer formatting from format_population.
-        text_artists = [
-            t for t in ax.texts
-            if isinstance(t, Text) and t.get_text() and t.get_text() not in ("",)
-        ]
+        text_artists = [t for t in ax.texts if isinstance(t, Text) and t.get_text() and t.get_text() not in ("",)]
         if show_labels:
-            assert len(text_artists) >= 1, (
-                f"expected per-bin labels with show_inline_population_labels=True, got 0; "
-                f"hist={show_hist}, labels={show_labels}"
-            )
+            assert len(text_artists) >= 1, f"expected per-bin labels with show_inline_population_labels=True, got 0; hist={show_hist}, labels={show_labels}"
         else:
             assert text_artists == [], (
                 f"expected zero per-bin labels with show_inline_population_labels=False, "
@@ -142,30 +142,30 @@ class TestAutoYscaleHistogram:
         fp, ft, h = skewed_hits
         plot_file = str(tmp_path / "skewed.png")
         fig = show_calibration_plot(
-            freqs_predicted=fp, freqs_true=ft, hits=h,
-            plot_file=plot_file, show_plots=False,
+            freqs_predicted=fp,
+            freqs_true=ft,
+            hits=h,
+            plot_file=plot_file,
+            show_plots=False,
             show_prob_histogram=True,
             prob_histogram_yscale="auto",
         )
-        hist_ax = next(
-            ax for ax in fig.axes
-            if ax.get_ylabel() == "Bin population" and ax.get_label() != "<colorbar>"
-        )
+        hist_ax = next(ax for ax in fig.axes if ax.get_ylabel() == "Bin population" and ax.get_label() != "<colorbar>")
         assert hist_ax.get_yscale() == "log"
 
     def test_uniform_picks_linear(self, uniform_hits, tmp_path):
         fp, ft, h = uniform_hits
         plot_file = str(tmp_path / "uniform.png")
         fig = show_calibration_plot(
-            freqs_predicted=fp, freqs_true=ft, hits=h,
-            plot_file=plot_file, show_plots=False,
+            freqs_predicted=fp,
+            freqs_true=ft,
+            hits=h,
+            plot_file=plot_file,
+            show_plots=False,
             show_prob_histogram=True,
             prob_histogram_yscale="auto",
         )
-        hist_ax = next(
-            ax for ax in fig.axes
-            if ax.get_ylabel() == "Bin population" and ax.get_label() != "<colorbar>"
-        )
+        hist_ax = next(ax for ax in fig.axes if ax.get_ylabel() == "Bin population" and ax.get_label() != "<colorbar>")
         assert hist_ax.get_yscale() == "linear"
 
     def test_reliability_prob_axis_tight_after_draw(self, binned_data, tmp_path):
@@ -194,28 +194,28 @@ class TestAutoYscaleHistogram:
         fp, ft, h = uniform_hits
         plot_file = str(tmp_path / "force_log.png")
         fig = show_calibration_plot(
-            freqs_predicted=fp, freqs_true=ft, hits=h,
-            plot_file=plot_file, show_plots=False,
+            freqs_predicted=fp,
+            freqs_true=ft,
+            hits=h,
+            plot_file=plot_file,
+            show_plots=False,
             show_prob_histogram=True,
             prob_histogram_yscale="log",
         )
-        hist_ax = next(
-            ax for ax in fig.axes
-            if ax.get_ylabel() == "Bin population" and ax.get_label() != "<colorbar>"
-        )
+        hist_ax = next(ax for ax in fig.axes if ax.get_ylabel() == "Bin population" and ax.get_label() != "<colorbar>")
         assert hist_ax.get_yscale() == "log"
 
     def test_explicit_linear_overrides_auto(self, skewed_hits, tmp_path):
         fp, ft, h = skewed_hits
         plot_file = str(tmp_path / "force_linear.png")
         fig = show_calibration_plot(
-            freqs_predicted=fp, freqs_true=ft, hits=h,
-            plot_file=plot_file, show_plots=False,
+            freqs_predicted=fp,
+            freqs_true=ft,
+            hits=h,
+            plot_file=plot_file,
+            show_plots=False,
             show_prob_histogram=True,
             prob_histogram_yscale="linear",
         )
-        hist_ax = next(
-            ax for ax in fig.axes
-            if ax.get_ylabel() == "Bin population" and ax.get_label() != "<colorbar>"
-        )
+        hist_ax = next(ax for ax in fig.axes if ax.get_ylabel() == "Bin population" and ax.get_label() != "<colorbar>")
         assert hist_ax.get_yscale() == "linear"

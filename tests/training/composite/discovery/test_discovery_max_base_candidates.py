@@ -7,6 +7,7 @@ Pins:
   ``_auto_base`` for pruning is unsound) and trimmed, keeping the signal-carrying base;
 * the cap also trims the ``"auto"`` path when tighter than ``auto_base_top_k``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,20 +23,33 @@ def _frame(n: int = 2000, seed: int = 0):
     b0 = rng.uniform(0.0, 1000.0, n)  # dominant signal base
     x0 = rng.normal(size=n)
     y = b0 + 30.0 * x0 + rng.normal(0.0, 1.0, n)
-    df = pd.DataFrame({
-        "b0": b0, "b1": rng.normal(size=n), "b2": rng.normal(size=n), "b3": rng.normal(size=n),
-        "x0": x0, "y": y,
-    })
+    df = pd.DataFrame(
+        {
+            "b0": b0,
+            "b1": rng.normal(size=n),
+            "b2": rng.normal(size=n),
+            "b3": rng.normal(size=n),
+            "x0": x0,
+            "y": y,
+        }
+    )
     return df, ["b0", "b1", "b2", "b3", "x0"]
 
 
 def _cfg(**kw) -> CompositeTargetDiscoveryConfig:
     """Minimal screening="mi" discovery config for the cap tests, with ``**kw`` overrides."""
     base = dict(
-        enabled=True, random_state=0, screening="mi", honest_holdout_frac=None,
-        auto_base_null_perms=0, multi_base_enabled=False, honest_rmse_gate_enabled=False,
-        interaction_base_discovery_enabled=False, auto_chain_discovery_enabled=False,
-        transforms=["linear_residual"], auto_base_dedup_corr_threshold=1.0,
+        enabled=True,
+        random_state=0,
+        screening="mi",
+        honest_holdout_frac=None,
+        auto_base_null_perms=0,
+        multi_base_enabled=False,
+        honest_rmse_gate_enabled=False,
+        interaction_base_discovery_enabled=False,
+        auto_chain_discovery_enabled=False,
+        transforms=["linear_residual"],
+        auto_base_dedup_corr_threshold=1.0,
     )
     base.update(kw)
     return CompositeTargetDiscoveryConfig(**base)

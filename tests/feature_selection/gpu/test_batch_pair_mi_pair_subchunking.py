@@ -16,6 +16,7 @@ never sized beyond a bounded pair-subchunk (not the full n_pairs), correctness i
 pair-subchunk boundary (results for pairs split across different subchunks must match a single-chunk
 reference), and the fix is measured against the exact failing production shape.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -121,10 +122,15 @@ def test_choose_pair_subchunk_rows_clamped_to_at_least_one():
 def test_pair_subchunked_finalize_avoids_full_accumulator_readback(monkeypatch):
     """Regression: device-side finalize must avoid copy_to_host on the histogram accumulator."""
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
-        n_samples=2000, n_cols=30, nbins_val=6, n_classes_y=4, seed=5,
+        n_samples=2000,
+        n_cols=30,
+        nbins_val=6,
+        n_classes_y=4,
+        seed=5,
     )
     monkeypatch.setattr(bpmk, "_choose_pair_subchunk_rows", lambda *a, **kw: 50)
     import numba.cuda.cudadrv.devicearray as _devicearray
+
     calls = {"n": 0}
     orig_copy_to_host = _devicearray.DeviceNDArray.copy_to_host
 
@@ -153,7 +159,11 @@ def test_near_zero_free_vram_bails_to_cpu_instead_of_71_million_launches(monkeyp
     existing fallback (``dispatch_batch_pair_mi``'s ``_try_cuda_row_chunked`` -> CPU njit) takes over
     immediately."""
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
-        n_samples=5000, n_cols=50, nbins_val=21, n_classes_y=20, seed=1,
+        n_samples=5000,
+        n_cols=50,
+        nbins_val=21,
+        n_classes_y=20,
+        seed=1,
     )
     monkeypatch.setattr(bpmk, "_choose_row_chunk_rows", lambda *a, **kw: 1000)
     monkeypatch.setattr(bpmk, "_choose_pair_subchunk_rows", lambda *a, **kw: 1)
@@ -167,7 +177,11 @@ def test_near_zero_free_vram_dispatch_falls_back_to_cpu_end_to_end(monkeypatch):
     """End-to-end: when the launch-count guard trips, ``dispatch_batch_pair_mi`` must still return a
     correct result via the CPU njit fallback, not propagate the RuntimeError to the caller."""
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
-        n_samples=5000, n_cols=50, nbins_val=21, n_classes_y=20, seed=1,
+        n_samples=5000,
+        n_cols=50,
+        nbins_val=21,
+        n_classes_y=20,
+        seed=1,
     )
     mi_ref = bpmg.batch_pair_mi_njit_prange(data, pair_a, pair_b, nbins, classes_y, freqs_y)
 
@@ -187,7 +201,11 @@ def test_row_chunked_matches_reference_when_pair_subchunking_is_forced():
     matches a single-shot reference -- i.e. splitting pairs across accumulator boundaries doesn't lose
     or corrupt any pair's MI."""
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
-        n_samples=2000, n_cols=10, nbins_val=5, n_classes_y=4, seed=7,
+        n_samples=2000,
+        n_cols=10,
+        nbins_val=5,
+        n_classes_y=4,
+        seed=7,
     )
     mi_ref = bpmg.batch_pair_mi_njit_prange(data, pair_a, pair_b, nbins, classes_y, freqs_y)
 
@@ -202,9 +220,11 @@ def test_row_chunked_matches_reference_when_pair_subchunking_is_forced():
         bpmg._choose_row_chunk_rows = orig_row_fn
 
     np.testing.assert_allclose(
-        mi_chunked, mi_ref, rtol=1e-6, atol=1e-9,
-        err_msg="pair-subchunked + row-chunked result must match the CPU reference even when both "
-                "dimensions are forced to chunk aggressively",
+        mi_chunked,
+        mi_ref,
+        rtol=1e-6,
+        atol=1e-9,
+        err_msg="pair-subchunked + row-chunked result must match the CPU reference even when both dimensions are forced to chunk aggressively",
     )
 
 
@@ -215,7 +235,11 @@ def test_real_hardware_production_shape_completes_without_oom_and_matches_cpu():
     complete (no OOM/thrash) and match the CPU reference. Scaled n_samples down slightly to keep the
     test fast while preserving the pair/class/joint shape that triggered the bug."""
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
-        n_samples=8000, n_cols=417, nbins_val=21, n_classes_y=20, seed=3,
+        n_samples=8000,
+        n_cols=417,
+        nbins_val=21,
+        n_classes_y=20,
+        seed=3,
     )
     mi_gpu = bpmg.batch_pair_mi_cuda_row_chunked(data, pair_a, pair_b, nbins, classes_y, freqs_y)
     mi_cpu = bpmg.batch_pair_mi_njit_prange(data, pair_a, pair_b, nbins, classes_y, freqs_y)

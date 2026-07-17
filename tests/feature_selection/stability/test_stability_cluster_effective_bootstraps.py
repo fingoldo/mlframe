@@ -13,6 +13,7 @@
 
 These functions are standalone (no MRMR import), so the tests are fast.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,21 +32,25 @@ def _data(n, p, seed=0):
 
 
 class TestEffectiveBootstrapDenominator:
-
     def test_cluster_freq_divides_by_successful_runs(self):
         X, y = _data(60, 3)
         calls = {"i": 0}
 
         def sel(Xs, ys):
             calls["i"] += 1
-            if calls["i"] % 2 == 0:        # fail every 2nd bootstrap
+            if calls["i"] % 2 == 0:  # fail every 2nd bootstrap
                 raise ValueError("injected selector failure")
             return np.array([0], dtype=np.int64)  # always pick feature 0
 
         # corr_threshold > 1 => no clustering edges => each feature its own cluster.
-        chosen, feat_freq, info = cluster_stability_selection(
-            X, y, sel, n_bootstrap=10, pi_threshold=0.5,
-            corr_threshold=2.0, rng_seed=0,
+        _chosen, feat_freq, info = cluster_stability_selection(
+            X,
+            y,
+            sel,
+            n_bootstrap=10,
+            pi_threshold=0.5,
+            corr_threshold=2.0,
+            rng_seed=0,
         )
         assert info["n_effective"] == 5, info
         assert info["n_failed"] == 5, info
@@ -68,8 +73,13 @@ class TestEffectiveBootstrapDenominator:
                 raise ValueError("injected selector failure")
             return np.array([0], dtype=np.int64)
 
-        chosen, comp_freq, info = complementary_pairs_stability(
-            X, y, sel, n_pairs=10, pi_threshold=0.5, rng_seed=0,
+        _chosen, comp_freq, info = complementary_pairs_stability(
+            X,
+            y,
+            sel,
+            n_pairs=10,
+            pi_threshold=0.5,
+            rng_seed=0,
         )
         # Robust invariants (independent of the exact failure split):
         assert info["n_effective"] + info["n_failed"] == 10, info
@@ -81,9 +91,8 @@ class TestEffectiveBootstrapDenominator:
 
 
 class TestComplementaryPairsTruePartition:
-
     def test_odd_n_halves_partition_the_sample(self):
-        n, p = 7, 4   # odd n: the middle row must NOT be dropped
+        n, p = 7, 4  # odd n: the middle row must NOT be dropped
         X, y = _data(n, p)
         sizes = []
 
@@ -95,6 +104,4 @@ class TestComplementaryPairsTruePartition:
         assert len(sizes) == 2, sizes
         # True partition: the two halves cover ALL n rows (3 + 4 = 7).
         # The pre-fix idx[half:2*half] gave 3 + 3 = 6, dropping the middle row.
-        assert sizes[0] + sizes[1] == n, (
-            f"complementary halves must partition all {n} rows; got sizes={sizes}"
-        )
+        assert sizes[0] + sizes[1] == n, f"complementary halves must partition all {n} rows; got sizes={sizes}"

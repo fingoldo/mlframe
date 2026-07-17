@@ -23,17 +23,18 @@ dummy (11.58) AND worse than Ridge raw (11.63). Four agents audit:
 
 These tests cement the four code fixes landed in this commit.
 """
+
 from __future__ import annotations
 
 import inspect
 
 import numpy as np
-import pytest
 
 
 class TestOOFRefitEvalSetPassthrough:
     def test_maybe_pass_sample_weight_accepts_eval_set(self) -> None:
         from mlframe.training.composite.ensemble import _maybe_pass_sample_weight
+
         sig = inspect.signature(_maybe_pass_sample_weight)
         assert "eval_set" in sig.parameters, (
             "OOF refit helper must accept eval_set so LightGBM clones with "
@@ -44,9 +45,10 @@ class TestOOFRefitEvalSetPassthrough:
     def test_carve_inner_eval_split_returns_tail(self) -> None:
         import pandas as pd
         from mlframe.training.composite.ensemble import _carve_inner_eval_split
+
         X = pd.DataFrame({"x": np.arange(2000, dtype=np.float64)})
         y = np.arange(2000, dtype=np.float64)
-        X_fit, y_fit, X_eval, y_eval = _carve_inner_eval_split(X, y, frac=0.1)
+        X_fit, _y_fit, X_eval, y_eval = _carve_inner_eval_split(X, y, frac=0.1)
         assert X_eval is not None
         assert y_eval is not None
         assert len(X_fit) == 1800
@@ -58,9 +60,10 @@ class TestOOFRefitEvalSetPassthrough:
     def test_carve_inner_eval_split_skips_below_threshold(self) -> None:
         import pandas as pd
         from mlframe.training.composite.ensemble import _carve_inner_eval_split
+
         X = pd.DataFrame({"x": np.arange(500, dtype=np.float64)})
         y = np.arange(500, dtype=np.float64)
-        X_fit, y_fit, X_eval, y_eval = _carve_inner_eval_split(X, y)
+        X_fit, _y_fit, X_eval, y_eval = _carve_inner_eval_split(X, y)
         assert X_eval is None
         assert y_eval is None
         assert len(X_fit) == 500
@@ -69,6 +72,7 @@ class TestOOFRefitEvalSetPassthrough:
         """A mock estimator whose fit signature accepts ``eval_set``
         should receive it; verifies the inspect-based dispatch path."""
         from mlframe.training.composite.ensemble import _maybe_pass_sample_weight
+
         calls = []
 
         class Fake:
@@ -80,7 +84,11 @@ class TestOOFRefitEvalSetPassthrough:
         y = np.zeros(10)
         sw = np.ones(10)
         _maybe_pass_sample_weight(
-            m, X, y, sw, eval_set=(X[5:], y[5:]),
+            m,
+            X,
+            y,
+            sw,
+            eval_set=(X[5:], y[5:]),
         )
         assert calls, "fit was not invoked"
         assert calls[0]["sw"] is sw
@@ -96,12 +104,14 @@ class TestLossRecommendationHuberBand:
         under pure L1 (CB es_best_iter=1) DESPITE the round-3 threshold
         raise. Huber covers the entire leptokurtic regime now."""
         from mlframe.training import loss_recommendation
+
         assert loss_recommendation._EXCESS_KURT_HEAVY == 1.5
 
     def test_huber_for_all_leptokurtic(self) -> None:
         """Both medium (~2.5) and high (~6) kurt should pick Huber, not
         the old MAE path."""
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
+
         rng = np.random.default_rng(0)
         # Medium-kurt Laplace-like
         n = 5000
@@ -128,6 +138,7 @@ class TestLossRecommendationHuberBand:
         where the Huber recommendation still holds.
         """
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
+
         rng = np.random.default_rng(0)
         n = 5000
         y = rng.standard_t(df=6, size=n)  # kurt ~ 3 (within [1.5, 20])
@@ -149,32 +160,30 @@ class TestXGBShimContentFingerprint:
     def test_signature_does_not_depend_on_id(self) -> None:
         from mlframe.training.xgb_shim import _signature_of
         import pandas as pd
-        df = pd.DataFrame({
-            "a": np.linspace(0, 1, 1000),
-            "b": np.linspace(1, 2, 1000),
-        })
+
+        df = pd.DataFrame(
+            {
+                "a": np.linspace(0, 1, 1000),
+                "b": np.linspace(1, 2, 1000),
+            }
+        )
         # Two views of the SAME logical data via .iloc -- different ids.
         df_a = df.iloc[:500].reset_index(drop=True)
         df_b = df.iloc[:500].reset_index(drop=True)
         assert id(df_a) != id(df_b)
         sig_a = _signature_of(df_a)
         sig_b = _signature_of(df_b)
-        assert sig_a == sig_b, (
-            f"content fingerprint mismatch on identical data: "
-            f"{sig_a} vs {sig_b}"
-        )
+        assert sig_a == sig_b, f"content fingerprint mismatch on identical data: {sig_a} vs {sig_b}"
 
     def test_signature_distinguishes_different_content(self) -> None:
         from mlframe.training.xgb_shim import _signature_of
         import pandas as pd
+
         df1 = pd.DataFrame({"a": np.linspace(0, 1, 1000)})
         df2 = pd.DataFrame({"a": np.linspace(0, 2, 1000)})  # different content
         sig1 = _signature_of(df1)
         sig2 = _signature_of(df2)
-        assert sig1 != sig2, (
-            f"content fingerprint failed to distinguish different content: "
-            f"{sig1} vs {sig2}"
-        )
+        assert sig1 != sig2, f"content fingerprint failed to distinguish different content: {sig1} vs {sig2}"
 
 
 class TestLGBLearningRatePlumbing:
@@ -184,18 +193,13 @@ class TestLGBLearningRatePlumbing:
         library default. Pre-fix the key was missing entirely -- silent
         override-surface gap."""
         from mlframe.training.helpers import get_training_configs
+
         configs = get_training_configs(learning_rate=0.05)
         # ``get_training_configs`` returns a SimpleNamespace; the LGB
         # params live on the ``LGB_GENERAL_PARAMS`` attribute. Use
         # ``getattr`` so this stays portable if the return type is
         # tightened to a Pydantic model later.
         lgb_params = getattr(configs, "LGB_GENERAL_PARAMS", None)
-        assert lgb_params is not None, (
-            f"LGB_GENERAL_PARAMS attribute missing on return of "
-            f"get_training_configs; got attrs: {dir(configs)}"
-        )
-        assert "learning_rate" in lgb_params, (
-            f"LGB_GENERAL_PARAMS missing learning_rate: "
-            f"keys={list(lgb_params.keys())}"
-        )
+        assert lgb_params is not None, f"LGB_GENERAL_PARAMS attribute missing on return of get_training_configs; got attrs: {dir(configs)}"
+        assert "learning_rate" in lgb_params, f"LGB_GENERAL_PARAMS missing learning_rate: keys={list(lgb_params.keys())}"
         assert lgb_params["learning_rate"] == 0.05

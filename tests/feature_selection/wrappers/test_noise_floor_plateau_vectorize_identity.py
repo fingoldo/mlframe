@@ -5,6 +5,7 @@ percentile per i). Pins n_star, idx, remaining_gain, remaining_env exactly acros
 This test FAILS on the pre-optimization code only if the optimization changes numerics (it does not). Its real job is
 to lock the equivalence so a future "simplify" cannot silently regress the tie-breaking / edge handling.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -58,9 +59,9 @@ def test_vectorized_plateau_bit_identical_to_scalar(seed, n_perm):
     real = (0.5 + 0.4 * rng.random(G)).astype(float)
     # Mix climbing + flat + noisy curves so tie-breaking and plateau edges are exercised.
     if seed % 3 == 0:
-        real = np.sort(real)            # monotone climb
+        real = np.sort(real)  # monotone climb
     elif seed % 3 == 1:
-        real[G // 2:] = real[G // 2]    # flat tail (plateau onset)
+        real[G // 2 :] = real[G // 2]  # flat tail (plateau onset)
     perm = 0.5 + 0.03 * rng.standard_normal((n_perm, G))
     for pct in (90.0, 95.0, 99.0):
         old = _old_plateau(n_grid, real, perm, pct=pct)
@@ -73,4 +74,5 @@ def test_vectorized_plateau_bit_identical_to_scalar(seed, n_perm):
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "-v", "--no-cov", "-p", "no:randomly", "-p", "no:cacheprovider"]))

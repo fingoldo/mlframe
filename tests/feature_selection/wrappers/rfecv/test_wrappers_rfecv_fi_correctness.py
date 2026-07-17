@@ -11,6 +11,7 @@ Covers seven fixes batched together:
 
 Each test fails on the pre-2026-05-28 code path.
 """
+
 from __future__ import annotations
 
 import logging
@@ -74,7 +75,9 @@ class TestFiMissingPolicy:
             "r2": {"A": 1.0, "C": 0.5},
         }
         ranked = get_actual_features_ranking(
-            feature_importances, VotesAggregation.Borda, fi_missing_policy="worst",
+            feature_importances,
+            VotesAggregation.Borda,
+            fi_missing_policy="worst",
         )
         assert ranked[0] == "A"
         # Under 'worst', B (1/3 runs, late-eliminated) MUST rank below C (3/3 runs, mid).
@@ -88,7 +91,9 @@ class TestFiMissingPolicy:
             "r2": {"A": 1.0, "C": 0.5},
         }
         ranked = get_actual_features_ranking(
-            feature_importances, VotesAggregation.Borda, fi_missing_policy="skip",
+            feature_importances,
+            VotesAggregation.Borda,
+            fi_missing_policy="skip",
         )
         # Under 'skip', B sums only one run where it was high -> ties or beats C.
         # We don't assert a specific order; we only confirm the 'worst' fix changed things.
@@ -140,7 +145,10 @@ class TestNewInitKnobs:
 class TestMustIncludeOverridesLeakage:
     def _leaky_frame(self):
         X, y = make_classification(
-            n_samples=200, n_features=8, n_informative=4, random_state=42,
+            n_samples=200,
+            n_features=8,
+            n_informative=4,
+            random_state=42,
         )
         X = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
         # Plant a perfect leak as f7.
@@ -245,13 +253,13 @@ class TestDummySubmitKnob:
 
         X, y = make_regression(n_samples=120, n_features=6, n_informative=3, random_state=0)
         rfecv = RFECV(
-            estimator=Ridge(), cv=3, max_refits=3,
+            estimator=Ridge(),
+            cv=3,
+            max_refits=3,
             submit_dummy_to_optimizer=False,  # opt-out
         )
         rfecv.fit(X, y)
-        assert 0 not in submitted, (
-            f"submit_dummy_to_optimizer=False should suppress N=0; got {submitted}"
-        )
+        assert 0 not in submitted, f"submit_dummy_to_optimizer=False should suppress N=0; got {submitted}"
 
     def test_default_submits_dummy(self, monkeypatch):
         from mlframe.models.optimization import MBHOptimizer
@@ -279,6 +287,7 @@ class TestFiRollbackOnLoserSubset:
         # Direct unit on the rollback machinery: simulate two iters writing FI at the same N,
         # second one losing the gate. After the loop the loser's FI runs must be gone.
         from mlframe.feature_selection.wrappers.rfecv._fit_outer_loop import OuterLoopState
+
         state = OuterLoopState()
         # Simulate iter 1: a winning subset stored at N=5.
         state.feature_importances["5_0"] = {"a": 1.0}
@@ -307,7 +316,9 @@ class TestSwapTopKGatedOnValCv:
         # early_stopping_val_nsplits is truthy. swap MUST run.
         X, y = make_regression(n_samples=200, n_features=8, n_informative=4, random_state=0)
         rfecv = RFECV(
-            estimator=Ridge(), cv=3, max_refits=4,
+            estimator=Ridge(),
+            cv=3,
+            max_refits=4,
             swap_top_k=3,
             early_stopping_val_nsplits=5,
         )
@@ -317,30 +328,36 @@ class TestSwapTopKGatedOnValCv:
     def test_swap_skipped_with_es_estimator(self, monkeypatch, caplog):
         # Simulate "estimator supports ES" by patching has_early_stopping_support.
         import mlframe.core.helpers as _helpers
+
         monkeypatch.setattr(_helpers, "has_early_stopping_support", lambda name: True)
         # Also patch the in-finalize import binding.
-        from mlframe.feature_selection.wrappers.rfecv import _finalize
+
         # Re-import to ensure binding sees patch.
         X, y = make_regression(n_samples=120, n_features=8, n_informative=4, random_state=0)
         rfecv = RFECV(
-            estimator=Ridge(), cv=3, max_refits=4,
+            estimator=Ridge(),
+            cv=3,
+            max_refits=4,
             swap_top_k=3,
             early_stopping_val_nsplits=5,
             verbose=1,
         )
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
-        assert any("swap_top_k=" in rec.getMessage() and "skipped" in rec.getMessage()
-                   for rec in caplog.records), \
+        assert any("swap_top_k=" in rec.getMessage() and "skipped" in rec.getMessage() for rec in caplog.records), (
             f"Expected the swap_top_k skip log; got: {[r.getMessage() for r in caplog.records[-10:]]}"
+        )
 
     def test_opt_in_override_runs_swap(self, monkeypatch):
         # Force ES estimator detection so the gate kicks in.
         import mlframe.core.helpers as _helpers
+
         monkeypatch.setattr(_helpers, "has_early_stopping_support", lambda name: True)
         X, y = make_regression(n_samples=200, n_features=8, n_informative=4, random_state=0)
         rfecv = RFECV(
-            estimator=Ridge(), cv=3, max_refits=4,
+            estimator=Ridge(),
+            cv=3,
+            max_refits=4,
             swap_top_k=2,
             early_stopping_val_nsplits=5,
             swap_top_k_allow_no_es=True,

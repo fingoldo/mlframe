@@ -2,6 +2,7 @@
 
 Consolidated verbatim from test_biz_value_mrmr_layer49.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -54,20 +55,26 @@ def _scenario_B_financial(n: int = 1500, seed: int = 1):
     rev_per_cost = revenue / cost
     cost_share = cost / revenue
     profit_log = np.sign(profit) * np.log1p(np.abs(profit))
-    margin_sq = margin ** 2
-    rev_sq = revenue ** 2
-    X = pd.DataFrame({
-        "revenue": revenue, "cost": cost, "profit": profit,
-        "margin": margin, "log_rev": log_rev, "log_cost": log_cost,
-        "rev_per_cost": rev_per_cost, "cost_share": cost_share,
-        "profit_log": profit_log, "margin_sq": margin_sq,
-        "rev_sq": rev_sq,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
-    y = pd.Series(
-        (margin + 0.05 * rng.standard_normal(n) > margin.mean()).astype(int)
+    margin_sq = margin**2
+    rev_sq = revenue**2
+    X = pd.DataFrame(
+        {
+            "revenue": revenue,
+            "cost": cost,
+            "profit": profit,
+            "margin": margin,
+            "log_rev": log_rev,
+            "log_cost": log_cost,
+            "rev_per_cost": rev_per_cost,
+            "cost_share": cost_share,
+            "profit_log": profit_log,
+            "margin_sq": margin_sq,
+            "rev_sq": rev_sq,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
     )
+    y = pd.Series((margin + 0.05 * rng.standard_normal(n) > margin.mean()).astype(int))
     return X, y
 
 
@@ -89,9 +96,7 @@ def _scenario_C_embedding(n: int = 1500, seed: int = 2):
         loading = 0.15 * rng.standard_normal()
         cols[f"emb_{i}"] = loading * common_axis + rng.standard_normal(n)
     X = pd.DataFrame(cols)
-    y = pd.Series(
-        ((1.5 * z1 - 0.8 * z2) + 0.4 * rng.standard_normal(n) > 0).astype(int)
-    )
+    y = pd.Series(((1.5 * z1 - 0.8 * z2) + 0.4 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
 
@@ -111,18 +116,20 @@ def _scenario_D_mixed_cat_num(n: int = 1500, seed: int = 3):
     num_0 = rng.standard_normal(n)
     num_1 = rng.standard_normal(n)
     cols: dict = {
-        "cat_a": cat_a, "cat_b": cat_b, "cat_c": cat_c,
-        "cat_d": cat_d, "cat_e": cat_e,
-        "num_0": num_0, "num_1": num_1,
+        "cat_a": cat_a,
+        "cat_b": cat_b,
+        "cat_c": cat_c,
+        "cat_d": cat_d,
+        "cat_e": cat_e,
+        "num_0": num_0,
+        "num_1": num_1,
     }
     for i in range(2, 10):
         cols[f"num_{i}"] = rng.standard_normal(n)
     X = pd.DataFrame(cols)
     region_effect = np.array([-1.0, -0.4, 0.0, 0.4, 1.0])[region]
     score = region_effect + 0.7 * num_0 - 0.5 * num_1
-    y = pd.Series(
-        (score + 0.5 * rng.standard_normal(n) > 0).astype(int)
-    )
+    y = pd.Series((score + 0.5 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
 
@@ -142,14 +149,11 @@ def _logreg_cv_auc(Xt, y, n_splits: int = 3, random_state: int = 0) -> float:
     from sklearn.model_selection import StratifiedKFold, cross_val_score
 
     Xt = pd.DataFrame(Xt).copy()
-    obj_cols = [
-        c for c in Xt.columns
-        if Xt[c].dtype == object or str(Xt[c].dtype) == "string"
-        or str(Xt[c].dtype).startswith("category")
-    ]
+    obj_cols = [c for c in Xt.columns if Xt[c].dtype == object or str(Xt[c].dtype) == "string" or str(Xt[c].dtype).startswith("category")]
     if obj_cols:
         oe = OrdinalEncoder(
-            handle_unknown="use_encoded_value", unknown_value=-1,
+            handle_unknown="use_encoded_value",
+            unknown_value=-1,
         )
         Xt[obj_cols] = oe.fit_transform(Xt[obj_cols].astype(str))
     Xt = Xt.apply(pd.to_numeric, errors="coerce")
@@ -159,8 +163,7 @@ def _logreg_cv_auc(Xt, y, n_splits: int = 3, random_state: int = 0) -> float:
     y_arr = np.asarray(y)
     if len(np.unique(y_arr)) < 2:
         return 0.5
-    cv = StratifiedKFold(n_splits=n_splits, shuffle=True,
-                         random_state=random_state)
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     clf = LogisticRegression(max_iter=500, solver="liblinear")
     scores = cross_val_score(clf, Xt.values, y_arr, cv=cv, scoring="roc_auc")
     return float(np.mean(scores))
@@ -171,20 +174,28 @@ def _fit_three_modes(X, y, on_tau: float):
     benchmark fails loudly rather than silently masking a regression.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     m_off = MRMR(
         dcd_enable=False,
-        full_npermutations=3, verbose=0, random_seed=0,
+        full_npermutations=3,
+        verbose=0,
+        random_seed=0,
     ).fit(X, y)
     m_on = MRMR(
-        dcd_enable=True, dcd_tau_cluster=on_tau,
-        full_npermutations=3, verbose=0, random_seed=0,
+        dcd_enable=True,
+        dcd_tau_cluster=on_tau,
+        full_npermutations=3,
+        verbose=0,
+        random_seed=0,
     ).fit(X, y)
     m_auto = MRMR(
         dcd_enable=True,
         dcd_tau_cluster="auto",
         dcd_distance="auto",
         dcd_swap_method="auto",
-        full_npermutations=3, verbose=0, random_seed=0,
+        full_npermutations=3,
+        verbose=0,
+        random_seed=0,
     ).fit(X, y)
     return m_off, m_on, m_auto
 
@@ -207,13 +218,10 @@ class TestLayer49_ScenarioA_SensorMesh:
         return X, y, m_off, m_on, m_auto
 
     def test_S1_dcd_on_does_not_grow_support(self, fits):
-        X, y, m_off, m_on, _m_auto = fits
+        _X, _y, m_off, m_on, _m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_on = len(list(m_on.get_feature_names_out()))
-        assert sz_on <= sz_off, (
-            f"Scenario A: DCD-on must not grow support; "
-            f"off={sz_off}, on={sz_on}"
-        )
+        assert sz_on <= sz_off, f"Scenario A: DCD-on must not grow support; off={sz_off}, on={sz_on}"
 
     def test_S2_dcd_auto_at_least_as_aggressive(self, fits):
         """DCD-auto must shrink support vs disabled (no growth) on this
@@ -239,35 +247,23 @@ class TestLayer49_ScenarioA_SensorMesh:
         across reps; bound at <=12 absorbs swap-bake-off / seed variance while
         still catching a real "auto grows support" regression (DCD-off=13).
         """
-        X, y, m_off, _m_on, m_auto = fits
+        _X, _y, m_off, _m_on, m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_auto = len(list(m_auto.get_feature_names_out()))
-        assert sz_auto <= sz_off, (
-            f"Scenario A: DCD-auto must not grow support vs disabled; "
-            f"off={sz_off}, auto={sz_auto}"
-        )
-        assert sz_auto <= 12, (
-            f"Scenario A: DCD-auto should clamp the FE-bloated support "
-            f"(measured ~11, off={sz_off}); got {sz_auto}"
-        )
+        assert sz_auto <= sz_off, f"Scenario A: DCD-auto must not grow support vs disabled; off={sz_off}, auto={sz_auto}"
+        assert sz_auto <= 12, f"Scenario A: DCD-auto should clamp the FE-bloated support (measured ~11, off={sz_off}); got {sz_auto}"
 
     def test_S3_metric_no_regression_dcd_on(self, fits):
         X, y, m_off, m_on, _m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_on = _logreg_cv_auc(m_on.transform(X), y)
-        assert auc_on >= auc_off - 0.02, (
-            f"Scenario A: DCD-on metric regressed: off={auc_off:.4f}, "
-            f"on={auc_on:.4f}"
-        )
+        assert auc_on >= auc_off - 0.02, f"Scenario A: DCD-on metric regressed: off={auc_off:.4f}, on={auc_on:.4f}"
 
     def test_S4_metric_no_regression_dcd_auto(self, fits):
         X, y, m_off, _m_on, m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_auto = _logreg_cv_auc(m_auto.transform(X), y)
-        assert auc_auto >= auc_off - 0.02, (
-            f"Scenario A: DCD-auto metric regressed: off={auc_off:.4f}, "
-            f"auto={auc_auto:.4f}"
-        )
+        assert auc_auto >= auc_off - 0.02, f"Scenario A: DCD-auto metric regressed: off={auc_off:.4f}, auto={auc_auto:.4f}"
 
     def test_S5_cluster_members_identify_5_latents(self, fits):
         """DCD's CLUSTERING capability: it should produce a cluster_members_
@@ -287,11 +283,17 @@ class TestLayer49_ScenarioA_SensorMesh:
         support contracts are covered by S1-S4, which use ``fits``.)
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _scenario_A_sensor_mesh(n=1500, seed=49)
         m_auto = MRMR(
-            dcd_enable=True, dcd_tau_cluster="auto", dcd_distance="auto",
-            dcd_swap_method="auto", fe_max_steps=0,
-            full_npermutations=3, verbose=0, random_seed=0,
+            dcd_enable=True,
+            dcd_tau_cluster="auto",
+            dcd_distance="auto",
+            dcd_swap_method="auto",
+            fe_max_steps=0,
+            full_npermutations=3,
+            verbose=0,
+            random_seed=0,
         ).fit(X, y)
         cm = m_auto.cluster_members_ or {}
         latent_clusters_found = 0
@@ -303,10 +305,7 @@ class TestLayer49_ScenarioA_SensorMesh:
                 if hits >= 2:
                     latent_clusters_found += 1
                     break
-        assert latent_clusters_found >= 3, (
-            f"Scenario A: only {latent_clusters_found} of 5 sensor packs "
-            f"were correctly clustered; cluster_members_={cm}"
-        )
+        assert latent_clusters_found >= 3, f"Scenario A: only {latent_clusters_found} of 5 sensor packs were correctly clustered; cluster_members_={cm}"
 
     def test_S6_hierarchy_or_directly_collapsed(self, fits):
         """Either (a) DCD-on's auto / default tau already collapsed each
@@ -318,7 +317,7 @@ class TestLayer49_ScenarioA_SensorMesh:
         Either path proves the L41-L48 stack identified the latent
         structure.
         """
-        _X, _y, _m_off, m_on, m_auto = fits
+        _X, _y, _m_off, m_on, _m_auto = fits
         cm = m_on.cluster_members_ or {}
         # Path (a): on-mode collapsed to <= 8 anchors AND the auto-mode
         # collapsed even further (covered by S2).
@@ -328,9 +327,7 @@ class TestLayer49_ScenarioA_SensorMesh:
         ch = m_on.cluster_hierarchy_ or {}
         hierarchical = bool(ch)
         assert collapsed_directly or hierarchical, (
-            f"Scenario A: neither direct collapse nor hierarchy surfaced "
-            f"the sensor structure; cluster_members_={cm}, "
-            f"hierarchy={ch}"
+            f"Scenario A: neither direct collapse nor hierarchy surfaced the sensor structure; cluster_members_={cm}, hierarchy={ch}"
         )
 
 
@@ -340,7 +337,6 @@ class TestLayer49_ScenarioA_SensorMesh:
 
 
 class TestLayer49_ScenarioB_Financial:
-
     @pytest.fixture(scope="class")
     def fits(self):
         X, y = _scenario_B_financial(n=1500, seed=49)
@@ -348,47 +344,32 @@ class TestLayer49_ScenarioB_Financial:
         return X, y, m_off, m_on, m_auto
 
     def test_S1_dcd_on_does_not_bloat_minimal_full_mode_support(self, fits):
-        X, y, m_off, m_on, _m_auto = fits
+        _X, _y, m_off, m_on, _m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_on = len(list(m_on.get_feature_names_out()))
         # Full-mode default keeps a compact support on this 11-feature algebraic-redundancy fixture: conditional-MI dedup plus default-on FE
         # (univariate-basis + pair) settle at a small engineered support (measured off~6-7), well below the raw 13 columns -- proving the dedup
         # path does collapse most of the algebraic redundancy. The DCD contract is then that DCD must NOT BLOAT this already-compact support.
-        assert sz_off <= 8, (
-            f"Scenario B: full-mode baseline not compact (off={sz_off}); the "
-            f"conditional-MI dedup should collapse the algebraic redundancy"
-        )
-        assert sz_on <= sz_off, (
-            f"Scenario B: DCD-on bloated the minimal full-mode support; "
-            f"off={sz_off}, on={sz_on}"
-        )
+        assert sz_off <= 8, f"Scenario B: full-mode baseline not compact (off={sz_off}); the conditional-MI dedup should collapse the algebraic redundancy"
+        assert sz_on <= sz_off, f"Scenario B: DCD-on bloated the minimal full-mode support; off={sz_off}, on={sz_on}"
 
     def test_S2_dcd_auto_does_not_bloat_minimal_full_mode_support(self, fits):
-        X, y, m_off, _m_on, m_auto = fits
+        _X, _y, m_off, _m_on, m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_auto = len(list(m_auto.get_feature_names_out()))
-        assert sz_auto <= sz_off, (
-            f"Scenario B: DCD-auto bloated the minimal full-mode support; "
-            f"off={sz_off}, auto={sz_auto}"
-        )
+        assert sz_auto <= sz_off, f"Scenario B: DCD-auto bloated the minimal full-mode support; off={sz_off}, auto={sz_auto}"
 
     def test_S3_metric_no_regression_dcd_on(self, fits):
         X, y, m_off, m_on, _m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_on = _logreg_cv_auc(m_on.transform(X), y)
-        assert auc_on >= auc_off - 0.02, (
-            f"Scenario B: DCD-on regressed >0.02: off={auc_off:.4f}, "
-            f"on={auc_on:.4f}"
-        )
+        assert auc_on >= auc_off - 0.02, f"Scenario B: DCD-on regressed >0.02: off={auc_off:.4f}, on={auc_on:.4f}"
 
     def test_S4_metric_no_regression_dcd_auto(self, fits):
         X, y, m_off, _m_on, m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_auto = _logreg_cv_auc(m_auto.transform(X), y)
-        assert auc_auto >= auc_off - 0.02, (
-            f"Scenario B: DCD-auto regressed >0.02: off={auc_off:.4f}, "
-            f"auto={auc_auto:.4f}"
-        )
+        assert auc_auto >= auc_off - 0.02, f"Scenario B: DCD-auto regressed >0.02: off={auc_off:.4f}, auto={auc_auto:.4f}"
 
     def test_S5_margin_cluster_identified(self, fits):
         """The margin / rev_per_cost / cost_share / margin_sq columns
@@ -405,10 +386,7 @@ class TestLayer49_ScenarioB_Financial:
             n_margin = len(group & margin_family)
             if n_margin > biggest_margin_hit:
                 biggest_margin_hit = n_margin
-        assert biggest_margin_hit >= 2, (
-            f"Scenario B: margin cluster not identified; "
-            f"cluster_members_={cm}"
-        )
+        assert biggest_margin_hit >= 2, f"Scenario B: margin cluster not identified; cluster_members_={cm}"
 
 
 # ---------------------------------------------------------------------------
@@ -433,7 +411,7 @@ class TestLayer49_ScenarioC_Embedding:
         return X, y, m_off, m_on, m_auto
 
     def test_S1_dcd_on_does_not_bloat_support(self, fits):
-        X, y, m_off, m_on, _m_auto = fits
+        _X, _y, m_off, m_on, _m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_on = len(list(m_on.get_feature_names_out()))
         # On this 2-latent embedding fixture the full-mode baseline can settle
@@ -442,41 +420,29 @@ class TestLayer49_ScenarioC_Embedding:
         # benign, not bloat. The real contract is "no runaway growth" -- the same
         # +3 tolerance S2 already uses for the auto-tau fallback variance. Metric
         # non-regression is pinned separately in S3.
-        assert sz_on <= sz_off + 3, (
-            f"Scenario C: DCD-on bloated support unexpectedly: "
-            f"off={sz_off}, on={sz_on}"
-        )
+        assert sz_on <= sz_off + 3, f"Scenario C: DCD-on bloated support unexpectedly: off={sz_off}, on={sz_on}"
 
     def test_S2_dcd_auto_does_not_grow_support(self, fits):
-        X, y, m_off, _m_on, m_auto = fits
+        _X, _y, m_off, _m_on, m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_auto = len(list(m_auto.get_feature_names_out()))
         # Auto-tau on this fixture may choose tau~0.6 (no bimodality) and
         # therefore not collapse the 8 signal features. Allow auto >= off
         # is a regression; require auto <= off + 3 (absorbs swap-bake-off
         # variance and the auto-tau fallback case).
-        assert sz_auto <= sz_off + 3, (
-            f"Scenario C: DCD-auto grew support unexpectedly: "
-            f"off={sz_off}, auto={sz_auto}"
-        )
+        assert sz_auto <= sz_off + 3, f"Scenario C: DCD-auto grew support unexpectedly: off={sz_off}, auto={sz_auto}"
 
     def test_S3_metric_no_regression_dcd_on(self, fits):
         X, y, m_off, m_on, _m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_on = _logreg_cv_auc(m_on.transform(X), y)
-        assert auc_on >= auc_off - 0.02, (
-            f"Scenario C: DCD-on regressed >0.02: off={auc_off:.4f}, "
-            f"on={auc_on:.4f}"
-        )
+        assert auc_on >= auc_off - 0.02, f"Scenario C: DCD-on regressed >0.02: off={auc_off:.4f}, on={auc_on:.4f}"
 
     def test_S4_metric_no_regression_dcd_auto(self, fits):
         X, y, m_off, _m_on, m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_auto = _logreg_cv_auc(m_auto.transform(X), y)
-        assert auc_auto >= auc_off - 0.02, (
-            f"Scenario C: DCD-auto regressed >0.02: off={auc_off:.4f}, "
-            f"auto={auc_auto:.4f}"
-        )
+        assert auc_auto >= auc_off - 0.02, f"Scenario C: DCD-auto regressed >0.02: off={auc_off:.4f}, auto={auc_auto:.4f}"
 
     def test_S5_signal_features_dominate_support(self, fits):
         """No matter the DCD mode, the selected support must include
@@ -484,15 +450,12 @@ class TestLayer49_ScenarioC_Embedding:
         scenario-C-specific MRMR responsibility: don't trade signal for
         noise.
         """
-        X, _y, _m_off, m_on, m_auto = fits
+        _X, _y, _m_off, m_on, m_auto = fits
         for tag, m in [("on", m_on), ("auto", m_auto)]:
             sup = [str(s) for s in m.get_feature_names_out()]
             n_sig = sum(1 for s in sup if "sig_z" in s)
             n_noise = sum(1 for s in sup if s.startswith("emb_"))
-            assert n_sig >= n_noise, (
-                f"Scenario C ({tag}): noise outweighed signal in "
-                f"support; sig={n_sig}, noise={n_noise}, sup={sup}"
-            )
+            assert n_sig >= n_noise, f"Scenario C ({tag}): noise outweighed signal in support; sig={n_sig}, noise={n_noise}, sup={sup}"
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +464,6 @@ class TestLayer49_ScenarioC_Embedding:
 
 
 class TestLayer49_ScenarioD_MixedCatNum:
-
     @pytest.fixture(scope="class")
     def fits(self):
         X, y = _scenario_D_mixed_cat_num(n=1500, seed=49)
@@ -509,15 +471,13 @@ class TestLayer49_ScenarioD_MixedCatNum:
         return X, y, m_off, m_on, m_auto
 
     def test_S1_dcd_on_does_not_grow_support(self, fits):
-        X, y, m_off, m_on, _m_auto = fits
+        _X, _y, m_off, m_on, _m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_on = len(list(m_on.get_feature_names_out()))
-        assert sz_on <= sz_off, (
-            f"Scenario D: DCD-on grew support: off={sz_off}, on={sz_on}"
-        )
+        assert sz_on <= sz_off, f"Scenario D: DCD-on grew support: off={sz_off}, on={sz_on}"
 
     def test_S2_dcd_auto_does_not_grow_support(self, fits):
-        X, y, m_off, _m_on, m_auto = fits
+        _X, _y, m_off, _m_on, m_auto = fits
         sz_off = len(list(m_off.get_feature_names_out()))
         sz_auto = len(list(m_auto.get_feature_names_out()))
         # DCD-auto's tau/swap bake-off may keep a couple extra cat-FE aggregates without hurting the metric
@@ -526,28 +486,19 @@ class TestLayer49_ScenarioD_MixedCatNum:
         # degenerate 0.0->lowest-index fallback, so off-mode now dedups more aggressively+correctly (measured
         # off 7->4, auto 8->6 on this fixture) -- a metric-safe, signal-preserving tightening that widens the
         # benign auto-vs-off gap to +2. The absolute sizes shrank; the gap is the proxy S4/S5 actually guard.
-        assert sz_auto <= sz_off + 2, (
-            f"Scenario D: DCD-auto grew support: off={sz_off}, "
-            f"auto={sz_auto}"
-        )
+        assert sz_auto <= sz_off + 2, f"Scenario D: DCD-auto grew support: off={sz_off}, auto={sz_auto}"
 
     def test_S3_metric_no_regression_dcd_on(self, fits):
         X, y, m_off, m_on, _m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_on = _logreg_cv_auc(m_on.transform(X), y)
-        assert auc_on >= auc_off - 0.02, (
-            f"Scenario D: DCD-on regressed >0.02: off={auc_off:.4f}, "
-            f"on={auc_on:.4f}"
-        )
+        assert auc_on >= auc_off - 0.02, f"Scenario D: DCD-on regressed >0.02: off={auc_off:.4f}, on={auc_on:.4f}"
 
     def test_S4_metric_no_regression_dcd_auto(self, fits):
         X, y, m_off, _m_on, m_auto = fits
         auc_off = _logreg_cv_auc(m_off.transform(X), y)
         auc_auto = _logreg_cv_auc(m_auto.transform(X), y)
-        assert auc_auto >= auc_off - 0.02, (
-            f"Scenario D: DCD-auto regressed >0.02: off={auc_off:.4f}, "
-            f"auto={auc_auto:.4f}"
-        )
+        assert auc_auto >= auc_off - 0.02, f"Scenario D: DCD-auto regressed >0.02: off={auc_off:.4f}, auto={auc_auto:.4f}"
 
     def test_S5_cat_region_duplicates_collapsed(self, fits):
         """cat_a / cat_b / cat_c all encode the same region with
@@ -575,10 +526,7 @@ class TestLayer49_ScenarioD_MixedCatNum:
             hit = max(n_direct, n_via_aggregate)
             if hit > biggest_region_hit:
                 biggest_region_hit = hit
-        assert biggest_region_hit >= 2, (
-            f"Scenario D: region cat duplicates not collapsed; "
-            f"cluster_members_={cm}"
-        )
+        assert biggest_region_hit >= 2, f"Scenario D: region cat duplicates not collapsed; cluster_members_={cm}"
 
 
 # ---------------------------------------------------------------------------
@@ -605,6 +553,7 @@ class TestLayer49_CumulativeSummary:
 
     def test_dcd_collapses_redundant_clusters_across_scenarios(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         # Smaller n under --fast: 4 DCD-auto fits at n=1200 starve a worker into a timeout under full-suite ``-n``
         # contention; the cumulative-collapse signal holds at 600 rows (22 collapsed members vs 21 at n=1200).
         n_rows = 600 if is_fast_mode() else 1200
@@ -623,7 +572,8 @@ class TestLayer49_CumulativeSummary:
                 dcd_distance="auto",
                 dcd_swap_method="auto",
                 full_npermutations=3,
-                verbose=0, random_seed=0,
+                verbose=0,
+                random_seed=0,
             ).fit(X, y)
             cm = m_auto.cluster_members_ or {}
             collapsed = sum(len(members) for members in cm.values())

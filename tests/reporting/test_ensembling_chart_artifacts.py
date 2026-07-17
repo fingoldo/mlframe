@@ -101,16 +101,14 @@ def test_each_ensemble_method_writes_its_own_perfplot(ensembling_dataset, tmp_pa
     # ("plotly[html] + matplotlib[png]"), so the matplotlib image is named ``<base>_perfplot.matplotlib.png``
     # (single-backend configs name it ``<base>_perfplot.png``); match both, exclude the ``.plotly.html`` twin.
     pngs: list[str] = []
-    for root, _dirs, files in os.walk(tmp_path):
+    for _root, _dirs, files in os.walk(tmp_path):
         for f in files:
             if "_perfplot" in f and f.endswith(".png"):
                 pngs.append(f)
 
     # 1) At least one base-model perfplot exists.
     base_pngs = [p for p in pngs if "Ens" not in p]
-    assert base_pngs, (
-        f"no base-model perfplot png written; full list: {sorted(pngs)}"
-    )
+    assert base_pngs, f"no base-model perfplot png written; full list: {sorted(pngs)}"
 
     # 2) Multiple distinct ``Ens{METHOD}_*_perfplot[.<backend>].png`` artifacts.
     ens_methods_seen: set[str] = set()
@@ -165,13 +163,12 @@ def test_each_ensemble_method_writes_distinct_filename(ensembling_dataset, tmp_p
         )
 
     ens_pngs = []
-    for root, _dirs, files in os.walk(tmp_path):
+    for _root, _dirs, files in os.walk(tmp_path):
         for f in files:
             # Multi-backend output names the matplotlib image ``<base>_perfplot.matplotlib.png``; match either form.
             if f.startswith("Ens") and "_perfplot" in f and f.endswith(".png"):
                 ens_pngs.append(f)
 
     assert len(ens_pngs) == len(set(ens_pngs)), (
-        f"Duplicate ensemble perfplot filenames -- different methods are "
-        f"overwriting each other's charts. Files: {sorted(ens_pngs)}"
+        f"Duplicate ensemble perfplot filenames -- different methods are overwriting each other's charts. Files: {sorted(ens_pngs)}"
     )

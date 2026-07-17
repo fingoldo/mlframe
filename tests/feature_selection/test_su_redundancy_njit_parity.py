@@ -5,6 +5,7 @@ The njit kernel ``_su_pairs_njit`` (fused joint-histogram + entropy, prange over
 the SAME matrix as the pure-Python reference ``_su_pairs_python`` to within FP reduction-order noise -- the SU
 values only feed a ``|value| > threshold`` cluster test, so a sub-ULP delta cannot flip a clustering decision.
 """
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -54,7 +55,7 @@ def test_su_pairs_python_fallback_matches_full_matrix_path():
     full = ga._su_redundancy_matrix(X)
     # Recompute via the python reference directly from the same codes/ncats/h the builder uses.
     arr = ga._numeric_codes_frame(X).to_numpy()
-    n, p = arr.shape
+    _n, p = arr.shape
     # Mirror the builder's discretisation for already-low-cardinality integer columns (card <= nbins).
     assert full.shape == (p, p)
     assert np.allclose(full, full.T)

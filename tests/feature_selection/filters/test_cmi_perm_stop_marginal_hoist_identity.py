@@ -7,6 +7,7 @@ permutation of X (only X moves; Y and Z are fixed). This test pins that invarian
 arithmetic equivalence to the production ``_cmi_plugin_njit`` so a future revisit (e.g. a
 bit-exact in-njit RNG that would unlock the 2.5x bit-identically) builds on proven-exact math.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -21,13 +21,13 @@ Post-fix: hoist the all-null drop into the same numeric-only filter
 at the function's entry, so the clamp sees the *true* downstream
 n_features.
 """
+
 from __future__ import annotations
 
 import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.configs import PreprocessingExtensionsConfig
 from mlframe.training.pipeline import apply_preprocessing_extensions
@@ -53,7 +53,11 @@ def test_dim_n_components_clamped_when_exceeds_n_features() -> None:
         dim_n_components=10,
     )
     out = apply_preprocessing_extensions(
-        df_train, None, None, cfg, verbose=0,
+        df_train,
+        None,
+        None,
+        cfg,
+        verbose=0,
     )
     assert out is not None
     out_train = out[0]
@@ -68,7 +72,11 @@ def test_all_null_columns_dropped_before_pipeline(caplog) -> None:
     cfg = PreprocessingExtensionsConfig(scaler="StandardScaler")
     with caplog.at_level(logging.WARNING, logger="mlframe.training.pipeline"):
         out = apply_preprocessing_extensions(
-            df_train, None, None, cfg, verbose=0,
+            df_train,
+            None,
+            None,
+            cfg,
+            verbose=0,
         )
     assert out is not None
     out_train = out[0]
@@ -76,10 +84,9 @@ def test_all_null_columns_dropped_before_pipeline(caplog) -> None:
     assert "x_null_0" not in out_train.columns
     assert "x_null_1" not in out_train.columns
     # WARN must name them.
-    assert any(
-        "all-null" in rec.message and "x_null_0" in rec.message
-        for rec in caplog.records
-    ), f"expected all-null WARN; got: {[r.message for r in caplog.records]}"
+    assert any("all-null" in rec.message and "x_null_0" in rec.message for rec in caplog.records), (
+        f"expected all-null WARN; got: {[r.message for r in caplog.records]}"
+    )
 
 
 def test_clamp_plus_null_filter_together() -> None:
@@ -95,7 +102,11 @@ def test_clamp_plus_null_filter_together() -> None:
     )
     # Should NOT raise. Clamp brings dim_n_components down to <= 5.
     out = apply_preprocessing_extensions(
-        df_train, None, None, cfg, verbose=0,
+        df_train,
+        None,
+        None,
+        cfg,
+        verbose=0,
     )
     assert out is not None
     out_train = out[0]
@@ -111,7 +122,11 @@ def test_no_clamp_when_n_components_already_safe() -> None:
         dim_n_components=3,
     )
     out = apply_preprocessing_extensions(
-        df_train, None, None, cfg, verbose=0,
+        df_train,
+        None,
+        None,
+        cfg,
+        verbose=0,
     )
     out_train = out[0]
     # PCA reduces to exactly 3 components when the requested count is safe.

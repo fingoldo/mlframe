@@ -4,6 +4,7 @@ recursion mirroring the GPU-resident twin ``_extra_basis_resident.py::_bspline_c
 vectorised implementation against a frozen copy of the pre-fix per-point loop across random knot/degree/
 column configurations, including edge cases (constant column, all-boundary values).
 """
+
 from __future__ import annotations
 
 import numpy as np

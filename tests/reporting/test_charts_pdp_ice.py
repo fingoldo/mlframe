@@ -17,7 +17,10 @@ import pytest
 
 from mlframe.reporting.charts import pdp_ice
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec,
+    AnnotationPanelSpec,
+    FigureSpec,
+    HeatmapPanelSpec,
+    LinePanelSpec,
 )
 
 
@@ -188,8 +191,13 @@ def test_compose_pdp_figure_grid_and_interaction():
     rng = np.random.default_rng(8)
     X = rng.normal(size=(3000, 4))
     fig = pdp_ice.compose_pdp_figure(
-        _LinearModel([1.0, -1.0, 0.0, 0.5]), X, features=[0, 1, 3],
-        grid=10, sample=500, interaction_pair=(0, 1), max_cols=2,
+        _LinearModel([1.0, -1.0, 0.0, 0.5]),
+        X,
+        features=[0, 1, 3],
+        grid=10,
+        sample=500,
+        interaction_pair=(0, 1),
+        max_cols=2,
     )
     assert isinstance(fig, FigureSpec)
     flat = [p for row in fig.panels for p in row if p is not None]
@@ -357,11 +365,13 @@ def test_pdp_sweeps_categorical_feature_over_native_categories_catboost():
 
     rng = np.random.default_rng(0)
     n = 800
-    df = pd.DataFrame({
-        "num": rng.standard_normal(n),
-        "cat1": pd.Series(rng.choice(["A", "B", "C"], size=n)).astype("category"),
-        "cat2": pd.Series(rng.choice(["X", "Y"], size=n)).astype("category"),
-    })
+    df = pd.DataFrame(
+        {
+            "num": rng.standard_normal(n),
+            "cat1": pd.Series(rng.choice(["A", "B", "C"], size=n)).astype("category"),
+            "cat2": pd.Series(rng.choice(["X", "Y"], size=n)).astype("category"),
+        }
+    )
     y = ((df["num"] + df["cat1"].cat.codes) > 0).astype(int).to_numpy()
     model = cb.CatBoostClassifier(iterations=20, verbose=False, cat_features=["cat1", "cat2"]).fit(df, y)
 

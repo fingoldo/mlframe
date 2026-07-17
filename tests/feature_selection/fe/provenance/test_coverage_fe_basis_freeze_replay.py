@@ -43,16 +43,20 @@ warnings.filterwarnings("ignore")
 @pytest.fixture(scope="module")
 def frames():
     rng = np.random.default_rng(11)
-    X = pd.DataFrame({
-        "a": rng.normal(size=400),
-        "b": rng.normal(loc=2.0, scale=3.0, size=400),
-    })
+    X = pd.DataFrame(
+        {
+            "a": rng.normal(size=400),
+            "b": rng.normal(loc=2.0, scale=3.0, size=400),
+        }
+    )
     # Held-out frame with a DIFFERENT range (wider) -> exposes any silent refit of
     # lo/span to the new data.
-    Xnew = pd.DataFrame({
-        "a": rng.normal(scale=5.0, size=120),
-        "b": rng.normal(loc=-4.0, scale=1.0, size=120),
-    })
+    Xnew = pd.DataFrame(
+        {
+            "a": rng.normal(scale=5.0, size=120),
+            "b": rng.normal(loc=-4.0, scale=1.0, size=120),
+        }
+    )
     return X, Xnew
 
 
@@ -60,11 +64,15 @@ def frames():
 # hinge_basis: max(x-tau,0) / max(tau-x,0) / 1[x>tau]
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("side,fn", [
-    ("gt", lambda v, tau: np.maximum(v - tau, 0.0)),
-    ("lt", lambda v, tau: np.maximum(tau - v, 0.0)),
-    ("ind", lambda v, tau: (v > tau).astype(float)),
-])
+
+@pytest.mark.parametrize(
+    "side,fn",
+    [
+        ("gt", lambda v, tau: np.maximum(v - tau, 0.0)),
+        ("lt", lambda v, tau: np.maximum(tau - v, 0.0)),
+        ("ind", lambda v, tau: (v > tau).astype(float)),
+    ],
+)
 def test_hinge_basis_closed_form_replay_on_heldout(frames, side, fn):
     _X, Xnew = frames
     tau = 0.5
@@ -89,6 +97,7 @@ def test_hinge_tau_is_frozen_not_refit(frames):
 # orth_wavelet: Haar leg psi_{j,k}(clip((x-lo)/span,0,1))
 # ---------------------------------------------------------------------------
 
+
 def test_wavelet_replay_matches_dyadic_haar(frames):
     X, Xnew = frames
     xf = X["a"].to_numpy(dtype=float)
@@ -105,6 +114,7 @@ def test_wavelet_replay_matches_dyadic_haar(frames):
 # orth_fourier: sin/cos(2*pi*freq*(x-lo)/span)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("kind", ["sin", "cos"])
 def test_fourier_replay_matches_closed_form(frames, kind):
     X, Xnew = frames
@@ -113,7 +123,12 @@ def test_fourier_replay_matches_closed_form(frames, kind):
     span = max(hi - lo, 1e-12)
     freq = 1.5
     rec = build_orth_fourier_recipe(
-        name=f"{kind}(a)", src_name="a", kind=kind, freq=freq, lo=lo, span=span,
+        name=f"{kind}(a)",
+        src_name="a",
+        kind=kind,
+        freq=freq,
+        lo=lo,
+        span=span,
     )
     out = apply_recipe(rec, Xnew)
     z = (Xnew["a"].to_numpy(dtype=float) - lo) / span
@@ -125,7 +140,12 @@ def test_fourier_replay_matches_closed_form(frames, kind):
 def test_fourier_quadratic_chirp_axis_requires_mean_std():
     with pytest.raises(ValueError):
         build_orth_fourier_recipe(
-            name="bad", src_name="a", kind="sin", freq=1.0, lo=0.0, span=1.0,
+            name="bad",
+            src_name="a",
+            kind="sin",
+            freq=1.0,
+            lo=0.0,
+            span=1.0,
             arg="quadratic",  # mean/std omitted -> must raise
         )
 
@@ -138,8 +158,15 @@ def test_fourier_quadratic_chirp_replays_leakfree(frames):
     u = np.sign(zs) * (zs * zs)
     lo, span = float(u.min()), max(float(u.max() - u.min()), 1e-12)
     rec = build_orth_fourier_recipe(
-        name="chirp(a)", src_name="a", kind="sin", freq=1.0, lo=lo, span=span,
-        arg="quadratic", mean=mean, std=std,
+        name="chirp(a)",
+        src_name="a",
+        kind="sin",
+        freq=1.0,
+        lo=lo,
+        span=span,
+        arg="quadratic",
+        mean=mean,
+        std=std,
     )
     # Replay on held-out: rebuild the frozen quadratic axis from frozen mean/std.
     xn = Xnew["a"].to_numpy(dtype=float)
@@ -153,6 +180,7 @@ def test_fourier_quadratic_chirp_replays_leakfree(frames):
 # ---------------------------------------------------------------------------
 # orth_univariate + orth_pair_cross
 # ---------------------------------------------------------------------------
+
 
 def test_orth_pair_cross_is_product_of_univariate_legs(frames):
     """A pair-cross column must equal the elementwise PRODUCT of its two univariate
@@ -174,8 +202,13 @@ def test_orth_pair_cross_is_product_of_univariate_legs(frames):
     rec_i = build_orth_univariate_recipe(name="L(a)", src_name="a", basis="legendre", degree=deg)
     rec_j = build_orth_univariate_recipe(name="L(b)", src_name="b", basis="legendre", degree=deg)
     rec_cross = build_orth_pair_cross_recipe(
-        name="L(a)*L(b)", src_a_name="a", src_b_name="b",
-        basis_i="legendre", basis_j="legendre", deg_a=deg, deg_b=deg,
+        name="L(a)*L(b)",
+        src_a_name="a",
+        src_b_name="b",
+        basis_i="legendre",
+        basis_j="legendre",
+        deg_a=deg,
+        deg_b=deg,
     )
     leg_i = apply_recipe(rec_i, Xnew)
     leg_j = apply_recipe(rec_j, Xnew)
@@ -186,6 +219,7 @@ def test_orth_pair_cross_is_product_of_univariate_legs(frames):
 # ---------------------------------------------------------------------------
 # Shared contracts across the basis families
 # ---------------------------------------------------------------------------
+
 
 def _all_basis_recipes(frames):
     X, _ = frames

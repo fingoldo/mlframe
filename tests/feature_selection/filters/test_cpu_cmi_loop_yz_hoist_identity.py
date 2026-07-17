@@ -6,6 +6,7 @@ candidate, cutting the per-candidate melts from four to two. It MUST be bit-iden
 un-hoisted ``conditional_mi`` recompute path (MLFRAME_CMI_YZ_HOIST=0). Fails on pre-hoist code only
 if the recompute path is silently changed; guards the hoist against a future numeric drift.
 """
+
 from __future__ import annotations
 
 import numpy as np

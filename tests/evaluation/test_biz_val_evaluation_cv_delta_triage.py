@@ -5,6 +5,7 @@ distrusted (flagged non-actionable) when it comes from hyperparameter tuning at 
 Home-Credit writeup finding that FE-driven CV gains correlate with LB far more reliably than hyperparameter-
 driven gains of equal nominal size.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -80,9 +81,7 @@ def test_biz_val_triage_cv_delta_history_lowers_false_positive_rate_over_single_
         candidate = 0.700 + rng.normal(0, sigma, size=n_folds)  # NULL: no true delta, same generative distribution
 
         single_result = triage_cv_delta(baseline, candidate, change_source="feature_engineering")
-        history_result = triage_cv_delta(
-            baseline, candidate, change_source="feature_engineering", history=history, min_history_dof=20
-        )
+        history_result = triage_cv_delta(baseline, candidate, change_source="feature_engineering", history=history, min_history_dof=20)
 
         if i >= warmup:
             n_scored += 1

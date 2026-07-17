@@ -6,6 +6,7 @@ Memory rule: ``pl.Categorical`` participates in a global string cache that grows
 monotonically across calls and cannot be reset (``pl.disable_string_cache()`` is a
 no-op in polars 1.x). ``pl.Enum`` is per-Series.
 """
+
 from __future__ import annotations
 
 import polars as pl
@@ -27,8 +28,11 @@ def test_apply_polars_categorical_fixes_does_not_use_pl_categorical_for_utf8():
         train_df_polars=train_df,
         val_df_polars=val_df,
         test_df_polars=test_df,
-        train_df_pd=None, val_df_pd=None, test_df_pd=None,
-        filtered_train_df=None, filtered_val_df=None,
+        train_df_pd=None,
+        val_df_pd=None,
+        test_df_pd=None,
+        filtered_train_df=None,
+        filtered_val_df=None,
         cat_features=["cat"],
         align_polars_categorical_dicts=True,
         defer_pandas_conv=False,

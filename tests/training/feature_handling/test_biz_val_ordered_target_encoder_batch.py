@@ -7,6 +7,7 @@ reduction every time even though both are column-independent. ``ordered_target_e
 shared work exactly once and reuses it across every column, which should measurably speed up the many-columns
 case while producing bit-identical per-column results (when ``noise_std == 0.0``, the default).
 """
+
 from __future__ import annotations
 
 import time
@@ -44,7 +45,9 @@ def test_biz_val_ordered_target_encode_batch_speeds_up_many_shared_columns():
         np.testing.assert_array_equal(separate[name], batched[name])
 
     speedup = separate_wall / batched_wall
-    assert speedup >= 1.15, f"expected ordered_target_encode_batch to beat N separate calls by >=15% on {n_cols} shared-order columns, got speedup={speedup:.3f} (separate={separate_wall * 1000:.1f}ms batched={batched_wall * 1000:.1f}ms)"
+    assert speedup >= 1.15, (
+        f"expected ordered_target_encode_batch to beat N separate calls by >=15% on {n_cols} shared-order columns, got speedup={speedup:.3f} (separate={separate_wall * 1000:.1f}ms batched={batched_wall * 1000:.1f}ms)"
+    )
 
 
 def test_ordered_target_encode_batch_matches_separate_calls_exactly():

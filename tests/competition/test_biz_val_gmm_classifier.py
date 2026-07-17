@@ -6,7 +6,7 @@ COMPETITION/EXPLORATORY ONLY — see module docstring under src/mlframe/competit
 from __future__ import annotations
 
 import numpy as np
-from sklearn.datasets import make_circles, make_classification
+from sklearn.datasets import make_circles
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score

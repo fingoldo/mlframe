@@ -14,7 +14,6 @@ a few seconds on CPU.
 
 from __future__ import annotations
 
-import os
 import warnings
 
 import numpy as np
@@ -22,7 +21,9 @@ import pandas as pd
 import pytest
 
 from mlframe.training.configs import (
-    OutputConfig, ReportingConfig, TargetTypes,
+    OutputConfig,
+    ReportingConfig,
+    TargetTypes,
 )
 from mlframe.training.core import train_mlframe_models_suite
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
@@ -40,7 +41,7 @@ pytestmark = pytest.mark.slow
 def mc_dataset():
     """200 rows, 4 features, 3 well-separated classes."""
     rng = np.random.default_rng(42)
-    n, K = 200, 3
+    n, _K = 200, 3
     X = rng.standard_normal((n, 4))
     # Plant signal: class assignment depends on f0+f1.
     score = X[:, 0] - 0.5 * X[:, 1] + 0.3 * rng.standard_normal(n)
@@ -97,7 +98,8 @@ class TestMultiTargetPanelE2E:
                 hyperparams_config={"iterations": 30},
                 reporting_config=reporting,
                 output_config=OutputConfig(
-                    data_dir=str(tmp_path), models_dir="models",
+                    data_dir=str(tmp_path),
+                    models_dir="models",
                 ),
                 use_mlframe_ensembles=False,
                 verbose=0,
@@ -108,10 +110,7 @@ class TestMultiTargetPanelE2E:
         # recursively for the suffix.
         # Smart-naming policy: single backend × single fmt -> base.fmt;
         # otherwise base.<backend>.<fmt>. Match either.
-        emitted = (
-            list(tmp_path.rglob("*_multiclass_panels.png"))
-            + list(tmp_path.rglob("*_multiclass_panels.*.png"))
-        )
+        emitted = list(tmp_path.rglob("*_multiclass_panels.png")) + list(tmp_path.rglob("*_multiclass_panels.*.png"))
         assert emitted, (
             "no multiclass panel file emitted -- ReportingConfig "
             "did not flow through to render_multi_target_panels. "
@@ -141,15 +140,13 @@ class TestMultiTargetPanelE2E:
                 hyperparams_config={"iterations": 30},
                 reporting_config=reporting,
                 output_config=OutputConfig(
-                    data_dir=str(tmp_path), models_dir="models",
+                    data_dir=str(tmp_path),
+                    models_dir="models",
                 ),
                 use_mlframe_ensembles=False,
                 verbose=0,
             )
-        emitted = (
-            list(tmp_path.rglob("*_multilabel_panels.png"))
-            + list(tmp_path.rglob("*_multilabel_panels.*.png"))
-        )
+        emitted = list(tmp_path.rglob("*_multilabel_panels.png")) + list(tmp_path.rglob("*_multilabel_panels.*.png"))
         assert emitted, (
             "no multilabel panel file emitted -- ReportingConfig "
             "did not flow through to render_multi_target_panels. "

@@ -14,6 +14,7 @@ Coverage map
 - Constructor input validation: empty list, length mismatch,
   zero-sum weights.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,7 +55,9 @@ class TestConstructor:
     def test_empty_components_raises(self) -> None:
         with pytest.raises(ValueError, match="empty"):
             CompositeCrossTargetEnsemble(
-                component_models=[], component_names=[], weights=np.array([]),
+                component_models=[],
+                component_names=[],
+                weights=np.array([]),
                 strategy="mean",
             )
 
@@ -198,14 +201,12 @@ class TestTrainMetricsWeights:
         result = CompositeCrossTargetEnsemble.from_train_metrics(
             component_models=models,
             component_names=["a", "b", "c"],
-            component_oof_rmse=[0.8, 0.5, 0.3],   # honest OOF scale
-            baseline_train_rmse=0.25,             # train scale: below EVERY oof rmse
+            component_oof_rmse=[0.8, 0.5, 0.3],  # honest OOF scale
+            baseline_train_rmse=0.25,  # train scale: below EVERY oof rmse
             # baseline_oof_rmse intentionally omitted -> the mismatch path.
         )
         # Post-fix: a real ensemble (not the single-best bare model fallback).
-        assert isinstance(result, CompositeCrossTargetEnsemble), (
-            "off-scale train baseline must be ignored; an ensemble must be built, not a bare model"
-        )
+        assert isinstance(result, CompositeCrossTargetEnsemble), "off-scale train baseline must be ignored; an ensemble must be built, not a bare model"
         # baseline used = max(oof) = 0.8; gains = (0.0, 0.3, 0.5) -> sum 0.8.
         np.testing.assert_allclose(result.weights, np.array([0.0, 0.375, 0.625]))
         assert result.weights.sum() == pytest.approx(1.0)
@@ -221,7 +222,7 @@ class TestTrainMetricsWeights:
             component_models=models,
             component_names=["a", "b", "c"],
             component_oof_rmse=[0.8, 0.5, 0.3],
-            baseline_oof_rmse=1.0,   # same (OOF) scale as the rmses
+            baseline_oof_rmse=1.0,  # same (OOF) scale as the rmses
         )
         assert isinstance(result, CompositeCrossTargetEnsemble)
         # gains = (0.2, 0.5, 0.7) -> sum 1.4.
@@ -290,11 +291,13 @@ class TestLinearStack:
         rng = np.random.default_rng(0)
         n = 100
         y = rng.normal(size=n)
-        preds = np.column_stack([
-            rng.normal(size=n),  # noise
-            y + 0.1 * rng.normal(size=n),  # signal
-            rng.normal(size=n),  # noise
-        ])
+        preds = np.column_stack(
+            [
+                rng.normal(size=n),  # noise
+                y + 0.1 * rng.normal(size=n),  # signal
+                rng.normal(size=n),  # noise
+            ]
+        )
         ens = CompositeCrossTargetEnsemble.from_linear_stack(
             component_models=[_StubModel(0), _StubModel(0), _StubModel(0)],
             component_names=["a", "b", "c"],
@@ -338,10 +341,12 @@ class TestNnlsStack:
         rng = np.random.default_rng(1)
         n = 100
         y = np.abs(rng.normal(size=n)) + 1.0
-        preds = np.column_stack([
-            np.abs(rng.normal(size=n)),
-            y + 0.1 * rng.normal(size=n),
-        ])
+        preds = np.column_stack(
+            [
+                np.abs(rng.normal(size=n)),
+                y + 0.1 * rng.normal(size=n),
+            ]
+        )
         ens = CompositeCrossTargetEnsemble.from_nnls_stack(
             component_models=[_StubModel(0), _StubModel(0)],
             component_names=["a", "b"],

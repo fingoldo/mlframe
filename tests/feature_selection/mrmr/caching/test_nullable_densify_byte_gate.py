@@ -7,13 +7,13 @@ one column per ``assign`` so peak extra RAM stays ~one column. Either path retur
 frame must keep its nullable dtypes. Both paths must produce identical selection (the densified values are the
 same regardless of single-vs-incremental assign).
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 import mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core as _core
@@ -54,7 +54,7 @@ def test_densify_does_not_mutate_caller_frame():
 def test_eager_and_per_column_densify_paths_select_identically(monkeypatch):
     X, y = _nullable_xy()
     # Eager path (default high threshold).
-    monkeypatch.setattr(_core, "_NULLABLE_DENSIFY_EAGER_MAX_BYTES", 2 * 1024 ** 3)
+    monkeypatch.setattr(_core, "_NULLABLE_DENSIFY_EAGER_MAX_BYTES", 2 * 1024**3)
     eager = _fit_support(X, y)
     # Per-column path (threshold forced to 0 so the byte check always takes the incremental branch).
     monkeypatch.setattr(_core, "_NULLABLE_DENSIFY_EAGER_MAX_BYTES", 0)

@@ -21,6 +21,7 @@ These tests pin BOTH sides:
 The stale-gather bug is decisively caught because the recorded probe-forward
 length would equal the pre-T15 count instead of the post-T15 count.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -103,6 +104,7 @@ def _make_recording_transform(*, with_fitted_hook, drop_tail_frac=0.0):
 
     domain_fitted = None
     if with_fitted_hook:
+
         def _domain_fitted(y, base, params):
             y = np.asarray(y)
             mask = np.ones(y.shape[0], dtype=bool)
@@ -111,6 +113,7 @@ def _make_recording_transform(*, with_fitted_hook, drop_tail_frac=0.0):
                 if k > 0:
                     mask[-k:] = False
             return mask
+
         domain_fitted = _domain_fitted
 
     t = Transform(
@@ -139,9 +142,14 @@ def test_p13_probe_forward_sees_full_valid_when_not_stale():
 
     disc = _StubDiscovery(_make_config())
     out = eval_one_transform(
-        disc, "lag1", "stub_resid", transform,
+        disc,
+        "lag1",
+        "stub_resid",
+        transform,
         base_contexts={"lag1": ctx},
-        y_train=y_train, y_screen=y_screen, target_col="y",
+        y_train=y_train,
+        y_screen=y_screen,
+        target_col="y",
     )
     assert len(out) == 1
     spec = out[0]["spec"]
@@ -149,9 +157,7 @@ def test_p13_probe_forward_sees_full_valid_when_not_stale():
     # First forward call is the residual-std probe over y_train[valid]; all rows
     # are finite so valid.sum() == n.
     assert fwd_lengths, "probe forward never called"
-    assert fwd_lengths[0] == n, (
-        f"probe forwarded {fwd_lengths[0]} rows, expected the full valid count {n}"
-    )
+    assert fwd_lengths[0] == n, f"probe forwarded {fwd_lengths[0]} rows, expected the full valid count {n}"
     assert spec.n_train_rows == n
 
 
@@ -165,14 +171,20 @@ def test_p13_probe_forward_uses_narrowed_valid_when_stale():
     y_train = rng.normal(size=n).astype(np.float64) * 5.0 + 100.0
     y_screen = y_train
     transform, fwd_lengths = _make_recording_transform(
-        with_fitted_hook=True, drop_tail_frac=0.30,
+        with_fitted_hook=True,
+        drop_tail_frac=0.30,
     )
 
     disc = _StubDiscovery(_make_config())
     out = eval_one_transform(
-        disc, "lag1", "stub_resid", transform,
+        disc,
+        "lag1",
+        "stub_resid",
+        transform,
         base_contexts={"lag1": ctx},
-        y_train=y_train, y_screen=y_screen, target_col="y",
+        y_train=y_train,
+        y_screen=y_screen,
+        target_col="y",
     )
     assert len(out) == 1
     spec = out[0]["spec"]
@@ -203,9 +215,14 @@ def test_p13_outcome_is_deterministic_across_repeats():
         transform, _ = _make_recording_transform(with_fitted_hook=False)
         disc = _StubDiscovery(_make_config())
         out = eval_one_transform(
-            disc, "lag1", "stub_resid", transform,
+            disc,
+            "lag1",
+            "stub_resid",
+            transform,
             base_contexts={"lag1": ctx},
-            y_train=y_train, y_screen=y_screen, target_col="y",
+            y_train=y_train,
+            y_screen=y_screen,
+            target_col="y",
         )
         spec = out[0]["spec"]
         assert spec is not None

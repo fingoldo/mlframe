@@ -61,9 +61,8 @@ def test_e2e_distribution_driven_estimator_trains_and_roundtrips(tmp_path):
         verbose=0,
     )
 
-    assert "distribution_driven_estimator" in metadata, (
-        "E3 did not fire; pathologies="
-        + str((metadata.get("target_distribution_report") or {}).get("pathologies"))
+    assert "distribution_driven_estimator" in metadata, "E3 did not fire; pathologies=" + str(
+        (metadata.get("target_distribution_report") or {}).get("pathologies")
     )
     stamp = metadata["distribution_driven_estimator"]
     assert "TailCompositeEstimator" in stamp

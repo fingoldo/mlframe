@@ -15,6 +15,7 @@ These tests pin the SELECTION-EQUIVALENCE hard gate:
   path uses, so the estimator never switches (the reg_mixed flip the diagnosis warned about).
 * The argmax (the selected tau) must agree, which is what the gate actually consumes.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,6 +28,7 @@ def _need_cuda() -> bool:
     """Whether a usable CUDA device is available (used to skip the module when it is not)."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         return False
@@ -74,6 +76,7 @@ def test_gate_grid_mi_resident_bit_identical_to_host_strict(rank_binning, nclass
     big = np.ascontiguousarray(np.concatenate(blocks, axis=1))
     # Force the host estimator to match the requested rank_binning by monkeypatching the gate-rank predicate.
     import mlframe.feature_selection.filters._conditional_gate_fe as cg
+
     monkeypatch.setattr(cg, "_gate_rank_binning", lambda: rank_binning)
     host_mi = np.asarray(_gate_grid_mi(big, yi, nbins), dtype=np.float64)
 

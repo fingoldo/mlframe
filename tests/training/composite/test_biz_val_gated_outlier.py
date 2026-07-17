@@ -6,6 +6,7 @@ value on the continuous rows and away from it on the point-mass rows. Splitting 
 this the point mass?") plus a regressor fit only on the continuous rows, blended by the classifier's
 predicted probability, should recover a materially lower test MSE than the single-regressor baseline.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,7 +40,9 @@ def test_biz_val_gated_outlier_beats_single_regressor_mse_on_zero_inflated_targe
     gated_mse = mean_squared_error(y_test, gated.predict(X_test))
 
     improvement = 1.0 - gated_mse / baseline_mse
-    assert improvement > 0.15, f"expected >15% MSE reduction over a single regressor, got {improvement:.4f} (baseline={baseline_mse:.2f}, gated={gated_mse:.2f})"
+    assert improvement > 0.15, (
+        f"expected >15% MSE reduction over a single regressor, got {improvement:.4f} (baseline={baseline_mse:.2f}, gated={gated_mse:.2f})"
+    )
 
 
 def test_gated_outlier_point_mass_rate_matches_training_data():

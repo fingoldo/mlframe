@@ -10,14 +10,15 @@ The prewarm in ``mlframe.metrics.core._prewarm_numba_cache_body`` runs a
 tiny enum-typed group_by + join at module-load time so the first real
 call doesn't pay the cold-start. This test asserts the warm completed.
 """
+
 import time
 
 import numpy as np
-import pytest
 
 
 def _ensure_prewarmed():
     from mlframe.metrics.core import prewarm_numba_cache
+
     prewarm_numba_cache()
 
 
@@ -80,10 +81,12 @@ def test_polars_join_warm_after_prewarm():
     enum_t = pl.Enum(groups)
     cat = pl.Series("cat", rng.choice(groups, n), dtype=enum_t)
     df_left = pl.DataFrame({"cat": cat})
-    df_right = pl.DataFrame({
-        "cat": pl.Series("cat", groups, dtype=enum_t),
-        "value": np.arange(n_groups, dtype=np.float64),
-    })
+    df_right = pl.DataFrame(
+        {
+            "cat": pl.Series("cat", groups, dtype=enum_t),
+            "value": np.arange(n_groups, dtype=np.float64),
+        }
+    )
 
     t = time.perf_counter()
     joined = df_left.join(df_right, on="cat", how="left")
@@ -95,9 +98,8 @@ def test_polars_join_warm_after_prewarm():
     # join would be >2500ms, so the elevated 2000ms CI ceiling still
     # catches a missed prewarm.
     import os as _os
+
     _ceiling_ms = 2000.0 if _os.environ.get("CI") or _os.environ.get("GITHUB_ACTIONS") else 500.0
     assert elapsed_ms < _ceiling_ms, (
-        f"polars join on 200k rows took {elapsed_ms:.1f}ms (ceiling "
-        f"{_ceiling_ms:.0f}ms); >ceiling suggests the join warm-up did "
-        f"NOT fire."
+        f"polars join on 200k rows took {elapsed_ms:.1f}ms (ceiling {_ceiling_ms:.0f}ms); >ceiling suggests the join warm-up did NOT fire."
     )

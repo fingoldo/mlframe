@@ -10,6 +10,7 @@ timestamps into strict ordering. That's flaky on slow CI (sub-millisecond clock 
 can collide). We now monkeypatch the cache modules' ``time.time`` to a monotonic counter so
 LRU ordering is exact and the tests are deterministic.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -106,7 +107,7 @@ def test_local_disk_backend_evicts_oldest_when_over_max_entries(tmp_path, monoto
 
     be = LocalDiskBackend(str(tmp_path / "lru_root"), max_entries=2)
     for i in range(4):
-        be.write(f"k{i:04x}", f"payload {i}".encode("utf-8"))
+        be.write(f"k{i:04x}", f"payload {i}".encode())
 
     # Only 2 newest should remain.
     keys = sorted(be.list_keys())

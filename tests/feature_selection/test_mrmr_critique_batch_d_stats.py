@@ -7,6 +7,7 @@
   deliberate, bench/test-pinned design (bench_perm_pvalue_addone.py; the greedy-jmim exponent) and need their own
   multi-seed biz-value bench to settle rather than a code change on a critique-agent argument. Tracked FUTURE.
 """
+
 from mlframe.feature_selection.filters.permutation import _perm_pvalue, _addone_pvalue_enabled
 
 
@@ -22,4 +23,5 @@ def test_perm_pvalue_full_budget_break_position_independent():
 def test_gpu_null_budget_constant_available():
     # the GPU return_null_mean path bumps to this same constant the CPU path uses (permutation.py:642).
     from mlframe.feature_selection.filters.permutation import _NULL_MEAN_MIN_PERMS
+
     assert _NULL_MEAN_MIN_PERMS >= 32

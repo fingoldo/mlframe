@@ -8,6 +8,7 @@ on a rank-based held-out cubic R^2 so heavy-tailed monotone signals (Cauchy,
 lognormal) read as usable (gate blocks Fourier) while genuine oscillations stay
 below the cap (gate lets Fourier fire).
 """
+
 import numpy as np
 
 from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
@@ -40,5 +41,5 @@ def test_smooth_r2_robust_to_heavy_tails():
 
 
 def test_smooth_r2_degenerate_inputs_return_zero():
-    assert _heldout_smooth_r2(np.zeros(100), np.arange(100.0)) == 0.0   # constant x
+    assert _heldout_smooth_r2(np.zeros(100), np.arange(100.0)) == 0.0  # constant x
     assert _heldout_smooth_r2(np.arange(10.0), np.arange(10.0)) == 0.0  # too few rows

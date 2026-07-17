@@ -498,7 +498,7 @@ class TestDefaultDisabledByteIdentical:
         sup1 = list(m1.feature_names_in_)
         sup2 = list(m2.feature_names_in_)
         assert sup1 == sup2, (
-            f"seed={seed}: explicit fe_hybrid_orth_elasticnet_enable=False " f"diverged from implicit-default fit. implicit={sup1}, " f"explicit={sup2}"
+            f"seed={seed}: explicit fe_hybrid_orth_elasticnet_enable=False diverged from implicit-default fit. implicit={sup1}, explicit={sup2}"
         )
 
 
@@ -557,7 +557,7 @@ class TestPickleAndClone:
                 v1 = Xt[c].to_numpy()
                 v2 = Xt2[c].to_numpy()
                 if not np.allclose(v1, v2, equal_nan=True, atol=1e-10):
-                    raise AssertionError(f"pickle changed transform() values for column " f"{c!r}: max abs diff " f"{np.nanmax(np.abs(v1 - v2)):.2e}")
+                    raise AssertionError(f"pickle changed transform() values for column {c!r}: max abs diff {np.nanmax(np.abs(v1 - v2)):.2e}")
 
 
 if __name__ == "__main__":

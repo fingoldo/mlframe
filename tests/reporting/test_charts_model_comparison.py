@@ -16,7 +16,11 @@ import pytest
 
 from mlframe.reporting.charts import model_comparison as mc
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec,
+    AnnotationPanelSpec,
+    BarPanelSpec,
+    FigureSpec,
+    HeatmapPanelSpec,
+    LinePanelSpec,
 )
 
 
@@ -39,6 +43,7 @@ def _good_bad_binary(n, seed):
 def test_compose_binary_three_panels():
     y, sg, sb = _good_bad_binary(4000, 0)
     from sklearn.metrics import roc_auc_score
+
     per_model = {
         "A": _binary_entry(y, sg, roc_auc=roc_auc_score(y, sg)),
         "B": _binary_entry(y, sb, roc_auc=roc_auc_score(y, sb)),
@@ -75,7 +80,7 @@ def test_leaderboard_sorted_and_hline():
     assert bar.categories == ("A", "C", "B")  # best-first
     assert bar.orientation == "horizontal"
     assert bar.hline is not None
-    ref, color, label = bar.hline
+    ref, _color, label = bar.hline
     assert abs(ref - 0.95) < 1e-9 and label == "best"
 
 
@@ -199,6 +204,7 @@ def test_biz_value_dominant_model_tops_roc_and_leaderboard():
     appear first on the best-first leaderboard, and A's ROC curve MUST sit above B's at the midpoint FPR. Measured
     AUC_A ~0.93 vs AUC_B ~0.58; floors: AUC_A - AUC_B >= 0.20 and A is leaderboard rank 1."""
     from sklearn.metrics import roc_auc_score
+
     y, sg, sb = _good_bad_binary(8000, 10)
     auc_a, auc_b = roc_auc_score(y, sg), roc_auc_score(y, sb)
     assert auc_a - auc_b >= 0.20, f"setup invalid: AUC gap {auc_a - auc_b:.3f}"

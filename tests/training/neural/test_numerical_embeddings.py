@@ -5,6 +5,7 @@ ablation lift came from periodic numerical embeddings:
   +20.6% R^2 on regression aggregate
   +2.3% accuracy on classification aggregate
 """
+
 from __future__ import annotations
 
 import sys
@@ -13,15 +14,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-import torch.nn as nn
-from sklearn.datasets import make_regression
 from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from mlframe.training.neural import (
-    MLPTorchModel, PytorchLightningRegressor, TorchDataModule, generate_mlp,
+    MLPTorchModel,
+    PytorchLightningRegressor,
+    TorchDataModule,
+    generate_mlp,
 )
 from mlframe.training.neural._numerical_embeddings import PeriodicLinearEmbedding
 
@@ -66,9 +68,13 @@ def test_generate_mlp_with_plr_embedding_constructs():
     embedded dim for downstream layers. example_input_array reflects
     RAW input shape."""
     net = generate_mlp(
-        num_features=4, num_classes=1, nlayers=2,
-        first_layer_num_neurons=32, dropout_prob=0.0,
-        use_batchnorm=True, use_layernorm=False,
+        num_features=4,
+        num_classes=1,
+        nlayers=2,
+        first_layer_num_neurons=32,
+        dropout_prob=0.0,
+        use_batchnorm=True,
+        use_layernorm=False,
         numerical_embedding="plr",
         numerical_embedding_kwargs={"embed_dim": 8, "n_frequencies": 16},
         verbose=0,
@@ -87,7 +93,9 @@ def test_generate_mlp_with_plr_embedding_constructs():
 def test_generate_mlp_plr_unknown_type_raises():
     with pytest.raises(ValueError, match=r"Unknown numerical_embedding"):
         generate_mlp(
-            num_features=4, num_classes=1, nlayers=1,
+            num_features=4,
+            num_classes=1,
+            nlayers=1,
             numerical_embedding="not_a_known_type",
             verbose=0,
         )
@@ -113,25 +121,25 @@ def test_plr_embedded_mlp_beats_vanilla_on_periodic_target():
     rng = np.random.default_rng(0)
     n, d = 500, 5
     X = rng.uniform(-1.0, 1.0, size=(n, d)).astype(np.float32)
-    y = (
-        np.sin(2 * np.pi * X[:, 0])
-        + 0.5 * np.cos(4 * np.pi * X[:, 1])
-        + 0.3 * X[:, 2]
-        + 0.05 * rng.standard_normal(n)
-    ).astype(np.float32)
+    y = (np.sin(2 * np.pi * X[:, 0]) + 0.5 * np.cos(4 * np.pi * X[:, 1]) + 0.3 * X[:, 2] + 0.05 * rng.standard_normal(n)).astype(np.float32)
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=0)
 
     def _make_reg(use_plr: bool):
         np_params = {
-            "nlayers": 2, "first_layer_num_neurons": 64,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": True,
+            "nlayers": 2,
+            "first_layer_num_neurons": 64,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": True,
             "activation_function": torch.nn.ReLU,
         }
         if use_plr:
             np_params["numerical_embedding"] = "plr"
             np_params["numerical_embedding_kwargs"] = {
-                "embed_dim": 8, "n_frequencies": 16, "sigma": 1.0,
+                "embed_dim": 8,
+                "n_frequencies": 16,
+                "sigma": 1.0,
             }
         return PytorchLightningRegressor(
             model_class=MLPTorchModel,
@@ -139,13 +147,18 @@ def test_plr_embedded_mlp_beats_vanilla_on_periodic_target():
             network_params=np_params,
             datamodule_class=TorchDataModule,
             datamodule_params={
-                "features_dtype": torch.float32, "labels_dtype": torch.float32,
+                "features_dtype": torch.float32,
+                "labels_dtype": torch.float32,
                 "dataloader_params": {"batch_size": 32, "num_workers": 0},
             },
             trainer_params={
-                "max_epochs": 40, "enable_model_summary": False,
-                "enable_progress_bar": False, "log_every_n_steps": 1,
-                "devices": 1, "accelerator": "cpu", "logger": False,
+                "max_epochs": 40,
+                "enable_model_summary": False,
+                "enable_progress_bar": False,
+                "log_every_n_steps": 1,
+                "devices": 1,
+                "accelerator": "cpu",
+                "logger": False,
             },
             random_state=0,
         )
@@ -158,15 +171,9 @@ def test_plr_embedded_mlp_beats_vanilla_on_periodic_target():
     reg_vanilla.fit(X_tr, y_tr)
     r2_vanilla = r2_score(y_te, reg_vanilla.predict(X_te))
 
-    print(f"\nPLR vs vanilla on periodic target:\n"
-          f"  PLR     R^2 = {r2_plr:+.4f}\n"
-          f"  vanilla R^2 = {r2_vanilla:+.4f}\n"
-          f"  delta       = {r2_plr - r2_vanilla:+.4f}")
+    print(f"\nPLR vs vanilla on periodic target:\n  PLR     R^2 = {r2_plr:+.4f}\n  vanilla R^2 = {r2_vanilla:+.4f}\n  delta       = {r2_plr - r2_vanilla:+.4f}")
 
-    assert r2_plr > 0.5, (
-        f"PLR-MLP R^2={r2_plr:+.4f} should reach >0.5 on this periodic "
-        "target -- the PLR is supposed to make sin/cos features cheap."
-    )
+    assert r2_plr > 0.5, f"PLR-MLP R^2={r2_plr:+.4f} should reach >0.5 on this periodic target -- the PLR is supposed to make sin/cos features cheap."
     assert r2_plr > r2_vanilla - 0.05, (
         f"PLR-MLP regressed against vanilla by more than 0.05 R^2 "
         f"(PLR={r2_plr:+.4f}, vanilla={r2_vanilla:+.4f}). The PLR "

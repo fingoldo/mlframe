@@ -5,6 +5,7 @@ Post-fix code path: per-call ``np.random.default_rng(random_state)`` plus zero-c
 
 This sensor pins the new reproducibility contract: the same ``(bins, target_columns, random_state)`` MUST produce a bit-identical permuted MI dict across two calls even when the global RNG state differs between them.
 """
+
 from __future__ import annotations
 
 import numpy as np

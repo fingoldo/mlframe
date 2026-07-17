@@ -20,10 +20,10 @@ Test invariants:
 5. Drift WARN fires (spread between segments > 0.10).
 6. Plotting saves a file without crashing.
 """
+
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -74,10 +74,12 @@ def _gen_temporal_target_dataset(
         else:
             rate = biased_rate
         for _ in range(rows_per_day):
-            rows.append({
-                "job_posted_at": day + pd.Timedelta(seconds=int(rng.integers(0, 86400))),
-                "cl_act_total_hired": int(rng.uniform() < rate),
-            })
+            rows.append(
+                {
+                    "job_posted_at": day + pd.Timedelta(seconds=int(rng.integers(0, 86400))),
+                    "cl_act_total_hired": int(rng.uniform() < rate),
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -98,6 +100,7 @@ def test_granularity_auto_picks_month_for_8_year_span(synthetic_temporal_df):
     at year ~8. The picker should converge on quarter or month
     (target range 30-50)."""
     from mlframe.training.targets.target_temporal_audit import _pick_granularity
+
     g = _pick_granularity(synthetic_temporal_df["job_posted_at"])
     assert g in {"month", "quarter"}, f"expected month/quarter, got {g}"
 
@@ -105,9 +108,12 @@ def test_granularity_auto_picks_month_for_8_year_span(synthetic_temporal_df):
 def test_granularity_auto_picks_day_for_short_span():
     """A 2-month span has ~60 days → falls in the day range."""
     from mlframe.training.targets.target_temporal_audit import _pick_granularity
-    df = pd.DataFrame({
-        "ts": pd.date_range("2024-01-01", "2024-03-01", freq="h"),
-    })
+
+    df = pd.DataFrame(
+        {
+            "ts": pd.date_range("2024-01-01", "2024-03-01", freq="h"),
+        }
+    )
     g = _pick_granularity(df["ts"])
     assert g == "day", f"expected day, got {g}"
 
@@ -115,9 +121,12 @@ def test_granularity_auto_picks_day_for_short_span():
 def test_granularity_auto_picks_year_for_long_span():
     """A 200-year span needs year-granularity to land near 30-50 bins."""
     from mlframe.training.targets.target_temporal_audit import _pick_granularity
-    df = pd.DataFrame({
-        "ts": pd.date_range("1820-01-01", "2024-01-01", freq="YE"),
-    })
+
+    df = pd.DataFrame(
+        {
+            "ts": pd.date_range("1820-01-01", "2024-01-01", freq="YE"),
+        }
+    )
     g = _pick_granularity(df["ts"])
     assert g == "year", f"expected year, got {g}"
 
@@ -132,7 +141,9 @@ def test_zscore_detects_single_dip_global_baseline():
     Default global-median baseline detects the dip cleanly."""
     rates = np.array([0.98] * 30 + [0.40] * 5 + [0.98] * 30, dtype=float)
     boundaries = find_change_points_zscore(
-        rates, z_threshold=3.0, min_anomaly_run=2,
+        rates,
+        z_threshold=3.0,
+        min_anomaly_run=2,
     )
     # Expect exactly one anomaly run = 2 boundary indices: [start, end_excl]
     assert len(boundaries) == 2
@@ -157,7 +168,10 @@ def test_zscore_local_window_too_narrow_misses_wide_dip():
     limitation that motivated the global-baseline default."""
     rates = np.array([0.98] * 30 + [0.40] * 5 + [0.98] * 30, dtype=float)
     boundaries = find_change_points_zscore(
-        rates, window=5, z_threshold=3.0, min_anomaly_run=2,
+        rates,
+        window=5,
+        z_threshold=3.0,
+        min_anomaly_run=2,
     )
     # Local window of 5 sits inside the 5-bin dip → median = 0.40 → no flag
     assert boundaries == []
@@ -168,7 +182,10 @@ def test_zscore_local_window_wider_than_dip_catches_it():
     stable bins anchoring the rolling median."""
     rates = np.array([0.98] * 30 + [0.40] * 5 + [0.98] * 30, dtype=float)
     boundaries = find_change_points_zscore(
-        rates, window=21, z_threshold=3.0, min_anomaly_run=2,
+        rates,
+        window=21,
+        z_threshold=3.0,
+        min_anomaly_run=2,
     )
     assert len(boundaries) == 2
 
@@ -185,12 +202,16 @@ def test_zscore_min_anomaly_run_filters_single_spikes():
     min_anomaly_run=2."""
     rates = np.array([0.98] * 30 + [0.40] + [0.98] * 30, dtype=float)
     boundaries = find_change_points_zscore(
-        rates, z_threshold=3.0, min_anomaly_run=2,
+        rates,
+        z_threshold=3.0,
+        min_anomaly_run=2,
     )
     assert boundaries == []
     # But min_anomaly_run=1 catches it
     boundaries_1 = find_change_points_zscore(
-        rates, z_threshold=3.0, min_anomaly_run=1,
+        rates,
+        z_threshold=3.0,
+        min_anomaly_run=1,
     )
     assert len(boundaries_1) == 2
 
@@ -202,7 +223,10 @@ def test_zscore_weighted_ignores_low_n_bins():
     rates = np.array([0.98] * 30 + [0.10] + [0.98] * 30, dtype=float)
     weights = np.array([1000.0] * 30 + [5.0] + [1000.0] * 30)
     boundaries = find_change_points_zscore(
-        rates, weights=weights, z_threshold=3.0, min_anomaly_run=1,
+        rates,
+        weights=weights,
+        z_threshold=3.0,
+        min_anomaly_run=1,
     )
     # The bin DOES flag (rate 0.10 is far from the dominant 0.98 baseline),
     # but at min_anomaly_run=2 it'd be filtered. We test min_run=1 here.
@@ -295,15 +319,20 @@ def test_audit_regression_target():
         # Linear trend over 2024.
         target_mean = 10.0 + 5.0 * (day - days[0]).days / (days[-1] - days[0]).days
         for _ in range(n_per_day):
-            rows.append({
-                "ts": day,
-                "y": target_mean + rng.normal(0, 1.0),
-            })
+            rows.append(
+                {
+                    "ts": day,
+                    "y": target_mean + rng.normal(0, 1.0),
+                }
+            )
     df = pd.DataFrame(rows)
 
     result = audit_target_over_time(
-        df, timestamp_col="ts", target_col="y",
-        target_type="regression", granularity="month",
+        df,
+        timestamp_col="ts",
+        target_col="y",
+        target_type="regression",
+        granularity="month",
     )
     rates = [b.target_rate for b in result.bins if b.kept]
     # Increasing trend
@@ -346,13 +375,17 @@ def test_audit_no_changepoints_in_stable_data():
     rows = []
     for day in days:
         for _ in range(100):
-            rows.append({
-                "ts": day,
-                "y": int(rng.uniform() < 0.5),
-            })
+            rows.append(
+                {
+                    "ts": day,
+                    "y": int(rng.uniform() < 0.5),
+                }
+            )
     df = pd.DataFrame(rows)
     result = audit_target_over_time(
-        df, timestamp_col="ts", target_col="y",
+        df,
+        timestamp_col="ts",
+        target_col="y",
         target_type="binary_classification",
     )
     assert len(result.segments) == 1
@@ -373,7 +406,9 @@ def test_audit_dropped_sparse_bin_warning():
             rows.append({"ts": day, "y": 1})
     df = pd.DataFrame(rows)
     result = audit_target_over_time(
-        df, timestamp_col="ts", target_col="y",
+        df,
+        timestamp_col="ts",
+        target_col="y",
         target_type="binary_classification",
     )
     assert any(b.kept is False for b in result.bins)
@@ -544,7 +579,8 @@ def test_recommended_mask_largest(synthetic_temporal_df):
         target_type="binary_classification",
     )
     mask = result.recommended_filter_mask(
-        synthetic_temporal_df["job_posted_at"], segment="largest",
+        synthetic_temporal_df["job_posted_at"],
+        segment="largest",
     )
     largest = max(result.segments, key=lambda s: s["n_obs"])
     # Mask should have approximately largest_segment.n_obs rows
@@ -561,10 +597,12 @@ def test_recommended_mask_all_stable(synthetic_temporal_df):
         target_type="binary_classification",
     )
     mask_all = result.recommended_filter_mask(
-        synthetic_temporal_df["job_posted_at"], segment="all_stable",
+        synthetic_temporal_df["job_posted_at"],
+        segment="all_stable",
     )
     mask_one = result.recommended_filter_mask(
-        synthetic_temporal_df["job_posted_at"], segment="most_recent_stable",
+        synthetic_temporal_df["job_posted_at"],
+        segment="most_recent_stable",
     )
     # all_stable >= most_recent_stable in coverage
     assert mask_all.sum() >= mask_one.sum()
@@ -582,10 +620,12 @@ def test_recommended_mask_first_last(synthetic_temporal_df):
     if len(result.segments) < 2:
         pytest.skip("need ≥2 segments for this test")
     mask_first = result.recommended_filter_mask(
-        synthetic_temporal_df["job_posted_at"], segment="first",
+        synthetic_temporal_df["job_posted_at"],
+        segment="first",
     )
     mask_last = result.recommended_filter_mask(
-        synthetic_temporal_df["job_posted_at"], segment="last",
+        synthetic_temporal_df["job_posted_at"],
+        segment="last",
     )
     assert mask_first.any() and mask_last.any()
     assert not (mask_first & mask_last).any()  # disjoint
@@ -600,7 +640,8 @@ def test_recommended_mask_unknown_selector_raises(synthetic_temporal_df):
     )
     with pytest.raises(ValueError, match="Unknown segment selector"):
         result.recommended_filter_mask(
-            synthetic_temporal_df["job_posted_at"], segment="bogus",
+            synthetic_temporal_df["job_posted_at"],
+            segment="bogus",
         )
 
 
@@ -635,12 +676,14 @@ def synthetic_multi_target_df():
         biased = pd.Timestamp("2021-09-01") <= day < pd.Timestamp("2022-09-01")
         rate_drifty = 0.40 if biased else 0.98
         for _ in range(100):
-            rows.append({
-                "ts": day + pd.Timedelta(seconds=int(rng.integers(0, 86400))),
-                "y_drifty": int(rng.uniform() < rate_drifty),
-                "y_stable": int(rng.uniform() < 0.50),
-                "y_continuous": rng.normal(loc=10.0, scale=2.0),
-            })
+            rows.append(
+                {
+                    "ts": day + pd.Timedelta(seconds=int(rng.integers(0, 86400))),
+                    "y_drifty": int(rng.uniform() < rate_drifty),
+                    "y_stable": int(rng.uniform() < 0.50),
+                    "y_continuous": rng.normal(loc=10.0, scale=2.0),
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -698,11 +741,13 @@ def test_audit_targets_polars_input_uses_multi_agg(synthetic_multi_target_df):
     df_pl = pl.from_pandas(df_pd)
 
     res_pd = audit_targets_over_time(
-        df_pd, timestamp_col="ts",
+        df_pd,
+        timestamp_col="ts",
         targets={"drifty": "y_drifty", "stable": "y_stable"},
     )
     res_pl = audit_targets_over_time(
-        df_pl, timestamp_col="ts",
+        df_pl,
+        timestamp_col="ts",
         targets={"drifty": "y_drifty", "stable": "y_stable"},
     )
     # Same number of segments per target
@@ -741,6 +786,7 @@ def test_audit_targets_polars_runs_one_aggregation(synthetic_multi_target_df, mo
     df_pl = pl.from_pandas(synthetic_multi_target_df)
 
     from mlframe.training.targets import target_temporal_audit as mod
+
     multi_calls = []
     single_calls = []
     orig_multi = mod._aggregate_by_time_polars_multi
@@ -758,19 +804,16 @@ def test_audit_targets_polars_runs_one_aggregation(synthetic_multi_target_df, mo
     monkeypatch.setattr(mod, "_aggregate_by_time_polars", spy_single)
 
     audit_targets_over_time(
-        df_pl, timestamp_col="ts",
+        df_pl,
+        timestamp_col="ts",
         targets={
             "a": "y_drifty",
             "b": "y_stable",
             "c": ("y_continuous", "regression"),
         },
     )
-    assert len(multi_calls) == 1, (
-        f"expected exactly 1 multi-agg call for 3 targets; got {len(multi_calls)}"
-    )
-    assert len(single_calls) == 0, (
-        f"single-target agg should not fire on the batch path; got {len(single_calls)}"
-    )
+    assert len(multi_calls) == 1, f"expected exactly 1 multi-agg call for 3 targets; got {len(multi_calls)}"
+    assert len(single_calls) == 0, f"single-target agg should not fire on the batch path; got {len(single_calls)}"
 
 
 def test_audit_targets_empty_targets_returns_empty():
@@ -782,7 +825,8 @@ def test_audit_targets_invalid_spec_raises():
     df = pd.DataFrame({"ts": pd.date_range("2024-01-01", periods=10, freq="D"), "y": np.zeros(10)})
     with pytest.raises(ValueError, match="must be str or"):
         audit_targets_over_time(
-            df, timestamp_col="ts",
+            df,
+            timestamp_col="ts",
             targets={"y": [1, 2, 3]},  # type: ignore — bad spec
         )
 
@@ -790,10 +834,16 @@ def test_audit_targets_invalid_spec_raises():
 def test_recommended_mask_no_segments_returns_all_false():
     """Empty audit (no data) → all-False mask, matches input length."""
     from mlframe.training.targets.target_temporal_audit import TemporalAuditResult
+
     empty = TemporalAuditResult(
-        target_name="x", target_type="binary_classification",
-        timestamp_col="ts", granularity="month",
-        bins=[], change_point_indices=[], segments=[], warnings=[],
+        target_name="x",
+        target_type="binary_classification",
+        timestamp_col="ts",
+        granularity="month",
+        bins=[],
+        change_point_indices=[],
+        segments=[],
+        warnings=[],
     )
     ts = pd.to_datetime(pd.Series(["2024-01-01", "2024-02-01", "2024-03-01"]))
     mask = empty.recommended_filter_mask(ts)

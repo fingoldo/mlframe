@@ -9,6 +9,7 @@ gracefully (the recurrent member is simply dropped from the ensemble) instead of
 
 SEQUENCE_ONLY carries its signal in ``sequences`` and runs fine with no aux features -- the guard must NOT fire there.
 """
+
 from __future__ import annotations
 
 import sys
@@ -21,11 +22,11 @@ from sklearn.exceptions import NotFittedError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from mlframe.training.neural.recurrent import (  # noqa: E402
+from mlframe.training.neural.recurrent import (
     RecurrentClassifierWrapper,
     RecurrentRegressorWrapper,
 )
-from mlframe.training.neural._recurrent_config import (  # noqa: E402
+from mlframe.training.neural._recurrent_config import (
     RecurrentConfig,
     InputMode,
     RNNType,

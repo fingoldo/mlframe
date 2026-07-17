@@ -11,6 +11,7 @@ Identity guarantees pinned here:
   2. With decay ON, the spied ``fi_run_order`` arg is the FULL insertion-order key list of
      ``feature_importances`` (newest last) -- the pre-fix behaviour, preserved.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -71,14 +72,14 @@ def _fit_with_spy(fi_decay_rate: float, monkeypatch):
 
 
 def test_decay_off_skips_keys_rebuild_passes_none(monkeypatch):
-    sel, recorded = _fit_with_spy(0.0, monkeypatch)
+    _sel, recorded = _fit_with_spy(0.0, monkeypatch)
     assert len(recorded) > 0, "outer loop must have run at least one iteration"
     # Default decay-off path never materialises the key list.
     assert all(r is None for r in recorded), f"fi_run_order must be None when decay off; got {recorded}"
 
 
 def test_decay_on_passes_full_insertion_order_keys(monkeypatch):
-    sel, recorded = _fit_with_spy(0.5, monkeypatch)
+    _sel, recorded = _fit_with_spy(0.5, monkeypatch)
     assert len(recorded) > 0
     # With decay on, every call gets the full key list (newest last), not None.
     assert all(isinstance(r, list) for r in recorded), f"fi_run_order must be a list when decay on; got {recorded}"

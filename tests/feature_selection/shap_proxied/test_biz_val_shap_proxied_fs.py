@@ -27,9 +27,9 @@ pytest.importorskip("xgboost")
 
 def _make_dataset(seed=0, n=3000):
     rng = np.random.default_rng(seed)
-    inf = rng.normal(size=(n, 5))                       # 5 informative
-    noise = rng.normal(size=(n, 4))                     # 4 pure noise
-    corr = inf[:, :2] + 0.3 * rng.normal(size=(n, 2))   # 2 redundant-with-informative
+    inf = rng.normal(size=(n, 5))  # 5 informative
+    noise = rng.normal(size=(n, 4))  # 4 pure noise
+    corr = inf[:, :2] + 0.3 * rng.normal(size=(n, 2))  # 2 redundant-with-informative
     X = pd.DataFrame(
         np.column_stack([inf, noise, corr]),
         columns=[f"inf{i}" for i in range(5)] + [f"noise{i}" for i in range(4)] + ["corr0", "corr1"],
@@ -45,9 +45,16 @@ def test_biz_val_shap_proxied_fs_recovers_informative_and_beats_baselines():
 
     X, y = _make_dataset(seed=0)
     sel = ShapProxiedFS(
-        classification=True, metric="brier", optimizer="bruteforce",
-        max_features=7, top_n=20, n_splits=3, n_revalidation_models=2,
-        random_state=0, verbose=False, n_jobs=1,
+        classification=True,
+        metric="brier",
+        optimizer="bruteforce",
+        max_features=7,
+        top_n=20,
+        n_splits=3,
+        n_revalidation_models=2,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
     )
     sel.fit(X, pd.Series(y))
     selected = set(sel.selected_features_)
@@ -87,16 +94,33 @@ def test_biz_val_wide_pipeline_scales_and_recovers_informative():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     n_informative, n_redundant, width = 6, 8, 3000
-    X, y, roles = make_regime_dataset(
-        n_samples=3000, n_informative=n_informative, n_redundant=n_redundant,
-        redundancy_rho=0.9, n_noise=width - n_informative - n_redundant, snr=5.0, task="binary", seed=0)
+    X, y, _roles = make_regime_dataset(
+        n_samples=3000,
+        n_informative=n_informative,
+        n_redundant=n_redundant,
+        redundancy_rho=0.9,
+        n_noise=width - n_informative - n_redundant,
+        snr=5.0,
+        task="binary",
+        seed=0,
+    )
     assert X.shape[1] == width
 
     sel = ShapProxiedFS(
-        classification=True, metric="brier", optimizer="auto",
-        prefilter_top=400, cluster_features=True, cluster_corr_threshold=0.7,
-        top_n=15, n_splits=3, n_revalidation_models=2, n_anchors=20,
-        random_state=0, verbose=False, n_jobs=1)
+        classification=True,
+        metric="brier",
+        optimizer="auto",
+        prefilter_top=400,
+        cluster_features=True,
+        cluster_corr_threshold=0.7,
+        top_n=15,
+        n_splits=3,
+        n_revalidation_models=2,
+        n_anchors=20,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
+    )
     sel.fit(X, pd.Series(y))
 
     # Contract integrity at scale: mask length == input width, names map back to original columns.
@@ -121,7 +145,8 @@ def test_biz_val_wide_pipeline_scales_and_recovers_informative():
 
     expected_kept = resolve_shap_prefilter_top(
         brute_force_max_features=_resolve_brute_force_max_features(),
-        safety_factor=4, min_features=40,
+        safety_factor=4,
+        min_features=40,
     )
     pf = sel.shap_proxy_report_.get("prefilter")
     assert pf is not None and pf["kept"] == expected_kept and pf["of"] == width
@@ -144,17 +169,35 @@ def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     n_informative, n_redundant, width = 6, 8, 2000
-    X, y, roles = make_regime_dataset(
-        n_samples=3000, n_informative=n_informative, n_redundant=n_redundant,
-        redundancy_rho=0.9, n_noise=width - n_informative - n_redundant, snr=5.0, task="binary", seed=0)
+    X, y, _roles = make_regime_dataset(
+        n_samples=3000,
+        n_informative=n_informative,
+        n_redundant=n_redundant,
+        redundancy_rho=0.9,
+        n_noise=width - n_informative - n_redundant,
+        snr=5.0,
+        task="binary",
+        seed=0,
+    )
     informative = {f"inf{i}" for i in range(n_informative)}
 
     def _fit(method):
         sel = ShapProxiedFS(
-            classification=True, metric="brier", optimizer="auto",
-            prefilter_top=300, prefilter_method=method, cluster_features=True, cluster_corr_threshold=0.7,
-            top_n=15, n_splits=3, n_revalidation_models=2, n_anchors=20,
-            random_state=0, verbose=False, n_jobs=1)
+            classification=True,
+            metric="brier",
+            optimizer="auto",
+            prefilter_top=300,
+            prefilter_method=method,
+            cluster_features=True,
+            cluster_corr_threshold=0.7,
+            top_n=15,
+            n_splits=3,
+            n_revalidation_models=2,
+            n_anchors=20,
+            random_state=0,
+            verbose=False,
+            n_jobs=1,
+        )
         sel._stage_timings = {}
         t0 = time.perf_counter()
         sel.fit(X, pd.Series(y))
@@ -162,13 +205,12 @@ def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
         rec = len(informative & set(sel.selected_features_))
         return rec, sel._stage_timings.get("prefilter", total), sel.shap_proxy_report_["prefilter"]
 
-    rec_model, pf_model_secs, info_model = _fit("model")
-    rec_fast, pf_fast_secs, info_fast = _fit("fast_model")
+    rec_model, _pf_model_secs, info_model = _fit("model")
+    rec_fast, _pf_fast_secs, info_fast = _fit("fast_model")
 
     assert info_model["method"] == "model" and info_fast["method"] == "fast_model"
     # Quality: the fast pre-filter recovers within 1 informative of the faithful model pre-filter.
-    assert rec_fast >= rec_model - 1, (
-        f"fast_model prefilter worsened recovery: fast={rec_fast}/{n_informative} vs model={rec_model}/{n_informative}")
+    assert rec_fast >= rec_model - 1, f"fast_model prefilter worsened recovery: fast={rec_fast}/{n_informative} vs model={rec_model}/{n_informative}"
     # And both must still recover most of the planted informatives (sanity floor).
     assert rec_fast >= 4, f"fast_model recovered too few informatives: {rec_fast}/{n_informative}"
 
@@ -190,15 +232,13 @@ def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
         best = float("inf")
         for _ in range(n_trials):
             t0 = time.perf_counter()
-            prefilter_columns(template, X, ys, method=method, prefilter_top=300,
-                              classification=True, n_features=width, n_estimators_cap=100)
+            prefilter_columns(template, X, ys, method=method, prefilter_top=300, classification=True, n_features=width, n_estimators_cap=100)
             best = min(best, time.perf_counter() - t0)
         return best
 
     pf_model_best = _min_prefilter_secs("model")
     pf_fast_best = _min_prefilter_secs("fast_model")
-    assert pf_fast_best < pf_model_best, (
-        f"fast_model prefilter ({pf_fast_best:.2f}s) not faster than model ({pf_model_best:.2f}s)")
+    assert pf_fast_best < pf_model_best, f"fast_model prefilter ({pf_fast_best:.2f}s) not faster than model ({pf_model_best:.2f}s)"
 
 
 @pytest.mark.slow
@@ -220,18 +260,35 @@ def test_biz_val_prefilter_cap_faster_with_preserved_recovery():
 
     n_informative, n_redundant, width = 6, 8, 3000
     X, y, _roles = make_regime_dataset(
-        n_samples=2500, n_informative=n_informative, n_redundant=n_redundant,
-        redundancy_rho=0.9, n_noise=width - n_informative - n_redundant, snr=5.0,
-        task="binary", seed=0)
+        n_samples=2500,
+        n_informative=n_informative,
+        n_redundant=n_redundant,
+        redundancy_rho=0.9,
+        n_noise=width - n_informative - n_redundant,
+        snr=5.0,
+        task="binary",
+        seed=0,
+    )
     informative = {f"inf{i}" for i in range(n_informative)}
 
     def _fit(cap):
         sel = ShapProxiedFS(
-            classification=True, metric="brier", optimizer="auto",
-            prefilter_top=300, prefilter_method="model", prefilter_n_estimators=cap,
-            cluster_features=True, cluster_corr_threshold=0.7,
-            top_n=12, n_splits=3, n_revalidation_models=2, n_anchors=15,
-            random_state=0, verbose=False, n_jobs=1)
+            classification=True,
+            metric="brier",
+            optimizer="auto",
+            prefilter_top=300,
+            prefilter_method="model",
+            prefilter_n_estimators=cap,
+            cluster_features=True,
+            cluster_corr_threshold=0.7,
+            top_n=12,
+            n_splits=3,
+            n_revalidation_models=2,
+            n_anchors=15,
+            random_state=0,
+            verbose=False,
+            n_jobs=1,
+        )
         sel._stage_timings = {}
         t0 = time.perf_counter()
         sel.fit(X, pd.Series(y))
@@ -248,16 +305,13 @@ def test_biz_val_prefilter_cap_faster_with_preserved_recovery():
 
     # Speed: the capped prefilter must be measurably faster than the uncapped one.
     # (Measured ~2-3x on dev; floor 1.2x leaves Windows-build variance headroom.)
-    assert pf_capped < pf_uncapped, (
-        f"capped prefilter ({pf_capped:.2f}s) not faster than uncapped ({pf_uncapped:.2f}s)")
+    assert pf_capped < pf_uncapped, f"capped prefilter ({pf_capped:.2f}s) not faster than uncapped ({pf_uncapped:.2f}s)"
     assert pf_capped <= 0.85 * pf_uncapped, (
-        f"capped prefilter speedup too small: {pf_uncapped/pf_capped:.2f}x "
-        f"(uncapped={pf_uncapped:.2f}s vs capped={pf_capped:.2f}s)")
+        f"capped prefilter speedup too small: {pf_uncapped / pf_capped:.2f}x (uncapped={pf_uncapped:.2f}s vs capped={pf_capped:.2f}s)"
+    )
 
     # Quality: recovery must not be materially worse (within 1 informative).
-    assert rec_capped >= rec_uncapped - 1, (
-        f"cap worsened recovery: capped={rec_capped}/{n_informative} "
-        f"vs uncapped={rec_uncapped}/{n_informative}")
+    assert rec_capped >= rec_uncapped - 1, f"cap worsened recovery: capped={rec_capped}/{n_informative} vs uncapped={rec_uncapped}/{n_informative}"
     # And the capped pipeline must still recover most of the planted informatives (sanity floor).
     assert rec_capped >= 4, f"capped recovered too few informatives: {rec_capped}/{n_informative}"
 
@@ -270,13 +324,21 @@ def test_biz_val_regression_recovers_informative():
     n = 2500
     inf = rng.normal(size=(n, 4))
     noise = rng.normal(size=(n, 5))
-    X = pd.DataFrame(np.column_stack([inf, noise]),
-                     columns=[f"inf{i}" for i in range(4)] + [f"noise{i}" for i in range(5)])
+    X = pd.DataFrame(np.column_stack([inf, noise]), columns=[f"inf{i}" for i in range(4)] + [f"noise{i}" for i in range(5)])
     y = inf[:, 0] + 0.8 * inf[:, 1] - 0.6 * inf[:, 2] + 0.5 * inf[:, 3] + 0.1 * rng.normal(size=n)
 
-    sel = ShapProxiedFS(classification=False, metric="rmse", optimizer="bruteforce",
-                        max_features=6, top_n=15, n_splits=3, n_revalidation_models=2,
-                        random_state=0, verbose=False, n_jobs=1)
+    sel = ShapProxiedFS(
+        classification=False,
+        metric="rmse",
+        optimizer="bruteforce",
+        max_features=6,
+        top_n=15,
+        n_splits=3,
+        n_revalidation_models=2,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
+    )
     sel.fit(X, y)
     selected = set(sel.selected_features_)
     informative_kept = selected & {f"inf{i}" for i in range(4)}
@@ -315,19 +377,35 @@ def test_biz_val_stratified_anchors_preserve_recovery_at_6k_no_catastrophic_spea
 
     n_informative, n_redundant, width = 12, 0, 6000
     X, y, _roles = make_regime_dataset(
-        n_samples=3000, n_informative=n_informative, n_redundant=n_redundant,
-        redundancy_rho=0.9, n_noise=width - n_informative - n_redundant, snr=5.0,
-        task="binary", seed=0)
+        n_samples=3000,
+        n_informative=n_informative,
+        n_redundant=n_redundant,
+        redundancy_rho=0.9,
+        n_noise=width - n_informative - n_redundant,
+        snr=5.0,
+        task="binary",
+        seed=0,
+    )
     informative = {f"inf{i}" for i in range(n_informative)}
 
     def _fit(stratified: bool):
         sel = ShapProxiedFS(
-            classification=True, metric="brier", optimizer="auto",
-            prefilter_top=400, prefilter_method="two_stage",
-            cluster_features=True, cluster_corr_threshold=0.7,
-            top_n=15, n_splits=3, n_revalidation_models=2, n_anchors=30,
+            classification=True,
+            metric="brier",
+            optimizer="auto",
+            prefilter_top=400,
+            prefilter_method="two_stage",
+            cluster_features=True,
+            cluster_corr_threshold=0.7,
+            top_n=15,
+            n_splits=3,
+            n_revalidation_models=2,
+            n_anchors=30,
             trust_guard_stratified_anchors=stratified,
-            random_state=0, verbose=False, n_jobs=1)
+            random_state=0,
+            verbose=False,
+            n_jobs=1,
+        )
         sel.fit(X, pd.Series(y))
         rep = sel.shap_proxy_report_
         spearman = rep["trust"]["spearman"]
@@ -337,23 +415,19 @@ def test_biz_val_stratified_anchors_preserve_recovery_at_6k_no_catastrophic_spea
 
     print(f"\n[iter14 stratified-anchor biz_val] uniform leg at width={width}", flush=True)
     sp_u, mode_u, rec_u = _fit(stratified=False)
-    print(f"[iter14] uniform: spearman={sp_u:.3f} mode={mode_u} recovery={rec_u}/{n_informative}",
-          flush=True)
+    print(f"[iter14] uniform: spearman={sp_u:.3f} mode={mode_u} recovery={rec_u}/{n_informative}", flush=True)
     print(f"[iter14] stratified leg", flush=True)
     sp_s, mode_s, rec_s = _fit(stratified=True)
-    print(f"[iter14] stratified: spearman={sp_s:.3f} mode={mode_s} recovery={rec_s}/{n_informative}",
-          flush=True)
+    print(f"[iter14] stratified: spearman={sp_s:.3f} mode={mode_s} recovery={rec_s}/{n_informative}", flush=True)
 
     assert mode_u == "uniform"
     assert mode_s == "stratified"
-    assert rec_s >= rec_u, (
-        f"stratified worsened recovery: stratified={rec_s}/{n_informative} vs uniform={rec_u}/{n_informative}")
+    assert rec_s >= rec_u, f"stratified worsened recovery: stratified={rec_s}/{n_informative} vs uniform={rec_u}/{n_informative}"
     # Recovery floor; dev measured 10/12, leave a 1-feature slack for seed/Windows-build variance.
     assert rec_s >= 9, f"stratified recovered too few informatives: {rec_s}/{n_informative}"
     # Spearman safety envelope: catastrophic-drop guard. Dev measured 0.877 vs 0.969 (-0.092);
     # we lock in <= -0.20 absolute as the "won't break the proxy-fidelity report" floor.
-    assert sp_s >= sp_u - 0.20, (
-        f"stratified catastrophically dropped Spearman: uniform={sp_u:.3f} stratified={sp_s:.3f}")
+    assert sp_s >= sp_u - 0.20, f"stratified catastrophically dropped Spearman: uniform={sp_u:.3f} stratified={sp_s:.3f}"
 
 
 def test_stratified_anchors_default_off_preserves_legacy_trust_report():
@@ -376,14 +450,22 @@ def test_stratified_anchors_default_off_preserves_legacy_trust_report():
     # prefilter fit is what starves a worker into a timeout under full-suite ``-n`` contention.
     n_noise = 95 if is_fast_mode() else 495
     prefilter_top = 50 if is_fast_mode() else 150
-    X, y, _ = make_regime_dataset(
-        n_samples=600, n_informative=5, n_redundant=0, n_noise=n_noise, snr=5.0,
-        task="binary", seed=0)
+    X, y, _ = make_regime_dataset(n_samples=600, n_informative=5, n_redundant=0, n_noise=n_noise, snr=5.0, task="binary", seed=0)
     sel = ShapProxiedFS(
-        classification=True, metric="brier", optimizer="auto",
-        prefilter_top=prefilter_top, prefilter_method="two_stage",
-        cluster_features=False, top_n=5, n_splits=3, n_revalidation_models=1, n_anchors=12,
-        random_state=0, verbose=False, n_jobs=1)
+        classification=True,
+        metric="brier",
+        optimizer="auto",
+        prefilter_top=prefilter_top,
+        prefilter_method="two_stage",
+        cluster_features=False,
+        top_n=5,
+        n_splits=3,
+        n_revalidation_models=1,
+        n_anchors=12,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
+    )
     sel.fit(X, pd.Series(y))
     # Default (no kwarg) must keep stratified OFF -> report records uniform sampling even though
     # the two_stage prefilter cached the F-score vector.
@@ -406,14 +488,22 @@ def test_zipf_cardinality_default_on_and_recorded_in_trust_report():
     # under full-suite ``-n`` contention.
     n_noise = 95 if is_fast_mode() else 495
     prefilter_top = 50 if is_fast_mode() else 150
-    X, y, _ = make_regime_dataset(
-        n_samples=600, n_informative=5, n_redundant=0, n_noise=n_noise, snr=5.0,
-        task="binary", seed=0)
+    X, y, _ = make_regime_dataset(n_samples=600, n_informative=5, n_redundant=0, n_noise=n_noise, snr=5.0, task="binary", seed=0)
     sel = ShapProxiedFS(
-        classification=True, metric="brier", optimizer="auto",
-        prefilter_top=prefilter_top, prefilter_method="two_stage",
-        cluster_features=False, top_n=5, n_splits=3, n_revalidation_models=1, n_anchors=12,
-        random_state=0, verbose=False, n_jobs=1)
+        classification=True,
+        metric="brier",
+        optimizer="auto",
+        prefilter_top=prefilter_top,
+        prefilter_method="two_stage",
+        cluster_features=False,
+        top_n=5,
+        n_splits=3,
+        n_revalidation_models=1,
+        n_anchors=12,
+        random_state=0,
+        verbose=False,
+        n_jobs=1,
+    )
     assert sel.trust_guard_cardinality_dist == "zipf"
     assert sel.trust_guard_zipf_alpha == 0.25  # iter16 composite sweet spot
     sel.fit(X, pd.Series(y))
@@ -457,20 +547,36 @@ def test_biz_val_zipf_cardinality_preserves_recovery_no_catastrophic_spearman_dr
 
     n_informative, n_redundant, width = 12, 0, 6000
     X, y, _roles = make_regime_dataset(
-        n_samples=3000, n_informative=n_informative, n_redundant=n_redundant,
-        redundancy_rho=0.9, n_noise=width - n_informative - n_redundant, snr=5.0,
-        task="binary", seed=0)
+        n_samples=3000,
+        n_informative=n_informative,
+        n_redundant=n_redundant,
+        redundancy_rho=0.9,
+        n_noise=width - n_informative - n_redundant,
+        snr=5.0,
+        task="binary",
+        seed=0,
+    )
     informative = {f"inf{i}" for i in range(n_informative)}
 
     def _fit(cardinality_dist: str):
         sel = ShapProxiedFS(
-            classification=True, metric="brier", optimizer="auto",
-            prefilter_top=400, prefilter_method="two_stage",
-            cluster_features=True, cluster_corr_threshold=0.7,
-            top_n=15, n_splits=3, n_revalidation_models=2, n_anchors=30,
+            classification=True,
+            metric="brier",
+            optimizer="auto",
+            prefilter_top=400,
+            prefilter_method="two_stage",
+            cluster_features=True,
+            cluster_corr_threshold=0.7,
+            top_n=15,
+            n_splits=3,
+            n_revalidation_models=2,
+            n_anchors=30,
             trust_guard_stratified_anchors=False,
             trust_guard_cardinality_dist=cardinality_dist,
-            random_state=0, verbose=False, n_jobs=1)
+            random_state=0,
+            verbose=False,
+            n_jobs=1,
+        )
         sel.fit(X, pd.Series(y))
         rep = sel.shap_proxy_report_
         spearman = rep["trust"]["spearman"]
@@ -480,22 +586,18 @@ def test_biz_val_zipf_cardinality_preserves_recovery_no_catastrophic_spearman_dr
 
     print(f"\n[iter15 zipf-cardinality biz_val] uniform leg at width={width}", flush=True)
     sp_u, mode_u, rec_u = _fit("uniform")
-    print(f"[iter15] uniform card: spearman={sp_u:.3f} mode={mode_u} recovery={rec_u}/{n_informative}",
-          flush=True)
+    print(f"[iter15] uniform card: spearman={sp_u:.3f} mode={mode_u} recovery={rec_u}/{n_informative}", flush=True)
     print(f"[iter15] zipf leg", flush=True)
     sp_z, mode_z, rec_z = _fit("zipf")
-    print(f"[iter15] zipf card:    spearman={sp_z:.3f} mode={mode_z} recovery={rec_z}/{n_informative}",
-          flush=True)
+    print(f"[iter15] zipf card:    spearman={sp_z:.3f} mode={mode_z} recovery={rec_z}/{n_informative}", flush=True)
 
     assert mode_u == "uniform"
     assert mode_z == "zipf"
-    assert rec_z >= rec_u, (
-        f"zipf cardinality worsened recovery: zipf={rec_z}/{n_informative} vs uniform={rec_u}/{n_informative}")
+    assert rec_z >= rec_u, f"zipf cardinality worsened recovery: zipf={rec_z}/{n_informative} vs uniform={rec_u}/{n_informative}"
     # Recovery floor: dev measured 10/12; 9 allows 1-feat slack for cross-platform variance.
     assert rec_z >= 9, f"zipf cardinality recovered too few informatives: {rec_z}/{n_informative}"
     # Catastrophic-drop guard: dev measured Δ=-0.183 at alpha=1.0; floor at -0.25 leaves headroom.
-    assert sp_z >= sp_u - 0.25, (
-        f"zipf cardinality catastrophically dropped Spearman: uniform={sp_u:.3f} zipf={sp_z:.3f}")
+    assert sp_z >= sp_u - 0.25, f"zipf cardinality catastrophically dropped Spearman: uniform={sp_u:.3f} zipf={sp_z:.3f}"
 
 
 @pytest.mark.slow
@@ -524,18 +626,34 @@ def test_biz_val_oof_shap_cap_faster_with_preserved_recovery():
 
     n_informative, n_redundant, width = 6, 8, 3000
     X, y, _roles = make_regime_dataset(
-        n_samples=2500, n_informative=n_informative, n_redundant=n_redundant,
-        redundancy_rho=0.9, n_noise=width - n_informative - n_redundant, snr=5.0,
-        task="binary", seed=0)
+        n_samples=2500,
+        n_informative=n_informative,
+        n_redundant=n_redundant,
+        redundancy_rho=0.9,
+        n_noise=width - n_informative - n_redundant,
+        snr=5.0,
+        task="binary",
+        seed=0,
+    )
     informative = {f"inf{i}" for i in range(n_informative)}
 
     def _fit(cap):
         sel = ShapProxiedFS(
-            classification=True, metric="brier", optimizer="auto",
-            prefilter_top=300, cluster_features=True, cluster_corr_threshold=0.7,
-            top_n=12, n_splits=3, n_revalidation_models=2, n_anchors=15,
+            classification=True,
+            metric="brier",
+            optimizer="auto",
+            prefilter_top=300,
+            cluster_features=True,
+            cluster_corr_threshold=0.7,
+            top_n=12,
+            n_splits=3,
+            n_revalidation_models=2,
+            n_anchors=15,
             oof_shap_n_estimators=cap,
-            random_state=0, verbose=False, n_jobs=1)
+            random_state=0,
+            verbose=False,
+            n_jobs=1,
+        )
         sel._stage_timings = {}
         t0 = time.perf_counter()
         sel.fit(X, pd.Series(y))
@@ -545,24 +663,19 @@ def test_biz_val_oof_shap_cap_faster_with_preserved_recovery():
 
     print("\n[iter19 oof-shap-cap biz_val] uncapped leg", flush=True)
     rec_uncapped, oof_uncapped, total_uncapped = _fit(cap=None)
-    print(f"[iter19] cap=None:  oof_shap={oof_uncapped:.2f}s total={total_uncapped:.2f}s "
-          f"recovery={rec_uncapped}/{n_informative}", flush=True)
+    print(f"[iter19] cap=None:  oof_shap={oof_uncapped:.2f}s total={total_uncapped:.2f}s recovery={rec_uncapped}/{n_informative}", flush=True)
     print("[iter19 oof-shap-cap biz_val] capped leg", flush=True)
     rec_capped, oof_capped, total_capped = _fit(cap=100)
-    print(f"[iter19] cap=100:   oof_shap={oof_capped:.2f}s total={total_capped:.2f}s "
-          f"recovery={rec_capped}/{n_informative}", flush=True)
+    print(f"[iter19] cap=100:   oof_shap={oof_capped:.2f}s total={total_capped:.2f}s recovery={rec_capped}/{n_informative}", flush=True)
 
     # Speed floor: capped OOF-SHAP must be measurably faster than uncapped.
-    assert oof_capped < oof_uncapped, (
-        f"capped OOF-SHAP ({oof_capped:.2f}s) not faster than uncapped ({oof_uncapped:.2f}s)")
+    assert oof_capped < oof_uncapped, f"capped OOF-SHAP ({oof_capped:.2f}s) not faster than uncapped ({oof_uncapped:.2f}s)"
     # Stronger floor: at least 1.3x faster (dev measures 2-3x; 1.3 leaves Windows-build variance room).
     assert oof_capped <= 0.77 * oof_uncapped, (
-        f"capped OOF-SHAP speedup too small: {oof_uncapped/oof_capped:.2f}x "
-        f"(uncapped={oof_uncapped:.2f}s vs capped={oof_capped:.2f}s)")
+        f"capped OOF-SHAP speedup too small: {oof_uncapped / oof_capped:.2f}x (uncapped={oof_uncapped:.2f}s vs capped={oof_capped:.2f}s)"
+    )
 
     # Quality: recovery preserved (within 1 informative slack for cross-platform variance).
-    assert rec_capped >= rec_uncapped - 1, (
-        f"cap worsened recovery: capped={rec_capped}/{n_informative} "
-        f"vs uncapped={rec_uncapped}/{n_informative}")
+    assert rec_capped >= rec_uncapped - 1, f"cap worsened recovery: capped={rec_capped}/{n_informative} vs uncapped={rec_uncapped}/{n_informative}"
     # Sanity floor on absolute recovery (uncapped baseline already recovers most).
     assert rec_capped >= 4, f"capped recovered too few informatives: {rec_capped}/{n_informative}"

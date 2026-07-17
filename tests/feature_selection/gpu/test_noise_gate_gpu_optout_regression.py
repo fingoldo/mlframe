@@ -13,6 +13,7 @@ caller-passed CPU kernel being invoked verbatim -- the dispatcher legitimately s
 per-host KTC-selected njit kernel via ``select_batch_mi_kernel``, so a sentinel passed as
 ``batch_mi_kernel`` is not the right liveness probe.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,16 +55,23 @@ def _run_under_optout(monkeypatch, env_setup):
     monkeypatch.setattr(_disp, "_batch_mi_with_noise_gate_gpu", _spy_gpu)
 
     out = _dispatch_batch_mi_with_noise_gate(
-        disc_2d=disc_2d, quantization_nbins=5, classes_y=classes_y,
-        classes_y_safe=classes_y_safe, freqs_y=freqs_y, npermutations=4,
-        min_nonzero_confidence=0.0, use_su=False, batch_mi_kernel=batch_mi_with_noise_gate,
+        disc_2d=disc_2d,
+        quantization_nbins=5,
+        classes_y=classes_y,
+        classes_y_safe=classes_y_safe,
+        freqs_y=freqs_y,
+        npermutations=4,
+        min_nonzero_confidence=0.0,
+        use_su=False,
+        batch_mi_kernel=batch_mi_with_noise_gate,
     )
     return out, gpu_called["hit"], disc_2d
 
 
 def test_cuda_visible_devices_empty_forces_cpu_kernel(monkeypatch):
     out, gpu_called, disc_2d = _run_under_optout(
-        monkeypatch, lambda mp: mp.setenv("CUDA_VISIBLE_DEVICES", ""),
+        monkeypatch,
+        lambda mp: mp.setenv("CUDA_VISIBLE_DEVICES", ""),
     )
     assert not gpu_called, "GPU twin was entered despite CUDA_VISIBLE_DEVICES='' opt-out"
     assert out.shape[0] == disc_2d.shape[1]

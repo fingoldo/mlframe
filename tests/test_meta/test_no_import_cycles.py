@@ -220,6 +220,7 @@ def _strongly_connected_components(graph: dict[str, set[str]]) -> list[list[str]
             result.append(comp)
 
     import sys
+
     old_limit = sys.getrecursionlimit()
     sys.setrecursionlimit(10_000)
     try:

@@ -7,6 +7,7 @@ stay byte-for-byte identical to ``entropy(merge_vars(...)[1])`` (the hoist in ``
 merge ORDER, so the produced freqs order/values may not drift). These tests FAIL pre-fix: the fused kernels
 did not exist before this change.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -48,7 +49,7 @@ def test_entropy_xz_fused_bit_identical(n, nbins, z_ncols):
     _, freqs, _ = merge_vars(data, indices, None, factors_nbins, dtype=np.int32)
     ref = entropy(freqs)
     got = _entropy_xz_fused(data, indices, factors_nbins, np.int32)
-    assert got == ref, f"maxabsdiff={abs(got-ref):.3e} (n={n} nbins={nbins} z_ncols={z_ncols})"
+    assert got == ref, f"maxabsdiff={abs(got - ref):.3e} (n={n} nbins={nbins} z_ncols={z_ncols})"
 
 
 @pytest.mark.parametrize("n", [37, 600, 5000, 50_000])
@@ -65,12 +66,17 @@ def test_entropy_x_onto_classes_bit_identical(n, nbins, z_ncols):
 
     # reference (mutates a COPY, as merge_vars overwrites final_classes in place)
     _, freqs_ref, _ = merge_vars(
-        data, x, None, factors_nbins,
-        current_nclasses=ncls_yz, final_classes=classes_yz.copy(), dtype=np.int32,
+        data,
+        x,
+        None,
+        factors_nbins,
+        current_nclasses=ncls_yz,
+        final_classes=classes_yz.copy(),
+        dtype=np.int32,
     )
     ref = entropy(freqs_ref)
     got = _entropy_x_onto_classes(data, int(x[0]), classes_yz, ncls_yz, int(factors_nbins[x[0]]))
-    assert got == ref, f"maxabsdiff={abs(got-ref):.3e} (n={n} nbins={nbins} z_ncols={z_ncols})"
+    assert got == ref, f"maxabsdiff={abs(got - ref):.3e} (n={n} nbins={nbins} z_ncols={z_ncols})"
     # and the fused kernel must NOT mutate the shared classes_yz array
     cyz2, _, _ = merge_vars(data, yz, None, factors_nbins, dtype=np.int32)
     assert np.array_equal(classes_yz, cyz2), "fused kernel mutated classes_yz (must be read-only)"

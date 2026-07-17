@@ -17,6 +17,7 @@ The user's specific format request (Session 7 batch 8): BTTR/BTV=X1%/X2%
 (val side), BTTR/BTTS=X1%/X3% (test side) — one BTTR with two values
 for train/split, not two separate metrics.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -35,7 +36,9 @@ def test_binary_val_appends_BTV():
     """VAL side: model_name BTTR=74% + val target → ...BTTR/BTV=74%/80%"""
     val_target = np.array([1, 1, 1, 1, 0])  # 80%
     out = _append_split_rate_suffix(
-        "cb_run BTTR=74%", split_name="val", target=val_target,
+        "cb_run BTTR=74%",
+        split_name="val",
+        target=val_target,
     )
     assert out == "cb_run BTTR/BTV=74%/80%"
 
@@ -45,7 +48,9 @@ def test_binary_test_appends_BTTS():
     # 5/6 = 0.833... rounds to 83
     test_target = np.array([1, 1, 1, 1, 1, 0])
     out = _append_split_rate_suffix(
-        "cb_run BTTR=74%", split_name="test", target=test_target,
+        "cb_run BTTR=74%",
+        split_name="test",
+        target=test_target,
     )
     assert out == "cb_run BTTR/BTTS=74%/83%"
 
@@ -59,10 +64,14 @@ def test_binary_user_production_pattern():
     test_y = (rng.uniform(size=10_000) < 0.83).astype(np.int8)
 
     val_out = _append_split_rate_suffix(
-        "cl_act_total_hired_above_1 BTTR=74%", split_name="val", target=val_y,
+        "cl_act_total_hired_above_1 BTTR=74%",
+        split_name="val",
+        target=val_y,
     )
     test_out = _append_split_rate_suffix(
-        "cl_act_total_hired_above_1 BTTR=74%", split_name="test", target=test_y,
+        "cl_act_total_hired_above_1 BTTR=74%",
+        split_name="test",
+        target=test_y,
     )
     # New format: BTTR/BTV=74%/<val_rate>% (spliced inline, not appended).
     assert "BTTR/BTV=74%/" in val_out
@@ -79,7 +88,9 @@ def test_binary_train_split_no_append():
     (BTTR= is already on the model_name from select_target)."""
     target = np.array([0, 1, 1, 0])
     out = _append_split_rate_suffix(
-        "cb_run BTTR=74%", split_name="train", target=target,
+        "cb_run BTTR=74%",
+        split_name="train",
+        target=target,
     )
     assert out == "cb_run BTTR=74%"
 
@@ -92,7 +103,9 @@ def test_binary_train_split_no_append():
 def test_regression_val_appends_MTV():
     val_target = np.array([1.0, 2.0, 3.0])  # mean 2.0
     out = _append_split_rate_suffix(
-        "cb_run MTTR=1.5000", split_name="val", target=val_target,
+        "cb_run MTTR=1.5000",
+        split_name="val",
+        target=val_target,
     )
     # The split-suffix uses the adaptive ``format_metric`` (default 2 d.p.)
     # rather than the legacy hard-coded ``:.4f``. For |val|>=1 this collapses
@@ -103,7 +116,9 @@ def test_regression_val_appends_MTV():
 def test_regression_test_appends_MTTS():
     test_target = np.array([10.0, 20.0])  # mean 15.0
     out = _append_split_rate_suffix(
-        "cb_run MTTR=12.5000", split_name="test", target=test_target,
+        "cb_run MTTR=12.5000",
+        split_name="test",
+        target=test_target,
     )
     assert out == "cb_run MTTR/MTTS=12.5000/15.00"
 
@@ -115,25 +130,33 @@ def test_regression_test_appends_MTTS():
 
 def test_multilabel_val_appends_MLV():
     """VAL multilabel: per-label rate joined with commas, e.g. MLV=50,50,100%"""
-    val_target = np.array([
-        [0, 1, 1],
-        [1, 0, 1],
-        [0, 0, 1],
-        [1, 1, 1],
-    ])  # per-label means: 0.5, 0.5, 1.0
+    val_target = np.array(
+        [
+            [0, 1, 1],
+            [1, 0, 1],
+            [0, 0, 1],
+            [1, 1, 1],
+        ]
+    )  # per-label means: 0.5, 0.5, 1.0
     out = _append_split_rate_suffix(
-        "cb_run MLTR=40,52,31%", split_name="val", target=val_target,
+        "cb_run MLTR=40,52,31%",
+        split_name="val",
+        target=val_target,
     )
     assert out == "cb_run MLTR/MLV=40,52,31%/50,50,100%"
 
 
 def test_multilabel_test_appends_MLTS():
-    test_target = np.array([
-        [1, 1, 0],
-        [1, 0, 1],
-    ])  # per-label means: 1.0, 0.5, 0.5
+    test_target = np.array(
+        [
+            [1, 1, 0],
+            [1, 0, 1],
+        ]
+    )  # per-label means: 1.0, 0.5, 0.5
     out = _append_split_rate_suffix(
-        "cb_run MLTR=40,52,31%", split_name="test", target=test_target,
+        "cb_run MLTR=40,52,31%",
+        split_name="test",
+        target=test_target,
     )
     assert out == "cb_run MLTR/MLTS=40,52,31%/100,50,50%"
 
@@ -149,7 +172,9 @@ def test_legacy_BT_tag_passthrough():
     split-specific suffix — the legacy callers are non-suite paths."""
     target = np.array([0, 1, 1])
     out = _append_split_rate_suffix(
-        "cb_run BT=74%", split_name="val", target=target,
+        "cb_run BT=74%",
+        split_name="val",
+        target=target,
     )
     assert out == "cb_run BT=74%"
 
@@ -158,21 +183,27 @@ def test_no_recognized_tag_passthrough():
     """If model_name doesn't carry any *TR= token, leave it alone."""
     target = np.array([0, 1, 1])
     out = _append_split_rate_suffix(
-        "cb_run something_else", split_name="val", target=target,
+        "cb_run something_else",
+        split_name="val",
+        target=target,
     )
     assert out == "cb_run something_else"
 
 
 def test_target_none_returns_unchanged():
     out = _append_split_rate_suffix(
-        "cb_run BTTR=74%", split_name="val", target=None,
+        "cb_run BTTR=74%",
+        split_name="val",
+        target=None,
     )
     assert out == "cb_run BTTR=74%"
 
 
 def test_empty_target_returns_unchanged():
     out = _append_split_rate_suffix(
-        "cb_run BTTR=74%", split_name="val", target=np.array([], dtype=np.int8),
+        "cb_run BTTR=74%",
+        split_name="val",
+        target=np.array([], dtype=np.int8),
     )
     assert out == "cb_run BTTR=74%"
 
@@ -180,7 +211,9 @@ def test_empty_target_returns_unchanged():
 def test_pandas_series_input():
     val_target = pd.Series([1, 1, 1, 0])  # 75%
     out = _append_split_rate_suffix(
-        "cb_run BTTR=70%", split_name="val", target=val_target,
+        "cb_run BTTR=70%",
+        split_name="val",
+        target=val_target,
     )
     assert out == "cb_run BTTR/BTV=70%/75%"
 
@@ -189,14 +222,18 @@ def test_polars_series_input():
     pl = pytest.importorskip("polars")
     val_target = pl.Series([1, 1, 1, 0])
     out = _append_split_rate_suffix(
-        "cb_run BTTR=70%", split_name="val", target=val_target,
+        "cb_run BTTR=70%",
+        split_name="val",
+        target=val_target,
     )
     assert out == "cb_run BTTR/BTV=70%/75%"
 
 
 def test_invalid_split_name_returns_unchanged():
     out = _append_split_rate_suffix(
-        "cb_run BTTR=74%", split_name="oof", target=np.array([0, 1]),
+        "cb_run BTTR=74%",
+        split_name="oof",
+        target=np.array([0, 1]),
     )
     assert out == "cb_run BTTR=74%"
 
@@ -205,6 +242,8 @@ def test_multilabel_1d_input_returns_unchanged():
     """Multilabel tag with 1-D target is malformed; pass through."""
     target = np.array([0, 1, 1])
     out = _append_split_rate_suffix(
-        "cb_run MLTR=40,52,31%", split_name="val", target=target,
+        "cb_run MLTR=40,52,31%",
+        split_name="val",
+        target=target,
     )
     assert out == "cb_run MLTR=40,52,31%"

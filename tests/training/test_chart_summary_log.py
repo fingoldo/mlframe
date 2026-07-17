@@ -4,6 +4,7 @@ A default suite run saves nothing and renders nothing with no trace, so the oper
 tell "skipped by design" from "lost to a bug". log_chart_summary reads the metadata["charts"]
 accounting and always logs the count + destination (or the data_dir hint, or the failure count).
 """
+
 from __future__ import annotations
 
 import logging

@@ -10,10 +10,9 @@ of files per suite call) this exhausted the process fd ceiling.
 Post-fix: a _fd_adopted flag tracks whether BufferedWriter took ownership; the
 except branch explicitly os.close(fd) when adoption never happened.
 """
+
 from __future__ import annotations
 
-import os
-import tempfile
 import unittest.mock as mock
 
 import pytest
@@ -39,7 +38,6 @@ def test_atomic_write_bytes_does_not_leak_fd_when_fdopen_raises(tmp_path):
     # Patch os.fdopen to raise MemoryError on call -- simulates the rare-but-real
     # failure shape that triggered the leak. The patch must NOT affect the test runner's
     # own fd operations (e.g. caplog, pytest internals), so wrap precisely the call site.
-    original_fdopen = os.fdopen
     n_calls = 1000  # 1000 leaked fds would exhaust Windows default 8192 in 8 invocations of the test suite.
 
     def _raising_fdopen(fd, *args, **kwargs):

@@ -3,6 +3,7 @@
 ``predictor_consensus_entropy`` / ``predictor_top2_mode_gap`` replaced a per-predictor ``np.add.at`` scatter loop
 with the fused ``_row_bin_histogram_njit`` prange kernel (~27x on the scatter at 10M rows, bit-identical integer counts).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -63,6 +64,7 @@ def test_functions_no_longer_use_add_at_scatter(monkeypatch):
     The pre-fix scatter loop called ``np.add.at`` per predictor; on post-fix code the fused njit histogram replaces it,
     so the sabotaged ufunc is never touched. A revert to the scatter loop trips the sabotage and fails this sensor.
     """
+
     def _boom(*_a, **_k):
         raise AssertionError("np.add.at must not be used on the histogram fast path")
 

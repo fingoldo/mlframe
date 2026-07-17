@@ -31,6 +31,7 @@ that violates the honest contract is a NEW weakness and fails loudly here.
 Seeded + deterministic. n<=30000 throughout (RAM-capped shared box). Each fit is a
 separate test so a slow/failed cell is isolated under the per-cell timeout.
 """
+
 from __future__ import annotations
 
 import re
@@ -127,8 +128,7 @@ def _assert_byte_exact_replay(fs: MRMR, df: pd.DataFrame, lo: int = 5000, hi: in
         if not eq:
             diff = np.nanmax(np.abs(v_full - v_slice))
             raise AssertionError(
-                f"BUG2 REPLAY REGRESSION: engineered col {ec!r} not byte-exact on "
-                f"slice replay (max|delta|={diff}); recipe replay is NOT deterministic-from-raw"
+                f"BUG2 REPLAY REGRESSION: engineered col {ec!r} not byte-exact on slice replay (max|delta|={diff}); recipe replay is NOT deterministic-from-raw"
             )
     return eng_cols
 
@@ -139,9 +139,7 @@ def _transform_holdout_ok(fs: MRMR, df_new: pd.DataFrame) -> pd.DataFrame:
     out = fs.transform(df_new)
     assert out.shape[0] == df_new.shape[0]
     sel = list(fs.get_feature_names_out())
-    assert list(out.columns) == sel, (
-        f"transform columns {list(out.columns)} != selected {sel}"
-    )
+    assert list(out.columns) == sel, f"transform columns {list(out.columns)} != selected {sel}"
     return out
 
 
@@ -151,9 +149,9 @@ def _base_frame(seed: int, n: int = N, extra: dict | None = None) -> dict:
     rng = np.random.default_rng(seed)
     data = {
         "a": rng.normal(0.0, 1.0, n),
-        "b": rng.random(n) + 0.5,            # strictly positive divisor
-        "c": rng.random(n) + 0.5,            # strictly positive (log/sqrt arg)
-        "d": rng.random(n) + 0.5,            # strictly positive divisor
+        "b": rng.random(n) + 0.5,  # strictly positive divisor
+        "c": rng.random(n) + 0.5,  # strictly positive (log/sqrt arg)
+        "d": rng.random(n) + 0.5,  # strictly positive divisor
         "f": rng.normal(0.0, 1.0, n),
         "g": rng.normal(0.0, 1.0, n),
         "h": rng.normal(0.0, 1.0, n),
@@ -182,16 +180,13 @@ def test_bug1_private_plus_composite_keeps_raw():
     seed = 1
     d = _base_frame(seed)
     a, b = d["a"], d["b"]
-    y = a + (a ** 2) / b + 0.01 * d["f"]
+    y = a + (a**2) / b + 0.01 * d["f"]
     df = pd.DataFrame({k: d[k] for k in ("a", "b", "c", "d", "f")})
     fs = _fit(df, pd.Series(y, name="y"), seed=seed)
     sel = list(fs.get_feature_names_out())
     toks = _flat_tokens(sel)
     assert sel, "empty selection"
-    assert "a" in toks, (
-        f"BUG1 OVER-DROP: ``a`` has PRIVATE linear signal (y=a+a^2/b) yet its token "
-        f"vanished from selection {sel}"
-    )
+    assert "a" in toks, f"BUG1 OVER-DROP: ``a`` has PRIVATE linear signal (y=a+a^2/b) yet its token vanished from selection {sel}"
     # b participates only via the ratio; it may legitimately be represented inside the
     # composite or kept raw, but its support must not vanish either.
     assert "b" in toks, f"(a,b) ratio support lost: {sel}"
@@ -267,10 +262,7 @@ def test_bug1_subsumed_by_dropped_feature_keeps_raw():
     sel = list(fs.get_feature_names_out())
     toks = _flat_tokens(sel)
     assert sel, "BUG1 EMPTY-SELECTION: redundancy drop collapsed selection to empty"
-    assert "a" in toks, (
-        f"BUG1 OVER-DROP: dominant raw ``a`` dropped though no surviving engineered "
-        f"feature subsumes it: {sel}"
-    )
+    assert "a" in toks, f"BUG1 OVER-DROP: dominant raw ``a`` dropped though no surviving engineered feature subsumes it: {sel}"
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
@@ -357,7 +349,7 @@ def test_bug2_survivor_operand_chained_replay():
     seed = 12
     d = _base_frame(seed)
     ab = d["a"] * d["b"]
-    y = ab + 0.5 * ab ** 2 + 0.01 * d["f"]
+    y = ab + 0.5 * ab**2 + 0.01 * d["f"]
     df = pd.DataFrame({k: d[k] for k in ("a", "b", "c", "d", "f")})
     fs = _fit(df, pd.Series(y, name="y"), seed=seed)
     _assert_byte_exact_replay(fs, df)
@@ -419,10 +411,10 @@ def _orth_or_poly_features(selected) -> list:
 def _he_poly(a: np.ndarray, deg: int) -> np.ndarray:
     """Probabilists' Hermite He_deg(a) for deg in {2,3,4}."""
     if deg == 2:
-        return a ** 2 - 1.0
+        return a**2 - 1.0
     if deg == 3:
-        return a ** 3 - 3.0 * a
-    return a ** 4 - 6.0 * a ** 2 + 3.0
+        return a**3 - 3.0 * a
+    return a**4 - 6.0 * a**2 + 3.0
 
 
 @pytest.mark.timeout(360)
@@ -453,10 +445,7 @@ def test_bug3_hermite_degree_recovers_support(deg, coef):
     assert "b" in toks, f"BUG3: He{deg}(a)*b dominant operand ``b`` lost: {sel}"
     assert ("a" in toks) or ("b" in toks), f"He{deg} pair support collapsed: {sel}"
     # No spurious cross-synergy welding a noise column (c,d) into the (a,b) interaction.
-    noise_synergy = [
-        nm for nm in _engineered_selected(sel)
-        if ({"c", "d"} & _operand_tokens(nm)) and ({"a", "b"} & _operand_tokens(nm))
-    ]
+    noise_synergy = [nm for nm in _engineered_selected(sel) if ({"c", "d"} & _operand_tokens(nm)) and ({"a", "b"} & _operand_tokens(nm))]
     assert not noise_synergy, f"He{deg}: noise operand welded into (a,b) synergy: {noise_synergy}"
     _transform_holdout_ok(fs, df.iloc[:500])
 
@@ -479,7 +468,7 @@ def test_bug3_hermite_a_recovered_majority():
         c = rng.random(n) + 0.5
         dd = rng.random(n) + 0.5
         f = rng.normal(0, 1, n)
-        y = (a ** 2 - 1.0) * b + 0.05 * f
+        y = (a**2 - 1.0) * b + 0.05 * f
         df = pd.DataFrame({"a": a, "b": b, "c": c, "d": dd, "f": f})
         fs = _fit(df, pd.Series(y, name="y"), seed=s)
         toks = _flat_tokens(list(fs.get_feature_names_out()))
@@ -502,12 +491,12 @@ def test_bug3_orth_basis_family_recovers_support(basis):
     a = np.clip(d["a"], -1.0, 1.0)  # legendre/chebyshev domain
     b = d["b"]
     if basis == "legendre":
-        pa = 0.5 * (3 * a ** 2 - 1)          # P2
+        pa = 0.5 * (3 * a**2 - 1)  # P2
     elif basis == "chebyshev":
-        pa = 2 * a ** 2 - 1                   # T2
+        pa = 2 * a**2 - 1  # T2
     else:  # laguerre L2 on positive support
-        ap = d["c"]                           # positive arg
-        pa = 0.5 * (ap ** 2 - 4 * ap + 2)
+        ap = d["c"]  # positive arg
+        pa = 0.5 * (ap**2 - 4 * ap + 2)
         a = ap
     y = pa * b + 0.05 * d["f"]
     df = pd.DataFrame({"a": a, "b": b, "c": d["c"], "d": d["d"], "f": d["f"]})
@@ -535,9 +524,7 @@ def test_bug3_adaptive_fourier_inner_freq_recovers(k):
     sel = list(fs.get_feature_names_out())
     toks = _flat_tokens(sel)
     assert sel, f"empty selection sin({k}*d)"
-    assert "d" in toks, (
-        f"BUG3 adaptive-Fourier could not reach inner freq k={k}: ``d`` support lost: {sel}"
-    )
+    assert "d" in toks, f"BUG3 adaptive-Fourier could not reach inner freq k={k}: ``d`` support lost: {sel}"
     _transform_holdout_ok(fs, df.iloc[:500])
 
 
@@ -554,15 +541,14 @@ def test_bug3_richer_poly_beats_weak_simple():
     seed = 50
     d = _base_frame(seed)
     a, b = d["a"], d["b"]
-    y = (a ** 2 - 1.0) * b + 0.02 * d["f"]
+    y = (a**2 - 1.0) * b + 0.02 * d["f"]
     df = pd.DataFrame({k: d[k] for k in ("a", "b", "c", "d", "f")})
     fs = _fit(df, pd.Series(y, name="y"), seed=seed)
     sel = list(fs.get_feature_names_out())
     toks = _flat_tokens(sel)
     assert "a" in toks and "b" in toks, f"He2(a)*b joint support lost: {sel}"
     # Diagnostic (not asserted as hard recovery to avoid masking the weak-signal limit):
-    joint_eng = [nm for nm in _engineered_selected(sel)
-                 if {"a", "b"} <= _operand_tokens(nm)]
+    joint_eng = [nm for nm in _engineered_selected(sel) if {"a", "b"} <= _operand_tokens(nm)]
     # If escalation fired we expect a joint engineered (a,b) feature. Record either way.
     fs._adv_joint_eng_admitted = bool(joint_eng)  # type: ignore[attr-defined]
     _transform_holdout_ok(fs, df.iloc[:500])
@@ -587,8 +573,7 @@ def test_bug3_pure_noise_no_fabrication():
     # No engineered 'synergy' feature spanning 2+ operands may be fabricated on noise.
     multi_operand_eng = [nm for nm in eng if len(_operand_tokens(nm)) >= 2]
     assert not multi_operand_eng, (
-        f"BUG3 FABRICATION: pure-noise target produced multi-operand engineered "
-        f"feature(s) {multi_operand_eng} (escalation hallucinated synergy): {sel}"
+        f"BUG3 FABRICATION: pure-noise target produced multi-operand engineered feature(s) {multi_operand_eng} (escalation hallucinated synergy): {sel}"
     )
 
 
@@ -608,10 +593,6 @@ def test_bug3_noise_plus_additive_no_spurious_poly():
     assert "a" in toks, f"linear ``a`` support lost: {sel}"
     # noise columns b,c,d,f must not be welded into a fabricated synergy with a
     noise_synergy = [
-        nm for nm in _engineered_selected(sel)
-        if {"b", "c", "d", "f"} & _operand_tokens(nm) and "a" in _operand_tokens(nm)
-        and len(_operand_tokens(nm)) >= 2
+        nm for nm in _engineered_selected(sel) if {"b", "c", "d", "f"} & _operand_tokens(nm) and "a" in _operand_tokens(nm) and len(_operand_tokens(nm)) >= 2
     ]
-    assert not noise_synergy, (
-        f"BUG3: linear target welded noise operand into a fabricated synergy: {noise_synergy}"
-    )
+    assert not noise_synergy, f"BUG3: linear target welded noise operand into a fabricated synergy: {noise_synergy}"

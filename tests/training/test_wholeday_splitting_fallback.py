@@ -26,23 +26,25 @@ WARN, and (b) gates on ``n_unique_days >= 1 + (val_size>0) +
 (test_size>0)``; below that floor, fall back to row-based with a
 clear WARN.
 """
+
 from __future__ import annotations
 
 import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.splitting import make_train_test_split
 
 
 def _build_df(n: int = 400):
     rng = np.random.default_rng(0)
-    return pd.DataFrame({
-        "x0": rng.standard_normal(n).astype(np.float32),
-        "y": rng.standard_normal(n).astype(np.float32),
-    })
+    return pd.DataFrame(
+        {
+            "x0": rng.standard_normal(n).astype(np.float32),
+            "y": rng.standard_normal(n).astype(np.float32),
+        }
+    )
 
 
 def test_single_unique_day_falls_back_to_row_based(caplog) -> None:
@@ -55,8 +57,11 @@ def test_single_unique_day_falls_back_to_row_based(caplog) -> None:
     ts = pd.Series(pd.to_datetime(["2026-01-01"] * n))
     with caplog.at_level(logging.WARNING, logger="mlframe.training.splitting"):
         result = make_train_test_split(
-            df=df, test_size=0.1, val_size=0.1,
-            timestamps=ts, wholeday_splitting=True,
+            df=df,
+            test_size=0.1,
+            val_size=0.1,
+            timestamps=ts,
+            wholeday_splitting=True,
         )
     train_idx, val_idx, test_idx = result[0], result[1], result[2]
     assert len(train_idx) > 0
@@ -64,10 +69,9 @@ def test_single_unique_day_falls_back_to_row_based(caplog) -> None:
     assert len(test_idx) > 0, "test split must be non-empty after fallback"
     # Fallback WARN must mention the unique-day count + the fallback
     # decision so future debuggers know what happened.
-    assert any(
-        "only 1 unique day" in rec.message and "row-based" in rec.message
-        for rec in caplog.records
-    ), f"expected fallback WARN; got: {[r.message for r in caplog.records]}"
+    assert any("only 1 unique day" in rec.message and "row-based" in rec.message for rec in caplog.records), (
+        f"expected fallback WARN; got: {[r.message for r in caplog.records]}"
+    )
 
 
 def test_numeric_ts_falls_back_to_row_based(caplog) -> None:
@@ -79,17 +83,19 @@ def test_numeric_ts_falls_back_to_row_based(caplog) -> None:
     ts = pd.Series(np.arange(n, dtype=np.int64) + 1_700_000_000)
     with caplog.at_level(logging.WARNING, logger="mlframe.training.splitting"):
         result = make_train_test_split(
-            df=df, test_size=0.1, val_size=0.1,
-            timestamps=ts, wholeday_splitting=True,
+            df=df,
+            test_size=0.1,
+            val_size=0.1,
+            timestamps=ts,
+            wholeday_splitting=True,
         )
     train_idx, val_idx, test_idx = result[0], result[1], result[2]
     assert len(train_idx) > 0
     assert len(val_idx) > 0
     assert len(test_idx) > 0
-    assert any(
-        "numeric" in rec.message and "row-based" in rec.message
-        for rec in caplog.records
-    ), f"expected numeric-ts WARN; got: {[r.message for r in caplog.records]}"
+    assert any("numeric" in rec.message and "row-based" in rec.message for rec in caplog.records), (
+        f"expected numeric-ts WARN; got: {[r.message for r in caplog.records]}"
+    )
 
 
 def test_two_unique_days_with_val_and_test_falls_back(caplog) -> None:
@@ -97,22 +103,24 @@ def test_two_unique_days_with_val_and_test_falls_back(caplog) -> None:
     must fall back. Locks the ``1 + val + test`` floor."""
     n = 200
     df = _build_df(n)
-    ts = pd.Series(pd.to_datetime(
-        ["2026-01-01"] * (n // 2) + ["2026-01-02"] * (n - n // 2),
-    ))
+    ts = pd.Series(
+        pd.to_datetime(
+            ["2026-01-01"] * (n // 2) + ["2026-01-02"] * (n - n // 2),
+        )
+    )
     with caplog.at_level(logging.WARNING, logger="mlframe.training.splitting"):
         result = make_train_test_split(
-            df=df, test_size=0.1, val_size=0.1,
-            timestamps=ts, wholeday_splitting=True,
+            df=df,
+            test_size=0.1,
+            val_size=0.1,
+            timestamps=ts,
+            wholeday_splitting=True,
         )
     train_idx, val_idx, test_idx = result[0], result[1], result[2]
     assert len(train_idx) > 0
     assert len(val_idx) > 0
     assert len(test_idx) > 0
-    assert any(
-        "only 2 unique day" in rec.message
-        for rec in caplog.records
-    )
+    assert any("only 2 unique day" in rec.message for rec in caplog.records)
 
 
 def test_enough_unique_days_no_fallback(caplog) -> None:
@@ -120,7 +128,6 @@ def test_enough_unique_days_no_fallback(caplog) -> None:
     predicted_n_test=3, predicted_n_val=2; both non-zero, no fallback.
     wholeday_splitting path stays active."""
     df = _build_df(400)
-    n = 400
     # 10 unique calendar days (40 rows per day).
     day_strs: list[str] = []
     for d in range(10):
@@ -128,8 +135,11 @@ def test_enough_unique_days_no_fallback(caplog) -> None:
     ts = pd.Series(pd.to_datetime(day_strs))
     with caplog.at_level(logging.WARNING, logger="mlframe.training.splitting"):
         result = make_train_test_split(
-            df=df, test_size=0.34, val_size=0.34,
-            timestamps=ts, wholeday_splitting=True,
+            df=df,
+            test_size=0.34,
+            val_size=0.34,
+            timestamps=ts,
+            wholeday_splitting=True,
         )
     train_idx, val_idx, test_idx = result[0], result[1], result[2]
     # All three splits populated by date assignment.
@@ -137,10 +147,7 @@ def test_enough_unique_days_no_fallback(caplog) -> None:
     assert len(val_idx) > 0
     assert len(test_idx) > 0
     # No fallback WARN -- both predicted sizes were non-zero.
-    assert not any(
-        "falling back to row-based" in rec.message
-        for rec in caplog.records
-    ), "expected no fallback at n_days=10; got fallback warnings"
+    assert not any("falling back to row-based" in rec.message for rec in caplog.records), "expected no fallback at n_days=10; got fallback warnings"
 
 
 def test_single_day_val_size_zero_no_fallback() -> None:
@@ -151,8 +158,11 @@ def test_single_day_val_size_zero_no_fallback() -> None:
     df = _build_df(n)
     ts = pd.Series(pd.to_datetime(["2026-01-01"] * n))
     result = make_train_test_split(
-        df=df, test_size=0.1, val_size=0.0,
-        timestamps=ts, wholeday_splitting=True,
+        df=df,
+        test_size=0.1,
+        val_size=0.0,
+        timestamps=ts,
+        wholeday_splitting=True,
     )
     train_idx, val_idx, test_idx = result[0], result[1], result[2]
     assert len(train_idx) > 0
@@ -168,8 +178,11 @@ def test_single_day_zero_val_and_test_no_fallback_needed() -> None:
     df = _build_df(n)
     ts = pd.Series(pd.to_datetime(["2026-01-01"] * n))
     result = make_train_test_split(
-        df=df, test_size=0.0, val_size=0.0,
-        timestamps=ts, wholeday_splitting=True,
+        df=df,
+        test_size=0.0,
+        val_size=0.0,
+        timestamps=ts,
+        wholeday_splitting=True,
     )
     train_idx = result[0]
     assert len(train_idx) == n

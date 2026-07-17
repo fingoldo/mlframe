@@ -6,6 +6,7 @@ column-dropping step between that check and the fit primitive (or a direct calle
 one feature`` and aborts the whole suite run. The guard now returns ``(None, None)`` so the caller's ``if model is None``
 skip path handles it. Pre-fix this test failed with the CatBoostError; post-fix it returns a clean skip.
 """
+
 import os
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")

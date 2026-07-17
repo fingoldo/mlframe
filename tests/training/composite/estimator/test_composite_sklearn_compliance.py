@@ -9,6 +9,7 @@ Two contracts pinned across the affected estimator classes:
 Plus targeted regressions: bagging re-validates moved-out params in fit, the quantile wrapper stores ``alphas`` verbatim
 (clone round-trips a list), and the tail composite does not mutate its ``base_estimator`` prototype.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -104,9 +105,7 @@ _CASES = [
     ),
     (
         "missing",
-        lambda: MissingAwareComposite(
-            composite=CompositeTargetEstimator(base_estimator=Ridge(), base_column="base", transform_name="diff")
-        ),
+        lambda: MissingAwareComposite(composite=CompositeTargetEstimator(base_estimator=Ridge(), base_column="base", transform_name="diff")),
         _fit_xy,
         _predict,
         N_FEATURES,
@@ -189,9 +188,7 @@ def test_composite_sets_n_features_in_after_fit(case_id, factory, fit_fn, predic
     y = _make_y(X, rng)
     est = factory()
     fit_fn(est, X, y)
-    assert getattr(est, "n_features_in_", None) == expected_nf, (
-        f"{case_id}: n_features_in_={getattr(est, 'n_features_in_', None)!r}, expected {expected_nf}"
-    )
+    assert getattr(est, "n_features_in_", None) == expected_nf, f"{case_id}: n_features_in_={getattr(est, 'n_features_in_', None)!r}, expected {expected_nf}"
     # predict path works after fit (no regression in the happy path).
     predict_fn(est, X)
 

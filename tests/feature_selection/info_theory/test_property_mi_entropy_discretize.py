@@ -19,6 +19,7 @@ arrays respectively, so two tiny adapters here (``_mi_arrs`` / ``_entropy_arr``)
 them to the 1-D integer-array signature these properties are most naturally stated in.
 The adapters do not implement the math, they only marshal arguments.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -43,9 +44,7 @@ _NBINS = st.integers(min_value=2, max_value=20)
 _FLOAT_ARRAY = arrays(
     dtype=np.float64,
     shape=st.integers(min_value=20, max_value=200),
-    elements=st.floats(
-        min_value=-100, max_value=100, allow_nan=False, allow_infinity=False
-    ),
+    elements=st.floats(min_value=-100, max_value=100, allow_nan=False, allow_infinity=False),
 )
 _INT_ARRAY = arrays(
     dtype=np.int32,
@@ -87,9 +86,7 @@ def _mi_arrs(x: np.ndarray, y: np.ndarray) -> float:
         [int(x.max()) + 1 if x.size else 1, int(y.max()) + 1 if y.size else 1],
         dtype=np.int64,
     )
-    return float(
-        mi(factors_data, np.array([0], dtype=np.int64), np.array([1], dtype=np.int64), nbins)
-    )
+    return float(mi(factors_data, np.array([0], dtype=np.int64), np.array([1], dtype=np.int64), nbins))
 
 
 def _entropy_arr(x: np.ndarray) -> float:

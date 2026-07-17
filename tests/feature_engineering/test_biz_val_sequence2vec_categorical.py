@@ -5,6 +5,7 @@ dominates its sequence, skip-gram embeddings should place same-cluster tokens ne
 cluster tokens far apart, so a downstream classifier on the entity-level mean embedding recovers the true
 label far better than a majority-class baseline.
 """
+
 from __future__ import annotations
 
 import numpy as np

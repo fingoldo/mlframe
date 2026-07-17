@@ -31,6 +31,7 @@ Sites fixed (5 actionable):
 All fixes follow the uniform "null_count() pre + null_count() post + logger.info
 delta when nonzero" pattern so OOV-cast-failure is no longer invisible.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -48,9 +49,7 @@ def _read_phase_helpers_combined() -> str:
     The enum-cast block moved into the sibling during the 2026-05-21
     monolith split (re-exported via the bottom-of-file import at
     _phase_helpers.py:714). Both locations are valid for the wave-72 sensor."""
-    return _read("training/core/_phase_helpers.py") + "\n" + _read(
-        "training/core/_phase_helpers_fit_split.py"
-    )
+    return _read("training/core/_phase_helpers.py") + "\n" + _read("training/core/_phase_helpers_fit_split.py")
 
 
 def test_phase_helpers_enum_cast_uses_train_plus_val_domain() -> None:
@@ -60,7 +59,7 @@ def test_phase_helpers_enum_cast_uses_train_plus_val_domain() -> None:
     # val cast strict=True now (domain includes val so no silent OOV).
     assert "val_df = _enum_cast(val_df, strict=True)" in src
     # test cast keeps strict=False with delta logging.
-    assert "_enum_cast(test_df, strict=False, split_name=\"test\")" in src
+    assert '_enum_cast(test_df, strict=False, split_name="test")' in src
 
 
 def test_phase_helpers_enum_cast_logs_oov_delta_on_test() -> None:
@@ -112,8 +111,7 @@ def test_train_plus_val_enum_domain_eliminates_val_oov() -> None:
     val = pl.DataFrame({"cat": ["a", "c"]})
 
     # The wave-72 fix: domain = sorted(set(train) | set(val), key=str).
-    domain = sorted(set(train["cat"].drop_nulls().unique().to_list())
-                    | set(val["cat"].drop_nulls().unique().to_list()), key=str)
+    domain = sorted(set(train["cat"].drop_nulls().unique().to_list()) | set(val["cat"].drop_nulls().unique().to_list()), key=str)
     assert domain == ["a", "b", "c"]
 
     # val cast strict=True succeeds (no OOV).

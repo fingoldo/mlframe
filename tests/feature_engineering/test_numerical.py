@@ -10,7 +10,7 @@ Includes:
 import pytest
 import numpy as np
 from scipy import stats
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings
 
 from mlframe.feature_engineering.numerical import (
     compute_numaggs,
@@ -36,6 +36,7 @@ def _seed_global_numpy_rng():
 # =============================================================================
 # TEST FIXTURES
 # =============================================================================
+
 
 @pytest.fixture
 def random_array_100():
@@ -76,11 +77,11 @@ def weights_array():
 # REGRESSION TESTS: BASIC STATISTICS VS NUMPY
 # =============================================================================
 
+
 class TestBasicStatsRegression:
     """Regression tests for basic statistics against numpy."""
 
-    @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False),
-                    min_size=5, max_size=200))
+    @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False), min_size=5, max_size=200))
     @settings(max_examples=50, deadline=None)
     def test_min_vs_numpy(self, arr):
         """Test minimum matches numpy."""
@@ -88,8 +89,7 @@ class TestBasicStatsRegression:
         min_val, _, _, _, _, _ = compute_simple_stats_numba(arr)
         assert np.isclose(min_val, np.min(arr), rtol=1e-10)
 
-    @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False),
-                    min_size=5, max_size=200))
+    @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False), min_size=5, max_size=200))
     @settings(max_examples=50, deadline=None)
     def test_max_vs_numpy(self, arr):
         """Test maximum matches numpy."""
@@ -97,8 +97,7 @@ class TestBasicStatsRegression:
         _, max_val, _, _, _, _ = compute_simple_stats_numba(arr)
         assert np.isclose(max_val, np.max(arr), rtol=1e-10)
 
-    @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False),
-                    min_size=5, max_size=200))
+    @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False), min_size=5, max_size=200))
     @settings(max_examples=50, deadline=None)
     def test_argmin_vs_numpy(self, arr):
         """Test argmin matches numpy."""
@@ -106,8 +105,7 @@ class TestBasicStatsRegression:
         _, _, argmin, _, _, _ = compute_simple_stats_numba(arr)
         assert int(argmin) == np.argmin(arr)
 
-    @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False),
-                    min_size=5, max_size=200))
+    @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False), min_size=5, max_size=200))
     @settings(max_examples=50, deadline=None)
     def test_argmax_vs_numpy(self, arr):
         """Test argmax matches numpy."""
@@ -115,8 +113,7 @@ class TestBasicStatsRegression:
         _, _, _, argmax, _, _ = compute_simple_stats_numba(arr)
         assert int(argmax) == np.argmax(arr)
 
-    @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False),
-                    min_size=5, max_size=200))
+    @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False), min_size=5, max_size=200))
     @settings(max_examples=50, deadline=None)
     def test_mean_vs_numpy(self, arr):
         """Test mean matches numpy."""
@@ -124,8 +121,7 @@ class TestBasicStatsRegression:
         _, _, _, _, mean_val, _ = compute_simple_stats_numba(arr)
         assert np.isclose(mean_val, np.mean(arr), rtol=1e-10)
 
-    @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False),
-                    min_size=5, max_size=200))
+    @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False), min_size=5, max_size=200))
     @settings(max_examples=50, deadline=None)
     def test_std_vs_numpy(self, arr):
         """Test std matches numpy (ddof=0)."""
@@ -138,6 +134,7 @@ class TestBasicStatsRegression:
 # REGRESSION TESTS: EXOTIC MEANS VS SCIPY/MANUAL
 # =============================================================================
 
+
 class TestExoticMeansRegression:
     """Regression tests for exotic means (quadratic, cubic, geometric, harmonic)."""
 
@@ -148,9 +145,9 @@ class TestExoticMeansRegression:
         names = get_basic_feature_names(whiten_means=False, return_exotic_means=True)
 
         # Find quadratic mean in results
-        quad_idx = names.index('quadmean')
+        quad_idx = names.index("quadmean")
         computed = result[quad_idx]
-        expected = np.sqrt(np.mean(arr ** 2))
+        expected = np.sqrt(np.mean(arr**2))
         assert np.isclose(computed, expected, rtol=1e-6), f"Quadratic mean: {computed} vs {expected}"
 
     def test_cubic_mean_vs_reference(self, positive_array):
@@ -159,9 +156,9 @@ class TestExoticMeansRegression:
         result = compute_numerical_aggregates_numba(arr, whiten_means=False, return_exotic_means=True)
         names = get_basic_feature_names(whiten_means=False, return_exotic_means=True)
 
-        cubic_idx = names.index('qubmean')
+        cubic_idx = names.index("qubmean")
         computed = result[cubic_idx]
-        expected = np.cbrt(np.mean(arr ** 3))
+        expected = np.cbrt(np.mean(arr**3))
         assert np.isclose(computed, expected, rtol=1e-6), f"Cubic mean: {computed} vs {expected}"
 
     def test_geometric_mean_vs_scipy(self, positive_array):
@@ -170,7 +167,7 @@ class TestExoticMeansRegression:
         result = compute_numerical_aggregates_numba(arr, whiten_means=False, return_exotic_means=True)
         names = get_basic_feature_names(whiten_means=False, return_exotic_means=True)
 
-        geo_idx = names.index('geomean')
+        geo_idx = names.index("geomean")
         computed = result[geo_idx]
         expected = stats.gmean(arr)
         assert np.isclose(computed, expected, rtol=1e-6), f"Geometric mean: {computed} vs {expected}"
@@ -181,7 +178,7 @@ class TestExoticMeansRegression:
         result = compute_numerical_aggregates_numba(arr, whiten_means=False, return_exotic_means=True)
         names = get_basic_feature_names(whiten_means=False, return_exotic_means=True)
 
-        harm_idx = names.index('harmmean')
+        harm_idx = names.index("harmmean")
         computed = result[harm_idx]
         expected = stats.hmean(arr)
         assert np.isclose(computed, expected, rtol=1e-6), f"Harmonic mean: {computed} vs {expected}"
@@ -194,12 +191,12 @@ class TestExoticMeansRegression:
         # Non-whitened
         result_raw = compute_numerical_aggregates_numba(arr, whiten_means=False, return_exotic_means=True)
         names = get_basic_feature_names(whiten_means=False, return_exotic_means=True)
-        quad_raw = result_raw[names.index('quadmean')]
+        quad_raw = result_raw[names.index("quadmean")]
 
         # Whitened (note: whitened names have 'w' suffix)
         result_white = compute_numerical_aggregates_numba(arr, whiten_means=True, return_exotic_means=True)
         names_white = get_basic_feature_names(whiten_means=True, return_exotic_means=True)
-        quad_white = result_white[names_white.index('quadmeanw')]
+        quad_white = result_white[names_white.index("quadmeanw")]
 
         assert np.isclose(quad_white, quad_raw - arith_mean, rtol=1e-6)
 
@@ -207,6 +204,7 @@ class TestExoticMeansRegression:
 # =============================================================================
 # REGRESSION TESTS: MOMENTS VS SCIPY
 # =============================================================================
+
 
 class TestMomentsRegression:
     """Regression tests for statistical moments against scipy."""
@@ -218,7 +216,7 @@ class TestMomentsRegression:
         result, _ = compute_moments_slope_mi(arr, mean_val, directional_only=False)
         names = get_moments_slope_mi_feature_names(directional_only=False)
 
-        mad_idx = names.index('mad')
+        mad_idx = names.index("mad")
         computed = result[mad_idx]
         expected = np.mean(np.abs(arr - mean_val))
         assert np.isclose(computed, expected, rtol=1e-6), f"MAD: {computed} vs {expected}"
@@ -230,7 +228,7 @@ class TestMomentsRegression:
         result, _ = compute_moments_slope_mi(arr, mean_val, directional_only=False)
         names = get_moments_slope_mi_feature_names(directional_only=False)
 
-        std_idx = names.index('std')
+        std_idx = names.index("std")
         computed = result[std_idx]
         expected = np.std(arr, ddof=0)
         assert np.isclose(computed, expected, rtol=1e-6), f"Std: {computed} vs {expected}"
@@ -242,7 +240,7 @@ class TestMomentsRegression:
         result, _ = compute_moments_slope_mi(arr, mean_val, directional_only=False)
         names = get_moments_slope_mi_feature_names(directional_only=False)
 
-        skew_idx = names.index('skew')
+        skew_idx = names.index("skew")
         computed = result[skew_idx]
         expected = stats.skew(arr, bias=True)
         assert np.isclose(computed, expected, rtol=1e-4), f"Skewness: {computed} vs {expected}"
@@ -254,7 +252,7 @@ class TestMomentsRegression:
         result, _ = compute_moments_slope_mi(arr, mean_val, directional_only=False)
         names = get_moments_slope_mi_feature_names(directional_only=False)
 
-        kurt_idx = names.index('kurt')
+        kurt_idx = names.index("kurt")
         computed = result[kurt_idx]
         expected = stats.kurtosis(arr, fisher=True, bias=True)
         assert np.isclose(computed, expected, rtol=1e-4), f"Kurtosis: {computed} vs {expected}"
@@ -264,14 +262,18 @@ class TestMomentsRegression:
 # REGRESSION TESTS: QUANTILES AND TREND
 # =============================================================================
 
+
 class TestQuantilesAndTrendRegression:
     """Regression tests for quantiles and linear trend."""
 
-    @pytest.mark.parametrize("q", [
-        [0.1, 0.5, 0.9],
-        [0.25, 0.5, 0.75],
-        [0.05, 0.25, 0.5, 0.75, 0.95],
-    ])
+    @pytest.mark.parametrize(
+        "q",
+        [
+            [0.1, 0.5, 0.9],
+            [0.25, 0.5, 0.75],
+            [0.05, 0.25, 0.5, 0.75, 0.95],
+        ],
+    )
     def test_quantiles_vs_numpy(self, random_array_100, q):
         """Test quantiles match numpy.quantile."""
         arr = random_array_100
@@ -279,7 +281,7 @@ class TestQuantilesAndTrendRegression:
         result = compute_nunique_modes_quantiles_numpy(arr, q=q, quantile_method="median_unbiased")
 
         # Quantiles start after nunique, modes_min, modes_max, modes_mean, modes_qty
-        quantiles = result[5:5 + len(q)]
+        quantiles = result[5 : 5 + len(q)]
         # Use same method in numpy
         expected = np.quantile(arr, q, method="median_unbiased")
 
@@ -294,8 +296,8 @@ class TestQuantilesAndTrendRegression:
         result, _ = compute_moments_slope_mi(arr, mean_val)
         names = get_moments_slope_mi_feature_names()
 
-        slope_idx = names.index('slope')
-        intercept_idx = names.index('intercept')
+        slope_idx = names.index("slope")
+        intercept_idx = names.index("intercept")
 
         slope_computed = result[slope_idx]
         intercept_computed = result[intercept_idx]
@@ -304,10 +306,8 @@ class TestQuantilesAndTrendRegression:
         xvals = np.arange(len(arr), dtype=np.float64)
         slope_expected, intercept_expected = np.polyfit(xvals, arr, 1)
 
-        assert np.isclose(slope_computed, slope_expected, rtol=1e-6), \
-            f"Slope: {slope_computed} vs {slope_expected}"
-        assert np.isclose(intercept_computed, intercept_expected, rtol=1e-6), \
-            f"Intercept: {intercept_computed} vs {intercept_expected}"
+        assert np.isclose(slope_computed, slope_expected, rtol=1e-6), f"Slope: {slope_computed} vs {slope_expected}"
+        assert np.isclose(intercept_computed, intercept_expected, rtol=1e-6), f"Intercept: {intercept_computed} vs {intercept_expected}"
 
     def test_r_value_vs_pearsonr(self, random_array_100):
         """Test correlation coefficient matches scipy.stats.pearsonr."""
@@ -317,7 +317,7 @@ class TestQuantilesAndTrendRegression:
         result, _ = compute_moments_slope_mi(arr, mean_val)
         names = get_moments_slope_mi_feature_names()
 
-        r_idx = names.index('r')
+        r_idx = names.index("r")
         r_computed = result[r_idx]
         xvals = np.arange(len(arr), dtype=np.float64)
         r_expected, _ = stats.pearsonr(xvals, arr)
@@ -328,6 +328,7 @@ class TestQuantilesAndTrendRegression:
 # =============================================================================
 # REGRESSION TESTS: WEIGHTED STATISTICS
 # =============================================================================
+
 
 class TestWeightedStatsRegression:
     """Regression tests for weighted statistics."""
@@ -340,12 +341,11 @@ class TestWeightedStatsRegression:
         result = compute_numerical_aggregates_numba(arr, weights=weights)
         names = get_basic_feature_names(weights=weights)
 
-        wmean_idx = names.index('warimean')
+        wmean_idx = names.index("warimean")
         computed = result[wmean_idx]
         expected = np.average(arr, weights=weights)
 
-        assert np.isclose(computed, expected, rtol=1e-6), \
-            f"Weighted mean: {computed} vs {expected}"
+        assert np.isclose(computed, expected, rtol=1e-6), f"Weighted mean: {computed} vs {expected}"
 
     def test_weighted_std_vs_manual(self, random_array_100, weights_array):
         """Test weighted std matches manual calculation."""
@@ -354,32 +354,38 @@ class TestWeightedStatsRegression:
         mean_val = np.mean(arr)
         wmean_val = np.average(arr, weights=weights)
 
-        result, _ = compute_moments_slope_mi(arr, mean_val, weights=weights,
-                                             weighted_mean_value=wmean_val)
+        result, _ = compute_moments_slope_mi(arr, mean_val, weights=weights, weighted_mean_value=wmean_val)
         names = get_moments_slope_mi_feature_names(weights=weights)
 
-        wstd_idx = names.index('wstd')
+        wstd_idx = names.index("wstd")
         computed = result[wstd_idx]
 
         # Manual weighted std
         expected = np.sqrt(np.average((arr - wmean_val) ** 2, weights=weights))
 
-        assert np.isclose(computed, expected, rtol=1e-6), \
-            f"Weighted std: {computed} vs {expected}"
+        assert np.isclose(computed, expected, rtol=1e-6), f"Weighted std: {computed} vs {expected}"
 
 
 # =============================================================================
 # PARAMETER COVERAGE TESTS
 # =============================================================================
 
+
 class TestParameterCoverage:
     """Test all parameter combinations produce consistent output."""
 
-    @pytest.mark.parametrize("param", [
-        "directional_only", "return_entropy", "return_hurst",
-        "return_profit_factor", "return_exotic_means",
-        "return_unsorted_stats", "return_n_zer_pos_int",
-    ])
+    @pytest.mark.parametrize(
+        "param",
+        [
+            "directional_only",
+            "return_entropy",
+            "return_hurst",
+            "return_profit_factor",
+            "return_exotic_means",
+            "return_unsorted_stats",
+            "return_n_zer_pos_int",
+        ],
+    )
     @pytest.mark.parametrize("enabled", [True, False])
     def test_boolean_param_output_length(self, random_array_100, param, enabled):
         """Test that each boolean parameter consistently affects output length."""
@@ -407,6 +413,7 @@ class TestParameterCoverage:
 # PERFORMANCE BENCHMARKS
 # =============================================================================
 
+
 class TestPerformanceBenchmarks:
     """Performance benchmarks comparing numba to numpy/scipy."""
 
@@ -422,8 +429,7 @@ class TestPerformanceBenchmarks:
         arr = random_array_1000
 
         def numpy_simple_stats(arr):
-            return (np.min(arr), np.max(arr), np.argmin(arr), np.argmax(arr),
-                    np.mean(arr), np.std(arr))
+            return (np.min(arr), np.max(arr), np.argmin(arr), np.argmax(arr), np.mean(arr), np.std(arr))
 
         benchmark(numpy_simple_stats, arr)
 
@@ -441,10 +447,7 @@ class TestPerformanceBenchmarks:
 
         def scipy_moments(arr):
             mean_val = np.mean(arr)
-            return (np.mean(np.abs(arr - mean_val)),
-                    np.std(arr),
-                    stats.skew(arr),
-                    stats.kurtosis(arr))
+            return (np.mean(np.abs(arr - mean_val)), np.std(arr), stats.skew(arr), stats.kurtosis(arr))
 
         benchmark(scipy_moments, arr)
 
@@ -460,7 +463,7 @@ class TestPerformanceBenchmarks:
         arr = random_array_1000
 
         def numpy_rolling_ma(arr, n):
-            return np.convolve(arr, np.ones(n) / n, mode='valid')
+            return np.convolve(arr, np.ones(n) / n, mode="valid")
 
         benchmark(numpy_rolling_ma, arr, 10)
 
@@ -498,6 +501,7 @@ class TestPerformanceBenchmarks:
 # EDGE CASE TESTS
 # =============================================================================
 
+
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""
 
@@ -532,7 +536,7 @@ class TestEdgeCases:
     def test_array_with_nans(self):
         """Test proper NaN handling in mixed array."""
         arr = np.array([1.0, np.nan, 3.0, np.nan, 5.0], dtype=np.float64)
-        min_val, max_val, argmin, argmax, mean_val, std_val = compute_simple_stats_numba(arr)
+        min_val, max_val, _argmin, _argmax, mean_val, _std_val = compute_simple_stats_numba(arr)
 
         # Should only consider finite values: [1.0, 3.0, 5.0]
         assert min_val == 1.0
@@ -542,14 +546,14 @@ class TestEdgeCases:
     def test_all_nan_array(self):
         """Test with all NaN array."""
         arr = np.array([np.nan, np.nan, np.nan], dtype=np.float64)
-        min_val, max_val, argmin, argmax, mean_val, std_val = compute_simple_stats_numba(arr)
+        _min_val, _max_val, _argmin, _argmax, mean_val, _std_val = compute_simple_stats_numba(arr)
         # Should handle gracefully
         assert isinstance(mean_val, float)
 
     def test_mixed_finite_infinite(self):
         """Test with mixed finite and infinite values."""
         arr = np.array([1.0, np.nan, 3.0, np.inf, 2.0], dtype=np.float64)
-        min_val, max_val, argmin, argmax, mean_val, std_val = compute_simple_stats_numba(arr)
+        min_val, max_val, _argmin, _argmax, _mean_val, _std_val = compute_simple_stats_numba(arr)
 
         # Should only consider finite values: [1.0, 3.0, 2.0]
         assert min_val == 1.0
@@ -586,6 +590,7 @@ class TestEdgeCases:
 # FUNCTIONAL CORRECTNESS TESTS
 # =============================================================================
 
+
 class TestFunctionalCorrectness:
     """Test functional correctness with known signals."""
 
@@ -621,7 +626,7 @@ class TestFunctionalCorrectness:
         result = compute_numerical_aggregates_numba(arr, return_profit_factor=True)
         names = get_basic_feature_names(return_profit_factor=True)
 
-        pf_idx = names.index('profit_factor')
+        pf_idx = names.index("profit_factor")
         computed = result[pf_idx]
         assert np.isclose(computed, 2.0, rtol=1e-6)
 
@@ -643,12 +648,11 @@ class TestFunctionalCorrectness:
 # HYPOTHESIS PROPERTY-BASED TESTS
 # =============================================================================
 
+
 class TestHypothesisProperties:
     """Property-based tests using Hypothesis."""
 
-    @given(st.lists(st.floats(allow_nan=False, allow_infinity=False,
-                              min_value=-1e6, max_value=1e6),
-                    min_size=2, max_size=100))
+    @given(st.lists(st.floats(allow_nan=False, allow_infinity=False, min_value=-1e6, max_value=1e6), min_size=2, max_size=100))
     @settings(max_examples=50, deadline=None)
     def test_compute_numaggs_output_length(self, arr):
         """Test that numaggs returns consistent length."""
@@ -657,19 +661,16 @@ class TestHypothesisProperties:
         expected_names = get_numaggs_names()
         assert len(result) == len(expected_names)
 
-    @given(st.lists(st.floats(min_value=1, max_value=1000,
-                              allow_nan=False, allow_infinity=False),
-                    min_size=5, max_size=100))
+    @given(st.lists(st.floats(min_value=1, max_value=1000, allow_nan=False, allow_infinity=False), min_size=5, max_size=100))
     @settings(max_examples=50, deadline=None)
     def test_simple_stats_min_max_correct(self, arr):
         """Test min/max calculation."""
         arr = np.array(arr, dtype=np.float64)
-        min_val, max_val, argmin, argmax, mean_val, std_val = compute_simple_stats_numba(arr)
+        min_val, max_val, _argmin, _argmax, _mean_val, _std_val = compute_simple_stats_numba(arr)
         assert np.isclose(min_val, arr.min())
         assert np.isclose(max_val, arr.max())
 
-    @given(st.lists(st.integers(min_value=-100, max_value=100),
-                    min_size=10, max_size=100))
+    @given(st.lists(st.integers(min_value=-100, max_value=100), min_size=10, max_size=100))
     @settings(max_examples=30, deadline=None)
     def test_quantiles_ordered(self, values):
         """Test that quantiles are properly ordered."""
@@ -688,8 +689,7 @@ class TestHypothesisProperties:
         expected_len = len(arr) - n + 1
         assert len(result) == expected_len
 
-    @given(st.lists(st.floats(min_value=0.01, max_value=0.99),
-                    min_size=1, max_size=5, unique=True))
+    @given(st.lists(st.floats(min_value=0.01, max_value=0.99), min_size=1, max_size=5, unique=True))
     @settings(max_examples=30, deadline=None)
     def test_numaggs_custom_quantiles(self, quantiles):
         """Test with custom quantile values."""
@@ -738,7 +738,7 @@ class TestFusedNuniqueModesQuantilesFastPath:
 
     def _reference_via_unique_path(self, arr, q):
         # Reproduces the exact pre-fix unique-based computation for the integer/exact slots.
-        vals, counts = np.unique(arr, return_counts=True)
+        vals, _counts = np.unique(arr, return_counts=True)
         return len(vals)
 
     def test_fast_path_avoids_np_unique_on_finite_input(self, monkeypatch):
@@ -768,7 +768,7 @@ class TestFusedNuniqueModesQuantilesFastPath:
             arr[::7] = arr[1]
             if seed == 5:
                 arr = np.round(arr, 1)  # heavy ties
-            vals, counts = np.unique(arr, return_counts=True)
+            vals, _counts = np.unique(arr, return_counts=True)
             res = np.asarray(fn(arr, quantile_method="median_unbiased"), dtype=np.float64)
             assert res[0] == len(vals)  # nunique exact
             ref_q = np.nanquantile(arr, np.asarray(default_quantiles), method="median_unbiased")

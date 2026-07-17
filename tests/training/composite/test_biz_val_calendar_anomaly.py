@@ -6,6 +6,7 @@ global mean is essentially the true typical level while the raw series' mean is 
 the concrete downstream consequence of not correcting for calendar anomalies before computing summary
 statistics or fitting a baseline model.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -111,7 +112,6 @@ def test_biz_val_detect_calendar_anomalies_recurrence_separates_weekly_pattern_f
     recurring_days_set = set(recurring_days.tolist())
     correctly_recurring = len(recurring_days_set & recurring_flagged)
     assert correctly_recurring >= len(recurring_days_set) * 0.95, (
-        f"expected >=95% of the {len(recurring_days_set)} genuine weekly-peak days classified 'recurring', "
-        f"got {correctly_recurring}"
+        f"expected >=95% of the {len(recurring_days_set)} genuine weekly-peak days classified 'recurring', got {correctly_recurring}"
     )
     assert len(recurring_days_set & rare_flagged) == 0

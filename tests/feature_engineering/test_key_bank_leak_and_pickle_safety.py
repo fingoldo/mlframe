@@ -7,6 +7,7 @@ SEC2 (``try_load_key_bank``): bare ``pickle.load`` on cache files was an RCE sur
 ``safe_pickle.safe_load`` (sha256 sidecar verified, written by ``save_key_bank`` via ``safe_dump``); a tampered
 pickle is refused (the loader treats the verification failure as a cache miss).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,10 +28,7 @@ def _make_bank() -> KeyBank:
     y_train = np.zeros(n_train, dtype=np.float32)
     bank = KeyBank(projections=projections, k_proj=k_proj, y_train=y_train)
     # A trivially picklable per-head index stand-in (pynndescent backend path -> goes through safe_dump).
-    bank.ann_indices = [
-        _AnnIndex(backend="pynndescent", obj={"head": h}, metric="cosine", head_dim=head_dim)
-        for h in range(n_heads)
-    ]
+    bank.ann_indices = [_AnnIndex(backend="pynndescent", obj={"head": h}, metric="cosine", head_dim=head_dim) for h in range(n_heads)]
     return bank
 
 

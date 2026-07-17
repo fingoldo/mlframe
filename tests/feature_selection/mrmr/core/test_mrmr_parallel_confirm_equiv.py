@@ -7,6 +7,7 @@ worker got the same shared object (one id); the fix passes a per-worker sanitize
 tie-break order divergence between the serial and parallel incumbent paths, so this pins the copy
 mechanism directly instead.)
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,6 +43,4 @@ def test_parallel_workers_receive_distinct_dict_copies(monkeypatch):
         f"workers shared one cached_MIs object ({len(set(cached_ids))} distinct of {len(cached_ids)} calls) "
         "-- per-worker copy missing; concurrent __setitem__ can crash"
     )
-    assert len(set(partial_ids)) >= 2, (
-        f"workers shared one partial_gains object ({len(set(partial_ids))} distinct of {len(partial_ids)} calls)"
-    )
+    assert len(set(partial_ids)) >= 2, f"workers shared one partial_gains object ({len(set(partial_ids))} distinct of {len(partial_ids)} calls)"

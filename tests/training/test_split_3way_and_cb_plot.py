@@ -6,6 +6,7 @@
 2. ``_maybe_disable_cb_plot`` -- inject ``plot=False`` for CatBoost fits outside
    an interactive notebook (pure-config, no numerics change).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -82,6 +83,7 @@ def test_3way_1d_fallback_is_disjoint_and_stratified():
 
 
 # ---- CatBoost plot=False injection ----
+
 
 def test_cb_plot_disabled_headless():
     fp: dict = {}

@@ -11,6 +11,7 @@ build + ``log_k.max(axis=1)`` + separate ``exp``) and asserts the live
 production function returns the exact same float64 across seeds + correlation
 regimes (incl. the unsafe-looking near-independent / strong-dependence cases).
 """
+
 from __future__ import annotations
 
 import math

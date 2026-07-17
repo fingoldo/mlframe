@@ -10,6 +10,7 @@ Imports the production helper ``_compute_pipeline_cache_key`` so any future regr
 that drops the feature-digest will fail this test rather than passing against a stale
 re-implementation in the test file.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -17,7 +18,7 @@ import pytest
 # pytest.importorskip keeps the test runnable on lean CI without heavy training deps.
 pytest.importorskip("sklearn")
 
-from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key  # noqa: E402
+from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key
 
 
 _BASE_KW = dict(
@@ -89,23 +90,48 @@ def test_other_dimensions_still_distinguish():
     # Tier, kind, strategy_cache_key, and pre_pipeline_name must still vary the key. Without this
     # the new features-digest suffix could mask a bug where one of the older suffixes was dropped.
     base = _compute_pipeline_cache_key(
-        strategy_cache_key="tree", pre_pipeline_name="pp", feature_tier=(False, False),
-        supports_polars=False, cat_features=["A"], text_features=[], embedding_features=[],
+        strategy_cache_key="tree",
+        pre_pipeline_name="pp",
+        feature_tier=(False, False),
+        supports_polars=False,
+        cat_features=["A"],
+        text_features=[],
+        embedding_features=[],
     )
     diff_tier = _compute_pipeline_cache_key(
-        strategy_cache_key="tree", pre_pipeline_name="pp", feature_tier=(True, False),
-        supports_polars=False, cat_features=["A"], text_features=[], embedding_features=[],
+        strategy_cache_key="tree",
+        pre_pipeline_name="pp",
+        feature_tier=(True, False),
+        supports_polars=False,
+        cat_features=["A"],
+        text_features=[],
+        embedding_features=[],
     )
     diff_kind = _compute_pipeline_cache_key(
-        strategy_cache_key="tree", pre_pipeline_name="pp", feature_tier=(False, False),
-        supports_polars=True, cat_features=["A"], text_features=[], embedding_features=[],
+        strategy_cache_key="tree",
+        pre_pipeline_name="pp",
+        feature_tier=(False, False),
+        supports_polars=True,
+        cat_features=["A"],
+        text_features=[],
+        embedding_features=[],
     )
     diff_strategy = _compute_pipeline_cache_key(
-        strategy_cache_key="linear", pre_pipeline_name="pp", feature_tier=(False, False),
-        supports_polars=False, cat_features=["A"], text_features=[], embedding_features=[],
+        strategy_cache_key="linear",
+        pre_pipeline_name="pp",
+        feature_tier=(False, False),
+        supports_polars=False,
+        cat_features=["A"],
+        text_features=[],
+        embedding_features=[],
     )
     diff_pp = _compute_pipeline_cache_key(
-        strategy_cache_key="tree", pre_pipeline_name="other", feature_tier=(False, False),
-        supports_polars=False, cat_features=["A"], text_features=[], embedding_features=[],
+        strategy_cache_key="tree",
+        pre_pipeline_name="other",
+        feature_tier=(False, False),
+        supports_polars=False,
+        cat_features=["A"],
+        text_features=[],
+        embedding_features=[],
     )
     assert len({base, diff_tier, diff_kind, diff_strategy, diff_pp}) == 5

@@ -5,6 +5,7 @@ The inherited Euclidean R^2 is meaningless on the simplex (it ignores the consta
 geometric-mean baseline using squared Aitchison distances. These tests pin that the default is Aitchison, that it
 rewards a genuinely-learnable compositional fit, and that the euclidean opt-out still returns the sklearn R^2.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -17,11 +18,16 @@ def _compositional_dataset(seed: int = 0, n: int = 1500):
     """3-part composition driven by 4 features through a softmax -- learnable on the log-ratio scale."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, 4))
-    logits = np.column_stack([
-        X @ np.array([1.2, -0.6, 0.0, 0.3]),
-        X @ np.array([-0.4, 0.9, 0.5, 0.0]),
-        np.zeros(n),
-    ]) + rng.standard_normal((n, 3)) * 0.15
+    logits = (
+        np.column_stack(
+            [
+                X @ np.array([1.2, -0.6, 0.0, 0.3]),
+                X @ np.array([-0.4, 0.9, 0.5, 0.0]),
+                np.zeros(n),
+            ]
+        )
+        + rng.standard_normal((n, 3)) * 0.15
+    )
     e = np.exp(logits - logits.max(axis=1, keepdims=True))
     y = e / e.sum(axis=1, keepdims=True)
     return X, y
@@ -29,6 +35,7 @@ def _compositional_dataset(seed: int = 0, n: int = 1500):
 
 def _make():
     from sklearn.linear_model import Ridge
+
     return CompositeSimplexEstimator(base_estimator=Ridge(alpha=1.0))
 
 

@@ -67,6 +67,7 @@ DCD + relative-gain stop + Miller-Madow + cardinality cell-budget
 pre-screen are ON by default (Wave 9 flip 2026-05-30). Layer 15
 respects those defaults and probes them in regression mode.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -171,6 +172,7 @@ def _make_mrmr(**overrides):
     binning path being tested.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -270,8 +272,8 @@ class TestTopTwoSignalsRecovered:
         """The two strongest signals (coef 1.5 and 0.8) appear in support_ on every seed."""
         _X, _y, sel = _linear_fit(seed)
         names = list(sel.get_feature_names_out())
-        assert "x_signal_1" in names, f"Strongest signal x_signal_1 (coef=1.5) missing from " f"support_; seed={seed}, support={names}"
-        assert "x_signal_2" in names, f"Second-strongest signal x_signal_2 (coef=0.8) missing " f"from support_; seed={seed}, support={names}"
+        assert "x_signal_1" in names, f"Strongest signal x_signal_1 (coef=1.5) missing from support_; seed={seed}, support={names}"
+        assert "x_signal_2" in names, f"Second-strongest signal x_signal_2 (coef=0.8) missing from support_; seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_strongest_signal_is_picked_first(self, seed):
@@ -280,9 +282,7 @@ class TestTopTwoSignalsRecovered:
         """
         _X, _y, sel = _linear_fit(seed)
         names = list(sel.get_feature_names_out())
-        assert names[0] == "x_signal_1", (
-            f"MRMR top-1 on linear regression must be x_signal_1 " f"(coef=1.5); got {names[0]} on seed={seed}; full " f"support={names}"
-        )
+        assert names[0] == "x_signal_1", f"MRMR top-1 on linear regression must be x_signal_1 (coef=1.5); got {names[0]} on seed={seed}; full support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +299,7 @@ class TestNoiseExcluded:
         _X, _y, sel = _linear_fit(seed)
         names = list(sel.get_feature_names_out())
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, f"noise column(s) {leaked} leaked into support_ on " f"continuous-y selection; seed={seed}, support={names}"
+        assert not leaked, f"noise column(s) {leaked} leaked into support_ on continuous-y selection; seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_no_noise_column_selected_lognormal(self, seed):
@@ -307,7 +307,7 @@ class TestNoiseExcluded:
         _X, _y, sel = _lognormal_fit(seed)
         names = list(sel.get_feature_names_out())
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, f"noise column(s) {leaked} leaked into log-normal y " f"support_; seed={seed}, support={names}"
+        assert not leaked, f"noise column(s) {leaked} leaked into log-normal y support_; seed={seed}, support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -328,7 +328,7 @@ class TestLogNormalAllThreeSignals:
         _X, _y, sel = _lognormal_fit(seed)
         names = list(sel.get_feature_names_out())
         for s in ("x_signal_1", "x_signal_2", "x_signal_3"):
-            assert s in names, f"signal {s!r} missing from log-normal y support_; " f"seed={seed}, support={names}"
+            assert s in names, f"signal {s!r} missing from log-normal y support_; seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_lognormal_y_gains_rank_order(self, seed):
@@ -344,14 +344,14 @@ class TestLogNormalAllThreeSignals:
         # Map name -> position in support_ (= selection order).
         pos = {n: i for i, n in enumerate(names)}
         assert pos["x_signal_1"] < pos["x_signal_2"] < pos["x_signal_3"], (
-            f"Selection order does not match effect-size order on " f"seed={seed}: support={names}, gains={list(sel.mrmr_gains_)}"
+            f"Selection order does not match effect-size order on seed={seed}: support={names}, gains={list(sel.mrmr_gains_)}"
         )
         # And the underlying gains are strictly descending across the
         # greedy steps (MRMR's invariant; pinned here as a regression
         # guard against a future change that would let later steps
         # report a higher gain than the previous one).
         gains = [sel.mrmr_gains_[pos[n]] for n in ("x_signal_1", "x_signal_2", "x_signal_3")]
-        assert gains[0] > gains[1] > gains[2], f"mrmr_gains_ not strictly descending across the 3 signals " f"on seed={seed}: {gains}"
+        assert gains[0] > gains[1] > gains[2], f"mrmr_gains_ not strictly descending across the 3 signals on seed={seed}: {gains}"
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +377,7 @@ class TestContinuousYBinning:
         from mlframe.feature_selection.filters.discretization import (
             categorize_dataset,
         )
+
         X, y = _build_linear_regression_data(seed)
         # Mimic the in-fit injection: y becomes one of the columns of
         # the frame passed to categorize_dataset, AND is also passed
@@ -461,4 +462,4 @@ class TestFloat32YParity:
         _fit_quiet(sel32, X.copy(), y32)
         sup32 = list(sel32.get_feature_names_out())
 
-        assert sup64 == sup32, f"float32 y diverged from float64 y on the same seed: " f"f64 support={sup64}, f32 support={sup32}, seed={seed}"
+        assert sup64 == sup32, f"float32 y diverged from float64 y on the same seed: f64 support={sup64}, f32 support={sup32}, seed={seed}"

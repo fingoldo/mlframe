@@ -23,6 +23,7 @@ shortcut) and then calling every one of the previously-broken helper functions w
 fitted instance must not raise. It fails pre-fix (dict/list/set container built from an
 ndarray ``feature_names_in_`` via ``X or []``) and passes post-fix.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,10 +40,15 @@ def _fitted_mrmr():
     )
     y = pd.Series(X["x0"] * 2 + X["x1"] - X["x2"] + rng.standard_normal(n) * 0.1, name="y")
     m = MRMR(
-        verbose=0, interactions_max_order=1, fe_max_steps=0,
-        dcd_enable=False, cluster_aggregate_enable=False,
-        build_friend_graph=False, cat_fe_config=None,
-        quantization_nbins=10, random_seed=0,
+        verbose=0,
+        interactions_max_order=1,
+        fe_max_steps=0,
+        dcd_enable=False,
+        cluster_aggregate_enable=False,
+        build_friend_graph=False,
+        cat_fe_config=None,
+        quantization_nbins=10,
+        random_seed=0,
     )
     m.fit(X, y)
     return m, X, y

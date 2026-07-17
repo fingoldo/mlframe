@@ -1,6 +1,7 @@
 """Follow-up type-handling fixes: (1) an all-categorical polars frame must not crash categorize_dataset; (2) abs_pearson
 passes f32 arrays to the kernel WITHOUT a full-length f64 copy (bit-identical -- the kernel promotes to f64 internally).
 """
+
 from __future__ import annotations
 
 import numpy as np

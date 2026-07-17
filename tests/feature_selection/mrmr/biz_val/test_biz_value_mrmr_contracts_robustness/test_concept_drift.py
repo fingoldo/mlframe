@@ -120,6 +120,7 @@ NOT PINNED (deliberately)
 * No tight upper bound on ``stable_x``'s frequency. 1.0 is the ideal
   outcome and we accept anything >= 0.80.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -524,7 +525,7 @@ class TestNoiseStaysBelowFloor:
         """
         X, _y, flaky_slices, sel = _build_and_fit_stability(seed)
         freqs = _freq_dict(sel, X.columns.tolist())
-        assert freqs["flaky"] == 0.0, f"seed={seed} flaky_slices={flaky_slices}: flaky freq " f"{freqs['flaky']:.3f} > 0 post-fix; expected 0.0. freqs={freqs}"
+        assert freqs["flaky"] == 0.0, f"seed={seed} flaky_slices={flaky_slices}: flaky freq {freqs['flaky']:.3f} > 0 post-fix; expected 0.0. freqs={freqs}"
 
 
 # ---------------------------------------------------------------------------
@@ -603,8 +604,8 @@ class TestSelectionProbabilitiesWellFormed:
         """Contract 7: selection_probabilities_ shape == n_features, all entries in [0, 1]."""
         X, _y, _, sel = _build_and_fit_stability(seed)
         probs = sel.selection_probabilities_
-        assert probs.shape == (X.shape[1],), f"seed={seed}: selection_probabilities_ shape {probs.shape} " f"!= (n_features={X.shape[1]},)"
-        assert np.all(np.isfinite(probs)), f"seed={seed}: selection_probabilities_ has non-finite " f"entries: {probs}"
+        assert probs.shape == (X.shape[1],), f"seed={seed}: selection_probabilities_ shape {probs.shape} != (n_features={X.shape[1]},)"
+        assert np.all(np.isfinite(probs)), f"seed={seed}: selection_probabilities_ has non-finite entries: {probs}"
         assert (probs >= 0.0).all(), f"seed={seed}: negative selection_probabilities_: {probs}"
         assert (probs <= 1.0).all(), f"seed={seed}: selection_probabilities_ > 1.0: {probs}"
 
@@ -619,9 +620,7 @@ class TestSelectionProbabilitiesWellFormed:
         scaled = probs * N_BOOTSTRAPS
         rounded = np.round(scaled)
         max_err = float(np.max(np.abs(scaled - rounded)))
-        assert max_err < 1e-9, (
-            f"seed={seed}: selection_probabilities_ are not on the " f"{1.0/N_BOOTSTRAPS:.4f} grid; max round error {max_err}. " f"probs={probs}"
-        )
+        assert max_err < 1e-9, f"seed={seed}: selection_probabilities_ are not on the {1.0 / N_BOOTSTRAPS:.4f} grid; max round error {max_err}. probs={probs}"
 
 
 # ---------------------------------------------------------------------------
@@ -649,5 +648,5 @@ class TestBaselinePlainMRMRRecoversStable:
         X, y, flaky_slices = _build_drifty_data(seed=seed)
         names = _fit_plain_mrmr(X, y)
         assert "stable_x" in names, (
-            f"seed={seed} flaky_slices={flaky_slices}: plain MRMR " f"baseline dropped stable_x; layer-12 contracts are " f"vacuous. support={names}"
+            f"seed={seed} flaky_slices={flaky_slices}: plain MRMR baseline dropped stable_x; layer-12 contracts are vacuous. support={names}"
         )

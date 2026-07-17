@@ -6,6 +6,7 @@ splits) and a LOCAL-density outlier (close to one cluster in absolute terms but 
 density -- LOF's strength). Neither single detector should rank BOTH planted outliers at the very top; the
 rank-averaged ensemble should.
 """
+
 from __future__ import annotations
 
 import numpy as np

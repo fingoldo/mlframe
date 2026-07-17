@@ -3,6 +3,7 @@
 Pins that the squared-distance-via-sgemm rewrite (|x-y|^2 = |x|^2 + |y|^2 - 2 x.y^T) does not move the log-KDE output
 beyond fp32 reduction-order noise (~1e-5 absolute on a ~O(1..100) log-density), well below any selection-altering delta.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -9,10 +9,10 @@ Covers ``score_interaction_pairs`` + ``discover_interaction_bases`` in
 - biz_value: on ``y = a*b``, the interaction base beats the best single base on
   held-out OOS RMSE by a wide margin (floor 50%; measured ~90%).
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.discovery._interaction_bases import (
     discover_interaction_bases,
@@ -100,7 +100,11 @@ class TestDiscoverInteractionBases:
     def test_surfaces_synthetic_for_pure_interaction(self):
         cand, y = _pure_interaction(3)
         synth, recs = discover_interaction_bases(
-            cand, y, ops=("mul",), top_k=3, max_pairs=2,
+            cand,
+            y,
+            ops=("mul",),
+            top_k=3,
+            max_pairs=2,
         )
         assert synth, "expected at least one surfaced interaction base"
         assert recs
@@ -121,7 +125,11 @@ class TestDiscoverInteractionBases:
     def test_commutative_op_dedup(self):
         cand, y = _pure_interaction(5)
         synth, _ = discover_interaction_bases(
-            cand, y, ops=("mul",), top_k=3, max_pairs=5,
+            cand,
+            y,
+            ops=("mul",),
+            top_k=3,
+            max_pairs=5,
         )
         # a__mul__b and b__mul__a must not BOTH appear (commutative dedup).
         norm = {tuple(sorted(n.split("__mul__"))) for n in synth}
@@ -142,20 +150,33 @@ class TestBizValInteractionBaseDiscovery:
             best_single = min(
                 ("a", "b", "c"),
                 key=lambda c: _ridge_oos_rmse(
-                    cand_tr[c], y_tr, cand_oos[c], y_oos,
+                    cand_tr[c],
+                    y_tr,
+                    cand_oos[c],
+                    y_oos,
                 ),
             )
             single = _ridge_oos_rmse(
-                cand_tr[best_single], y_tr, cand_oos[best_single], y_oos,
+                cand_tr[best_single],
+                y_tr,
+                cand_oos[best_single],
+                y_oos,
             )
             synth, _ = discover_interaction_bases(
-                cand_tr, y_tr, ops=("mul",), top_k=3, max_pairs=1,
+                cand_tr,
+                y_tr,
+                ops=("mul",),
+                top_k=3,
+                max_pairs=1,
             )
             assert synth, f"seed {seed}: no interaction base surfaced"
             sname = next(iter(synth))
             pa, pb = sname.split("__mul__")
             inter = _ridge_oos_rmse(
-                synth[sname], y_tr, cand_oos[pa] * cand_oos[pb], y_oos,
+                synth[sname],
+                y_tr,
+                cand_oos[pa] * cand_oos[pb],
+                y_oos,
             )
             single_rmses.append(single)
             inter_rmses.append(inter)

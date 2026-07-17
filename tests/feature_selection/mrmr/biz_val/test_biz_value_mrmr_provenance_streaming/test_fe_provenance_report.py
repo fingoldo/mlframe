@@ -50,6 +50,7 @@ CONTRACTS PINNED
 NEVER xfail. Pure additive metadata; default-ON (transparency, not
 opt-in).
 """
+
 from __future__ import annotations
 
 import importlib
@@ -76,14 +77,16 @@ def _simple_binary_frame(n: int = 500, seed: int = 0):
     rng = np.random.default_rng(int(seed))
     x_signal = rng.standard_normal(n)
     x_other = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x_signal": x_signal,
-        "x_other": x_other,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-        "noise_3": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x_signal": x_signal,
+            "x_other": x_other,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+            "noise_3": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((x_signal + 0.3 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
@@ -96,14 +99,16 @@ def _multi_signal_frame(n: int = 800, seed: int = 0):
     a = rng.standard_normal(n)
     b = rng.standard_normal(n)
     c = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "feat_a": a,
-        "feat_b": b,
-        "feat_c": c,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "feat_a": a,
+            "feat_b": b,
+            "feat_c": c,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+        }
+    )
     # Sum of three informative columns drives y; each contributes
     # independently so all three earn their predictor slots.
     score = 0.9 * a + 0.9 * b + 0.9 * c + 0.5 * rng.standard_normal(n)
@@ -120,13 +125,15 @@ def _hybrid_orth_frame(n: int = 1200, seed: int = 99):
     column on first attempt (n=1200, seed=99 verified empirically)."""
     rng = np.random.default_rng(int(seed))
     z = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "z_main": z,
-        "z_extra": rng.standard_normal(n),
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
-    score = z ** 2 - 1.0 + 0.2 * rng.standard_normal(n)
+    X = pd.DataFrame(
+        {
+            "z_main": z,
+            "z_extra": rng.standard_normal(n),
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
+    score = z**2 - 1.0 + 0.2 * rng.standard_normal(n)
     y = pd.Series((score > 0).astype(int))
     return X, y
 
@@ -136,6 +143,7 @@ def _fast_mrmr(**overrides):
     cheap on tiny tests. Matches the L53 style fixture so L54 sits next
     to its predecessor in runtime cost."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     defaults = dict(
         verbose=0,
         random_seed=0,
@@ -160,6 +168,7 @@ def _hybrid_mrmr(**overrides):
     """MRMR with the hybrid-orth FE step enabled so engineered names
     surface in support_. fe_max_steps=1 keeps the run quick."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     defaults = dict(
         verbose=0,
         random_seed=0,
@@ -185,8 +194,11 @@ def _hybrid_mrmr(**overrides):
 
 
 _PROV_COLUMNS = (
-    "feature_name", "origin", "mechanism_details",
-    "mrmr_gain", "support_rank",
+    "feature_name",
+    "origin",
+    "mechanism_details",
+    "mrmr_gain",
+    "support_rank",
 )
 
 
@@ -202,7 +214,7 @@ class TestLayer54_C1_ProvenancePopulated:
         """fe_provenance_ is present and a DataFrame after fit()."""
         X, y = _simple_binary_frame(n=300, seed=1)
         m = _fast_mrmr().fit(X, y)
-        assert hasattr(m, "fe_provenance_"), "MRMR.fit() must populate fe_provenance_ on every successful " "fit (default-ON Layer 54 contract)."
+        assert hasattr(m, "fe_provenance_"), "MRMR.fit() must populate fe_provenance_ on every successful fit (default-ON Layer 54 contract)."
         assert isinstance(m.fe_provenance_, pd.DataFrame)
 
     def test_schema_columns_in_order(self):
@@ -210,7 +222,7 @@ class TestLayer54_C1_ProvenancePopulated:
         X, y = _simple_binary_frame(n=300, seed=2)
         m = _fast_mrmr().fit(X, y)
         assert tuple(m.fe_provenance_.columns) == _PROV_COLUMNS, (
-            f"fe_provenance_ column order pinned to {_PROV_COLUMNS!r}; " f"got {tuple(m.fe_provenance_.columns)!r}"
+            f"fe_provenance_ column order pinned to {_PROV_COLUMNS!r}; got {tuple(m.fe_provenance_.columns)!r}"
         )
 
     def test_non_empty_for_a_real_fit(self):
@@ -237,7 +249,7 @@ class TestLayer54_C2_RowPerSupportFeature:
         n_raw = int(np.asarray(m.support_).size)
         n_eng = len(getattr(m, "_engineered_recipes_", []) or [])
         assert len(m.fe_provenance_) == n_raw + n_eng, (
-            f"fe_provenance_ rows={len(m.fe_provenance_)}, expected " f"n_raw+n_eng={n_raw + n_eng} (support_={n_raw}, " f"engineered_recipes={n_eng})"
+            f"fe_provenance_ rows={len(m.fe_provenance_)}, expected n_raw+n_eng={n_raw + n_eng} (support_={n_raw}, engineered_recipes={n_eng})"
         )
 
     def test_feature_names_match_final_output_order(self):
@@ -268,7 +280,7 @@ class TestLayer54_C2_RowPerSupportFeature:
         trailing = got[len(survivor_prefix) :]
         assert len(set(trailing)) == len(trailing), f"duplicate produced names: {trailing!r}"
         for nm in trailing:
-            assert nm in produced_names, f"trailing provenance name {nm!r} is neither a survivor nor in " f"_produced_recipes_={sorted(produced_names)!r}"
+            assert nm in produced_names, f"trailing provenance name {nm!r} is neither a survivor nor in _produced_recipes_={sorted(produced_names)!r}"
 
     def test_engineered_name_with_recipe_included(self):
         """When hybrid-orth FE fires and an engineered name lands in
@@ -285,10 +297,10 @@ class TestLayer54_C2_RowPerSupportFeature:
         eng_names = {r.name for r in m._engineered_recipes_}
         prov_eng_rows = m.fe_provenance_[m.fe_provenance_["feature_name"].isin(eng_names)]
         assert len(prov_eng_rows) == len(eng_names), (
-            f"Every engineered name must have a row in fe_provenance_; " f"missing: {eng_names - set(prov_eng_rows['feature_name'])!r}"
+            f"Every engineered name must have a row in fe_provenance_; missing: {eng_names - set(prov_eng_rows['feature_name'])!r}"
         )
         # None of the engineered rows should be labelled "raw".
-        assert not (prov_eng_rows["origin"] == "raw").any(), f"Engineered rows must not carry origin=='raw'; " f"prov_eng_rows=\n{prov_eng_rows!r}"
+        assert not (prov_eng_rows["origin"] == "raw").any(), f"Engineered rows must not carry origin=='raw'; prov_eng_rows=\n{prov_eng_rows!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -306,22 +318,22 @@ class TestLayer54_C3_OriginLabels:
         feature_names_in = list(m.feature_names_in_)
         raw_names = {feature_names_in[i] for i in np.asarray(m.support_).tolist()}
         prov_raw_rows = m.fe_provenance_[m.fe_provenance_["feature_name"].isin(raw_names)]
-        assert (prov_raw_rows["origin"] == "raw").all(), f"Raw input columns must carry origin=='raw'; " f"got origins={list(prov_raw_rows['origin'])!r}"
+        assert (prov_raw_rows["origin"] == "raw").all(), f"Raw input columns must carry origin=='raw'; got origins={list(prov_raw_rows['origin'])!r}"
 
     def test_hybrid_orth_origin_for_orth_engineered(self):
         """orth_*/hermite_pair recipes carry origin=='hybrid_orth'."""
         X, y = _hybrid_orth_frame()
         m = _hybrid_mrmr().fit(X, y)
-        assert m._engineered_recipes_ or [], "Hybrid orth fixture must produce at least one recipe; " "strengthen the fixture rather than skipping the test."
+        assert m._engineered_recipes_ or [], "Hybrid orth fixture must produce at least one recipe; strengthen the fixture rather than skipping the test."
         # Each replayable orth recipe must end up labelled hybrid_orth.
         # _RECIPE_KIND_TO_ORIGIN maps orth_univariate / orth_pair_cross /
         # orth_spline / orth_fourier / hermite_pair into the hybrid_orth
         # bucket. The fixture's degree-2 Hermite settles on
         # ``orth_univariate``.
         eng_names = [r.name for r in m._engineered_recipes_ if str(getattr(r, "kind", "")).startswith("orth_") or str(getattr(r, "kind", "")) == "hermite_pair"]
-        assert eng_names, f"No orth-kind / hermite_pair recipes selected on this " f"fixture; kinds={[r.kind for r in m._engineered_recipes_]!r}"
+        assert eng_names, f"No orth-kind / hermite_pair recipes selected on this fixture; kinds={[r.kind for r in m._engineered_recipes_]!r}"
         prov_eng = m.fe_provenance_[m.fe_provenance_["feature_name"].isin(eng_names)]
-        assert (prov_eng["origin"] == "hybrid_orth").all(), f"orth_* recipes must produce origin=='hybrid_orth'; " f"got=\n{prov_eng!r}"
+        assert (prov_eng["origin"] == "hybrid_orth").all(), f"orth_* recipes must produce origin=='hybrid_orth'; got=\n{prov_eng!r}"
 
     def test_known_origin_set(self):
         """Sanity check: every origin label in fe_provenance_ is drawn
@@ -329,10 +341,11 @@ class TestLayer54_C3_OriginLabels:
         from mlframe.feature_selection.filters._mrmr_fe_provenance import (
             FE_ORIGIN_LABELS,
         )
+
         X, y = _simple_binary_frame(n=400, seed=22)
         m = _fast_mrmr().fit(X, y)
         unknown = set(m.fe_provenance_["origin"]) - set(FE_ORIGIN_LABELS)
-        assert not unknown, f"fe_provenance_ contains origin labels outside the public " f"FE_ORIGIN_LABELS set: {unknown!r}"
+        assert not unknown, f"fe_provenance_ contains origin labels outside the public FE_ORIGIN_LABELS set: {unknown!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -356,24 +369,24 @@ class TestLayer54_C4_GainAlignsWithMrmrGains:
             rank = int(row["support_rank"])
             if 0 <= rank < gains_arr.size:
                 assert np.isfinite(row["mrmr_gain"]), (
-                    f"Row for {row['feature_name']!r} has rank={rank} " f"but mrmr_gain is NaN; mrmr_gains_={gains_arr.tolist()!r}"
+                    f"Row for {row['feature_name']!r} has rank={rank} but mrmr_gain is NaN; mrmr_gains_={gains_arr.tolist()!r}"
                 )
                 np.testing.assert_allclose(
                     row["mrmr_gain"],
                     gains_arr[rank],
                     rtol=1e-9,
-                    err_msg=(f"Row for {row['feature_name']!r} disagrees with " f"mrmr_gains_[{rank}]={gains_arr[rank]!r}"),
+                    err_msg=(f"Row for {row['feature_name']!r} disagrees with mrmr_gains_[{rank}]={gains_arr[rank]!r}"),
                 )
             else:
                 # Rank=-1 ("name not in greedy log") -> mrmr_gain must
                 # be NaN by construction.
-                assert not np.isfinite(row["mrmr_gain"]), f"Row for {row['feature_name']!r} has rank={rank} " f"but a finite mrmr_gain={row['mrmr_gain']!r}"
+                assert not np.isfinite(row["mrmr_gain"]), f"Row for {row['feature_name']!r} has rank={rank} but a finite mrmr_gain={row['mrmr_gain']!r}"
 
     def test_gain_dtype_is_float(self):
         """mrmr_gain column dtype is float."""
         X, y = _simple_binary_frame(n=400, seed=31)
         m = _fast_mrmr().fit(X, y)
-        assert m.fe_provenance_["mrmr_gain"].dtype.kind == "f", f"mrmr_gain dtype must be float; got " f"{m.fe_provenance_['mrmr_gain'].dtype!r}"
+        assert m.fe_provenance_["mrmr_gain"].dtype.kind == "f", f"mrmr_gain dtype must be float; got {m.fe_provenance_['mrmr_gain'].dtype!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -397,13 +410,13 @@ class TestLayer54_C5_SupportRankMonotonic:
             f"rows for the monotonicity assertion to bite; got "
             f"ranks={ranks!r}, fe_provenance_=\n{m.fe_provenance_!r}"
         )
-        assert all(a < b for a, b in zip(ranks, ranks[1:])), f"support_rank must be strictly increasing among predictor " f"rows; got {ranks!r}"
+        assert all(a < b for a, b in zip(ranks, ranks[1:])), f"support_rank must be strictly increasing among predictor rows; got {ranks!r}"
 
     def test_rank_dtype_int(self):
         """support_rank column dtype is integer."""
         X, y = _simple_binary_frame(n=300, seed=41)
         m = _fast_mrmr().fit(X, y)
-        assert m.fe_provenance_["support_rank"].dtype.kind in "iu", f"support_rank dtype must be integer; got " f"{m.fe_provenance_['support_rank'].dtype!r}"
+        assert m.fe_provenance_["support_rank"].dtype.kind in "iu", f"support_rank dtype must be integer; got {m.fe_provenance_['support_rank'].dtype!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -433,7 +446,7 @@ class TestLayer54_C6_PickleCloneDiscipline:
         X, y = _simple_binary_frame(n=300, seed=51)
         m = _fast_mrmr().fit(X, y)
         c = clone(m)
-        assert getattr(c, "fe_provenance_", None) is None, "clone() must NOT carry fitted fe_provenance_; sklearn " "convention is blank-slate clone."
+        assert getattr(c, "fe_provenance_", None) is None, "clone() must NOT carry fitted fe_provenance_; sklearn convention is blank-slate clone."
         # Refit on the clone -> provenance regenerated.
         c.fit(X, y)
         assert isinstance(c.fe_provenance_, pd.DataFrame)
@@ -463,10 +476,11 @@ class TestLayer54_C7_GetFEReport:
     def test_report_on_unfitted_estimator_does_not_raise(self):
         """Calling get_fe_report() on an unfitted estimator returns an explanatory string, never raises."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m = MRMR()
         text = m.get_fe_report()
         assert isinstance(text, str)
-        assert "unfitted" in text.lower() or "empty" in text.lower(), f"Unfitted-estimator report must explain the empty state; " f"got:\n{text}"
+        assert "unfitted" in text.lower() or "empty" in text.lower(), f"Unfitted-estimator report must explain the empty state; got:\n{text}"
 
     def test_report_per_origin_counts(self):
         """The report header includes a per-origin row-count summary (e.g. 'raw=N')."""
@@ -491,6 +505,7 @@ class TestLayer54_C8_Regressions:
         """L41 regression: a plain fit still sets cluster_members_ as
         documented; L54's metadata add does not perturb DCD plumbing."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _simple_binary_frame(n=300, seed=70)
         m = MRMR(dcd_enable=False, verbose=0, random_seed=0).fit(X, y)
         assert hasattr(m, "cluster_members_")
@@ -501,6 +516,7 @@ class TestLayer54_C8_Regressions:
         from mlframe.feature_selection.filters._cluster_hierarchy import (
             build_cluster_hierarchy,
         )
+
         X, _ = _simple_binary_frame(n=200, seed=71)
         h = build_cluster_hierarchy(None, X)
         assert h == {}
@@ -538,6 +554,7 @@ class TestLayer54_C8_Regressions:
         state = m.__getstate__() if hasattr(m, "__getstate__") else m.__dict__.copy()
         state = {k: v for k, v in state.items() if k not in ("fe_provenance_", "_predictors_log_")}
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         m2 = MRMR()
         m2.__setstate__(state)
         # __setstate__ default should restore fe_provenance_ -> None and

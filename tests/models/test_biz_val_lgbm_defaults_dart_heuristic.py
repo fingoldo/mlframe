@@ -9,6 +9,7 @@ same effective tree count), so the heuristic auto-scales n_estimators 3x when it
 pins that the auto-scaled dart preset beats a same-budget gbdt preset on a synthetic engineered to stress the
 "many redundant/correlated features" scenario, and that at equal (unscaled) n_estimators the win reverses.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -49,7 +50,9 @@ def test_biz_val_dart_heuristic_beats_gbdt_on_many_redundant_features():
     rmse_gbdt = float(mean_squared_error(yte, LGBMRegressor(**gbdt_params).fit(Xtr, ytr).predict(Xte)) ** 0.5)
     rmse_dart = float(mean_squared_error(yte, LGBMRegressor(**dart_params).fit(Xtr, ytr).predict(Xte)) ** 0.5)
 
-    assert rmse_dart < rmse_gbdt * 0.97, f"expected the n_features-driven dart preset to beat gbdt by >=3% RMSE on a redundant-feature regime, got dart={rmse_dart:.4f} gbdt={rmse_gbdt:.4f}"
+    assert rmse_dart < rmse_gbdt * 0.97, (
+        f"expected the n_features-driven dart preset to beat gbdt by >=3% RMSE on a redundant-feature regime, got dart={rmse_dart:.4f} gbdt={rmse_gbdt:.4f}"
+    )
 
 
 def test_dart_at_equal_unscaled_n_estimators_underperforms_gbdt():
@@ -63,7 +66,9 @@ def test_dart_at_equal_unscaled_n_estimators_underperforms_gbdt():
     rmse_gbdt = float(mean_squared_error(yte, LGBMRegressor(**gbdt_params).fit(Xtr, ytr).predict(Xte)) ** 0.5)
     rmse_unscaled_dart = float(mean_squared_error(yte, LGBMRegressor(**unscaled_dart_params).fit(Xtr, ytr).predict(Xte)) ** 0.5)
 
-    assert rmse_unscaled_dart > rmse_gbdt, f"expected dart at equal (unscaled) n_estimators to underperform gbdt, got dart={rmse_unscaled_dart:.4f} gbdt={rmse_gbdt:.4f}"
+    assert rmse_unscaled_dart > rmse_gbdt, (
+        f"expected dart at equal (unscaled) n_estimators to underperform gbdt, got dart={rmse_unscaled_dart:.4f} gbdt={rmse_gbdt:.4f}"
+    )
 
 
 def test_default_lgbm_params_below_threshold_stays_gbdt():
@@ -112,7 +117,7 @@ def test_biz_val_auto_dart_redundancy_ignores_wide_independent_features_unlike_r
     """
     n_features = 500
     assert n_features >= LARGE_N_FEATURES_THRESHOLD  # the raw-count heuristic WOULD trigger dart here.
-    Xtr, Xte, ytr, yte = _make_independent_feature_regression(n=1000, n_features=n_features, n_informative=5, seed=2)
+    Xtr, _Xte, _ytr, _yte = _make_independent_feature_regression(n=1000, n_features=n_features, n_informative=5, seed=2)
 
     count_based_params = default_lgbm_params(objective="regression", n_features=n_features)
     redundancy_based_params = default_lgbm_params(objective="regression", auto_dart_redundancy=True, X=Xtr)
@@ -137,9 +142,7 @@ def test_biz_val_auto_dart_redundancy_triggers_on_correlated_features_unlike_raw
     assert redundancy >= DART_REDUNDANCY_THRESHOLD, f"fixture must actually be measured as redundant, got {redundancy:.4f}"
 
     count_based_params = default_lgbm_params(objective="regression", n_features=n_features, num_leaves=15, learning_rate=0.15, n_estimators=150)
-    redundancy_based_params = default_lgbm_params(
-        objective="regression", auto_dart_redundancy=True, X=Xtr, num_leaves=15, learning_rate=0.15, n_estimators=150
-    )
+    redundancy_based_params = default_lgbm_params(objective="regression", auto_dart_redundancy=True, X=Xtr, num_leaves=15, learning_rate=0.15, n_estimators=150)
 
     assert "boosting_type" not in count_based_params, "raw-count heuristic must stay gbdt below its threshold"
     assert redundancy_based_params["boosting_type"] == "dart", "redundancy-aware probe must trigger dart on heavily-correlated features"

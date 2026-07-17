@@ -5,6 +5,7 @@ together. This must match three back-to-back single-op _modular_njit calls exact
 scrub, same trig of the same phase). A future "just call apply_modular three times" or a residue-formula drift in
 either kernel would break this pin.
 """
+
 from __future__ import annotations
 
 import numpy as np

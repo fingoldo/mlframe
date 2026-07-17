@@ -6,6 +6,7 @@ Verifies (a) the cache measurably reduces StandardScaler.fit_transform call coun
 of distinct candidates sharing pairs, and (b) selection output is unaffected (see
 test_retention_prep_equivalence.py / the adversarial suite for full-output equivalence pins).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -13,7 +14,6 @@ from unittest import mock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _build_case2(n=3000, seed=0):

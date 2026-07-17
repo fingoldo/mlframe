@@ -5,6 +5,7 @@ per-row base), T2 (xgb split-feature parse), P1f (empty-sample SU guard), SR1 (N
 RF1 (full-set random baseline). Each fails on the pre-fix logic and passes post-fix. CPU-only; GPU
 paths (T1, SR1 GPU mirror, T4) are fixed statically and cannot be executed on this box.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -142,6 +143,7 @@ def test_interaction_product_columns_are_nan_inf_safe():
 
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain as expl
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_search as srch
+
     orig_csm, orig_bf = expl.compute_shap_matrix, srch.brute_force_top_n
     expl.compute_shap_matrix = _fake_compute_shap_matrix
     srch.brute_force_top_n = _fake_brute
@@ -203,8 +205,7 @@ def test_pairwise_su_edges_empty_samples_no_zero_division():
     freqs_offsets = np.array([0, 1, 2, 3], dtype=np.int64)
     h_marginals = np.zeros(3, dtype=np.float64)
     constant_mask = np.zeros(3, dtype=np.bool_)
-    flags = _pairwise_su_edges(bins_packed, nbins, freqs_packed, freqs_offsets,
-                               h_marginals, constant_mask, 0.5)
+    flags = _pairwise_su_edges(bins_packed, nbins, freqs_packed, freqs_offsets, h_marginals, constant_mask, 0.5)
     assert flags.shape == (3, 3)
     assert not flags.any(), "no edges on an empty (zero-sample) matrix"
 
@@ -231,8 +232,7 @@ def test_subsetrank_nan_loss_never_selected_as_top():
     orig = sr._subset_loss_scan_njit
     sr._subset_loss_scan_njit = _nan_poisoning_scan
     try:
-        res = sr.brute_force_top_n(phi, base, y, classification=True, metric="logloss",
-                                   min_card=1, max_card=2, top_n=5, parallel=False)
+        res = sr.brute_force_top_n(phi, base, y, classification=True, metric="logloss", min_card=1, max_card=2, top_n=5, parallel=False)
     finally:
         sr._subset_loss_scan_njit = orig
 

@@ -116,7 +116,7 @@ def test_no_new_eager_log_format_on_debug_or_info():
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
         _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"logger lazy-format baseline refreshed at " f"{_BASELINE_PATH.name} ({len(current)} eager call site(s))")
+        pytest.skip(f"logger lazy-format baseline refreshed at {_BASELINE_PATH.name} ({len(current)} eager call site(s))")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

@@ -7,9 +7,9 @@
 
 Both must be selection-equivalent to the pre-fix behavior.
 """
+
 from __future__ import annotations
 
-import warnings
 from unittest import mock
 
 import numpy as np
@@ -31,7 +31,8 @@ def test_escalate_modulus_reuses_hit_c_arr():
     """escalate_modulus must return the SAME (best_m, best_mi) whether or not hit.c_arr is populated,
     and must NOT call _combine when c_arr is available."""
     from mlframe.feature_selection.filters._pairwise_modular_fe import (
-        cheap_modular_scan, escalate_modulus,
+        cheap_modular_scan,
+        escalate_modulus,
     )
     import mlframe.feature_selection.filters._pairwise_modular_fe as mod
 
@@ -55,6 +56,7 @@ def test_escalate_modulus_reuses_hit_c_arr():
 
     # Bare hit (no c_arr) must fall back to rebuilding and match exactly.
     from dataclasses import replace
+
     bare_hit = replace(hit, c_arr=None)
     with mock.patch.object(mod, "_combine", _counting_combine):
         best_m_without, best_mi_without, residue_without = escalate_modulus(df, y, bare_hit)
@@ -69,7 +71,8 @@ def test_cols_prefiltered_matches_default_filtering():
     """cheap_modular_scan(cols=int_cols, _cols_prefiltered=True) must return IDENTICAL hits to the
     default (re-filtering) path when ``int_cols`` is already the correctly-filtered set."""
     from mlframe.feature_selection.filters._pairwise_modular_fe import (
-        cheap_modular_scan, _is_integer_col,
+        cheap_modular_scan,
+        _is_integer_col,
     )
 
     df, y = _build_modular_fixture()
@@ -91,5 +94,5 @@ def test_hybrid_recipes_end_to_end_unaffected():
     from mlframe.feature_selection.filters._pairwise_modular_fe import hybrid_pairwise_modular_fe_with_recipes
 
     df, y = _build_modular_fixture()
-    appended, recipes = hybrid_pairwise_modular_fe_with_recipes(df, y, seed=0)
+    appended, _recipes = hybrid_pairwise_modular_fe_with_recipes(df, y, seed=0)
     assert appended, "sanity: (a+b) mod 5 structure must be detected and recipe-emitted"

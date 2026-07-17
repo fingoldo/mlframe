@@ -11,6 +11,7 @@ Bench: ``mlframe/training/composite/_benchmarks/bench_conformal_normalized_vs_ab
 REAL estimator API and pin the win quantitatively so a regression to absolute-only
 trips them.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,13 +35,15 @@ def _fit_het(seed, score, alpha=0.1, n=6000):
     X = pd.DataFrame({"b": b})
     nf = n // 3
     est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="linear_residual", base_column="b",
+        base_estimator=LinearRegression(),
+        transform_name="linear_residual",
+        base_column="b",
     )
     est.fit(X.iloc[:nf], y[:nf])
-    est.calibrate_conformal(X.iloc[nf:2 * nf], y[nf:2 * nf], alpha=alpha, score=score)
-    lo, hi = est.predict_interval(X.iloc[2 * nf:], alpha)
-    ye = y[2 * nf:]
-    be = b[2 * nf:]
+    est.calibrate_conformal(X.iloc[nf : 2 * nf], y[nf : 2 * nf], alpha=alpha, score=score)
+    lo, hi = est.predict_interval(X.iloc[2 * nf :], alpha)
+    ye = y[2 * nf :]
+    be = b[2 * nf :]
     covered = (ye >= lo) & (ye <= hi)
     marg = float(covered.mean())
     width = float(np.mean(hi - lo))
@@ -58,7 +61,9 @@ class TestNormalizedDefault:
         y = 10 * b + rng.normal(0, 1, 900) * (0.2 + 4 * b)
         X = pd.DataFrame({"b": b})
         est = CompositeTargetEstimator(
-            base_estimator=LinearRegression(), transform_name="linear_residual", base_column="b",
+            base_estimator=LinearRegression(),
+            transform_name="linear_residual",
+            base_column="b",
         )
         est.fit(X.iloc[:300], y[:300])
         est.calibrate_conformal(X.iloc[300:600], y[300:600], alpha=0.1)
@@ -75,7 +80,9 @@ class TestNormalizedDefault:
         y = 10 * b + rng.normal(0, 1, 900) * (0.2 + 4 * b)
         X = pd.DataFrame({"b": b})
         est = CompositeTargetEstimator(
-            base_estimator=LinearRegression(), transform_name="linear_residual", base_column="b",
+            base_estimator=LinearRegression(),
+            transform_name="linear_residual",
+            base_column="b",
         )
         est.fit(X.iloc[:300], y[:300])
         est.calibrate_conformal(X.iloc[300:600], y[300:600], alpha=0.1, score="absolute")
@@ -91,7 +98,9 @@ class TestNormalizedDefault:
         X = pd.DataFrame({"b": rng.uniform(0, 1, 300)})
         y = 10 * X["b"].to_numpy() + rng.normal(0, 1, 300)
         est = CompositeTargetEstimator(
-            base_estimator=LinearRegression(), transform_name="linear_residual", base_column="b",
+            base_estimator=LinearRegression(),
+            transform_name="linear_residual",
+            base_column="b",
         )
         est.fit(X.iloc[:150], y[:150])
         with pytest.raises(ValueError):

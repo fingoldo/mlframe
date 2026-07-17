@@ -7,10 +7,10 @@ agree, and the ``get_feature_names_out`` back-compat regex fallback (used when t
 ``_feature_names_in_synthesized_`` sentinel is missing, e.g. an older pickle) must still recognize
 BOTH the current ``f\\d+`` convention and the legacy ``feature_\\d+`` convention it replaces.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.filters import MRMR
 

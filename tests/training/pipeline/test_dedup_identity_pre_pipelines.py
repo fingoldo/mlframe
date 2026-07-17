@@ -8,7 +8,6 @@ config flag to opt out.
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -21,6 +20,7 @@ def _make_fake_fitted_mrmr(X_columns, support=None):
     actually running the full MI-based selection loop.  ``support`` is a
     boolean array (True = selected) defaulting to all-True."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     m = MRMR(verbose=0)
     n = len(X_columns)
     if support is None:
@@ -34,23 +34,17 @@ def _make_fake_fitted_mrmr(X_columns, support=None):
 def test_mrmr_transform_fastpath_identity_returns_x_unchanged():
     """All features selected + zero recipes → transform must return X
     unchanged (the SAME object, not a copy)."""
-    X = pd.DataFrame(np.random.default_rng(42).normal(size=(30, 5)),
-                     columns=list("abcde"))
+    X = pd.DataFrame(np.random.default_rng(42).normal(size=(30, 5)), columns=list("abcde"))
     mrmr = _make_fake_fitted_mrmr(list(X.columns))
     out = mrmr.transform(X)
-    assert out is X, (
-        "transform must return X unchanged when all columns selected + "
-        "no recipes (zero-copy fast-path)"
-    )
+    assert out is X, "transform must return X unchanged when all columns selected + no recipes (zero-copy fast-path)"
 
 
 def test_mrmr_transform_no_fastpath_on_subset():
     """Subset selected → transform returns a new frame, not X."""
-    X = pd.DataFrame(np.random.default_rng(42).normal(size=(30, 5)),
-                     columns=list("abcde"))
+    X = pd.DataFrame(np.random.default_rng(42).normal(size=(30, 5)), columns=list("abcde"))
     # Integer-index support: first 3 columns selected
-    mrmr = _make_fake_fitted_mrmr(list(X.columns),
-                                  support=np.array([0, 1, 2]))
+    mrmr = _make_fake_fitted_mrmr(list(X.columns), support=np.array([0, 1, 2]))
     out = mrmr.transform(X)
     assert out is not X
     assert out.shape[1] == 3
@@ -59,8 +53,7 @@ def test_mrmr_transform_no_fastpath_on_subset():
 def test_mrmr_transform_fastpath_handles_boolean_and_int_support():
     """Fast-path must correctly count selected features for BOTH boolean
     and integer-index support_ arrays."""
-    X = pd.DataFrame(np.random.default_rng(42).normal(size=(30, 4)),
-                     columns=list("wxyz"))
+    X = pd.DataFrame(np.random.default_rng(42).normal(size=(30, 4)), columns=list("wxyz"))
     # Boolean support: 4 True = all selected → fast-path
     m_bool = _make_fake_fitted_mrmr(
         list(X.columns),
@@ -88,7 +81,7 @@ def _detect_identity(pre_pipeline, train_df_before, train_df_after):
     _in = list(train_df_before.columns)
     _out = list(train_df_after.columns) if hasattr(train_df_after, "columns") else None
     if _out is not None:
-        pre_pipeline._mlframe_identity_equivalent = (_in == _out)
+        pre_pipeline._mlframe_identity_equivalent = _in == _out
     return pre_pipeline
 
 
@@ -128,12 +121,14 @@ def test_marker_not_set_when_output_has_no_columns_attr():
 
 def test_config_flag_defaults_true():
     from mlframe.training.configs import FeatureSelectionConfig
+
     cfg = FeatureSelectionConfig()
     assert cfg.skip_identity_equivalent_pre_pipelines is True
 
 
 def test_config_flag_can_be_false():
     from mlframe.training.configs import FeatureSelectionConfig
+
     cfg = FeatureSelectionConfig(skip_identity_equivalent_pre_pipelines=False)
     assert cfg.skip_identity_equivalent_pre_pipelines is False
 
@@ -141,6 +136,7 @@ def test_config_flag_can_be_false():
 def test_config_flag_serializable():
     """Flag must survive round-trip through dict (for JSON / YAML configs)."""
     from mlframe.training.configs import FeatureSelectionConfig
+
     cfg = FeatureSelectionConfig(skip_identity_equivalent_pre_pipelines=False)
     d = cfg.dict()
     cfg2 = FeatureSelectionConfig(**d)
@@ -171,9 +167,7 @@ def test_prepare_test_split_skips_transform_when_identity_equivalent():
         result = mrmr.transform(test_df)
     else:
         result = test_df  # skip, no-op
-    assert result is test_df, (
-        "identity-equivalent pre_pipeline should skip transform on test"
-    )
+    assert result is test_df, "identity-equivalent pre_pipeline should skip transform on test"
 
 
 def test_prepare_test_split_still_transforms_when_not_identity():
@@ -182,8 +176,7 @@ def test_prepare_test_split_still_transforms_when_not_identity():
     if unfitted, which is the correct surface-this-bug behavior)."""
     rng = np.random.default_rng(42)
     test_df = pd.DataFrame(rng.normal(size=(20, 3)), columns=list("uvw"))
-    mrmr = _make_fake_fitted_mrmr(list("uvw"),
-                                  support=np.array([0, 1]))  # drop col 2
+    mrmr = _make_fake_fitted_mrmr(list("uvw"), support=np.array([0, 1]))  # drop col 2
     mrmr._mlframe_identity_equivalent = False
     _id_equiv = getattr(mrmr, "_mlframe_identity_equivalent", False)
     assert not _id_equiv, "guard should NOT fire — must apply transform"

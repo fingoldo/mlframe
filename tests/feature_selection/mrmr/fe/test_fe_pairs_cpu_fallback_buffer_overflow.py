@@ -9,22 +9,20 @@ bounds for axis 1 with size K``. This is the default path on any GPU-less host (
 Pre-fix: an MRMR fit that reaches the per-pair FE scan crashes with that IndexError. Post-fix: the cursor is reset
 before the CPU loop, so the fit completes.
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _xy(n: int = 240, seed: int = 0):
     rng = np.random.default_rng(seed)
-    X = pd.DataFrame(
-        {name: rng.standard_normal(n) for name in ("a", "b", "c", "d", "e", "f")}
-    )
+    X = pd.DataFrame({name: rng.standard_normal(n) for name in ("a", "b", "c", "d", "e", "f")})
     # A target with pairwise structure so the FE pair-search engine actually materialises candidate columns.
     y = pd.Series(((X["a"] * X["b"] + X["c"] - X["d"]) > 0).astype(np.int64), name="targ")
     return X, y

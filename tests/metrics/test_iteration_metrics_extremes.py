@@ -4,6 +4,7 @@ Complements ``test_iteration_metrics_aggregator`` (key sets, single-class, NaN s
 perfect / worst separation (ROC_AUC 1.0 / 0.0, accuracy 1.0 / 0.0) and extreme class imbalance
 (a handful of positives among thousands of negatives -> ranking metrics still finite, not NaN).
 """
+
 from __future__ import annotations
 
 import numpy as np

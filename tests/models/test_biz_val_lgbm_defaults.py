@@ -6,6 +6,7 @@ trees goes large") — LightGBM's randomized-split-threshold ``extra_trees`` mod
 RMSE vs the LightGBM default (greedy-best-split trees), averaged across several seeds to avoid a single-run
 coin flip.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -13,7 +14,7 @@ import pytest
 
 lgb = pytest.importorskip("lightgbm")
 
-from mlframe.models.lgbm_defaults import AUTO_EXTRA_TREES_MIN_N_ESTIMATORS, default_lgbm_params  # noqa: E402
+from mlframe.models.lgbm_defaults import AUTO_EXTRA_TREES_MIN_N_ESTIMATORS, default_lgbm_params
 
 
 def _make_correlated_noisy_regression(n_train: int, n_test: int, seed: int):
@@ -73,8 +74,7 @@ def test_biz_val_extra_trees_reduces_holdout_rmse_at_large_tree_count():
     win_rate = float(np.mean(np.array(rmse_extra) < np.array(rmse_default)))
 
     assert mean_rmse_extra < mean_rmse_default, (
-        f"extra_trees=True should reduce mean held-out RMSE at large n_estimators: "
-        f"extra_trees={mean_rmse_extra:.4f} default={mean_rmse_default:.4f}"
+        f"extra_trees=True should reduce mean held-out RMSE at large n_estimators: extra_trees={mean_rmse_extra:.4f} default={mean_rmse_default:.4f}"
     )
     assert win_rate >= 0.5, f"extra_trees=True should win at least half of {n_seeds} seeds, got win_rate={win_rate:.2f}"
 
@@ -104,18 +104,10 @@ def test_biz_val_default_lgbm_params_auto_extra_trees_adapts_to_tree_count():
             pred = model.predict(X_test)
             return float(np.sqrt(np.mean((pred - y_test) ** 2)))
 
-        rmse_small_auto.append(
-            _rmse(default_lgbm_params(n_estimators=small_n_estimators, auto_extra_trees=True, random_state=seed))
-        )
-        rmse_small_off.append(
-            _rmse(default_lgbm_params(n_estimators=small_n_estimators, extra_trees=True, random_state=seed))
-        )
-        rmse_large_auto.append(
-            _rmse(default_lgbm_params(n_estimators=large_n_estimators, auto_extra_trees=True, random_state=seed))
-        )
-        rmse_large_static_off.append(
-            _rmse(default_lgbm_params(n_estimators=large_n_estimators, extra_trees=False, random_state=seed))
-        )
+        rmse_small_auto.append(_rmse(default_lgbm_params(n_estimators=small_n_estimators, auto_extra_trees=True, random_state=seed)))
+        rmse_small_off.append(_rmse(default_lgbm_params(n_estimators=small_n_estimators, extra_trees=True, random_state=seed)))
+        rmse_large_auto.append(_rmse(default_lgbm_params(n_estimators=large_n_estimators, auto_extra_trees=True, random_state=seed)))
+        rmse_large_static_off.append(_rmse(default_lgbm_params(n_estimators=large_n_estimators, extra_trees=False, random_state=seed)))
 
     mean_small_auto = float(np.mean(rmse_small_auto))
     mean_small_off = float(np.mean(rmse_small_off))

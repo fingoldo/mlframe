@@ -6,6 +6,7 @@ body (clip codes + gather bin_mean/bin_std + floor-std + isfinite-masked divide)
 Pins the edge cases that matter: NaN x_i rows -> 0.0, a floored (degenerate) bin
 std -> divide by 1.0, and out-of-range codes clipped to the last bin.
 """
+
 import numpy as np
 import pandas as pd
 import pytest

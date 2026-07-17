@@ -36,6 +36,7 @@ Contracts pinned
 
 NEVER xfail.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -63,6 +64,7 @@ def _import_auto_fe():
         hybrid_orth_mi_auto_scorer_fe,
         hybrid_orth_mi_auto_scorer_fe_with_recipes,
     )
+
     return (
         SCORER_NAMES,
         select_best_scorer_per_column,
@@ -76,6 +78,7 @@ def _import_plug_in_fe():
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
         generate_univariate_basis_features,
     )
+
     return generate_univariate_basis_features
 
 
@@ -184,9 +187,8 @@ def _build_heterogeneous_fixture(seed: int, n: int = 1500):
         cols[f"noise_{k}"] = rng.standard_normal(n)
     X = pd.DataFrame(cols)
     # Per-source signals; combined target is a logistic-style mix.
-    sig_smooth = s_smooth ** 3 - 3.0 * s_smooth
-    sig_heavy = (np.log(np.abs(s_heavy) + 1e-12)
-                 - float(np.median(np.log(np.abs(s_heavy) + 1e-12))))
+    sig_smooth = s_smooth**3 - 3.0 * s_smooth
+    sig_heavy = np.log(np.abs(s_heavy) + 1e-12) - float(np.median(np.log(np.abs(s_heavy) + 1e-12)))
     sig_nonmono = np.cos(np.pi * s_nonmono)
     combined = sig_smooth + sig_heavy + 2.0 * sig_nonmono
     thr = float(np.median(combined))
@@ -199,13 +201,15 @@ def _build_linear(seed: int, n: int = 1200):
     rng = np.random.default_rng(int(seed))
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1,
-        "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x1 + 0.7 * x2) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -235,17 +239,20 @@ class TestDcorWinsOnNonMonotone:
         dcor_hit_seeds = []
         for seed in seeds:
             X, y = _build_non_monotone_fixture(seed, n=800)
-            X_aug, scores, _recipes = hybrid_with_recipes(
-                X, y.to_numpy(),
-                cols=["x1"], degrees=(2, 3), basis="hermite",
-                top_k=5, min_uplift=0.0, min_abs_mi_frac=0.0,
-                n_boot=5, random_state=seed,
+            _X_aug, scores, _recipes = hybrid_with_recipes(
+                X,
+                y.to_numpy(),
+                cols=["x1"],
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=5,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
+                n_boot=5,
+                random_state=seed,
             )
             x1_rows = scores[scores["source_col"] == "x1"]
-            assert not x1_rows.empty, (
-                f"seed={seed}: no engineered columns for source 'x1'; "
-                f"fixture is broken."
-            )
+            assert not x1_rows.empty, f"seed={seed}: no engineered columns for source 'x1'; fixture is broken."
             if (x1_rows["best_scorer"] == "dcor").any():
                 n_dcor_hits += 1
                 dcor_hit_seeds.append(seed)
@@ -293,17 +300,20 @@ class TestPlugInWinsOnDiscreteBinned:
         plugin_hit_seeds = []
         for seed in seeds:
             X, y = _build_discrete_binned_fixture(seed, n=600, n_levels=3)
-            X_aug, scores, _recipes = hybrid_with_recipes(
-                X, y.to_numpy(),
-                cols=["x1"], degrees=(2, 3), basis="hermite",
-                top_k=5, min_uplift=0.0, min_abs_mi_frac=0.0,
-                n_boot=5, random_state=seed,
+            _X_aug, scores, _recipes = hybrid_with_recipes(
+                X,
+                y.to_numpy(),
+                cols=["x1"],
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=5,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
+                n_boot=5,
+                random_state=seed,
             )
             x1_rows = scores[scores["source_col"] == "x1"]
-            assert not x1_rows.empty, (
-                f"seed={seed}: no engineered columns for source 'x1'; "
-                f"fixture is broken."
-            )
+            assert not x1_rows.empty, f"seed={seed}: no engineered columns for source 'x1'; fixture is broken."
             if (x1_rows["best_scorer"] == "plug_in").any():
                 n_plugin_hits += 1
                 plugin_hit_seeds.append(seed)
@@ -348,17 +358,20 @@ class TestCopulaWinsOnHeavyTail:
         copula_hit_seeds = []
         for seed in seeds:
             X, y = _build_heavy_tail_fixture(seed, n=800)
-            X_aug, scores, _recipes = hybrid_with_recipes(
-                X, y.to_numpy(),
-                cols=["x1"], degrees=(2, 3), basis="hermite",
-                top_k=5, min_uplift=0.0, min_abs_mi_frac=0.0,
-                n_boot=5, random_state=seed,
+            _X_aug, scores, _recipes = hybrid_with_recipes(
+                X,
+                y.to_numpy(),
+                cols=["x1"],
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=5,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
+                n_boot=5,
+                random_state=seed,
             )
             x1_rows = scores[scores["source_col"] == "x1"]
-            assert not x1_rows.empty, (
-                f"seed={seed}: no engineered columns for source 'x1'; "
-                f"fixture is broken."
-            )
+            assert not x1_rows.empty, f"seed={seed}: no engineered columns for source 'x1'; fixture is broken."
             if (x1_rows["best_scorer"] == "copula").any():
                 n_copula_hits += 1
                 copula_hit_seeds.append(seed)
@@ -392,6 +405,7 @@ class TestAucLiftAutoVsSingleScorer:
         from mlframe.feature_selection.filters._orthogonal_dcor_fe import (
             hybrid_orth_mi_dcor_fe_with_recipes,
         )
+
         _, _, _, _, hybrid_auto = _import_auto_fe()
         gen = _import_plug_in_fe()
 
@@ -403,82 +417,109 @@ class TestAucLiftAutoVsSingleScorer:
         for s in seeds:
             X, y = _build_heterogeneous_fixture(s, n=1500)
             X_tr, X_te, y_tr, y_te = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             y_tr_arr = y_tr.to_numpy()
 
             X_aug_auto, _sc, _rc = hybrid_auto(
-                X_tr, y_tr_arr,
-                degrees=(2, 3), basis="hermite",
-                top_k=4, min_uplift=0.0, min_abs_mi_frac=0.0,
-                n_boot=5, random_state=s,
+                X_tr,
+                y_tr_arr,
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=4,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
+                n_boot=5,
+                random_state=s,
             )
             added_auto = [c for c in X_aug_auto.columns if c not in X_tr.columns]
             eng_te = gen(X_te, degrees=(2, 3), basis="hermite")
-            X_aug_te_auto = (
-                pd.concat([X_te, eng_te[added_auto]], axis=1)
-                if added_auto else X_te
-            )
+            X_aug_te_auto = pd.concat([X_te, eng_te[added_auto]], axis=1) if added_auto else X_te
             lr = LogisticRegression(max_iter=2000, solver="lbfgs").fit(
-                X_aug_auto, y_tr,
+                X_aug_auto,
+                y_tr,
             )
-            aucs_auto.append(roc_auc_score(
-                y_te, lr.predict_proba(X_aug_te_auto)[:, 1],
-            ))
+            aucs_auto.append(
+                roc_auc_score(
+                    y_te,
+                    lr.predict_proba(X_aug_te_auto)[:, 1],
+                )
+            )
 
             X_aug_ksg, _, _ = hybrid_orth_mi_ksg_fe_with_recipes(
-                X_tr, y_tr_arr,
-                degrees=(2, 3), basis="hermite",
-                top_k=4, min_uplift=0.0, min_abs_mi_frac=0.0,
-                n_neighbors=3, random_state=s,
+                X_tr,
+                y_tr_arr,
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=4,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
+                n_neighbors=3,
+                random_state=s,
             )
             added_ksg = [c for c in X_aug_ksg.columns if c not in X_tr.columns]
-            X_aug_te_ksg = (
-                pd.concat([X_te, eng_te[added_ksg]], axis=1)
-                if added_ksg else X_te
-            )
+            X_aug_te_ksg = pd.concat([X_te, eng_te[added_ksg]], axis=1) if added_ksg else X_te
             lr_ksg = LogisticRegression(max_iter=2000, solver="lbfgs").fit(
-                X_aug_ksg, y_tr,
+                X_aug_ksg,
+                y_tr,
             )
-            aucs_ksg.append(roc_auc_score(
-                y_te, lr_ksg.predict_proba(X_aug_te_ksg)[:, 1],
-            ))
+            aucs_ksg.append(
+                roc_auc_score(
+                    y_te,
+                    lr_ksg.predict_proba(X_aug_te_ksg)[:, 1],
+                )
+            )
 
             X_aug_cop, _, _ = hybrid_orth_mi_copula_fe_with_recipes(
-                X_tr, y_tr_arr,
-                degrees=(2, 3), basis="hermite",
-                top_k=4, min_uplift=0.0, min_abs_mi_frac=0.0,
+                X_tr,
+                y_tr_arr,
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=4,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
                 n_bins=20,
             )
             added_cop = [c for c in X_aug_cop.columns if c not in X_tr.columns]
-            X_aug_te_cop = (
-                pd.concat([X_te, eng_te[added_cop]], axis=1)
-                if added_cop else X_te
-            )
+            X_aug_te_cop = pd.concat([X_te, eng_te[added_cop]], axis=1) if added_cop else X_te
             lr_cop = LogisticRegression(max_iter=2000, solver="lbfgs").fit(
-                X_aug_cop, y_tr,
+                X_aug_cop,
+                y_tr,
             )
-            aucs_copula.append(roc_auc_score(
-                y_te, lr_cop.predict_proba(X_aug_te_cop)[:, 1],
-            ))
+            aucs_copula.append(
+                roc_auc_score(
+                    y_te,
+                    lr_cop.predict_proba(X_aug_te_cop)[:, 1],
+                )
+            )
 
             X_aug_dcor, _, _ = hybrid_orth_mi_dcor_fe_with_recipes(
-                X_tr, y_tr_arr,
-                degrees=(2, 3), basis="hermite",
-                top_k=4, min_uplift=0.0, min_abs_mi_frac=0.0,
-                n_sample=500, random_state=s,
+                X_tr,
+                y_tr_arr,
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=4,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
+                n_sample=500,
+                random_state=s,
             )
             added_dcor = [c for c in X_aug_dcor.columns if c not in X_tr.columns]
-            X_aug_te_dcor = (
-                pd.concat([X_te, eng_te[added_dcor]], axis=1)
-                if added_dcor else X_te
-            )
+            X_aug_te_dcor = pd.concat([X_te, eng_te[added_dcor]], axis=1) if added_dcor else X_te
             lr_dcor = LogisticRegression(max_iter=2000, solver="lbfgs").fit(
-                X_aug_dcor, y_tr,
+                X_aug_dcor,
+                y_tr,
             )
-            aucs_dcor.append(roc_auc_score(
-                y_te, lr_dcor.predict_proba(X_aug_te_dcor)[:, 1],
-            ))
+            aucs_dcor.append(
+                roc_auc_score(
+                    y_te,
+                    lr_dcor.predict_proba(X_aug_te_dcor)[:, 1],
+                )
+            )
 
         auto_mean = float(np.mean(aucs_auto))
         best_single_mean = max(
@@ -507,16 +548,12 @@ class TestAucLiftAutoVsSingleScorer:
 
 
 class TestDefaultDisabledByteIdentical:
-
     @pytest.mark.parametrize("seed", SEEDS)
     def test_default_off_no_auto_columns(self, seed):
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], (
-            f"seed={seed}: default fe_hybrid_orth_auto_scorer_enable=False "
-            f"should NOT append any engineered columns; got {added}"
-        )
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_auto_scorer_enable=False should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
         m = _make_mrmr()
@@ -530,7 +567,6 @@ class TestDefaultDisabledByteIdentical:
 
 
 class TestPickleAndClone:
-
     def test_clone_preserves_auto_scorer_params(self):
         m = _make_mrmr(
             fe_hybrid_orth_auto_scorer_enable=True,
@@ -541,10 +577,7 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_auto_scorer_enable", True),
             ("fe_hybrid_orth_auto_scorer_n_boot", 7),
         ]:
-            assert getattr(m2, name) == expected, (
-                f"clone() dropped {name}: expected {expected}, got "
-                f"{getattr(m2, name)}"
-            )
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_auto_recipes(self):
         X, y = _build_non_monotone_fixture(seed=42, n=1000)
@@ -557,44 +590,28 @@ class TestPickleAndClone:
         ).fit(X, y)
         blob = pickle.dumps(m)
         m2 = pickle.loads(blob)
-        assert list(m2.feature_names_in_) == list(m.feature_names_in_), (
-            "pickle changed feature_names_in_"
-        )
+        assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, (
-            f"pickle changed hybrid_orth_features_: "
-            f"before={added_before}, after={added_after}"
-        )
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, after={added_after}"
 
         # Auto-stage recipes are ``orth_univariate`` (engineered VALUES
         # bit-equal to Layer 21; only SCORING differs).
         def _extract_orth_recipes(model):
             container = getattr(model, "_engineered_recipes_", None)
             if isinstance(container, dict):
-                return {
-                    r.name: r for r in container.values()
-                    if getattr(r, "kind", None) == "orth_univariate"
-                }
-            return {
-                r.name: r for r in (container or [])
-                if getattr(r, "kind", None) == "orth_univariate"
-            }
+                return {r.name: r for r in container.values() if getattr(r, "kind", None) == "orth_univariate"}
+            return {r.name: r for r in (container or []) if getattr(r, "kind", None) == "orth_univariate"}
+
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: "
-            f"before={set(recipes_before.keys())}, "
-            f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, (
-                f"pickle changed src_names for {name!r}: "
-                f"before={r_before.src_names}, after={r_after.src_names}"
-            )
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: "
-                    f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
                 )

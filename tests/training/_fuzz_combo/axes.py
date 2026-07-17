@@ -1,4 +1,5 @@
 """Axis space for train_mlframe_models_suite fuzzing: MODELS + the AXES grid."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -92,76 +93,82 @@ AXES: dict[str, tuple[Any, ...]] = {
     # keeps the combo count at the target by selecting informative
     # combinations rather than a full cartesian product.
     "outlier_detection": (None, "isolation_forest", "lof", "ocsvm"),  # #3, batch 3 +LOF/OCSVM
-    "use_ensembles": (False, True),                              # #5
-    "continue_on_model_failure": (False, True),                  # #21
+    "use_ensembles": (False, True),  # #5
+    "continue_on_model_failure": (False, True),  # #21
     # iterations: 3 (single-iter sanity) + 10 (multi-iter ES/convergence).
     # Was (3, 30) in 2026-04 — 30 reduced to 15 on 2026-04-27 for fuzz speed;
     # 15 -> 10 on 2026-05-23 (iter185) per user instruction "у всех моделей
     # сделай поменьше дефолтное число итераций". Multi-iter boosting code path
     # is the same and ES still triggers (default patience 5-10).
-    "iterations": (3, 10),                                       # #15
-    "prefer_calibrated_classifiers": (False, True),              # #32
-    "inject_degenerate_cols": (False, True),                     # #7 (const + all-null)
-    "inject_inf_nan": (False, True),                             # #10
-    "with_datetime_col": (False, True),                          # #11
-    "inject_zero_col": (False, True),                            # #40 (uninformative)
-    "fairness_col": (None, "cat_0"),                             # #31
-    "custom_prep": (None, "pca2"),                               # #29
-    "input_storage": ("memory", "parquet"),                      # #33
+    "iterations": (3, 10),  # #15
+    "prefer_calibrated_classifiers": (False, True),  # #32
+    "inject_degenerate_cols": (False, True),  # #7 (const + all-null)
+    "inject_inf_nan": (False, True),  # #10
+    "with_datetime_col": (False, True),  # #11
+    "inject_zero_col": (False, True),  # #40 (uninformative)
+    "fairness_col": (None, "cat_0"),  # #31
+    "custom_prep": (None, "pca2"),  # #29
+    "input_storage": ("memory", "parquet"),  # #33
     # 2026-04-24 (round 2): config fields previously hard-coded to
     # defaults despite being user-facing knobs. Each axis exercises
     # a distinct code path that prior fuzz couldn't reach.
-    "fillna_value_cfg": (None, 0.0),                             # PreprocessingConfig.fillna_value
-    "scaler_name_cfg": ("standard", "robust", None),             # PreprocessingBackendConfig.scaler_name
-    "categorical_encoding_cfg": ("ordinal", "onehot"),           # PreprocessingBackendConfig.categorical_encoding
-    "skip_categorical_encoding_cfg": (False, True),              # PreprocessingBackendConfig.skip_categorical_encoding
-    "val_placement_cfg": ("forward", "backward"),                # TrainingSplitConfig.val_placement
-    "test_size_cfg": (0.1, 0.2),                                 # TrainingSplitConfig.test_size
-    "trainset_aging_limit_cfg": (None, 0.5),                     # TrainingSplitConfig.trainset_aging_limit
-    "cat_text_card_threshold_cfg": (50, 300),                    # FeatureTypesConfig.cat_text_cardinality_threshold
-    "early_stopping_rounds_cfg": (None, 10),                     # ModelHyperparamsConfig.early_stopping_rounds — was 20 in 2026-04, reduced 2026-04-27 for fuzz speed (still tests ES path with smaller patience)
-    "use_robust_eval_metric_cfg": (False, True),                 # TrainingBehaviorConfig.use_robust_eval_metric
+    "fillna_value_cfg": (None, 0.0),  # PreprocessingConfig.fillna_value
+    "scaler_name_cfg": ("standard", "robust", None),  # PreprocessingBackendConfig.scaler_name
+    "categorical_encoding_cfg": ("ordinal", "onehot"),  # PreprocessingBackendConfig.categorical_encoding
+    "skip_categorical_encoding_cfg": (False, True),  # PreprocessingBackendConfig.skip_categorical_encoding
+    "val_placement_cfg": ("forward", "backward"),  # TrainingSplitConfig.val_placement
+    "test_size_cfg": (0.1, 0.2),  # TrainingSplitConfig.test_size
+    "trainset_aging_limit_cfg": (None, 0.5),  # TrainingSplitConfig.trainset_aging_limit
+    "cat_text_card_threshold_cfg": (50, 300),  # FeatureTypesConfig.cat_text_cardinality_threshold
+    "early_stopping_rounds_cfg": (
+        None,
+        10,
+    ),  # ModelHyperparamsConfig.early_stopping_rounds — was 20 in 2026-04, reduced 2026-04-27 for fuzz speed (still tests ES path with smaller patience)
+    "use_robust_eval_metric_cfg": (False, True),  # TrainingBehaviorConfig.use_robust_eval_metric
     # 2026-04-24 (Fix G): adversarial axis values — synthetic patterns
     # that stress-test the pipeline for bugs real-world synthetic data
     # alone cannot reach. Each of these is a 2-value axis.
-    "inject_label_leak": (False, True),                          # feature = target + ε; val metric must be near-perfect
-    "inject_rank_deficient": (False, True),                      # colinear feature pair; linear-model edge
-    "inject_all_nan_col": (False, True),                         # whole column is NaN; pipeline guard test
+    "inject_label_leak": (False, True),  # feature = target + ε; val metric must be near-perfect
+    "inject_rank_deficient": (False, True),  # colinear feature pair; linear-model edge
+    "inject_all_nan_col": (False, True),  # whole column is NaN; pipeline guard test
     # 2026-04-24 (R3): drift, imbalance, weird-cat axes.
     "inject_test_drift": (None, "unseen_category", "out_of_range_numeric", "shifted_distribution"),  # R3-1
-    "imbalance_ratio": ("balanced", "rare_5pct", "rare_1pct"),   # R3-4
-    "weird_cat_content": (None, "empty", "unicode", "null_like"),# R3-5
+    "imbalance_ratio": ("balanced", "rare_5pct", "rare_1pct"),  # R3-4
+    "weird_cat_content": (None, "empty", "unicode", "null_like"),  # R3-5
     # 2026-04-26 batch 1 — config fields previously hard-coded to defaults.
-    "fix_infinities_cfg": (True, False),                         # PreprocessingConfig.fix_infinities
-    "ensure_float32_cfg": (True, False),                         # PreprocessingConfig.ensure_float32_dtypes
-    "remove_constant_columns_cfg": (True, False),                # PreprocessingConfig.remove_constant_columns
+    "fix_infinities_cfg": (True, False),  # PreprocessingConfig.fix_infinities
+    "ensure_float32_cfg": (True, False),  # PreprocessingConfig.ensure_float32_dtypes
+    "remove_constant_columns_cfg": (True, False),  # PreprocessingConfig.remove_constant_columns
     "imputer_strategy_cfg": ("mean", "median", "most_frequent", None),  # PreprocessingBackendConfig.imputer_strategy
-    "shuffle_val_cfg": (False, True),                            # TrainingSplitConfig.shuffle_val
-    "shuffle_test_cfg": (False, True),                           # TrainingSplitConfig.shuffle_test
-    "wholeday_splitting_cfg": (True, False),                     # TrainingSplitConfig.wholeday_splitting
-    "val_sequential_fraction_cfg": (0.0, 0.5, 1.0),              # TrainingSplitConfig.val_sequential_fraction
+    "shuffle_val_cfg": (False, True),  # TrainingSplitConfig.shuffle_val
+    "shuffle_test_cfg": (False, True),  # TrainingSplitConfig.shuffle_test
+    "wholeday_splitting_cfg": (True, False),  # TrainingSplitConfig.wholeday_splitting
+    "val_sequential_fraction_cfg": (0.0, 0.5, 1.0),  # TrainingSplitConfig.val_sequential_fraction
     # 2026-04-26 batch 3 — multilabel dispatch fields (only meaningful when
     # target_type=multilabel + strategy=chain). Now actually wired through
     # train_mlframe_models_suite → select_target → configure_training_params
     # → strategy.wrap_multilabel via the new multilabel_dispatch_config kwarg.
-    "multilabel_n_chains_cfg": (2, 3),                           # MultilabelDispatchConfig.n_chains — was (3, 5) in 2026-04, reduced 2026-04-27 for fuzz speed (chain dispatch path identical, fewer chains)
-    "multilabel_chain_order_cfg": ("random", "by_frequency"),    # MultilabelDispatchConfig.chain_order_strategy
-    "multilabel_cv_cfg": (2, 3),                                 # MultilabelDispatchConfig.cv — was (3, 5) in 2026-04, reduced 2026-04-27 for fuzz speed (CV path identical, fewer folds)
+    "multilabel_n_chains_cfg": (
+        2,
+        3,
+    ),  # MultilabelDispatchConfig.n_chains — was (3, 5) in 2026-04, reduced 2026-04-27 for fuzz speed (chain dispatch path identical, fewer chains)
+    "multilabel_chain_order_cfg": ("random", "by_frequency"),  # MultilabelDispatchConfig.chain_order_strategy
+    "multilabel_cv_cfg": (2, 3),  # MultilabelDispatchConfig.cv — was (3, 5) in 2026-04, reduced 2026-04-27 for fuzz speed (CV path identical, fewer folds)
     # 2026-04-26 batch 4 — PreprocessingExtensionsConfig (entire config was
     # untested). When ANY of these is non-None the sklearn-bridge fires in
     # fit_and_transform_pipeline (polars-native fastpath bypassed) — even
     # tree models then consume the shared transformed frame.
     "prep_ext_scaler_cfg": (None, "StandardScaler", "RobustScaler"),  # PreprocessingExtensionsConfig.scaler
-    "prep_ext_kbins_cfg": (None, 5),                             # PreprocessingExtensionsConfig.kbins
-    "prep_ext_polynomial_degree_cfg": (None, 2),                 # PreprocessingExtensionsConfig.polynomial_degree
-    "prep_ext_dim_reducer_cfg": (None, "PCA", "TruncatedSVD"),   # PreprocessingExtensionsConfig.dim_reducer
-    "prep_ext_nonlinear_cfg": (None, "RBFSampler"),              # PreprocessingExtensionsConfig.nonlinear_features
+    "prep_ext_kbins_cfg": (None, 5),  # PreprocessingExtensionsConfig.kbins
+    "prep_ext_polynomial_degree_cfg": (None, 2),  # PreprocessingExtensionsConfig.polynomial_degree
+    "prep_ext_dim_reducer_cfg": (None, "PCA", "TruncatedSVD"),  # PreprocessingExtensionsConfig.dim_reducer
+    "prep_ext_nonlinear_cfg": (None, "RBFSampler"),  # PreprocessingExtensionsConfig.nonlinear_features
     # 2026-05-15 — PySR symbolic regression: gated to small combos because
     # each PySR fit triggers Julia compilation + Pareto-front search (30-60s+).
     # Canonicalised to False for: classification targets (PySR is regression-only),
     # n_rows > 2000 (sample-down inside _apply_pysr_fe but still slow), text/
     # embedding cols (the temp _pysr_y_ injection assumes numeric frame).
-    "prep_ext_pysr_enabled_cfg": (False, True),                  # PreprocessingExtensionsConfig.pysr_enabled
+    "prep_ext_pysr_enabled_cfg": (False, True),  # PreprocessingExtensionsConfig.pysr_enabled
     # 2026-05-15 — MRMR NaN handling strategy. Drives _validate_inputs +
     # categorize_dataset behaviour. Three values currently supported; canon
     # to "separate_bin" when use_mrmr_fs is False (axis is a no-op then).
@@ -827,17 +834,17 @@ AXES: dict[str, tuple[Any, ...]] = {
     # =====================================================================
     # LGB boosting_type + depth-4 sub-params
     "lgb_boosting_type_cfg": ("gbdt", "dart", "goss"),
-    "lgb_dart_drop_rate_cfg": (0.1, 0.3),         # only when boosting_type='dart'
-    "lgb_goss_top_rate_cfg": (0.2, 0.4),          # only when boosting_type='goss'
+    "lgb_dart_drop_rate_cfg": (0.1, 0.3),  # only when boosting_type='dart'
+    "lgb_goss_top_rate_cfg": (0.2, 0.4),  # only when boosting_type='goss'
     # XGB tree_method + depth-4 sub-params
     "xgb_tree_method_cfg": ("auto", "hist"),
-    "xgb_hist_max_bin_cfg": (256, 64),            # only when tree_method='hist'
+    "xgb_hist_max_bin_cfg": (256, 64),  # only when tree_method='hist'
     # CB bootstrap_type + grow_policy + depth-4 sub-params
     "cb_bootstrap_type_cfg": ("Bayesian", "Bernoulli", "MVS"),
     "cb_bayesian_bagging_temperature_cfg": (1.0, 5.0),  # only when bootstrap_type='Bayesian'
-    "cb_bernoulli_subsample_cfg": (0.8, 0.5),     # only when bootstrap_type='Bernoulli'
+    "cb_bernoulli_subsample_cfg": (0.8, 0.5),  # only when bootstrap_type='Bernoulli'
     "cb_grow_policy_cfg": ("SymmetricTree", "Lossguide"),
-    "cb_lossguide_max_leaves_cfg": (31, 63),      # only when grow_policy='Lossguide'
+    "cb_lossguide_max_leaves_cfg": (31, 63),  # only when grow_policy='Lossguide'
     # FHC.cache.persistence (depth-4 because it gates disk-tier sub-fields)
     "fhc_cache_persistence_cfg": ("auto", "off", "read_write"),
     # MultilabelDispatchConfig depth-4 list-typed fields (never set pre-iter180)
@@ -873,7 +880,10 @@ AXES: dict[str, tuple[Any, ...]] = {
     # (gain-over-baseline weighting), "linear_stack" (OLS). Canon collapses
     # to "nnls_stack" when composite_discovery_enabled_cfg is False.
     "cross_target_ensemble_strategy_cfg": (
-        "nnls_stack", "mean", "oof_weighted", "linear_stack",
+        "nnls_stack",
+        "mean",
+        "oof_weighted",
+        "linear_stack",
     ),
     # feature_engineering.basic.add_cyclical_date_features: 2026-05-25 added
     # Kaggle-style cyclical sin/cos transforms (period 7/12/24/31/365). When
@@ -1034,7 +1044,8 @@ AXES: dict[str, tuple[Any, ...]] = {
     # regression; toggling to broaden / narrow exercises the logit-init
     # branch for binary.
     "baseline_init_score_apply_target_types_cfg": (
-        "regression_only", "regression_and_binary",
+        "regression_only",
+        "regression_and_binary",
     ),
     # =====================================================================
     # 2026-05-28 audit-pass-4 SAFE-subset (W4): 8 axes pulled from
@@ -1446,7 +1457,8 @@ AXES: dict[str, tuple[Any, ...]] = {
     # canon-collapse to "per_target" otherwise (the field is consumed only
     # on those target types).
     "composite_target_multilabel_strategy_cfg": (
-        "per_target", "multi_target_regression",
+        "per_target",
+        "multi_target_regression",
     ),
     # A2 cross-target ensemble enablement marker. The early-return WARN at
     # _phase_composite_post_xt_ensemble._build_cross_target_ensemble_for_target
@@ -1494,7 +1506,10 @@ AXES: dict[str, tuple[Any, ...]] = {
     # (None today). Both kinds canon-collapse to "off" unless the frame
     # builder emits a candidate group_col / time_col.
     "mrmr_fe_ratio_delta_diff_cfg": (
-        "off", "ratio", "grouped_delta", "lagged_diff",
+        "off",
+        "ratio",
+        "grouped_delta",
+        "lagged_diff",
     ),
     # B6 Layer 26 generic MI-greedy FE (mrmr.py:691 fe_mi_greedy_enable).
     # Sibling to fe_hybrid_orth; gate is use_mrmr_fs=True only (no compound
@@ -1519,7 +1534,10 @@ AXES: dict[str, tuple[Any, ...]] = {
     # Gate: mrmr_shap_proxy_artifact_reuse_cfg == "on" (otherwise no
     # precomputed dict is passed).
     "mrmr_shap_proxy_align_mode_cfg": (
-        "exact", "permuted", "subset", "mismatched",
+        "exact",
+        "permuted",
+        "subset",
+        "mismatched",
     ),
     # TODO(audit-pass-12 D1 -- kernel_tuning_cache verification): the
     # Layer 30 bulk corrcoef dedup (commit 77478957) + Layer 31 numba
@@ -1582,7 +1600,11 @@ AXES: dict[str, tuple[Any, ...]] = {
     # for fuzz repro. Gate: use_mrmr_fs=True AND mrmr_dcd_enable_cfg=True;
     # canon to "auto" outside the gate.
     "mrmr_dcd_swap_method_cfg": (
-        "auto", "mean_z", "pca_pc2", "median_z", "signed_max_abs",
+        "auto",
+        "mean_z",
+        "pca_pc2",
+        "median_z",
+        "signed_max_abs",
     ),
     # F14-2 [HIGH default-flip] -- the existing
     # ``shap_proxied_shap_aware_stage1_cushion_cfg`` pair (2, 4) declared

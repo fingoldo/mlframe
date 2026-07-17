@@ -5,12 +5,12 @@ but NOT a probability). Callers stamping AUC / logloss on the result hit silentl
 miscalibrated outputs. W11D adds a one-line WARN so the path is grep-able in suite
 logs. This sensor pins the WARN in place.
 """
+
 from __future__ import annotations
 
 import logging
 
 import numpy as np
-import pytest
 
 from mlframe.models.ensembling.base import _rrf_aggregate_probs
 

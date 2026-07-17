@@ -33,6 +33,7 @@ CONTRACTS PINNED
 
 NEVER xfail. Default-OFF: legacy ``fit()`` unchanged.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -82,6 +83,7 @@ def _fast_mrmr(**overrides):
     cheap on tiny tests. Layer 53 partial_fit semantics don't depend on
     those mechanisms; turning them off keeps the suite under 60s."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     defaults = dict(
         verbose=0,
         random_seed=0,
@@ -113,6 +115,7 @@ class TestLayer53_APISmoke:
     def test_method_bound_on_class(self):
         """partial_fit is bound on the MRMR class with an sklearn-style (self, X_new, y_new, ...) signature."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         assert hasattr(MRMR, "partial_fit"), (
             "MRMR.partial_fit must be bound on the class at module import "
             "time so sklearn's incremental-learning estimator detection "
@@ -120,10 +123,11 @@ class TestLayer53_APISmoke:
         )
         # sklearn convention: method takes X, y and additional kwargs.
         import inspect
+
         sig = inspect.signature(MRMR.partial_fit)
         params = list(sig.parameters.keys())
         # self + X_new + y_new at minimum.
-        assert params[:3] == ["self", "X_new", "y_new"], f"partial_fit signature should start with (self, X_new, y_new); " f"got {params[:3]!r}"
+        assert params[:3] == ["self", "X_new", "y_new"], f"partial_fit signature should start with (self, X_new, y_new); got {params[:3]!r}"
 
     def test_default_knobs_off_by_default(self):
         """Ctor defaults: decay=0, min_recompute=100, window=None."""
@@ -183,7 +187,7 @@ class TestLayer53_C1_FirstCallEquivalence:
         m_pf = _fast_mrmr().partial_fit(X, y)
         # Support contents (not insertion order) must match.
         assert set(m_fit.support_.tolist()) == set(m_pf.support_.tolist()), (
-            f"partial_fit first-call support {m_pf.support_.tolist()!r} " f"differs from fit support {m_fit.support_.tolist()!r}"
+            f"partial_fit first-call support {m_pf.support_.tolist()!r} differs from fit support {m_fit.support_.tolist()!r}"
         )
         # n_features_in_ contract preserved.
         assert m_fit.n_features_in_ == m_pf.n_features_in_
@@ -281,7 +285,7 @@ class TestLayer53_C3_DecayBiasesRecent:
         feature_names = list(m.feature_names_in_)
         selected = [feature_names[i] for i in m.support_]
         # x_other must beat x_signal in the recent-biased fit.
-        assert "x_other" in selected, f"With decay=1.0 + recent batch driven by x_other, " f"selected={selected!r} must include x_other."
+        assert "x_other" in selected, f"With decay=1.0 + recent batch driven by x_other, selected={selected!r} must include x_other."
 
     def test_decay_zero_keeps_both_drivers_equal(self):
         """C3 sentry: decay=0 keeps the historic buffer at equal weight,
@@ -299,7 +303,7 @@ class TestLayer53_C3_DecayBiasesRecent:
         # No-decay: both batches contribute equally; at least one of the
         # two signals should be present (both are weak alone after the
         # 50/50 mix, but neither is excluded by construction).
-        assert selected & {"x_signal", "x_other"}, f"decay=0 should keep at least one of the two drivers in " f"support_; got {selected!r}"
+        assert selected & {"x_signal", "x_other"}, f"decay=0 should keep at least one of the two drivers in support_; got {selected!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -366,10 +370,12 @@ class TestLayer53_C5_PicklePreserves:
         assert m2.partial_fit_window == 300
         # Buffer preserved row-for-row.
         pd.testing.assert_frame_equal(
-            m._partial_fit_X_buffer_, m2._partial_fit_X_buffer_,
+            m._partial_fit_X_buffer_,
+            m2._partial_fit_X_buffer_,
         )
         pd.testing.assert_series_equal(
-            m._partial_fit_y_buffer_, m2._partial_fit_y_buffer_,
+            m._partial_fit_y_buffer_,
+            m2._partial_fit_y_buffer_,
         )
         # Support preserved.
         np.testing.assert_array_equal(m.support_, m2.support_)
@@ -414,6 +420,7 @@ class TestLayer53_C6_Regressions:
         """Layer 41 regression: plain fit() still sets cluster_members_
         attribute regardless of Layer 53 additions."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _simple_binary_frame(n=300, seed=100)
         m = MRMR(dcd_enable=False, verbose=0, random_seed=0).fit(X, y)
         assert hasattr(m, "cluster_members_")
@@ -425,6 +432,7 @@ class TestLayer53_C6_Regressions:
         from mlframe.feature_selection.filters._cluster_hierarchy import (
             build_cluster_hierarchy,
         )
+
         X, _ = _simple_binary_frame(n=200, seed=110)
         h = build_cluster_hierarchy(None, X)
         assert h == {}

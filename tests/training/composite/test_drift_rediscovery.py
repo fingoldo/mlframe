@@ -5,6 +5,7 @@ shifts the base distribution and flips the residual relationship, so the monitor
 helper must then probe the prior discovery specs and, on a REDISCOVER verdict, run a full
 ``discovery.fit`` on the new frame automatically.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,10 +45,16 @@ def _fitted_pair():
     monitor = CompositeDriftMonitor(est)
     monitor.ensure_sketch(reference=df[["lag", "feat"]], y_reference=y)
     cfg = CompositeTargetDiscoveryConfig(
-        enabled=True, random_state=0, screening="mi", base_candidates=["lag"],
-        transforms=["diff", "linear_residual"], honest_holdout_frac=0.2,
-        multi_base_enabled=False, interaction_base_discovery_enabled=False,
-        auto_chain_discovery_enabled=False, auto_base_null_perms=0,
+        enabled=True,
+        random_state=0,
+        screening="mi",
+        base_candidates=["lag"],
+        transforms=["diff", "linear_residual"],
+        honest_holdout_frac=0.2,
+        multi_base_enabled=False,
+        interaction_base_discovery_enabled=False,
+        auto_chain_discovery_enabled=False,
+        auto_base_null_perms=0,
     )
     disc = CompositeTargetDiscovery(cfg)
     disc.fit(df, "y", ["lag", "feat"], np.arange(len(df)))
@@ -70,8 +77,14 @@ def test_drift_triggers_full_rediscovery():
     monitor, disc, _df, _y = _fitted_pair()
     new_df, new_y = _drifted_frame()
     out = check_and_rediscover(
-        monitor, disc, new_df, "y", ["lag", "feat"], y_new=new_y,
-        train_idx=np.arange(len(new_df)), min_surviving_fraction=1.01,  # force the REDISCOVER verdict
+        monitor,
+        disc,
+        new_df,
+        "y",
+        ["lag", "feat"],
+        y_new=new_y,
+        train_idx=np.arange(len(new_df)),
+        min_surviving_fraction=1.01,  # force the REDISCOVER verdict
     )
     assert out["drift"] is True, "shifted base + flipped residual must alarm the monitor"
     assert out["decision"] is not None and out["decision"].reuse is False
@@ -85,8 +98,14 @@ def test_drift_without_train_idx_reports_but_does_not_refit():
     prior = list(disc.specs_)
     new_df, new_y = _drifted_frame(seed=6)
     out = check_and_rediscover(
-        monitor, disc, new_df, "y", ["lag", "feat"], y_new=new_y,
-        train_idx=None, min_surviving_fraction=1.01,
+        monitor,
+        disc,
+        new_df,
+        "y",
+        ["lag", "feat"],
+        y_new=new_y,
+        train_idx=None,
+        min_surviving_fraction=1.01,
     )
     assert out["drift"] is True and out["refitted"] is False
     assert [s.name for s in out["specs"]] == [s.name for s in prior], "without train_idx the prior specs are kept"

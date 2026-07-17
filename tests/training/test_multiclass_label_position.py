@@ -16,6 +16,7 @@ raw labels reaching the reporting layer may be e.g. [1, 2, 3] or [10, 20, 30].
     ``weighted_*`` aggregates are silently wrong. Now counts against the actual
     class label ``classes[cid]``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,7 +31,9 @@ def test_compose_multiclass_figure_handles_non_contiguous_labels():
     y_proba = np.eye(3)[[0, 0, 1, 1, 2, 2]].astype(float)
 
     fig = compose_multiclass_figure(
-        y_true, y_proba, classes,
+        y_true,
+        y_proba,
+        classes,
         panels_template="CONFUSION PR_F1 ROC PR_CURVES CALIB_GRID PROB_DIST TOP_K_ACC",
     )
     assert fig is not None
@@ -55,7 +58,9 @@ def test_compose_multiclass_figure_handles_string_and_unseen_labels():
     y_proba = np.eye(3)[[0, 0, 1, 1, 2, 2]].astype(float)
 
     fig = compose_multiclass_figure(
-        y_true, y_proba, classes,
+        y_true,
+        y_proba,
+        classes,
         panels_template="CONFUSION PR_F1 ROC PR_CURVES CALIB_GRID PROB_DIST TOP_K_ACC",
     )
     assert fig is not None
@@ -80,18 +85,24 @@ def test_weighted_metric_supports_use_class_label_not_enumerate_index():
     metrics: dict = {}
 
     report_probabilistic_model_perf(
-        targets=targets, columns=["f"], model_name="m", model=None,
-        classes=classes, preds=preds, probs=probs, metrics=metrics,
-        print_report=False, show_perf_chart=False, verbose=False,
+        targets=targets,
+        columns=["f"],
+        model_name="m",
+        model=None,
+        classes=classes,
+        preds=preds,
+        probs=probs,
+        metrics=metrics,
+        print_report=False,
+        show_perf_chart=False,
+        verbose=False,
     )
 
     # Correct support-weighted recall = (1.0*60 + 0*30 + 0*10)/100 = 0.6.
     # Pre-fix the class-1 block (enumerate position 0) got support
     # count(targets==0)=0 -> dropped -> weighted_recall collapsed to 0.0.
     assert "weighted_recall" in metrics, f"weighted_recall absent; keys={sorted(metrics)}"
-    assert abs(float(metrics["weighted_recall"]) - 0.6) < 0.05, (
-        f"weighted_recall={metrics['weighted_recall']} (correct=0.6, pre-fix buggy=0.0)"
-    )
+    assert abs(float(metrics["weighted_recall"]) - 0.6) < 0.05, f"weighted_recall={metrics['weighted_recall']} (correct=0.6, pre-fix buggy=0.0)"
 
 
 def test_multiclass_ice_metric_auto_maps_non_0_indexed_integer_labels():
@@ -121,9 +132,7 @@ def test_multiclass_ice_metric_auto_maps_non_0_indexed_integer_labels():
     err_explicit = compute_probabilistic_multiclass_error(y_true=y, y_score=probs, labels=np.array([1, 2, 3]))
     err_0indexed = compute_probabilistic_multiclass_error(y_true=y - 1, y_score=probs)
 
-    assert np.isclose(err_auto, err_explicit), (
-        f"auto-map ICE {err_auto} != explicit-labels ICE {err_explicit} (pre-fix auto ~+1.8)"
-    )
+    assert np.isclose(err_auto, err_explicit), f"auto-map ICE {err_auto} != explicit-labels ICE {err_explicit} (pre-fix auto ~+1.8)"
     assert np.isclose(err_auto, err_0indexed), f"auto-map ICE {err_auto} != 0-indexed ICE {err_0indexed}"
     assert err_auto < 0.0, f"well-separated multiclass ICE should be negative; got {err_auto} (pre-fix ~+1.8)"
 
@@ -153,14 +162,20 @@ def test_dummy_baselines_non_0_indexed_integer_multiclass_labels():
     val_y = rng.integers(1, 4, size=n_va)
     test_y = rng.integers(1, 4, size=n_te)
     import pandas as pd
+
     train_X = pd.DataFrame({"f": rng.normal(size=n_tr)})
     val_X = pd.DataFrame({"f": rng.normal(size=n_va)})
     test_X = pd.DataFrame({"f": rng.normal(size=n_te)})
 
     rep = compute_dummy_baselines(
-        target_type="multiclass_classification", target_name="t",
-        train_X=train_X, val_X=val_X, test_X=test_X,
-        train_y=train_y, val_y=val_y, test_y=test_y,
+        target_type="multiclass_classification",
+        target_name="t",
+        train_X=train_X,
+        val_X=val_X,
+        test_X=test_X,
+        train_y=train_y,
+        val_y=val_y,
+        test_y=test_y,
         config=DummyBaselinesConfig(),
     )
     assert rep.extras.get("n_classes") == 3
@@ -168,9 +183,7 @@ def test_dummy_baselines_non_0_indexed_integer_multiclass_labels():
     # (log_loss labels=arange(3) rejects label 3) -> the table is all-failed.
     tbl = rep.table
     finite_ll = tbl["val_log_loss"].apply(lambda v: np.isfinite(v) if v is not None else False)
-    assert bool(finite_ll.any()), (
-        f"no baseline produced a finite val_log_loss for non-0-indexed labels; table=\n{tbl}"
-    )
+    assert bool(finite_ll.any()), f"no baseline produced a finite val_log_loss for non-0-indexed labels; table=\n{tbl}"
     # Width check via uniform: 1/K per class on K=3 columns.
     assert not tbl["failed"].all(), f"all baselines failed for {{1,2,3}} labels; table=\n{tbl}"
 
@@ -199,22 +212,26 @@ def test_classification_report_no_phantom_class_for_non_0_indexed_labels(caplog)
     logger_name = "mlframe.training.reporting._reporting_probabilistic"
     with caplog.at_level(logging.INFO, logger=logger_name):
         report_probabilistic_model_perf(
-            targets=targets, columns=["f"], model_name="m", model=None,
-            classes=classes, preds=preds, probs=probs, metrics={},
-            print_report=True, show_perf_chart=False, report_ndigits=2,
+            targets=targets,
+            columns=["f"],
+            model_name="m",
+            model=None,
+            classes=classes,
+            preds=preds,
+            probs=probs,
+            metrics={},
+            print_report=True,
+            show_perf_chart=False,
+            report_ndigits=2,
         )
     report_block = next(r.getMessage() for r in caplog.records if "f1-score" in r.getMessage())
     table_lines = report_block.splitlines()
 
     # No phantom class-0 row (labels start at 1): only the header may contain the substring, so check row prefixes.
-    assert not any(line.strip().startswith("0 ") for line in table_lines), (
-        f"phantom class-0 row present:\n{report_block}"
-    )
+    assert not any(line.strip().startswith("0 ") for line in table_lines), f"phantom class-0 row present:\n{report_block}"
     # macro avg matches sklearn's (0.89 precision here), NOT the phantom-diluted 0.67.
     skl = _skl_report(targets, preds, zero_division=0, digits=2)
     skl_macro = next(l for l in skl.splitlines() if "macro avg" in l).split()
     our_macro = next(l for l in table_lines if "macro avg" in l).split()
     # last 4 numeric tokens are precision recall f1 support
-    assert our_macro[-4:-1] == skl_macro[-4:-1], (
-        f"macro avg mismatch: ours={our_macro[-4:-1]} sklearn={skl_macro[-4:-1]}"
-    )
+    assert our_macro[-4:-1] == skl_macro[-4:-1], f"macro avg mismatch: ours={our_macro[-4:-1]} sklearn={skl_macro[-4:-1]}"

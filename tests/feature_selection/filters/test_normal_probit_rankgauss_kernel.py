@@ -4,6 +4,7 @@ bare ``scipy.special.ndtri`` / ``ndtr`` kernels (bit-identical to ``norm.ppf`` /
 to the norm-based reference so a future revert to norm.ppf is caught only by speed,
 never by a numeric drift, and so a kernel swap that is NOT bit-identical fails here.
 """
+
 from __future__ import annotations
 
 import numpy as np

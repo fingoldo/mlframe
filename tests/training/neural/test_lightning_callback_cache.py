@@ -11,9 +11,9 @@ since callback discovery is process-stable (sys.path + installed dists don't
 change between fits). Mirrors the ``_PROBE_PRECISION_CACHE`` pattern
 (mlp_runtime_defaults.py iter181) and ``_CB_GPU_USABLE_CACHE`` (_cb_pool.py).
 """
+
 import time
 
-import pytest
 
 
 def test_lightning_external_callbacks_cached_per_group():
@@ -35,10 +35,7 @@ def test_lightning_external_callbacks_cached_per_group():
     elapsed_warm = time.perf_counter() - t
     # 10 cached calls must complete in well under 50ms (typical ~0ms each;
     # uncached would be ~1.8s for 10 calls).
-    assert elapsed_warm < 0.05, (
-        f"cached 10 calls took {elapsed_warm*1000:.1f}ms; "
-        f"cache wrapper likely not installed (expected <50ms)"
-    )
+    assert elapsed_warm < 0.05, f"cached 10 calls took {elapsed_warm * 1000:.1f}ms; cache wrapper likely not installed (expected <50ms)"
 
 
 def test_lightning_external_callbacks_cache_returns_defensive_copy():
@@ -67,9 +64,7 @@ def test_lightning_cache_install_marker_set():
     import mlframe.training.neural.base  # noqa: F401
     from lightning.fabric.utilities import registry as _lf_registry
 
-    assert getattr(_lf_registry, "_mlframe_callback_cache_installed", False), (
-        "expected _mlframe_callback_cache_installed marker after import"
-    )
+    assert getattr(_lf_registry, "_mlframe_callback_cache_installed", False), "expected _mlframe_callback_cache_installed marker after import"
 
 
 def test_lightning_cache_rebound_in_caller_modules():

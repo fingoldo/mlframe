@@ -3,6 +3,7 @@
 The learning curve is K full refits by construction (its cost is why it is opt-in); these tests use cheap
 estimators (Ridge / a small HistGradientBoosting) at moderate n so the whole file stays fast.
 """
+
 from __future__ import annotations
 
 import cProfile
@@ -71,7 +72,7 @@ def test_holdout_is_disjoint_from_every_train_subset():
     holdout = 0.25
     rng = np.random.default_rng(0)
     shuffled = rng.permutation(n)
-    n_hold = min(max(1, int(round(holdout * n))), n - 2)
+    n_hold = min(max(1, round(holdout * n)), n - 2)
     hold_idx = set(np.sort(shuffled[:n_hold]).tolist())
     pool_idx = set(np.sort(shuffled[n_hold:]).tolist())
     assert hold_idx.isdisjoint(pool_idx)
@@ -85,7 +86,12 @@ def test_custom_sizes_collapse_duplicates_on_small_pool():
     X, y = _linear_reg(40)
     # 0.05 and 0.1 both round to the same tiny count on a ~32-row pool -> collapse, but result stays ascending.
     res = compute_learning_curve(
-        _ridge_factory, X, y, scorer=R2, sizes=(0.05, 0.1, 0.5, 1.0), n_jobs=1,
+        _ridge_factory,
+        X,
+        y,
+        scorer=R2,
+        sizes=(0.05, 0.1, 0.5, 1.0),
+        n_jobs=1,
     )
     assert np.all(np.diff(res.train_sizes) > 0)
     assert len(res.train_sizes) <= 4
@@ -115,11 +121,18 @@ def test_time_budget_skips_larger_sizes_and_logs(caplog):
             def fit(self, X, yy, **kw):
                 time.sleep(0.15)
                 return super().fit(X, yy, **kw)
+
         return _Slow(alpha=1.0)
 
     with caplog.at_level("INFO"):
         res = compute_learning_curve(
-            _slow_factory, X, y, scorer=R2, n_jobs=1, time_budget_s=0.2, random_state=0,
+            _slow_factory,
+            X,
+            y,
+            scorer=R2,
+            n_jobs=1,
+            time_budget_s=0.2,
+            random_state=0,
         )
     assert len(res.skipped_fractions) > 0
     assert len(res.train_sizes) < len(DEFAULT_SIZES)
@@ -178,9 +191,7 @@ def test_panel_band_present_only_with_repeats():
     X, y = _linear_reg(500)
     no_rep = learning_curve_panel(compute_learning_curve(_ridge_factory, X, y, scorer=R2, n_jobs=1))
     assert no_rep.panels[0][0].band is None
-    rep = learning_curve_panel(
-        compute_learning_curve(_ridge_factory, X, y, scorer=R2, n_jobs=1, score_repeats=3)
-    )
+    rep = learning_curve_panel(compute_learning_curve(_ridge_factory, X, y, scorer=R2, n_jobs=1, score_repeats=3))
     assert rep.panels[0][0].band is not None
 
 
@@ -225,26 +236,33 @@ def test_biz_val_learning_curve_slope_distinguishes_starved_from_saturated():
     n = 1200
     Xs = rng.normal(size=(n, 8))
     # Strong interactions + nonlinearity a GB needs many rows to resolve.
-    ys = (
-        np.sin(2.0 * Xs[:, 0]) * Xs[:, 1]
-        + Xs[:, 2] * Xs[:, 3]
-        - np.abs(Xs[:, 4])
-        + 0.5 * Xs[:, 5] ** 2
-        + rng.normal(0, 0.3, n)
-    )
+    ys = np.sin(2.0 * Xs[:, 0]) * Xs[:, 1] + Xs[:, 2] * Xs[:, 3] - np.abs(Xs[:, 4]) + 0.5 * Xs[:, 5] ** 2 + rng.normal(0, 0.3, n)
 
     def _gb():
         return HistGradientBoostingRegressor(max_iter=120, max_depth=4, random_state=0)
 
     starved = compute_learning_curve(
-        _gb, Xs, ys, scorer=R2, sizes=(0.1, 0.2, 0.4, 0.7, 1.0), n_jobs=-1, random_state=0, scorer_name="r2",
+        _gb,
+        Xs,
+        ys,
+        scorer=R2,
+        sizes=(0.1, 0.2, 0.4, 0.7, 1.0),
+        n_jobs=-1,
+        random_state=0,
+        scorer_name="r2",
     )
     starved_slope = starved.holdout_slope_last(k=3)
 
     # --- saturated: clean linear target, simple learner ---
     Xc, yc = _linear_reg(2000, noise=0.3, seed=1)
     saturated = compute_learning_curve(
-        _ridge_factory, Xc, yc, scorer=R2, sizes=(0.1, 0.2, 0.4, 0.7, 1.0), n_jobs=-1, random_state=0,
+        _ridge_factory,
+        Xc,
+        yc,
+        scorer=R2,
+        sizes=(0.1, 0.2, 0.4, 0.7, 1.0),
+        n_jobs=-1,
+        random_state=0,
         scorer_name="r2",
     )
     saturated_slope = saturated.holdout_slope_last(k=3)
@@ -272,6 +290,7 @@ def test_cprofile_sweep_cost_scales_with_total_fit_work():
 
     # Reference: one full-pool Ridge fit wall (the most expensive single size).
     from mlframe.training.diagnostics.learning_curve import _take_rows  # noqa: F401
+
     t = time.perf_counter()
     Ridge(alpha=1.0).fit(X, y)
     one_full_fit = max(time.perf_counter() - t, 1e-4)
@@ -290,9 +309,7 @@ def test_cprofile_sweep_cost_scales_with_total_fit_work():
     # sweep should not exceed ~K full-pool fits plus scoring/overhead. Generous 8x cap absorbs cProfile inflation
     # + scoring + the small fixed split overhead while still failing a "every size fits the whole pool" regression
     # combined with a "no nesting" bug (which would push cost toward K*full unconditionally and break the slope).
-    assert res.elapsed_seconds <= one_full_fit * len(sizes) * 8 + 0.5, (
-        f"sweep wall {res.elapsed_seconds:.3f}s vs {len(sizes)} full fits @ {one_full_fit:.4f}s"
-    )
+    assert res.elapsed_seconds <= one_full_fit * len(sizes) * 8 + 0.5, f"sweep wall {res.elapsed_seconds:.3f}s vs {len(sizes)} full fits @ {one_full_fit:.4f}s"
     # Smaller sizes are genuine subsets: the first (10%) fit must be cheaper-or-equal in rows than the last.
     assert res.train_sizes[0] < res.train_sizes[-1]
 

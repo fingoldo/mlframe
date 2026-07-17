@@ -1,4 +1,5 @@
 from mlframe.training import OutlierDetectionConfig, OutputConfig
+
 """Business-value integration tests for mlframe outlier detection and early stopping.
 
 NOTE: These are regression sensors, not scientific benchmarks. Synthetic data parameters
@@ -26,12 +27,13 @@ from sklearn.metrics import mean_squared_error, roc_auc_score
 
 from mlframe.training.core import train_mlframe_models_suite, predict_mlframe_models_suite
 from .shared import SimpleFeaturesAndTargetsExtractor
-from tests.conftest import fast_subset, is_fast_mode
+from tests.conftest import fast_subset
 
 
 # --------------------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------------------
+
 
 def _make_regression_with_outliers(n_train=2500, n_test=500, n_features=15, outlier_frac=0.08, seed=42):
     """Train df with injected outliers; held-out clean test df (X with target col).
@@ -104,7 +106,7 @@ def _make_classification(n_train=3000, n_test=600, n_features=15, seed=42, noise
 def _train_and_score_regression(train_df, test_df, tmp_path, *, model_name, outlier_detector, common_init_params, iterations=100):
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
     data_dir = str(tmp_path / "data" / model_name)
-    models, metadata = train_mlframe_models_suite(
+    _models, metadata = train_mlframe_models_suite(
         df=train_df,
         target_name="test_target",
         model_name=model_name,
@@ -139,6 +141,7 @@ def _n_trees_trained(models_path, mlframe_model):
     small fraction of fixed suite overhead, so wall-time alone is noise-dominated)."""
     import glob
     from mlframe.training.io import load_mlframe_model
+
     dumps = sorted(glob.glob(os.path.join(models_path, "**", "*.dump"), recursive=True))
     if not dumps:
         return None
@@ -161,7 +164,7 @@ def _train_and_score_classification(train_df, test_df, tmp_path, *, model_name, 
     data_dir = str(tmp_path / "data" / model_name)
     hp = {"iterations": iterations, "early_stopping_rounds": early_stopping_rounds}
     t0 = time.perf_counter()
-    models, metadata = train_mlframe_models_suite(
+    _models, metadata = train_mlframe_models_suite(
         df=train_df,
         target_name="test_target",
         model_name=model_name,
@@ -218,7 +221,9 @@ def test_outlier_detection_improves_regression_rmse(tmp_path, common_init_params
     train_df, test_df = _make_regression_with_outliers(seed=seed)
 
     rmse_no_od, meta_no = _train_and_score_regression(
-        train_df, test_df, tmp_path,
+        train_df,
+        test_df,
+        tmp_path,
         model_name=f"lgb_no_od_s{seed}",
         outlier_detector=None,
         common_init_params=common_init_params,
@@ -226,7 +231,9 @@ def test_outlier_detection_improves_regression_rmse(tmp_path, common_init_params
 
     od = IsolationForest(contamination=0.08, random_state=seed, n_estimators=80)
     rmse_with_od, meta_od = _train_and_score_regression(
-        train_df, test_df, tmp_path,
+        train_df,
+        test_df,
+        tmp_path,
         model_name=f"lgb_with_od_s{seed}",
         outlier_detector=od,
         common_init_params=common_init_params,
@@ -234,15 +241,10 @@ def test_outlier_detection_improves_regression_rmse(tmp_path, common_init_params
 
     train_size_od = meta_od.get("train_size")
     train_size_no = meta_no.get("train_size")
-    assert train_size_no is not None and train_size_od is not None, (
-        f"metadata missing train_size: no={train_size_no}, od={train_size_od}"
-    )
+    assert train_size_no is not None and train_size_od is not None, f"metadata missing train_size: no={train_size_no}, od={train_size_od}"
 
     measured_lift = (rmse_no_od - rmse_with_od) / rmse_no_od * 100.0
-    msg = (
-        f"rmse_no_od={rmse_no_od:.4f} rmse_with_od={rmse_with_od:.4f} "
-        f"lift={measured_lift:+.2f}% (floor >=8.00%, measured ~16.7%)"
-    )
+    msg = f"rmse_no_od={rmse_no_od:.4f} rmse_with_od={rmse_with_od:.4f} lift={measured_lift:+.2f}% (floor >=8.00%, measured ~16.7%)"
     # Hard floor: dropping IF-flagged outlier rows must lift held-out RMSE by >=8%.
     assert rmse_with_od <= rmse_no_od * 0.92, f"OD failed to lift RMSE by >=8%. {msg}"
 
@@ -253,6 +255,7 @@ def test_outlier_detection_improves_regression_rmse(tmp_path, common_init_params
 # the OD stage actually ran (independent of whether IF-on-features moved RMSE).
 # --------------------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("seed", fast_subset([42, 7, 99], representative=42))
 def test_outlier_detection_surfaces_metadata(tmp_path, common_init_params, seed):
     pytest.importorskip("lightgbm")
@@ -262,7 +265,9 @@ def test_outlier_detection_surfaces_metadata(tmp_path, common_init_params, seed)
 
     od = IsolationForest(contamination=0.05, random_state=seed, n_estimators=50)
     _, meta_od = _train_and_score_regression(
-        train_df, test_df, tmp_path,
+        train_df,
+        test_df,
+        tmp_path,
         model_name=f"lgb_od_meta_s{seed}",
         outlier_detector=od,
         common_init_params=common_init_params,
@@ -271,12 +276,8 @@ def test_outlier_detection_surfaces_metadata(tmp_path, common_init_params, seed)
     od_meta = meta_od.get("outlier_detection")
     assert od_meta is not None, f"metadata missing 'outlier_detection' key: keys={list(meta_od.keys())}"
     assert od_meta.get("applied") is True, f"outlier_detection.applied should be True, got: {od_meta}"
-    assert od_meta.get("n_outliers_dropped_train", 0) > 0, (
-        f"OD ran but reported zero dropped rows: {od_meta}"
-    )
-    assert od_meta.get("train_size_after_od") is not None, (
-        f"train_size_after_od missing: {od_meta}"
-    )
+    assert od_meta.get("n_outliers_dropped_train", 0) > 0, f"OD ran but reported zero dropped rows: {od_meta}"
+    assert od_meta.get("train_size_after_od") is not None, f"train_size_after_od missing: {od_meta}"
     # Sanity: post-OD ≤ pre-OD train size.
     assert od_meta["train_size_after_od"] <= meta_od.get("train_size", float("inf"))
 
@@ -284,6 +285,7 @@ def test_outlier_detection_surfaces_metadata(tmp_path, common_init_params, seed)
 # --------------------------------------------------------------------------------------
 # Test 2 — Early stopping reduces wall-time without losing AUROC
 # --------------------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("seed", fast_subset([42, 7, 99], representative=42))
 @pytest.mark.parametrize("mlframe_model", fast_subset(["lgb", "cb", "xgb"], representative="lgb"))
@@ -296,12 +298,21 @@ def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_para
     # shrank to ~11% with diagnostics on vs the >=24% the bare train+predict shows). This biz_value claim
     # is specifically that ES saves TRAINING time, so the measured region must isolate train+predict.
     from mlframe.training.configs import ReportingConfig
+
     lean_reporting = ReportingConfig(
-        print_report=False, show_perf_chart=False, show_fi=False,
-        honest_estimator_diagnostics=False, pdp_ice=False, shap_panels=False,
-        slice_finder=False, calibration_drift=False, cusum_drift=False,
-        risk_coverage_charts=False, split_comparison_charts=False,
-        fairness_calibration_charts=False, calibration_by_feature_charts=False,
+        print_report=False,
+        show_perf_chart=False,
+        show_fi=False,
+        honest_estimator_diagnostics=False,
+        pdp_ice=False,
+        shap_panels=False,
+        slice_finder=False,
+        calibration_drift=False,
+        cusum_drift=False,
+        risk_coverage_charts=False,
+        split_comparison_charts=False,
+        fairness_calibration_charts=False,
+        calibration_by_feature_charts=False,
         calibration_heatmap_2d_charts=False,
     )
 
@@ -309,8 +320,10 @@ def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_para
 
     # Run A: ES disabled via early_stopping_rounds=None (clean disable path).
     # Use a large iterations cap so the no-ES run is forced to train all trees.
-    auroc_a, time_a, meta_a, trees_a = _train_and_score_classification(
-        train_df, test_df, tmp_path,
+    auroc_a, time_a, _meta_a, trees_a = _train_and_score_classification(
+        train_df,
+        test_df,
+        tmp_path,
         model_name=f"{mlframe_model}_no_es_s{seed}",
         iterations=2000,
         early_stopping_rounds=None,
@@ -320,8 +333,10 @@ def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_para
 
     # Run B: aggressive early stopping with small patience — should converge in well
     # under 100 trees on the noisy fixture, training far fewer boosting rounds.
-    auroc_b, time_b, meta_b, trees_b = _train_and_score_classification(
-        train_df, test_df, tmp_path,
+    auroc_b, time_b, _meta_b, trees_b = _train_and_score_classification(
+        train_df,
+        test_df,
+        tmp_path,
         model_name=f"{mlframe_model}_with_es_s{seed}",
         iterations=2000,
         early_stopping_rounds=10,
@@ -351,9 +366,7 @@ def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_para
         # whether ES was active, so tree_count_ cannot distinguish the no-ES from the ES run. CB's
         # per-tree cost is high enough that the forced 2000-tree fit genuinely dominates the suite, so
         # here the wall-time speedup is the robust signal (measured +22-30% across seeds on this box).
-        assert speedup_pct >= 15.0, (
-            f"CB early stopping did not save >=15% wall-time vs the forced 2000-tree no-ES baseline. {msg}"
-        )
+        assert speedup_pct >= 15.0, f"CB early stopping did not save >=15% wall-time vs the forced 2000-tree no-ES baseline. {msg}"
     else:
         # lgb / xgb keep every trained tree, so the boosting-round count is the deterministic ES signal.
         assert trees_a is not None and trees_b is not None, f"could not read tree counts. {msg}"
@@ -363,9 +376,5 @@ def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_para
         # noisy fixture. So this test no longer asserts a full-cap baseline; instead it pins the surviving
         # mechanism: patience-ES (rounds=10) must train NO MORE boosting rounds than the monotonic-only
         # baseline (both stop early; patience is at least as aggressive here), and well under the 2000 cap.
-        assert trees_b <= trees_a, (
-            f"patience ES trained MORE rounds than the monotonic-only baseline -- ES regression. {msg}"
-        )
-        assert trees_a < 2000 and trees_b < 1000, (
-            f"a stop mechanism should have fired well under the 2000-tree cap for both runs. {msg}"
-        )
+        assert trees_b <= trees_a, f"patience ES trained MORE rounds than the monotonic-only baseline -- ES regression. {msg}"
+        assert trees_a < 2000 and trees_b < 1000, f"a stop mechanism should have fired well under the 2000-tree cap for both runs. {msg}"

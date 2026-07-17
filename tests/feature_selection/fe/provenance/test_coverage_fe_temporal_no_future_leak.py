@@ -37,8 +37,13 @@ def lag_recipe():
         "e1": {"v": [100.0]},
     }
     return build_temporal_lag_recipe(
-        name="lag1(val|ent)", entity_cols=["ent"], value_col="val",
-        time_col="t", lag=1, history=history, global_prior=-1.0,
+        name="lag1(val|ent)",
+        entity_cols=["ent"],
+        value_col="val",
+        time_col="t",
+        lag=1,
+        history=history,
+        global_prior=-1.0,
     )
 
 
@@ -49,10 +54,12 @@ def _frame(rows):
 def test_lag_uses_only_past_values(lag_recipe):
     # Within-test rows for e0 at times 5,6 with values 1,2. lag=1 -> the previous
     # value in the merged (history ++ within-test) time order.
-    X = _frame([
-        ("e0", 5, 1.0),
-        ("e0", 6, 2.0),
-    ])
+    X = _frame(
+        [
+            ("e0", 5, 1.0),
+            ("e0", 6, 2.0),
+        ]
+    )
     out = apply_recipe(lag_recipe, X)
     # Merged time order for e0: history [10,20] then test [1@t5, 2@t6].
     # Row t5: predecessor is the last history value 20.0.

@@ -6,10 +6,10 @@ reporting module. The public API here (binary / multiclass / multilabel /
 regression branches + the format helper) had only indirect coverage. This
 file pins each branch independently.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.training.drift_report import (
     DEFAULT_BINARY_DRIFT_WARN_THRESHOLD_PP,
@@ -27,9 +27,7 @@ def test_binary_no_drift_when_splits_match():
     train = rng.integers(0, 2, size=2000)
     val = rng.integers(0, 2, size=500)
     test = rng.integers(0, 2, size=500)
-    out = compute_label_distribution_drift(
-        train, val, test, target_type="binary_classification"
-    )
+    out = compute_label_distribution_drift(train, val, test, target_type="binary_classification")
     assert out["target_type"] == "binary_classification"
     assert out["splits"]["train"]["n"] == 2000
     assert "p_positive" in out["splits"]["train"]
@@ -44,9 +42,7 @@ def test_binary_prior_shift_50_50_to_90_10_warns():
     # Shifted val/test: 90% positive vs train's ~50%.
     val = (rng.random(size=1000) < 0.9).astype(int)
     test = (rng.random(size=1000) < 0.9).astype(int)
-    out = compute_label_distribution_drift(
-        train, val, test, target_type="binary_classification"
-    )
+    out = compute_label_distribution_drift(train, val, test, target_type="binary_classification")
     train_p = out["splits"]["train"]["p_positive"]
     val_p = out["splits"]["val"]["p_positive"]
     test_p = out["splits"]["test"]["p_positive"]
@@ -116,9 +112,7 @@ def test_multiclass_no_drift_when_class_priors_match():
     train = rng.integers(0, 4, size=4000)
     val = rng.integers(0, 4, size=1000)
     test = rng.integers(0, 4, size=1000)
-    out = compute_label_distribution_drift(
-        train, val, test, target_type="multiclass_classification"
-    )
+    out = compute_label_distribution_drift(train, val, test, target_type="multiclass_classification")
     assert out["target_type"] == "multiclass_classification"
     assert "rates" in out["splits"]["train"]
     # All classes within 5pp -> no warnings on random uniform priors.
@@ -131,9 +125,7 @@ def test_multiclass_warns_when_one_class_shifts():
     train = rng.integers(0, 3, size=3000)
     val = np.full(1000, 0)  # all class 0
     test = np.full(1000, 0)
-    out = compute_label_distribution_drift(
-        train, val, test, target_type="multiclass_classification"
-    )
+    out = compute_label_distribution_drift(train, val, test, target_type="multiclass_classification")
     assert len(out["warnings"]) >= 1
     # Drift per-class dict has entries for every observed class.
     assert "val_minus_train_pp_per_class" in out["drifts"]
@@ -148,9 +140,7 @@ def test_multilabel_2d_ndarray_no_drift():
     train = (rng.random(size=(2000, 4)) < 0.3).astype(int)
     val = (rng.random(size=(500, 4)) < 0.3).astype(int)
     test = (rng.random(size=(500, 4)) < 0.3).astype(int)
-    out = compute_label_distribution_drift(
-        train, val, test, target_type="multilabel_classification"
-    )
+    out = compute_label_distribution_drift(train, val, test, target_type="multilabel_classification")
     assert out["target_type"] == "multilabel_classification"
     assert len(out["splits"]["train"]["p_positive_per_label"]) == 4
     # Matched DGP -> empty warnings.
@@ -164,9 +154,7 @@ def test_multilabel_warns_when_one_label_shifts():
     val[:, 0] = 1  # force label 0 to 100% in val
     test = train[500:1000].copy()
     test[:, 0] = 1
-    out = compute_label_distribution_drift(
-        train, val, test, target_type="multilabel_classification"
-    )
+    out = compute_label_distribution_drift(train, val, test, target_type="multilabel_classification")
     assert any("label 0" in w for w in out["warnings"])
 
 
@@ -174,9 +162,7 @@ def test_multilabel_warns_when_one_label_shifts():
 
 
 def test_train_target_none_returns_safe_report():
-    out = compute_label_distribution_drift(
-        None, np.array([0, 1]), np.array([0, 1]), target_type="binary_classification"
-    )
+    out = compute_label_distribution_drift(None, np.array([0, 1]), np.array([0, 1]), target_type="binary_classification")
     assert out["splits"] == {}
     assert any("train_target is None" in w for w in out["warnings"])
 
@@ -184,9 +170,7 @@ def test_train_target_none_returns_safe_report():
 def test_val_and_test_none_handled():
     rng = np.random.default_rng(9)
     train = rng.integers(0, 2, size=200)
-    out = compute_label_distribution_drift(
-        train, None, None, target_type="binary_classification"
-    )
+    out = compute_label_distribution_drift(train, None, None, target_type="binary_classification")
     assert out["splits"]["train"]["n"] == 200
     assert out["splits"]["val"] is None
     assert out["splits"]["test"] is None
@@ -197,18 +181,14 @@ def test_empty_test_handled_without_crash():
     train = rng.integers(0, 2, size=200)
     val = rng.integers(0, 2, size=50)
     test = np.array([], dtype=int)
-    out = compute_label_distribution_drift(
-        train, val, test, target_type="binary_classification"
-    )
+    out = compute_label_distribution_drift(train, val, test, target_type="binary_classification")
     # n=0 split summary: p_positive is NaN.
     assert out["splits"]["test"]["n"] == 0
     assert np.isnan(out["splits"]["test"]["p_positive"])
 
 
 def test_format_drift_report_no_target_name():
-    rep = compute_label_distribution_drift(
-        np.array([0, 1, 1]), None, None, target_type="binary_classification"
-    )
+    rep = compute_label_distribution_drift(np.array([0, 1, 1]), None, None, target_type="binary_classification")
     out = format_drift_report(rep)
     assert isinstance(out, str)
     assert "target_type" in out
@@ -219,7 +199,9 @@ def test_format_drift_report_no_target_name():
 def test_format_drift_report_regression_branch_has_mean_std():
     rng = np.random.default_rng(11)
     rep = compute_label_distribution_drift(
-        rng.normal(size=300), rng.normal(size=100), rng.normal(size=100),
+        rng.normal(size=300),
+        rng.normal(size=100),
+        rng.normal(size=100),
         target_type="regression",
     )
     out = format_drift_report(rep, target_name="price")
@@ -231,7 +213,9 @@ def test_format_drift_report_regression_branch_has_mean_std():
 def test_format_drift_report_emits_no_warn_marker_when_clean():
     rng = np.random.default_rng(12)
     rep = compute_label_distribution_drift(
-        rng.integers(0, 2, size=1000), rng.integers(0, 2, size=200), rng.integers(0, 2, size=200),
+        rng.integers(0, 2, size=1000),
+        rng.integers(0, 2, size=200),
+        rng.integers(0, 2, size=200),
         target_type="binary_classification",
     )
     out = format_drift_report(rep, target_name="x")

@@ -17,6 +17,7 @@ This file pins:
 A regression that broke the cache key (e.g. ignoring thresholds, or aliasing distinct member
 sets) would flip one of these assertions.
 """
+
 import numpy as np
 import pytest
 

@@ -16,7 +16,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
-from hypothesis.extra.numpy import arrays
 
 from mlframe.feature_selection.filters.info_theory import (
     compute_mi_from_classes,
@@ -52,22 +51,28 @@ def test_mi_upper_bound_log_min_alphabet(n, k_x, k_y, seed):
     data = np.column_stack([x, y]).astype(np.int32)
     nbins = np.array([k_x, k_y], dtype=np.int64)
     cls_x, fq_x, _ = merge_vars(
-        factors_data=data, vars_indices=np.array([0], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        factors_data=data,
+        vars_indices=np.array([0], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=np.int32,
     )
     cls_y, fq_y, _ = merge_vars(
-        factors_data=data, vars_indices=np.array([1], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        factors_data=data,
+        vars_indices=np.array([1], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=np.int32,
     )
     mi = compute_mi_from_classes(
-        classes_x=cls_x, freqs_x=fq_x,
-        classes_y=cls_y, freqs_y=fq_y, dtype=np.int32,
+        classes_x=cls_x,
+        freqs_x=fq_x,
+        classes_y=cls_y,
+        freqs_y=fq_y,
+        dtype=np.int32,
     )
     bound = min(np.log(k_x), np.log(k_y)) + 1e-6
-    assert mi <= bound, (
-        f"MI={mi:.4f} exceeded Cover-Thomas bound {bound:.4f} "
-        f"(n={n}, k_x={k_x}, k_y={k_y}, seed={seed})"
-    )
+    assert mi <= bound, f"MI={mi:.4f} exceeded Cover-Thomas bound {bound:.4f} (n={n}, k_x={k_x}, k_y={k_y}, seed={seed})"
     assert mi >= -1e-9, f"MI={mi} cannot be negative"
 
 
@@ -95,35 +100,41 @@ def test_dpi_joint_mi_dominates_marginals(n, k_a, k_b, k_y, seed):
     data = np.column_stack([a, b, y]).astype(np.int32)
     nbins = np.array([k_a, k_b, k_y], dtype=np.int64)
     cls_y, fq_y, _ = merge_vars(
-        factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        factors_data=data,
+        vars_indices=np.array([2], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=np.int32,
     )
     # Marginals
     cls_a, fq_a, _ = merge_vars(
-        factors_data=data, vars_indices=np.array([0], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        factors_data=data,
+        vars_indices=np.array([0], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=np.int32,
     )
     cls_b, fq_b, _ = merge_vars(
-        factors_data=data, vars_indices=np.array([1], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        factors_data=data,
+        vars_indices=np.array([1], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=np.int32,
     )
     # Joint
     cls_ab, fq_ab, _ = merge_vars(
-        factors_data=data, vars_indices=np.array([0, 1], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        factors_data=data,
+        vars_indices=np.array([0, 1], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=np.int32,
     )
     mi_a_y = compute_mi_from_classes(cls_a, fq_a, cls_y, fq_y, np.int32)
     mi_b_y = compute_mi_from_classes(cls_b, fq_b, cls_y, fq_y, np.int32)
     mi_ab_y = compute_mi_from_classes(cls_ab, fq_ab, cls_y, fq_y, np.int32)
     tol = 1e-6
-    assert mi_ab_y >= mi_a_y - tol, (
-        f"I(A,B;Y)={mi_ab_y:.6f} < I(A;Y)={mi_a_y:.6f} violates DPI "
-        f"(n={n}, k_a={k_a}, seed={seed})"
-    )
-    assert mi_ab_y >= mi_b_y - tol, (
-        f"I(A,B;Y)={mi_ab_y:.6f} < I(B;Y)={mi_b_y:.6f} violates DPI "
-        f"(n={n}, k_b={k_b}, seed={seed})"
-    )
+    assert mi_ab_y >= mi_a_y - tol, f"I(A,B;Y)={mi_ab_y:.6f} < I(A;Y)={mi_a_y:.6f} violates DPI (n={n}, k_a={k_a}, seed={seed})"
+    assert mi_ab_y >= mi_b_y - tol, f"I(A,B;Y)={mi_ab_y:.6f} < I(B;Y)={mi_b_y:.6f} violates DPI (n={n}, k_b={k_b}, seed={seed})"
 
 
 @HYP_SETTINGS
@@ -141,23 +152,27 @@ def test_mi_self_equals_entropy(n, k, seed):
     normalisation mistakes.
     """
     from mlframe.feature_selection.filters.info_theory import entropy
+
     rng = np.random.default_rng(seed)
     x = rng.integers(0, k, n).astype(np.int32)
     data = np.column_stack([x, x.copy()]).astype(np.int32)
     nbins = np.array([k, k], dtype=np.int64)
     cls_x, fq_x, _ = merge_vars(
-        factors_data=data, vars_indices=np.array([0], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        factors_data=data,
+        vars_indices=np.array([0], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=np.int32,
     )
     h_x = entropy(fq_x)
     mi_xx = compute_mi_from_classes(
-        classes_x=cls_x, freqs_x=fq_x,
-        classes_y=cls_x, freqs_y=fq_x, dtype=np.int32,
+        classes_x=cls_x,
+        freqs_x=fq_x,
+        classes_y=cls_x,
+        freqs_y=fq_x,
+        dtype=np.int32,
     )
-    assert abs(mi_xx - h_x) < 1e-6, (
-        f"I(X;X)={mi_xx:.6f} != H(X)={h_x:.6f} "
-        f"(n={n}, k={k}, seed={seed})"
-    )
+    assert abs(mi_xx - h_x) < 1e-6, f"I(X;X)={mi_xx:.6f} != H(X)={h_x:.6f} (n={n}, k={k}, seed={seed})"
 
 
 @HYP_SETTINGS
@@ -183,17 +198,20 @@ def test_independent_pair_mi_near_zero(n, k_a, k_b, seed):
     data = np.column_stack([a, b, y_indep]).astype(np.int32)
     nbins = np.array([k_a, k_b, 2], dtype=np.int64)
     cls_y, fq_y, _ = merge_vars(
-        factors_data=data, vars_indices=np.array([2], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        factors_data=data,
+        vars_indices=np.array([2], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=np.int32,
     )
     cls_ab, fq_ab, _ = merge_vars(
-        factors_data=data, vars_indices=np.array([0, 1], dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        factors_data=data,
+        vars_indices=np.array([0, 1], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=np.int32,
     )
     mi = compute_mi_from_classes(cls_ab, fq_ab, cls_y, fq_y, np.int32)
     # Finite-sample bias on small-n random data: ~0.05 nat typical
     # at n=200, k_a*k_b=16 cells.
-    assert mi < 0.1, (
-        f"Independent (A, B; Y) joint MI={mi:.4f} should be small "
-        f"(n={n}, k_a={k_a}, k_b={k_b}, seed={seed})"
-    )
+    assert mi < 0.1, f"Independent (A, B; Y) joint MI={mi:.4f} should be small (n={n}, k_a={k_a}, k_b={k_b}, seed={seed})"

@@ -5,6 +5,7 @@ A single-sample shadow comparison leaks the top finite-sample-spurious real-nois
 it while keeping genuinely-relevant features. These tests pin: the new params round-trip, the orchestration
 runs n sub-fits and votes, and stability never accepts MORE noise than a single fit (and keeps the signal).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,12 +47,17 @@ def test_borutashap_early_terminates_when_no_tentatives():
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
-    X, y = make_classification(n_samples=1500, n_features=12, n_informative=6, n_redundant=0,
-                               n_repeated=0, class_sep=2.0, random_state=0)
+    X, y = make_classification(n_samples=1500, n_features=12, n_informative=6, n_redundant=0, n_repeated=0, class_sep=2.0, random_state=0)
     X = pd.DataFrame(X, columns=[f"f{i}" for i in range(12)])
-    sel = BorutaShap(model=RandomForestClassifier(n_estimators=60, n_jobs=-1, random_state=0),
-                     importance_measure="gini", classification=True, n_trials=150, percentile=100,
-                     verbose=False, random_state=0)
+    sel = BorutaShap(
+        model=RandomForestClassifier(n_estimators=60, n_jobs=-1, random_state=0),
+        importance_measure="gini",
+        classification=True,
+        n_trials=150,
+        percentile=100,
+        verbose=False,
+        random_state=0,
+    )
     sel.fit(X, pd.Series(y))
     assert sel.n_trials_run_ < 150, f"expected early stop, ran all {sel.n_trials_run_} trials"
     assert len(sel.tentative) == 0  # early stop only triggers when nothing is tentative
@@ -66,8 +72,13 @@ def test_borutashap_is_sklearn_cloneable():
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
-    for kw in (dict(), dict(importance_measure="Shap"), dict(importance_measure="Gini"),
-               dict(model=None, fit_params=None), dict(model=RandomForestClassifier(), stability_subsamples=4)):
+    for kw in (
+        dict(),
+        dict(importance_measure="Shap"),
+        dict(importance_measure="Gini"),
+        dict(model=None, fit_params=None),
+        dict(model=RandomForestClassifier(), stability_subsamples=4),
+    ):
         c = clone(BorutaShap(**kw))  # must not raise
         assert isinstance(c, BorutaShap)
     # Params survive verbatim (no __init__ mutation).
@@ -81,12 +92,18 @@ def test_stability_runs_subfits_votes_and_keeps_signal():
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
-    X, y, signal, noise = _signal_noise(seed=0)
+    X, y, signal, _noise = _signal_noise(seed=0)
     sel = BorutaShap(
         model=RandomForestClassifier(n_estimators=40, n_jobs=-1, random_state=0),
-        importance_measure="gini", classification=True, n_trials=25, percentile=100,
-        verbose=False, random_state=0,
-        stability_subsamples=8, stability_subsample_fraction=0.75, stability_threshold=1.0,
+        importance_measure="gini",
+        classification=True,
+        n_trials=25,
+        percentile=100,
+        verbose=False,
+        random_state=0,
+        stability_subsamples=8,
+        stability_subsample_fraction=0.75,
+        stability_threshold=1.0,
     )
     sel.fit(X, y)
     # The vote diagnostic is populated and bounded by the number of subsamples.
@@ -109,17 +126,22 @@ def test_stability_accepts_no_more_noise_than_single_fit():
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
-    X, y, signal, noise = _signal_noise(seed=0)
+    X, y, _signal, noise = _signal_noise(seed=0)
     noise_set = set(noise)
     mk = lambda **kw: BorutaShap(
         model=RandomForestClassifier(n_estimators=40, n_jobs=-1, random_state=0),
-        importance_measure="gini", classification=True, n_trials=25, percentile=100,
-        verbose=False, random_state=0, **kw,
+        importance_measure="gini",
+        classification=True,
+        n_trials=25,
+        percentile=100,
+        verbose=False,
+        random_state=0,
+        **kw,
     )
-    single = mk(); single.fit(X, y)
-    stable = mk(stability_subsamples=8, stability_subsample_fraction=0.75, stability_threshold=1.0); stable.fit(X, y)
+    single = mk()
+    single.fit(X, y)
+    stable = mk(stability_subsamples=8, stability_subsample_fraction=0.75, stability_threshold=1.0)
+    stable.fit(X, y)
     n_noise_single = len(set(single.accepted) & noise_set)
     n_noise_stable = len(set(stable.accepted) & noise_set)
-    assert n_noise_stable <= n_noise_single, (
-        f"stability accepted {n_noise_stable} noise vs single-fit {n_noise_single}; gate must not loosen"
-    )
+    assert n_noise_stable <= n_noise_single, f"stability accepted {n_noise_stable} noise vs single-fit {n_noise_single}; gate must not loosen"

@@ -24,8 +24,7 @@ pytest.importorskip("numba")
 def _fit_xgb(X, y, *, classification, n_estimators=40, max_depth=5, seed=0):
     from xgboost import XGBClassifier, XGBRegressor
 
-    params = dict(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.2,
-                  random_state=seed, tree_method="hist")
+    params = dict(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.2, random_state=seed, tree_method="hist")
     m = XGBClassifier(**params, eval_metric="logloss") if classification else XGBRegressor(**params)
     m.fit(X, y)
     return m
@@ -52,8 +51,7 @@ def test_treeshap_numba_additivity(classification):
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(200, 8)), columns=[f"f{i}" for i in range(8)])
     signal = 2.0 * X["f0"] + X["f1"] - 0.5 * X["f2"]
-    y = (signal + 0.3 * rng.normal(size=200) > 0).astype(int) if classification else \
-        (signal + 0.1 * rng.normal(size=200)).to_numpy()
+    y = (signal + 0.3 * rng.normal(size=200) > 0).astype(int) if classification else (signal + 0.1 * rng.normal(size=200)).to_numpy()
     model = _fit_xgb(X, y, classification=classification)
 
     ens = extract_ensemble(model)
@@ -72,8 +70,7 @@ def test_treeshap_numba_parity_vs_shap(classification):
     rng = np.random.default_rng(1)
     X = pd.DataFrame(rng.normal(size=(250, 10)), columns=[f"f{i}" for i in range(10)])
     signal = X["f0"] + 0.5 * X["f1"] - X["f3"]
-    y = (signal + 0.3 * rng.normal(size=250) > 0).astype(int) if classification else \
-        (signal + 0.1 * rng.normal(size=250)).to_numpy()
+    y = (signal + 0.3 * rng.normal(size=250) > 0).astype(int) if classification else (signal + 0.1 * rng.normal(size=250)).to_numpy()
     model = _fit_xgb(X, y, classification=classification, n_estimators=50, max_depth=6)
 
     ens = extract_ensemble(model)
@@ -139,12 +136,8 @@ def test_dispatcher_phi_parity_through_compute_shap_matrix():
     X, y, _ = make_regime_dataset(n_samples=400, n_informative=5, n_noise=90, task="regression", seed=4)
     tmpl = make_default_estimator(False, n_estimators=60)
 
-    phi_c, base_c, _ = compute_shap_matrix(
-        tmpl, X, y, classification=False, out_of_fold=False,
-        rng=np.random.default_rng(0), shap_backend="treeshap_numba")
-    phi_s, base_s, _ = compute_shap_matrix(
-        tmpl, X, y, classification=False, out_of_fold=False,
-        rng=np.random.default_rng(0), shap_backend="shap")
+    phi_c, base_c, _ = compute_shap_matrix(tmpl, X, y, classification=False, out_of_fold=False, rng=np.random.default_rng(0), shap_backend="treeshap_numba")
+    phi_s, base_s, _ = compute_shap_matrix(tmpl, X, y, classification=False, out_of_fold=False, rng=np.random.default_rng(0), shap_backend="shap")
 
     np.testing.assert_allclose(phi_c, phi_s, rtol=1e-4, atol=1e-4)
     np.testing.assert_allclose(base_c, base_s, rtol=1e-4, atol=1e-4)
@@ -169,8 +162,7 @@ def test_treeshap_gpu_matches_numba(classification):
     rng = np.random.default_rng(7)
     X = pd.DataFrame(rng.normal(size=(220, 9)), columns=[f"f{i}" for i in range(9)])
     signal = 2.0 * X["f0"] + X["f1"] - 0.5 * X["f2"]
-    y = (signal + 0.3 * rng.normal(size=220) > 0).astype(int) if classification else \
-        (signal + 0.1 * rng.normal(size=220)).to_numpy()
+    y = (signal + 0.3 * rng.normal(size=220) > 0).astype(int) if classification else (signal + 0.1 * rng.normal(size=220)).to_numpy()
     model = _fit_xgb(X, y, classification=classification, n_estimators=40, max_depth=6)
     ens = extract_ensemble(model)
 
@@ -203,6 +195,7 @@ def test_biz_val_treeshap_faster_than_shap_on_wide_data():
     phi_ref, _ = _shap_reference(model, X)  # also warms shap's first-call setup
     t0 = time.perf_counter()
     import shap
+
     ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
     _ = ex.shap_values(X, check_additivity=False)
     t_shap = time.perf_counter() - t0
@@ -210,5 +203,4 @@ def test_biz_val_treeshap_faster_than_shap_on_wide_data():
     speedup = t_shap / max(t_numba, 1e-9)
     # Correctness still holds at scale.
     np.testing.assert_allclose(phi_n, phi_ref, rtol=1e-4, atol=1e-4)
-    assert speedup >= 1.3, f"expected >=1.3x speedup on 2000 features, got {speedup:.2f}x " \
-                           f"(numba {t_numba:.3f}s vs shap {t_shap:.3f}s)"
+    assert speedup >= 1.3, f"expected >=1.3x speedup on 2000 features, got {speedup:.2f}x (numba {t_numba:.3f}s vs shap {t_shap:.3f}s)"

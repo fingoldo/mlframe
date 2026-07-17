@@ -16,8 +16,12 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.split_comparison import (
-    AUC_GAP_AMBER, AUC_GAP_RED, RMSE_RATIO_AMBER, RMSE_RATIO_RED,
-    OverfitVerdict, compose_split_comparison_figure, overfit_verdict,
+    AUC_GAP_AMBER,
+    AUC_GAP_RED,
+    RMSE_RATIO_AMBER,
+    RMSE_RATIO_RED,
+    compose_split_comparison_figure,
+    overfit_verdict,
 )
 from mlframe.reporting.spec import AnnotationPanelSpec, BarPanelSpec, FigureSpec
 
@@ -72,10 +76,10 @@ def _overfit_reg(seed=0):
     n = 4000
     x_tr = rng.uniform(0.0, 10.0, n)
     yt_tr = 2.0 * x_tr + 5.0 + rng.normal(0.0, 1.0, n)
-    yp_tr = yt_tr + rng.normal(0.0, 0.05, n)        # train predictions nearly exact
+    yp_tr = yt_tr + rng.normal(0.0, 0.05, n)  # train predictions nearly exact
     x_te = rng.uniform(0.0, 10.0, n)
     yt_te = 2.0 * x_te + 5.0 + rng.normal(0.0, 1.0, n)
-    yp_te = yt_te + rng.normal(0.0, 3.0, n)         # test predictions badly off
+    yp_te = yt_te + rng.normal(0.0, 3.0, n)  # test predictions badly off
     return {"train": {"y_true": yt_tr, "y_pred": yp_tr}, "test": {"y_true": yt_te, "y_pred": yp_te}}
 
 
@@ -100,7 +104,7 @@ def test_figure_structure_classification():
     assert isinstance(bar.values, tuple) and len(bar.values) == 3
     assert bar.series_labels == ("train", "val", "test")
     assert "ROC_AUC" in bar.categories and "ECE" in bar.categories
-    assert "ROC_AUC" in table.text and "OVERFIT" in table.text or "GENERALIZES" in table.text
+    assert ("ROC_AUC" in table.text and "OVERFIT" in table.text) or "GENERALIZES" in table.text
 
 
 def test_figure_structure_regression():
@@ -114,8 +118,10 @@ def test_figure_structure_regression():
 def test_split_order_canonical():
     """Splits passed out of order still render train -> val -> test -> oof left to right."""
     per_split = {
-        "test": _clf_split(2000, 1.3, 2), "oof": _clf_split(2000, 1.4, 3),
-        "train": _clf_split(3000, 2.0, 0), "val": _clf_split(2000, 1.4, 1),
+        "test": _clf_split(2000, 1.3, 2),
+        "oof": _clf_split(2000, 1.4, 3),
+        "train": _clf_split(3000, 2.0, 0),
+        "val": _clf_split(2000, 1.4, 1),
     }
     fig = compose_split_comparison_figure(per_split, task="classification")
     bar = next(p for p in _flat(fig) if isinstance(p, BarPanelSpec))
@@ -140,35 +146,55 @@ def test_delta_table_matches_metric_difference():
 
 
 def test_verdict_red_on_large_auc_gap():
-    v = overfit_verdict(task="classification", per_split={
-        "train": {"metrics": {"ROC_AUC": 0.99}}, "test": {"metrics": {"ROC_AUC": 0.70}},
-    })
+    v = overfit_verdict(
+        task="classification",
+        per_split={
+            "train": {"metrics": {"ROC_AUC": 0.99}},
+            "test": {"metrics": {"ROC_AUC": 0.70}},
+        },
+    )
     assert v.color == "red" and v.label == "OVERFIT"
     assert v.gap == pytest.approx(0.29, abs=1e-9) and v.gap >= AUC_GAP_RED
 
 
 def test_verdict_amber_on_moderate_auc_gap():
-    v = overfit_verdict(task="classification", per_split={
-        "train": {"metrics": {"ROC_AUC": 0.90}}, "test": {"metrics": {"ROC_AUC": 0.84}},
-    })
+    v = overfit_verdict(
+        task="classification",
+        per_split={
+            "train": {"metrics": {"ROC_AUC": 0.90}},
+            "test": {"metrics": {"ROC_AUC": 0.84}},
+        },
+    )
     assert v.color == "amber" and AUC_GAP_AMBER <= v.gap < AUC_GAP_RED
 
 
 def test_verdict_green_on_small_auc_gap():
-    v = overfit_verdict(task="classification", per_split={
-        "train": {"metrics": {"ROC_AUC": 0.85}}, "test": {"metrics": {"ROC_AUC": 0.84}},
-    })
+    v = overfit_verdict(
+        task="classification",
+        per_split={
+            "train": {"metrics": {"ROC_AUC": 0.85}},
+            "test": {"metrics": {"ROC_AUC": 0.84}},
+        },
+    )
     assert v.color == "green" and v.gap < AUC_GAP_AMBER
 
 
 def test_verdict_regression_rmse_ratio():
-    v_red = overfit_verdict(task="regression", per_split={
-        "train": {"metrics": {"RMSE": 1.0}}, "test": {"metrics": {"RMSE": 2.0}},
-    })
+    v_red = overfit_verdict(
+        task="regression",
+        per_split={
+            "train": {"metrics": {"RMSE": 1.0}},
+            "test": {"metrics": {"RMSE": 2.0}},
+        },
+    )
     assert v_red.color == "red" and v_red.gap >= RMSE_RATIO_RED
-    v_green = overfit_verdict(task="regression", per_split={
-        "train": {"metrics": {"RMSE": 1.0}}, "test": {"metrics": {"RMSE": 1.05}},
-    })
+    v_green = overfit_verdict(
+        task="regression",
+        per_split={
+            "train": {"metrics": {"RMSE": 1.0}},
+            "test": {"metrics": {"RMSE": 1.05}},
+        },
+    )
     assert v_green.color == "green" and v_green.gap < RMSE_RATIO_AMBER
 
 
@@ -218,7 +244,8 @@ def test_no_splits_degrades():
 def test_precomputed_metrics_short_circuit():
     """Passing metrics directly skips the raw-array path entirely."""
     per_split = {
-        "train": {"metrics": {"ROC_AUC": 0.9}}, "test": {"metrics": {"ROC_AUC": 0.85}},
+        "train": {"metrics": {"ROC_AUC": 0.9}},
+        "test": {"metrics": {"ROC_AUC": 0.85}},
     }
     fig = compose_split_comparison_figure(per_split, task="classification")
     assert isinstance(fig, FigureSpec)

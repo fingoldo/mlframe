@@ -19,6 +19,7 @@ from mlframe.utils.misc import (
 
 # --- set_random_seed ---
 
+
 def test_set_random_seed_deterministic_numpy():
     set_random_seed(123)
     a = np.random.random(5)
@@ -42,6 +43,7 @@ def test_set_random_seed_hash_seed():
 
 # --- get_pipeline_last_element ---
 
+
 def test_get_pipeline_last_element_returns_last():
     ridge = Ridge()
     pipe = Pipeline([("scaler", StandardScaler()), ("model", ridge)])
@@ -55,6 +57,7 @@ def test_get_pipeline_last_element_single_step():
 
 
 # --- get_full_classifier_name ---
+
 
 def test_classifier_name_regular_estimator():
     assert get_full_classifier_name(Ridge()) == "Ridge"
@@ -72,8 +75,9 @@ def test_classifier_name_dummy():
 
 # --- is_cuda_available ---
 
+
 def test_is_cuda_available():
-    numba = pytest.importorskip("numba")
+    pytest.importorskip("numba")
     from mlframe.utils.misc import is_cuda_available
 
     result = is_cuda_available()
@@ -81,6 +85,7 @@ def test_is_cuda_available():
 
 
 # --- check_cpu_flag ---
+
 
 def test_check_cpu_flag():
     pytest.importorskip("cpuinfo")

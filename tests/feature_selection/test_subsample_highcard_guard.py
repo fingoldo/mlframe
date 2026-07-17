@@ -9,10 +9,10 @@ at n~1M), invisible in a profile. The guard falls back to a plain uniform draw o
 floored minimum cannot fit the budget. The bare ``except Exception: return None`` fallbacks that make the
 whole screen silently run at full-n now log at WARNING so such a regression is diagnosable.
 """
+
 import logging
 
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.filters._fe_subsample import (
     resolve_shared_fe_subsample_idx,

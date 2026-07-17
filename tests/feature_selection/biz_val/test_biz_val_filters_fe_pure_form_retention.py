@@ -8,6 +8,7 @@ pre-check returns ``[]`` before the floor runs whenever the MI greedy already ho
 These tests pin BOTH the wiring (the kwarg actually controls the gate) AND the verdict (a lower floor is a no-op when
 a pure pair recipe already survives). They run on a controlled stub mrmr (no full MRMR fit) so each is sub-second.
 """
+
 import numpy as np
 import pandas as pd
 
@@ -21,7 +22,7 @@ def _single_pair_data(n=2500, seed=0):
     b = rng.random(n) + 0.5
     c = rng.random(n)
     d = rng.random(n)
-    y = 0.2 * a ** 2 / b + 0.01 * rng.standard_normal(n)
+    y = 0.2 * a**2 / b + 0.01 * rng.standard_normal(n)
     return pd.DataFrame({"a": a, "b": b, "c": c, "d": d}), np.asarray(y, dtype=np.float64)
 
 

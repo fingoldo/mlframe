@@ -6,6 +6,7 @@ raw features, but becomes near-trivially separable once each row's GMM cluster-m
 exposed as a feature. This test also confirms the BIC selection recovers something close to the TRUE
 underlying component count, rather than an arbitrary fixed choice.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,7 +42,7 @@ def test_biz_val_gmm_membership_features_linearize_cluster_driven_target():
 
 
 def test_gmm_bic_selection_recovers_approximately_true_component_count():
-    df, _, assignments = _make_cluster_driven_dataset(n=1500, seed=1)  # 4 true underlying Gaussian clusters
+    df, _, _assignments = _make_cluster_driven_dataset(n=1500, seed=1)  # 4 true underlying Gaussian clusters
     membership = gmm_bic_membership_features(df, n_components_range=(2, 3, 4, 5, 6, 8), random_state=0)
     selected_k = membership.shape[1]
     assert selected_k in (3, 4, 5), f"expected BIC to select a component count close to the true 4 underlying clusters, got {selected_k}"

@@ -11,6 +11,7 @@ Sensor: perturb a single row's target and recompute. In a leak-free Mode A the r
 invariant to its OWN target (exact 0.0 delta). Pre-fix the flat aux residual of the row's neighbours moved with the row's perturbed y, so its own feature changed
 (measured delta ~0.35 on this fixture). The filename carries ``row_attention`` so the ANN-backend collection skip in conftest applies.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,8 +31,14 @@ def test_residual_attention_own_y_does_not_leak_into_own_feature():
     y = (X[:, 0] + 0.3 * X[:, 1] + 0.2 * rng.standard_normal(n)).astype(np.float32)
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     kw = dict(
-        seed=0, n_heads=1, head_dim=3, k=8, aggregate=("y_mean",),
-        aux_n_estimators=60, aux_max_depth=4, projection="random",
+        seed=0,
+        n_heads=1,
+        head_dim=3,
+        k=8,
+        aggregate=("y_mean",),
+        aux_n_estimators=60,
+        aux_max_depth=4,
+        projection="random",
     )
 
     base = compute_residual_attention(X, y, None, splitter, **kw).to_numpy().ravel()

@@ -6,6 +6,7 @@ even when the SAME raw-column candidate pool + seed recurred across a fit's 2-3 
 identical output, since the underlying data for those columns never changes). ``maxt_floor_cache`` is
 an optional dict the caller threads across rounds; a cache hit skips the recomputation entirely.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -84,6 +85,7 @@ def test_cache_avoids_recomputation_call_count():
     call_count = {"n": 0}
 
     import mlframe.feature_selection.filters._permutation_null as permnull_mod
+
     original = permnull_mod.pooled_permutation_null_gain_floor
 
     def _counting(*args, **kwargs):

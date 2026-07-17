@@ -8,6 +8,7 @@ across uniform / skewed / unequal-cardinality / unseen-code data. A future
 "just inline numpy again" or a row-order change in the kernel would flip the
 last-write-wins tie on duplicate codes and fail here.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -57,9 +58,14 @@ def test_scatter_bit_identical_to_numpy(n, nba, nbb):
 def test_build_factorize_lookup_unseen_codes_preserved():
     # Data covering only a subset of codes -> -1 sentinels must survive raise mode.
     fd, cls = _make(50, 10, 10, seed=1)
-    lookup, n_eff = _build_factorize_lookup(
-        factors_data=fd, idx_a=0, idx_b=1, nbins_a=10, nbins_b=10,
-        classes_pair_post=cls, unknown_strategy="raise",
+    lookup, _n_eff = _build_factorize_lookup(
+        factors_data=fd,
+        idx_a=0,
+        idx_b=1,
+        nbins_a=10,
+        nbins_b=10,
+        classes_pair_post=cls,
+        unknown_strategy="raise",
     )
     ref = _numpy_reference(fd, 0, 1, 10, 10, cls)
     # raise mode leaves unseen at -1, matching the raw scatter

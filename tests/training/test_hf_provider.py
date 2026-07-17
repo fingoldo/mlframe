@@ -78,7 +78,8 @@ class TestLifecycle:
 
     def test_release_drops_model(self):
         cfg = EmbeddingProvider(
-            kind="huggingface", model=TINY_MODEL,
+            kind="huggingface",
+            model=TINY_MODEL,
             params={"dtype": "fp32", "device": "cpu"},
         )
         p = HuggingFaceProvider(cfg)
@@ -131,9 +132,7 @@ class TestEdgeInputs:
 
     def test_unicode_roundtrip(self, loaded_provider):
         """Round-3 T9: Cyrillic / emoji / RTL content shouldn't crash."""
-        out = loaded_provider.transform(
-            ["привет мир", "🔥🚀 launch", "مرحبا", "regular english"]
-        )
+        out = loaded_provider.transform(["привет мир", "🔥🚀 launch", "مرحبا", "regular english"])
         assert out.shape == (4, EMBED_DIM)
         assert not np.any(np.isnan(out))
 
@@ -147,7 +146,8 @@ class TestPoolVariants:
     @pytest.mark.parametrize("pool", ["mean", "cls", "max"])
     def test_pool_produces_valid_output(self, pool):
         cfg = EmbeddingProvider(
-            kind="huggingface", model=TINY_MODEL,
+            kind="huggingface",
+            model=TINY_MODEL,
             params={"dtype": "fp32", "device": "cpu", "pool": pool, "batch_size": 4},
         )
         p = HuggingFaceProvider(cfg)
@@ -175,7 +175,8 @@ class TestTrustRemoteCode:
 
     def test_trust_remote_code_true_emits_warning(self, recwarn):
         cfg = EmbeddingProvider(
-            kind="huggingface", model=TINY_MODEL,
+            kind="huggingface",
+            model=TINY_MODEL,
             params={"trust_remote_code": True, "dtype": "fp32", "device": "cpu"},
         )
         p = HuggingFaceProvider(cfg)
@@ -200,6 +201,7 @@ class TestTrustRemoteCode:
 class TestE5AutoPrefix:
     def test_auto_prefix_detector(self):
         from mlframe.training.feature_handling.hf_provider import _needs_e5_prefix
+
         assert _needs_e5_prefix("intfloat/multilingual-e5-small") is True
         assert _needs_e5_prefix("intfloat/multilingual-e5-base") is True
         assert _needs_e5_prefix("BAAI/bge-small-en-v1.5") is False
@@ -209,7 +211,8 @@ class TestE5AutoPrefix:
     def test_prefix_override_via_params(self):
         """User can disable auto-prefix by setting params={"prefix": None}."""
         cfg = EmbeddingProvider(
-            kind="huggingface", model=TINY_MODEL,  # not e5, but verify override works
+            kind="huggingface",
+            model=TINY_MODEL,  # not e5, but verify override works
             params={"prefix": "QUERY: ", "dtype": "fp32", "device": "cpu"},
         )
         p = HuggingFaceProvider(cfg)

@@ -6,6 +6,7 @@ Pre-fix:
 - ``pit_values`` (EDGE-P2) accepted K==0/K==1 (matching the shape check) and then read sq[0]/sq[k-1] out of
   bounds inside the njit kernel (boundscheck off) -> garbage instead of a clear error.
 """
+
 from __future__ import annotations
 
 import numpy as np

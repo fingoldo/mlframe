@@ -9,11 +9,11 @@ was misjudged as "still raw", and got double-transformed through the pipeline fi
 width -- category_encoders' "Unexpected input dimension" (MRMR selected 2 base + 4 engineered = 6
 actual output cols; the support_-only count of 2 made 6 > 2 look raw).
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.pipeline._pipeline_helpers import _test_df_is_raw_pipeline_input
 

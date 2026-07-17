@@ -40,6 +40,7 @@ from tests.conftest import fast_subset
 # Data factories
 # --------------------------------------------------------------------------------------
 
+
 def _make_grouped_classification(n_train=2000, n_test=500, n_features=8, seed=42):
     """Binary classification with a categorical "group" column.
 
@@ -82,7 +83,7 @@ def _make_imbalanced_classification(n_train=6000, n_test=1500, n_features=10, mi
     n_total = n_train + n_test
 
     y = np.zeros(n_total, dtype=int)
-    n_pos = int(round(minority_frac * n_total))
+    n_pos = round(minority_frac * n_total)
     pos_idx = rng.choice(n_total, size=n_pos, replace=False)
     y[pos_idx] = 1
 
@@ -101,7 +102,7 @@ def _make_imbalanced_classification(n_train=6000, n_test=1500, n_features=10, mi
     pos_mask = df["target"].values == 1
     pos_df = df[pos_mask].sample(frac=1.0, random_state=seed).reset_index(drop=True)
     neg_df = df[~pos_mask].sample(frac=1.0, random_state=seed).reset_index(drop=True)
-    test_pos_n = int(round(len(pos_df) * (n_test / n_total)))
+    test_pos_n = round(len(pos_df) * (n_test / n_total))
     test_neg_n = n_test - test_pos_n
     test_df = pd.concat([pos_df.iloc[:test_pos_n], neg_df.iloc[:test_neg_n]], ignore_index=True)
     train_df = pd.concat([pos_df.iloc[test_pos_n:], neg_df.iloc[test_neg_n:]], ignore_index=True)
@@ -113,6 +114,7 @@ def _make_imbalanced_classification(n_train=6000, n_test=1500, n_features=10, mi
 # --------------------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------------------
+
 
 def _predict_proba_pos(results):
     """Extract positive-class probability vector from predict_mlframe_models_suite output."""
@@ -134,6 +136,7 @@ def _predict_labels(results):
 # --------------------------------------------------------------------------------------
 # Test 1 — Fairness metric emission path is conditional on `fairness_features`
 # --------------------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("seed", fast_subset([42, 7, 99], representative=42))
 @pytest.mark.parametrize("mlframe_model", fast_subset(["lgb", "cb", "xgb"], representative="lgb"))
@@ -159,9 +162,7 @@ def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, se
     # Sanity on dataset construction: B has materially lower positive rate.
     pos_rate_a = float(train_df.loc[train_df["group"] == "A", "target"].mean())
     pos_rate_b = float(train_df.loc[train_df["group"] == "B", "target"].mean())
-    assert pos_rate_a - pos_rate_b > 0.10, (
-        f"Dataset construction failed: pos_rate_a={pos_rate_a:.3f} pos_rate_b={pos_rate_b:.3f}"
-    )
+    assert pos_rate_a - pos_rate_b > 0.10, f"Dataset construction failed: pos_rate_a={pos_rate_a:.3f} pos_rate_b={pos_rate_b:.3f}"
 
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
@@ -192,7 +193,7 @@ def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, se
         return models, metadata, results
 
     # Run A: fairness disabled
-    _, meta_a, results_a = _run(f"{mlframe_model}_no_fairness_s{seed}", {"fairness_features": []})
+    _, meta_a, _results_a = _run(f"{mlframe_model}_no_fairness_s{seed}", {"fairness_features": []})
 
     # Run B: fairness enabled on the "group" column
     _, meta_b, results_b = _run(
@@ -240,15 +241,11 @@ def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, se
     fairness_in_b = _has_populated_fairness(meta_b)
     # Run A must not have a populated fairness payload (proves conditional path).
     assert not fairness_in_a, (
-        f"Run A (fairness_features=[]) unexpectedly carries fairness payload in metadata: "
-        f"{[k for k in meta_a if 'fairness' in k.lower()]}"
+        f"Run A (fairness_features=[]) unexpectedly carries fairness payload in metadata: {[k for k in meta_a if 'fairness' in k.lower()]}"
     )
     # Bug B fix 2026-04-15: train_mlframe_models_suite now aggregates per-model
     # fairness_report into metadata["fairness_report"] when fairness_features is set.
-    assert fairness_in_b, (
-        f"Run B (fairness_features=['group']) should expose fairness payload in metadata; "
-        f"keys={list(meta_b.keys())}"
-    )
+    assert fairness_in_b, f"Run B (fairness_features=['group']) should expose fairness payload in metadata; keys={list(meta_b.keys())}"
 
     # Also: assert the suite completed for both runs (sanity).
     assert meta_a.get("model_name") == f"{mlframe_model}_no_fairness_s{seed}"
@@ -258,6 +255,7 @@ def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, se
 # --------------------------------------------------------------------------------------
 # Test 2 — Inverse-frequency sample weights lift minority-class recall / F1
 # --------------------------------------------------------------------------------------
+
 
 # Two full suite trainings of a 6000-row imbalanced frame; ~8s standalone but the recall floor needs the large n for a stable estimate, so the
 # fix for full-suite ``-n`` starvation is a generous timeout rather than shrinking n (which would make the 0.05 lift seed-flaky).
@@ -277,7 +275,7 @@ def test_sample_weights_lift_minority_recall(tmp_path, common_init_params, seed,
     assert 0.05 < minority_frac < 0.20, f"unexpected minority_frac={minority_frac:.3f}"
 
     # Inverse-frequency weights: minority gets ~9x.
-    n = len(y_train)
+    len(y_train)
     w_min = float((1.0 - minority_frac) / minority_frac)  # ~9 at 10% minority
     sample_weight_vec = np.where(y_train == 1, w_min, 1.0).astype(np.float64)
 
@@ -290,7 +288,7 @@ def test_sample_weights_lift_minority_recall(tmp_path, common_init_params, seed,
             regression=False,
             sample_weights=sample_weights_dict,
         )
-        models, metadata = train_mlframe_models_suite(
+        _models, metadata = train_mlframe_models_suite(
             df=train_df,
             target_name="test_target",
             model_name=model_name,
@@ -317,10 +315,10 @@ def test_sample_weights_lift_minority_recall(tmp_path, common_init_params, seed,
         return metadata, results
 
     # Run A: no sample weights (empty dict -> uniform path)
-    meta_a, results_a = _run(f"{mlframe_model}_uniform_s{seed}", {})
+    _meta_a, results_a = _run(f"{mlframe_model}_uniform_s{seed}", {})
 
     # Run B: inverse-frequency weights
-    meta_b, results_b = _run(f"{mlframe_model}_inv_freq_s{seed}", {"inv_freq": sample_weight_vec})
+    _meta_b, results_b = _run(f"{mlframe_model}_inv_freq_s{seed}", {"inv_freq": sample_weight_vec})
 
     y_test = test_df["target"].values
 

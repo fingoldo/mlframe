@@ -6,6 +6,7 @@ Gap addressed: no existing test pins the documented partial_fit contract -- that
 every row equally), that ``partial_fit`` returns ``self``, and that batches below
 ``partial_fit_min_recompute`` defer the refit (support_ unchanged).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,8 +24,7 @@ def _data(n: int = 200, m: int = 4, seed: int = 0):
 
 
 def _fast(**kw):
-    base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0,
-                fe_fast_search=False, interactions_max_order=1, random_seed=4)
+    base = dict(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, fe_fast_search=False, interactions_max_order=1, random_seed=4)
     base.update(kw)
     return MRMR(**base)
 

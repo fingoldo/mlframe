@@ -15,6 +15,7 @@ carries the raw input width, the transform is not a no-op -> ignore the stale
 flag and transform. Already-transformed frames (narrower than the fitted input
 width) and unfitted-identity pipelines are unaffected.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -61,8 +62,7 @@ def test_stale_identity_flag_does_not_skip_reducing_test_transform():
     # Post-fix: the selector transformed the raw 8-col test frame down to 4.
     # Pre-fix the stale identity flag skipped the transform -> 8 columns remained.
     assert out_test_df.shape[1] == 4, (
-        f"test frame must be reduced 8->4 by the fitted selector; got "
-        f"{out_test_df.shape[1]} columns (stale identity flag skipped the transform)"
+        f"test frame must be reduced 8->4 by the fitted selector; got {out_test_df.shape[1]} columns (stale identity flag skipped the transform)"
     )
 
 
@@ -81,9 +81,16 @@ def test_already_transformed_test_frame_is_not_double_transformed():
     test_target = rng.integers(0, 2, size=50)
 
     out_test_df, _t, _c = _prepare_test_split(
-        df=None, test_df=already, test_idx=None, test_target=test_target,
-        target=None, real_drop_columns=[], model=object(), pre_pipeline=sel,
-        skip_pre_pipeline_transform=True, skip_preprocessing=False,
+        df=None,
+        test_df=already,
+        test_idx=None,
+        test_target=test_target,
+        target=None,
+        real_drop_columns=[],
+        model=object(),
+        pre_pipeline=sel,
+        skip_pre_pipeline_transform=True,
+        skip_preprocessing=False,
         selector_passthrough_cols=None,
     )
     # Left as-is (4 columns); no attempt to re-run the 8->4 selector on a 4-col frame.

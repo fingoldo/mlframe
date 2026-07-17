@@ -20,6 +20,7 @@ columns to int32 codes using a shared train+val+test vocabulary
 *before* the inner ranker fit fires. Unseen values map to -1 (LGB
 missing).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -51,10 +52,7 @@ def test_object_cats_encoded_to_int_codes_via_shared_vocab() -> None:
     # the prior ``dtype == object`` check failed on modern pandas because
     # the dataframe constructor auto-converted np.array(..., dtype=object)
     # of strings into pd.StringDtype.
-    _to_encode = [
-        c for c in cat_features
-        if c in train_df.columns and pd.api.types.is_string_dtype(train_df[c])
-    ]
+    _to_encode = [c for c in cat_features if c in train_df.columns and pd.api.types.is_string_dtype(train_df[c])]
     assert _to_encode == cat_features
 
     _splits_for_vocab = [train_df, val_df, test_df]
@@ -63,9 +61,7 @@ def test_object_cats_encoded_to_int_codes_via_shared_vocab() -> None:
         _vals = set()
         for _split in _splits_for_vocab:
             _vals.update(v for v in _split[_c].dropna().tolist())
-        _vocabs[_c] = {
-            v: i for i, v in enumerate(sorted(_vals, key=lambda x: str(x)))
-        }
+        _vocabs[_c] = {v: i for i, v in enumerate(sorted(_vals, key=lambda x: str(x)))}
     encoded = []
     for _df in _splits_for_vocab:
         _new = _df.copy()
@@ -77,9 +73,7 @@ def test_object_cats_encoded_to_int_codes_via_shared_vocab() -> None:
     # All cat columns must now be int32 in every split.
     for _df in (enc_train, enc_val, enc_test):
         for _c in cat_features:
-            assert _df[_c].dtype == np.int32, (
-                f"{_c} expected int32, got {_df[_c].dtype}"
-            )
+            assert _df[_c].dtype == np.int32, f"{_c} expected int32, got {_df[_c].dtype}"
 
     # Shared vocab: same string -> same code in every split.
     code_a0_in_train = enc_train.loc[train_df["cat_0"] == "a0", "cat_0"].iloc[0]
@@ -91,9 +85,9 @@ def test_object_cats_encoded_to_int_codes_via_shared_vocab() -> None:
 def test_unseen_values_in_val_map_to_minus_one() -> None:
     """Values seen only at predict time (never in any of the vocab-
     contributing splits) must map to -1, the LGB-missing sentinel."""
-    train_df = pd.DataFrame({"cat_0": np.array(["a", "b", "c"], dtype=object)})
-    val_df = pd.DataFrame({"cat_0": np.array(["a", "b"], dtype=object)})
-    test_df = pd.DataFrame({"cat_0": np.array(["a", "b"], dtype=object)})
+    pd.DataFrame({"cat_0": np.array(["a", "b", "c"], dtype=object)})
+    pd.DataFrame({"cat_0": np.array(["a", "b"], dtype=object)})
+    pd.DataFrame({"cat_0": np.array(["a", "b"], dtype=object)})
 
     # Build vocab from train+val+test (the only values are a/b/c).
     _vocab = {v: i for i, v in enumerate(sorted({"a", "b", "c"}, key=str))}
@@ -113,12 +107,14 @@ def test_lgb_ranker_smoke_with_object_cats() -> None:
 
     n = 60
     rng = np.random.default_rng(0)
-    df = pd.DataFrame({
-        "num_0": rng.standard_normal(n).astype(np.float64),
-        "cat_0": np.array([f"x{i % 4}" for i in range(n)], dtype=object),
-        "qid": np.repeat(np.arange(n // 6), 6),
-        "rel": rng.integers(0, 4, size=n).astype(np.int32),
-    })
+    df = pd.DataFrame(
+        {
+            "num_0": rng.standard_normal(n).astype(np.float64),
+            "cat_0": np.array([f"x{i % 4}" for i in range(n)], dtype=object),
+            "qid": np.repeat(np.arange(n // 6), 6),
+            "rel": rng.integers(0, 4, size=n).astype(np.int32),
+        }
+    )
 
     # Standard FTE contract per train_mlframe_ranker_suite: ``transform``
     # returns a 5+-tuple ``(df_features, target_by_type, group_ids_raw,
@@ -140,6 +136,7 @@ def test_lgb_ranker_smoke_with_object_cats() -> None:
         ts_field = None
         doc_field = None
         target_carrier = "numpy"
+
         def transform(self, frame):
             features = frame.drop(columns=["rel"]) if "rel" in frame.columns else frame
             features = features.drop(columns=["qid"]) if "qid" in features.columns else features

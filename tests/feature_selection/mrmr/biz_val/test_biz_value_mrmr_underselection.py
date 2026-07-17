@@ -21,6 +21,7 @@ POSITIVE sensor). They were never xfail while the bugs were open -- they surface
 and stayed red on purpose until fixed; kept as plain (non-xfail) regression sensors now that they pass,
 so a future regression in any of Fix A1/A2/B fails loudly again.
 """
+
 import importlib.util
 import os
 
@@ -58,9 +59,16 @@ def test_core_screen_selects_signal_with_fe_off(seed):
     X, y = _build_mega(seed)
     Xn = X[[c for c in X.columns if c not in ("cat_a", "cat_b", "ts")]]
     m = MRMR(
-        verbose=0, interactions_max_order=1, fe_max_steps=0, dcd_enable=False,
-        cluster_aggregate_enable=False, build_friend_graph=False, quantization_nbins=10,
-        random_seed=seed, fe_univariate_basis_enable=False, fe_univariate_fourier_enable=False,
+        verbose=0,
+        interactions_max_order=1,
+        fe_max_steps=0,
+        dcd_enable=False,
+        cluster_aggregate_enable=False,
+        build_friend_graph=False,
+        quantization_nbins=10,
+        random_seed=seed,
+        fe_univariate_basis_enable=False,
+        fe_univariate_fourier_enable=False,
         fe_hybrid_orth_enable=False,
     ).fit(Xn, y)
     names = _support_names(m)

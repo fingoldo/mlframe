@@ -9,6 +9,7 @@ against numpy ``method='linear'`` across even/odd K, every quantile pair, and
 continuous / tied / discrete / NaN-bearing windows (NaN segments fall back to
 numpy, preserving sort-NaN-to-end semantics).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,7 +23,7 @@ def _ref(values, window_K, q_low, q_high):
     out = np.full(values.size, np.nan, dtype=np.float64)
     wins = sliding_window_view(values, window_K)
     q = np.quantile(wins, [q_low, q_high], axis=1)
-    out[window_K - 1:] = q[1] - q[0]
+    out[window_K - 1 :] = q[1] - q[0]
     return out
 
 

@@ -5,6 +5,7 @@ with the right columns + parameter, clearing a measured MI / lift floor. specifi
 report (the anti-false-discovery guarantee). robustness: 2D y skips cleanly with a warning; all-noise + tiny frames don't crash.
 human-readable: ``str(report)`` carries the column names + kind.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -13,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.feature_selection import discover_structure, StructureReport, DiscoveredRelation
+from mlframe.feature_selection import discover_structure, StructureReport
 
 
 N = 2000
@@ -64,7 +65,7 @@ def test_biz_val_discover_modular_modulus():
     top = mod[0]
     assert set(top.columns) == {"a", "b"}
     # The escalate stage may pin a MULTIPLE of the true modulus (7 | 14 | 21 ... all carry the residue signal).
-    assert top.parameter is not None and int(round(top.parameter)) % 7 == 0, f"modulus must be a multiple of 7; got {top.parameter}"
+    assert top.parameter is not None and round(top.parameter) % 7 == 0, f"modulus must be a multiple of 7; got {top.parameter}"
     assert top.mi >= 0.5
 
 
@@ -211,8 +212,7 @@ def test_biz_val_nbins_resolution_recovers_multivalued_structure():
     assert mi_coarse <= 0.30, f"nbins=2 must crush the multi-valued gcd MI (measured ~0.20); got {mi_coarse}"
     assert mi_fine >= 0.90, f"nbins=20 must resolve the gcd structure (measured ~1.05); got {mi_fine}"
     assert mi_fine >= 3.0 * mi_coarse, (
-        f"finer binning must lift the recovered gcd MI >=3x over coarse (measured ~5x); "
-        f"coarse={mi_coarse:.3f} fine={mi_fine:.3f}"
+        f"finer binning must lift the recovered gcd MI >=3x over coarse (measured ~5x); coarse={mi_coarse:.3f} fine={mi_fine:.3f}"
     )
 
 
@@ -245,8 +245,7 @@ def test_mrmr_discovered_structure_accessor():
     recipes = [
         EngineeredRecipe(name="il_gcd__p__q", kind="pairwise_integer_lattice", src_names=("p", "q"), extra={"op": "gcd"}),
         EngineeredRecipe(name="pmod_sum__a__b__m7", kind="pairwise_modular", src_names=("a", "b"), extra={"op": "sum", "modulus": 7}),
-        EngineeredRecipe(name="gate_select__d__base__ten__t0.4", kind="conditional_gate", src_names=("d", "base", "ten"),
-                         extra={"mode": "select", "tau": 0.4}),
+        EngineeredRecipe(name="gate_select__d__base__ten__t0.4", kind="conditional_gate", src_names=("d", "base", "ten"), extra={"mode": "select", "tau": 0.4}),
         EngineeredRecipe(name="argmax__x0__x1__x2", kind="row_argmax", src_names=("x0", "x1", "x2")),
         EngineeredRecipe(name="orth_he2__c", kind="orth_univariate", src_names=("c",), extra={"basis": "hermite", "degree": 2}),
     ]

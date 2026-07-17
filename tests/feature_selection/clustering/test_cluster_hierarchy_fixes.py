@@ -8,6 +8,7 @@
   (most-central anchor by mean within-component SU), not the lexicographically
   smallest name.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,14 +20,13 @@ from mlframe.feature_selection.filters._cluster_hierarchy import (
 
 
 class TestQuantizeNanHandling:
-
     def test_ndarray_nan_column_still_binned(self):
         rng = np.random.default_rng(0)
         good = rng.standard_normal(300)
         nan_col = good.copy()
         nan_col[:5] = np.nan
         X = np.column_stack([good, nan_col])
-        fd, fn, names = _quantize_for_su(X)
+        fd, fn, _names = _quantize_for_su(X)
         assert fd is not None
         # The NaN-bearing column must still receive >1 bin (finite values get
         # quantized), matching the DataFrame path. Pre-fix: NaN edges -> 1 bin.
@@ -34,6 +34,7 @@ class TestQuantizeNanHandling:
 
     def test_ndarray_matches_dataframe_for_clean_data(self):
         import pandas as pd
+
         rng = np.random.default_rng(1)
         arr = rng.standard_normal((300, 3))
         fd_a, fn_a, _ = _quantize_for_su(arr)
@@ -43,7 +44,6 @@ class TestQuantizeNanHandling:
 
 
 class TestComponentMedoid:
-
     def test_picks_central_anchor(self):
         # b is central: high SU to both a and c; a-c link is weak.
         comp = ["a", "b", "c"]

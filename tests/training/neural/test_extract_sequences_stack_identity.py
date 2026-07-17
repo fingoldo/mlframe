@@ -5,6 +5,7 @@ the whole list-of-lists + a single np.stack) with a per-row fallback for ragged
 sequence lengths. Both paths must yield bit-identical float32 (seq_len, n_cols)
 arrays in column order. These tests pin both branches.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -21,14 +22,8 @@ COLUMNS = ("mjd", "mag", "magerr", "norm")
 def _reference(df, columns):
     """The pre-optimization per-row stack, kept here as the identity oracle."""
     n_rows = len(df)
-    col_arrays = [
-        [np.asarray(v, dtype=np.float32) for v in df[col].to_list()]
-        for col in columns
-    ]
-    return [
-        np.stack([col_arrays[j][i] for j in range(len(columns))], axis=-1)
-        for i in range(n_rows)
-    ]
+    col_arrays = [[np.asarray(v, dtype=np.float32) for v in df[col].to_list()] for col in columns]
+    return [np.stack([col_arrays[j][i] for j in range(len(columns))], axis=-1) for i in range(n_rows)]
 
 
 def test_equal_length_fast_path_bit_identical():

@@ -3,10 +3,10 @@
 The sibling _rfecv_fit.py already uses use_pyarrow_extension_array=True / split_blocks=True / self_destruct=True; _rfecv.py:716 was the lone
 bare ``X.to_pandas()`` call. Sensor: transforming polars X through a fitted RFECV must not crash and must produce the expected column subset.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 pl = pytest.importorskip("polars")

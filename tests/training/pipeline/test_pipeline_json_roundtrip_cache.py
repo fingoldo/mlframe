@@ -13,10 +13,8 @@ and is keyed by ``hash(_js)``. Mirrors the _PROBE_PRECISION_CACHE
 (mlp_runtime_defaults iter181), _CB_GPU_USABLE_CACHE (_cb_pool), and
 _mlframe_callback_cache_installed (neural/base iter189) patterns.
 """
-import time
-from unittest.mock import patch
 
-import pytest
+
 
 
 def test_pipeline_json_roundtrip_cache_skips_second_validation():
@@ -44,6 +42,7 @@ def test_pipeline_json_roundtrip_cache_skips_second_validation():
 
     # Mock polars_ds.pipeline.Pipeline import + isinstance gate.
     import sys
+
     fake_module = type(sys)("polars_ds")
     fake_module.pipeline = type(sys)("polars_ds.pipeline")
     fake_module.pipeline.Pipeline = _StubPipeline
@@ -63,10 +62,7 @@ def test_pipeline_json_roundtrip_cache_skips_second_validation():
                     _rt_ok = False
                 sh._PIPELINE_JSON_ROUNDTRIP_CACHE[_js_hash] = _rt_ok
 
-        assert call_count["n"] == 1, (
-            f"Pipeline.from_json was invoked {call_count['n']} times; "
-            f"expected exactly 1 (cache should short-circuit the second call)."
-        )
+        assert call_count["n"] == 1, f"Pipeline.from_json was invoked {call_count['n']} times; expected exactly 1 (cache should short-circuit the second call)."
         assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(hash(fake_js)) is True
     finally:
         sys.modules.pop("polars_ds", None)
@@ -100,10 +96,7 @@ def test_pipeline_json_roundtrip_cache_remembers_failures():
                 _rt_ok = False
             sh._PIPELINE_JSON_ROUNDTRIP_CACHE[_js_hash] = _rt_ok
 
-    assert call_count["n"] == 1, (
-        f"Failing from_json invoked {call_count['n']} times; expected 1 "
-        f"(negative-result cache must skip retry)."
-    )
+    assert call_count["n"] == 1, f"Failing from_json invoked {call_count['n']} times; expected 1 (negative-result cache must skip retry)."
     assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(hash(fake_js)) is False
     sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
 
@@ -142,11 +135,13 @@ def test_pipeline_json_disk_cache_roundtrip(tmp_path, monkeypatch):
     # builtin hash() int; the disk layer canonicalises keys to str, so seeding with an
     # int would not survive the round-trip (and prod never uses int keys).
     from mlframe.training.core._setup_helpers_pipeline_cache import pipeline_json_cache_key
+
     cache_key = pipeline_json_cache_key('{"steps": [{"type": "test_disk_cache"}]}')
     sh._PIPELINE_JSON_ROUNDTRIP_CACHE[cache_key] = True
     sh._persist_pipeline_disk_cache()
 
     import os
+
     assert os.path.exists(cache_file), "disk cache file must be created on persist"
 
     # Wipe the in-memory cache + reset loaded marker, then hydrate from disk.
@@ -154,9 +149,7 @@ def test_pipeline_json_disk_cache_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)
     sh._load_pipeline_disk_cache_into_memory()
 
-    assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(cache_key) is True, (
-        "disk cache must rehydrate into the in-memory cache on load"
-    )
+    assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(cache_key) is True, "disk cache must rehydrate into the in-memory cache on load"
 
 
 def test_pipeline_json_disk_cache_version_invalidation(tmp_path, monkeypatch):
@@ -164,7 +157,6 @@ def test_pipeline_json_disk_cache_version_invalidation(tmp_path, monkeypatch):
     wheel that newly fails roundtrip can't silently inherit a stale
     'safe' verdict."""
     from mlframe.training.core import _setup_helpers as sh
-    import os
     import orjson as _orjson
 
     cache_file = str(tmp_path / "polars_ds_pipeline_roundtrip.json")
@@ -175,15 +167,17 @@ def test_pipeline_json_disk_cache_version_invalidation(tmp_path, monkeypatch):
     # Hand-craft a cache file with a stale version tag.
     fake_hash = "12345"
     with open(cache_file, "wb") as fh:
-        fh.write(_orjson.dumps({
-            "version_tag": "polars_ds=0.0.0-stale|polars=0.0.0-stale",
-            "entries": {fake_hash: True},
-        }))
+        fh.write(
+            _orjson.dumps(
+                {
+                    "version_tag": "polars_ds=0.0.0-stale|polars=0.0.0-stale",
+                    "entries": {fake_hash: True},
+                }
+            )
+        )
 
     sh._load_pipeline_disk_cache_into_memory()
-    assert int(fake_hash) not in sh._PIPELINE_JSON_ROUNDTRIP_CACHE, (
-        "stale-version cache file must NOT hydrate entries into in-memory"
-    )
+    assert int(fake_hash) not in sh._PIPELINE_JSON_ROUNDTRIP_CACHE, "stale-version cache file must NOT hydrate entries into in-memory"
 
 
 def test_pipeline_json_disk_cache_corrupt_file_does_not_crash(tmp_path, monkeypatch):

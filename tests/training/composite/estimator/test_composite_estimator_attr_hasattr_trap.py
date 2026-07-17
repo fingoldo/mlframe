@@ -22,6 +22,7 @@ These tests FAIL on the pre-fix ``getattr(..., None)`` bodies: the
 ``hasattr(...) is False`` assertions trip because the old code returned ``None``
 (making ``hasattr`` ``True``).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,9 +43,7 @@ def _fit_linreg_wrapper(n: int = 60) -> CompositeTargetEstimator:
     base = rng.uniform(1.0, 5.0, size=n)
     X = pd.DataFrame({"base": base, "f1": rng.normal(size=n)})
     y = 2.0 * base + 0.5 * X["f1"].to_numpy() + rng.normal(scale=0.1, size=n)
-    est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="diff", base_column="base"
-    )
+    est = CompositeTargetEstimator(base_estimator=LinearRegression(), transform_name="diff", base_column="base")
     est.fit(X, y)
     return est
 
@@ -67,6 +66,7 @@ def _fit_rf_wrapper(n: int = 80) -> CompositeTargetEstimator:
 # Core hasattr-trap regression: linear inner lacks tree/booster attrs.
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("attr", ["feature_importances_", "booster_"])
 def test_linreg_inner_missing_attr_is_not_advertised(attr):
     """A fitted ``LinearRegression`` inner has no ``feature_importances_`` /
@@ -74,8 +74,7 @@ def test_linreg_inner_missing_attr_is_not_advertised(attr):
     with a ``None`` value -- the trap)."""
     est = _fit_linreg_wrapper()
     assert hasattr(est, attr) is False, (
-        f"hasattr(wrapper, {attr!r}) must be False when the fitted inner lacks "
-        f"it (pre-fix returned None, making hasattr True -- the trap)"
+        f"hasattr(wrapper, {attr!r}) must be False when the fitted inner lacks it (pre-fix returned None, making hasattr True -- the trap)"
     )
 
 
@@ -101,6 +100,7 @@ def test_getattr_with_default_returns_default_not_none_value(attr):
 # ---------------------------------------------------------------------------
 # Positive path: attrs that DO exist on the inner stay exposed with values.
 # ---------------------------------------------------------------------------
+
 
 def test_linreg_inner_present_attrs_exposed():
     """``coef_`` / ``intercept_`` exist on a fitted ``LinearRegression`` and
@@ -132,10 +132,9 @@ def test_tree_inner_feature_importances_exposed():
 # Pre-fit contract preserved: NotFittedError still wins for every accessor.
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("attr", ["feature_importances_", "coef_", "intercept_", "booster_"])
 def test_prefit_access_raises_notfittederror(attr):
-    est = CompositeTargetEstimator(
-        base_estimator=LinearRegression(), transform_name="diff", base_column="base"
-    )
+    est = CompositeTargetEstimator(base_estimator=LinearRegression(), transform_name="diff", base_column="base")
     with pytest.raises(NotFittedError):
         getattr(est, attr)

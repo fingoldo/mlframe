@@ -9,6 +9,7 @@ The sensor patches ``numpy.isfinite`` with a counter and asserts:
 
 Test runs the 9 _fit kernels we threaded (additive_residual, median_residual, y_quantile_clip, ratio, rolling_quantile_ratio, quantile_residual, monotonic_residual, ewma_residual, frac_diff).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -83,6 +84,7 @@ def _assert_param_dicts_close(a: dict, b: dict, name: str, atol: float = 1e-9):
 def test_AP2_finite_mask_skips_internal_isfinite_when_supplied(monkeypatch, name, fit_fn, extra_kwargs):
     """When ``_finite_mask`` is supplied, the inner _fit MUST NOT recompute the y/base isfinite mask. We patch ``numpy.isfinite`` with a counter and require: at least one isfinite call WITHOUT the mask (baseline), strictly fewer WITH the mask. Some kernels still call isfinite on derived arrays (e.g. residuals in linear_residual_robust) but the y/base initial isfinite pair is dropped."""
     import numpy as _np
+
     y, base = _make_finite_pair(n=512, seed=2)
     mask = np.ones_like(y, dtype=bool)
 
@@ -105,6 +107,5 @@ def test_AP2_finite_mask_skips_internal_isfinite_when_supplied(monkeypatch, name
 
     assert baseline_calls > 0, f"{name}: baseline made zero isfinite calls; test is degenerate"
     assert threaded_calls < baseline_calls, (
-        f"{name}: expected fewer isfinite calls when _finite_mask supplied "
-        f"(baseline={baseline_calls}, with_mask={threaded_calls})"
+        f"{name}: expected fewer isfinite calls when _finite_mask supplied (baseline={baseline_calls}, with_mask={threaded_calls})"
     )

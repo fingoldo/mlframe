@@ -48,10 +48,7 @@ def test_pct_threshold_applies_on_small_data():
         min_non_null_fraction_for_text_promotion=0.0,
     )
     text, _emb, _drop = _auto_detect_feature_types(df, cfg, cat_features=[])
-    assert "txt" in text, (
-        "Small-data pct knob should drive effective threshold to 50 and promote "
-        "the 80-uniq column to text_features."
-    )
+    assert "txt" in text, "Small-data pct knob should drive effective threshold to 50 and promote the 80-uniq column to text_features."
 
 
 # ---------------------------------------------------------------------------
@@ -89,10 +86,7 @@ def test_absolute_threshold_caps_on_large_data():
         "still trigger promotion; pct alone would have driven effective threshold "
         "to 1000 and kept the col as cat."
     )
-    assert "txt" not in text_below, (
-        "On a million-row frame with 250-uniq col, the absolute cap (300) is the "
-        "binding limit; 250 < 300 keeps the column as cat."
-    )
+    assert "txt" not in text_below, "On a million-row frame with 250-uniq col, the absolute cap (300) is the binding limit; 250 < 300 keeps the column as cat."
 
 
 # ---------------------------------------------------------------------------
@@ -113,12 +107,8 @@ def test_pct_default_does_not_break_legacy_config():
     )
     text_small, _, _ = _auto_detect_feature_types(df_eighty, cfg_legacy, cat_features=[])
     text_large, _, _ = _auto_detect_feature_types(df_three_hundred, cfg_legacy, cat_features=[])
-    assert "txt" not in text_small, (
-        "Legacy mode (pct=0): 100-row 80-uniq col must NOT promote; effective stays at abs=300."
-    )
-    assert "txt" in text_large, (
-        "Legacy mode (pct=0): 1000-row 350-uniq col promotes via absolute threshold."
-    )
+    assert "txt" not in text_small, "Legacy mode (pct=0): 100-row 80-uniq col must NOT promote; effective stays at abs=300."
+    assert "txt" in text_large, "Legacy mode (pct=0): 1000-row 350-uniq col promotes via absolute threshold."
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +137,5 @@ def test_50_row_minimum_floor_applies():
     text_above_floor, _, _ = _auto_detect_feature_types(df_above_floor, cfg, cat_features=[])
     text_well_above, _, _ = _auto_detect_feature_types(df_well_above_floor, cfg, cat_features=[])
     assert "txt" not in text_at_floor, "49 uniques is below the 50 floor; must NOT promote."
-    assert "txt" not in text_above_floor, (
-        "50 uniques is exactly at the floor; the strict > check keeps it as cat."
-    )
+    assert "txt" not in text_above_floor, "50 uniques is exactly at the floor; the strict > check keeps it as cat."
     assert "txt" in text_well_above, "60 uniques > 50 hard floor; must promote."

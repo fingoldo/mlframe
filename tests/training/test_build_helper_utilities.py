@@ -1,4 +1,5 @@
 """Tests for internal _build_* / _initialize_* helpers in mlframe.training.core."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -15,6 +16,7 @@ from mlframe.training.configs import TrainingBehaviorConfig, TargetTypes
 
 
 # ----- _initialize_training_defaults -----
+
 
 def test_init_defaults_all_none():
     p, r, m = _initialize_training_defaults(None, None, None)
@@ -59,6 +61,7 @@ def test_init_defaults_preserves_user_values():
 
 
 # ----- _build_common_params_for_target -----
+
 
 def test_build_common_params_no_fairness_no_od(tmp_path):
     bc = TrainingBehaviorConfig()
@@ -129,6 +132,7 @@ def test_build_common_params_with_od_passes_targets():
 
 # ----- _build_pre_pipelines (internal helper - takes scalar args, not config object) -----
 
+
 def test_build_pre_pipelines_ordinary_only():
     pipes, names = _build_pre_pipelines(
         use_ordinary_models=True,
@@ -153,6 +157,7 @@ def test_build_pre_pipelines_rfecv_merge():
     # real attribute-settable stand-in rather than a bare string.
     class _FakeRFECV:
         pass
+
     fake = _FakeRFECV()
     pipes, names = _build_pre_pipelines(
         use_ordinary_models=True,
@@ -193,8 +198,12 @@ def test_build_pre_pipelines_mrmr_included():
 
 def test_build_pre_pipelines_custom():
     class DummyTrans:
-        def fit(self, *a, **k): return self
-        def transform(self, x): return x
+        def fit(self, *a, **k):
+            return self
+
+        def transform(self, x):
+            return x
+
     dummy = DummyTrans()
     pipes, names = _build_pre_pipelines(
         use_ordinary_models=False,
@@ -213,8 +222,10 @@ def test_build_pre_pipelines_custom():
 
 def test_build_pre_pipelines_rfecv_leakage_corr_threshold_applied():
     """``FeatureSelectionConfig.rfecv_leakage_corr_threshold`` must reach the RFECV instance; without the wiring the suite has no operator-facing knob for the leak-detection threshold (only the constructor default at 0.95). Use a plain object that accepts setattr to keep the test sklearn-free."""
+
     class FakeRFECV:
         leakage_corr_threshold = 0.95
+
     fake = FakeRFECV()
     pipes, _ = _build_pre_pipelines(
         use_ordinary_models=False,
@@ -232,8 +243,10 @@ def test_build_pre_pipelines_rfecv_leakage_corr_threshold_applied():
 
 def test_build_pre_pipelines_rfecv_mbh_adaptive_threshold_applied():
     """``FeatureSelectionConfig.rfecv_mbh_adaptive_threshold`` must reach the RFECV instance so operators can shift the CB/ETR surrogate crossover off the hardcoded 30."""
+
     class FakeRFECV:
         mbh_adaptive_threshold = 30
+
     fake = FakeRFECV()
     pipes, _ = _build_pre_pipelines(
         use_ordinary_models=False,
@@ -249,6 +262,7 @@ def test_build_pre_pipelines_rfecv_mbh_adaptive_threshold_applied():
 
 
 # ----- _build_process_model_kwargs -----
+
 
 def test_build_process_model_kwargs_minimal():
     kwargs = _build_process_model_kwargs(
@@ -275,10 +289,20 @@ def test_build_process_model_kwargs_minimal():
 
 def test_build_process_model_kwargs_polars_pipeline_applied():
     kwargs = _build_process_model_kwargs(
-        model_file="/m", model_name_with_weight="m", model_file_name="m.pkl",
-        target_type=TargetTypes.REGRESSION, pre_pipeline=None, pre_pipeline_name="",
-        cur_target_name="t", models={}, model_params={}, common_params={},
-        ens_models=None, trainset_features_stats=None, verbose=0, cached_dfs=None,
+        model_file="/m",
+        model_name_with_weight="m",
+        model_file_name="m.pkl",
+        target_type=TargetTypes.REGRESSION,
+        pre_pipeline=None,
+        pre_pipeline_name="",
+        cur_target_name="t",
+        models={},
+        model_params={},
+        common_params={},
+        ens_models=None,
+        trainset_features_stats=None,
+        verbose=0,
+        cached_dfs=None,
         polars_pipeline_applied=True,
     )
     assert kwargs["skip_preprocessing"] is True
@@ -287,10 +311,19 @@ def test_build_process_model_kwargs_polars_pipeline_applied():
 def test_build_process_model_kwargs_cached_dfs():
     tr, va, te = pd.DataFrame({"a": [1]}), None, pd.DataFrame({"a": [2]})
     kwargs = _build_process_model_kwargs(
-        model_file="/m", model_name_with_weight="m", model_file_name="m.pkl",
-        target_type=TargetTypes.REGRESSION, pre_pipeline=None, pre_pipeline_name="",
-        cur_target_name="t", models={}, model_params={}, common_params={},
-        ens_models=None, trainset_features_stats=None, verbose=0,
+        model_file="/m",
+        model_name_with_weight="m",
+        model_file_name="m.pkl",
+        target_type=TargetTypes.REGRESSION,
+        pre_pipeline=None,
+        pre_pipeline_name="",
+        cur_target_name="t",
+        models={},
+        model_params={},
+        common_params={},
+        ens_models=None,
+        trainset_features_stats=None,
+        verbose=0,
         cached_dfs=(tr, va, te),
     )
     assert kwargs["skip_pre_pipeline_transform"] is True
@@ -302,10 +335,20 @@ def test_build_process_model_kwargs_cached_dfs():
 def test_build_process_model_kwargs_adds_model_category():
     common = {"existing": True}
     kwargs = _build_process_model_kwargs(
-        model_file="/m", model_name_with_weight="m", model_file_name="m.pkl",
-        target_type=TargetTypes.REGRESSION, pre_pipeline=None, pre_pipeline_name="",
-        cur_target_name="t", models={}, model_params={}, common_params=common,
-        ens_models=None, trainset_features_stats=None, verbose=0, cached_dfs=None,
+        model_file="/m",
+        model_name_with_weight="m",
+        model_file_name="m.pkl",
+        target_type=TargetTypes.REGRESSION,
+        pre_pipeline=None,
+        pre_pipeline_name="",
+        cur_target_name="t",
+        models={},
+        model_params={},
+        common_params=common,
+        ens_models=None,
+        trainset_features_stats=None,
+        verbose=0,
+        cached_dfs=None,
         mlframe_model_name="cb",
     )
     assert kwargs["common_params"]["model_category"] == "cb"

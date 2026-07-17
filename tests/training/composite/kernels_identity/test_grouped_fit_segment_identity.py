@@ -4,6 +4,7 @@ gather. The optimisation only changes HOW rows are routed to each group's OLS
 (stable-argsort segments vs per-group masks); the fitted alpha/beta/shrinkage
 must stay exactly equal.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,9 +42,12 @@ def test_grouped_fit_segment_bit_identical(n, K, seed):
 
     min_group_size = 30
     params = _linear_residual_grouped_fit(
-        y, base, groups=groups, min_group_size=min_group_size,
+        y,
+        base,
+        groups=groups,
+        min_group_size=min_group_size,
     )
-    ref_a, ref_b, ref_n = _reference_mask_fit(y, base, groups, min_group_size)
+    ref_a, _ref_b, ref_n = _reference_mask_fit(y, base, groups, min_group_size)
 
     # group_sizes must match for EVERY group (including the deferred-to-global ones).
     assert params["group_sizes"] == ref_n
@@ -52,7 +56,7 @@ def test_grouped_fit_segment_bit_identical(n, K, seed):
     # must be bit-identical to the mask reference. Shrinkage is applied uniformly
     # afterwards from those same raw values, so reproduce it here to compare the
     # final stored alphas too.
-    for g_key, raw_a in ref_a.items():
+    for g_key in ref_a.keys():
         # The stored alpha may be shrunk; invert is not needed -- instead refit
         # via the reference and confirm the loop saw the SAME inputs by checking
         # the un-shrunk path on a no-shrink case below. Here we assert the loop
@@ -79,7 +83,10 @@ def test_grouped_fit_segment_raw_alpha_matches_mask_no_shrink():
         y[m] = slope * base[m] + g + 0.05 * rng.standard_normal(int(m.sum()))
 
     params = _linear_residual_grouped_fit(
-        y, base, groups=labels, min_group_size=30,
+        y,
+        base,
+        groups=labels,
+        min_group_size=30,
     )
     assert params["shrinkage_factor"] == 0.0
     ref_a, ref_b, _ = _reference_mask_fit(y, base, labels, 30)

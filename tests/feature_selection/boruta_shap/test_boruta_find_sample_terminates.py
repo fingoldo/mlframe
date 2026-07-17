@@ -7,6 +7,7 @@ only exit was the KS ``break``. On a frame where no draw passes the KS test the
 loop ran forever. The fix increments ``iteration``, grows the sample size on each
 20-miss streak, and exits once every size is exhausted.
 """
+
 from __future__ import annotations
 
 import numpy as np

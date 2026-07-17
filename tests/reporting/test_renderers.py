@@ -15,8 +15,13 @@ import pytest
 
 from mlframe.reporting.renderers import get_renderer
 from mlframe.reporting.spec import (
-    BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec,
-    LinePanelSpec, ScatterPanelSpec, ViolinPanelSpec,
+    BarPanelSpec,
+    FigureSpec,
+    HeatmapPanelSpec,
+    HistogramPanelSpec,
+    LinePanelSpec,
+    ScatterPanelSpec,
+    ViolinPanelSpec,
 )
 
 
@@ -35,16 +40,24 @@ def scatter_panel(rng):
     x = rng.standard_normal(100)
     y = x * 1.5 + rng.standard_normal(100) * 0.2
     return ScatterPanelSpec(
-        x=x, y=y, title="scatter", xlabel="x", ylabel="y",
-        perfect_fit_line=True, point_alpha=0.5,
+        x=x,
+        y=y,
+        title="scatter",
+        xlabel="x",
+        ylabel="y",
+        perfect_fit_line=True,
+        point_alpha=0.5,
     )
 
 
 @pytest.fixture
 def histogram_panel(rng):
     return HistogramPanelSpec(
-        values=rng.standard_normal(500), bins=30,
-        title="hist", xlabel="x", overlay_normal=(0.0, 1.0),
+        values=rng.standard_normal(500),
+        bins=30,
+        title="hist",
+        xlabel="x",
+        overlay_normal=(0.0, 1.0),
     )
 
 
@@ -67,7 +80,9 @@ def bar_panel():
     return BarPanelSpec(
         categories=("A", "B", "C"),
         values=np.array([1.0, 2.0, 1.5]),
-        title="bar", xlabel="cat", ylabel="val",
+        title="bar",
+        xlabel="cat",
+        ylabel="val",
     )
 
 
@@ -75,8 +90,12 @@ def bar_panel():
 def line_panel():
     x = np.arange(10)
     return LinePanelSpec(
-        x=x, y=(x.astype(float), x.astype(float) * 2),
-        series_labels=("s1", "s2"), title="line", xlabel="x", ylabel="y",
+        x=x,
+        y=(x.astype(float), x.astype(float) * 2),
+        series_labels=("s1", "s2"),
+        title="line",
+        xlabel="x",
+        ylabel="y",
     )
 
 
@@ -84,7 +103,8 @@ def line_panel():
 def violin_panel(rng):
     return ViolinPanelSpec(
         groups=(rng.standard_normal(50), rng.standard_normal(50) + 1),
-        group_labels=("g1", "g2"), title="violin",
+        group_labels=("g1", "g2"),
+        title="violin",
     )
 
 
@@ -106,8 +126,7 @@ class TestMatplotlibRenderer:
     def test_render_2x2_grid(self, scatter_panel, histogram_panel, heatmap_panel, bar_panel):
         renderer = get_renderer("matplotlib")
         spec = FigureSpec(
-            panels=((scatter_panel, histogram_panel),
-                    (heatmap_panel, bar_panel)),
+            panels=((scatter_panel, histogram_panel), (heatmap_panel, bar_panel)),
             figsize=(12, 8),
         )
         fig = renderer.render(spec)
@@ -178,8 +197,7 @@ class TestPlotlyRenderer:
     def test_render_2x2_grid(self, scatter_panel, histogram_panel, heatmap_panel, bar_panel):
         renderer = get_renderer("plotly")
         spec = FigureSpec(
-            panels=((scatter_panel, histogram_panel),
-                    (heatmap_panel, bar_panel)),
+            panels=((scatter_panel, histogram_panel), (heatmap_panel, bar_panel)),
             figsize=(12, 8),
         )
         fig = renderer.render(spec)
@@ -216,6 +234,7 @@ class TestPlotlyRenderer:
         # so use orjson.loads on the file bytes. orjson has no streaming
         # load() so we read the whole file (~few KB for this test) first.
         import orjson
+
         with open(out, "rb") as f:
             obj = orjson.loads(f.read())
         assert "data" in obj

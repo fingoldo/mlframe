@@ -31,12 +31,12 @@ that imports the helper, computes the seed for a fixed name, prints it;
 do this twice and assert equality. The previous (broken) form would
 print different values because PYTHONHASHSEED is fresh per subprocess.
 """
+
 from __future__ import annotations
 
 import subprocess
 import sys
 
-import pytest
 
 
 def _run_once(target_name: str) -> int:
@@ -51,6 +51,7 @@ def _run_once(target_name: str) -> int:
     """
     import mlframe as _mlframe
     import pathlib
+
     # ``mlframe.__file__`` -> ``.../src/mlframe/__init__.py``; the package
     # root (``src/``) is two parents up.
     _src_root = pathlib.Path(_mlframe.__file__).resolve().parent.parent
@@ -66,11 +67,11 @@ def _run_once(target_name: str) -> int:
         # 30s is too tight under suite contention (-n workers + parallel sessions) where the cold import alone
         # can exceed it, while the test runs comfortably (~2min total) in isolation. Generous budget so the
         # sensor measures seed STABILITY, not import wall-clock.
-        capture_output=True, text=True, timeout=180,
+        capture_output=True,
+        text=True,
+        timeout=180,
     )
-    assert proc.returncode == 0, (
-        f"subprocess failed: stderr={proc.stderr}"
-    )
+    assert proc.returncode == 0, f"subprocess failed: stderr={proc.stderr}"
     return int(proc.stdout.strip())
 
 
@@ -87,10 +88,7 @@ def test_per_target_seed_stable_across_subprocesses():
     # Different targets in fresh subprocesses still differ.
     seed_a = _run_once("target_alpha")
     seed_b = _run_once("target_beta")
-    assert seed_a != seed_b, (
-        f"_per_target_seed collides across distinct targets: {seed_a} == {seed_b}. "
-        "The blake2b digest should still be distinguishable."
-    )
+    assert seed_a != seed_b, f"_per_target_seed collides across distinct targets: {seed_a} == {seed_b}. The blake2b digest should still be distinguishable."
 
 
 def test_per_target_seed_no_hash_call_in_source():
@@ -99,42 +97,27 @@ def test_per_target_seed_no_hash_call_in_source():
     docstring promise."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "baselines" / "_dummy_baseline_compute.py"
-    ).read_text(encoding="utf-8")
+
+    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "baselines" / "_dummy_baseline_compute.py").read_text(encoding="utf-8")
     # AST-walk so docstrings don't show up as code. Walk the function body's
     # statements and search for any `Name(id="hash")` Call (the builtin).
     import ast
+
     tree = ast.parse(src)
     func_node = next(
-        (n for n in ast.walk(tree)
-         if isinstance(n, ast.FunctionDef) and n.name == "_per_target_seed"),
+        (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_per_target_seed"),
         None,
     )
     assert func_node is not None, "_per_target_seed missing from module"
-    builtin_hash_calls = [
-        n for n in ast.walk(func_node)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Name)
-        and n.func.id == "hash"
-    ]
+    builtin_hash_calls = [n for n in ast.walk(func_node) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "hash"]
     assert not builtin_hash_calls, (
         f"Wave 18 P0 regression: _per_target_seed re-introduced builtin "
         f"hash() at line(s) {[c.lineno for c in builtin_hash_calls]}. "
         f"Use hashlib.blake2b(target_name.encode(...)) instead -- the "
         f"builtin is per-process salted under default PYTHONHASHSEED."
     )
-    blake2b_calls = [
-        n for n in ast.walk(func_node)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "blake2b"
-    ]
-    assert blake2b_calls, (
-        "Post-fix marker missing -- _per_target_seed should derive its "
-        "offset from hashlib.blake2b for cross-process stability."
-    )
+    blake2b_calls = [n for n in ast.walk(func_node) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "blake2b"]
+    assert blake2b_calls, "Post-fix marker missing -- _per_target_seed should derive its offset from hashlib.blake2b for cross-process stability."
 
 
 def test_rfecv_random_state_none_uses_hashlib_not_builtin_hash():
@@ -144,6 +127,7 @@ def test_rfecv_random_state_none_uses_hashlib_not_builtin_hash():
     support_' guarantee across worker spawns."""
     import pathlib
     import mlframe as _mlframe
+
     # The fit body and its submodule helpers all live under wrappers/rfecv/;
     # concat every submodule so the source-grep sensor catches the pattern
     # regardless of which one owns the relocated code.

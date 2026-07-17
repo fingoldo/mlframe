@@ -20,6 +20,7 @@ Problem:
 
 Post-fix: unconditional ``sub_df.copy()`` + ``sub_df[col] = df.loc[...]``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,8 +39,13 @@ def test_update_sub_df_col_refreshes_from_df_loc_not_stale_subdf():
     sub_df = pd.DataFrame({"c": ["z", "z", "z", "z", "z"]})
     mask = np.array([True, True, True, False, False])  # selects the 3 fresh rows
 
-    counts, nunique = _update_sub_df_col(
-        df, sub_df, "c", col_unique_values=None, nunique=0, analyse_mask=mask,
+    counts, _nunique = _update_sub_df_col(
+        df,
+        sub_df,
+        "c",
+        col_unique_values=None,
+        nunique=0,
+        analyse_mask=mask,
     )
     # Fresh df.loc[mask] -> ['a','a','b'] (unmasked rows become NaN via index
     # alignment); the stale 'z' must NOT appear at all.

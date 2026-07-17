@@ -21,14 +21,14 @@ import pytest
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 shap = pytest.importorskip("shap")
 pd = pytest.importorskip("pandas")
-from sklearn.ensemble import RandomForestRegressor  # noqa: E402
-from sklearn.linear_model import LinearRegression  # noqa: E402
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 
-from mlframe.reporting.charts import shap_panels as sp  # noqa: E402
+from mlframe.reporting.charts import shap_panels as sp
 
 
 def _strong_f0(n: int, n_feat: int = 5, *, coef: float = 3.0, noise: float = 0.1, seed: int = 0):
@@ -113,7 +113,13 @@ def test_plot_outputs_dsl_format(tmp_path):
     m = _fit_rf(X, y, n_estimators=20)
     base = str(tmp_path / "shap")  # no extension -> DSL decides
     res = sp.shap_summary_and_dependence(
-        m, X, feature_names=list(X.columns), max_rows=1000, top_k=2, plot_file=base, plot_outputs="matplotlib[svg]",
+        m,
+        X,
+        feature_names=list(X.columns),
+        max_rows=1000,
+        top_k=2,
+        plot_file=base,
+        plot_outputs="matplotlib[svg]",
     )
     assert res.paths
     assert all(p.endswith(".svg") for p in res.paths)
@@ -125,7 +131,13 @@ def test_kernel_opt_in_runs_bounded():
     X, y = _strong_f0(300, n_feat=4, seed=1)
     lr = LinearRegression().fit(X, y)
     res = sp.shap_summary_and_dependence(
-        lr, X, feature_names=list(X.columns), allow_kernel=True, kernel_max_rows=120, kernel_background=40, top_k=3,
+        lr,
+        X,
+        feature_names=list(X.columns),
+        allow_kernel=True,
+        kernel_max_rows=120,
+        kernel_background=40,
+        top_k=3,
     )
     assert res.skipped is None
     assert res.explainer_kind == "kernel"
@@ -155,7 +167,13 @@ def test_kernel_falls_back_to_predict_when_proba_raises():
     model = _RaisingProbaRegressor().fit(X, y)
     # Pre-fix: KernelExplainer was handed the raising predict_proba and blew up mid-explain. Post-fix it probes once and falls back to predict.
     res = sp.shap_summary_and_dependence(
-        model, X, feature_names=list(X.columns), allow_kernel=True, kernel_max_rows=120, kernel_background=40, top_k=3,
+        model,
+        X,
+        feature_names=list(X.columns),
+        allow_kernel=True,
+        kernel_max_rows=120,
+        kernel_background=40,
+        top_k=3,
     )
     assert res.skipped is None
     assert res.explainer_kind == "kernel"
@@ -259,7 +277,7 @@ def test_shap_panel_survives_categorical_feature_frame():
     'could not convert string to float' on any categorical column -- silently disabling the entire diagnostic (the
     dispatcher swallows it). The float view now coerces per-column (numeric passthrough, non-numeric -> factorized
     codes), so the panel renders. TreeExplainer still explains the native carrier."""
-    shap = pytest.importorskip("shap")
+    pytest.importorskip("shap")
     lgb = pytest.importorskip("lightgbm")
     import pandas as pd
     from mlframe.reporting.charts.shap_panels import shap_summary_and_dependence, _coerce_float_2d
@@ -270,11 +288,13 @@ def test_shap_panel_survives_categorical_feature_frame():
 
     rng = np.random.default_rng(0)
     n = 5000
-    df = pd.DataFrame({
-        "x0": rng.standard_normal(n),
-        "x1": rng.standard_normal(n),
-        "cat": pd.Categorical(rng.choice(list("ABCDE"), n)),  # the column that used to crash the panel
-    })
+    df = pd.DataFrame(
+        {
+            "x0": rng.standard_normal(n),
+            "x1": rng.standard_normal(n),
+            "cat": pd.Categorical(rng.choice(list("ABCDE"), n)),  # the column that used to crash the panel
+        }
+    )
     y = (2.0 * df["x0"] - 1.5 * df["x1"] + rng.standard_normal(n) * 0.5).to_numpy()
     model = lgb.LGBMRegressor(n_estimators=60, verbosity=-1).fit(df, y, categorical_feature=["cat"])
 
@@ -283,10 +303,14 @@ def test_shap_panel_survives_categorical_feature_frame():
     assert coerced.shape == (n, 3) and coerced.dtype == np.float64
 
     import tempfile, os
+
     with tempfile.TemporaryDirectory() as td:
         res = shap_summary_and_dependence(
-            model, df, feature_names=list(df.columns),
-            plot_file=os.path.join(td, "shap.png"), plot_outputs="matplotlib[png]",
+            model,
+            df,
+            feature_names=list(df.columns),
+            plot_file=os.path.join(td, "shap.png"),
+            plot_outputs="matplotlib[png]",
         )
     assert res is not None, "SHAP panel returned None on a categorical-feature frame (should render, not crash)"
 
@@ -298,7 +322,7 @@ def test_shap_panel_survives_object_dtype_categorical_carrier():
     SHAP panel was silently dropped for models trained with string cats (MRMR-engineered / string-cat fuzz combos).
     _as_frame_and_names now casts the carrier's object/string columns to 'category' (memory-safe assign; caller frame
     unmutated). Covers both a category-dtype frame and the object-dtype frame that actually crashed."""
-    shap = pytest.importorskip("shap")
+    pytest.importorskip("shap")
     lgb = pytest.importorskip("lightgbm")
     import pandas as pd
     from mlframe.reporting.charts.shap_panels import shap_summary_and_dependence
@@ -311,11 +335,15 @@ def test_shap_panel_survives_object_dtype_categorical_carrier():
     model = lgb.LGBMRegressor(n_estimators=60, verbose=-1).fit(base, y, categorical_feature=["cat"])
 
     import tempfile, os
+
     for frame in (base, base.assign(cat=base["cat"].astype(object))):
         with tempfile.TemporaryDirectory() as td:
             res = shap_summary_and_dependence(
-                model, frame, feature_names=list(frame.columns),
-                plot_file=os.path.join(td, "shap.png"), plot_outputs="matplotlib[png]",
+                model,
+                frame,
+                feature_names=list(frame.columns),
+                plot_file=os.path.join(td, "shap.png"),
+                plot_outputs="matplotlib[png]",
             )
         assert res is not None and res.skipped is None, f"SHAP skipped on {frame['cat'].dtype} cats"
     # Caller frame not mutated to category.

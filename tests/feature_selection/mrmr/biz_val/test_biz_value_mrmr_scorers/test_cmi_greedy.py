@@ -45,6 +45,7 @@ NEVER xfail. NEVER mask bugs via runtime workarounds.
 
 Consolidated verbatim from test_biz_value_mrmr_layer60.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -66,6 +67,7 @@ SEEDS = (1, 7, 13)
 def _make_mrmr(**overrides):
     """Build an MRMR isolating the CMI-greedy FE constructor from the default-on univariate-basis FE."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -100,12 +102,15 @@ def _build_linear(seed: int, n: int = 1200):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n)
     x2 = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x1 + 0.7 * x2) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -117,12 +122,14 @@ def _build_square_signal(seed: int, n: int = 2000):
     """
     rng = np.random.default_rng(seed)
     x = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "x": x,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x": x,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     y = ((x * x - 1.0) + 0.05 * rng.standard_normal(n) > 0).astype(int)
     return X, pd.Series(y, name="y")
 
@@ -136,12 +143,15 @@ def _build_complementary_signals(seed: int, n: int = 2500):
     rng = np.random.default_rng(seed)
     x1 = rng.standard_normal(n) * 1.2
     x2 = rng.standard_normal(n) * 1.5
-    X = pd.DataFrame({
-        "x1": x1, "x2": x2,
-        "noise_a": rng.standard_normal(n),
-        "noise_b": rng.standard_normal(n),
-        "noise_c": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x1": x1,
+            "x2": x2,
+            "noise_a": rng.standard_normal(n),
+            "noise_b": rng.standard_normal(n),
+            "noise_c": rng.standard_normal(n),
+        }
+    )
     sig1 = (x1 * x1) > 1.0
     sig2 = np.log1p(np.abs(x2)) > float(np.median(np.log1p(np.abs(x2))))
     y = (sig1 ^ sig2).astype(int)
@@ -173,7 +183,7 @@ class TestDefaultDisabledByteIdentical:
         m.fit(X, y)
         assert m.fe_mi_greedy_cmi_enable is False
         assert m.mi_greedy_features_ == [], (
-            f"seed={seed}: default fe_mi_greedy_cmi_enable=False should " f"produce empty mi_greedy_features_, got {m.mi_greedy_features_}"
+            f"seed={seed}: default fe_mi_greedy_cmi_enable=False should produce empty mi_greedy_features_, got {m.mi_greedy_features_}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -226,7 +236,7 @@ class TestNoDuplicateSignal:
         )
         # And it should have picked at least one (the signal IS there).
         assert len(x_family_picks) >= 1, (
-            f"seed={seed}: CMI-greedy picked ZERO |x|-family transforms on " f"'x' -- the signal was missed entirely. Appended: {appended}"
+            f"seed={seed}: CMI-greedy picked ZERO |x|-family transforms on 'x' -- the signal was missed entirely. Appended: {appended}"
         )
 
 
@@ -271,7 +281,8 @@ class TestComplementarySignalsRecovered:
         )
 
         _X_aug, _scores, recipes = greedy_cmi_fe_construct_with_recipes(
-            X, yv,
+            X,
+            yv,
             cols=list(X.columns),
             seed_cols_count=4,
             top_k=6,
@@ -437,6 +448,7 @@ class TestPickleAndClone:
         np.testing.assert_allclose(
             np.asarray(out_pre, dtype=np.float64),
             np.asarray(out_post, dtype=np.float64),
-            rtol=1e-12, atol=1e-12,
+            rtol=1e-12,
+            atol=1e-12,
         )
         assert list(m_rt.mi_greedy_features_) == list(m.mi_greedy_features_)

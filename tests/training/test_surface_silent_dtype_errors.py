@@ -13,6 +13,7 @@ Two recurring silent-error sites in the training core:
     narrowed to expected exceptions and logged as a WARNING so an incomplete
     cat-alignment is visible; unexpected exceptions propagate.
 """
+
 from __future__ import annotations
 
 import logging
@@ -48,9 +49,7 @@ def test_dtype_error_reraises_not_silent_none(caplog):
             )
     # The actionable ERROR (with offending dtypes) must have fired -- not a
     # silent ``return None, None``.
-    assert any(
-        "unsupported pandas dtype" in r.getMessage() for r in caplog.records
-    ), "expected an actionable ERROR naming the unsupported dtype"
+    assert any("unsupported pandas dtype" in r.getMessage() for r in caplog.records), "expected an actionable ERROR naming the unsupported dtype"
 
 
 class _DtypeRaisingSeries:
@@ -85,8 +84,6 @@ def test_align_dtype_access_failure_warns_not_silent(caplog):
         # XGB model name so alignment loop runs over the pandas frame.
         _align_xgb_cat_categories("XGBClassifier", df)
 
-    assert any(
-        "dtype access failed for col='bad'" in r.getMessage()
-        and r.levelno == logging.WARNING
-        for r in caplog.records
-    ), "expected a WARNING surfacing the skipped column, not a silent debug"
+    assert any("dtype access failed for col='bad'" in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records), (
+        "expected a WARNING surfacing the skipped column, not a silent debug"
+    )

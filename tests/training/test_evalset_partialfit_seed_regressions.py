@@ -1,5 +1,6 @@
 """Regression tests for TC14/TC39 (0-row val guard in _setup_eval_set) and
 TC13 (internal ES split seed threaded from the outer seed, not a hardcoded constant)."""
+
 from __future__ import annotations
 
 import numpy as np

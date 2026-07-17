@@ -37,4 +37,4 @@ def test_remainder_rows_fall_into_last_bin():
     npoints, cont_nbins = 103, 4
     bins, _ = create_robustness_standard_bins("**ORDER**", npoints, cont_nbins)
     step_size = npoints // cont_nbins
-    assert np.all(bins[step_size * (cont_nbins - 1):] == cont_nbins - 1)
+    assert np.all(bins[step_size * (cont_nbins - 1) :] == cont_nbins - 1)

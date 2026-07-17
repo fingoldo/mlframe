@@ -23,6 +23,7 @@ Fix: cache the RAW (pre-exponent) value and apply
 ``additional_knowledge`` AFTER the cache write. The cache is then
 nexisting-independent.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -92,9 +93,9 @@ def test_cache_raw_value_independent_of_nexisting():
     exponentiated = _score(2, shared_cache)
 
     assert 0.0 < raw < 1.0, f"raw CMI must lie in (0,1) for the exponent gap to be detectable; got {raw}"
-    assert exponentiated == pytest.approx(raw ** 3, rel=1e-9), (
+    assert exponentiated == pytest.approx(raw**3, rel=1e-9), (
         "Second lookup with nexisting=2 must re-exponentiate the RAW cached "
-        f"value: expected {raw ** 3!r}, got {exponentiated!r}. A non-cubed "
+        f"value: expected {raw**3!r}, got {exponentiated!r}. A non-cubed "
         "result means the cache stored the already-exponentiated value."
     )
 
@@ -105,16 +106,19 @@ def test_mrmr_with_interactions_order_2_runs_clean():
     behaviour for the common case.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = 400
     latent_a = rng.standard_normal(n)
     latent_b = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "a": latent_a,
-        "b": latent_b,
-        "c": latent_a + 0.1 * rng.standard_normal(n),
-        "d": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": latent_a,
+            "b": latent_b,
+            "c": latent_a + 0.1 * rng.standard_normal(n),
+            "d": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((latent_a * latent_b > 0).astype(np.int64))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 
 PARENT = "mlframe.training.core._setup_helpers"
@@ -20,10 +19,10 @@ FACADE_LOC_BUDGET = 800
 
 def test_setup_helpers_facade_loc_budget():
     import mlframe.training.core._setup_helpers as parent
+
     n = len(Path(parent.__file__).read_text(encoding="utf-8").splitlines())
     assert n <= FACADE_LOC_BUDGET, (
-        f"{PARENT} grew back over the budget ({n} > {FACADE_LOC_BUDGET}); "
-        "carve another sibling rather than letting the facade bloat."
+        f"{PARENT} grew back over the budget ({n} > {FACADE_LOC_BUDGET}); carve another sibling rather than letting the facade bloat."
     )
 
 
@@ -48,6 +47,7 @@ def test_setup_helpers_re_exports_resolve():
 def test_setup_helpers_identity_pipeline_cache():
     import mlframe.training.core._setup_helpers as parent
     from mlframe.training.core import _setup_helpers_pipeline_cache as sib
+
     assert parent._pipeline_disk_cache_path is sib._pipeline_disk_cache_path
     assert parent._pipeline_disk_cache_version_tag is sib._pipeline_disk_cache_version_tag
     assert parent._load_pipeline_disk_cache_into_memory is sib._load_pipeline_disk_cache_into_memory
@@ -59,18 +59,21 @@ def test_setup_helpers_identity_pipeline_cache():
 def test_setup_helpers_identity_outliers():
     import mlframe.training.core._setup_helpers as parent
     from mlframe.training.core import _setup_helpers_outliers as sib
+
     assert parent._apply_outlier_detection_global is sib._apply_outlier_detection_global
 
 
 def test_setup_helpers_identity_pre_pipelines():
     import mlframe.training.core._setup_helpers as parent
     from mlframe.training.core import _setup_helpers_pre_pipelines as sib
+
     assert parent._build_pre_pipelines is sib._build_pre_pipelines
 
 
 def test_setup_helpers_identity_metadata():
     import mlframe.training.core._setup_helpers as parent
     from mlframe.training.core import _setup_helpers_metadata as sib
+
     assert parent._create_initial_metadata is sib._create_initial_metadata
     assert parent._initialize_training_defaults is sib._initialize_training_defaults
     assert parent._finalize_and_save_metadata is sib._finalize_and_save_metadata
@@ -79,6 +82,7 @@ def test_setup_helpers_identity_metadata():
 def test_setup_helpers_smoke_pipeline_disk_cache_path():
     """Exercise the moved body so a runtime NameError surfaces."""
     from mlframe.training.core._setup_helpers import _pipeline_disk_cache_path
+
     out = _pipeline_disk_cache_path()
     assert isinstance(out, str)
     assert out.endswith(".json")
@@ -86,12 +90,14 @@ def test_setup_helpers_smoke_pipeline_disk_cache_path():
 
 def test_setup_helpers_smoke_pipeline_disk_cache_version_tag():
     from mlframe.training.core._setup_helpers import _pipeline_disk_cache_version_tag
+
     tag = _pipeline_disk_cache_version_tag()
     assert isinstance(tag, str) and "polars" in tag
 
 
 def test_setup_helpers_smoke_initialize_training_defaults():
     from mlframe.training.core._setup_helpers import _initialize_training_defaults
+
     common, rfecv, mrmr = _initialize_training_defaults(None, None, None, suite_verbose=0)
     assert common == {}
     assert rfecv == []
@@ -102,6 +108,7 @@ def test_setup_helpers_smoke_initialize_training_defaults():
 def test_setup_helpers_smoke_build_pre_pipelines_empty():
     """Empty pre-pipeline list path doesn't trigger MRMR / BorutaShap heavy imports."""
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
+
     pipelines, names = _build_pre_pipelines(
         use_ordinary_models=True,
         rfecv_models=[],
@@ -119,4 +126,5 @@ def test_setup_helpers_shared_pipeline_cache_state():
     """
     import mlframe.training.core._setup_helpers as parent
     from mlframe.training.core import _setup_helpers_pipeline_cache as pc
+
     assert parent._PIPELINE_JSON_ROUNDTRIP_CACHE is pc._PIPELINE_JSON_ROUNDTRIP_CACHE

@@ -5,6 +5,7 @@ sampling shape, non-crossing of the underlying dense quantile matrix, and the
 unfitted / bad-arg error paths. Uses a deterministic pinball stub so the suite is
 fast and does not require LightGBM for the contract checks.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,7 +32,7 @@ class _StubQuantileInner(BaseEstimator, RegressorMixin):
         self.alpha = alpha
         self.sigma = sigma
 
-    def fit(self, X, y, sample_weight=None):  # noqa: ARG002
+    def fit(self, X, y, sample_weight=None):
         self._mean_ = float(np.mean(np.asarray(y, dtype=np.float64)))
         self.n_features_in_ = X.shape[1] if hasattr(X, "shape") else len(X.columns)
         return self
@@ -80,9 +81,7 @@ def test_fit_uses_dense_grid_by_default():
 
 def test_fit_requires_base_estimator():
     with pytest.raises(ValueError, match="base_estimator must not be None"):
-        CompositeDistributionEstimator(base_estimator=None, base_column="base").fit(
-            *_make_xy()
-        )
+        CompositeDistributionEstimator(base_estimator=None, base_column="base").fit(*_make_xy())
 
 
 # ----------------------------------------------------------------------
@@ -213,7 +212,8 @@ def test_crps_lower_for_perfect_than_noisy_predictor():
 # ----------------------------------------------------------------------
 def test_unfitted_methods_raise():
     est = CompositeDistributionEstimator(
-        base_estimator=_StubQuantileInner(), base_column="base",
+        base_estimator=_StubQuantileInner(),
+        base_column="base",
     )
     X, _ = _make_xy()
     with pytest.raises(NotFittedError):

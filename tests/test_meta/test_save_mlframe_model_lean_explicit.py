@@ -15,6 +15,7 @@ The test parses each .py under src/ via ast, walks all Call nodes, and
 flags any ``save_mlframe_model(...)`` call whose kwargs lack ``lean`` AND
 whose source line lacks ``# forensic_save``.
 """
+
 from __future__ import annotations
 
 import ast

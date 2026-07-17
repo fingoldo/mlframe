@@ -35,7 +35,6 @@ from mlframe.training.feature_handling import (
     LoggingConfig,
     MemoryConfig,
     ModelHandlingOverride,
-    NoParams,
     PricingConfig,
     ReproConfig,
     TargetEncodeParams,
@@ -53,6 +52,7 @@ from mlframe.training.feature_handling import (
 # =====================================================================
 # 1. Per-method TypedDict params + extra="forbid"
 # =====================================================================
+
 
 class TestTypedDictParamsExtraForbid:
     """Round-2 U-R2-25: ``params: Dict[str, Any]`` was a typo amnesty
@@ -89,6 +89,7 @@ class TestTypedDictParamsExtraForbid:
 # =====================================================================
 # 2. HandlerSpec discriminated union — kind-method match validation
 # =====================================================================
+
 
 class TestHandlerSpecMethodKindMatch:
     """Round-3 R2-5: Pydantic Union[TfidfParams, HashingParams, ...]
@@ -138,6 +139,7 @@ class TestHandlerSpecMethodKindMatch:
 # =====================================================================
 # 3. Compat matrix + early validation with difflib
 # =====================================================================
+
 
 class TestCompatMatrixValidation:
     """Round-2 U-R2-29: every misconfig must fail BEFORE fit with a
@@ -208,6 +210,7 @@ class TestCompatMatrixValidation:
 # 4. FHC validate_against_models — combined error reporting
 # =====================================================================
 
+
 class TestFhcValidateAgainstModels:
     def test_happy_path_single_model(self):
         fhc = FeatureHandlingConfig(
@@ -221,12 +224,14 @@ class TestFhcValidateAgainstModels:
         fhc = FeatureHandlingConfig(
             per_model={
                 "mlp": ModelHandlingOverride(cat=[CatHandlerSpec(method="native")]),
-                "xgb": ModelHandlingOverride(text=[
-                    TextHandlerSpec(
-                        method="learnable_text_embedding",
-                        params=LearnableEmbeddingParams(),
-                    )
-                ]),
+                "xgb": ModelHandlingOverride(
+                    text=[
+                        TextHandlerSpec(
+                            method="learnable_text_embedding",
+                            params=LearnableEmbeddingParams(),
+                        )
+                    ]
+                ),
             },
         )
         with pytest.raises(ValueError) as excinfo:
@@ -240,6 +245,7 @@ class TestFhcValidateAgainstModels:
 # =====================================================================
 # 5. Auto-derived memory budgets (cgroup-aware)
 # =====================================================================
+
 
 class TestAutoDeriveMemory:
     """Round-3 R2-1 + plan §1.1 + user-confirmed sub-configs nesting.
@@ -262,13 +268,18 @@ class TestAutoDeriveMemory:
         ],
     )
     def test_auto_derive_scales_with_total_ram(
-        self, total_gb, expected_budget, expected_cache, expected_reserve,
+        self,
+        total_gb,
+        expected_budget,
+        expected_cache,
+        expected_reserve,
     ):
-        with mock.patch(
-            "mlframe.training.feature_handling.system.psutil.virtual_memory"
-        ) as mock_vm, mock.patch(
-            "mlframe.training.feature_handling.system._read_cgroup_memory_limit_bytes",
-            return_value=None,
+        with (
+            mock.patch("mlframe.training.feature_handling.system.psutil.virtual_memory") as mock_vm,
+            mock.patch(
+                "mlframe.training.feature_handling.system._read_cgroup_memory_limit_bytes",
+                return_value=None,
+            ),
         ):
             mock_vm.return_value = mock.MagicMock(total=int(total_gb * 1e9))
             fhc = FeatureHandlingConfig()
@@ -279,11 +290,12 @@ class TestAutoDeriveMemory:
     def test_auto_derive_with_cgroup_limit_uses_min(self):
         """Inside a 4 GB container on a 64 GB host, budget derives
         from the cgroup limit, not host RAM."""
-        with mock.patch(
-            "mlframe.training.feature_handling.system.psutil.virtual_memory"
-        ) as mock_vm, mock.patch(
-            "mlframe.training.feature_handling.system._read_cgroup_memory_limit_bytes",
-            return_value=int(4 * 1e9),
+        with (
+            mock.patch("mlframe.training.feature_handling.system.psutil.virtual_memory") as mock_vm,
+            mock.patch(
+                "mlframe.training.feature_handling.system._read_cgroup_memory_limit_bytes",
+                return_value=int(4 * 1e9),
+            ),
         ):
             mock_vm.return_value = mock.MagicMock(total=int(64 * 1e9))
             fhc = FeatureHandlingConfig()
@@ -299,22 +311,24 @@ class TestAutoDeriveMemory:
     def test_invalid_budget_on_tiny_machine_raises(self):
         """1 GB total + keep_free_min=2 -> ram_max + reserve > total
         -> ValueError at construction."""
-        with mock.patch(
-            "mlframe.training.feature_handling.system.psutil.virtual_memory"
-        ) as mock_vm, mock.patch(
-            "mlframe.training.feature_handling.system._read_cgroup_memory_limit_bytes",
-            return_value=None,
+        with (
+            mock.patch("mlframe.training.feature_handling.system.psutil.virtual_memory") as mock_vm,
+            mock.patch(
+                "mlframe.training.feature_handling.system._read_cgroup_memory_limit_bytes",
+                return_value=None,
+            ),
         ):
             mock_vm.return_value = mock.MagicMock(total=int(1 * 1e9))
             with pytest.raises(ValidationError, match="invalid memory budget"):
                 FeatureHandlingConfig()
 
     def test_resolved_property(self):
-        with mock.patch(
-            "mlframe.training.feature_handling.system.psutil.virtual_memory"
-        ) as mock_vm, mock.patch(
-            "mlframe.training.feature_handling.system._read_cgroup_memory_limit_bytes",
-            return_value=None,
+        with (
+            mock.patch("mlframe.training.feature_handling.system.psutil.virtual_memory") as mock_vm,
+            mock.patch(
+                "mlframe.training.feature_handling.system._read_cgroup_memory_limit_bytes",
+                return_value=None,
+            ),
         ):
             mock_vm.return_value = mock.MagicMock(total=int(32 * 1e9))
             fhc = FeatureHandlingConfig()
@@ -334,6 +348,7 @@ class TestAutoDeriveMemory:
 # =====================================================================
 # 6. Sub-config extra="forbid"
 # =====================================================================
+
 
 class TestSubConfigExtraForbid:
     @pytest.mark.parametrize(
@@ -357,14 +372,17 @@ class TestSubConfigExtraForbid:
 # 7. ModelHandlingOverride append/replace semantics
 # =====================================================================
 
+
 class TestEffectiveSpecsAppendReplace:
     def test_replace_replaces_defaults(self):
         fhc = FeatureHandlingConfig(
             default_text=[TextHandlerSpec(method="tfidf", params=TfidfParams())],
             per_model={
-                "cb": ModelHandlingOverride(text=[
-                    TextHandlerSpec(method="native"),
-                ]),
+                "cb": ModelHandlingOverride(
+                    text=[
+                        TextHandlerSpec(method="native"),
+                    ]
+                ),
             },
         )
         # cb uses override (native), not default (tfidf)
@@ -378,9 +396,11 @@ class TestEffectiveSpecsAppendReplace:
         fhc = FeatureHandlingConfig(
             default_text=[TextHandlerSpec(method="tfidf", params=TfidfParams())],
             per_model={
-                "linear": ModelHandlingOverride(text_append=[
-                    TextHandlerSpec(method="hashing", params=HashingParams()),
-                ]),
+                "linear": ModelHandlingOverride(
+                    text_append=[
+                        TextHandlerSpec(method="hashing", params=HashingParams()),
+                    ]
+                ),
             },
         )
         linear_specs = fhc._effective_text_specs("linear")
@@ -403,6 +423,7 @@ class TestEffectiveSpecsAppendReplace:
 # =====================================================================
 # 8. Preset factories
 # =====================================================================
+
 
 class TestPresetFactories:
     def test_tfidf_only(self):
@@ -436,6 +457,7 @@ class TestPresetFactories:
 # 9. apply_to_columns behaviour
 # =====================================================================
 
+
 class TestApplyToColumns:
     def test_apply_to_columns_explicit_list(self):
         s = TextHandlerSpec(
@@ -453,6 +475,7 @@ class TestApplyToColumns:
 # =====================================================================
 # 10. describe() basic shape
 # =====================================================================
+
 
 class TestDescribe:
     def test_describe_short_returns_dict(self):

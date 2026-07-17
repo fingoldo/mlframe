@@ -19,8 +19,8 @@ SEEDS = [0, 1, 2]
 RULES = ["argmax", "one_se_min"]  # both aggressive prune rules; 'one_se_max' is conservative (keeps noise by design)
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _fit_select(Xdf, y, regression=False, rule="argmax", max_iter=25):
     """Fit RFECV with a light estimator and return the list of selected column names."""

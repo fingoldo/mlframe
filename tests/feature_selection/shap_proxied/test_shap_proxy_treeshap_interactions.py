@@ -26,8 +26,7 @@ pytest.importorskip("numba")
 def _fit_xgb(X, y, *, classification, n_estimators=40, max_depth=5, seed=0):
     from xgboost import XGBClassifier, XGBRegressor
 
-    params = dict(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.2,
-                  random_state=seed, tree_method="hist")
+    params = dict(n_estimators=n_estimators, max_depth=max_depth, learning_rate=0.2, random_state=seed, tree_method="hist")
     m = XGBClassifier(**params, eval_metric="logloss") if classification else XGBRegressor(**params)
     m.fit(X, y)
     return m
@@ -56,8 +55,7 @@ def test_interaction_kernel_symmetry_rowsum_parity(classification, max_depth):
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(160, 8)), columns=[f"f{i}" for i in range(8)])
     signal = X["f0"] * X["f1"] + 0.5 * X["f2"] - X["f3"]  # genuine pairwise interaction f0*f1
-    y = (signal + 0.3 * rng.normal(size=160) > 0).astype(int) if classification else \
-        (signal + 0.1 * rng.normal(size=160)).to_numpy()
+    y = (signal + 0.3 * rng.normal(size=160) > 0).astype(int) if classification else (signal + 0.1 * rng.normal(size=160)).to_numpy()
     model = _fit_xgb(X, y, classification=classification, n_estimators=50, max_depth=max_depth)
 
     ens = extract_ensemble(model)
@@ -70,8 +68,8 @@ def test_interaction_kernel_symmetry_rowsum_parity(classification, max_depth):
     # and those match the shap library main-effect values.
     np.testing.assert_allclose(Phi.sum(axis=2), phi, rtol=0, atol=1e-10)
     phi_ref = np.asarray(
-        __import__("shap").TreeExplainer(model, feature_perturbation="tree_path_dependent")
-        .shap_values(X, check_additivity=False), dtype=np.float64)
+        __import__("shap").TreeExplainer(model, feature_perturbation="tree_path_dependent").shap_values(X, check_additivity=False), dtype=np.float64
+    )
     if phi_ref.ndim == 3:
         phi_ref = phi_ref[:, :, -1]
     np.testing.assert_allclose(phi, phi_ref, rtol=1e-4, atol=1e-4)
@@ -100,7 +98,7 @@ def test_interaction_kernel_handles_missing_values():
     Xn.iloc[::5, 3] = np.nan
 
     ens = extract_ensemble(model)
-    Phi, phi, base = interaction_tensor_numba(ens, Xn.values)
+    Phi, _phi, base = interaction_tensor_numba(ens, Xn.values)
     Phi_ref, _ = _shap_interaction_reference(model, Xn)
     np.testing.assert_allclose(Phi, Phi_ref, rtol=1e-4, atol=1e-4)
     margin = model.predict(Xn, output_margin=True)
@@ -117,10 +115,8 @@ def test_compute_interaction_tensor_numba_matches_shap():
     y = ((X["f0"] > 0) ^ (X["f1"] > 0)).astype(int).to_numpy()
     tmpl = make_default_estimator(classification=True, n_estimators=60)
 
-    Phi_n, base_n = compute_interaction_tensor(tmpl, X, y, classification=True,
-                                               rng=np.random.default_rng(0), backend="treeshap_numba")
-    Phi_s, base_s = compute_interaction_tensor(tmpl, X, y, classification=True,
-                                               rng=np.random.default_rng(0), backend="shap")
+    Phi_n, base_n = compute_interaction_tensor(tmpl, X, y, classification=True, rng=np.random.default_rng(0), backend="treeshap_numba")
+    Phi_s, base_s = compute_interaction_tensor(tmpl, X, y, classification=True, rng=np.random.default_rng(0), backend="shap")
     np.testing.assert_allclose(Phi_n, Phi_s, rtol=1e-4, atol=1e-4)
     np.testing.assert_allclose(base_n, base_s, rtol=1e-4, atol=1e-4)
 
@@ -131,8 +127,7 @@ def test_compute_interaction_tensor_routes_to_numba_on_wide_xgb():
     from sklearn.ensemble import RandomForestClassifier
 
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import (
-        _interaction_numba_min_features, _interaction_tensor_numba)
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import _interaction_numba_min_features, _interaction_tensor_numba
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import is_supported_xgboost
 
     rng = np.random.default_rng(4)
@@ -146,7 +141,7 @@ def test_compute_interaction_tensor_routes_to_numba_on_wide_xgb():
     # numba path produces a valid tensor for the supported wide xgboost model.
     out = _interaction_tensor_numba(xgb, X, classification=True)
     assert out is not None
-    Phi, base = out
+    Phi, _base = out
     assert Phi.shape == (120, P, P)
 
     # Unsupported model: numba path returns None (caller falls back to shap).
@@ -166,8 +161,7 @@ def test_biz_val_interaction_kernel_faster_than_shap():
 
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
 
-    X, y, _ = make_regime_dataset(n_samples=1500, n_informative=6, n_noise=44, task="regression",
-                                  interaction_order=2, interaction_strength=0.6, seed=5)
+    X, y, _ = make_regime_dataset(n_samples=1500, n_informative=6, n_noise=44, task="regression", interaction_order=2, interaction_strength=0.6, seed=5)
     model = _fit_xgb(X, y, classification=False, n_estimators=200, max_depth=4)
     ens = extract_ensemble(model)
 
@@ -179,12 +173,11 @@ def test_biz_val_interaction_kernel_faster_than_shap():
     Phi_ref, _ = _shap_interaction_reference(model, X)  # warms shap setup
     t0 = time.perf_counter()
     import shap
+
     ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
     _ = ex.shap_interaction_values(X)
     t_shap = time.perf_counter() - t0
 
     speedup = t_shap / max(t_numba, 1e-9)
     np.testing.assert_allclose(Phi_n, Phi_ref, rtol=1e-4, atol=1e-4)
-    assert speedup >= 1.15, (
-        f"expected >=1.15x speedup on {X.shape[1]} features, got {speedup:.2f}x "
-        f"(numba {t_numba:.3f}s vs shap {t_shap:.3f}s)")
+    assert speedup >= 1.15, f"expected >=1.15x speedup on {X.shape[1]} features, got {speedup:.2f}x (numba {t_numba:.3f}s vs shap {t_shap:.3f}s)"

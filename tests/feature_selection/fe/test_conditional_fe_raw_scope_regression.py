@@ -27,6 +27,7 @@ Two layers of sensor:
   must hand each family only raw columns, so no engineered-source recipe is ever
   built and ``transform`` round-trips cleanly.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -65,7 +66,7 @@ def _replay_all(recipes, appended, X_raw):
         if r.name in appended:
             try:
                 apply_recipe(r, X_raw)
-            except Exception as exc:  # noqa: BLE401
+            except Exception as exc:
                 return r, exc
     return None, None
 
@@ -74,31 +75,41 @@ def _replay_all(recipes, appended, X_raw):
 # GENERATOR layer: pins the bug class (engineered-source recipe -> KeyError).
 # --------------------------------------------------------------------------
 
+
 def test_conditional_residual_recipe_on_engineered_source_keyerrors_on_raw():
     aug, y, raw_cols, eng = _augmented_num_frame(seed=1)
     _, appended, recipes, _ = hybrid_conditional_residual_fe(
-        aug, y, num_cols=None, n_bins=8, top_k=20, max_pair_cols=6, mi_gate=False,
+        aug,
+        y,
+        num_cols=None,
+        n_bins=8,
+        top_k=20,
+        max_pair_cols=6,
+        mi_gate=False,
     )
     assert any(eng in r.src_names for r in recipes if r.name in appended), (
-        "fixture must produce at least one engineered-source recipe to be a "
-        "meaningful sensor for the bug class"
+        "fixture must produce at least one engineered-source recipe to be a meaningful sensor for the bug class"
     )
     X_raw = aug[raw_cols]
-    bad_recipe, exc = _replay_all(recipes, appended, X_raw)
-    assert isinstance(exc, KeyError), (
-        f"expected KeyError replaying engineered-source recipe on raw X; got {exc!r}"
-    )
+    _bad_recipe, exc = _replay_all(recipes, appended, X_raw)
+    assert isinstance(exc, KeyError), f"expected KeyError replaying engineered-source recipe on raw X; got {exc!r}"
     assert eng in str(exc)
 
 
 def test_conditional_dispersion_recipe_on_engineered_source_keyerrors_on_raw():
     aug, y, raw_cols, eng = _augmented_num_frame(seed=2)
     _, appended, recipes, _ = hybrid_conditional_dispersion_fe(
-        aug, y, num_cols=None, n_bins=8, top_k=20, max_pair_cols=6, mi_gate=False,
+        aug,
+        y,
+        num_cols=None,
+        n_bins=8,
+        top_k=20,
+        max_pair_cols=6,
+        mi_gate=False,
     )
     assert any(eng in r.src_names for r in recipes if r.name in appended)
     X_raw = aug[raw_cols]
-    bad_recipe, exc = _replay_all(recipes, appended, X_raw)
+    _bad_recipe, exc = _replay_all(recipes, appended, X_raw)
     assert isinstance(exc, KeyError)
     assert eng in str(exc)
 
@@ -111,11 +122,17 @@ def test_grouped_quantile_recipe_on_engineered_source_keyerrors_on_raw():
     aug = pd.DataFrame({"g": g, "val": rng.normal(size=n), eng: rng.normal(size=n) ** 2})
     y = ((aug["val"] + (g == 2)) > 0.5).astype(int).to_numpy()
     _, appended, recipes, _ = hybrid_grouped_quantile_fe(
-        aug, y, group_cols=None, num_cols=None, top_k=20, min_mi=0.0, min_uplift=-1.0,
+        aug,
+        y,
+        group_cols=None,
+        num_cols=None,
+        top_k=20,
+        min_mi=0.0,
+        min_uplift=-1.0,
     )
     assert any(eng in r.src_names for r in recipes if r.name in appended)
     X_raw = aug[["g", "val"]]
-    bad_recipe, exc = _replay_all(recipes, appended, X_raw)
+    _bad_recipe, exc = _replay_all(recipes, appended, X_raw)
     assert isinstance(exc, KeyError)
     assert eng in str(exc)
 
@@ -124,9 +141,11 @@ def test_grouped_quantile_recipe_on_engineered_source_keyerrors_on_raw():
 # FIT layer: pins the fix -- MRMR.fit must scope each family to RAW columns.
 # --------------------------------------------------------------------------
 
+
 @pytest.fixture
 def _mrmr_cls():
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR
 
 
@@ -139,10 +158,12 @@ def _capture_family_cols(monkeypatch, target_module, func_name, captured):
     orig = getattr(mod, func_name)
 
     def _wrapper(X, y, *args, **kwargs):
-        captured.append({
-            "num_cols": kwargs.get("num_cols"),
-            "group_cols": kwargs.get("group_cols"),
-        })
+        captured.append(
+            {
+                "num_cols": kwargs.get("num_cols"),
+                "group_cols": kwargs.get("group_cols"),
+            }
+        )
         return X.copy(), [], [], pd.DataFrame()
 
     monkeypatch.setattr(mod, func_name, _wrapper)
@@ -229,8 +250,6 @@ def test_fit_grouped_quantile_only_passes_raw_columns(_mrmr_cls, monkeypatch):
     assert captured, "grouped_quantile stage was not exercised"
     for call in captured:
         nc, gc = call["num_cols"], call["group_cols"]
-        assert nc is not None and gc is not None, (
-            "fix must hand explicit RAW num_cols + group_cols, never None"
-        )
+        assert nc is not None and gc is not None, "fix must hand explicit RAW num_cols + group_cols, never None"
         assert set(nc) <= raw_cols, f"engineered source leaked into num_cols: {nc}"
         assert set(gc) <= raw_cols, f"engineered source leaked into group_cols: {gc}"

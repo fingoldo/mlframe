@@ -26,6 +26,7 @@ signal and c is dropped at screening (c's marginal MI is near-zero because
 ``E[sin(d)] ~= 0`` over d in [0, 2*pi]; it only matters jointly with d). The
 formula structure (a**2/b, log(c)*sin(d), f/5 + e as noise) is preserved.
 """
+
 from __future__ import annotations
 
 import os
@@ -117,12 +118,8 @@ def test_canonical_default_finds_both_signal_pairs():
     assert len(eng) >= 1, f"expected >=1 engineered feature, got {eng}"
     # Each signal group covered by an engineered feature (one fused compound or two separate
     # features -- both acceptable; the fused full-target compound is better).
-    assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), (
-        f"no a**2/b coverage (a,b not jointly in any engineered feature): {eng}"
-    )
-    assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), (
-        f"no log(c)*sin(d) coverage (c,d not jointly in any engineered feature): {eng}"
-    )
+    assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), f"no a**2/b coverage (a,b not jointly in any engineered feature): {eng}"
+    assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), f"no log(c)*sin(d) coverage (c,d not jointly in any engineered feature): {eng}"
     # No noise column 'e' may be admitted (raw or as an engineered operand).
     assert not any("e" in _bare_vars(nm) for nm in eng), f"noise 'e' referenced in engineered feature: {eng}"
     assert "e" not in out, f"noise raw 'e' admitted to support: {out}"
@@ -141,9 +138,7 @@ def test_canonical_transform_replays_engineered_columns_leak_safe():
     out_names = list(fs.get_feature_names_out())
     head = df.head(100)
     Xt = np.asarray(fs.transform(head))  # NB: no y passed
-    assert Xt.shape == (100, len(out_names)), (
-        f"transform shape {Xt.shape} != (100, {len(out_names)})"
-    )
+    assert Xt.shape == (100, len(out_names)), f"transform shape {Xt.shape} != (100, {len(out_names)})"
 
     # The mul(log(c),sin(d))-family column, replayed on raw inputs, must be a
     # monotone function of the true log(c)*sin(d) signal (discretized -> compare
@@ -159,9 +154,7 @@ def test_canonical_transform_replays_engineered_columns_leak_safe():
     Xt_full = np.asarray(fs.transform(df))
     direct = np.log(df["c"].values) * np.sin(df["d"].values)
     rho = np.corrcoef(Xt_full[:, cd_idx], direct)[0, 1]
-    assert abs(rho) > 0.5, (
-        f"replayed (c,d) engineered col only |rho|={rho:.3f} vs true log(c)*sin(d)"
-    )
+    assert abs(rho) > 0.5, f"replayed (c,d) engineered col only |rho|={rho:.3f} vs true log(c)*sin(d)"
 
     # EXPLICIT "reaches the consumer AND is non-degenerate" contract: every
     # engineered column the FE step recommended must (1) actually appear as a
@@ -171,17 +164,12 @@ def test_canonical_transform_replays_engineered_columns_leak_safe():
     # feature that either never reached transform() or arrived as a dead
     # constant column; both are caught here.
     eng_idx = [i for i, nm in enumerate(out_names) if nm in eng]
-    assert len(eng_idx) >= 2, (
-        f"engineered features did not reach transform() output: "
-        f"out_names={out_names}, eng={eng}"
-    )
+    assert len(eng_idx) >= 2, f"engineered features did not reach transform() output: out_names={out_names}, eng={eng}"
     for i in eng_idx:
         col = Xt_full[:, i]
         assert np.isfinite(col).all(), f"engineered col {out_names[i]} has non-finite values"
         assert float(np.std(col)) > 1e-9, (
-            f"engineered col {out_names[i]} reached the consumer but is "
-            f"CONSTANT (std={np.std(col):.2e}) - dead feature, not the "
-            f"recommended signal"
+            f"engineered col {out_names[i]} reached the consumer but is CONSTANT (std={np.std(col):.2e}) - dead feature, not the recommended signal"
         )
 
 
@@ -225,12 +213,8 @@ def test_canonical_across_presets(preset):
     assert len(eng) >= 1, f"[{preset}] expected >=1 engineered feature, got {eng}"
     # Each signal group covered by an engineered feature (one fused composite or two
     # separate features -- both acceptable; the fused full-target composite is better).
-    assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), (
-        f"[{preset}] no a**2/b coverage (a,b not jointly in any engineered feature): {eng}"
-    )
-    assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), (
-        f"[{preset}] no log(c)*sin(d) coverage (c,d not jointly in any engineered feature): {eng}"
-    )
+    assert any({"a", "b"} <= _bare_vars(nm) for nm in eng), f"[{preset}] no a**2/b coverage (a,b not jointly in any engineered feature): {eng}"
+    assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), f"[{preset}] no log(c)*sin(d) coverage (c,d not jointly in any engineered feature): {eng}"
 
 
 # ---------------------------------------------------------------------------
@@ -315,10 +299,7 @@ def test_user_case_drops_redundant_raw_operands_at_large_n():
         f"support raw={raw_in_support}; full out={out}"
     )
     # Specifically pin the user-reported operand: raw ``a`` must not appear.
-    assert "a" not in out, (
-        f"raw 'a' spuriously kept despite being subsumed by its a**2/b engineered child "
-        f"(the user-reported BUG1 case): full out={out}"
-    )
+    assert "a" not in out, f"raw 'a' spuriously kept despite being subsumed by its a**2/b engineered child (the user-reported BUG1 case): full out={out}"
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +342,7 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
     post-fix on EVERY seed."""
     import subprocess
     import sys
+
     src = (
         "import numpy as np, pandas as pd\n"
         "from mlframe.feature_selection.filters.mrmr import MRMR\n"
@@ -385,13 +367,18 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
     # Disabling it makes the verdict reproducible regardless of concurrent load (2026-06-15).
     env["PYUTILZ_KERNEL_DISABLE_SWEEP"] = "1"
     proc = subprocess.run(
-        [sys.executable, "-c", src], capture_output=True, text=True, timeout=850, env=env,
+        [sys.executable, "-c", src],
+        capture_output=True,
+        text=True,
+        timeout=850,
+        env=env,
     )
     out_names = None
     for line in proc.stdout.splitlines():
         if line.startswith("RESULT_JSON="):
             import json
-            out_names = json.loads(line[len("RESULT_JSON="):])
+
+            out_names = json.loads(line[len("RESULT_JSON=") :])
     assert out_names is not None, (
         f"[seed={seed} private={private}] subprocess fit did not return a selection "
         f"(rc={proc.returncode}); stderr tail:\n" + "\n".join(proc.stderr.splitlines()[-15:])
@@ -419,8 +406,7 @@ def test_user_case_drops_redundant_raw_a_multi_seed(seed):
     assert any({"c", "d"} <= _bare_vars(nm) for nm in eng), f"[seed={seed}] no log(c)*sin(d) coverage: {eng}"
     # raw ``a`` -- fully subsumed by its a**2/b sub-expression -- must NOT survive.
     assert "a" not in out, (
-        f"[seed={seed}] raw 'a' spuriously kept despite being fully subsumed by its "
-        f"a**2/b sub-expression (nested inside the fused composite): out={out}"
+        f"[seed={seed}] raw 'a' spuriously kept despite being fully subsumed by its a**2/b sub-expression (nested inside the fused composite): out={out}"
     )
 
 
@@ -465,6 +451,7 @@ def test_user_case_rejects_spurious_cross_signal_feature():
     product sub-expression). ``sub(exp(a),invcbrt(c))`` preserves neither -> flagged;
     the additive full-target composite preserves both -> allowed."""
     import re as _re
+
     # The base joint-recovery floor lives in ``_pairs_gates`` but is imported
     # BY VALUE into ``_pairs_score`` at module load (``from ._pairs_gates import
     # _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO``), and the two-tier gate reads that
@@ -495,7 +482,7 @@ def test_user_case_rejects_spurious_cross_signal_feature():
             elif ch == ")":
                 depth -= 1
             elif ch == "," and depth == 0:
-                return inner[:i], inner[i + 1:]
+                return inner[:i], inner[i + 1 :]
         return None
 
     def _has_cross_group_leaf_pair(nm):
@@ -520,10 +507,7 @@ def test_user_case_rejects_spurious_cross_signal_feature():
             return _has_cross_group_leaf_pair(m.group(2))
         l_arg, r_arg = split
         lv, rv = _bare(l_arg), _bare(r_arg)
-        cross = lv and rv and (
-            (lv <= {"a", "b"} and rv <= {"c", "d"})
-            or (lv <= {"c", "d"} and rv <= {"a", "b"})
-        )
+        cross = lv and rv and ((lv <= {"a", "b"} and rv <= {"c", "d"}) or (lv <= {"c", "d"} and rv <= {"a", "b"}))
         if cross and (len(lv) == 1 or len(rv) == 1):
             return True
         # Otherwise recurse into both subtrees -- a legitimate composite's two groups
@@ -577,12 +561,8 @@ def test_fit_does_not_mutate_caller_dataframe():
     shape_before = df.shape
     fs = MRMR(verbose=0)
     fs.fit(df, y)
-    assert list(df.columns) == cols_before, (
-        f"fit mutated caller df columns: {cols_before} -> {list(df.columns)}"
-    )
-    assert df.shape == shape_before, (
-        f"fit mutated caller df shape: {shape_before} -> {df.shape}"
-    )
+    assert list(df.columns) == cols_before, f"fit mutated caller df columns: {cols_before} -> {list(df.columns)}"
+    assert df.shape == shape_before, f"fit mutated caller df shape: {shape_before} -> {df.shape}"
     # And it still actually engineered features (guard against a vacuous pass
     # where FE silently did nothing).
     assert len(_engineered_names(fs)) >= 1, "expected >=1 engineered feature"
@@ -622,7 +602,7 @@ def test_subsumed_ratio_operands_drop_at_small_n(n):
         weakening the load-bearing drop assertion."""
     rng = np.random.default_rng(42)
     a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
-    y = 0.30 * (a ** 2) / b + 0.01 * e
+    y = 0.30 * (a**2) / b + 0.01 * e
     df = pd.DataFrame({"a": a, "b": b, "e": e})
     fs = MRMR(verbose=0, random_seed=42, redundancy_policy="drop")
     fs.fit(df, pd.Series(y, name="y"))
@@ -630,9 +610,7 @@ def test_subsumed_ratio_operands_drop_at_small_n(n):
     # Load-bearing redundancy-drop contract: the SUBSUMED ratio operands a, b MUST
     # drop at every n (the engineered ratio absorbs them).
     subsumed_in = {nm for nm in out if nm in {"a", "b"}}
-    assert subsumed_in == set(), (
-        f"subsumed ratio operand(s) re-admitted at n={n}: {subsumed_in}; out={out}"
-    )
+    assert subsumed_in == set(), f"subsumed ratio operand(s) re-admitted at n={n}: {subsumed_in}; out={out}"
     eng = _engineered_names(fs)
     assert _covers_pair(eng, "a", "b"), f"engineered ratio lost at n={n}: {eng}"
     # Noise exclusion: reliable only where n is large enough to resolve the
@@ -647,7 +625,7 @@ def test_subsumed_operand_drop_opt_out_restores_legacy(n):
     (the operand re-add is NOT pruned) -- the knob is wired and load-bearing."""
     rng = np.random.default_rng(42)
     a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
-    y = 0.30 * (a ** 2) / b + 0.01 * e
+    y = 0.30 * (a**2) / b + 0.01 * e
     df = pd.DataFrame({"a": a, "b": b, "e": e})
     fs = MRMR(verbose=0, random_seed=42, redundancy_policy="drop", fe_drop_redundant_raw_operands=False)
     fs.fit(df, pd.Series(y, name="y"))
@@ -667,16 +645,14 @@ def test_pure_noise_raw_not_re_added_by_retention(n):
     a, c, e = (rng.uniform(0, 1, n) for _ in range(3))
     f = rng.uniform(0, 1, n)  # unobserved
     y = np.log(a + 1.0) * c + 0.40 * f
-    df = pd.DataFrame({"a": a, "c": c, "a_sqr": a ** 2, "c_exp": np.exp(c), "e": e})
+    df = pd.DataFrame({"a": a, "c": c, "a_sqr": a**2, "c_exp": np.exp(c), "e": e})
     fs = MRMR(verbose=0, random_seed=42)
     fs.fit(df, pd.Series(y, name="y"))
     out = list(fs.get_feature_names_out())
     assert "e" not in out, f"pure-noise raw e re-admitted at n={n}: {out}"
     # The genuine a-signal and c-signal are still captured (raw or engineered).
     eng = _engineered_names(fs)
-    assert any(nm in out or _covers_pair(eng, "c", "c") for nm in ("c", "c_exp")) or "c" in out, (
-        f"genuine c-signal lost at n={n}: {out}"
-    )
+    assert any(nm in out or _covers_pair(eng, "c", "c") for nm in ("c", "c_exp")) or "c" in out, f"genuine c-signal lost at n={n}: {out}"
 
 
 def test_genuine_independent_raw_kept_alongside_engineered():
@@ -686,7 +662,7 @@ def test_genuine_independent_raw_kept_alongside_engineered():
     n = 2000
     rng = np.random.default_rng(42)
     a, c, e = (rng.uniform(0, 1, n) for _ in range(3))
-    y = a ** 2 + 0.30 * c
+    y = a**2 + 0.30 * c
     df = pd.DataFrame({"a": a, "a_exp": np.exp(a), "a_log": np.log(a + 1.0), "c": c, "e": e})
     fs = MRMR(verbose=0, random_seed=42)
     fs.fit(df, pd.Series(y, name="y"))
@@ -711,6 +687,7 @@ def test_genuine_independent_raw_kept_alongside_engineered():
 def _bin10(v, nbins=10):
     """Equi-frequency 10-bin codes (the screening-resolution the selector saw)."""
     import numpy as _np
+
     v = _np.asarray(v, dtype=_np.float64)
     edges = _np.quantile(v, _np.linspace(0, 1, nbins + 1)[1:-1])
     return _np.searchsorted(edges, v).astype(_np.int64)
@@ -737,23 +714,33 @@ def test_redundancy_drop_keeps_linear_term_beside_interaction_product():
     relu_b = np.maximum(x_b - 0.5, 0.0)
     cols = ["x_a", "x_b", "mul(x_a,x_b)", "x_a__relu_gt0.5", "x_b__relu_gt-0.5", "y"]
     raw_name_set = {"x_a", "x_b"}
-    data = np.column_stack([
-        _bin10(x_a), _bin10(x_b), _bin10(prod), _bin10(relu_a), _bin10(relu_b), y,
-    ]).astype(np.int64)
+    data = np.column_stack(
+        [
+            _bin10(x_a),
+            _bin10(x_b),
+            _bin10(prod),
+            _bin10(relu_a),
+            _bin10(relu_b),
+            y,
+        ]
+    ).astype(np.int64)
     eng_cont = {
         "mul(x_a,x_b)": prod,
         "x_a__relu_gt0.5": relu_a,
         "x_b__relu_gt-0.5": relu_b,
     }
     kept_idx, dropped = drop_redundant_raw_operands(
-        data=data, cols=cols, selected_cols_idx=[0, 1, 2, 3, 4],
-        raw_name_set=raw_name_set, y_binned=data[:, 5], y_continuous=None,
-        engineered_continuous=eng_cont, seed=42,
+        data=data,
+        cols=cols,
+        selected_cols_idx=[0, 1, 2, 3, 4],
+        raw_name_set=raw_name_set,
+        y_binned=data[:, 5],
+        y_continuous=None,
+        engineered_continuous=eng_cont,
+        seed=42,
     )
     kept_names = {cols[i] for i in kept_idx}
-    assert "x_a" in kept_names and "x_b" in kept_names, (
-        f"genuine linear operands wrongly dropped: kept={kept_names}, dropped={dropped}"
-    )
+    assert "x_a" in kept_names and "x_b" in kept_names, f"genuine linear operands wrongly dropped: kept={kept_names}, dropped={dropped}"
 
 
 def test_redundancy_drop_keeps_signal_raw_paired_with_noise_operand():
@@ -777,15 +764,17 @@ def test_redundancy_drop_keeps_signal_raw_paired_with_noise_operand():
     raw_name_set = {"x0", "x3"}
     data = np.column_stack([_bin10(x0), _bin10(x3), _bin10(child), y]).astype(np.int64)
     kept_idx, dropped = drop_redundant_raw_operands(
-        data=data, cols=cols, selected_cols_idx=[0, 2],
-        raw_name_set=raw_name_set, y_binned=data[:, 3], y_continuous=None,
-        engineered_continuous={"add(exp(x0),sign(x3))": child}, seed=7,
+        data=data,
+        cols=cols,
+        selected_cols_idx=[0, 2],
+        raw_name_set=raw_name_set,
+        y_binned=data[:, 3],
+        y_continuous=None,
+        engineered_continuous={"add(exp(x0),sign(x3))": child},
+        seed=7,
     )
     kept_names = {cols[i] for i in kept_idx}
-    assert "x0" in kept_names, (
-        f"genuine x0 wrongly dropped (paired with noise operand): kept={kept_names}, "
-        f"dropped={dropped}"
-    )
+    assert "x0" in kept_names, f"genuine x0 wrongly dropped (paired with noise operand): kept={kept_names}, dropped={dropped}"
 
 
 def test_redundancy_drop_still_drops_subsumed_ratio_operand_unit():
@@ -808,22 +797,23 @@ def test_redundancy_drop_still_drops_subsumed_ratio_operand_unit():
     a = rng.uniform(0.0, 1.0, n)
     b = rng.uniform(0.0, 1.0, n)
     e = rng.uniform(0.0, 1.0, n)
-    y_cont = 0.30 * (a ** 2) / b + 0.01 * e
+    y_cont = 0.30 * (a**2) / b + 0.01 * e
     y = (y_cont > np.median(y_cont)).astype(np.int64)
     ratio = -a / np.sqrt(b)
     cols = ["a", "b", "div(neg(a),sqrt(b))", "y"]
     raw_name_set = {"a", "b"}
     data = np.column_stack([_bin10(a), _bin10(b), _bin10(ratio), y]).astype(np.int64)
     kept_idx, dropped = drop_redundant_raw_operands(
-        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
-        raw_name_set=raw_name_set, y_binned=data[:, 3],
+        data=data,
+        cols=cols,
+        selected_cols_idx=[0, 1, 2],
+        raw_name_set=raw_name_set,
+        y_binned=data[:, 3],
         y_continuous=y_cont,  # continuous target -> faithful equi-freq anchor
-        engineered_continuous={"div(neg(a),sqrt(b))": ratio}, seed=42,
+        engineered_continuous={"div(neg(a),sqrt(b))": ratio},
+        seed=42,
     )
-    assert "b" in dropped, (
-        f"subsumed ratio denominator operand 'b' was NOT dropped (regression): kept="
-        f"{[cols[i] for i in kept_idx]}, dropped={dropped}"
-    )
+    assert "b" in dropped, f"subsumed ratio denominator operand 'b' was NOT dropped (regression): kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
 
 
 def test_redundancy_drop_drops_dominant_subsumed_operand_unit():
@@ -851,7 +841,7 @@ def test_redundancy_drop_drops_dominant_subsumed_operand_unit():
     rng = np.random.default_rng(11)
     a = rng.uniform(1.0, 5.0, n)
     b = rng.uniform(1.0, 5.0, n)
-    y_cont = (a ** 2) / b
+    y_cont = (a**2) / b
     # Discretise the target equi-frequency (the helper re-bins a continuous target).
     y = _bin10(y_cont)
     ratio = -a / np.sqrt(b)  # (a/sqrt(b))**2 == a**2/b -> fully determines y
@@ -859,14 +849,17 @@ def test_redundancy_drop_drops_dominant_subsumed_operand_unit():
     raw_name_set = {"a", "b"}
     data = np.column_stack([_bin10(a), _bin10(b), _bin10(ratio), y]).astype(np.int64)
     kept_idx, dropped = drop_redundant_raw_operands(
-        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
-        raw_name_set=raw_name_set, y_binned=data[:, 3],
+        data=data,
+        cols=cols,
+        selected_cols_idx=[0, 1, 2],
+        raw_name_set=raw_name_set,
+        y_binned=data[:, 3],
         y_continuous=y_cont,
-        engineered_continuous={"div(neg(a),sqrt(b))": ratio}, seed=11,
+        engineered_continuous={"div(neg(a),sqrt(b))": ratio},
+        seed=11,
     )
     assert "a" in dropped, (
-        f"BUG1: dominant subsumed numerator operand 'a' was NOT dropped (former leg B "
-        f"false-keep): kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
+        f"BUG1: dominant subsumed numerator operand 'a' was NOT dropped (former leg B false-keep): kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
     )
 
 
@@ -901,7 +894,7 @@ def test_redundancy_drop_keeps_raws_when_subsumer_is_unreplayable_nested():
     a = rng.uniform(0.0, 1.0, n)
     b = rng.uniform(0.0, 1.0, n)
     e = rng.uniform(0.0, 1.0, n)
-    y_cont = 0.30 * (a ** 2) / b + 0.01 * e
+    y_cont = 0.30 * (a**2) / b + 0.01 * e
     y = (y_cont > np.median(y_cont)).astype(np.int64)
     ratio = -a / np.sqrt(b)
     # The ONLY engineered survivor is a NESTED composite with no replayable recipe
@@ -912,20 +905,20 @@ def test_redundancy_drop_keeps_raws_when_subsumer_is_unreplayable_nested():
     raw_name_set = {"a", "b"}
     data = np.column_stack([_bin10(a), _bin10(b), _bin10(nested), y]).astype(np.int64)
     kept_idx, dropped = drop_redundant_raw_operands(
-        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
-        raw_name_set=raw_name_set, y_binned=data[:, 3], y_continuous=y_cont,
+        data=data,
+        cols=cols,
+        selected_cols_idx=[0, 1, 2],
+        raw_name_set=raw_name_set,
+        y_binned=data[:, 3],
+        y_continuous=y_cont,
         engineered_continuous={nested_name: nested},
         replayable_eng_names=set(),  # the nested child is NOT replayable
         seed=42,
     )
     assert dropped == [], (
-        f"raw operand(s) dropped against an UN-REPLAYABLE nested subsumer "
-        f"(would empty the support): dropped={dropped}, kept="
-        f"{[cols[i] for i in kept_idx]}"
+        f"raw operand(s) dropped against an UN-REPLAYABLE nested subsumer (would empty the support): dropped={dropped}, kept={[cols[i] for i in kept_idx]}"
     )
-    assert {"a", "b"} <= {cols[i] for i in kept_idx}, (
-        f"raw operands not preserved: kept={[cols[i] for i in kept_idx]}"
-    )
+    assert {"a", "b"} <= {cols[i] for i in kept_idx}, f"raw operands not preserved: kept={[cols[i] for i in kept_idx]}"
 
 
 def test_redundancy_drop_replayable_anchor_still_drops_subsumed():
@@ -942,7 +935,7 @@ def test_redundancy_drop_replayable_anchor_still_drops_subsumed():
     a = rng.uniform(0.0, 1.0, n)
     b = rng.uniform(0.0, 1.0, n)
     e = rng.uniform(0.0, 1.0, n)
-    y_cont = 0.30 * (a ** 2) / b + 0.01 * e
+    y_cont = 0.30 * (a**2) / b + 0.01 * e
     y = (y_cont > np.median(y_cont)).astype(np.int64)
     ratio = -a / np.sqrt(b)
     name = "div(neg(a),sqrt(b))"
@@ -950,16 +943,17 @@ def test_redundancy_drop_replayable_anchor_still_drops_subsumed():
     raw_name_set = {"a", "b"}
     data = np.column_stack([_bin10(a), _bin10(b), _bin10(ratio), y]).astype(np.int64)
     kept_idx, dropped = drop_redundant_raw_operands(
-        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
-        raw_name_set=raw_name_set, y_binned=data[:, 3], y_continuous=y_cont,
+        data=data,
+        cols=cols,
+        selected_cols_idx=[0, 1, 2],
+        raw_name_set=raw_name_set,
+        y_binned=data[:, 3],
+        y_continuous=y_cont,
         engineered_continuous={name: ratio},
         replayable_eng_names={name},  # the ratio IS replayable -> a valid anchor
         seed=42,
     )
-    assert "b" in dropped, (
-        f"subsumed denominator 'b' wrongly kept despite a replayable subsumer: "
-        f"kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
-    )
+    assert "b" in dropped, f"subsumed denominator 'b' wrongly kept despite a replayable subsumer: kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
 
 
 @pytest.mark.timeout(300)
@@ -985,12 +979,8 @@ def test_canonical_fit_never_returns_empty_selection_at_moderate_n():
     union = set()
     for nm in out:
         union |= _bare_vars(nm)
-    assert {"a", "b"} <= union, (
-        f"a**2/b half lost: selected operands {sorted(union)} miss a/b. selected={out}"
-    )
-    assert {"c", "d"} <= union, (
-        f"log(c)*sin(d) half lost: selected operands {sorted(union)} miss c/d. selected={out}"
-    )
+    assert {"a", "b"} <= union, f"a**2/b half lost: selected operands {sorted(union)} miss a/b. selected={out}"
+    assert {"c", "d"} <= union, f"log(c)*sin(d) half lost: selected operands {sorted(union)} miss c/d. selected={out}"
     from sklearn.linear_model import Ridge
     from sklearn.metrics import r2_score
 
@@ -1005,6 +995,4 @@ def test_canonical_fit_never_returns_empty_selection_at_moderate_n():
     )
     # And transform() must actually deliver those columns to the consumer.
     Xt = np.asarray(fs.transform(df.head(64)))
-    assert Xt.shape[1] == len(out) and Xt.shape[1] > 0, (
-        f"transform delivered {Xt.shape[1]} cols, expected {len(out)} (>0)"
-    )
+    assert Xt.shape[1] == len(out) and Xt.shape[1] > 0, f"transform delivered {Xt.shape[1]} cols, expected {len(out)} (>0)"

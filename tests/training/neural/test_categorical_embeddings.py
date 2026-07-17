@@ -3,6 +3,7 @@
 Covers forward-pass shapes (cats embed, numerics pass through, ``out_features`` correct), unseen / overflow code clamping to the reserved row
 without IndexError, and a pickle round-trip preserving the learned embedding weights.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -22,10 +23,12 @@ def test_forward_shape_with_numerics():
     emb.set_num_numeric(5)
     assert emb.out_features == 6 * 2 + 5
     n = 10
-    cat_codes = np.column_stack([
-        np.random.randint(0, 4, size=n),
-        np.random.randint(0, 3, size=n),
-    ]).astype(np.float32)
+    cat_codes = np.column_stack(
+        [
+            np.random.randint(0, 4, size=n),
+            np.random.randint(0, 3, size=n),
+        ]
+    ).astype(np.float32)
     numerics = np.random.randn(n, 5).astype(np.float32)
     x = torch.tensor(np.column_stack([cat_codes, numerics]), dtype=torch.float32)
     out = emb(x)

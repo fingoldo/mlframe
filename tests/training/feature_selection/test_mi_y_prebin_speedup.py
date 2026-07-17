@@ -23,6 +23,7 @@ Test purpose:
    docstring; this gate is the smaller, more forgiving CI-friendly
    variant.
 """
+
 from __future__ import annotations
 
 import time
@@ -40,19 +41,12 @@ def _build_inputs(n: int, k: int, *, seed: int = 0):
     rng = np.random.default_rng(seed)
     x = rng.standard_normal((n, k)).astype(np.float64)
     # y depends on a few features so MI signal is non-trivial.
-    y = (
-        0.7 * x[:, 0]
-        + 0.4 * x[:, 1] ** 2
-        - 0.3 * x[:, 2] * x[:, 3]
-        + rng.standard_normal(n) * 0.5
-    ).astype(np.float64)
+    y = (0.7 * x[:, 0] + 0.4 * x[:, 1] ** 2 - 0.3 * x[:, 2] * x[:, 3] + rng.standard_normal(n) * 0.5).astype(np.float64)
     return x, y
 
 
 def _naive_loop(x: np.ndarray, y: np.ndarray, *, nbins: int) -> np.ndarray:
-    return np.array(
-        [_mi_pair_bin(x[:, j], y, nbins=nbins) for j in range(x.shape[1])]
-    )
+    return np.array([_mi_pair_bin(x[:, j], y, nbins=nbins) for j in range(x.shape[1])])
 
 
 def test_y_fixed_bit_exact_vs_naive_loop() -> None:
@@ -128,7 +122,4 @@ def test_y_fixed_speedup_gate() -> None:
     # Soft gate -- the helper has to materially beat the naive baseline.
     # If a future change accidentally reintroduces per-call y-quantile,
     # the speedup collapses to ~1.0x and this sensor fails.
-    assert speedup >= 1.2, (
-        f"expected >=1.2x speedup; got naive={naive_ms:.1f}ms "
-        f"hoisted={hoisted_ms:.1f}ms speedup={speedup:.2f}x"
-    )
+    assert speedup >= 1.2, f"expected >=1.2x speedup; got naive={naive_ms:.1f}ms hoisted={hoisted_ms:.1f}ms speedup={speedup:.2f}x"

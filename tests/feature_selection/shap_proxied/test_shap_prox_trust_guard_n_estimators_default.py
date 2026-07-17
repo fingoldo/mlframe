@@ -27,8 +27,7 @@ def test_trust_guard_n_estimators_default_is_25():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     sel = ShapProxiedFS()
-    assert sel.trust_guard_n_estimators == 25, (
-        f"trust_guard_n_estimators default drifted from 25 to {sel.trust_guard_n_estimators}")
+    assert sel.trust_guard_n_estimators == 25, f"trust_guard_n_estimators default drifted from 25 to {sel.trust_guard_n_estimators}"
     # sklearn-clone path: the default must round-trip through get_params/set_params untouched.
     assert sel.get_params()["trust_guard_n_estimators"] == 25
 
@@ -49,18 +48,32 @@ def test_biz_val_trust_guard_n_estimators_default_preserves_trust_and_subset():
 
     n_informative, n_redundant, width = 20, 20, 2000
     X, y, _roles = make_regime_dataset(
-        n_samples=2000, n_informative=n_informative, n_redundant=n_redundant,
-        redundancy_rho=0.85, n_noise=width - n_informative - n_redundant, snr=8.0,
-        task="binary", seed=0,
+        n_samples=2000,
+        n_informative=n_informative,
+        n_redundant=n_redundant,
+        redundancy_rho=0.85,
+        n_noise=width - n_informative - n_redundant,
+        snr=8.0,
+        task="binary",
+        seed=0,
     )
 
     def _build(value):
         return ShapProxiedFS(
-            classification=True, metric="brier", optimizer="auto",
-            prefilter_top=300, cluster_features=True,
-            top_n=15, n_splits=3, n_revalidation_models=2, n_anchors=20,
-            trust_guard=True, trust_guard_n_estimators=value,
-            random_state=0, verbose=False, n_jobs=1,
+            classification=True,
+            metric="brier",
+            optimizer="auto",
+            prefilter_top=300,
+            cluster_features=True,
+            top_n=15,
+            n_splits=3,
+            n_revalidation_models=2,
+            n_anchors=20,
+            trust_guard=True,
+            trust_guard_n_estimators=value,
+            random_state=0,
+            verbose=False,
+            n_jobs=1,
         )
 
     sel_default = _build(25)
@@ -68,8 +81,8 @@ def test_biz_val_trust_guard_n_estimators_default_preserves_trust_and_subset():
     sel_default.fit(X, pd.Series(y))
     trust_default = sel_default.shap_proxy_report_.get("trust", {}) or {}
     assert trust_default.get("trustworthy") is True, (
-        f"trust gate tripped at new default (trustworthy={trust_default.get('trustworthy')}, "
-        f"fidelity={trust_default.get('proxy_fidelity_score')})")
+        f"trust gate tripped at new default (trustworthy={trust_default.get('trustworthy')}, fidelity={trust_default.get('proxy_fidelity_score')})"
+    )
 
     sel_full = _build(100)
     sel_full.fit(X, pd.Series(y))
@@ -79,5 +92,5 @@ def test_biz_val_trust_guard_n_estimators_default_preserves_trust_and_subset():
     chosen_default = tuple(sorted(sel_default.selected_features_))
     chosen_full = tuple(sorted(sel_full.selected_features_))
     assert chosen_default == chosen_full, (
-        f"chosen subset diverged between trust_guard_n_estimators=25 (new default) and 100 (control): "
-        f"default={chosen_default} vs full={chosen_full}")
+        f"chosen subset diverged between trust_guard_n_estimators=25 (new default) and 100 (control): default={chosen_default} vs full={chosen_full}"
+    )

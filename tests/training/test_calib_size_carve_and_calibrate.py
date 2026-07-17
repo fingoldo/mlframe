@@ -6,6 +6,7 @@ Covers the three pieces wired in this change:
     improves ECE/Brier vs the uncalibrated base model (biz_value test).
   - ``calib_size`` None/0 leaves the splitter behaviour bit-identical to the legacy 6-tuple path.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,7 +47,12 @@ def _brier(probs_pos: np.ndarray, y: np.ndarray) -> float:
 def test_calib_carve_disjoint_from_test_val_and_train():
     df = pd.DataFrame({"f": np.arange(2000)})
     tr, va, te, _, _, _, calib_idx, _ = make_train_test_split(
-        df, test_size=0.2, val_size=0.1, calib_size=0.1, random_seed=7, return_calib=True,
+        df,
+        test_size=0.2,
+        val_size=0.1,
+        calib_size=0.1,
+        random_seed=7,
+        return_calib=True,
     )
     assert len(calib_idx) > 0
     # Disjoint from every other split (calib rows never used to fit the base model -> carved from train).
@@ -63,7 +69,13 @@ def test_calib_carve_group_aware_no_group_spans_boundary():
     df = pd.DataFrame({"f": np.arange(n)})
     groups = np.repeat(np.arange(n // 5), 5)
     tr, va, te, _, _, _, calib_idx, _ = make_train_test_split(
-        df, test_size=0.2, val_size=0.1, calib_size=0.1, groups=groups, random_seed=11, return_calib=True,
+        df,
+        test_size=0.2,
+        val_size=0.1,
+        calib_size=0.1,
+        groups=groups,
+        random_seed=11,
+        return_calib=True,
     )
     assert len(calib_idx) > 0
     cg = set(groups[calib_idx])
@@ -76,9 +88,15 @@ def test_calib_carve_temporal_takes_oldest_train_rows():
     n = 1000
     df = pd.DataFrame({"f": np.arange(n)})
     ts = pd.Series(pd.date_range("2021-01-01", periods=n, freq="h"))
-    tr, va, te, _, _, _, calib_idx, _ = make_train_test_split(
-        df, test_size=0.2, val_size=0.1, calib_size=0.1, timestamps=ts,
-        wholeday_splitting=False, random_seed=3, return_calib=True,
+    tr, _va, _te, _, _, _, calib_idx, _ = make_train_test_split(
+        df,
+        test_size=0.2,
+        val_size=0.1,
+        calib_size=0.1,
+        timestamps=ts,
+        wholeday_splitting=False,
+        random_seed=3,
+        return_calib=True,
     )
     assert len(calib_idx) > 0
     # Oldest train rows go to calib so the remaining (newer) train stays adjacent to val/test.
@@ -95,8 +113,12 @@ def test_calibrate_namespace_model_raises_on_calib_equals_test():
     base = LogisticRegression().fit(X[:150], y[:150])
     test_probs = base.predict_proba(X[150:])
     entry = SimpleNamespace(
-        model=base, calib_probs=test_probs, calib_target=y[150:],
-        val_probs=test_probs, test_probs=test_probs, test_target=y[150:],
+        model=base,
+        calib_probs=test_probs,
+        calib_target=y[150:],
+        val_probs=test_probs,
+        test_probs=test_probs,
+        test_target=y[150:],
     )
     with pytest.raises(ValueError, match="identical to the model's test_target"):
         calibrate_namespace_model(entry)
@@ -125,7 +147,12 @@ def test_biz_val_calib_size_posthoc_improves_ece_and_brier():
 
     df = pd.DataFrame(X, columns=[f"f{i}" for i in range(4)])
     tr, va, te, _, _, _, calib_idx, _ = make_train_test_split(
-        df, test_size=0.25, val_size=0.1, calib_size=0.15, random_seed=42, return_calib=True,
+        df,
+        test_size=0.25,
+        val_size=0.1,
+        calib_size=0.15,
+        random_seed=42,
+        return_calib=True,
     )
 
     base = LogisticRegression().fit(X[tr], y[tr])
@@ -143,9 +170,12 @@ def test_biz_val_calib_size_posthoc_improves_ece_and_brier():
     brier_before = _brier(test_probs_raw[:, 1], y[te])
 
     entry = SimpleNamespace(
-        model=base, calib_probs=calib_probs, calib_target=y[calib_idx],
+        model=base,
+        calib_probs=calib_probs,
+        calib_target=y[calib_idx],
         val_probs=_squash(base.predict_proba(X[va])[:, 1]),
-        test_probs=test_probs_raw, test_target=y[te],
+        test_probs=test_probs_raw,
+        test_target=y[te],
     )
     applied = calibrate_namespace_model(entry, target_type="BINARY_CLASSIFICATION")
     assert applied is True
@@ -174,7 +204,12 @@ def test_calib_size_zero_leaves_split_unchanged():
 
     # calib_size=0 with return_calib must reproduce the SAME train/val/test indices + empty calib.
     tr, va, te, _, _, _, calib_idx, _ = make_train_test_split(
-        df, test_size=0.2, val_size=0.1, calib_size=0.0, random_seed=99, return_calib=True,
+        df,
+        test_size=0.2,
+        val_size=0.1,
+        calib_size=0.0,
+        random_seed=99,
+        return_calib=True,
     )
     assert len(calib_idx) == 0
     np.testing.assert_array_equal(tr, tr0)
@@ -182,8 +217,13 @@ def test_calib_size_zero_leaves_split_unchanged():
     np.testing.assert_array_equal(te, te0)
 
     # None behaves the same as 0.
-    tr_n, va_n, te_n, _, _, _, calib_n, _ = make_train_test_split(
-        df, test_size=0.2, val_size=0.1, calib_size=None, random_seed=99, return_calib=True,
+    tr_n, _va_n, _te_n, _, _, _, calib_n, _ = make_train_test_split(
+        df,
+        test_size=0.2,
+        val_size=0.1,
+        calib_size=None,
+        random_seed=99,
+        return_calib=True,
     )
     assert len(calib_n) == 0
     np.testing.assert_array_equal(tr_n, tr0)
@@ -224,8 +264,12 @@ def _run_calib_suite(tmp_path, calib_size, seed=17):
     """Run a tiny xgb binary suite with the given calib_size; return (models, metadata)."""
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import (
-        PreprocessingBackendConfig, OutputConfig, TrainingBehaviorConfig,
-        BaselineDiagnosticsConfig, DummyBaselinesConfig, ReportingConfig,
+        PreprocessingBackendConfig,
+        OutputConfig,
+        TrainingBehaviorConfig,
+        BaselineDiagnosticsConfig,
+        DummyBaselinesConfig,
+        ReportingConfig,
     )
     from mlframe.training._preprocessing_configs import TrainingSplitConfig
     from .shared import SimpleFeaturesAndTargetsExtractor
@@ -240,7 +284,10 @@ def _run_calib_suite(tmp_path, calib_size, seed=17):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         pipeline_config=PreprocessingBackendConfig(
-            prefer_polarsds=False, categorical_encoding=None, scaler_name=None, imputer_strategy=None,
+            prefer_polarsds=False,
+            categorical_encoding=None,
+            scaler_name=None,
+            imputer_strategy=None,
         ),
         split_config=TrainingSplitConfig(test_size=0.25, val_size=0.1, calib_size=calib_size, random_seed=seed),
         behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False),

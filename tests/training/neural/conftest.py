@@ -33,7 +33,7 @@ def _reset_torch_lightning_global_state():
     """
     import numpy as np
 
-    rng = np.random.default_rng(42)
+    np.random.default_rng(42)
     # The neural test bodies expect a deterministic global numpy RNG for parts of
     # torch/lightning that still pull from `np.random`. Seed via the default
     # bit-generator path; equivalent to `np.random.seed(42)` but using the
@@ -46,11 +46,13 @@ def _reset_torch_lightning_global_state():
 
     try:
         import lightning
+
         # ``verbose`` kwarg was added in lightning 2.2; older installs (and
         # the pytorch_lightning compat shim) raise TypeError on it. Probe
         # the signature once per call and pass only kwargs the installed
         # version supports.
         import inspect
+
         _kw = {"workers": True}
         try:
             _sig = inspect.signature(lightning.seed_everything)
@@ -64,6 +66,7 @@ def _reset_torch_lightning_global_state():
         # to WARNING so the test log isn't flooded with one redundant info
         # line per case. Restore on the way out.
         import logging as _lg
+
         _seed_logger = _lg.getLogger("lightning.fabric.utilities.seed")
         _seed_prev_level = _seed_logger.level
         _seed_logger.setLevel(_lg.WARNING)

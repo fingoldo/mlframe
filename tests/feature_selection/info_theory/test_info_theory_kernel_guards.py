@@ -16,6 +16,7 @@
   near-deterministic / exactly-independent columns can leave it slightly
   negative, yielding a tiny negative SU treated as a valid low relevance.
 """
+
 from __future__ import annotations
 
 import math
@@ -109,9 +110,7 @@ def test_b7_symmetric_uncertainty_entropy_path_floored():
         y = rng.integers(0, 3, n).astype(np.int64)
         data = np.column_stack([x, y]).astype(np.int32)
         nbins = np.array([3, 3], dtype=np.int64)
-        su = symmetric_uncertainty(
-            data, np.array([0], dtype=np.int64), np.array([1], dtype=np.int64), nbins
-        )
+        su = symmetric_uncertainty(data, np.array([0], dtype=np.int64), np.array([1], dtype=np.int64), nbins)
         assert su >= 0.0, f"symmetric_uncertainty must be >= 0, got {su!r}"
 
 
@@ -203,9 +202,17 @@ def test_b3_batch_noise_gate_accumulator_int64():
     fy = np.bincount(cy, minlength=3).astype(np.float64) / n
 
     kw = dict(
-        disc_2d=disc, factors_nbins=nbins, classes_y=cy, classes_y_safe=cy.copy(),
-        freqs_y=fy, npermutations=0, base_seed=np.uint64(0),
-        min_nonzero_confidence=0.0, use_su=False, dtype=np.int8, classes_dtype=np.int8,
+        disc_2d=disc,
+        factors_nbins=nbins,
+        classes_y=cy,
+        classes_y_safe=cy.copy(),
+        freqs_y=fy,
+        npermutations=0,
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=0.0,
+        use_su=False,
+        dtype=np.int8,
+        classes_dtype=np.int8,
     )
     out_v1 = batch_mi_with_noise_gate(**kw)
     out_v2 = batch_mi_with_noise_gate_v2(**kw)
@@ -231,9 +238,7 @@ def test_b4_pair_cardinality_cap_returns_sentinel():
     n = 50
     hi = 9000
     assert hi * hi > MAX_JOINT_CARDINALITY  # the pair would exceed the cap
-    data = np.column_stack(
-        [rng.integers(0, hi, n), rng.integers(0, hi, n)]
-    ).astype(np.int64)
+    data = np.column_stack([rng.integers(0, hi, n), rng.integers(0, hi, n)]).astype(np.int64)
     nbins = np.array([hi, hi], dtype=np.int64)
     pa = np.array([0], dtype=np.int64)
     pb = np.array([1], dtype=np.int64)
@@ -256,10 +261,8 @@ def test_b4_triple_cardinality_cap_returns_sentinel():
     rng = np.random.default_rng(0)
     n = 50
     hi = 500
-    assert hi ** 3 > MAX_JOINT_CARDINALITY
-    data = np.column_stack(
-        [rng.integers(0, hi, n), rng.integers(0, hi, n), rng.integers(0, hi, n)]
-    ).astype(np.int64)
+    assert hi**3 > MAX_JOINT_CARDINALITY
+    data = np.column_stack([rng.integers(0, hi, n), rng.integers(0, hi, n), rng.integers(0, hi, n)]).astype(np.int64)
     nbins = np.array([hi, hi, hi], dtype=np.int64)
     ta = np.array([0], dtype=np.int64)
     tb = np.array([1], dtype=np.int64)
@@ -284,7 +287,7 @@ def test_b4_under_cap_pair_still_computes_real_mi():
     a = rng.integers(0, 4, n)
     # b correlated with a so the pair carries information about y
     y = (a % 2).astype(np.int64)
-    b = ((a + rng.integers(0, 2, n)) % 4)
+    b = (a + rng.integers(0, 2, n)) % 4
     data = np.column_stack([a, b]).astype(np.int64)
     nbins = np.array([4, 4], dtype=np.int64)
     pa = np.array([0], dtype=np.int64)

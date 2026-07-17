@@ -6,6 +6,7 @@ Per the richness-first policy the default keeps backward-compat (same
 four columns) BUT new methods (year / dayofyear / minute / second /
 is_weekend) become available via the config.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,9 +32,7 @@ def test_feature_types_config_default_keeps_backcompat():
     # New methods should be available as a strict superset; default at
     # least includes the legacy four.
     default = cfg.datetime_methods
-    assert {"day", "weekday", "month", "hour"}.issubset(default), (
-        f"backward-compat broken: default datetime_methods = {default}"
-    )
+    assert {"day", "weekday", "month", "hour"}.issubset(default), f"backward-compat broken: default datetime_methods = {default}"
 
 
 @pytest.mark.parametrize("backend", ["polars", "pandas"])
@@ -70,9 +69,11 @@ def test_create_date_features_emits_year_and_dayofyear_when_requested():
     resulting frame has those columns."""
     from mlframe.feature_engineering.basic import create_date_features
 
-    df = pl.DataFrame({
-        "ts": [pd.Timestamp("2024-03-15"), pd.Timestamp("2025-07-04")],
-    })
+    df = pl.DataFrame(
+        {
+            "ts": [pd.Timestamp("2024-03-15"), pd.Timestamp("2025-07-04")],
+        }
+    )
     methods = {"year": np.int32, "ordinal_day": np.int16}
     out = create_date_features(df, cols=["ts"], delete_original_cols=True, methods=methods)
     cols = set(out.columns)

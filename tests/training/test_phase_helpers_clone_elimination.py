@@ -22,10 +22,9 @@ Fix: replace the gated ``train_df.clone()`` with an unconditional alias on the
 polars-input path. ``_phase_fit_pipeline`` returns ``train_df_polars_pre`` IS
 the same object as the caller's input ``train_df``.
 """
+
 from __future__ import annotations
 
-import logging
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -92,7 +91,9 @@ def test_phase_fit_pipeline_aliases_polars_pre_when_encoding_enabled(monkeypatch
         train_df=train_df,
         val_df=val_df,
         test_df=test_df,
-        mlframe_models=["linear"],  # non-polars-native to keep encoding on (the canonical alias; "lr" silently fell through to TreeModelStrategy + UserWarning, which IS polars-native -- the inverse of what the comment promises)
+        mlframe_models=[
+            "linear"
+        ],  # non-polars-native to keep encoding on (the canonical alias; "lr" silently fell through to TreeModelStrategy + UserWarning, which IS polars-native -- the inverse of what the comment promises)
         pipeline_config=pipeline_config,
         preprocessing_config=preprocessing_config,
         feature_types_config=feature_types_config,

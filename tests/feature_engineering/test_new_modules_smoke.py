@@ -11,6 +11,7 @@
 - bayesian.py           (#9)
 - hurst.py              EXTENDED (#6: + rolling_hurst, rolling_dfa_alpha, rolling_higuchi_fd)
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,6 +21,7 @@ import pytest
 # =============================================================================
 # grouped.py
 # =============================================================================
+
 
 def test_iter_group_segments_basic() -> None:
     from mlframe.feature_engineering import iter_group_segments
@@ -52,8 +54,10 @@ def test_per_group_sliding_window_basic() -> None:
     values = np.arange(10, dtype=np.float64)
     groups = np.array([1, 1, 1, 1, 1, 2, 2, 2, 2, 2])
     out = np.full(10, np.nan)
-    for sort_idx_seg, wins, write_idx in per_group_sliding_window(
-        values, groups, window_K=3,
+    for _sort_idx_seg, wins, write_idx in per_group_sliding_window(
+        values,
+        groups,
+        window_K=3,
     ):
         out[write_idx] = wins.mean(axis=1)
     # group 1 rows 0..4: K=3 windows starting at row 2: mean(0,1,2)=1, mean(1,2,3)=2, mean(2,3,4)=3
@@ -68,6 +72,7 @@ def test_per_group_sliding_window_basic() -> None:
 # =============================================================================
 # windowed_shape.py
 # =============================================================================
+
 
 def test_rolling_mean_abs_d2_zero_on_linear_signal() -> None:
     """Linear signal has zero second-difference -> mean_abs_d2 = 0 everywhere."""
@@ -104,7 +109,10 @@ def test_rolling_integral_above_baseline_positive_on_positive_signal() -> None:
     values = np.array([1.0] * 100)  # all 1.0
     groups = np.zeros(100, dtype=int)
     out = rolling_integral_above_baseline(
-        values, groups, window_K=10, baseline_fn="median",
+        values,
+        groups,
+        window_K=10,
+        baseline_fn="median",
     )
     finite = out[~np.isnan(out)]
     # baseline=median(values)=1.0 -> (values - baseline) clipped at 0 = all zeros
@@ -120,6 +128,7 @@ def test_rolling_integral_above_baseline_positive_on_positive_signal() -> None:
 # =============================================================================
 # spectral.py
 # =============================================================================
+
 
 def test_rolling_spectral_band_energies_three_bands() -> None:
     from mlframe.feature_engineering import rolling_spectral_band_energies
@@ -145,15 +154,9 @@ def test_rolling_spectral_entropy_higher_for_noise_than_sin() -> None:
     rng = np.random.default_rng(0)
     noise = rng.standard_normal(500)
     groups = np.zeros(500, dtype=int)
-    ent_sin = np.nanmean(
-        rolling_spectral_entropy(sin_signal, groups, window_K=64)
-    )
-    ent_noise = np.nanmean(
-        rolling_spectral_entropy(noise, groups, window_K=64)
-    )
-    assert ent_sin < ent_noise, (
-        f"sin entropy={ent_sin:.3f} should be < noise entropy={ent_noise:.3f}"
-    )
+    ent_sin = np.nanmean(rolling_spectral_entropy(sin_signal, groups, window_K=64))
+    ent_noise = np.nanmean(rolling_spectral_entropy(noise, groups, window_K=64))
+    assert ent_sin < ent_noise, f"sin entropy={ent_sin:.3f} should be < noise entropy={ent_noise:.3f}"
 
 
 def test_rolling_hf_lf_ratio_higher_on_high_freq_signal() -> None:
@@ -161,7 +164,7 @@ def test_rolling_hf_lf_ratio_higher_on_high_freq_signal() -> None:
 
     t = np.arange(500, dtype=np.float64)
     low_freq = np.sin(2 * np.pi * t / 100)  # period 100 = LF
-    high_freq = np.sin(2 * np.pi * t / 5)   # period 5 = HF
+    high_freq = np.sin(2 * np.pi * t / 5)  # period 5 = HF
     groups = np.zeros(500, dtype=int)
     r_lo = np.nanmean(rolling_hf_lf_ratio(low_freq, groups, window_K=64))
     r_hi = np.nanmean(rolling_hf_lf_ratio(high_freq, groups, window_K=64))
@@ -171,6 +174,7 @@ def test_rolling_hf_lf_ratio_higher_on_high_freq_signal() -> None:
 # =============================================================================
 # ensemble_features.py
 # =============================================================================
+
 
 def test_predictor_disagreement_iqr_zero_on_identical_predictors() -> None:
     from mlframe.feature_engineering import predictor_disagreement_iqr
@@ -196,11 +200,13 @@ def test_predictor_disagreement_handles_nan() -> None:
     """Single NaN in one predictor should not propagate to all features."""
     from mlframe.feature_engineering import predictor_disagreement_features
 
-    preds = np.array([
-        [1.0, 1.1, 1.2, 1.3],
-        [2.0, np.nan, 2.2, 2.3],
-        [3.0, 3.1, 3.2, 3.3],
-    ])
+    preds = np.array(
+        [
+            [1.0, 1.1, 1.2, 1.3],
+            [2.0, np.nan, 2.2, 2.3],
+            [3.0, 3.1, 3.2, 3.3],
+        ]
+    )
     out = predictor_disagreement_features(preds, emit_pairs=False)
     assert np.isfinite(out["iqr"]).all()
     assert np.isfinite(out["entropy"]).all()
@@ -209,6 +215,7 @@ def test_predictor_disagreement_handles_nan() -> None:
 # =============================================================================
 # spatial.py
 # =============================================================================
+
 
 def test_knn_aggregate_basic() -> None:
     from mlframe.feature_engineering import knn_aggregate
@@ -232,7 +239,12 @@ def test_knn_within_bucket_aggregate_respects_bucket() -> None:
     q = rng.uniform(0, 10, (10, 2))
     q_bucket = (q[:, 0] > 5).astype(int)
     out = knn_within_bucket_aggregate(
-        q, ref, labels, q_bucket=q_bucket, ref_bucket=ref_bucket, k=3,
+        q,
+        ref,
+        labels,
+        q_bucket=q_bucket,
+        ref_bucket=ref_bucket,
+        k=3,
     )
     assert out["median"].shape == (10,)
 
@@ -240,6 +252,7 @@ def test_knn_within_bucket_aggregate_respects_bucket() -> None:
 # =============================================================================
 # stationarity.py
 # =============================================================================
+
 
 def test_frac_diff_weights_decay() -> None:
     """Weights should decay geometrically: |w_k| -> 0 as k grows."""
@@ -282,6 +295,7 @@ def test_frac_diff_per_group_no_bleed() -> None:
 # anchor.py
 # =============================================================================
 
+
 def test_add_anchor_extrapolation_features_basic() -> None:
     from mlframe.feature_engineering import add_anchor_extrapolation_features
 
@@ -322,13 +336,17 @@ def test_anchor_features_per_group_no_bleed() -> None:
 # bayesian.py
 # =============================================================================
 
+
 def test_particle_filter_posterior_tracks_constant() -> None:
     """PF on constant observation should converge to that constant."""
     from mlframe.feature_engineering import particle_filter_posterior
 
     obs = np.full(200, 5.0)
     out = particle_filter_posterior(
-        obs, n_particles=64, transition_sigma=0.1, observation_sigma=0.5,
+        obs,
+        n_particles=64,
+        transition_sigma=0.1,
+        observation_sigma=0.5,
         seed=0,
     )
     # After warmup, p50 should be close to 5.0
@@ -342,6 +360,7 @@ def test_particle_filter_posterior_tracks_constant() -> None:
 # =============================================================================
 # hurst.py (extended)
 # =============================================================================
+
 
 def test_rolling_hurst_finite_on_random_walk() -> None:
     from mlframe.feature_engineering import rolling_hurst
@@ -385,6 +404,7 @@ def test_higuchi_fd_distinguishes_smooth_vs_noise() -> None:
 # bayesian.py per-group recursion: serial / parallel backend equivalence
 # =============================================================================
 
+
 def _grouped_recursion_inputs(n_groups: int, rows_per_group: int, seed: int = 0):
     rng = np.random.default_rng(seed)
     N = n_groups * rows_per_group
@@ -400,8 +420,10 @@ def test_bocpd_serial_parallel_backends_match() -> None:
     """The prange-over-groups parallel driver must be bit-equivalent to the
     serial driver (and both to the numpy fallback) on the same input."""
     import os
+
     pytest.importorskip("numba")
     from mlframe.feature_engineering import bayesian as B
+
     if not B._NUMBA_AVAILABLE:
         pytest.skip("numba unavailable")
     obs, _X, well = _grouped_recursion_inputs(12, 200)
@@ -420,14 +442,15 @@ def test_bocpd_serial_parallel_backends_match() -> None:
     for key in r_serial:
         a, b = r_serial[key], r_parallel[key]
         mask = np.isfinite(a) & np.isfinite(b)
-        np.testing.assert_allclose(a[mask], b[mask], atol=1e-9, rtol=0,
-                                   err_msg=f"bocpd {key} serial != parallel")
+        np.testing.assert_allclose(a[mask], b[mask], atol=1e-9, rtol=0, err_msg=f"bocpd {key} serial != parallel")
 
 
 def test_oblr_serial_parallel_backends_match() -> None:
     import os
+
     pytest.importorskip("numba")
     from mlframe.feature_engineering import bayesian as B
+
     if not B._NUMBA_AVAILABLE:
         pytest.skip("numba unavailable")
     obs, X, well = _grouped_recursion_inputs(12, 200)
@@ -446,8 +469,7 @@ def test_oblr_serial_parallel_backends_match() -> None:
     for key in r_serial:
         a, b = r_serial[key], r_parallel[key]
         mask = np.isfinite(a) & np.isfinite(b)
-        np.testing.assert_allclose(a[mask], b[mask], atol=1e-9, rtol=0,
-                                   err_msg=f"oblr {key} serial != parallel")
+        np.testing.assert_allclose(a[mask], b[mask], atol=1e-9, rtol=0, err_msg=f"oblr {key} serial != parallel")
 
 
 def test_recursion_dispatch_routes_by_kernel_and_size() -> None:
@@ -480,6 +502,7 @@ def test_recursion_dispatch_routes_by_kernel_and_size() -> None:
 # anchor.py: numba cores match the Python list-based fallback
 # =============================================================================
 
+
 def _anchor_test_frame(n_wells: int = 10, rows_per_well: int = 250, seed: int = 0):
     rng = np.random.default_rng(seed)
     N = n_wells * rows_per_well
@@ -495,6 +518,7 @@ def test_anchor_numba_cores_match_python_fallback() -> None:
     reference (positions, residuals, EWM weights, window gaps) exactly."""
     pytest.importorskip("numba")
     from mlframe.feature_engineering import anchor as A
+
     if not A._NUMBA_AVAILABLE:
         pytest.skip("numba unavailable")
     label, is_anchor, well = _anchor_test_frame()
@@ -517,12 +541,16 @@ def test_anchor_numba_cores_match_python_fallback() -> None:
             a, b = out_nb[key], out_py[key]
             # NaN masks must agree, finite values must match.
             np.testing.assert_array_equal(
-                np.isfinite(a), np.isfinite(b),
+                np.isfinite(a),
+                np.isfinite(b),
                 err_msg=f"anchor {key}: NaN positions differ numba vs python",
             )
             mask = np.isfinite(a) & np.isfinite(b)
             np.testing.assert_allclose(
-                a[mask], b[mask], atol=1e-6, rtol=0,
+                a[mask],
+                b[mask],
+                atol=1e-6,
+                rtol=0,
                 err_msg=f"anchor {key}: numba != python",
             )
 
@@ -530,6 +558,7 @@ def test_anchor_numba_cores_match_python_fallback() -> None:
 # =============================================================================
 # grouped.per_group_rank: NaN must stay LOCAL, not poison the whole group
 # =============================================================================
+
 
 def test_per_group_rank_nan_does_not_poison_group() -> None:
     """Regression: scipy.rankdata's default nan_policy='propagate' turns a
@@ -540,8 +569,8 @@ def test_per_group_rank_nan_does_not_poison_group() -> None:
     from mlframe.feature_engineering import per_group_rank
 
     # Two groups; each has one NaN. Finite values must still get real ranks.
-    vals = np.array([3.0, 1.0, np.nan, 2.0,   30.0, np.nan, 10.0, 20.0])
-    grp = np.array([0, 0, 0, 0,   1, 1, 1, 1])
+    vals = np.array([3.0, 1.0, np.nan, 2.0, 30.0, np.nan, 10.0, 20.0])
+    grp = np.array([0, 0, 0, 0, 1, 1, 1, 1])
     pct = per_group_rank(vals, grp, pct=True)
 
     # NaN positions preserved exactly.
@@ -597,12 +626,14 @@ def test_per_group_rank_njit_matches_scipy_all_methods() -> None:
                 got = per_group_rank(vals, gids, method=method, pct=pct, ascending=ascending)
                 ref = _reference(vals, gids, method=method, pct=pct, ascending=ascending)
                 np.testing.assert_array_equal(
-                    np.isnan(got), np.isnan(ref),
+                    np.isnan(got),
+                    np.isnan(ref),
                     err_msg=f"NaN mask diverged ({method}, pct={pct}, asc={ascending})",
                 )
                 m = ~np.isnan(ref)
                 np.testing.assert_array_equal(
-                    got[m], ref[m],
+                    got[m],
+                    ref[m],
                     err_msg=f"ranks diverged ({method}, pct={pct}, asc={ascending})",
                 )
 

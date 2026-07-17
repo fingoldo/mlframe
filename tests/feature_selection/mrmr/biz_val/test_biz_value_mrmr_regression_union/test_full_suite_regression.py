@@ -36,6 +36,7 @@ contract and must be fixed in prod, not masked.
 
 2026-06-01 Layer 101.
 """
+
 from __future__ import annotations
 
 import os
@@ -61,6 +62,7 @@ FIXED_TS = "2026-01-01T00:00:00+00:00"
 # Isolate the on-disk Param-Oracle store so the real ~/.pyutilz store is never
 # touched and the L98/L99/L100 co-existence test starts from an empty store.
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def _isolated_oracle_store(tmp_path, monkeypatch):
@@ -190,6 +192,7 @@ def _make_mega_mrmr(**overrides):
     conservative interactions / no-DCD knobs that keep the fit fast) plus the
     full ``_all_on_kwargs`` FE family set including the two auto knobs."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -258,7 +261,7 @@ class TestPriorLayerRoster:
         mods += sorted(root.glob("test_biz_value_mrmr_*/test_*.py"))
         # Exclude this very module from the prior-layer count.
         prior = [p for p in mods if p.name != Path(__file__).name]
-        assert len(prior) >= 100, f"expected >= 100 prior biz_value test modules, found " f"{len(prior)}: {[p.name for p in prior]}"
+        assert len(prior) >= 100, f"expected >= 100 prior biz_value test modules, found {len(prior)}: {[p.name for p in prior]}"
 
     def test_layer_family_contiguous_through_100(self):
         """The biz_value module roster (flat + themed subpackages) holds at or above its shipped floor."""
@@ -269,7 +272,7 @@ class TestPriorLayerRoster:
         # rename-immune silent-delete guard for the family.
         module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(sorted(root.glob("test_biz_value_mrmr_*/test_*.py")))
         assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110); " f"a prior-layer test module was likely dropped or renamed."
+            f"biz_value test-module roster shrank to {module_count} (floor 110); a prior-layer test module was likely dropped or renamed."
         )
 
 
@@ -288,10 +291,10 @@ class TestMegaFixtureAllOn:
         t0 = time.perf_counter()
         m.fit(X, y)
         dt = time.perf_counter() - t0
-        assert dt < 300.0, f"mega-fixture all-on fit took {dt:.1f}s; budget 300s. A slowdown " f"here is a regression in the auto-knob / FE-compose dispatch."
+        assert dt < 300.0, f"mega-fixture all-on fit took {dt:.1f}s; budget 300s. A slowdown here is a regression in the auto-knob / FE-compose dispatch."
 
         prov = getattr(m, "fe_provenance_", None)
-        assert prov is not None and not prov.empty, "fe_provenance_ frame missing / empty after the all-on fit; the " "L54 provenance wiring regressed."
+        assert prov is not None and not prov.empty, "fe_provenance_ frame missing / empty after the all-on fit; the L54 provenance wiring regressed."
         origins = set(prov["origin"].dropna().unique().tolist())
         engineered = origins - {"raw"}
         assert len(engineered) >= 4, (
@@ -307,7 +310,7 @@ class TestMegaFixtureAllOn:
         prov = m.fe_provenance_
         names = prov["feature_name"].tolist()
         dupes = {n for n in names if names.count(n) > 1}
-        assert not dupes, f"engineered name collisions in fe_provenance_: {dupes}; two FE " f"mechanisms emitted the same column name."
+        assert not dupes, f"engineered name collisions in fe_provenance_: {dupes}; two FE mechanisms emitted the same column name."
         # The transform output column names must (a) be collision-free and
         # (b) each appear in fe_provenance_. fe_provenance_ is a SUPERSET (it
         # lists every engineered candidate, including those pruned by the
@@ -317,7 +320,7 @@ class TestMegaFixtureAllOn:
         out_dupes = {c for c in out_cols if out_cols.count(c) > 1}
         assert not out_dupes, f"transform produced duplicate column names: {out_dupes}"
         missing = [c for c in out_cols if c not in set(names)]
-        assert not missing, f"transform columns absent from fe_provenance_: {missing}; the " f"provenance table must cover every column transform emits."
+        assert not missing, f"transform columns absent from fe_provenance_: {missing}; the provenance table must cover every column transform emits."
 
     def test_cat_pair_autodetect_excludes_engineered_cols(self):
         """Regression: with count/frequency encoding ON and fe_auto enabling
@@ -329,7 +332,11 @@ class TestMegaFixtureAllOn:
         """
         X, y = _build_mega(seed=7, n=3000)
         Xtr, Xte, ytr, _yte = train_test_split(
-            X, y, test_size=0.3, random_state=7, stratify=y,
+            X,
+            y,
+            test_size=0.3,
+            random_state=7,
+            stratify=y,
         )
         m = _make_mega_mrmr(
             fe_cat_pair_enable=True,
@@ -345,7 +352,7 @@ class TestMegaFixtureAllOn:
             if str(getattr(r, "kind", "")) in ("cat_pair_cross", "cat_triple_cross"):
                 src = tuple(getattr(r, "src_names", ()) or ())
                 bad = [c for c in src if c not in raw]
-                assert not bad, f"cat-pair/triple recipe {r.name!r} crosses non-raw column " f"{bad}; auto-detect must restrict members to raw inputs."
+                assert not bad, f"cat-pair/triple recipe {r.name!r} crosses non-raw column {bad}; auto-detect must restrict members to raw inputs."
 
     def test_downstream_auc_recovers_planted_signal(self):
         """Downstream LogReg on the MRMR-selected mega-fixture view must
@@ -396,7 +403,11 @@ class TestMegaFixtureAllOn:
         for s in (1, 7, 42):
             X, y = _build_mega(s, n=3000)
             Xtr, Xte, ytr, yte = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             m = _make_mega_mrmr(random_seed=s).fit(Xtr, ytr)
             aucs.append(_downstream_auc(m, Xtr, Xte, ytr, yte))
@@ -440,10 +451,12 @@ class TestParamOracleCoexistence:
         """L98/L99/L100 each record under a distinct fn_name bucket in the shared on-disk store."""
         from mlframe.utils._param_oracle import ParamOracle, default_fingerprint
         from mlframe.feature_selection.filters._meta_fe_recommender import (
-            MetaFERecommender, recommend_fe_flags_by_rules,
+            MetaFERecommender,
+            recommend_fe_flags_by_rules,
         )
         from mlframe.feature_selection.filters._oracle_scorer_select import (
-            ORACLE_FN_NAME as SCORER_FN, OracleScorerSelector,
+            ORACLE_FN_NAME as SCORER_FN,
+            OracleScorerSelector,
         )
 
         X, y = _build_mega(seed=13, n=2000)
@@ -454,7 +467,11 @@ class TestParamOracleCoexistence:
         # --- L100 scorer selector populates its bucket ---
         sel = OracleScorerSelector(store_path=store_path)
         sel.benchmark_all_scorers(
-            _clean_numeric(X), y, degrees=(2,), basis="hermite", n_boot=3,
+            _clean_numeric(X),
+            y,
+            degrees=(2,),
+            basis="hermite",
+            n_boot=3,
             ts=FIXED_TS,
         )
 
@@ -473,14 +490,15 @@ class TestParamOracleCoexistence:
             maximize="quality",
         )
         gen.record(
-            default_fingerprint((X, y), {}), {"alpha": 0.5},
-            {"quality": 0.7}, ts=FIXED_TS, fn_name=gen_fn,
+            default_fingerprint((X, y), {}),
+            {"alpha": 0.5},
+            {"quality": 0.7},
+            ts=FIXED_TS,
+            fn_name=gen_fn,
         )
 
         # The three fn_name buckets must be distinct.
-        assert len({SCORER_FN, fe_fn, gen_fn}) == 3, (
-            f"Param-Oracle consumers share an fn_name bucket: " f"scorer={SCORER_FN!r}, fe={fe_fn!r}, generic={gen_fn!r}"
-        )
+        assert len({SCORER_FN, fe_fn, gen_fn}) == 3, f"Param-Oracle consumers share an fn_name bucket: scorer={SCORER_FN!r}, fe={fe_fn!r}, generic={gen_fn!r}"
 
         # The shared store holds all three buckets; nothing was overwritten.
         rows = gen.store.read_rows()
@@ -494,13 +512,18 @@ class TestParamOracleCoexistence:
         from mlframe.feature_selection.filters._oracle_scorer_select import (
             OracleScorerSelector,
         )
+
         X, y = _build_mega(seed=1, n=1500)
         store_path = os.path.join(str(tmp_path), "iso.parquet")
 
         # Pollute the store with L100 scorer rows first (same physical file).
         sel = OracleScorerSelector(store_path=store_path)
         sel.benchmark_all_scorers(
-            _clean_numeric(X), y, degrees=(2,), basis="hermite", n_boot=3,
+            _clean_numeric(X),
+            y,
+            degrees=(2,),
+            basis="hermite",
+            n_boot=3,
             ts=FIXED_TS,
         )
 
@@ -517,7 +540,7 @@ class TestParamOracleCoexistence:
             gen.record(fp, {"alpha": 0.9}, {"quality": 0.95}, ts=FIXED_TS, fn_name=gen_fn)
             gen.record(fp, {"alpha": 0.1}, {"quality": 0.20}, ts=FIXED_TS, fn_name=gen_fn)
         rec = gen.recommend(fp, fn_name=gen_fn)
-        assert rec["alpha"] == 0.9, f"generic oracle recommend returned {rec!r}; the L100 scorer rows " f"in the shared store leaked into its bucket."
+        assert rec["alpha"] == 0.9, f"generic oracle recommend returned {rec!r}; the L100 scorer rows in the shared store leaked into its bucket."
 
 
 # ---------------------------------------------------------------------------
@@ -531,11 +554,12 @@ class TestAutoRecommenderSanity:
     def test_recommends_grouped_cat_and_temporal(self):
         """The recommender turns on grouped_agg, a cat encoding, and temporal_agg for their respective column preconditions."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_mega(seed=42, n=3000)
         rep = MRMR.recommend_enabled_fe(X, y)
         enabled = set(rep["recommended_enable"])
 
-        assert "fe_grouped_agg_enable" in enabled, f"int-as-cat group column 'group_id' should trigger grouped_agg; " f"got {enabled}"
+        assert "fe_grouped_agg_enable" in enabled, f"int-as-cat group column 'group_id' should trigger grouped_agg; got {enabled}"
         assert {"fe_count_encoding_enable", "fe_frequency_encoding_enable"} & enabled, f"object cats should trigger cat encodings; got {enabled}"
         assert "fe_temporal_agg_enable" in enabled, f"time col + entity key should trigger temporal; got {enabled}"
         # Static flip-safety taxonomy still surfaced alongside the data-driven
@@ -546,9 +570,10 @@ class TestAutoRecommenderSanity:
     def test_missingness_recommended_for_nan_column(self):
         """The recommender turns on the missingness indicator for the NaN-bearing column."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_mega(seed=7, n=3000)
         rep = MRMR.recommend_enabled_fe(X, y)
-        assert "fe_missingness_indicator_enable" in rep["recommended_enable"], "the ~15% NaN column should trigger the missingness indicator " "recommendation"
+        assert "fe_missingness_indicator_enable" in rep["recommended_enable"], "the ~15% NaN column should trigger the missingness indicator recommendation"
 
 
 if __name__ == "__main__":

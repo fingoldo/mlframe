@@ -1,6 +1,7 @@
 """Wave 106 (2026-05-21): split target_temporal_audit.py (1507 -> 933)
 into 3 siblings: change-point detection, plot, and _audit_from_agg.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,6 +16,7 @@ def test_moved_symbols_still_importable() -> None:
         plot_target_over_time,
         _audit_from_agg,
     )
+
     for fn in (
         find_change_points_pelt,
         find_change_points_zscore,
@@ -34,6 +36,7 @@ def test_other_symbols_still_importable() -> None:
         TimeBin,
         TemporalAuditResult,
     )
+
     assert callable(audit_target_over_time)
     assert callable(audit_targets_over_time)
     assert callable(format_temporal_audit_report)
@@ -50,4 +53,5 @@ def test_facade_below_1k_line_threshold() -> None:
 
 def test_changepoint_module_identity() -> None:
     from mlframe.training.targets import target_temporal_audit, _target_temporal_changepoint
+
     assert target_temporal_audit.find_change_points_pelt is _target_temporal_changepoint.find_change_points_pelt

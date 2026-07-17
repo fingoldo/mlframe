@@ -7,6 +7,7 @@ verdict formatter previously ignored it: when no raw-y trivial baseline was
 mappable it left ``dummy_val`` on the T-scale and printed it next to the
 y-scale model metric -- a scale mismatch the operator reads as a real lift.
 """
+
 from __future__ import annotations
 
 import re
@@ -37,9 +38,7 @@ def test_verdict_uses_yscale_dummy_when_no_raw_map():
     dummy_printed = float(m.group(1))
     # Pre-fix bug: dummy_printed == 1.2 (T-scale), yielding lift 0.0040x and a
     # false MODELS_BARELY_BEAT_TRIVIAL. Post-fix: dummy_printed == 480 (y-scale).
-    assert abs(dummy_printed - 480.0) < 1e-6, (
-        f"dummy_metric printed on the wrong scale: {dummy_printed} (expected 480 y-scale)"
-    )
+    assert abs(dummy_printed - 480.0) < 1e-6, f"dummy_metric printed on the wrong scale: {dummy_printed} (expected 480 y-scale)"
     assert "y-scale inv" in out
     assert "TASK_NON_TRIVIAL_AND_MODELS_HEALTHY" in out
     assert "BEST_MODEL_BELOW_DUMMY" not in out
@@ -60,9 +59,7 @@ def test_verdict_raw_y_map_still_preferred_over_yscale_inv():
     }
     best = {("regression", "y-linres-base"): {"val_RMSE": 300.0, "model_name": "Composite"}}
     cmap = {("regression", "y-linres-base"): "y"}
-    out = format_suite_end_summary(
-        db, best_model_metrics_by_target=best, composite_to_raw_target_map=cmap, min_lift=1.5
-    )
+    out = format_suite_end_summary(db, best_model_metrics_by_target=best, composite_to_raw_target_map=cmap, min_lift=1.5)
     m = re.search(r"val_RMSE=([0-9.]+)\s+Composite", out)
     assert m, f"composite row not found:\n{out}"
     assert abs(float(m.group(1)) - 510.0) < 1e-6, "raw-y trivial dummy must win over y-scale inv"
@@ -100,11 +97,11 @@ def test_composite_without_yscale_model_metric_does_not_fall_through_to_t_scale(
     }
     with caplog.at_level(logging.INFO):
         _run_suite_end_dummy_baselines_summary(
-            models=models, metadata=metadata, dummy_baselines_config=DummyBaselinesConfig(),
+            models=models,
+            metadata=metadata,
+            dummy_baselines_config=DummyBaselinesConfig(),
         )
     text = caplog.text
     assert "TVT-linres-base" in text, f"composite row missing from verdict:\n{text}"
     # Must NOT manufacture a TASK_HEALTHY verdict from the T-scale residual metric.
-    assert "TASK_NON_TRIVIAL_AND_MODELS_HEALTHY" not in text, (
-        f"false TASK_HEALTHY from T-scale fallthrough:\n{text}"
-    )
+    assert "TASK_NON_TRIVIAL_AND_MODELS_HEALTHY" not in text, f"false TASK_HEALTHY from T-scale fallthrough:\n{text}"

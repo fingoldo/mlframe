@@ -9,6 +9,7 @@ Pins:
 The pandas-branch comparison forces a pre-conversion via ``to_pandas`` so both runs see the same underlying data; the dispatcher inside ``_per_group_predict``
 then picks the appropriate branch by input type. This is the same dispatch contract callers depend on.
 """
+
 from __future__ import annotations
 
 import time
@@ -124,5 +125,7 @@ def test_biz_val_per_group_baseline_polars_faster_than_pandas_at_1m_rows():
     pl_med = float(np.median(pl_times))
     pd_med = float(np.median(pd_times))
     speedup = pd_med / pl_med
-    print(f"\n[biz_val] per_group_baseline n=1M: polars={pl_med*1000:.1f}ms pandas={pd_med*1000:.1f}ms speedup={speedup:.2f}x")
-    assert speedup >= 1.7, f"polars-native should be >=1.7x faster than pandas at n=1M; got {speedup:.2f}x (polars={pl_med*1000:.1f}ms pandas={pd_med*1000:.1f}ms)"
+    print(f"\n[biz_val] per_group_baseline n=1M: polars={pl_med * 1000:.1f}ms pandas={pd_med * 1000:.1f}ms speedup={speedup:.2f}x")
+    assert speedup >= 1.7, (
+        f"polars-native should be >=1.7x faster than pandas at n=1M; got {speedup:.2f}x (polars={pl_med * 1000:.1f}ms pandas={pd_med * 1000:.1f}ms)"
+    )

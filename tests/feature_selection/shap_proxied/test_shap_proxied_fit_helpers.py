@@ -22,13 +22,15 @@ def _phi_fixture():
     n = 600
     y = (np.arange(n) % 2).astype(float)
     signal = np.where(y == 1, 1.5, -1.5)
-    phi = np.column_stack([
-        signal + 0.05 * rng.normal(size=n),  # 0: informative
-        signal + 0.05 * rng.normal(size=n),  # 1: informative
-        rng.normal(size=n),                  # 2: noise
-        rng.normal(size=n),                  # 3: noise (injected-pair operand)
-        rng.normal(size=n),                  # 4: noise (injected-pair operand)
-    ]).astype(np.float64)
+    phi = np.column_stack(
+        [
+            signal + 0.05 * rng.normal(size=n),  # 0: informative
+            signal + 0.05 * rng.normal(size=n),  # 1: informative
+            rng.normal(size=n),  # 2: noise
+            rng.normal(size=n),  # 3: noise (injected-pair operand)
+            rng.normal(size=n),  # 4: noise (injected-pair operand)
+        ]
+    ).astype(np.float64)
     base = np.zeros(n, dtype=np.float64)
     return phi, base, y
 
@@ -60,8 +62,7 @@ def test_inject_keeps_real_loss_when_pair_already_present():
     phi, base, y = _phi_fixture()
     # The pair already carries a REAL (good) loss from upstream; injection must not overwrite it.
     merged = {(3, 4): 0.05, (0, 1): 0.1}
-    _inject_operand_pairs(merged, [(0.9, "a", "b")], {"a": 3, "b": 4},
-                          phi=phi, base=base, y_phi=y, classification=True, metric="auc")
+    _inject_operand_pairs(merged, [(0.9, "a", "b")], {"a": 3, "b": 4}, phi=phi, base=base, y_phi=y, classification=True, metric="auc")
     assert merged[(3, 4)] == 0.05
 
 

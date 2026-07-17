@@ -12,6 +12,7 @@ pins that contract two ways:
   2. The returned scalar equals an independent per-group reference (bit-identical
      averaging), incl. tied scores / variable group sizes.
 """
+
 from __future__ import annotations
 
 import numpy as np

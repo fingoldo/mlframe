@@ -48,9 +48,7 @@ def test_reset_session_yields_distinct_session_ids():
     # writer wins and prior captures see WHATEVER token was current at their capture point. We
     # only assert that AT LEAST one distinct id appeared (the alternative -- all four threads
     # somehow caught the exact same id -- would only happen if reset_session was a no-op).
-    assert len(set(seen)) >= 2, (
-        f"reset_session must rotate the session id across concurrent calls; got {seen}"
-    )
+    assert len(set(seen)) >= 2, f"reset_session must rotate the session id across concurrent calls; got {seen}"
 
 
 def test_current_session_returns_same_token_within_session():
@@ -81,9 +79,7 @@ def test_compute_model_input_fingerprint_distinguishes_float32_vs_float64():
     df64 = pd.DataFrame({"x": np.array([1.0, 2.0, 3.0], dtype=np.float64)})
     fp32, _ = compute_model_input_fingerprint(df32, target_name="y", model_family="cb")
     fp64, _ = compute_model_input_fingerprint(df64, target_name="y", model_family="cb")
-    assert fp32 != fp64, (
-        f"fingerprint must distinguish float32 vs float64 schema; got fp32={fp32} fp64={fp64}"
-    )
+    assert fp32 != fp64, f"fingerprint must distinguish float32 vs float64 schema; got fp32={fp32} fp64={fp64}"
 
 
 def test_compute_model_input_fingerprint_stable_across_calls():
@@ -126,6 +122,7 @@ def test_discovery_config_signature_changes_when_catboost_minor_bumps(monkeypatc
             if name == "catboost":
                 return replacement
             return _real_imp(name, *args, **kwargs)
+
         return _fake
 
     monkeypatch.setattr("builtins.__import__", _factory(_FakeCb1))
@@ -156,6 +153,7 @@ def test_discovery_config_signature_changes_when_lightgbm_minor_bumps(monkeypatc
             if name == "lightgbm":
                 return replacement
             return _real_imp(name, *args, **kwargs)
+
         return _fake
 
     monkeypatch.setattr("builtins.__import__", _factory(_FakeLgb1))
@@ -180,19 +178,18 @@ def test_feature_cache_release_invalidates_then_realloc_misses():
     from mlframe.training.feature_handling.config import CacheConfig
 
     cache = FeatureCache(CacheConfig(persistence="off"))
-    base = dict(session_id="s", train_idx_token=1, column="x",
-                params_canonical_hash="p", provider_signature="v")
+    base = dict(session_id="s", train_idx_token=1, column="x", params_canonical_hash="p", provider_signature="v")
     k = InMemoryKey(df_token=99, **base)
     calls = []
-    cache.get_or_compute(k, lambda: (calls.append("compute1") or np.zeros(4, dtype=np.float32)))
+    cache.get_or_compute(k, lambda: calls.append("compute1") or np.zeros(4, dtype=np.float32))
     assert calls == ["compute1"]
     # Same key second time -> cache hit, no recompute.
-    cache.get_or_compute(k, lambda: (calls.append("compute2") or np.zeros(4, dtype=np.float32)))
+    cache.get_or_compute(k, lambda: calls.append("compute2") or np.zeros(4, dtype=np.float32))
     assert calls == ["compute1"]
 
     cache.purge_by_df_token(99)
     # After purge, the SAME df_token must be a miss again.
-    cache.get_or_compute(k, lambda: (calls.append("compute3") or np.zeros(4, dtype=np.float32)))
+    cache.get_or_compute(k, lambda: calls.append("compute3") or np.zeros(4, dtype=np.float32))
     assert calls == ["compute1", "compute3"]
 
 
@@ -214,8 +211,12 @@ def test_feature_cache_ram_max_gb_evicts_oldest_lru_when_over_cap():
 
     def _make_key(i):
         return InMemoryKey(
-            session_id="s", df_token=1, train_idx_token=1, column=f"x{i}",
-            params_canonical_hash="p", provider_signature="v",
+            session_id="s",
+            df_token=1,
+            train_idx_token=1,
+            column=f"x{i}",
+            params_canonical_hash="p",
+            provider_signature="v",
         )
 
     # Each ~250 KB (62500 float32 entries).
@@ -225,8 +226,6 @@ def test_feature_cache_ram_max_gb_evicts_oldest_lru_when_over_cap():
 
     stats = cache.stats()
     # We inserted 8 entries but only ~5 fit under the 1 MB cap -> evictions must have fired.
-    assert stats["evictions"] > 0, (
-        f"RAM-LRU eviction did not fire under ram_max_gb=0.001; stats={stats}"
-    )
+    assert stats["evictions"] > 0, f"RAM-LRU eviction did not fire under ram_max_gb=0.001; stats={stats}"
     # Cache size must end up <= cap (allow some slack for the tail entry).
     assert stats["n_keys"] < 8

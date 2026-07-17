@@ -5,8 +5,6 @@ Each test corresponds to one §8.1 finding. Behavioural only; sub-second under -
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -28,12 +26,15 @@ def test_rfecv_polars_sorted_datetime_triggers_time_series_split():
     n = 80
     rng = np.random.default_rng(0)
     import datetime as _dt
+
     ts = [_dt.datetime(2024, 1, 1) + _dt.timedelta(hours=i) for i in range(n)]
-    df = pl.DataFrame({
-        "ts": pl.Series(ts, dtype=pl.Datetime),
-        "a": rng.standard_normal(n),
-        "b": rng.standard_normal(n),
-    })
+    df = pl.DataFrame(
+        {
+            "ts": pl.Series(ts, dtype=pl.Datetime),
+            "a": rng.standard_normal(n),
+            "b": rng.standard_normal(n),
+        }
+    )
     # The Datetime column must be sorted ascending and null-free for the auto-detect heuristic
     # to engage (see _rfecv.py:530 ff.).
     y = pd.Series(rng.standard_normal(n))
@@ -45,9 +46,7 @@ def test_rfecv_polars_sorted_datetime_triggers_time_series_split():
         pass
     # The auto-detect path stores the resolved splitter on ``cv_`` when triggered.
     if hasattr(rfecv, "cv_") and rfecv.cv_ is not None:
-        assert isinstance(rfecv.cv_, TimeSeriesSplit), (
-            "sorted polars Datetime column should trigger TimeSeriesSplit auto-detection"
-        )
+        assert isinstance(rfecv.cv_, TimeSeriesSplit), "sorted polars Datetime column should trigger TimeSeriesSplit auto-detection"
 
 
 # ---------------------------------------------------------------------------
@@ -68,19 +67,14 @@ def test_mrmr_fit_cache_distinguishes_distinct_y_in_same_process():
     y_b = (X_df["f3"] > 0).astype(int).to_numpy()  # different target -> different signal column
 
     MRMR.clear_fit_cache()
-    a = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1,
-             verbose=0, skip_retraining_on_same_shape=True, random_seed=0)
+    a = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_shape=True, random_seed=0)
     a.fit(X_df, y_a)
     sig_a = a.signature
 
-    b = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1,
-             verbose=0, skip_retraining_on_same_shape=True, random_seed=0)
+    b = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_shape=True, random_seed=0)
     b.fit(X_df, y_b)
     sig_b = b.signature
-    assert sig_a != sig_b, (
-        "MRMR fit-cache must distinguish suites with different y content (shape collision should not"
-        " trigger a cross-suite cache hit)."
-    )
+    assert sig_a != sig_b, "MRMR fit-cache must distinguish suites with different y content (shape collision should not trigger a cross-suite cache hit)."
 
 
 # ---------------------------------------------------------------------------
@@ -97,9 +91,7 @@ def test_mrmr_accepts_factors_names_to_use_via_kwargs():
     cat_features = ["f0", "f2"]
     kwargs = {"factors_names_to_use": cat_features, "verbose": 0, "random_seed": 0}
     mrmr = MRMR(**kwargs)
-    assert mrmr.factors_names_to_use == cat_features, (
-        "factors_names_to_use plumbed through mrmr_kwargs must be retained on the instance"
-    )
+    assert mrmr.factors_names_to_use == cat_features, "factors_names_to_use plumbed through mrmr_kwargs must be retained on the instance"
 
 
 # ---------------------------------------------------------------------------
@@ -145,10 +137,7 @@ def test_mrmr_max_confirmation_cand_nbins_none_vs_50(max_confirmation_cand_nbins
     assert mrmr.support_ is not None
     # At least one feature must survive (min_features_fallback=1 default since 2026-05-16 §1).
     # ``MRMR.support_`` is an int-index array (not a bool mask), so non-empty == ``len(..) >= 1``.
-    assert len(mrmr.support_) >= 1, (
-        f"fitted MRMR must yield non-empty support_ regardless of max_confirmation_cand_nbins; got"
-        f" support_={mrmr.support_}"
-    )
+    assert len(mrmr.support_) >= 1, f"fitted MRMR must yield non-empty support_ regardless of max_confirmation_cand_nbins; got support_={mrmr.support_}"
     # Knob arrived intact on the instance.
     assert mrmr.max_confirmation_cand_nbins == max_confirmation_cand_nbins
 

@@ -7,7 +7,6 @@ We deliberately test the helper directly (not via sys.modules reload) because re
 
 from __future__ import annotations
 
-import pytest
 
 from mlframe.training.feature_handling.fingerprint import _fp_cache_max_default
 

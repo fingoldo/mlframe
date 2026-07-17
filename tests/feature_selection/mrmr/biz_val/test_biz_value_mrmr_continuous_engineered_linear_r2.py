@@ -33,6 +33,7 @@ Two pins
   selection reaches test-R2 >= 0.99 on the user's exact CASE2. Pre-fix this scored
   ~0.002 (the quantized feature is unusable by a linear model); post-fix ~0.9999.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -112,10 +113,7 @@ def test_engineered_unary_binary_transform_is_continuous():
     # (rint / gate_mask) and recover a DIFFERENT term, so it is not held to the a**2/b
     # magnitude contract here. Requiring EVERY pair column to equal a**2/b was wrong for a
     # multi-term target.
-    pear_by_col = {
-        c: abs(float(np.corrcoef(np.asarray(out[c], dtype=np.float64), true_ab)[0, 1]))
-        for c in pair_cols
-    }
+    pear_by_col = {c: abs(float(np.corrcoef(np.asarray(out[c], dtype=np.float64), true_ab)[0, 1])) for c in pair_cols}
     ab_col = max(pear_by_col, key=pear_by_col.get)
     vals = np.asarray(out[ab_col], dtype=np.float64)
     nuniq = int(np.unique(vals).size)
@@ -126,8 +124,7 @@ def test_engineered_unary_binary_transform_is_continuous():
         f"emit the continuous value, not the MI bin code. vals[:5]={vals[:5]}"
     )
     assert np.issubdtype(out[ab_col].to_numpy().dtype, np.floating), (
-        f"a**2/b engineered column {ab_col!r} dtype is {out[ab_col].dtype}; expected a floating "
-        f"continuous feature, not an integer code."
+        f"a**2/b engineered column {ab_col!r} dtype is {out[ab_col].dtype}; expected a floating continuous feature, not an integer code."
     )
     # MAGNITUDE preserved: the continuous a**2/b column correlates ~ +-1 with the true
     # a**2/b. The 10-bin code had |Pearson| ~ 0.03 (rank preserved, magnitude destroyed) --
@@ -135,7 +132,7 @@ def test_engineered_unary_binary_transform_is_continuous():
     assert pear_by_col[ab_col] > 0.95, (
         f"best a**2/b pair column {ab_col!r} has |Pearson|={pear_by_col[ab_col]:.3f} with the "
         f"true a**2/b; a quantized rank code scores ~0.03 here. Magnitude was not preserved. "
-        f"All pair cols: { {c: round(v,3) for c,v in pear_by_col.items()} }"
+        f"All pair cols: { {c: round(v, 3) for c, v in pear_by_col.items()} }"
     )
 
 
@@ -187,16 +184,12 @@ def test_suite_linear_reaches_r2_099_on_case2_via_mrmr():
             mlframe_models=["linear"],
             verbose=0,
             use_mlframe_ensembles=False,
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True, mrmr_kwargs=dict(verbose=0, random_seed=0)
-            ),
+            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=dict(verbose=0, random_seed=0)),
             output_config=OutputConfig(data_dir="", models_dir="", save_charts=False),
             composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False),
             baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
             dummy_baselines_config=DummyBaselinesConfig(enabled=False),
-            reporting_config=ReportingConfig(
-                show_perf_chart=False, show_fi=False, plot_inline_display=False
-            ),
+            reporting_config=ReportingConfig(show_perf_chart=False, show_fi=False, plot_inline_display=False),
         )
 
     target_type_key = next(iter(models))

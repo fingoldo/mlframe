@@ -10,6 +10,7 @@ so skip the expensive fit. Critically it must:
   * still report ``fired`` for the MLP so its weight_decay / output-act
     protections engage even when the hard skip is disabled.
 """
+
 from __future__ import annotations
 
 from mlframe.training.core._phase_train_one_target_mlp_helpers import (
@@ -20,12 +21,14 @@ _NEURAL = ("mlp", "ngb", "lstm", "gru", "rnn", "transformer")
 _SKIP_SET = ("mlp", "ngb", "lstm", "gru", "rnn", "transformer")
 
 
-def _decide(model, target, *, skip_models=_SKIP_SET, enabled=True,
-            lag1=1.0, group_aware=True, threshold=0.99):
+def _decide(model, target, *, skip_models=_SKIP_SET, enabled=True, lag1=1.0, group_aware=True, threshold=0.99):
     return extreme_ar_skip_decision(
-        model, target,
-        skip_models=skip_models, skip_enabled=enabled,
-        lag1_autocorr_per_group=lag1, group_aware=group_aware,
+        model,
+        target,
+        skip_models=skip_models,
+        skip_enabled=enabled,
+        lag1_autocorr_per_group=lag1,
+        group_aware=group_aware,
         threshold=threshold,
     )
 
@@ -40,8 +43,7 @@ def test_raw_target_neural_family_is_skipped() -> None:
 def test_composite_target_never_skipped_for_any_neural() -> None:
     # Composite targets bound the variance -> neural nets MUST train there.
     for m in _NEURAL:
-        for comp in ("TVT-diff-kf_tvt_post_mean", "TVT-linresR-TVT_prev",
-                     "TVT-poly2-TVT_prev", "TVT-addres-TVT_prev"):
+        for comp in ("TVT-diff-kf_tvt_post_mean", "TVT-linresR-TVT_prev", "TVT-poly2-TVT_prev", "TVT-addres-TVT_prev"):
             skip, fired = _decide(m, comp)
             assert skip is False, f"{m} must NOT be skipped on composite {comp}"
             assert fired is False, "AR signal does not apply to composite target"
@@ -49,7 +51,7 @@ def test_composite_target_never_skipped_for_any_neural() -> None:
 
 def test_trees_and_linear_not_skipped() -> None:
     for m in ("cb", "xgb", "lgb", "hgb", "linear", "ridge", "lasso"):
-        skip, fired = _decide(m, "TVT")
+        skip, _fired = _decide(m, "TVT")
         assert skip is False, f"{m} must not be gated by default"
 
 

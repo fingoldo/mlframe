@@ -14,7 +14,7 @@ from mlframe.core.composite_similarity import (
 def _gauss_sim(x, bw=1.0):
     """Gaussian similarity matrix from a 1-D feature."""
     d = x[:, None] - x[None, :]
-    return np.exp(-(d ** 2) / (2 * bw ** 2))
+    return np.exp(-(d**2) / (2 * bw**2))
 
 
 # ---------------------------------------------------------------- unit

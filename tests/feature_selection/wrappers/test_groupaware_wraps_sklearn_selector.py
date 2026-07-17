@@ -8,6 +8,7 @@ RFECV exposes a boolean mask, which iterated as 0/1 -> wrong clusters. The fix
 normalises both conventions, enabling the measured ~3x wall-clock win of running
 the wrapper on medoids instead of every redundant column.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,7 +32,8 @@ def test_wraps_boolean_mask_selector_and_expands_cluster():
 
     g = GroupAwareMRMR(
         RFECV(LogisticRegression(max_iter=500), cv=3, min_features_to_select=1),
-        corr_threshold=0.7, corr_method="pearson",
+        corr_threshold=0.7,
+        corr_method="pearson",
     ).fit(X, y)
 
     names = list(X.columns)
@@ -39,9 +41,6 @@ def test_wraps_boolean_mask_selector_and_expands_cluster():
     # The fix must (a) not crash on the boolean mask and (b) expand the selected
     # medoid back to its whole cluster (all 4 strongly-predictive sig features).
     assert len(g.support_) >= 1
-    assert all(f"sig{i}" in support_names for i in range(4)), (
-        f"signal cluster must be selected and expanded to all members; "
-        f"got {sorted(support_names)}"
-    )
+    assert all(f"sig{i}" in support_names for i in range(4)), f"signal cluster must be selected and expanded to all members; got {sorted(support_names)}"
     # The inner selector saw FEWER columns than the original (medoid reduction).
     assert len(g.cluster_medoid_indices_) < X.shape[1]

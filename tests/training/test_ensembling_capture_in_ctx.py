@@ -7,9 +7,7 @@ local that nothing read. Ensemble models were built then thrown away.
 
 from __future__ import annotations
 
-from unittest.mock import patch
 
-import pytest
 
 
 def test_training_context_has_ensembles_slot():
@@ -48,7 +46,7 @@ def test_score_ensemble_return_assigned_to_ctx_and_models():
     if fake_ensembles:
         ctx.ensembles.setdefault(target_type, {})[cur_target_name] = fake_ensembles
         _target_models = models.setdefault(target_type, {}).setdefault(cur_target_name, [])
-        for _ens_method, _ens_result in fake_ensembles.items():
+        for _ens_result in fake_ensembles.values():
             _target_models.append(_ens_result)
 
     assert target_type in ctx.ensembles
@@ -57,11 +55,7 @@ def test_score_ensemble_return_assigned_to_ctx_and_models():
 
     assert target_type in models
     assert cur_target_name in models[target_type]
-    assert len(models[target_type][cur_target_name]) == 2, (
-        "expected one entry per ensemble method"
-    )
+    assert len(models[target_type][cur_target_name]) == 2, "expected one entry per ensemble method"
     # Identity preserved -- we don't wrap/copy the per-method result.
     for ens_obj in fake_ensembles.values():
         assert ens_obj in models[target_type][cur_target_name]
-
-

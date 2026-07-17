@@ -22,6 +22,7 @@ Pins:
     captured (some engineered feature touching c & d carries materially more MI than raw c / raw d
     alone) -- the gate composite still wins where no clean elementary form matches the warp.
 """
+
 from __future__ import annotations
 
 import re
@@ -36,12 +37,14 @@ N = 30_000  # tractable; the standalone (c,d) form already separates from the co
 
 def _binned(arr):
     from mlframe.feature_selection.filters.discretization import discretize_array
+
     arr = np.nan_to_num(np.asarray(arr, float), nan=0.0, posinf=0.0, neginf=0.0)
     return discretize_array(arr=arr, n_bins=NB, method="quantile", dtype=np.int32)
 
 
 def _mi(xb, yb):
     from mlframe.feature_selection.filters.info_theory import compute_mi_from_classes, merge_vars
+
     fd = np.column_stack([xb, yb]).astype(np.int32)
     fn = np.array([NB, NB], dtype=np.int64)
     cx, fx, _ = merge_vars(fd, (0,), None, fn, dtype=np.int32)
@@ -58,10 +61,15 @@ def _bare(nm):
 def test_case1_clean_elementary_cd_form_recovered_with_gate_on():
     """CASE1: with conditional_gate ON (default) the clean (c,d) elementary form competes and wins."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = N
-    a = rng.random(n); b = rng.random(n); c = rng.random(n)
-    d = rng.random(n); e = rng.random(n); f = rng.random(n)
+    a = rng.random(n)
+    b = rng.random(n)
+    c = rng.random(n)
+    d = rng.random(n)
+    e = rng.random(n)
+    f = rng.random(n)
     y = a**2 / b + f / 5.0 + np.log(c) * np.sin(d)
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
 
@@ -77,10 +85,7 @@ def test_case1_clean_elementary_cd_form_recovered_with_gate_on():
     cd = [i for i, nm in enumerate(names) if "(" in nm and {"c", "d"} <= _bare(nm)]
     assert cd, f"no (c,d) engineered feature found in {names}"
     best = max(_mi(_binned(Xt[:, i]), yb) for i in cd)
-    assert best >= 0.90 * true_mi, (
-        f"clean (c,d) form suppressed with gate ON: best MI={best:.4f} < 0.90*true {true_mi:.4f}; "
-        f"names={names}"
-    )
+    assert best >= 0.90 * true_mi, f"clean (c,d) form suppressed with gate ON: best MI={best:.4f} < 0.90*true {true_mi:.4f}; names={names}"
 
 
 @pytest.mark.slow
@@ -89,10 +94,15 @@ def test_case2_warped_cd_interaction_still_captured_with_gate_on():
     """CASE2: the gate genuinely helps -- the warped (c,d) interaction is captured (via the gate)
     and carries materially more MI than either raw operand alone."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(0)
     n = N
-    a = rng.random(n); b = rng.random(n); c = rng.random(n)
-    d = rng.random(n); e = rng.random(n); f = rng.random(n)
+    a = rng.random(n)
+    b = rng.random(n)
+    c = rng.random(n)
+    d = rng.random(n)
+    e = rng.random(n)
+    f = rng.random(n)
     y = 0.2 * a**2 / b + f / 5.0 + np.log(c * 2) * np.sin(d / 3)
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
 
@@ -105,13 +115,7 @@ def test_case2_warped_cd_interaction_still_captured_with_gate_on():
     Xt = np.asarray(fs.transform(df))
     # Any engineered feature that references BOTH c and d -- including via a gate_mask__c__d
     # column (whose c/d are buried in the name, so match the substring, not just bare tokens).
-    cd = [
-        i for i, nm in enumerate(names)
-        if ("c" in nm and "d" in nm) and ("(" in nm or "gate_mask" in nm or "argmax" in nm)
-    ]
+    cd = [i for i, nm in enumerate(names) if ("c" in nm and "d" in nm) and ("(" in nm or "gate_mask" in nm or "argmax" in nm)]
     assert cd, f"the (c,d) interaction was NOT captured with gate ON: {names}"
     best = max(_mi(_binned(Xt[:, i]), yb) for i in cd)
-    assert best > raw_floor + 0.02, (
-        f"captured (c,d) feature MI={best:.4f} does not beat the raw operand floor {raw_floor:.4f}; "
-        f"names={names}"
-    )
+    assert best > raw_floor + 0.02, f"captured (c,d) feature MI={best:.4f} does not beat the raw operand floor {raw_floor:.4f}; names={names}"

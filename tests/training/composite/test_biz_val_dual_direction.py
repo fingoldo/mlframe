@@ -7,6 +7,7 @@ its inputs), so it is systematically biased; the dual-direction estimator factor
 sub-problems (predict ``scale`` from ``x2`` directly; predict the ratio-transformed shape from ``x1``), each of
 which Ridge CAN represent, recovering the product cleanly.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -44,7 +45,9 @@ def test_biz_val_dual_direction_beats_single_linear_model_on_multiplicative_targ
     dual.fit(df_train, y_train, scale_train)
     rmse_dual = float(mean_squared_error(y_test, dual.predict(df_test)) ** 0.5)
 
-    assert rmse_dual < rmse_baseline * 0.5, f"expected the dual-direction estimator to cut RMSE by >=50% vs a single linear model on the multiplicative target, got dual={rmse_dual:.4f} baseline={rmse_baseline:.4f}"
+    assert rmse_dual < rmse_baseline * 0.5, (
+        f"expected the dual-direction estimator to cut RMSE by >=50% vs a single linear model on the multiplicative target, got dual={rmse_dual:.4f} baseline={rmse_baseline:.4f}"
+    )
 
 
 def test_dual_direction_predict_scale_returns_reasonable_scale_estimate():
@@ -84,9 +87,15 @@ def test_biz_val_dual_direction_oof_scale_score_diagnoses_weak_vs_strong_scale_r
         dual_noisy = DualDirectionCompositeEstimator(scale_estimator=Ridge(), shape_estimator=Ridge(), n_splits=5, random_state=0)
         dual_noisy.fit(df_noisy, y_noisy, scale_noisy)
 
-        assert dual_clean.oof_scale_score_ > 0.99, f"seed={seed}: expected the clean scale relationship's OOF R^2 to read near-perfect, got {dual_clean.oof_scale_score_:.4f}"
-        assert dual_noisy.oof_scale_score_ < 0.05, f"seed={seed}: expected the noise-drowned scale relationship's OOF R^2 to read low/negative, got {dual_noisy.oof_scale_score_:.4f}"
-        assert dual_clean.oof_scale_score_ - dual_noisy.oof_scale_score_ > 0.9, f"seed={seed}: expected oof_scale_score_ to clearly separate the two variants, got clean={dual_clean.oof_scale_score_:.4f} noisy={dual_noisy.oof_scale_score_:.4f}"
+        assert dual_clean.oof_scale_score_ > 0.99, (
+            f"seed={seed}: expected the clean scale relationship's OOF R^2 to read near-perfect, got {dual_clean.oof_scale_score_:.4f}"
+        )
+        assert dual_noisy.oof_scale_score_ < 0.05, (
+            f"seed={seed}: expected the noise-drowned scale relationship's OOF R^2 to read low/negative, got {dual_noisy.oof_scale_score_:.4f}"
+        )
+        assert dual_clean.oof_scale_score_ - dual_noisy.oof_scale_score_ > 0.9, (
+            f"seed={seed}: expected oof_scale_score_ to clearly separate the two variants, got clean={dual_clean.oof_scale_score_:.4f} noisy={dual_noisy.oof_scale_score_:.4f}"
+        )
 
         # oof_scale_predictions_ / shape_transform_target_ are aligned to the training row order and finite
         # wherever the scale prediction is positive (guaranteed here since true scale is always > 0).

@@ -11,6 +11,7 @@ Behaviour preserved bit-for-bit:
     pl.String / pl.Utf8 / LargeString columns
   - Models from other families (HGB / linear / CB) pass through untouched
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,6 +21,7 @@ import pytest
 
 def test_helper_is_module_level_callable() -> None:
     from mlframe.training.core.predict import _coerce_cat_dtype_for_lgb_xgb
+
     assert callable(_coerce_cat_dtype_for_lgb_xgb)
 
 
@@ -28,6 +30,7 @@ def test_passthrough_when_no_cat_features() -> None:
 
     class _FakeLGB:
         pass
+
     _FakeLGB.__module__ = "lightgbm.sklearn"
 
     df = pd.DataFrame({"x": [1.0, 2.0], "c": ["a", "b"]})
@@ -41,6 +44,7 @@ def test_passthrough_for_non_lgb_xgb_model() -> None:
 
     class _HGB:
         pass
+
     _HGB.__module__ = "sklearn.ensemble._hist_gradient_boosting.gradient_boosting"
 
     df = pd.DataFrame({"x": [1.0, 2.0], "c": ["a", "b"]})
@@ -54,6 +58,7 @@ def test_lgb_pandas_path_casts_to_category() -> None:
 
     class _LGB:
         pass
+
     _LGB.__module__ = "lightgbm.sklearn"
     _LGB.__name__ = "LGBMClassifier"
 
@@ -69,6 +74,7 @@ def test_xgb_pandas_path_casts_to_category() -> None:
 
     class _XGB:
         pass
+
     _XGB.__module__ = "xgboost.sklearn"
     _XGB.__name__ = "XGBClassifier"
 
@@ -83,6 +89,7 @@ def test_xgb_polars_path_casts_to_pl_categorical() -> None:
 
     class _XGB:
         pass
+
     _XGB.__module__ = "xgboost.sklearn"
     _XGB.__name__ = "XGBClassifier"
 
@@ -98,13 +105,16 @@ def test_already_categorical_column_not_recast() -> None:
 
     class _LGB:
         pass
+
     _LGB.__module__ = "lightgbm.sklearn"
     _LGB.__name__ = "LGBMRegressor"
 
-    df = pd.DataFrame({
-        "x": [1.0, 2.0],
-        "c": pd.Categorical(["a", "b"]),
-    })
+    df = pd.DataFrame(
+        {
+            "x": [1.0, 2.0],
+            "c": pd.Categorical(["a", "b"]),
+        }
+    )
     out = _coerce_cat_dtype_for_lgb_xgb(df, model=_LGB(), cat_features=["c"])
     # No cast needed -> the helper returns df unchanged (the assign(**{}) branch is empty).
     assert out["c"].dtype.name == "category"

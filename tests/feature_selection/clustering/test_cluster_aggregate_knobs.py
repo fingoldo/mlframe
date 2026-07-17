@@ -18,6 +18,7 @@ x2=0.215, x3=0.190, x4=0.148, x5=0.103; homogeneous cluster PC1 var-ratio 0.671;
 heterogeneous cluster var-ratio 0.491 (so tau=0.99 rejects, tau=0.0 appends). All floors here are exact
 structural facts (membership / lengths / counts), not noisy magnitudes, so they need no margin.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -56,8 +57,13 @@ def _build(n: int = 4000, seed: int = 42, nb: int = _NB, **mlr):
     and ``cols`` the column names with the target appended last.
     """
     X_arr, y, info = make_latent_reflections(
-        n=n, loadings=_LOADINGS, noise_sd=_NOISE_SD, n_noise=_N_NOISE,
-        indep_weight=0.4, seed=seed, **mlr,
+        n=n,
+        loadings=_LOADINGS,
+        noise_sd=_NOISE_SD,
+        n_noise=_N_NOISE,
+        indep_weight=0.4,
+        seed=seed,
+        **mlr,
     )
     p = X_arr.shape[1]
     names = [f"x{i}" for i in range(p)]
@@ -66,15 +72,28 @@ def _build(n: int = 4000, seed: int = 42, nb: int = _NB, **mlr):
     binned.append(y.astype(np.int32))
     data = np.column_stack(binned).astype(np.int32)
     nbins = np.array([nb] * p + [2], dtype=np.int64)
-    return X, y, info, data, names + ["y"], nbins, (p,), nb
+    return X, y, info, data, [*names, "y"], nbins, (p,), nb
 
 
 def _discover(data, cols, nbins, X, target_indices, **over):
     kw = dict(
-        data=data, cols=cols, nbins=nbins, X=X, target_indices=target_indices,
-        feature_names_in_=[c for c in cols if c != "y"], categorical_idx=(), cached_MIs={},
-        min_member_relevance=0.0, corr_threshold=0.5, min_cluster_size=3, max_cluster_size=12,
-        homogeneity_tau=0.6, max_candidates=200, mi_eps=1e-6, edge_significance=3.0, dtype=np.int32,
+        data=data,
+        cols=cols,
+        nbins=nbins,
+        X=X,
+        target_indices=target_indices,
+        feature_names_in_=[c for c in cols if c != "y"],
+        categorical_idx=(),
+        cached_MIs={},
+        min_member_relevance=0.0,
+        corr_threshold=0.5,
+        min_cluster_size=3,
+        max_cluster_size=12,
+        homogeneity_tau=0.6,
+        max_candidates=200,
+        mi_eps=1e-6,
+        edge_significance=3.0,
+        dtype=np.int32,
     )
     kw.update(over)
     return _discover_clusters(**kw)
@@ -83,11 +102,23 @@ def _discover(data, cols, nbins, X, target_indices, **over):
 def _run(data, cols, nbins, X, target_indices, nb, methods=("mean_z", "pca_pc1", "mean_inv_var"), **over):
     """Drive ``run_cluster_aggregate_step``; return ``(n_added, summary, engineered_recipes)``."""
     kw = dict(
-        data=data.copy(), cols=list(cols), nbins=nbins.copy(), X=X, target_indices=target_indices,
-        feature_names_in_=[c for c in cols if c != "y"], categorical_idx=(), cached_MIs={},
-        engineered_recipes={}, quantization_nbins=nb, quantization_method="quantile",
-        quantization_dtype=np.int32, methods=methods, mi_prevalence=1.0, corr_threshold=0.5,
-        min_cluster_size=3, verbose=0,
+        data=data.copy(),
+        cols=list(cols),
+        nbins=nbins.copy(),
+        X=X,
+        target_indices=target_indices,
+        feature_names_in_=[c for c in cols if c != "y"],
+        categorical_idx=(),
+        cached_MIs={},
+        engineered_recipes={},
+        quantization_nbins=nb,
+        quantization_method="quantile",
+        quantization_dtype=np.int32,
+        methods=methods,
+        mi_prevalence=1.0,
+        corr_threshold=0.5,
+        min_cluster_size=3,
+        verbose=0,
     )
     kw.update(over)
     recipes = kw["engineered_recipes"]
@@ -109,7 +140,7 @@ def _member_names(clusters, cols):
 def test_fixture_discovers_single_latent_cluster():
     """The 6 graded reflections collapse to ONE cluster; the independent signal + 4 noise cols stay out.
     This pins the baseline every knob test perturbs from."""
-    X, y, info, data, cols, nbins, ti, nb = _build()
+    X, _y, _info, data, cols, nbins, ti, _nb = _build()
     clusters = _discover(data, cols, nbins, X, ti)
     assert len(clusters) == 1, f"one latent factor must give one cluster; got {_member_names(clusters, cols)}"
     members = set(cols[m] for m in clusters[0]["members"])
@@ -129,7 +160,7 @@ def test_each_method_yields_finite_aggregate_recipe(method):
     auto-enrolls. Each method, used as the SOLE method with the gate disabled (``mi_prevalence=0`` so the
     accept/reject decision can't mask a NaN recipe), must append exactly one aggregate whose replayed
     column is entirely finite (no NaN/inf) and carries the requested method tag."""
-    X, y, info, data, cols, nbins, ti, nb = _build()
+    X, _y, _info, data, cols, nbins, ti, nb = _build()
     n_added, summary, recipes = _run(data, cols, nbins, X, ti, nb, methods=(method,), mi_prevalence=0.0)
     assert n_added == 1, f"method {method} should append one aggregate on a clean cluster"
     assert len(recipes) == 1
@@ -152,7 +183,7 @@ def test_max_cluster_size_truncates_to_representative_plus_top_corr():
     member, x0) + the top-|corr|-to-rep members (NOT the top-relevance ones -- the source rule at
     _cluster_aggregate.py:360-364). The recipe ``src_names`` therefore has length 3, includes the rep,
     and is a subset of the full reflection set."""
-    X, y, info, data, cols, nbins, ti, nb = _build()
+    X, _y, _info, data, cols, nbins, ti, nb = _build()
     full = _discover(data, cols, nbins, X, ti)
     assert len(full[0]["members"]) == 6  # untruncated baseline
 
@@ -165,7 +196,7 @@ def test_max_cluster_size_truncates_to_representative_plus_top_corr():
     assert set(members) <= {"x0", "x1", "x2", "x3", "x4", "x5"}
 
     # The recipe ``src_names`` mirrors the truncated membership.
-    n_added, summary, recipes = _run(data, cols, nbins, X, ti, nb, methods=("mean_z",), max_cluster_size=3)
+    n_added, _summary, recipes = _run(data, cols, nbins, X, ti, nb, methods=("mean_z",), max_cluster_size=3)
     assert n_added == 1
     recipe = next(iter(recipes.values()))
     assert len(recipe.src_names) <= 3
@@ -182,7 +213,7 @@ def test_min_member_relevance_drops_weakest_member():
     """The weakest reflection x5 has marginal relevance ~0.103 (measured). A ``min_member_relevance``
     floor set above it (0.12) but below the next member x4 (~0.148) removes x5 from the discovered
     cluster -- and from the built recipe's ``src_names`` -- while keeping x0..x4."""
-    X, y, info, data, cols, nbins, ti, nb = _build()
+    X, _y, _info, data, cols, nbins, ti, nb = _build()
 
     clusters = _discover(data, cols, nbins, X, ti, min_member_relevance=0.12)
     assert len(clusters) == 1
@@ -190,7 +221,7 @@ def test_min_member_relevance_drops_weakest_member():
     assert "x5" not in members, f"x5 (rel~0.103) must be filtered by floor 0.12; got {sorted(members)}"
     assert {"x0", "x1", "x2", "x3", "x4"} <= members
 
-    n_added, summary, recipes = _run(data, cols, nbins, X, ti, nb, methods=("mean_z",), min_member_relevance=0.12)
+    n_added, _summary, recipes = _run(data, cols, nbins, X, ti, nb, methods=("mean_z",), min_member_relevance=0.12)
     assert n_added == 1
     recipe = next(iter(recipes.values()))
     assert "x5" not in recipe.src_names, recipe.src_names
@@ -207,7 +238,7 @@ def test_homogeneity_tau_gate_direction_on_heterogeneous_cluster():
     PC1 variance-ratio drops to ~0.49 (measured). The unidimensionality gate is then DIRECTIONAL: a
     strict ``homogeneity_tau=0.99`` rejects it (no aggregate appended), while a permissive ``tau=0.0``
     accepts and appends. Pins both directions so the gate sense can't silently invert."""
-    Xh, yh, infoh, datah, colsh, nbinsh, tih, nbh = _build(distinct_sd=0.9, seed=11)
+    Xh, _yh, _infoh, datah, colsh, nbinsh, tih, nbh = _build(distinct_sd=0.9, seed=11)
 
     strict = _discover(datah, colsh, nbinsh, Xh, tih, homogeneity_tau=0.99)
     permissive = _discover(datah, colsh, nbinsh, Xh, tih, homogeneity_tau=0.0)
@@ -229,12 +260,12 @@ def test_max_candidates_pool_starvation_no_crash():
     """``max_candidates=2`` caps the candidate pool at 2 members, below ``min_cluster_size=3`` -> the
     discoverer returns at most one cluster (here zero) WITHOUT raising, and the orchestration step
     appends nothing. Guards the pool-cap edge against an index/empty-pool crash."""
-    X, y, info, data, cols, nbins, ti, nb = _build()
+    X, _y, _info, data, cols, nbins, ti, nb = _build()
 
     clusters = _discover(data, cols, nbins, X, ti, max_candidates=2)
     assert len(clusters) <= 1, f"a 2-member pool cannot form a >=3-member cluster; got {_member_names(clusters, cols)}"
 
-    n_added, summary, recipes = _run(data, cols, nbins, X, ti, nb, max_candidates=2)
+    n_added, _summary, recipes = _run(data, cols, nbins, X, ti, nb, max_candidates=2)
     assert n_added == 0 and not recipes
 
 
@@ -255,7 +286,7 @@ def test_edge_threshold_sweep_prunes_then_recovers(knob):
     EITHER term to a huge value (1e9) lifts the floor above every real reflection-pair MI, so no edges
     survive and zero clusters form; the permissive defaults recover the single latent cluster. Pins the
     monotone pruning direction of both edge-test knobs."""
-    X, y, info, data, cols, nbins, ti, nb = _build()
+    X, _y, _info, data, cols, nbins, ti, _nb = _build()
 
     strict = _discover(data, cols, nbins, X, ti, **{knob: 1e9})
     permissive = _discover(data, cols, nbins, X, ti, edge_significance=3.0, mi_eps=1e-6)
@@ -274,11 +305,11 @@ def test_is_polars_input_parity_with_pandas():
     method and ``src_names`` equal the pandas run, with weights allclose. ``pca_pc1`` is forced as the
     sole method so the recipe deterministically carries a linear weight vector to compare."""
     pl = pytest.importorskip("polars")
-    X, y, info, data, cols, nbins, ti, nb = _build()
+    X, _y, _info, data, cols, nbins, ti, nb = _build()
     Xpl = pl.from_pandas(X)
 
-    n_pd, sum_pd, rec_pd = _run(data, cols, nbins, X, ti, nb, methods=("pca_pc1",))
-    n_pl, sum_pl, rec_pl = _run(data, cols, nbins, Xpl, ti, nb, methods=("pca_pc1",), is_polars_input=True)
+    n_pd, _sum_pd, rec_pd = _run(data, cols, nbins, X, ti, nb, methods=("pca_pc1",))
+    n_pl, _sum_pl, rec_pl = _run(data, cols, nbins, Xpl, ti, nb, methods=("pca_pc1",), is_polars_input=True)
 
     assert n_pd == 1 and n_pl == 1
     r_pd = next(iter(rec_pd.values()))

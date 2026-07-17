@@ -15,6 +15,7 @@ function and not independently importable. A dedicated end-to-end smoke test exe
 ``MRMR.fit()`` path that contains this code, confirming it runs and produces valid output at a shape
 that exercises the protection block (fit with several pre-selectable raw columns).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,7 +59,7 @@ def _make_scenario(seed, n=6000, p_base=25):
 
 @pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
 def test_qr_insert_r2_matches_lstsq_r2_baseline(seed):
-    rng, n, tr, va, y, y_tr, yv, base_cols, base_tr, base_va, ss = _make_scenario(seed)
+    _rng, _n, tr, va, _y, y_tr, yv, _base_cols, base_tr, base_va, ss = _make_scenario(seed)
     old_base = _lstsq_r2(base_tr, base_va, None, tr, va, y_tr, yv, ss)
 
     Q, R = sla.qr(base_tr, mode="economic")
@@ -107,7 +108,7 @@ def test_qr_insert_raises_on_exact_duplicate_matching_lstsq_reject_outcome():
     ``qr_insert`` raises (caught -> -inf -> rejected); the original lstsq path finds a degenerate but
     finite minimum-norm solution with ~zero R^2 increment (also rejected). Both reach the same practical
     decision via different mechanisms."""
-    rng, n, tr, va, y, y_tr, yv, base_cols, base_tr, base_va, ss = _make_scenario(seed=7)
+    _rng, _n, tr, va, _y, y_tr, yv, base_cols, base_tr, base_va, ss = _make_scenario(seed=7)
     dup = base_cols[1].copy()
 
     old_base = _lstsq_r2(base_tr, base_va, None, tr, va, y_tr, yv, ss)

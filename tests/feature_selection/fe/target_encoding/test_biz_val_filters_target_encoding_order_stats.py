@@ -9,6 +9,7 @@ lost floor, leaked full-cell) collapses the delta and trips this test.
 Measured (seed 42, n=2000, K=25): mean R^2 0.532, median 0.964 (delta 0.432), trimmed_mean 0.922 (delta 0.390).
 Assertion floors sit ~30% below the measured deltas to absorb seed noise while still catching a real regression.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,8 +42,10 @@ def _heavy_tailed_te_data():
         return centers[cat] + rng.standard_t(1.5, size=len(cat)) * 4.0  # heavy-tailed contamination
 
     return (
-        pd.DataFrame({"c": cat_tr}), make_y(cat_tr),
-        pd.DataFrame({"c": cat_te}), centers[cat_te],  # clean OOS target = true centers
+        pd.DataFrame({"c": cat_tr}),
+        make_y(cat_tr),
+        pd.DataFrame({"c": cat_te}),
+        centers[cat_te],  # clean OOS target = true centers
     )
 
 

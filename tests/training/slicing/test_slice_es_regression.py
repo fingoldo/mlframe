@@ -12,6 +12,7 @@ Two flavours of regression check:
    metric-eval dominates). Real boosters cross-amortize: at production iteration counts the
    penalty is < 25%, but we test a conservative upper bound here so regressions surface.
 """
+
 from __future__ import annotations
 
 import time
@@ -25,10 +26,12 @@ from tests.conftest import running_under_xdist
 
 def _make_data(seed: int = 0, n_train: int = 300, n_val: int = 200, n_test: int = 200, d: int = 5):
     rng = np.random.default_rng(seed)
+
     def gen(n):
         X = rng.uniform(0, 1, (n, d))
         y = np.sum(np.sin(2 * np.pi * X), axis=1) + rng.normal(0, 0.3, n)
         return pd.DataFrame(X, columns=[f"f{i}" for i in range(d)]), y
+
     return gen(n_train), gen(n_val), gen(n_test)
 
 
@@ -47,7 +50,7 @@ def test_lgb_explicit_slice_k_zero_is_bit_identical_to_pure_baseline() -> None:
     from mlframe.training.callbacks._callbacks import LightGBMCallback
     from mlframe.training._data_helpers import _setup_eval_set
 
-    (X_tr, y_tr), (X_val, y_val), (X_te, y_te) = _make_data()
+    (X_tr, y_tr), (X_val, y_val), (X_te, _y_te) = _make_data()
 
     # Baseline: just LGB with eval_set, no mlframe callback at all.
     model_a = lgb.LGBMRegressor(n_estimators=30, learning_rate=0.1, verbose=-1, num_leaves=8, random_state=0)
@@ -57,9 +60,13 @@ def test_lgb_explicit_slice_k_zero_is_bit_identical_to_pure_baseline() -> None:
     # Through-our-code path, slice_k=0 -> no shards, just legacy single-val callback.
     fit_params: dict = {}
     cb = LightGBMCallback(
-        patience=None, min_delta=0.0,
-        monitor_dataset="valid_0", monitor_metric="l2", mode="min",
-        slice_k=0, verbose=0,
+        patience=None,
+        min_delta=0.0,
+        monitor_dataset="valid_0",
+        monitor_metric="l2",
+        mode="min",
+        slice_k=0,
+        verbose=0,
     )
     fit_params["callbacks"] = [cb]
     _setup_eval_set("LGBMRegressor", fit_params, X_val, y_val, model_category="lgb")
@@ -91,29 +98,24 @@ def test_lgb_slice_es_per_iter_overhead_under_ceiling() -> None:
 
     # Baseline
     fit_params_baseline: dict = {}
-    cb_baseline = LightGBMCallback(patience=None, min_delta=0.0,
-                                    monitor_dataset="valid_0", monitor_metric="l2",
-                                    mode="min", slice_k=0, verbose=0)
+    cb_baseline = LightGBMCallback(patience=None, min_delta=0.0, monitor_dataset="valid_0", monitor_metric="l2", mode="min", slice_k=0, verbose=0)
     fit_params_baseline["callbacks"] = [cb_baseline]
     _setup_eval_set("LGBMRegressor", fit_params_baseline, X_val, y_val, model_category="lgb")
     t0 = time.perf_counter()
-    lgb.LGBMRegressor(n_estimators=30, learning_rate=0.1, verbose=-1, num_leaves=8, random_state=0
-                     ).fit(X_tr, y_tr, **fit_params_baseline)
+    lgb.LGBMRegressor(n_estimators=30, learning_rate=0.1, verbose=-1, num_leaves=8, random_state=0).fit(X_tr, y_tr, **fit_params_baseline)
     baseline_wall = time.perf_counter() - t0
 
     # Slice K=5
     shards = build_slice_eval_sets(X_val, y_val, source="random", k=5, min_rows_per_shard=20, random_state=0)
     assert len(shards) == 5
     fit_params_slice: dict = {}
-    cb_slice = LightGBMCallback(patience=None, min_delta=0.0,
-                                 monitor_dataset="valid_0", monitor_metric="l2",
-                                 mode="min", slice_k=5, slice_persist_history=True, verbose=0)
+    cb_slice = LightGBMCallback(
+        patience=None, min_delta=0.0, monitor_dataset="valid_0", monitor_metric="l2", mode="min", slice_k=5, slice_persist_history=True, verbose=0
+    )
     fit_params_slice["callbacks"] = [cb_slice]
-    _setup_eval_set("LGBMRegressor", fit_params_slice, X_val, y_val,
-                    model_category="lgb", extra_eval_sets=shards)
+    _setup_eval_set("LGBMRegressor", fit_params_slice, X_val, y_val, model_category="lgb", extra_eval_sets=shards)
     t1 = time.perf_counter()
-    lgb.LGBMRegressor(n_estimators=30, learning_rate=0.1, verbose=-1, num_leaves=8, random_state=0
-                     ).fit(X_tr, y_tr, **fit_params_slice)
+    lgb.LGBMRegressor(n_estimators=30, learning_rate=0.1, verbose=-1, num_leaves=8, random_state=0).fit(X_tr, y_tr, **fit_params_slice)
     slice_wall = time.perf_counter() - t1
 
     ratio = slice_wall / max(baseline_wall, 1e-3)
@@ -122,7 +124,7 @@ def test_lgb_slice_es_per_iter_overhead_under_ceiling() -> None:
     # Tiny-dataset wall-ratio is unreliable under ``-n`` parallel CPU contention; only assert the ceiling standalone.
     if running_under_xdist():
         pytest.skip("timing assertion unreliable under -n contention")
-    assert ratio < 3.5, f"slice ES overhead too high: {ratio:.2f}x (baseline {baseline_wall*1000:.1f}ms, slice {slice_wall*1000:.1f}ms)"
+    assert ratio < 3.5, f"slice ES overhead too high: {ratio:.2f}x (baseline {baseline_wall * 1000:.1f}ms, slice {slice_wall * 1000:.1f}ms)"
 
 
 def test_default_training_config_slice_es_disabled() -> None:

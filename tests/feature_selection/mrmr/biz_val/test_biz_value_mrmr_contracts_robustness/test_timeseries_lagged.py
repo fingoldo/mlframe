@@ -58,6 +58,7 @@ default ``use_simple_mode=False``):
   mean-tracking signal) is consistently the FIRST feature pruned
   across seeds -- weakest MI with y = sign(x_t1).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -93,7 +94,7 @@ def _build_lagged_ts(n: int = 2500, seed: int = 9001, phi: float = 0.85):
     for k in range(5):
         cols[f"x_t{k}"] = base[buf - k : buf - k + n]
     # Rolling aggregates of the base series, anchored at the same t-index.
-    s_base = pd.Series(base[buf - 1 : buf - 1 + n + 1])  # one-step-ahead window anchor
+    pd.Series(base[buf - 1 : buf - 1 + n + 1])  # one-step-ahead window anchor
     # We just use a pandas rolling over the windowed base, then take last n.
     full = pd.Series(base)
     cols["mean_3"] = full.rolling(window=3, min_periods=1).mean().to_numpy()[buf : buf + n]
@@ -115,6 +116,7 @@ class TestLaggedBasics:
         If absent, the entire lag-tracking story is broken.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_lagged_ts()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -130,13 +132,14 @@ class TestLaggedBasics:
         the cluster, not finding the true target-aligned lag.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_lagged_ts()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
         assert len(names) >= 1, f"Empty selection; {names}"
-        assert names[0] == "x_t1", f"x_t1 must rank #1 (only true signal); got #1={names[0]}, " f"full={names}"
+        assert names[0] == "x_t1", f"x_t1 must rank #1 (only true signal); got #1={names[0]}, full={names}"
 
     def test_at_least_one_feature_pruned(self):
         """We have 8 input features and 1 true signal. The selector
@@ -150,12 +153,13 @@ class TestLaggedBasics:
         the module docstring rather than xfailed here.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_lagged_ts()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert len(names) < 8, f"Selector returned ALL 8 inputs; pruning is a no-op; " f"support={names}"
+        assert len(names) < 8, f"Selector returned ALL 8 inputs; pruning is a no-op; support={names}"
 
 
 class TestLaggedAggregatesConsidered:
@@ -199,8 +203,11 @@ class TestLaggedAggregatesConsidered:
 
         auc_sel = downstream_auc(sel, X, y.to_numpy(), cv=5)
         auc_full = cross_val_score(
-            LogisticRegression(max_iter=400), X.to_numpy(), y.to_numpy(),
-            cv=5, scoring="roc_auc",
+            LogisticRegression(max_iter=400),
+            X.to_numpy(),
+            y.to_numpy(),
+            cv=5,
+            scoring="roc_auc",
         ).mean()
         assert auc_sel >= auc_full - 0.03, (
             f"MRMR selection {names} lost downstream signal: "
@@ -218,6 +225,7 @@ class TestLaggedSeedRobustness:
     def test_target_lag_first_across_seeds(self, seed):
         """Check test target lag first across seeds."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_lagged_ts(seed=seed)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -233,12 +241,13 @@ class TestLaggedSeedRobustness:
         full input) keeps the contract honest without overpinning.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_lagged_ts(seed=seed)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert len(names) < 8, f"seed={seed}: pruning no-op; size={len(names)}/8 selected; " f"support={names}"
+        assert len(names) < 8, f"seed={seed}: pruning no-op; size={len(names)}/8 selected; support={names}"
 
 
 class TestLaggedTargetLagPriority:
@@ -255,6 +264,7 @@ class TestLaggedTargetLagPriority:
         x_t1.)
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_lagged_ts()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -277,6 +287,7 @@ class TestLaggedTargetLagPriority:
         flipping the lag ordering.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_lagged_ts()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -286,5 +297,5 @@ class TestLaggedTargetLagPriority:
         if "x_t4" not in names:
             return  # x_t4 dropped - already optimal.
         assert names.index("x_t1") < names.index("x_t4"), (
-            f"x_t1 (rank {names.index('x_t1')}) ranks below x_t4 " f"(rank {names.index('x_t4')}); MRMR flipped the lag " f"ordering; support={names}"
+            f"x_t1 (rank {names.index('x_t1')}) ranks below x_t4 (rank {names.index('x_t4')}); MRMR flipped the lag ordering; support={names}"
         )

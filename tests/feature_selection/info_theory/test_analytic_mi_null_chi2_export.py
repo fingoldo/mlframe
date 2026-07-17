@@ -8,10 +8,10 @@ null, and EVERY conditional/marginal null (~44 per F2 fit, ~3s) fell to the slow
 assert (1) ``_chi2`` is importable with a working ``.ppf`` and (2) the analytic path is actually LIVE end to
 end: a large, dense (non-sparse) conditional null must NOT reach the GPU permutation kernel.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def test_chi2_symbol_is_exported_with_ppf():
@@ -26,8 +26,12 @@ def test_chi2_symbol_is_exported_with_ppf():
 def test_consumer_import_does_not_disable_analytic():
     """The exact import both consumers perform must succeed (else their local _HAVE_CHI2 is forced False)."""
     from mlframe.feature_selection.filters._analytic_mi_null import (  # noqa: F401
-        _HAVE_CHI2, _chi2, _min_expected_cell, analytic_null_enabled,
+        _HAVE_CHI2,
+        _chi2,
+        _min_expected_cell,
+        analytic_null_enabled,
     )
+
     assert _HAVE_CHI2 and analytic_null_enabled()
 
 
@@ -49,10 +53,10 @@ def test_dense_conditional_null_takes_analytic_not_perm(monkeypatch):
     monkeypatch.setattr(N, "conditional_perm_null_gpu", spy, raising=False)
 
     rng = np.random.default_rng(0)
-    n = 40_000                          # >> analytic min-n (25k)
+    n = 40_000  # >> analytic min-n (25k)
     x = rng.integers(0, 8, n).astype(np.int64)
     y = rng.integers(0, 8, n).astype(np.int64)
-    z = rng.integers(0, 6, n).astype(np.int64)   # k_xyz <= 8*8*6=384; n/cells ~ 104 >> 5 -> dense -> analytic
+    z = rng.integers(0, 6, n).astype(np.int64)  # k_xyz <= 8*8*6=384; n/cells ~ 104 >> 5 -> dense -> analytic
     floor, null_mean = N._conditional_perm_null(x, y, z, seed=0)
     assert np.isfinite(floor) and np.isfinite(null_mean)
     assert perm_hits["n"] == 0, "dense conditional null hit the GPU permutation kernel -> analytic path is dead"

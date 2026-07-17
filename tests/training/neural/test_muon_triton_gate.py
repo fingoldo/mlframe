@@ -4,6 +4,7 @@ The dispatch decision must be empirical, not hardcoded from compute
 capability: a low-end Ampere+/Ada laptop GPU has cc >= 8.0 yet loses to
 cuBLAS, so the gate has to measure and keep such cards on eager.
 """
+
 import os
 
 import pytest
@@ -110,8 +111,7 @@ def test_env_force_off_skips_triton_without_calibrating(monkeypatch):
     monkeypatch.setenv(mtk._TRITON_ENV_VAR, "0")
     mtk._TRITON_VERDICT.clear()
     # Calibration must NOT run when the user forced eager.
-    monkeypatch.setattr(mtk, "_calibrate_triton_vs_eager",
-                        lambda *a, **k: pytest.fail("calibration ran despite force-off"))
+    monkeypatch.setattr(mtk, "_calibrate_triton_vs_eager", lambda *a, **k: pytest.fail("calibration ran despite force-off"))
     G = torch.randn(512, 512, device="cuda")
     assert mtk.maybe_newton_schulz_triton(G, steps=2) is None
     assert not mtk._TRITON_VERDICT
@@ -121,8 +121,7 @@ def test_dispatch_matches_eager_on_cpu():
     # On CPU the gate returns None, so the dispatcher must be byte-for-byte the eager reference.
     torch.manual_seed(0)
     G = torch.randn(64, 32)
-    assert torch.equal(mopt._newton_schulz_dispatch(G, steps=5),
-                       mopt._zeropower_via_newtonschulz5(G, steps=5))
+    assert torch.equal(mopt._newton_schulz_dispatch(G, steps=5), mopt._zeropower_via_newtonschulz5(G, steps=5))
 
 
 def test_muon_step_routes_through_triton_gate(monkeypatch):

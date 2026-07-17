@@ -10,8 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import (
-    build_unit_matrix, cluster_correlated_features, cluster_summary)
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import build_unit_matrix, cluster_correlated_features, cluster_summary
 
 
 def _partition(labels):
@@ -33,7 +32,7 @@ def _make_clustered(n=2000, n_factors=3, refl=4, n_noise=8, seed=0):
 
 
 def test_clustering_recovers_known_partition_cpu():
-    X, z, nf, refl, n_noise = _make_clustered()
+    X, _z, nf, refl, n_noise = _make_clustered()
     labels = cluster_correlated_features(X, threshold=0.7, use_gpu=False)
     # nf clusters of `refl` reflections + n_noise singletons
     assert labels.max() + 1 == nf + n_noise
@@ -63,9 +62,9 @@ def test_blocked_path_matches_dense():
 
 
 def test_denoised_unit_beats_members():
-    X, z, nf, refl, n_noise = _make_clustered(n=4000, seed=3)
+    X, z, nf, _refl, n_noise = _make_clustered(n=4000, seed=3)
     labels = cluster_correlated_features(X, threshold=0.7, use_gpu=False)
-    units, u2m, kind = build_unit_matrix(X, labels, weighting="pca_pc1")
+    units, u2m, _kind = build_unit_matrix(X, labels, weighting="pca_pc1")
     summ = cluster_summary(u2m)
     assert summ["n_multi_clusters"] == nf
     assert summ["n_singletons"] == n_noise
@@ -103,17 +102,22 @@ def test_gpu_min_features_routes_small_f_to_cpu(monkeypatch):
         return None
 
     monkeypatch.setattr(mod, "_edges_dense_gpu", _mock_gpu)
+
     # Pretend cupy is importable + a GPU is visible so the `gpu = True` branch is taken before
     # the small-f gate. The gate must then flip gpu back to False at f=20 < gpu_min_features=2000.
     class _FakeRuntime:
         @staticmethod
         def getDeviceCount():
             return 1
+
     class _FakeCuda:
         runtime = _FakeRuntime()
+
     class _FakeCp:
         cuda = _FakeCuda()
+
     import sys
+
     monkeypatch.setitem(sys.modules, "cupy", _FakeCp())
 
     X, *_ = _make_clustered(n=400, n_factors=2, refl=3, n_noise=4, seed=4)
@@ -138,15 +142,20 @@ def test_gpu_min_features_explicit_true_overrides_gate(monkeypatch):
         return np.empty(0, np.int64), np.empty(0, np.int64)
 
     monkeypatch.setattr(mod, "_edges_dense_gpu", _mock_gpu)
+
     class _FakeRuntime:
         @staticmethod
         def getDeviceCount():
             return 1
+
     class _FakeCuda:
         runtime = _FakeRuntime()
+
     class _FakeCp:
         cuda = _FakeCuda()
+
     import sys
+
     monkeypatch.setitem(sys.modules, "cupy", _FakeCp())
 
     X, *_ = _make_clustered(n=400, n_factors=2, refl=3, n_noise=4, seed=5)

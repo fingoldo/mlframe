@@ -4,6 +4,7 @@ Mirror of the lgb counterpart: probes whether `xgb.QuantileDMatrix` has
 both `set_label` and `set_weight` mutators required by the DMatrix reuse
 shim. XGBoost >= 1.7 satisfies this.
 """
+
 from __future__ import annotations
 
 import pytest

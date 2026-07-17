@@ -24,13 +24,13 @@ Verified clean (do not refactor):
   - feature_selection/wrappers/_rfecv.py:470 (user-owned checkpoint_path)
   - No tarfile.extractall / zipfile.extractall — no Zip Slip exposure.
 """
+
 from __future__ import annotations
 
 import importlib
 import os
 from pathlib import Path
 
-import pytest
 
 
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
@@ -67,9 +67,7 @@ def _read(rel: str) -> str:
 def test_phase_helpers_ltr_save_dir_slugifies_model_name() -> None:
     src = _read("training/core/_phase_helpers.py")
     # Forbid the raw join.
-    assert "os.path.join(_data_dir, _models_dir, ctx.model_name)" not in src, (
-        "LTR _save_dir must slugify ctx.model_name (path-traversal vector otherwise)."
-    )
+    assert "os.path.join(_data_dir, _models_dir, ctx.model_name)" not in src, "LTR _save_dir must slugify ctx.model_name (path-traversal vector otherwise)."
     # Require the slugified form.
     assert "_slugify(ctx.model_name)" in src
 
@@ -114,15 +112,14 @@ def test_neural_base_default_root_dir_trust_contract_documented() -> None:
 
 def test_hex_key_re_is_fully_anchored() -> None:
     """The audit's Info finding: verify _HEX_KEY_RE is full-match anchored."""
-    src = _read("training/composite/cache_store.py")
+    _read("training/composite/cache_store.py")
     # Must use \A and \Z anchors (or ^...$) -- not bare bracket class.
     # Behavioural check: a non-hex tail must NOT match.
-    import re
     from mlframe.training.composite.cache_store import _HEX_KEY_RE
+
     assert _HEX_KEY_RE.match("deadbeef") is not None
     assert _HEX_KEY_RE.match("deadbeef/../etc") is None, (
-        "_HEX_KEY_RE must be fully anchored so a partial-hex string with "
-        "trailing path-traversal characters fails the fast-path gate."
+        "_HEX_KEY_RE must be fully anchored so a partial-hex string with trailing path-traversal characters fails the fast-path gate."
     )
     assert _HEX_KEY_RE.match("deadbeef\nrogue") is None
     assert _HEX_KEY_RE.match("deadbeefXY") is None
@@ -151,7 +148,7 @@ def test_slugify_neutralises_path_separators() -> None:
         assert "\\" not in slug, f"slugify({attempt!r}) -> {slug!r} still contains '\\'"
         # `..` may survive in pyutilz' slugify if it normalises to dots; allow but
         # require that the result joined with a root does NOT escape.
-        joined = os.path.join("/safe/root", slug)
+        os.path.join("/safe/root", slug)
         # os.path.abspath collapses .., but our regex check on the SLUG is the right place.
         # If the slug is exactly "..", joined would escape. Verify it's not.
         assert slug != "..", f"slugify({attempt!r}) collapsed to '..'"
@@ -163,4 +160,5 @@ def test_os_path_join_absolute_eats_prefix_documented() -> None:
     assert os.path.join("/safe/root", "/etc/passwd") == "/etc/passwd"
     # The slugify fix removes the leading slash so the join behaves correctly.
     from pyutilz.strings import slugify
+
     assert os.path.join("/safe/root", slugify("/etc/passwd")).startswith("/safe/root")

@@ -6,6 +6,7 @@ Pins that:
   * the vectorized _map_group_keys gather (grouped_delta_features /
     apply_grouped_delta) is bit-identical to the per-row dict.get listcomp.
 """
+
 import numpy as np
 import pandas as pd
 
@@ -14,9 +15,7 @@ from mlframe.feature_selection.filters import _ratio_delta_fe as rd
 
 def _ref_map(keys, lookup, global_value):
     """Reference per-row dict.get listcomp (pre-optimization behaviour)."""
-    return np.array(
-        [lookup.get(str(_k), global_value) for _k in keys], dtype=np.float64
-    )
+    return np.array([lookup.get(str(_k), global_value) for _k in keys], dtype=np.float64)
 
 
 def test_map_group_keys_matches_per_row_loop():
@@ -36,7 +35,7 @@ def test_pairwise_ratio_hoist_identity():
 
     df, acc = rd.pairwise_ratio_features(X, cols)
     # Reference: recompute each surviving pair directly from the columns.
-    for (a, b) in acc:
+    for a, b in acc:
         a_vals = np.asarray(X[a].to_numpy(), dtype=np.float64)
         b_vals = np.asarray(X[b].to_numpy(), dtype=np.float64)
         r = rd._safe_div(a_vals, b_vals, 1e-9)
@@ -51,7 +50,7 @@ def test_pairwise_log_ratio_hoist_identity():
     X = pd.DataFrame({c: rng.normal(5.0, 2.0, size=2000) for c in cols})
 
     df, acc = rd.pairwise_log_ratio_features(X, cols)
-    for (a, b) in acc:
+    for a, b in acc:
         a_vals = np.asarray(X[a].to_numpy(), dtype=np.float64)
         b_vals = np.asarray(X[b].to_numpy(), dtype=np.float64)
         lr = np.log1p(np.abs(a_vals) + 1e-9) - np.log1p(np.abs(b_vals) + 1e-9)
@@ -65,16 +64,12 @@ def test_grouped_delta_and_apply_identity():
     n = 20_000
     g = rng.integers(0, 100, size=n)
     num_cols = ["x0", "x1"]
-    X = pd.DataFrame(
-        {"grp": g, "x0": rng.normal(size=n), "x1": rng.normal(2.0, 3.0, size=n)}
-    )
-    enc, recipes = rd.grouped_delta_features(X, "grp", num_cols)
+    X = pd.DataFrame({"grp": g, "x0": rng.normal(size=n), "x1": rng.normal(2.0, 3.0, size=n)})
+    _enc, recipes = rd.grouped_delta_features(X, "grp", num_cols)
 
     # Replay-apply path with unseen groups must match its own reference map.
     g2 = rng.integers(0, 130, size=n)  # some unseen groups
-    X_test = pd.DataFrame(
-        {"grp": g2, "x0": rng.normal(size=n), "x1": rng.normal(size=n)}
-    )
+    X_test = pd.DataFrame({"grp": g2, "x0": rng.normal(size=n), "x1": rng.normal(size=n)})
     name_z = rd.engineered_name_grouped_delta_std("x0", "grp")
     rec = recipes[name_z]
     out = rd.apply_grouped_delta(X_test, rec)

@@ -11,6 +11,7 @@ this fallback under STRICT.
 
 Fixed by passing ``n``/``p`` through here too, matching the caller's own usage.
 """
+
 from __future__ import annotations
 
 import pytest

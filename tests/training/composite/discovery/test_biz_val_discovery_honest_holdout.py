@@ -14,6 +14,7 @@ Tests here assert:
   * leakage: the holdout indices never appear in the screening sample / are disjoint from train.
   * the pre-fix shape had no honest gain key (simulated in-place by running with the holdout off).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -144,13 +145,9 @@ def test_biz_val_honest_holdout_debiases_pure_noise_winner():
     # smaller in magnitude than the in-screen selection score.
     assert abs(mean_honest) < 0.01, f"honest holdout gain on pure noise should be ~0; got {mean_honest:+.4f}"
     assert abs(mean_honest) < 0.6 * mean_inscreen + 1e-9, (
-        f"honest gain {mean_honest:+.4f} should be materially below in-screen {mean_inscreen:+.4f} "
-        f"(winner's curse de-bias)"
+        f"honest gain {mean_honest:+.4f} should be materially below in-screen {mean_inscreen:+.4f} (winner's curse de-bias)"
     )
-    assert honest_below >= 8, (
-        f"honest gain should be <= in-screen gain on a strong majority of noise seeds; got "
-        f"{honest_below}/{len(seeds)}"
-    )
+    assert honest_below >= 8, f"honest gain should be <= in-screen gain on a strong majority of noise seeds; got {honest_below}/{len(seeds)}"
 
 
 def test_biz_val_honest_holdout_preserves_real_signal_gain():
@@ -227,6 +224,4 @@ def test_honest_holdout_disabled_leaves_no_holdout_and_no_honest_gain():
     disc = _run(df, _make_config(random_state=9, honest_holdout_frac=0.0), feat)
     assert disc.honest_holdout_idx_ is None
     for d in disc.export_specs():
-        assert d["honest_holdout_gain"] is None, (
-            "honest gain must be None when the holdout is disabled (pre-fix result shape)"
-        )
+        assert d["honest_holdout_gain"] is None, "honest gain must be None when the holdout is disabled (pre-fix result shape)"

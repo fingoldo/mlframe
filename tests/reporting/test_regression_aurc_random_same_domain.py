@@ -5,6 +5,7 @@
 over [1/n,1] = full_risk*(1-1/n)) was biased BELOW ``aurc_random``. Post-fix the reference uses the same domain and
 the two match on random scores.
 """
+
 import numpy as np
 
 from mlframe.reporting.charts.risk_coverage import build_risk_coverage_spec

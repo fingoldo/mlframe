@@ -3,6 +3,7 @@
 terms can break that bound: a tiny-but-positive denom (just above the 1e-12 guard) divided into an
 MM-inflated numerator yielded CSU >> 1, which would spuriously dominate the redundancy ranking.
 """
+
 from __future__ import annotations
 
 import numpy as np

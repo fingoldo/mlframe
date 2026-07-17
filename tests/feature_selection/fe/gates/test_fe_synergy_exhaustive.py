@@ -13,6 +13,7 @@ Three checks:
 
 The biz_value + parity tests auto-skip cleanly when no CUDA GPU is present (numba.cuda.is_available()).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,6 +33,7 @@ from mlframe.feature_selection.filters._fe_synergy_exhaustive import (
 def _cuda_available() -> bool:
     try:
         from numba import cuda
+
         return bool(cuda.is_available())
     except Exception:
         return False
@@ -49,8 +51,8 @@ _skip_no_cuda = pytest.mark.skipif(not _HAS_CUDA, reason="no CUDA GPU (numba.cud
 class _Knobs:
     def __init__(self, mode, budget=None, max_runtime_mins=None):
         self.fe_synergy_exhaustive = mode
-        self.fe_synergy_exhaustive_max_seconds = budget   # explicit override (None => defer to max_runtime_mins)
-        self.max_runtime_mins = max_runtime_mins          # MRMR's own fit-wide budget
+        self.fe_synergy_exhaustive_max_seconds = budget  # explicit override (None => defer to max_runtime_mins)
+        self.max_runtime_mins = max_runtime_mins  # MRMR's own fit-wide budget
 
 
 def test_never_mode_always_prerank():
@@ -99,8 +101,7 @@ def test_auto_declines_when_no_budget_set_and_sweep_too_expensive():
 def test_auto_budget_derives_from_max_runtime_mins():
     # The budget comes from MRMR's OWN max_runtime_mins (minutes -> seconds), not a hardcoded constant: a tiny
     # max_runtime_mins makes a large sweep over-budget -> auto falls back to the pre-rank (GPU or not).
-    use, reason = decide_exhaustive_sweep(
-        _Knobs("auto", max_runtime_mins=1e-6), n_samples=2_000_000, n_raw=10_000, verbose=0)
+    use, reason = decide_exhaustive_sweep(_Knobs("auto", max_runtime_mins=1e-6), n_samples=2_000_000, n_raw=10_000, verbose=0)
     assert use is False
     assert ("pre-rank" in reason.lower()) or ("no cuda" in reason.lower())
 
@@ -120,7 +121,7 @@ def test_force_ignores_budget():
     # and declines ONLY for lack of a GPU (CPU exhaustive is never run). Contrast test_auto_declines_when_over_budget.
     use, reason = decide_exhaustive_sweep(_Knobs("force", budget=1e-9), n_samples=200_000, n_raw=5_000, verbose=0)
     if _HAS_CUDA:
-        assert use is True, reason                      # budget ignored under force
+        assert use is True, reason  # budget ignored under force
         assert "force" in reason.lower()
     else:
         assert use is False and "no cuda" in reason.lower()
@@ -169,9 +170,9 @@ def test_parity_exhaustive_equals_auto_below_cap():
 # Use a small explicit cap (CAP_BIZ) so p > cap exercises the wide-frame path while the order-2 maxT
 # permutation-null over the pre-ranked pool stays cheap (C(CAP_BIZ,2) pairs, not C(250,2)).
 N_BIZ = 6000
-P_BIZ = 120          # > CAP_BIZ
+P_BIZ = 120  # > CAP_BIZ
 CAP_BIZ = 40
-OPERANDS = (7, 95)   # the planted balanced XOR pair
+OPERANDS = (7, 95)  # the planted balanced XOR pair
 
 
 def _make_balanced_l0(seed):
@@ -213,35 +214,32 @@ def test_biz_value_exhaustive_recovers_balanced_operands_prerank_cannot():
     # genuine signal is fine -- not a bug). Truly-irreducible invisibility holds only in the n->inf limit. So we
     # do NOT assert the pre-rank recovers strictly fewer (that was a finite-n knife-edge); we assert the ROBUST
     # facts below: the exhaustive sweep RELIABLY recovers BOTH operands, and is never worse than the pre-rank.
-    m_prerank = MRMR(fe_synergy_exhaustive="never", fe_synergy_prerank=True,
-                     fe_synergy_screen_max_features=CAP_BIZ)
+    m_prerank = MRMR(fe_synergy_exhaustive="never", fe_synergy_prerank=True, fe_synergy_screen_max_features=CAP_BIZ)
     m_prerank.fit(X, y)
     rec_prerank = _operands_recovered(m_prerank.get_feature_names_out(), operands)
 
     # FORCE path: the full C(p,2) joint-MI sweep ranks the balanced pair at the top, and the per-pair search
     # builds the interaction feature from BOTH operands.
-    m_exh = MRMR(fe_synergy_exhaustive="force", fe_synergy_screen_max_features=CAP_BIZ,
-                 fe_synergy_exhaustive_max_seconds=180.0)
+    m_exh = MRMR(fe_synergy_exhaustive="force", fe_synergy_screen_max_features=CAP_BIZ, fe_synergy_exhaustive_max_seconds=180.0)
     m_exh.fit(X, y)
     rec_exh = _operands_recovered(m_exh.get_feature_names_out(), operands)
 
     # ROBUST invariant: exhaustive RELIABLY recovers the full planted pair (the real value of the GPU sweep on
     # the irreducible case) and never does worse than the pre-rank.
     assert rec_exh == operands, f"exhaustive did not recover the full planted pair: {sorted(rec_exh)} != {sorted(operands)}"
-    assert len(rec_exh) >= len(rec_prerank), (
-        f"exhaustive recovered FEWER than pre-rank: exhaustive {sorted(rec_exh)}, pre-rank {sorted(rec_prerank)}")
+    assert len(rec_exh) >= len(rec_prerank), f"exhaustive recovered FEWER than pre-rank: exhaustive {sorted(rec_exh)}, pre-rank {sorted(rec_prerank)}"
 
     # THE FIX (default "auto"): this frame (p=120, n=6000) is cheap to sweep exhaustively, so the DEFAULT auto
     # escalates to the exhaustive path and ALSO recovers the balanced pair -- i.e. the default is NOT blind to
     # the irreducible case when it can afford completeness. (auto only falls back to the pre-rank on frames too
     # wide to sweep within fe_synergy_exhaustive_max_seconds.)
-    m_auto = MRMR(fe_synergy_exhaustive="auto", fe_synergy_screen_max_features=CAP_BIZ,
-                  fe_synergy_exhaustive_max_seconds=180.0)
+    m_auto = MRMR(fe_synergy_exhaustive="auto", fe_synergy_screen_max_features=CAP_BIZ, fe_synergy_exhaustive_max_seconds=180.0)
     m_auto.fit(X, y)
     rec_auto = _operands_recovered(m_auto.get_feature_names_out(), operands)
     assert rec_auto == operands, (
         f"default 'auto' did not escalate to exhaustive on an affordable balanced frame: recovered "
-        f"{sorted(rec_auto)} != {sorted(operands)} (auto should run the full sweep when it fits the budget)")
+        f"{sorted(rec_auto)} != {sorted(operands)} (auto should run the full sweep when it fits the budget)"
+    )
 
 
 if __name__ == "__main__":

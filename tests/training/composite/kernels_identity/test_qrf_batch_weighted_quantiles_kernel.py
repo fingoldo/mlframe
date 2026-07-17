@@ -7,9 +7,9 @@ over the dense membership batch. These tests pin (1) the kernel exists and is wi
 predict path and (2) the kernel output is numerically identical (within FP reduction-order
 tolerance) to the Python per-row path it replaced, including the all-zero-weight NaN row.
 """
+
 from __future__ import annotations
 
-import sys
 
 import numpy as np
 import pandas as pd
@@ -29,9 +29,7 @@ def _fit_estimator(seed: int = 1):
     X = rng.standard_normal((n, 4))
     y = X[:, 0] * 2.0 + 0.5 * rng.standard_normal(n)
     df = pd.DataFrame(X, columns=["base", "f1", "f2", "f3"])
-    est = qrf.CompositeQRFEstimator(
-        base_column="base", n_estimators=40, prefer_quantile_forest=False, random_state=0, min_samples_leaf=5
-    )
+    est = qrf.CompositeQRFEstimator(base_column="base", n_estimators=40, prefer_quantile_forest=False, random_state=0, min_samples_leaf=5)
     est.fit(df, y)
     return est, df
 

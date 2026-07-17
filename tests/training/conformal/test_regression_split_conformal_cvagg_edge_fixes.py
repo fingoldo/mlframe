@@ -6,6 +6,7 @@ Covers:
 - carve_calib_conformal_grouped: non-zero frac flooring to 0 groups raises (EDGE-P2).
 - select_from_pareto: empty per-iteration shard falls back to a mean/std risk quantile, no np.quantile([]) (EDGE-P2).
 """
+
 from __future__ import annotations
 
 import logging
@@ -34,7 +35,7 @@ def test_stratified_split_singleton_class_falls_back(caplog):
 def test_stratified_split_normal_class_still_stratifies():
     indices = np.arange(40)
     y = np.array([0] * 20 + [1] * 20)
-    left, right = _stratified_split(indices, test_size=0.25, stratify_y=y, random_state=0)
+    _left, right = _stratified_split(indices, test_size=0.25, stratify_y=y, random_state=0)
     assert len(right) == 10
 
 

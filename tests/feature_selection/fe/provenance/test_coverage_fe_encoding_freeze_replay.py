@@ -67,8 +67,11 @@ def test_kfold_target_encoding_replay_matches_manual_lookup(fit_frame):
     mean_lookup, _, _ = _fit_lookups(cats, y)
     gmean = float(np.mean(y))
     rec = build_kfold_target_encoded_recipe(
-        name="te(cat)", src_name="cat", lookup=mean_lookup,
-        global_mean=gmean, smoothing=0.0,
+        name="te(cat)",
+        src_name="cat",
+        lookup=mean_lookup,
+        global_mean=gmean,
+        smoothing=0.0,
     )
     out = apply_recipe(rec, X)
     manual = np.array([mean_lookup.get(str(c), gmean) for c in X["cat"]])
@@ -76,12 +79,15 @@ def test_kfold_target_encoding_replay_matches_manual_lookup(fit_frame):
 
 
 def test_kfold_te_unseen_category_maps_to_global_mean(fit_frame):
-    X, y, cats, _ = fit_frame
+    _X, y, cats, _ = fit_frame
     mean_lookup, _, _ = _fit_lookups(cats, y)
     gmean = float(np.mean(y))
     rec = build_kfold_target_encoded_recipe(
-        name="te(cat)", src_name="cat", lookup=mean_lookup,
-        global_mean=gmean, smoothing=0.0,
+        name="te(cat)",
+        src_name="cat",
+        lookup=mean_lookup,
+        global_mean=gmean,
+        smoothing=0.0,
     )
     # Held-out frame with a category 'z' never seen at fit.
     Xnew = pd.DataFrame({"cat": ["a", "z", "b", "z"], "num": [0.0, 0.0, 0.0, 0.0]})
@@ -100,8 +106,11 @@ def test_kfold_te_transform_ignores_y_in_scope(fit_frame):
     mean_lookup, _, _ = _fit_lookups(cats, y)
     gmean = float(np.mean(y))
     rec = build_kfold_target_encoded_recipe(
-        name="te(cat)", src_name="cat", lookup=mean_lookup,
-        global_mean=gmean, smoothing=0.0,
+        name="te(cat)",
+        src_name="cat",
+        lookup=mean_lookup,
+        global_mean=gmean,
+        smoothing=0.0,
     )
     out_a = apply_recipe(rec, X)
     # Mutate a y-shaped array wildly; replay must be invariant.
@@ -114,7 +123,10 @@ def test_count_encoding_replay_and_unseen_default(fit_frame):
     X, y, cats, _ = fit_frame
     _, count_lookup, _ = _fit_lookups(cats, y)
     rec = build_count_encoded_recipe(
-        name="cnt(cat)", src_name="cat", lookup=count_lookup, default=0,
+        name="cnt(cat)",
+        src_name="cat",
+        lookup=count_lookup,
+        default=0,
     )
     out = apply_recipe(rec, X)
     manual = np.array([count_lookup[str(c)] for c in X["cat"]], dtype=float)
@@ -128,7 +140,10 @@ def test_frequency_encoding_replay_and_unseen_default(fit_frame):
     X, y, cats, _ = fit_frame
     _, _, freq_lookup = _fit_lookups(cats, y)
     rec = build_frequency_encoded_recipe(
-        name="freq(cat)", src_name="cat", lookup=freq_lookup, default=0.0,
+        name="freq(cat)",
+        src_name="cat",
+        lookup=freq_lookup,
+        default=0.0,
     )
     out = apply_recipe(rec, X)
     manual = np.array([freq_lookup[str(c)] for c in X["cat"]], dtype=float)
@@ -138,27 +153,33 @@ def test_frequency_encoding_replay_and_unseen_default(fit_frame):
 
 
 def test_cat_num_residual_replay_matches_manual(fit_frame):
-    X, y, cats, num = fit_frame
+    X, _y, cats, num = fit_frame
     mean_lookup, _, _ = _fit_lookups(cats, num)  # residual is over num, not y
     gmean = float(np.mean(num))
     rec = build_cat_num_residual_recipe(
-        name="resid(num|cat)", cat_name="cat", num_name="num",
-        lookup=mean_lookup, global_mean=gmean, smoothing=0.0,
+        name="resid(num|cat)",
+        cat_name="cat",
+        num_name="num",
+        lookup=mean_lookup,
+        global_mean=gmean,
+        smoothing=0.0,
     )
     out = apply_recipe(rec, X)
-    manual = X["num"].to_numpy(dtype=float) - np.array(
-        [mean_lookup.get(str(c), gmean) for c in X["cat"]]
-    )
+    manual = X["num"].to_numpy(dtype=float) - np.array([mean_lookup.get(str(c), gmean) for c in X["cat"]])
     np.testing.assert_allclose(out, manual, rtol=0, atol=1e-10)
 
 
 def test_cat_num_residual_unseen_category_subtracts_global_mean(fit_frame):
-    X, y, cats, num = fit_frame
+    _X, _y, cats, num = fit_frame
     mean_lookup, _, _ = _fit_lookups(cats, num)
     gmean = float(np.mean(num))
     rec = build_cat_num_residual_recipe(
-        name="resid(num|cat)", cat_name="cat", num_name="num",
-        lookup=mean_lookup, global_mean=gmean, smoothing=0.0,
+        name="resid(num|cat)",
+        cat_name="cat",
+        num_name="num",
+        lookup=mean_lookup,
+        global_mean=gmean,
+        smoothing=0.0,
     )
     Xnew = pd.DataFrame({"cat": ["zzz"], "num": [5.0]})
     out = apply_recipe(rec, Xnew)
@@ -171,8 +192,11 @@ def test_encoding_recipe_pickle_roundtrip_replays_identically(fit_frame, builder
     mean_lookup, count_lookup, freq_lookup = _fit_lookups(cats, y)
     if builder_kind == "te":
         rec = build_kfold_target_encoded_recipe(
-            name="te", src_name="cat", lookup=mean_lookup,
-            global_mean=float(np.mean(y)), smoothing=0.0,
+            name="te",
+            src_name="cat",
+            lookup=mean_lookup,
+            global_mean=float(np.mean(y)),
+            smoothing=0.0,
         )
     elif builder_kind == "count":
         rec = build_count_encoded_recipe(name="cnt", src_name="cat", lookup=count_lookup)
@@ -181,8 +205,12 @@ def test_encoding_recipe_pickle_roundtrip_replays_identically(fit_frame, builder
     else:
         nm_lookup, _, _ = _fit_lookups(cats, num)
         rec = build_cat_num_residual_recipe(
-            name="rsd", cat_name="cat", num_name="num", lookup=nm_lookup,
-            global_mean=float(np.mean(num)), smoothing=0.0,
+            name="rsd",
+            cat_name="cat",
+            num_name="num",
+            lookup=nm_lookup,
+            global_mean=float(np.mean(num)),
+            smoothing=0.0,
         )
     rec2 = pickle.loads(pickle.dumps(rec))
     assert rec2 == rec
@@ -190,11 +218,14 @@ def test_encoding_recipe_pickle_roundtrip_replays_identically(fit_frame, builder
 
 
 def test_frozen_extra_rejects_mutation(fit_frame):
-    X, y, cats, _ = fit_frame
+    _X, y, cats, _ = fit_frame
     mean_lookup, _, _ = _fit_lookups(cats, y)
     rec = build_kfold_target_encoded_recipe(
-        name="te", src_name="cat", lookup=mean_lookup,
-        global_mean=float(np.mean(y)), smoothing=0.0,
+        name="te",
+        src_name="cat",
+        lookup=mean_lookup,
+        global_mean=float(np.mean(y)),
+        smoothing=0.0,
     )
     with pytest.raises(TypeError):
         rec.extra["lookup"] = {}  # MappingProxyType -> read-only
@@ -206,8 +237,11 @@ def test_kfold_te_column_order_invariance(fit_frame):
     X, y, cats, _ = fit_frame
     mean_lookup, _, _ = _fit_lookups(cats, y)
     rec = build_kfold_target_encoded_recipe(
-        name="te", src_name="cat", lookup=mean_lookup,
-        global_mean=float(np.mean(y)), smoothing=0.0,
+        name="te",
+        src_name="cat",
+        lookup=mean_lookup,
+        global_mean=float(np.mean(y)),
+        smoothing=0.0,
     )
     out_a = apply_recipe(rec, X)
     X_reordered = X[["num", "cat"]]  # swap column order, add nothing

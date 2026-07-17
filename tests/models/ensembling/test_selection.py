@@ -2,6 +2,7 @@
 
 Imports the submodule DIRECTLY (``mlframe.models.ensembling.selection``) per the mlframe test convention.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -376,9 +377,7 @@ def test_biz_val_backward_elimination_extra_stacked_more_stable_and_accurate_tha
         y_rng = np.random.default_rng(5000 + trial)
         y = (y_rng.random(n) < 0.5).astype(np.int64)
         signal = 2 * y - 1
-        repeat_mats = [
-            _borderline_matrix(y, signal, np.random.default_rng(6000 + trial * 100 + r), border_sig) for r in range(n_repeats)
-        ]
+        repeat_mats = [_borderline_matrix(y, signal, np.random.default_rng(6000 + trial * 100 + r), border_sig) for r in range(n_repeats)]
         res_single = greedy_backward_ensemble_elimination(repeat_mats[0], y)
         res_avg = greedy_backward_ensemble_elimination(repeat_mats[0], y, extra_stacked=repeat_mats[1:])
         single_correct += (3 in res_single.removed_order) == gt_remove

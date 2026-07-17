@@ -5,6 +5,7 @@ Pins:
 - 4 chain transforms (``chain_linres_*``, ``chain_monres_*``) are registered with ``requires_base=True`` and run through the wrapper WITH a base column.
 - ``CompositeTargetDiscoveryConfig.transforms`` default now lists all 14 (6 legacy + 4 unary + 4 chain).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -13,7 +14,7 @@ import pytest
 from sklearn.linear_model import Ridge
 
 from mlframe.training.composite import CompositeTargetEstimator
-from mlframe.training.composite import _TRANSFORMS_REGISTRY, get_transform
+from mlframe.training.composite import get_transform
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
@@ -25,8 +26,10 @@ class TestRegistry:
 
     def test_chain_registered_with_requires_base_true(self) -> None:
         for name in (
-            "chain_linres_cbrt", "chain_linres_yj",
-            "chain_monres_cbrt", "chain_monres_yj",
+            "chain_linres_cbrt",
+            "chain_linres_yj",
+            "chain_monres_cbrt",
+            "chain_monres_yj",
         ):
             t = get_transform(name)
             assert t.requires_base is True, f"{name} must declare requires_base=True (chain inherits from bivariate)"
@@ -34,9 +37,14 @@ class TestRegistry:
     def test_discovery_default_includes_new_transforms(self) -> None:
         cfg = CompositeTargetDiscoveryConfig()
         for name in (
-            "cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y",
-            "chain_linres_cbrt", "chain_linres_yj",
-            "chain_monres_cbrt", "chain_monres_yj",
+            "cbrt_y",
+            "log_y",
+            "yeo_johnson_y",
+            "quantile_normal_y",
+            "chain_linres_cbrt",
+            "chain_linres_yj",
+            "chain_monres_cbrt",
+            "chain_monres_yj",
         ):
             assert name in cfg.transforms, f"{name} missing from default discovery transforms list"
 
@@ -92,6 +100,4 @@ class TestChainWrapper:
         mae = float(np.mean(np.abs(preds - y)))
         # Chain composite should give bounded MAE on the production-shape synthetic
         # (Ridge inner on a linear+laplace target).
-        assert mae < float(np.std(y)) * 1.5, (
-            f"chain {transform_name} MAE={mae:.3f} > 1.5 * std(y)={float(np.std(y)) * 1.5:.3f}"
-        )
+        assert mae < float(np.std(y)) * 1.5, f"chain {transform_name} MAE={mae:.3f} > 1.5 * std(y)={float(np.std(y)) * 1.5:.3f}"

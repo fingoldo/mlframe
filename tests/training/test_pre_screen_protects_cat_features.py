@@ -18,6 +18,7 @@ Post-fix: cat / text / embedding / group / ts cols are explicitly added to the
 protected set, AND the protected target set is computed from the full
 ctx.target_by_type (suite-wide union).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -28,10 +29,12 @@ from mlframe.feature_selection.pre_screen import compute_unsupervised_drops
 
 def test_compute_unsupervised_drops_respects_protected_set():
     """Baseline: the underlying helper honours the protected set on a numeric column."""
-    df = pd.DataFrame({
-        "var_col": np.arange(100, dtype=np.float64),  # varying, would be kept
-        "const_num": np.full(100, 3.0),               # constant, would normally drop
-    })
+    df = pd.DataFrame(
+        {
+            "var_col": np.arange(100, dtype=np.float64),  # varying, would be kept
+            "const_num": np.full(100, 3.0),  # constant, would normally drop
+        }
+    )
     drops_unprotected = compute_unsupervised_drops(df, protected_columns=())
     assert "const_num" in drops_unprotected, "baseline: const numeric should be detected"
 
@@ -44,11 +47,13 @@ def test_compute_unsupervised_drops_handles_categorical_dtype():
     """REGRESSION: pre-fix np.issubdtype(col.dtype, np.number) raised TypeError on
     pd.CategoricalDtype (it's not a numpy dtype), taking the whole pre-screen pass
     down. Post-fix pd.api.types.is_numeric_dtype handles extension dtypes gracefully."""
-    df = pd.DataFrame({
-        "var_col": np.arange(100, dtype=np.float64),
-        "cat_col": pd.Categorical(["A", "B"] * 50),
-        "const_num": np.full(100, 3.0),
-    })
+    df = pd.DataFrame(
+        {
+            "var_col": np.arange(100, dtype=np.float64),
+            "cat_col": pd.Categorical(["A", "B"] * 50),
+            "const_num": np.full(100, 3.0),
+        }
+    )
     drops = compute_unsupervised_drops(df, protected_columns=())
     assert "const_num" in drops, "const num still detected"
     # Categorical with 2 distinct values is informative, not constant -> kept.
@@ -57,10 +62,12 @@ def test_compute_unsupervised_drops_handles_categorical_dtype():
 
 def test_compute_unsupervised_drops_handles_pandas_string_dtype():
     """Pandas StringDtype (extension) must also not crash the pre-screen."""
-    df = pd.DataFrame({
-        "var_col": np.arange(50, dtype=np.float64),
-        "str_col": pd.array(["x", "y"] * 25, dtype=pd.StringDtype()),
-    })
+    df = pd.DataFrame(
+        {
+            "var_col": np.arange(50, dtype=np.float64),
+            "str_col": pd.array(["x", "y"] * 25, dtype=pd.StringDtype()),
+        }
+    )
     # Must not raise.
     drops = compute_unsupervised_drops(df, protected_columns=())
     # Just sanity that the function returned a list and didn't crash.
@@ -70,10 +77,12 @@ def test_compute_unsupervised_drops_handles_pandas_string_dtype():
 def test_compute_unsupervised_drops_handles_pandas_nullable_int():
     """Pandas nullable Int extension dtypes: is_numeric_dtype returns True so the
     variance check still runs (and drops a constant Int64 col)."""
-    df = pd.DataFrame({
-        "const_nullable_int": pd.array([5, 5, 5, 5, 5], dtype="Int64"),
-        "var_col": np.arange(5, dtype=np.float64),
-    })
+    df = pd.DataFrame(
+        {
+            "const_nullable_int": pd.array([5, 5, 5, 5, 5], dtype="Int64"),
+            "var_col": np.arange(5, dtype=np.float64),
+        }
+    )
     drops = compute_unsupervised_drops(df, protected_columns=())
     assert "const_nullable_int" in drops
 
@@ -84,8 +93,7 @@ class _FSCfg:
     pre_screen_null_fraction_threshold = 0.99
 
 
-def _make_prescreen_ctx(df, *, cat_features=(), text_features=(), embedding_features=(),
-                        target_by_type=None):
+def _make_prescreen_ctx(df, *, cat_features=(), text_features=(), embedding_features=(), target_by_type=None):
     """Minimal ctx exercising the real suite-once pre-screen helper."""
     from types import SimpleNamespace
 
@@ -124,15 +132,17 @@ def test_prescreen_protects_cat_text_embedding_and_targets():
         _maybe_run_unsupervised_pre_screen,
     )
 
-    df = pd.DataFrame({
-        "var_col": np.arange(100, dtype=np.float64),
-        "const_num": np.full(100, 3.0),
-        "cat_const": pd.Categorical(["X"] * 100),
-        "text_const": ["doc"] * 100,
-        "emb_const": np.full(100, 7.0),
-        "tgt_reg": np.full(100, 1.0),
-        "tgt_bin": np.full(100, 0.0),
-    })
+    df = pd.DataFrame(
+        {
+            "var_col": np.arange(100, dtype=np.float64),
+            "const_num": np.full(100, 3.0),
+            "cat_const": pd.Categorical(["X"] * 100),
+            "text_const": ["doc"] * 100,
+            "emb_const": np.full(100, 7.0),
+            "tgt_reg": np.full(100, 1.0),
+            "tgt_bin": np.full(100, 0.0),
+        }
+    )
     ctx = _make_prescreen_ctx(
         df,
         cat_features=["cat_const"],
@@ -145,9 +155,7 @@ def test_prescreen_protects_cat_text_embedding_and_targets():
     dropped = set(ctx._pre_screen_dropped_cols)
     assert "const_num" in dropped, "unprotected near-constant numeric must be dropped"
     for protected in ("cat_const", "text_const", "emb_const", "tgt_reg", "tgt_bin"):
-        assert protected not in dropped, (
-            f"{protected!r} is protected (cat/text/embedding/suite-target) and must survive the pre-screen"
-        )
+        assert protected not in dropped, f"{protected!r} is protected (cat/text/embedding/suite-target) and must survive the pre-screen"
 
 
 def test_prescreen_protects_targets_across_all_types_not_just_first():
@@ -157,14 +165,17 @@ def test_prescreen_protects_targets_across_all_types_not_just_first():
         _maybe_run_unsupervised_pre_screen,
     )
 
-    df = pd.DataFrame({
-        "var_col": np.arange(50, dtype=np.float64),
-        "tgt_a": np.full(50, 1.0),   # near-constant target of type A
-        "tgt_b": np.full(50, 0.0),   # near-constant target of type B
-    })
+    df = pd.DataFrame(
+        {
+            "var_col": np.arange(50, dtype=np.float64),
+            "tgt_a": np.full(50, 1.0),  # near-constant target of type A
+            "tgt_b": np.full(50, 0.0),  # near-constant target of type B
+        }
+    )
     # ``targets`` arg covers only type A; target_by_type union must still protect tgt_b.
     ctx = _make_prescreen_ctx(
-        df, target_by_type={"regression": {"tgt_a": {}}, "binary": {"tgt_b": {}}},
+        df,
+        target_by_type={"regression": {"tgt_a": {}}, "binary": {"tgt_b": {}}},
     )
     _maybe_run_unsupervised_pre_screen(ctx, {"tgt_a": {}})
     dropped = set(ctx._pre_screen_dropped_cols)

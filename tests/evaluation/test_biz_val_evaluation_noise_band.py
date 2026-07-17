@@ -4,6 +4,7 @@ The win: gating a greedy candidate-acceptance loop on ``cv_score_equivalence_ban
 statistically-tied-but-numerically-different candidates as "improvements" than a naive any-positive-delta
 acceptance rule, when the two candidates are drawn from the SAME underlying score distribution (true tie).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -121,9 +122,7 @@ def test_biz_val_cv_score_equivalence_band_bonferroni_controls_search_wide_false
             # that BOTH nominally beats the best AND clears the noise band counts as a (false) accept.
             if not is_within_noise_band(cand_mean, best_mean, best_folds, alpha=alpha) and cand_mean > best_mean:
                 uncorrected_hit = True
-            if not is_within_noise_band(
-                cand_mean, best_mean, best_folds, alpha=alpha, n_comparisons=n_comparisons
-            ) and cand_mean > best_mean:
+            if not is_within_noise_band(cand_mean, best_mean, best_folds, alpha=alpha, n_comparisons=n_comparisons) and cand_mean > best_mean:
                 corrected_hit = True
 
         if uncorrected_hit:

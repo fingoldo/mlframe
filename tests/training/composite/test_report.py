@@ -7,6 +7,7 @@ static sections; the biz_value test asserts the report for a fitted
 ``linear_residual`` composite contains the formula, the base share, and the
 n_train.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,20 +39,22 @@ def _fit_linear_residual(n=400, seed=0):
 
 
 def test_report_renders_all_sections_with_data():
-    est, X, y = _fit_linear_residual()
+    est, X, _y = _fit_linear_residual()
     md = composite_report(est, X)
     assert isinstance(md, str) and md.strip()
-    for section in ("# Composite explainability report",
-                    "## Provenance",
-                    "## Fitted parameters",
-                    "## Base-vs-residual attribution",
-                    "## Conformal calibration",
-                    "## Diagnostics"):
+    for section in (
+        "# Composite explainability report",
+        "## Provenance",
+        "## Fitted parameters",
+        "## Base-vs-residual attribution",
+        "## Conformal calibration",
+        "## Diagnostics",
+    ):
         assert section in md, f"missing section: {section}"
     # Each section non-empty: the line after each header is not blank-only.
     for section in ("## Provenance", "## Fitted parameters", "## Diagnostics"):
         idx = md.index(section)
-        tail = md[idx + len(section):].lstrip("\n")
+        tail = md[idx + len(section) :].lstrip("\n")
         assert tail.strip(), f"empty section: {section}"
 
 
@@ -92,7 +95,7 @@ def test_report_includes_conformal_coverage_when_y_given():
 def test_biz_val_report_contains_formula_base_share_and_n_train():
     """biz_value: the report for a fitted linear_residual composite contains
     the formula, the base share, and the n_train."""
-    est, X, y = _fit_linear_residual(n=600)
+    est, X, _y = _fit_linear_residual(n=600)
     md = composite_report(est, X)
 
     # 1. The formula: linear_residual forward formula text.
@@ -100,6 +103,7 @@ def test_biz_val_report_contains_formula_base_share_and_n_train():
 
     # 2. The base share: a base-DOMINATED target -> base_share should be high.
     from mlframe.training.composite.attribution import attribution_summary
+
     summ = attribution_summary(est, X)
     assert summ["base_share"] > 0.7, f"expected base-dominated, got {summ['base_share']}"
     assert "base share" in md

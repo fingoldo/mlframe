@@ -2,15 +2,14 @@
 
 Under ``@numba.njit`` bounds-checks are relaxed and the out-of-range read silently terminated the inner ``while``; under ``NUMBA_DISABLE_JIT=1`` (the nightly coverage profile) Python's strict bounds check raised ``IndexError: index N out of bounds for axis 0 with size N`` at the wrapped call site (``find_best_mps_sequence`` -> ``compute_area_profits``).
 """
+
 from __future__ import annotations
 
-import importlib
 import os
 import subprocess
 import sys
 
 import numpy as np
-import pytest
 
 
 def test_compute_area_profits_no_oob_when_positions_shorter_than_prices():

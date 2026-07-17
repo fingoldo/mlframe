@@ -7,6 +7,7 @@ on a strided subsample above the cap. These pins assert (1) the gate actually re
 under the cap, (2) the env opt-out (=0) restores full-n, and (3) the SAME candidates are dropped either way
 (selection-equivalence, not byte-identity).
 """
+
 from __future__ import annotations
 
 import os
@@ -46,9 +47,9 @@ def _fit_capture(cap_env, n=60_000):
     os.environ["MLFRAME_FE_GATE_MAX_ROWS"] = str(cap_env)
     try:
         df, y = _f2_frame(n)
-        m = MRMR(verbose=0, random_seed=42, n_jobs=1, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05,
-                 full_npermutations=10, baseline_npermutations=20)
+        m = MRMR(verbose=0, random_seed=42, n_jobs=1, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, full_npermutations=10, baseline_npermutations=20)
         import warnings
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             m.fit(df, y)
@@ -69,10 +70,10 @@ def _gate_stride(n, max_rows):
 @pytest.mark.parametrize(
     "n, max_rows, expect_stride",
     [
-        (1_000_000, 250_000, 4),   # 1M capped at 250k -> every 4th row
-        (1_000_000, 0, 1),         # opt-out -> full-n (stride 1)
-        (200_000, 250_000, 1),     # below the cap -> untouched
-        (600_000, 250_000, 2),     # floor division: 600k // 250k = 2
+        (1_000_000, 250_000, 4),  # 1M capped at 250k -> every 4th row
+        (1_000_000, 0, 1),  # opt-out -> full-n (stride 1)
+        (200_000, 250_000, 1),  # below the cap -> untouched
+        (600_000, 250_000, 2),  # floor division: 600k // 250k = 2
     ],
 )
 def test_gate_stride_formula(n, max_rows, expect_stride):
@@ -80,7 +81,7 @@ def test_gate_stride_formula(n, max_rows, expect_stride):
     st = _gate_stride(n, max_rows)
     sub = np.arange(n)[::st]
     if max_rows == 0:
-        assert sub.shape[0] == n                     # opt-out feeds full-n untouched
+        assert sub.shape[0] == n  # opt-out feeds full-n untouched
     else:
         # floor-division stride is a SOFT cap (bounds cost, not a hard ceiling): worst case ~1.5x cap when
         # n/cap is just under an integer+1 (600k//250k=2 -> 300k). Always strictly below full-n once stride>1.

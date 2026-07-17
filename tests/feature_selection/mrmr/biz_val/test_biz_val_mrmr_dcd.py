@@ -15,6 +15,7 @@ behaviour. Per plan v2 §verification, 12 tests cover:
 - postoc_compose warning (Critic1/H-3)
 - LRU cache bounded (Critic1/H-8)
 """
+
 from __future__ import annotations
 
 import warnings
@@ -32,14 +33,16 @@ import pytest
 def _collinear_frame(n: int = 400, seed: int = 0):
     rng = np.random.default_rng(int(seed))
     true_sig = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "f0": true_sig,
-        "f1_copy": true_sig + 0.15 * rng.standard_normal(n),
-        "f2_copy": true_sig + 0.20 * rng.standard_normal(n),
-        "f3_copy": true_sig + 0.25 * rng.standard_normal(n),
-        "f4_noise": rng.standard_normal(n),
-        "f5_noise": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "f0": true_sig,
+            "f1_copy": true_sig + 0.15 * rng.standard_normal(n),
+            "f2_copy": true_sig + 0.20 * rng.standard_normal(n),
+            "f3_copy": true_sig + 0.25 * rng.standard_normal(n),
+            "f4_noise": rng.standard_normal(n),
+            "f5_noise": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((true_sig > 0).astype(np.int64), name="y")
     return X, y
 
@@ -58,6 +61,7 @@ class TestDCDActivation:
         is opt-in via ``dcd_enable=False``.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _collinear_frame()
         m_default = MRMR(verbose=0).fit(X, y)
         m_legacy = MRMR(dcd_enable=False, verbose=0).fit(X, y)
@@ -68,6 +72,7 @@ class TestDCDActivation:
 
     def test_dcd_summary_populated_when_enabled(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _collinear_frame()
         sel = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0)
         sel.fit(X, y)
@@ -79,6 +84,7 @@ class TestDCDActivation:
     def test_dcd_thread_local_reset_on_finally(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import use_dcd
+
         X, y = _collinear_frame()
         MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0).fit(X, y)
         # After fit completes the thread-local toggle MUST be reset.
@@ -89,6 +95,7 @@ class TestDCDPoolPrune:
     def test_dcd_prunes_collinear_duplicates(self):
         """Plan v2 test #2: DCD pool_pruned grows; legacy keeps all duplicates."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _collinear_frame()
         legacy = MRMR(verbose=0).fit(X, y)
         dcd = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0).fit(X, y)
@@ -100,6 +107,7 @@ class TestDCDPoolPrune:
         # (the threshold hinge ``f0__relu_gt`` captures the signal directly; a stronger recovery
         # than raw f0). Delimiter-bounded token match so f0 does not spuriously match f0x/f01.
         import re as _re_f0
+
         _dcd_names = list(dcd.get_feature_names_out())
         assert any(str(s) == "f0" or "f0" in _re_f0.split(r"[^A-Za-z0-9]+", str(s)) for s in _dcd_names), (
             f"strong signal f0 not recovered (raw or f0-derived); support={_dcd_names}"
@@ -108,6 +116,7 @@ class TestDCDPoolPrune:
     def test_dcd_cluster_anchors_keyed_by_selected(self):
         """cluster_anchors keys correspond to selected indices."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _collinear_frame()
         sel = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0).fit(X, y)
         if sel.dcd_["n_anchors"] > 0:
@@ -120,6 +129,7 @@ class TestDCDPoolPrune:
         """Pure-noise data: DCD should still prune some noise pairs that
         happen to have spurious SU but not collapse the support set."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(0)
         n = 300
         X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(5)})
@@ -132,21 +142,25 @@ class TestDCDPoolPrune:
 class TestDCDValidation:
     def test_invalid_distance_raises(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         with pytest.raises(ValueError, match="dcd_distance"):
             MRMR(dcd_distance="nonsense")._validate_string_params()
 
     def test_invalid_swap_method_raises(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         with pytest.raises(ValueError, match="dcd_swap_method"):
             MRMR(dcd_swap_method="invalid")._validate_string_params()
 
     def test_invalid_tau_range_raises(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         with pytest.raises(ValueError, match="dcd_tau_cluster"):
             MRMR(dcd_enable=True, dcd_tau_cluster=1.5)._validate_string_params()
 
     def test_invalid_cluster_size_threshold_raises(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         # Layer 42 (2026-05-31) lowered the minimum threshold from 2 to 1
         # (threshold counts MEMBERS, not anchor + members, so =1 is the
         # strict 2-feature redundancy case). Only values < 1 are rejected.
@@ -158,27 +172,37 @@ class TestDCDComposability:
     """Critic1/C fix: DCD must compose with Wave 8 features (JMIM, BUR, SU)
     without conflict.
     """
+
     def test_dcd_plus_jmim_runs(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _collinear_frame()
         sel = MRMR(
-            dcd_enable=True, redundancy_aggregator="jmim", verbose=0,
+            dcd_enable=True,
+            redundancy_aggregator="jmim",
+            verbose=0,
         ).fit(X, y)
         assert sel.n_features_ >= 1
 
     def test_dcd_plus_bur_runs(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _collinear_frame()
         sel = MRMR(
-            dcd_enable=True, bur_lambda=0.5, verbose=0,
+            dcd_enable=True,
+            bur_lambda=0.5,
+            verbose=0,
         ).fit(X, y)
         assert sel.n_features_ >= 1
 
     def test_dcd_plus_su_normalization_runs(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _collinear_frame()
         sel = MRMR(
-            dcd_enable=True, mi_normalization="su", verbose=0,
+            dcd_enable=True,
+            mi_normalization="su",
+            verbose=0,
         ).fit(X, y)
         assert sel.n_features_ >= 1
 
@@ -187,22 +211,26 @@ class TestDCDEdgeCases:
     def test_postoc_compose_warning(self):
         """Critic1/H-3: warn when both DCD and cluster_aggregate active."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             MRMR(
-                dcd_enable=True, cluster_aggregate_enable=True,
+                dcd_enable=True,
+                cluster_aggregate_enable=True,
                 dcd_postoc_compose=True,
             )._validate_string_params()
-        msgs = [str(x.message) for x in caught
-                 if "double-aggregate" in str(x.message)]
+        msgs = [str(x.message) for x in caught if "double-aggregate" in str(x.message)]
         assert len(msgs) > 0
 
     def test_full_npermutations_zero_dcd_still_fires(self):
         """Critic1/B-4: DCD pruning works with full_npermutations=0."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _collinear_frame()
         sel = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5, full_npermutations=0,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
+            full_npermutations=0,
             verbose=0,
         ).fit(X, y)
         # DCD summary populated regardless of permutation budget.
@@ -215,8 +243,10 @@ class TestDCDSwapPath:
     standalone module API (the screen-loop wire-up is best-effort and only
     fires when the PC1 aggregate beats the raw anchor by ``swap_gain_threshold``).
     """
+
     def _binned_matrix(self, n=200, seed=0):
         import pandas as pd
+
         rng = np.random.default_rng(int(seed))
         true_sig = rng.standard_normal(n)
         y_arr = (true_sig > 0).astype(np.int64)
@@ -233,7 +263,9 @@ class TestDCDSwapPath:
         for i, col_vals in enumerate(cols_raw):
             edges = np.linspace(col_vals.min(), col_vals.max(), 11)
             data[:, i] = np.clip(
-                np.digitize(col_vals, edges[1:-1]), 0, 9,
+                np.digitize(col_vals, edges[1:-1]),
+                0,
+                9,
             ).astype(np.int32)
         nbins = np.array([10] * 7, dtype=np.int64)
         target_indices = np.array([6], dtype=np.int64)
@@ -242,21 +274,35 @@ class TestDCDSwapPath:
 
     def test_evaluate_swap_candidate_returns_decision(self):
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            make_dcd_state, discover_cluster_members, evaluate_swap_candidate,
+            make_dcd_state,
+            discover_cluster_members,
+            evaluate_swap_candidate,
             SwapDecision,
         )
+
         data, nbins, target_indices, X_raw = self._binned_matrix()
         state = make_dcd_state(
-            X_raw=X_raw, factors_data=data, factors_nbins=nbins,
-            cols=[f"f{i}" for i in range(7)], nbins=nbins,
-            target_indices=target_indices, tau_cluster=0.3,
-            cluster_size_threshold=3, swap_gain_threshold=0.001,
+            X_raw=X_raw,
+            factors_data=data,
+            factors_nbins=nbins,
+            cols=[f"f{i}" for i in range(7)],
+            nbins=nbins,
+            target_indices=target_indices,
+            tau_cluster=0.3,
+            cluster_size_threshold=3,
+            swap_gain_threshold=0.001,
         )
         discover_cluster_members(state, 0, list(range(1, 6)))
         decision = evaluate_swap_candidate(
-            state, 0, [0], target_y=target_indices,
-            factors_data=data, factors_nbins=nbins,
-            cached_MIs={}, entropy_cache=None, full_npermutations=0,
+            state,
+            0,
+            [0],
+            target_y=target_indices,
+            factors_data=data,
+            factors_nbins=nbins,
+            cached_MIs={},
+            entropy_cache=None,
+            full_npermutations=0,
         )
         assert isinstance(decision, SwapDecision)
         # Should have computed rep + anchor relevance.
@@ -272,6 +318,7 @@ class TestDCDSwapPath:
         """
         import pandas as pd
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(0)
         n = 1500
         # 3 latent signals + 4 collinear members each + 2 noise = 15 cols
@@ -281,18 +328,17 @@ class TestDCDSwapPath:
             latent = rng.standard_normal(n)
             cols_data[f"sig{sig_idx}_anchor"] = latent
             for k in range(4):
-                cols_data[f"sig{sig_idx}_copy{k}"] = (
-                    latent + 0.05 * (k + 1) * rng.standard_normal(n)
-                )
+                cols_data[f"sig{sig_idx}_copy{k}"] = latent + 0.05 * (k + 1) * rng.standard_normal(n)
         cols_data["noise_0"] = rng.standard_normal(n)
         cols_data["noise_1"] = rng.standard_normal(n)
         X = pd.DataFrame(cols_data)
-        y_signal = sum(rng.standard_normal(n) * 0.0 + cols_data[f"sig{i}_anchor"]
-                        for i in range(3))
+        y_signal = sum(rng.standard_normal(n) * 0.0 + cols_data[f"sig{i}_anchor"] for i in range(3))
         y = pd.Series((y_signal > np.median(y_signal)).astype(np.int64), name="y")
         sel = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
-            dcd_cluster_size_threshold=4, dcd_swap_gain_threshold=0.0,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
+            dcd_cluster_size_threshold=4,
+            dcd_swap_gain_threshold=0.0,
             verbose=0,
         )
         # The pre-fix bug raised here; post-fix must complete.
@@ -315,6 +361,7 @@ class TestDCDSwapPath:
         """
         import pandas as pd
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(7)
         n = 2000
         # one strong cluster (forces swap early), then several independent
@@ -336,8 +383,10 @@ class TestDCDSwapPath:
         y_signal = latent + sum(independents)
         y = pd.Series((y_signal > np.median(y_signal)).astype(np.int64), name="y")
         sel = MRMR(
-            dcd_enable=True, dcd_tau_cluster=0.5,
-            dcd_cluster_size_threshold=5, dcd_swap_gain_threshold=0.0,
+            dcd_enable=True,
+            dcd_tau_cluster=0.5,
+            dcd_cluster_size_threshold=5,
+            dcd_swap_gain_threshold=0.0,
             verbose=0,
         )
         # Pre-fix: stale ctx.factors_data -> next confirm reads
@@ -350,10 +399,7 @@ class TestDCDSwapPath:
         if sel.dcd_ and sel.dcd_.get("swap_log"):
             ind_names = {f"ind{j}" for j in range(5)}
             confirmed_post_swap = ind_names & set(names)
-            assert len(confirmed_post_swap) >= 1, (
-                f"No independent signal confirmed after swap -- ctx propagation "
-                f"likely silently corrupted. selected={names}"
-            )
+            assert len(confirmed_post_swap) >= 1, f"No independent signal confirmed after swap -- ctx propagation likely silently corrupted. selected={names}"
 
     def test_perm_null_rejects_noise_when_full_npermutations_positive(self):
         """Wave 9.1 loop-iter-3 regression: when ``full_npermutations > 0`` and
@@ -363,8 +409,11 @@ class TestDCDSwapPath:
         ignored and accept was decided on point-MI alone.
         """
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            make_dcd_state, discover_cluster_members, evaluate_swap_candidate,
+            make_dcd_state,
+            discover_cluster_members,
+            evaluate_swap_candidate,
         )
+
         rng = np.random.default_rng(11)
         n = 200
         # All-noise: target is also random; no real cluster
@@ -372,27 +421,38 @@ class TestDCDSwapPath:
         nbins = np.array([4] * 7, dtype=np.int64)
         target_indices = np.array([6], dtype=np.int64)
         import pandas as pd
+
         X_raw = pd.DataFrame(data[:, :6], columns=[f"f{i}" for i in range(6)])
         state = make_dcd_state(
-            X_raw=X_raw, factors_data=data, factors_nbins=nbins,
-            cols=[f"f{i}" for i in range(7)], nbins=nbins,
+            X_raw=X_raw,
+            factors_data=data,
+            factors_nbins=nbins,
+            cols=[f"f{i}" for i in range(7)],
+            nbins=nbins,
             target_indices=target_indices,
             tau_cluster=0.0,  # accept ALL into cluster
-            min_cluster_size=5, cluster_size_threshold=5,
+            min_cluster_size=5,
+            cluster_size_threshold=5,
             swap_gain_threshold=-1.0,  # force deterministic-gate pass
             swap_alpha=0.05,
         )
         discover_cluster_members(state, 0, list(range(1, 6)))
         # With B=0 (no null), the swap WILL go through the deterministic gate
         # because swap_gain_threshold=-1 makes ``rep > anchor*0`` trivially.
-        d_no_null = evaluate_swap_candidate(
-            state, 0, [0], target_y=target_indices,
+        evaluate_swap_candidate(
+            state,
+            0,
+            [0],
+            target_y=target_indices,
             full_npermutations=0,
         )
         # With B>0, the null catches it: under H0 random rep gets same/higher
         # CMI than observed -> high p-value -> reject.
         d_with_null = evaluate_swap_candidate(
-            state, 0, [0], target_y=target_indices,
+            state,
+            0,
+            [0],
+            target_y=target_indices,
             full_npermutations=100,
         )
         # The null test must run (p was computed) and must reject on pure noise.
@@ -401,10 +461,7 @@ class TestDCDSwapPath:
         # rejected (the fix we're testing). What must NOT happen: accept=True
         # with high p-value -- that would mean the null wasn't checked.
         if d_with_null.perm_p_value >= 0.5:
-            assert not d_with_null.accept, (
-                f"swap accepted with high perm_p_value={d_with_null.perm_p_value} "
-                f"-- permutation null not enforcing rejection."
-            )
+            assert not d_with_null.accept, f"swap accepted with high perm_p_value={d_with_null.perm_p_value} -- permutation null not enforcing rejection."
 
     def test_perm_null_default_zero_preserves_deterministic_behavior(self):
         """With ``full_npermutations=0`` (the standalone-test default), the
@@ -412,19 +469,31 @@ class TestDCDSwapPath:
         no permutation computed, ``perm_p_value=0.0`` on accept.
         """
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            make_dcd_state, discover_cluster_members, evaluate_swap_candidate,
+            make_dcd_state,
+            discover_cluster_members,
+            evaluate_swap_candidate,
         )
+
         data, nbins, target_indices, X_raw = self._binned_matrix()
         state = make_dcd_state(
-            X_raw=X_raw, factors_data=data, factors_nbins=nbins,
-            cols=[f"f{i}" for i in range(7)], nbins=nbins,
-            target_indices=target_indices, tau_cluster=0.3,
-            cluster_size_threshold=3, swap_gain_threshold=0.0,
+            X_raw=X_raw,
+            factors_data=data,
+            factors_nbins=nbins,
+            cols=[f"f{i}" for i in range(7)],
+            nbins=nbins,
+            target_indices=target_indices,
+            tau_cluster=0.3,
+            cluster_size_threshold=3,
+            swap_gain_threshold=0.0,
             swap_alpha=0.05,
         )
         discover_cluster_members(state, 0, list(range(1, 6)))
         decision = evaluate_swap_candidate(
-            state, 0, [0], target_y=target_indices, full_npermutations=0,
+            state,
+            0,
+            [0],
+            target_y=target_indices,
+            full_npermutations=0,
         )
         if decision.accept:
             # No null was run; perm_p_value untouched from the accept branch.
@@ -433,6 +502,7 @@ class TestDCDSwapPath:
     def test_dcd_swap_alpha_validation(self):
         """``dcd_swap_alpha`` must be in (0, 1]."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = self._noise_frame()
         for bad in (-0.1, 0.0, 1.1, 2.0):
             with pytest.raises(ValueError, match="dcd_swap_alpha"):
@@ -443,6 +513,7 @@ class TestDCDSwapPath:
 
     def _noise_frame(self, n: int = 200, seed: int = 0):
         import pandas as pd
+
         rng = np.random.default_rng(int(seed))
         X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(6)})
         y = pd.Series(rng.integers(0, 2, n), name="y")
@@ -450,28 +521,46 @@ class TestDCDSwapPath:
 
     def test_commit_swap_extends_data_matrix(self):
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
-            make_dcd_state, discover_cluster_members,
-            evaluate_swap_candidate, commit_swap,
+            make_dcd_state,
+            discover_cluster_members,
+            evaluate_swap_candidate,
+            commit_swap,
         )
+
         data, nbins, target_indices, X_raw = self._binned_matrix()
         state = make_dcd_state(
-            X_raw=X_raw, factors_data=data, factors_nbins=nbins,
-            cols=[f"f{i}" for i in range(7)], nbins=nbins,
-            target_indices=target_indices, tau_cluster=0.3,
-            cluster_size_threshold=3, swap_gain_threshold=0.0,  # any improvement
+            X_raw=X_raw,
+            factors_data=data,
+            factors_nbins=nbins,
+            cols=[f"f{i}" for i in range(7)],
+            nbins=nbins,
+            target_indices=target_indices,
+            tau_cluster=0.3,
+            cluster_size_threshold=3,
+            swap_gain_threshold=0.0,  # any improvement
         )
         discover_cluster_members(state, 0, list(range(1, 6)))
         decision = evaluate_swap_candidate(
-            state, 0, [0], target_y=target_indices,
-            factors_data=data, factors_nbins=nbins,
-            cached_MIs={}, entropy_cache=None, full_npermutations=0,
+            state,
+            0,
+            [0],
+            target_y=target_indices,
+            factors_data=data,
+            factors_nbins=nbins,
+            cached_MIs={},
+            entropy_cache=None,
+            full_npermutations=0,
         )
         if decision.accept:
             data_ref = {}
             selected_vars = [0]
             new_idx = commit_swap(
-                state, 0, decision, selected_vars=selected_vars,
-                data_ref=data_ref, engineered_recipes=None,
+                state,
+                0,
+                decision,
+                selected_vars=selected_vars,
+                data_ref=data_ref,
+                engineered_recipes=None,
                 predictors_log=None,
             )
             # data_ref["data"] should be extended by 1 column.

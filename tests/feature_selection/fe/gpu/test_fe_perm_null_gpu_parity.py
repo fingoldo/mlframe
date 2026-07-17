@@ -6,7 +6,7 @@ analytic chi-square null is unreliable). Under STRICT/CMI_GPU the within-stratum
 permutations -- and therefore the floor and null-mean -- are BIT-IDENTICAL to the CPU loop (no ties in
 ``z_rank + keys`` -> cp.argsort matches np.argsort(stable)). This pins that the GPU path does not perturb
 the redundancy-gate selection. cupy-gated; the analytic null is disabled to force the permutation path."""
-import os
+
 import numpy as np
 import pytest
 
@@ -22,7 +22,7 @@ def test_conditional_perm_null_gpu_bit_identical_to_cpu(seed, monkeypatch):
     n = 4000
     x = rng.integers(0, 8, n).astype(np.int64)
     y = rng.integers(0, 6, n).astype(np.int64)
-    z = rng.integers(0, 40, n).astype(np.int64)   # high-cardinality -> sparse strata -> perm fallback
+    z = rng.integers(0, 40, n).astype(np.int64)  # high-cardinality -> sparse strata -> perm fallback
 
     monkeypatch.delenv("MLFRAME_CMI_GPU", raising=False)
     fh, mh = _conditional_perm_null(x, y, z, n_permutations=25, seed=seed, salt=3)

@@ -8,6 +8,7 @@ cutting wall time ~45% but WORSENING ``selection_score`` on that scenario (early
 candidates enough that pruning on a partial running mean isn't a fair cross-candidate comparison) -- a real
 "no tradeoff optimizations" case per CLAUDE.md, so it stays opt-in with the tradeoff documented.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -47,10 +48,15 @@ def _spaces():
 def test_pruner_defaults_to_disabled_completes_every_trial():
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
-        inner_factory=_inner_factory, inner_spaces=_spaces(),
-        n_trials=10, cv=4, prefer_optuna=True,
+        inner_factory=_inner_factory,
+        inner_spaces=_spaces(),
+        n_trials=10,
+        cv=4,
+        prefer_optuna=True,
     )
     assert res.backend == "optuna"
     assert np.isfinite(res.selection_score)
@@ -62,10 +68,16 @@ def test_pruner_defaults_to_disabled_completes_every_trial():
 def test_pruner_auto_enables_median_pruner_may_prune_some_trials():
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
-        inner_factory=_inner_factory, inner_spaces=_spaces(),
-        n_trials=10, cv=4, prefer_optuna=True, pruner="auto",
+        inner_factory=_inner_factory,
+        inner_spaces=_spaces(),
+        n_trials=10,
+        cv=4,
+        prefer_optuna=True,
+        pruner="auto",
     )
     assert res.backend == "optuna"
     assert np.isfinite(res.selection_score)
@@ -77,10 +89,16 @@ def test_pruner_auto_enables_median_pruner_may_prune_some_trials():
 def test_pruner_custom_instance_accepted():
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
-        inner_factory=_inner_factory, inner_spaces=_spaces(),
-        n_trials=8, cv=4, prefer_optuna=True, pruner=optuna.pruners.HyperbandPruner(),
+        inner_factory=_inner_factory,
+        inner_spaces=_spaces(),
+        n_trials=8,
+        cv=4,
+        prefer_optuna=True,
+        pruner=optuna.pruners.HyperbandPruner(),
     )
     assert res.backend == "optuna"
     assert np.isfinite(res.selection_score)
@@ -107,20 +125,34 @@ def test_biz_val_pruner_reduces_completed_folds():
     n_trials, cv = 20, 5
 
     res_no_prune = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
-        inner_factory=_inner_factory, inner_spaces=_spaces(),
-        n_trials=n_trials, cv=cv, prefer_optuna=True, pruner=None, random_state=0,
+        inner_factory=_inner_factory,
+        inner_spaces=_spaces(),
+        n_trials=n_trials,
+        cv=cv,
+        prefer_optuna=True,
+        pruner=None,
+        random_state=0,
     )
 
     # MedianPruner with n_startup_trials=1/n_warmup_steps=0 prunes as aggressively as Optuna allows -- any trial
     # worse than the running median after just the FIRST fold is abandoned immediately.
     aggressive_pruner = optuna.pruners.MedianPruner(n_startup_trials=1, n_warmup_steps=0, interval_steps=1)
     res_pruned = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
-        inner_factory=_inner_factory, inner_spaces=_spaces(),
-        n_trials=n_trials, cv=cv, prefer_optuna=True, pruner=aggressive_pruner, random_state=0,
+        inner_factory=_inner_factory,
+        inner_spaces=_spaces(),
+        n_trials=n_trials,
+        cv=cv,
+        prefer_optuna=True,
+        pruner=aggressive_pruner,
+        random_state=0,
     )
 
     # A pruned trial contributes no COMPLETE trial log entry from a full n_trials worth of un-pruned CV, but
@@ -143,10 +175,15 @@ def test_biz_val_pruner_reduces_completed_folds():
 def test_pruning_stats_none_when_pruner_not_requested():
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
-        inner_factory=_inner_factory, inner_spaces=_spaces(),
-        n_trials=10, cv=4, prefer_optuna=True,
+        inner_factory=_inner_factory,
+        inner_spaces=_spaces(),
+        n_trials=10,
+        cv=4,
+        prefer_optuna=True,
     )
     # Default pruner=None resolves to NopPruner -- nothing was pruned, so there is nothing to report; the field
     # must stay None rather than a hollow all-zero PruningStats implying pruning ran.
@@ -169,10 +206,17 @@ def test_biz_val_pruning_stats_reports_positive_wallclock_saved():
 
     aggressive_pruner = optuna.pruners.MedianPruner(n_startup_trials=2, n_warmup_steps=0, interval_steps=1)
     res = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
-        inner_factory=_inner_factory, inner_spaces=spaces,
-        n_trials=n_trials, cv=cv, prefer_optuna=True, pruner=aggressive_pruner, random_state=3,
+        inner_factory=_inner_factory,
+        inner_spaces=spaces,
+        n_trials=n_trials,
+        cv=cv,
+        prefer_optuna=True,
+        pruner=aggressive_pruner,
+        random_state=3,
     )
 
     stats = res.pruning_stats
@@ -213,10 +257,14 @@ def _conditional_space(trial, transform_name):
 def test_conditional_inner_space_fn_used_when_provided():
     X, y = _make_diff_data(n=600)
     res = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
         inner_factory=_inner_factory,
-        n_trials=10, cv=3, prefer_optuna=True,
+        n_trials=10,
+        cv=3,
+        prefer_optuna=True,
         conditional_inner_space_fn=_conditional_space,
     )
     assert res.backend == "optuna"
@@ -238,11 +286,19 @@ def test_biz_val_conditional_space_explores_wider_effective_range_than_flat_spac
     a separate concern already covered by the pruner tests above."""
     X, y = _make_diff_data(n=800, seed=2)
     res = optimize_composite(
-        X, y, base_column="base",
+        X,
+        y,
+        base_column="base",
         transform_candidates=("diff", "linear_residual"),
         inner_factory=_inner_factory,
-        n_trials=25, cv=3, prefer_optuna=True, random_state=2, pruner=None,
+        n_trials=25,
+        cv=3,
+        prefer_optuna=True,
+        random_state=2,
+        pruner=None,
         conditional_inner_space_fn=_conditional_space,
     )
     max_depth_seen = max(t[1]["max_depth"] for t in res.trials)
-    assert max_depth_seen > 6, f"expected the conditional bonus branch to push max_depth beyond the flat space's cap of 6 at least once across {len(res.trials)} trials, max seen={max_depth_seen}"
+    assert max_depth_seen > 6, (
+        f"expected the conditional bonus branch to push max_depth beyond the flat space's cap of 6 at least once across {len(res.trials)} trials, max seen={max_depth_seen}"
+    )

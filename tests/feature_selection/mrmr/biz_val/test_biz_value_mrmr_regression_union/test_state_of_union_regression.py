@@ -33,6 +33,7 @@ Layer 79 is a verification layer (no new prod features). It pins:
 NEVER xfail. If any prior layer test module fails to import or any
 contract above breaks, the underlying bug must be fixed before merge.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -54,6 +55,8 @@ warnings.filterwarnings("ignore")
 SEEDS = (1, 7, 13, 42, 101)
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
+
 def _build_composite(seed: int, n: int = 2000):
     """Composite-signal dataset hitting every cross-basis arity AND the
     categorical/missingness/ratio FE family inputs.
@@ -130,7 +133,7 @@ class TestPriorLayerDiscoverability:
         # without depending on docstring provenance markers (which a source-text grep would).
         module_count = len(sorted(root.glob("test_biz_value_*.py"))) + len(sorted(root.glob("test_biz_value_mrmr_*/test_*.py")))
         assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110); " f"a prior-layer test module was likely dropped or renamed."
+            f"biz_value test-module roster shrank to {module_count} (floor 110); a prior-layer test module was likely dropped or renamed."
         )
 
     def test_layer_count_matches_expected_78(self):
@@ -238,10 +241,10 @@ class TestCompositeAllOnSmoke:
     def test_composite_all_on_fit_under_180s(self):
         """Composite all-on fit+transform completes under 180s and produces non-empty support_."""
         _X, _y, m, dt = _composite_all_on_fit()
-        assert dt < 180.0, f"composite all-on fit took {dt:.1f}s; budget 180s. Slowdown is " f"a regression in the L65-L78 dispatch / FE-compose path."
+        assert dt < 180.0, f"composite all-on fit took {dt:.1f}s; budget 180s. Slowdown is a regression in the L65-L78 dispatch / FE-compose path."
         # Smoke: the fit produced *some* support.
         sup = getattr(m, "support_", None)
-        assert sup is not None and len(sup) > 0, "composite all-on fit produced empty support_; FE-compose dropped " "every candidate"
+        assert sup is not None and len(sup) > 0, "composite all-on fit produced empty support_; FE-compose dropped every candidate"
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +259,7 @@ class TestProvenanceDiversity:
         """fe_provenance_ surfaces >= 5 distinct origin labels including 'raw'."""
         _X, _y, m, _dt = _composite_all_on_fit()
         prov = getattr(m, "fe_provenance_", None)
-        assert prov is not None and not prov.empty, "fe_provenance_ frame missing / empty after composite fit; L54 " "provenance wiring regressed"
+        assert prov is not None and not prov.empty, "fe_provenance_ frame missing / empty after composite fit; L54 provenance wiring regressed"
         origins = set(prov["origin"].dropna().unique().tolist())
         assert len(origins) >= 5, (
             f"composite all-on fit surfaced only {len(origins)} distinct "
@@ -290,10 +293,16 @@ class TestLogRegAucOnComposite:
         x4 = rng.standard_normal(n)
         x5 = rng.standard_normal(n)
         x6 = rng.standard_normal(n)
-        X = pd.DataFrame({
-            "x1": x1, "x2": x2, "x3": x3, "x4": x4,
-            "x5": x5, "x6": x6,
-        })
+        X = pd.DataFrame(
+            {
+                "x1": x1,
+                "x2": x2,
+                "x3": x3,
+                "x4": x4,
+                "x5": x5,
+                "x6": x6,
+            }
+        )
         signal = 0.7 * (x1 + 0.7 * x2) + 0.7 * np.sign(x3 * x4)
         y = pd.Series(
             (signal + 0.25 * rng.standard_normal(n) > 0).astype(int),
@@ -313,7 +322,11 @@ class TestLogRegAucOnComposite:
         assert Xt.shape[1] > 0, "MRMR.transform returned empty frame on composite fit"
         Xt_num = Xt.select_dtypes(include=[np.number, "bool"]).fillna(0.0)
         Xtr, Xte, ytr, yte = train_test_split(
-            Xt_num, y, test_size=0.3, random_state=0, stratify=y,
+            Xt_num,
+            y,
+            test_size=0.3,
+            random_state=0,
+            stratify=y,
         )
         clf = LogisticRegression(max_iter=2000, C=1.0)
         clf.fit(Xtr, ytr)
@@ -430,11 +443,12 @@ class TestCrossBasisHierarchyActivation:
             kwargs.pop(k, None)
         m = _make_mrmr(**kwargs).fit(X, y)
         orth = list(getattr(m, "hybrid_orth_features_", None) or [])
-        assert orth, "hybrid_orth_features_ empty after L21-L78 all-on fit; FE " "compose did not append any orthogonal-basis columns"
+        assert orth, "hybrid_orth_features_ empty after L21-L78 all-on fit; FE compose did not append any orthogonal-basis columns"
 
         def n_star(s):
             """Count '*' occurrences in the source-name segment of an engineered column label."""
             return str(s).split("__", 1)[0].count("*")
+
         # Production check against the L54 fe_provenance_ audit ledger: every
         # engineered column the orth-poly stage produced this fit, survivor or
         # screened-out. The hybrid_orth bucket subsumes L21/L22/L56/L77/L78.
@@ -443,8 +457,8 @@ class TestCrossBasisHierarchyActivation:
         produced_orth = [str(r["feature_name"]) for _, r in prov.iterrows() if r["origin"] == "hybrid_orth"]
         uni = [c for c in produced_orth if n_star(c) == 0]
         pair = [c for c in produced_orth if n_star(c) == 1]
-        assert uni, f"L21 univariate stage produced no columns; produced hybrid_orth " f"columns={produced_orth!r}"
-        assert pair, f"L22 pair stage produced no columns; produced hybrid_orth " f"columns={produced_orth!r}"
+        assert uni, f"L21 univariate stage produced no columns; produced hybrid_orth columns={produced_orth!r}"
+        assert pair, f"L22 pair stage produced no columns; produced hybrid_orth columns={produced_orth!r}"
         # L56/L77/L78 wiring intact post-fit (ctor flags survive).
         for flag in (
             "fe_hybrid_orth_triplet_enable",
@@ -466,27 +480,30 @@ class TestOrthPolyFamilyImport:
     if pytest collection of the per-layer files is somehow disabled.
     """
 
-    @pytest.mark.parametrize("modname", [
-        "_orthogonal_univariate_fe",        # L21
-        "_orthogonal_routing_fe",           # L58 cross-basis routing
-        "_orthogonal_diff_basis_fe",        # L59 diff-basis
-        "_orthogonal_cluster_basis_fe",     # L61 per-cluster
-        "_orthogonal_adaptive_degree_fe",   # L57 adaptive degree
-        "_orthogonal_triplet_fe",           # L56
-        "_orthogonal_quadruplet_fe",        # L77
-        "_orthogonal_adaptive_arity_fe",    # L78
-        "_orthogonal_ksg_mi_fe",            # L65
-        "_orthogonal_copula_mi_fe",         # L66
-        "_orthogonal_dcor_fe",              # L67
-        "_orthogonal_hsic_fe",              # L71
-        "_orthogonal_jmim_fe",              # L72
-        "_orthogonal_total_correlation_fe",  # L73
-        "_orthogonal_cmim_fe",              # L74
-        "_orthogonal_scorer_auto_fe",       # L68
-        "_orthogonal_bootstrap_mi_fe",      # L62
-        "_orthogonal_three_gate_mi_fe",     # L63
-        "_orthogonal_meta_scorer_fe",       # L76
-    ])
+    @pytest.mark.parametrize(
+        "modname",
+        [
+            "_orthogonal_univariate_fe",  # L21
+            "_orthogonal_routing_fe",  # L58 cross-basis routing
+            "_orthogonal_diff_basis_fe",  # L59 diff-basis
+            "_orthogonal_cluster_basis_fe",  # L61 per-cluster
+            "_orthogonal_adaptive_degree_fe",  # L57 adaptive degree
+            "_orthogonal_triplet_fe",  # L56
+            "_orthogonal_quadruplet_fe",  # L77
+            "_orthogonal_adaptive_arity_fe",  # L78
+            "_orthogonal_ksg_mi_fe",  # L65
+            "_orthogonal_copula_mi_fe",  # L66
+            "_orthogonal_dcor_fe",  # L67
+            "_orthogonal_hsic_fe",  # L71
+            "_orthogonal_jmim_fe",  # L72
+            "_orthogonal_total_correlation_fe",  # L73
+            "_orthogonal_cmim_fe",  # L74
+            "_orthogonal_scorer_auto_fe",  # L68
+            "_orthogonal_bootstrap_mi_fe",  # L62
+            "_orthogonal_three_gate_mi_fe",  # L63
+            "_orthogonal_meta_scorer_fe",  # L76
+        ],
+    )
     def test_module_imports(self, modname):
         """Each orth-poly family submodule imports cleanly and is not None."""
         mod = importlib.import_module(f"mlframe.feature_selection.filters.{modname}")

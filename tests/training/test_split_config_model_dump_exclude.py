@@ -14,6 +14,7 @@ caller-side field means updating BOTH this list AND the exclude set
 in lockstep, so the test fails early if a future contributor forgets
 one side.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -40,11 +41,10 @@ def test_phase_helpers_fit_split_uses_signature_derived_filter() -> None:
     were added without exclude updates. The runtime-signature filter
     catches any future field addition automatically."""
     import mlframe.training.core._phase_helpers_fit_split as ph
+
     src = Path(ph.__file__).read_text(encoding="utf-8")
     assert "inspect.signature(make_train_test_split).parameters" in src, (
-        "phase_helpers_fit_split must inspect the splitter signature at "
-        "runtime to filter the model_dump kwargs; hardcoded exclude lists "
-        "drift out of sync."
+        "phase_helpers_fit_split must inspect the splitter signature at runtime to filter the model_dump kwargs; hardcoded exclude lists drift out of sync."
     )
 
 
@@ -54,11 +54,11 @@ def test_phase_helpers_fit_split_filter_drops_all_caller_side_fields() -> None:
     import inspect
     from mlframe.training._preprocessing_configs import TrainingSplitConfig
     from mlframe.training.splitting import make_train_test_split
+
     cfg = TrainingSplitConfig()
     splitter_kwargs = set(inspect.signature(make_train_test_split).parameters)
     explicit = {"df", "timestamps", "stratify_y", "groups"}
-    filtered = {k: v for k, v in cfg.model_dump().items()
-                if k in splitter_kwargs and k not in explicit}
+    filtered = {k: v for k, v in cfg.model_dump().items() if k in splitter_kwargs and k not in explicit}
     for field in _CALLER_SIDE_FIELDS:
         assert field not in filtered, (
             f"Caller-side field {field!r} survived the signature-derived "
@@ -73,6 +73,7 @@ def test_make_train_test_split_signature_does_not_accept_caller_side_fields() ->
     to the splitter (legitimately consuming it), this test fails on
     purpose so the maintainer revisits the exclude set."""
     from mlframe.training.splitting import make_train_test_split
+
     params = inspect.signature(make_train_test_split).parameters
     for field in _CALLER_SIDE_FIELDS:
         assert field not in params, (
@@ -89,10 +90,9 @@ def test_training_split_config_has_each_caller_side_field() -> None:
     the config. A typo'd field name would silently bypass the sensor
     above (a field that doesn't exist is trivially 'excluded')."""
     from mlframe.training._preprocessing_configs import TrainingSplitConfig
+
     fields = getattr(TrainingSplitConfig, "model_fields", {})
     for field in _CALLER_SIDE_FIELDS:
         assert field in fields, (
-            f"TrainingSplitConfig has no field {field!r}; the sensor "
-            f"won't catch real regressions. Rename or remove from "
-            f"_CALLER_SIDE_FIELDS."
+            f"TrainingSplitConfig has no field {field!r}; the sensor won't catch real regressions. Rename or remove from _CALLER_SIDE_FIELDS."
         )

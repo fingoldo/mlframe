@@ -91,7 +91,15 @@ def _read(rel: str) -> str:
         # mrmr subpackage split: MRMR class body in mrmr/_mrmr_class.py; the rest of the surface lives in
         # _mrmr_{fingerprints,fit_impl,fe_step,validate_transform}.py + the mrmr/__init__.py facade.
         _dir = MLFRAME_ROOT / "feature_selection" / "filters"
-        for nm in ("mrmr/__init__.py", "_mrmr_fingerprints.py", "_mrmr_fit_impl/_fit_impl_core.py", "_mrmr_fit_impl/_helpers.py", "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py", "_mrmr_validate_transform.py"):
+        for nm in (
+            "mrmr/__init__.py",
+            "_mrmr_fingerprints.py",
+            "_mrmr_fit_impl/_fit_impl_core.py",
+            "_mrmr_fit_impl/_helpers.py",
+            "_mrmr_fe_step/_step_core.py",
+            "_mrmr_fe_step/_helpers.py",
+            "_mrmr_validate_transform.py",
+        ):
             sibling = _dir / nm
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
@@ -134,6 +142,7 @@ def test_rfecv_sffs_swap_uses_secondary_name_key() -> None:
 def test_rfecv_stability_topk_uses_lexsort() -> None:
     """Stability-selection top-K uses an index-tiebreak lexsort, not a plain sort."""
     import re
+
     # Monolith split: the stability-selection top-k logic moved out of __init__.py into the
     # sibling _stability_select.py; the site is now a single line, not the indented multi-line
     # shape from before the split.
@@ -308,7 +317,7 @@ def test_lexsort_tiebreak_returns_same_top_k_across_input_permutations() -> None
         order = np.lexsort((n, -s))
         return tuple(sorted(n[order[:3]].tolist()))
 
-    assert top3(perm1) == top3(perm2), "Lexsort with content-based tiebreaker must yield identical top-K " "across input permutations."
+    assert top3(perm1) == top3(perm2), "Lexsort with content-based tiebreaker must yield identical top-K across input permutations."
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +329,7 @@ def test_spectral_attention_eig_sort_is_stable() -> None:
     """spectral_attention's eigenvalue-order argsort uses kind='stable'."""
     src = (MLFRAME_ROOT / "feature_engineering" / "transformer" / "spectral_attention.py").read_text(encoding="utf-8")
     assert 'np.argsort(-eigvals_A, kind="stable")' in src, (
-        "spectral_attention eigenvalue order must use kind='stable' so degenerate eigenvalues do not " "flip which eigenvector becomes feature-k"
+        "spectral_attention eigenvalue order must use kind='stable' so degenerate eigenvalues do not flip which eigenvector becomes feature-k"
     )
 
 
@@ -334,7 +343,7 @@ def test_fca_closed_concepts_topk_uses_content_tiebreak() -> None:
     """fca_closed_concepts top_k selection breaks equal-extent-size ties on intent content."""
     src = (MLFRAME_ROOT / "feature_engineering" / "transformer" / "fca_closed_concepts.py").read_text(encoding="utf-8")
     assert "key=lambda x: (-len(x[0]), tuple(sorted(x[1])))" in src, (
-        "fca top_k concept selection must break equal-extent-size ties on intent content, not on the " "concepts-lib lattice iteration order"
+        "fca top_k concept selection must break equal-extent-size ties on intent content, not on the concepts-lib lattice iteration order"
     )
 
 

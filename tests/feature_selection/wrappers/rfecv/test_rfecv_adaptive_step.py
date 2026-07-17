@@ -6,6 +6,7 @@ Covers the new ``_suggest_dichotomic(step=...)`` schedule and its RFECV wiring:
   - the schedule tapers to step=1 as the pool drains / the curve moves near the knee;
   - constructor + SearchConfig validate the knob and reject bad values.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -73,6 +74,7 @@ class TestRFECVWiring:
 
     def test_search_config_validates_step(self):
         from mlframe.feature_selection.wrappers.rfecv._configs import SearchConfig, _PYDANTIC_AVAILABLE
+
         if not _PYDANTIC_AVAILABLE:
             pytest.skip("pydantic unavailable")
         with pytest.raises(ValueError):
@@ -86,8 +88,13 @@ class TestRFECVWiring:
             sel = RFECV(
                 estimator=LogisticRegression(max_iter=300),
                 top_predictors_search_method=OptimumSearch.ExhaustiveDichotomic,
-                dichotomic_step=step, dichotomic_epsilon=0.0, cv=3,
-                max_noimproving_iters=8, random_state=0, verbose=0, leave_progressbars=False,
+                dichotomic_step=step,
+                dichotomic_epsilon=0.0,
+                cv=3,
+                max_noimproving_iters=8,
+                random_state=0,
+                verbose=0,
+                leave_progressbars=False,
             )
             sel.fit(X, y)
             out[step] = set(np.asarray(X.columns)[sel.support_])

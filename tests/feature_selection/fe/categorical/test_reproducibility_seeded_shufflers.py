@@ -4,10 +4,10 @@ Each kernel previously used the process-global numba RNG (``np.random.randint`` 
 polluted the caller's RNG stream. The fix threads a ``base_seed`` and seeds an inline LCG. These tests pin: (a) same seed -> identical permutation, (b) different seed ->
 different permutation, (c) numpy's process-global state is untouched.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _global_state_unchanged(before) -> bool:
@@ -65,7 +65,7 @@ def test_con3_shuffle_and_compute_three_mis_seeded():
     y = rng.integers(0, 2, n).astype(np.int64)
 
     def _freqs(c, k):
-        return (np.bincount(c, minlength=k).astype(np.float64) / n)
+        return np.bincount(c, minlength=k).astype(np.float64) / n
 
     fq_pair, fq_x1, fq_x2, fq_y = _freqs(cls_pair, 6), _freqs(cls_x1, 3), _freqs(cls_x2, 3), _freqs(y, 2)
 

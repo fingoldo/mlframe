@@ -19,13 +19,13 @@ The test asserts:
      that forces every JMIM lookup to MISS (the pre-change behaviour);
   2. the cache actually HITS (sum_hits > 0) in JMIM order-2 mode, proving it engages.
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -45,9 +45,14 @@ def _fit_jmim_order2():
 
     df, ys = _make_frame()
     sel = MRMR(
-        verbose=0, random_seed=42, n_workers=1, max_runtime_mins=2,
-        quantization_nbins=5, redundancy_aggregator="jmim",
-        use_simple_mode=False, interactions_max_order=2,
+        verbose=0,
+        random_seed=42,
+        n_workers=1,
+        max_runtime_mins=2,
+        quantization_nbins=5,
+        redundancy_aggregator="jmim",
+        use_simple_mode=False,
+        interactions_max_order=2,
     )
     sel.fit(df, ys)
     return sel
@@ -70,10 +75,7 @@ def test_jmim_cache_parity_and_hits():
 
     # The cache must populate AND actually hit at order 2 -> proves it engages.
     assert sum_size > 0, "JMIM cache never populated -- branch not exercised"
-    assert sum_hits > 0, (
-        f"JMIM cache populated ({sum_size} entries) but never HIT -- no cross-round reuse "
-        f"detected; the cache is not engaging at order 2"
-    )
+    assert sum_hits > 0, f"JMIM cache populated ({sum_size} entries) but never HIT -- no cross-round reuse detected; the cache is not engaging at order 2"
 
     # --- Run with the cache KILLED: wrap evaluate_candidate so every call gets a FRESH
     # empty jmim dict -> every JMIM lookup MISSES, reproducing the pre-change behaviour
@@ -82,7 +84,8 @@ def test_jmim_cache_parity_and_hits():
 
     def _killed_evaluate_candidate(*args, **kwargs):
         kwargs["cached_jmim_MIs"] = numba.typed.Dict.empty(
-            key_type=types.unicode_type, value_type=types.float64,
+            key_type=types.unicode_type,
+            value_type=types.float64,
         )
         kwargs["jmim_hit_counter"] = np.zeros(1, dtype=np.int64)
         return real_evaluate_candidate(*args, **kwargs)
@@ -103,9 +106,5 @@ def test_jmim_cache_parity_and_hits():
 
     # HARD PARITY GATE: selection order + support must be byte-identical. The cache only
     # memoises the same mi() value, so selection MUST NOT change.
-    assert names_cached == names_killed, (
-        f"JMIM cache changed selection ORDER:\n cached={names_cached}\n killed={names_killed}"
-    )
-    assert np.array_equal(support_cached, support_killed), (
-        "JMIM cache changed support_ mask -- selection is NOT cache-invariant"
-    )
+    assert names_cached == names_killed, f"JMIM cache changed selection ORDER:\n cached={names_cached}\n killed={names_killed}"
+    assert np.array_equal(support_cached, support_killed), "JMIM cache changed support_ mask -- selection is NOT cache-invariant"

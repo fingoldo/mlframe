@@ -13,6 +13,7 @@ selection. So the dispatch trusts the end-to-end measurement and defaults to nji
 sweep was upgraded to measure contention (it exposes the 5-7x penalty) and an explicit
 ``MLFRAME_MI_BACKEND=cuda`` still forces the GPU for a caller that benefits.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,6 +25,7 @@ def test_fallback_mi_backend_is_njit_for_all_shapes():
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import (
         _fallback_mi_backend,
     )
+
     for n in (1_000, 10_000, 75_000, 100_000, 1_000_000):
         for k in (1, 5, 20, 200):
             assert _fallback_mi_backend(n, k) == "njit", (n, k)
@@ -33,6 +35,7 @@ def test_batch_dispatch_default_matches_forced_njit(monkeypatch):
     """With no override, the batch dispatch returns the njit result bit-for-bit
     (i.e. it routes to njit by default rather than cuda)."""
     import mlframe.feature_selection.filters.hermite_fe  # noqa: F401 -- full-init parent first (the direct
+
     # ``import _hermite_fe_mi`` cycle: hermite_fe/__init__ imports _ensure_cuda_kernels back from it).
     from mlframe.feature_selection.filters import _hermite_fe_mi as H
 
@@ -49,6 +52,7 @@ def test_batch_dispatch_default_matches_forced_njit(monkeypatch):
 
 def test_single_dispatch_default_matches_forced_njit(monkeypatch):
     import mlframe.feature_selection.filters.hermite_fe  # noqa: F401 -- full-init parent first (the direct
+
     # ``import _hermite_fe_mi`` cycle: hermite_fe/__init__ imports _ensure_cuda_kernels back from it).
     from mlframe.feature_selection.filters import _hermite_fe_mi as H
 

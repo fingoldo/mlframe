@@ -11,9 +11,9 @@ Coverage:
 Behavioural correctness (not just smoke): for a synthetic dataset where target = sign(X[:, 0]), the row-attention features should correlate with the target on a
 held-out fold (Mode B). Soft check - not the biz_value test, which is harder; this one just confirms the pipeline isn't producing pure noise.
 """
+
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -47,8 +47,16 @@ def _make_data(n: int = 200, d: int = 8, seed: int = 0) -> tuple[np.ndarray, np.
 def test_row_attention_mode_a_shape_and_dtype(small_X_y_classification, kfold_splitter):
     X, y = small_X_y_classification
     out = compute_row_attention(
-        X_train=X, y_train=y, X_query=None, splitter=kfold_splitter,
-        seed=42, n_heads=2, head_dim=4, k=8, gpu_stage4=False, dedupe_threshold=None,
+        X_train=X,
+        y_train=y,
+        X_query=None,
+        splitter=kfold_splitter,
+        seed=42,
+        n_heads=2,
+        head_dim=4,
+        k=8,
+        gpu_stage4=False,
+        dedupe_threshold=None,
     )
     assert isinstance(out, pl.DataFrame)
     assert out.shape[0] == X.shape[0]
@@ -60,8 +68,17 @@ def test_row_attention_mode_a_shape_and_dtype(small_X_y_classification, kfold_sp
 def test_row_attention_mode_a_with_x_mean_aggregate(small_X_y_classification, kfold_splitter):
     X, y = small_X_y_classification
     out = compute_row_attention(
-        X_train=X, y_train=y, X_query=None, splitter=kfold_splitter,
-        seed=42, n_heads=2, head_dim=4, k=8, aggregate=("y_mean", "x_mean"), gpu_stage4=False, dedupe_threshold=None,
+        X_train=X,
+        y_train=y,
+        X_query=None,
+        splitter=kfold_splitter,
+        seed=42,
+        n_heads=2,
+        head_dim=4,
+        k=8,
+        aggregate=("y_mean", "x_mean"),
+        gpu_stage4=False,
+        dedupe_threshold=None,
     )
     # 2 heads * (1 scalar y_mean + 4 x_mean dims) = 10 columns.
     assert out.shape == (X.shape[0], 10)
@@ -91,8 +108,16 @@ def test_row_attention_mode_b_shape():
     X_train, y_train = _make_data(n=200, d=8, seed=0)
     X_query, _ = _make_data(n=50, d=8, seed=1)
     out = compute_row_attention(
-        X_train=X_train, y_train=y_train, X_query=X_query, splitter=KFold(n_splits=2),
-        seed=42, n_heads=2, head_dim=4, k=8, gpu_stage4=False, dedupe_threshold=None,
+        X_train=X_train,
+        y_train=y_train,
+        X_query=X_query,
+        splitter=KFold(n_splits=2),
+        seed=42,
+        n_heads=2,
+        head_dim=4,
+        k=8,
+        gpu_stage4=False,
+        dedupe_threshold=None,
     )
     assert out.shape == (50, 4)
 
@@ -193,8 +218,16 @@ def test_row_attention_signal_correlates_with_target():
     X_train, y_train = _make_data(n=300, d=8, seed=0)
     X_query, y_query = _make_data(n=100, d=8, seed=1)
     out = compute_row_attention(
-        X_train=X_train, y_train=y_train, X_query=X_query, splitter=KFold(n_splits=2),
-        seed=42, n_heads=1, head_dim=4, k=16, gpu_stage4=False, dedupe_threshold=None,
+        X_train=X_train,
+        y_train=y_train,
+        X_query=X_query,
+        splitter=KFold(n_splits=2),
+        seed=42,
+        n_heads=1,
+        head_dim=4,
+        k=16,
+        gpu_stage4=False,
+        dedupe_threshold=None,
     )
     y_mean = out["attn_h0_y_mean"].to_numpy()
     corr = float(np.corrcoef(y_mean, y_query)[0, 1])
@@ -207,6 +240,7 @@ def test_row_attention_signal_correlates_with_target():
 def _gpu_available() -> bool:
     try:
         from mlframe.feature_engineering.transformer._utils import is_gpu_available
+
         return is_gpu_available()
     except Exception:
         return False
@@ -219,11 +253,27 @@ def test_row_attention_gpu_cpu_parity():
     X_train, y_train = _make_data(n=300, d=8, seed=0)
     X_query, _ = _make_data(n=64, d=8, seed=1)
     out_cpu = compute_row_attention(
-        X_train, y_train, X_query, KFold(n_splits=2),
-        seed=0, n_heads=2, head_dim=4, k=8, gpu_stage4=False, dedupe_threshold=None,
+        X_train,
+        y_train,
+        X_query,
+        KFold(n_splits=2),
+        seed=0,
+        n_heads=2,
+        head_dim=4,
+        k=8,
+        gpu_stage4=False,
+        dedupe_threshold=None,
     )
     out_gpu = compute_row_attention(
-        X_train, y_train, X_query, KFold(n_splits=2),
-        seed=0, n_heads=2, head_dim=4, k=8, gpu_stage4=True, dedupe_threshold=None,
+        X_train,
+        y_train,
+        X_query,
+        KFold(n_splits=2),
+        seed=0,
+        n_heads=2,
+        head_dim=4,
+        k=8,
+        gpu_stage4=True,
+        dedupe_threshold=None,
     )
     np.testing.assert_allclose(out_cpu.to_numpy(), out_gpu.to_numpy(), atol=1e-4, rtol=1e-3)

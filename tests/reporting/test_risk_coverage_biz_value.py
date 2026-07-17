@@ -35,7 +35,7 @@ def _random_confidence_binary(n=8000, seed=1):
 def test_biz_val_risk_coverage_well_ranked_selective_gain():
     """Well-ranked confidence: accuracy@80% >= accuracy@100% + 0.05 AND AURC < random-rejection AURC."""
     y, score = _well_ranked_binary()
-    cov, acc, risk, aurc, full_risk, sig = compute_risk_coverage(y, score, task="binary")
+    cov, acc, _risk, aurc, full_risk, sig = compute_risk_coverage(y, score, task="binary")
     acc80 = float(np.interp(0.8, cov, acc))
     acc100 = float(acc[-1])
     assert sig is True
@@ -46,7 +46,7 @@ def test_biz_val_risk_coverage_well_ranked_selective_gain():
 def test_biz_val_risk_coverage_random_confidence_flat():
     """Random confidence: accuracy@80% ~= accuracy@100% (|gain| < 0.02), AURC ~= random AURC."""
     y, score = _random_confidence_binary()
-    cov, acc, risk, aurc, full_risk, sig = compute_risk_coverage(y, score, task="binary")
+    cov, acc, _risk, aurc, full_risk, _sig = compute_risk_coverage(y, score, task="binary")
     acc80 = float(np.interp(0.8, cov, acc))
     acc100 = float(acc[-1])
     assert abs(acc80 - acc100) < 0.02, f"random confidence leaked a gain of {acc80 - acc100:.3f}"

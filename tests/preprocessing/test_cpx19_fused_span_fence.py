@@ -4,6 +4,7 @@ must produce the SAME values_in_span and n_outliers as the original separate num
 Pins bit-identity of the optimization against the reference numpy expression on the
 edge cases that matter: with-outliers, with-NaN, all-equal, all-NaN.
 """
+
 import numpy as np
 import pytest
 

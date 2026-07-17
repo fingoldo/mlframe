@@ -13,7 +13,10 @@ import pytest
 from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
 from mlframe.reporting.renderers.plotly import PlotlyRenderer
 from mlframe.reporting.spec import (
-    BarPanelSpec, HeatmapPanelSpec, LinePanelSpec, ScatterPanelSpec,
+    BarPanelSpec,
+    HeatmapPanelSpec,
+    LinePanelSpec,
+    ScatterPanelSpec,
 )
 
 
@@ -62,15 +65,12 @@ def test_calibration_ci_renders_errorbar_both_backends():
     spec = build_calibration_spec(freqs_pred, freqs_true, hits, show_prob_histogram=False)
 
     fig = MatplotlibRenderer().render(spec)
-    has_errorbar = any(
-        type(c).__name__ == "ErrorbarContainer" for ax in fig.axes for c in ax.containers
-    )
+    has_errorbar = any(type(c).__name__ == "ErrorbarContainer" for ax in fig.axes for c in ax.containers)
     assert has_errorbar, "matplotlib reliability scatter must draw an errorbar container for the CI band"
     matplotlib.pyplot.close(fig)
 
     pfig = PlotlyRenderer().render(spec)
-    has_error_y = any(getattr(tr, "error_y", None) is not None and tr.error_y.array is not None
-                      for tr in pfig.data)
+    has_error_y = any(getattr(tr, "error_y", None) is not None and tr.error_y.array is not None for tr in pfig.data)
     assert has_error_y, "plotly reliability scatter must carry an error_y data dict"
 
 
@@ -80,8 +80,7 @@ def test_calibration_ci_can_be_disabled():
     freqs_pred = np.linspace(0.1, 0.9, 5)
     freqs_true = freqs_pred.copy()
     hits = np.full(5, 20.0)
-    spec = build_calibration_spec(freqs_pred, freqs_true, hits,
-                                  show_prob_histogram=False, show_wilson_ci=False)
+    spec = build_calibration_spec(freqs_pred, freqs_true, hits, show_prob_histogram=False, show_wilson_ci=False)
     sc = _panels_of_type(spec, ScatterPanelSpec)[0]
     assert sc.y_err is None
 
@@ -102,7 +101,10 @@ def test_regression_scatter_highlights_worst_k_red():
     bad = np.array([10, 200, 500, 730], dtype=np.int64)
     y_pred[bad] += 5.0
     spec = compose_regression_figure(
-        y_true, y_pred, panels_template="SCATTER", worst_k_indices=bad,
+        y_true,
+        y_pred,
+        panels_template="SCATTER",
+        worst_k_indices=bad,
     )
     sc = _panels_of_type(spec, ScatterPanelSpec)[0]
     assert sc.highlight_indices is not None
@@ -116,6 +118,7 @@ def test_regression_scatter_highlights_worst_k_red():
     assert np.allclose(np.sort(highlighted_pred), np.sort(expected_pred))
 
     import matplotlib
+
     matplotlib.use("Agg")
     fig = MatplotlibRenderer().render(spec)
     # Worst-K overlay is a 2nd PathCollection on the scatter axes.
@@ -134,7 +137,10 @@ def test_regression_worst_k_survives_subsample():
     bad = np.array([3, 7777, 15123], dtype=np.int64)
     y_pred[bad] += 8.0
     spec = compose_regression_figure(
-        y_true, y_pred, panels_template="SCATTER", worst_k_indices=bad,
+        y_true,
+        y_pred,
+        panels_template="SCATTER",
+        worst_k_indices=bad,
     )
     sc = _panels_of_type(spec, ScatterPanelSpec)[0]
     hi = np.asarray(sc.highlight_indices, dtype=np.int64)
@@ -159,8 +165,7 @@ def test_confused_pairs_is_horizontal_bar():
     sel = y_true == 0
     proba[sel] = 0.0
     proba[sel, 1] = 1.0
-    spec = compose_multiclass_figure(y_true, proba, classes=list(range(K)),
-                                     panels_template="CONFUSED_PAIRS")
+    spec = compose_multiclass_figure(y_true, proba, classes=list(range(K)), panels_template="CONFUSED_PAIRS")
     bars = _panels_of_type(spec, BarPanelSpec)
     assert bars, "CONFUSED_PAIRS must build a BarPanelSpec"
     assert bars[0].orientation == "horizontal"
@@ -307,7 +312,6 @@ def test_adversarial_roc_uses_per_series_x():
     n = 400
     train = rng.normal(size=(n, 4))
     test = rng.normal(loc=0.6, size=(n, 4))
-    spec = adversarial_validation(train, test, feature_names=[f"f{i}" for i in range(4)],
-                                  n_splits=2, top_features=4)
+    spec = adversarial_validation(train, test, feature_names=[f"f{i}" for i in range(4)], n_splits=2, top_features=4)
     line = _panels_of_type(spec, LinePanelSpec)[0]
     assert isinstance(line.x, tuple), "adversarial ROC must carry per-series x arrays (one fpr grid per curve)"

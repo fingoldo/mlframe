@@ -9,6 +9,7 @@ the entry and recomputes when the stored ref no longer resolves to the live
 object. These tests pin both the collision-safety and the still-working
 same-object cache hit.
 """
+
 from __future__ import annotations
 
 import gc

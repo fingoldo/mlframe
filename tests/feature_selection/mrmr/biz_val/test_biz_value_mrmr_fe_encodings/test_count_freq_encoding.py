@@ -39,8 +39,6 @@ import pandas as pd
 import pytest
 
 from sklearn.base import clone
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
 
 warnings.filterwarnings("ignore")
 
@@ -95,11 +93,13 @@ def _build_count_signal(seed: int, n: int = 4000):
     noise_a = rng.standard_normal(n)
     noise_b = rng.standard_normal(n)
     y = (rng.random(n) < p).astype(int)
-    X = pd.DataFrame({
-        "cat_user": cat_user,
-        "noise_a": noise_a,
-        "noise_b": noise_b,
-    })
+    X = pd.DataFrame(
+        {
+            "cat_user": cat_user,
+            "noise_a": noise_a,
+            "noise_b": noise_b,
+        }
+    )
     return X, pd.Series(y, name="y")
 
 
@@ -124,11 +124,13 @@ def _build_cat_num_residual_signal(seed: int, n: int = 4000):
     p = 1.0 / (1.0 + np.exp(-0.2 * residual))
     y = (rng.random(n) < p).astype(int)
     noise = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "cat": cat,
-        "price": price,
-        "noise": noise,
-    })
+    X = pd.DataFrame(
+        {
+            "cat": cat,
+            "price": price,
+            "noise": noise,
+        }
+    )
     return X, pd.Series(y, name="y")
 
 
@@ -139,17 +141,20 @@ def _build_cat_num_residual_signal(seed: int, n: int = 4000):
 
 class TestCountEncodeKernel:
     """Tests test count encode kernel."""
+
     def test_fit_returns_integer_counts(self):
         """Check test fit returns integer counts."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             count_encode_fit,
         )
+
         X = pd.DataFrame({"cat": ["A", "B", "A", "C", "A", "B"]})
         enc, recipes = count_encode_fit(X, ["cat"])
         assert enc.shape == (6, 1)
         assert "cat__count" in enc.columns
         np.testing.assert_array_equal(
-            enc["cat__count"].to_numpy(), np.array([3, 2, 3, 1, 3, 2]),
+            enc["cat__count"].to_numpy(),
+            np.array([3, 2, 3, 1, 3, 2]),
         )
         assert recipes["cat"]["lookup"] == {"A": 3, "B": 2, "C": 1}
         assert recipes["cat"]["default"] == 0
@@ -159,6 +164,7 @@ class TestCountEncodeKernel:
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             count_encode_fit,
         )
+
         with pytest.raises(ValueError, match="empty"):
             count_encode_fit(pd.DataFrame({"cat": []}), ["cat"])
 
@@ -167,14 +173,17 @@ class TestCountEncodeKernel:
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             count_encode_fit,
         )
+
         with pytest.raises(ValueError, match="missing"):
             count_encode_fit(pd.DataFrame({"a": ["x"] * 3}), ["b"])
 
     def test_apply_unseen_maps_to_default(self):
         """Check test apply unseen maps to default."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
-            count_encode_fit, apply_count_encoding,
+            count_encode_fit,
+            apply_count_encoding,
         )
+
         X_tr = pd.DataFrame({"cat": ["A", "A", "B", "B", "B"]})
         _, recipes = count_encode_fit(X_tr, ["cat"])
         X_ho = pd.DataFrame({"cat": ["A", "Z", "B"]})
@@ -184,18 +193,22 @@ class TestCountEncodeKernel:
 
 class TestFrequencyEncodeKernel:
     """Tests test frequency encode kernel."""
+
     def test_fit_returns_float_freqs(self):
         """Check test fit returns float freqs."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             frequency_encode_fit,
         )
+
         X = pd.DataFrame({"cat": ["A", "B", "A", "C", "A", "B"]})
         enc, recipes = frequency_encode_fit(X, ["cat"])
         assert "cat__freq" in enc.columns
         # n=6, A:3 -> 0.5, B:2 -> 1/3, C:1 -> 1/6
         expected = np.array([0.5, 1 / 3, 0.5, 1 / 6, 0.5, 1 / 3])
         np.testing.assert_allclose(
-            enc["cat__freq"].to_numpy(), expected, rtol=1e-12,
+            enc["cat__freq"].to_numpy(),
+            expected,
+            rtol=1e-12,
         )
         assert recipes["cat"]["lookup"]["A"] == pytest.approx(0.5)
         assert recipes["cat"]["lookup"]["C"] == pytest.approx(1 / 6)
@@ -203,11 +216,13 @@ class TestFrequencyEncodeKernel:
 
 class TestCatNumInteractionKernel:
     """Tests test cat num interaction kernel."""
+
     def test_residual_matches_construction(self):
         """Check test residual matches construction."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             cat_num_interaction_fit,
         )
+
         rng = np.random.default_rng(0)
         n = 600
         cat = rng.choice(["A", "B", "C"], size=n)
@@ -218,7 +233,13 @@ class TestCatNumInteractionKernel:
         y = (rng.random(n) > 0.5).astype(int)
         X = pd.DataFrame({"cat": cat, "price": price})
         residual, recipe = cat_num_interaction_fit(
-            X, y, "cat", "price", n_folds=5, smoothing=1.0, random_state=0,
+            X,
+            y,
+            "cat",
+            "price",
+            n_folds=5,
+            smoothing=1.0,
+            random_state=0,
         )
         # Each category's stored lookup mean should be close to its construction mean
         # (small smoothing, n_c large -> approx raw mean).
@@ -266,7 +287,9 @@ class TestCatNumInteractionKernel:
         # Empty input must return an empty float64 array, not raise.
         empty = apply_cat_num_residual(
             pd.DataFrame({"cat": pd.Series([], dtype=object), "price": pd.Series([], dtype=np.float64)}),
-            "cat", "price", recipe,
+            "cat",
+            "price",
+            recipe,
         )
         assert empty.shape == (0,) and empty.dtype == np.float64
 
@@ -275,6 +298,7 @@ class TestCatNumInteractionKernel:
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             cat_num_interaction_fit,
         )
+
         X = pd.DataFrame({"a": ["x"] * 5, "b": [1.0] * 5})
         y = np.array([0, 1, 0, 1, 0])
         with pytest.raises(ValueError, match="missing"):
@@ -287,6 +311,7 @@ class TestCatNumInteractionKernel:
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
             cat_num_interaction_fit,
         )
+
         X = pd.DataFrame({"cat": ["x"] * 5, "stringy": ["v"] * 5})
         y = np.array([0, 1, 0, 1, 0])
         with pytest.raises(ValueError, match="not numeric"):
@@ -300,12 +325,15 @@ class TestCatNumInteractionKernel:
 
 class TestCountEncodingAUCLift:
     """Tests test count encoding a u c lift."""
+
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_auc_lift_via_count(self, seed: int):
         """Check test logreg auc lift via count."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
-            count_encode_fit, apply_count_encoding,
+            count_encode_fit,
+            apply_count_encoding,
         )
+
         X, y = _build_count_signal(seed)
         X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
 
@@ -325,12 +353,15 @@ class TestCountEncodingAUCLift:
 
 class TestFrequencyEncodingAUCLift:
     """Tests test frequency encoding a u c lift."""
+
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_auc_lift_via_frequency(self, seed: int):
         """Check test logreg auc lift via frequency."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
-            frequency_encode_fit, apply_frequency_encoding,
+            frequency_encode_fit,
+            apply_frequency_encoding,
         )
+
         X, y = _build_count_signal(seed)
         X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
 
@@ -350,12 +381,15 @@ class TestFrequencyEncodingAUCLift:
 
 class TestCatNumResidualAUCLift:
     """Tests test cat num residual a u c lift."""
+
     @pytest.mark.parametrize("seed", SEEDS)
     def test_logreg_auc_lift_via_residual(self, seed: int):
         """Check test logreg auc lift via residual."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
-            cat_num_interaction_fit, apply_cat_num_residual,
+            cat_num_interaction_fit,
+            apply_cat_num_residual,
         )
+
         X, y = _build_cat_num_residual_signal(seed)
         X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
 
@@ -364,8 +398,13 @@ class TestCatNumResidualAUCLift:
         auc_raw = _logreg_auc(X_tr, y_tr, X_ho, y_ho)
 
         residual_tr, recipe = cat_num_interaction_fit(
-            X_tr, y_tr.to_numpy(), "cat", "price",
-            n_folds=5, smoothing=10.0, random_state=seed,
+            X_tr,
+            y_tr.to_numpy(),
+            "cat",
+            "price",
+            n_folds=5,
+            smoothing=10.0,
+            random_state=seed,
         )
         residual_ho = apply_cat_num_residual(X_ho, "cat", "price", recipe)
         X_tr_aug = X_tr.copy()
@@ -385,14 +424,17 @@ class TestCatNumResidualAUCLift:
 
 class TestNoLeakageCountFreq:
     """Tests test no leakage count freq."""
+
     @pytest.mark.parametrize("seed", SEEDS)
     def test_count_apply_independent_of_y(self, seed: int):
         """Check test count apply independent of y."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
-            count_encode_fit, apply_count_encoding,
+            count_encode_fit,
+            apply_count_encoding,
         )
+
         X, y = _build_count_signal(seed)
-        X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
+        X_tr, _y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
         _, recipes = count_encode_fit(X_tr, ["cat_user"])
         out1 = apply_count_encoding(X_ho, "cat_user", recipes["cat_user"])
         # Shuffle holdout-y; apply ignores y entirely.
@@ -406,10 +448,12 @@ class TestNoLeakageCountFreq:
     def test_freq_apply_independent_of_y(self, seed: int):
         """Check test freq apply independent of y."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
-            frequency_encode_fit, apply_frequency_encoding,
+            frequency_encode_fit,
+            apply_frequency_encoding,
         )
+
         X, y = _build_count_signal(seed)
-        X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
+        X_tr, _y_tr, X_ho, _y_ho = _train_holdout_split(X, y, seed=seed)
         _, recipes = frequency_encode_fit(X_tr, ["cat_user"])
         out1 = apply_frequency_encoding(X_ho, "cat_user", recipes["cat_user"])
         out2 = apply_frequency_encoding(X_ho, "cat_user", recipes["cat_user"])
@@ -418,17 +462,25 @@ class TestNoLeakageCountFreq:
 
 class TestNoLeakageCatNum:
     """Tests test no leakage cat num."""
+
     @pytest.mark.parametrize("seed", SEEDS)
     def test_residual_apply_independent_of_y(self, seed: int):
         """Check test residual apply independent of y."""
         from mlframe.feature_selection.filters._count_freq_interaction_fe import (
-            cat_num_interaction_fit, apply_cat_num_residual,
+            cat_num_interaction_fit,
+            apply_cat_num_residual,
         )
+
         X, y = _build_cat_num_residual_signal(seed)
-        X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=seed)
+        X_tr, y_tr, X_ho, _y_ho = _train_holdout_split(X, y, seed=seed)
         _, recipe = cat_num_interaction_fit(
-            X_tr, y_tr.to_numpy(), "cat", "price",
-            n_folds=5, smoothing=10.0, random_state=seed,
+            X_tr,
+            y_tr.to_numpy(),
+            "cat",
+            "price",
+            n_folds=5,
+            smoothing=10.0,
+            random_state=seed,
         )
         out1 = apply_cat_num_residual(X_ho, "cat", "price", recipe)
         # Shuffle holdout-y is a no-op; apply path has no y.
@@ -443,14 +495,19 @@ class TestNoLeakageCatNum:
 
 class TestUnseenCategoryHandling:
     """Tests test unseen category handling."""
+
     def test_count_unseen_default_zero(self):
         """Check test count unseen default zero."""
         from mlframe.feature_selection.filters.engineered_recipes import (
-            build_count_encoded_recipe, apply_recipe,
+            build_count_encoded_recipe,
+            apply_recipe,
         )
+
         rec = build_count_encoded_recipe(
-            name="cat__count", src_name="cat",
-            lookup={"A": 5, "B": 7}, default=0,
+            name="cat__count",
+            src_name="cat",
+            lookup={"A": 5, "B": 7},
+            default=0,
         )
         X = pd.DataFrame({"cat": ["A", "Z", "B", None, "B"]})
         out = apply_recipe(rec, X)
@@ -459,11 +516,15 @@ class TestUnseenCategoryHandling:
     def test_freq_unseen_default_zero(self):
         """Check test freq unseen default zero."""
         from mlframe.feature_selection.filters.engineered_recipes import (
-            build_frequency_encoded_recipe, apply_recipe,
+            build_frequency_encoded_recipe,
+            apply_recipe,
         )
+
         rec = build_frequency_encoded_recipe(
-            name="cat__freq", src_name="cat",
-            lookup={"A": 0.3, "B": 0.7}, default=0.0,
+            name="cat__freq",
+            src_name="cat",
+            lookup={"A": 0.3, "B": 0.7},
+            default=0.0,
         )
         X = pd.DataFrame({"cat": ["A", "Z", "B"]})
         out = apply_recipe(rec, X)
@@ -472,11 +533,17 @@ class TestUnseenCategoryHandling:
     def test_residual_unseen_falls_back_to_global_mean(self):
         """Check test residual unseen falls back to global mean."""
         from mlframe.feature_selection.filters.engineered_recipes import (
-            build_cat_num_residual_recipe, apply_recipe,
+            build_cat_num_residual_recipe,
+            apply_recipe,
         )
+
         rec = build_cat_num_residual_recipe(
-            name="price__resid_by__cat", cat_name="cat", num_name="price",
-            lookup={"A": 10.0, "B": 20.0}, global_mean=15.0, smoothing=10.0,
+            name="price__resid_by__cat",
+            cat_name="cat",
+            num_name="price",
+            lookup={"A": 10.0, "B": 20.0},
+            global_mean=15.0,
+            smoothing=10.0,
         )
         X = pd.DataFrame({"cat": ["A", "Z", "B"], "price": [12.0, 16.0, 25.0]})
         out = apply_recipe(rec, X)
@@ -486,11 +553,17 @@ class TestUnseenCategoryHandling:
     def test_residual_nan_num_emits_zero(self):
         """Check test residual nan num emits zero."""
         from mlframe.feature_selection.filters.engineered_recipes import (
-            build_cat_num_residual_recipe, apply_recipe,
+            build_cat_num_residual_recipe,
+            apply_recipe,
         )
+
         rec = build_cat_num_residual_recipe(
-            name="price__resid_by__cat", cat_name="cat", num_name="price",
-            lookup={"A": 10.0}, global_mean=10.0, smoothing=10.0,
+            name="price__resid_by__cat",
+            cat_name="cat",
+            num_name="price",
+            lookup={"A": 10.0},
+            global_mean=10.0,
+            smoothing=10.0,
         )
         X = pd.DataFrame({"cat": ["A", "A"], "price": [12.0, np.nan]})
         out = apply_recipe(rec, X)
@@ -506,14 +579,19 @@ class TestUnseenCategoryHandling:
 
 class TestPickleCloneRoundTrip:
     """Tests test pickle clone round trip."""
+
     def test_count_recipe_pickle(self):
         """Check test count recipe pickle."""
         from mlframe.feature_selection.filters.engineered_recipes import (
-            build_count_encoded_recipe, apply_recipe,
+            build_count_encoded_recipe,
+            apply_recipe,
         )
+
         rec = build_count_encoded_recipe(
-            name="cat__count", src_name="cat",
-            lookup={"A": 5, "B": 7}, default=0,
+            name="cat__count",
+            src_name="cat",
+            lookup={"A": 5, "B": 7},
+            default=0,
         )
         rec_pkl = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert rec_pkl == rec
@@ -523,11 +601,15 @@ class TestPickleCloneRoundTrip:
     def test_freq_recipe_pickle(self):
         """Check test freq recipe pickle."""
         from mlframe.feature_selection.filters.engineered_recipes import (
-            build_frequency_encoded_recipe, apply_recipe,
+            build_frequency_encoded_recipe,
+            apply_recipe,
         )
+
         rec = build_frequency_encoded_recipe(
-            name="cat__freq", src_name="cat",
-            lookup={"A": 0.4, "B": 0.6}, default=0.0,
+            name="cat__freq",
+            src_name="cat",
+            lookup={"A": 0.4, "B": 0.6},
+            default=0.0,
         )
         rec_pkl = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert rec_pkl == rec
@@ -537,11 +619,17 @@ class TestPickleCloneRoundTrip:
     def test_residual_recipe_pickle(self):
         """Check test residual recipe pickle."""
         from mlframe.feature_selection.filters.engineered_recipes import (
-            build_cat_num_residual_recipe, apply_recipe,
+            build_cat_num_residual_recipe,
+            apply_recipe,
         )
+
         rec = build_cat_num_residual_recipe(
-            name="price__resid_by__cat", cat_name="cat", num_name="price",
-            lookup={"A": 10.0, "B": 20.0}, global_mean=15.0, smoothing=5.0,
+            name="price__resid_by__cat",
+            cat_name="cat",
+            num_name="price",
+            lookup={"A": 10.0, "B": 20.0},
+            global_mean=15.0,
+            smoothing=5.0,
         )
         rec_pkl = pickle.loads(pickle.dumps(rec))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert rec_pkl == rec
@@ -550,7 +638,7 @@ class TestPickleCloneRoundTrip:
 
     def test_full_mrmr_clone_preserves_layer34_params(self):
         """Check test full mrmr clone preserves layer34 params."""
-        X, y = _build_count_signal(seed=1)
+        _X, _y = _build_count_signal(seed=1)
         m = _make_mrmr(
             fe_count_encoding_enable=True,
             fe_count_encoding_cols=("cat_user",),
@@ -562,10 +650,14 @@ class TestPickleCloneRoundTrip:
         m2 = clone(m)
         p, p2 = m.get_params(), m2.get_params()
         for k in (
-            "fe_count_encoding_enable", "fe_count_encoding_cols",
-            "fe_frequency_encoding_enable", "fe_frequency_encoding_cols",
-            "fe_cat_num_interaction_enable", "fe_cat_num_interaction_cat_cols",
-            "fe_cat_num_interaction_num_cols", "fe_cat_num_interaction_folds",
+            "fe_count_encoding_enable",
+            "fe_count_encoding_cols",
+            "fe_frequency_encoding_enable",
+            "fe_frequency_encoding_cols",
+            "fe_cat_num_interaction_enable",
+            "fe_cat_num_interaction_cat_cols",
+            "fe_cat_num_interaction_num_cols",
+            "fe_cat_num_interaction_folds",
             "fe_cat_num_interaction_smoothing",
         ):
             assert p[k] == p2[k], f"clone lost {k}"
@@ -578,6 +670,7 @@ class TestPickleCloneRoundTrip:
 
 class TestDefaultDisabledByteIdentical:
     """Tests test default disabled byte identical."""
+
     def test_no_layer34_attrs_populated_when_disabled(self):
         """Check test no layer34 attrs populated when disabled."""
         X, y = _build_count_signal(seed=1)
@@ -592,7 +685,7 @@ class TestDefaultDisabledByteIdentical:
         bit-identical to a fresh instance with the same params -- the
         Layer 34 knobs are no-ops when the masters are False."""
         X, y = _build_count_signal(seed=7)
-        X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y, seed=7)
+        X_tr, y_tr, X_ho, _y_ho = _train_holdout_split(X, y, seed=7)
         m1 = _make_mrmr(fe_ntop_features=3)
         m1.fit(X_tr, y_tr)
         out1 = m1.transform(X_ho)
@@ -611,5 +704,7 @@ class TestDefaultDisabledByteIdentical:
         for c in out1.columns:
             if pd.api.types.is_numeric_dtype(out1[c]):
                 np.testing.assert_allclose(
-                    out1[c].to_numpy(), out2[c].to_numpy(), atol=1e-12,
+                    out1[c].to_numpy(),
+                    out2[c].to_numpy(),
+                    atol=1e-12,
                 )

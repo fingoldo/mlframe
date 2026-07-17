@@ -167,7 +167,7 @@ class TestLayer46_PairVI_Helper:
         vi = pair_vi(state, 0, 1)
         # H(X) for uniform 4-bin = log(4) ~ 1.386 nats; two such
         # features ~= 2.77 nats; allow some sampling slack.
-        assert vi > 1.5, f"VI of independent uniform 4-bin features should be > 1.5 nats; " f"got {vi}"
+        assert vi > 1.5, f"VI of independent uniform 4-bin features should be > 1.5 nats; got {vi}"
 
 
 # ---------------------------------------------------------------------------
@@ -224,13 +224,13 @@ class TestLayer46_LinearCluster:
         """SU-distance DCD prunes at least 3 of the 5 near-duplicate columns."""
         _X, _y, m = _linear_dup_fit("su")
         n_pruned = int((m.dcd_ or {}).get("n_pruned", 0))
-        assert n_pruned >= 3, f"SU must detect the 5-perfect-dup cluster (>= 3 pruned); " f"got n_pruned={n_pruned}"
+        assert n_pruned >= 3, f"SU must detect the 5-perfect-dup cluster (>= 3 pruned); got n_pruned={n_pruned}"
 
     def test_vi_detects_5_dup_cluster(self):
         """VI-distance DCD prunes at least 3 of the 5 near-duplicate columns."""
         _X, _y, m = _linear_dup_fit("vi")
         n_pruned = int((m.dcd_ or {}).get("n_pruned", 0))
-        assert n_pruned >= 3, f"VI must detect the 5-perfect-dup cluster (>= 3 pruned); " f"got n_pruned={n_pruned}"
+        assert n_pruned >= 3, f"VI must detect the 5-perfect-dup cluster (>= 3 pruned); got n_pruned={n_pruned}"
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +253,7 @@ class TestLayer46_NonLinearCluster:
         n_pruned_su = int((m_su.dcd_ or {}).get("n_pruned", 0))
         n_pruned_vi = int((m_vi.dcd_ or {}).get("n_pruned", 0))
         assert n_pruned_vi >= n_pruned_su, (
-            f"VI must catch at least as many non-linear cluster members " f"as SU; got n_pruned_vi={n_pruned_vi}, n_pruned_su={n_pruned_su}"
+            f"VI must catch at least as many non-linear cluster members as SU; got n_pruned_vi={n_pruned_vi}, n_pruned_su={n_pruned_su}"
         )
 
     def test_auto_at_least_as_tight_as_either(self):
@@ -667,7 +667,7 @@ class TestLayer47_BimodalDetection:
             n_pairs=100,
             seed=0,
         )
-        assert diag["mode"] == "unimodal", f"pure noise must NOT trigger bimodal detection; got mode=" f"{diag['mode']!r}, valley_su={diag.get('valley_su')!r}"
+        assert diag["mode"] == "unimodal", f"pure noise must NOT trigger bimodal detection; got mode={diag['mode']!r}, valley_su={diag.get('valley_su')!r}"
         assert tau == pytest.approx(_DCD_AUTO_TAU_FALLBACK)
 
 
@@ -729,7 +729,7 @@ class TestLayer47_FitIntegration:
             random_seed=0,
         ).fit(X, y)
         tau = float(m.dcd_["tau_cluster"])
-        assert 0.3 <= tau <= 0.95, f"auto-tau on bimodal data must produce a tau in [0.3, 0.95]; " f"got tau={tau} (mode={m.dcd_['tau_calibration']['mode']!r})"
+        assert 0.3 <= tau <= 0.95, f"auto-tau on bimodal data must produce a tau in [0.3, 0.95]; got tau={tau} (mode={m.dcd_['tau_calibration']['mode']!r})"
 
     def test_auto_tau_unimodal_falls_back_to_default(self):
         """On pure-noise data, auto-tau falls back to 0.7."""

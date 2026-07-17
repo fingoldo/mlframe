@@ -5,6 +5,7 @@ small-group fallback to the global spec, leakage-safety (corrupting one group's 
 changes another group's discovered spec), and that ``per_group_discovery_enabled=False`` (the
 default) leaves ``fit`` byte-identical to a build with no per-group code at all.
 """
+
 from __future__ import annotations
 
 import numpy as np

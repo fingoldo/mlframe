@@ -83,7 +83,7 @@ def test_no_new_undocumented_public_symbols():
             orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"),
             encoding="utf-8",
         )
-        pytest.skip(f"docstring baseline refreshed at {_BASELINE_PATH.name} " f"({len(current)} undocumented symbols)")
+        pytest.skip(f"docstring baseline refreshed at {_BASELINE_PATH.name} ({len(current)} undocumented symbols)")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

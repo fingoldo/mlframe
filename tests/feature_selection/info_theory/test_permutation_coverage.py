@@ -9,6 +9,7 @@ Public surface targeted:
 
 Each test is small (``n <= 300``) and fixed-seed.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -218,8 +219,15 @@ def test_besag_clifford_strong_signal_early_stops():
     """Strong signal => CI on p-value falls below p_low fast => ``nchecked < npermutations``."""
     factors, nbins = _build_signal_factors(n=300, seed=42)
     cx, fx, cy, fy, mi = _make_classes(factors, nbins)
-    nf, nc = parallel_mi_besag_clifford(
-        cx, fx, cy, fy, 1000, mi, np.uint64(0), dtype=np.int32,
+    _nf, nc = parallel_mi_besag_clifford(
+        cx,
+        fx,
+        cy,
+        fy,
+        1000,
+        mi,
+        np.uint64(0),
+        dtype=np.int32,
     )
     assert nc <= 1000
     assert nc >= 30  # min_perms guard.

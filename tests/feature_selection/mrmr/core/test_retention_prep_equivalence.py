@@ -8,13 +8,13 @@ n=5000 (> the default max_rows=3000) so the row-subsample branch actually fires;
 max_base_features=14) so the std-trim branch also fires -- exercising both duplicated blocks findings
 1a flags.
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _build_wide(n=5000, p=16, seed=0):
@@ -44,7 +44,8 @@ class _Stub:
 
 def test_retention_prep_pure_forms_equivalence():
     from mlframe.feature_selection.filters._fe_pure_form_retention import (
-        retain_usable_pure_forms, _retention_prep,
+        retain_usable_pure_forms,
+        _retention_prep,
     )
 
     df, y = _build_wide()
@@ -66,7 +67,8 @@ def test_retention_prep_pure_forms_equivalence():
 
 def test_retention_prep_raw_columns_equivalence():
     from mlframe.feature_selection.filters._fe_pure_form_retention import (
-        retain_usable_raw_columns, _retention_prep,
+        retain_usable_raw_columns,
+        _retention_prep,
     )
 
     df, y = _build_wide()

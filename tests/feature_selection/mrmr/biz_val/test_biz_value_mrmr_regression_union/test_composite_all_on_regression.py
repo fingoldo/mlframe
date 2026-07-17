@@ -43,11 +43,11 @@ What this layer pins
 
 NEVER xfail. NEVER mask bugs via runtime workarounds.
 """
+
 from __future__ import annotations
 
 import glob
 import os
-import re
 import time
 import warnings
 
@@ -98,25 +98,27 @@ def _build_kitchen_sink_frame(seed: int = 0, n: int = 1500):
     maybe_a[mask_a] = np.nan
     maybe_b[mask_b] = np.nan
 
-    X = pd.DataFrame({
-        "x_gauss": x_gauss,
-        "x_gauss_corr": x_gauss_corr,
-        "x_uni": x_uni,
-        "x_uni_corr": x_uni_corr,
-        "x1": x1,
-        "x2": x2,
-        "x3": x3,
-        "cat_lo": cat_lo,
-        "cat_med": cat_med,
-        "region": region,
-        "t": t,
-        "temperature": temperature,
-        "maybe_missing_a": maybe_a,
-        "maybe_missing_b": maybe_b,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x_gauss": x_gauss,
+            "x_gauss_corr": x_gauss_corr,
+            "x_uni": x_uni,
+            "x_uni_corr": x_uni_corr,
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "cat_lo": cat_lo,
+            "cat_med": cat_med,
+            "region": region,
+            "t": t,
+            "temperature": temperature,
+            "maybe_missing_a": maybe_a,
+            "maybe_missing_b": maybe_b,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+        }
+    )
 
     cat_lo_effect = cat_lo.map({"A": 1.0, "B": 0.5, "C": 0.0, "D": -0.5, "E": -1.0}).astype(float).to_numpy()
     score = (
@@ -146,6 +148,7 @@ def _build_all_on_mrmr():
     cost only, mirroring L64.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR(
         verbose=0,
         random_seed=0,
@@ -312,7 +315,7 @@ class TestProvenanceDiversityFloor:
         emits and every L33/L34/L37/L38 mechanism early-returns silently.
         """
         m = all_on_fitted[0]
-        assert hasattr(m, "fe_provenance_"), "MRMR must populate fe_provenance_ on every successful fit " "(L54 contract)."
+        assert hasattr(m, "fe_provenance_"), "MRMR must populate fe_provenance_ on every successful fit (L54 contract)."
         prov = m.fe_provenance_
         assert isinstance(prov, pd.DataFrame), f"fe_provenance_ must be a DataFrame; got {type(prov).__name__}"
         engineered_origins = {o for o in prov["origin"].tolist() if o not in ("raw", "engineered_unknown")}
@@ -339,9 +342,7 @@ class TestLogRegAucFloor:
         Xt_num = Xt.select_dtypes(include=[np.number]).copy()
         if Xt_num.shape[1] == 0:
             pytest.fail(
-                "MRMR.transform returned no numeric columns; downstream "
-                "model cannot consume the selected view. Hard regression "
-                "in the FE/selection stack."
+                "MRMR.transform returned no numeric columns; downstream model cannot consume the selected view. Hard regression in the FE/selection stack."
             )
         Xt_num = Xt_num.fillna(Xt_num.median(numeric_only=True))
         n = len(y)

@@ -6,6 +6,7 @@ series carries almost no trend-DIRECTION signal on its own (its level is dominat
 component, not the current regime), while the MA-crossover vote_sum should cleanly separate uptrend vs
 downtrend regimes.
 """
+
 from __future__ import annotations
 
 import numpy as np

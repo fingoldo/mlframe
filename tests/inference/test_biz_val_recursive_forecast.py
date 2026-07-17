@@ -8,6 +8,7 @@ own previous predictions. This test confirms recursion recovers materially more 
 freezing, specifically because the freeze approach's staleness gets WORSE with horizon while recursive
 predictions track the evolving series.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,13 +55,17 @@ def test_biz_val_recursive_forecast_beats_frozen_lag_on_ar_series():
     frozen_preds = model.predict(frozen_lag.reshape(-1, 1)).reshape(n_steps, n_series)
     mse_frozen = float(mean_squared_error(true_future.T, frozen_preds))
 
-    assert mse_recursive < mse_frozen, f"expected recursive forecasting to beat a frozen-lag baseline on an AR series where true future ground truth is unavailable, got recursive={mse_recursive:.4f} frozen={mse_frozen:.4f}"
+    assert mse_recursive < mse_frozen, (
+        f"expected recursive forecasting to beat a frozen-lag baseline on an AR series where true future ground truth is unavailable, got recursive={mse_recursive:.4f} frozen={mse_frozen:.4f}"
+    )
 
     # Honest acknowledgment of the known risk: recursive error should still GROW with horizon (compounding),
     # even though it beats the frozen baseline overall -- confirming this is a real, imperfect necessity, not
     # a free lunch.
     per_step_mse = np.mean((true_future.T - recursive_preds) ** 2, axis=1)
-    assert per_step_mse[-1] > per_step_mse[0], "expected recursive forecast error to compound (grow) across steps, matching the documented known risk of this technique"
+    assert per_step_mse[-1] > per_step_mse[0], (
+        "expected recursive forecast error to compound (grow) across steps, matching the documented known risk of this technique"
+    )
 
 
 def test_recursive_multi_step_forecast_shape_and_lag_column_required():
@@ -127,12 +132,16 @@ def test_biz_val_diagnose_error_accumulation_surfaces_compounding_and_trustworth
 
     # The recursive error, in contrast, must compound materially -- this is the real, measurable effect the
     # diagnostic exists to surface.
-    assert result["growth_ratio"][-1] > 3.0, f"expected recursive error to compound materially over {n_steps} steps, got growth_ratio={result['growth_ratio'][-1]:.2f}"
+    assert result["growth_ratio"][-1] > 3.0, (
+        f"expected recursive error to compound materially over {n_steps} steps, got growth_ratio={result['growth_ratio'][-1]:.2f}"
+    )
 
     # The diagnostic must correctly detect the breakdown point: recursion should still be trustworthy for at
     # least the first couple of steps (close to the oracle), but should NOT remain trustworthy for the full
     # horizon once compounding pushes it far past the oracle floor.
-    assert 1 <= result["trustworthy_horizon"] < n_steps, f"expected diagnostic to flag a trustworthy_horizon strictly short of the full {n_steps}-step horizon, got {result['trustworthy_horizon']}"
+    assert 1 <= result["trustworthy_horizon"] < n_steps, (
+        f"expected diagnostic to flag a trustworthy_horizon strictly short of the full {n_steps}-step horizon, got {result['trustworthy_horizon']}"
+    )
 
 
 def test_diagnose_error_accumulation_shape_validation():

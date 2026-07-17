@@ -7,10 +7,10 @@ temporary per gradient. The shipped path uses `einsum('qk,qkd->qd', ...)/k`, whi
 sums in the same neighbour order. This test pins exact equality so a future "just use
 the broadcast form" (or any reduction-order change) is caught.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.feature_engineering.transformer.local_density_gradient import (
     compute_local_density_gradient_features,

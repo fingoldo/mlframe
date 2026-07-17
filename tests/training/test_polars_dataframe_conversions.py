@@ -10,17 +10,15 @@ post-fix. Equivalence is verified against the pre-fix behaviour with a
 small fixture; speedup is measured opportunistically and printed to stdout
 so the operator sees the win without it becoming a flaky assertion.
 """
+
 from __future__ import annotations
 
-import importlib
 import time
-from typing import Any
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -35,9 +33,7 @@ def _make_numeric_pl_df(n_rows: int = 5_000, n_cols: int = 6) -> pl.DataFrame:
     production frames where the 32x bridge speedup was originally measured.
     """
     rng = np.random.default_rng(seed=2026_05_15)
-    cols = {
-        f"f{i}": rng.normal(size=n_rows).astype(np.float64) for i in range(n_cols)
-    }
+    cols = {f"f{i}": rng.normal(size=n_rows).astype(np.float64) for i in range(n_cols)}
     cols["cat"] = pl.Series(rng.integers(0, 4, size=n_rows))
     cols["y"] = rng.normal(size=n_rows)
     return pl.DataFrame(cols)
@@ -74,10 +70,7 @@ def test_fix1_fairness_subgroups_uses_pandas_view_bridge():
     with patch.object(setup_mod, "get_pandas_view_of_polars_df", side_effect=_spy):
         out, feats = setup_mod._compute_fairness_subgroups(df, _BCfg())
 
-    assert called["n"] >= 1, (
-        "_compute_fairness_subgroups must call get_pandas_view_of_polars_df, "
-        "not .to_pandas() directly."
-    )
+    assert called["n"] >= 1, "_compute_fairness_subgroups must call get_pandas_view_of_polars_df, not .to_pandas() directly."
     assert feats == ["cat"]
     assert isinstance(out, dict)
 
@@ -200,9 +193,7 @@ def test_fix4_temporal_audit_aggregate_polars_uses_bridge(monkeypatch):
     df = pl.DataFrame({"ts": ts_arr, "y": rng.normal(size=n)})
     out = tta._aggregate_by_time_polars(df, "ts", "y", "hour", target_type="regression")
     assert "bin_start" in out.columns
-    assert captured["calls"] >= 1, (
-        "_aggregate_by_time_polars must use the bridge; spy did not fire."
-    )
+    assert captured["calls"] >= 1, "_aggregate_by_time_polars must use the bridge; spy did not fire."
 
     # Multi-target variant: shape it accepts.
     captured["calls"] = 0
@@ -213,9 +204,7 @@ def test_fix4_temporal_audit_aggregate_polars_uses_bridge(monkeypatch):
         except TypeError:
             # If the signature differs, just assert spy fired in the single-target call.
             return
-        assert captured["calls"] >= 1, (
-            "_aggregate_by_time_polars_multi must use the bridge; spy did not fire."
-        )
+        assert captured["calls"] >= 1, "_aggregate_by_time_polars_multi must use the bridge; spy did not fire."
 
 
 def test_fix4_temporal_audit_aggregate_equivalence():
@@ -298,10 +287,7 @@ def test_fix6_predict_guards_no_double_wrap_on_pandas():
     # No NaN, so the guard takes the fast no-op path. The predict_fn must receive the
     # original frame untouched (no defensive copy).
     _apply_nan_guard(_DummyModel(), pdf, _fn, n_rows=64)
-    assert captured["X"] is pdf, (
-        "predict guard must hand the original frame to predict_fn when no NaN present "
-        "(double-wrap regression)."
-    )
+    assert captured["X"] is pdf, "predict guard must hand the original frame to predict_fn when no NaN present (double-wrap regression)."
 
 
 def test_fix6_predict_guards_dtype_preserved():
@@ -378,10 +364,12 @@ def test_fix7_composite_auto_detect_monotonicity_handles_float_input():
     detect_time_column_candidates flags it as monotonic without raising on already-float input."""
     from mlframe.training.composite.discovery.auto_detect import detect_time_column_candidates
 
-    df = pl.DataFrame({
-        "asc": np.arange(30, dtype=np.float64),
-        "rand": np.random.default_rng(0).normal(size=30),
-    })
+    df = pl.DataFrame(
+        {
+            "asc": np.arange(30, dtype=np.float64),
+            "rand": np.random.default_rng(0).normal(size=30),
+        }
+    )
     results = detect_time_column_candidates(df, candidate_columns=["asc", "rand"])
     # asc is strictly increasing -> must appear with is_monotonic=True; rand is random.
     info_by_name = {name: info for name, info in results}
@@ -444,13 +432,16 @@ def test_fix8_per_group_predict_converts_once_per_frame():
 
     with patch.object(dbc, "_to_pandas_for_baseline", side_effect=_spy):
         train_pred, val_pred, test_pred, diag = dbc._per_group_predict(
-            df_train, df_val, df_test, train_y, "cat", "regression",
+            df_train,
+            df_val,
+            df_test,
+            train_y,
+            "cat",
+            "regression",
         )
 
     # Exactly three bridge invocations: one per input frame.
-    assert called["n"] == 3, (
-        f"_per_group_predict must convert each frame exactly once, got {called['n']}."
-    )
+    assert called["n"] == 3, f"_per_group_predict must convert each frame exactly once, got {called['n']}."
     assert train_pred.shape == (n,)
     assert val_pred.shape == (n,)
     assert test_pred.shape == (n,)
@@ -509,11 +500,7 @@ def test_perf_bridge_vs_default_to_pandas_smoke(capsys):
 
     speedup = (t_default / t_bridge) if t_bridge > 0 else float("inf")
     # Print to stdout so the user can see it (-s flag).
-    print(
-        f"[perf] default to_pandas: {t_default*1000:.2f} ms/rep; "
-        f"bridge: {t_bridge*1000:.2f} ms/rep; speedup={speedup:.2f}x "
-        f"(500k x 40 numeric + 1 dict)"
-    )
+    print(f"[perf] default to_pandas: {t_default * 1000:.2f} ms/rep; bridge: {t_bridge * 1000:.2f} ms/rep; speedup={speedup:.2f}x (500k x 40 numeric + 1 dict)")
     # Soft floor: bridge should at least not be slower (no assert: numeric-only
     # tiny frames can be a wash and we don't want flake).
     assert t_bridge > 0

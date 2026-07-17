@@ -7,6 +7,7 @@ of a SHAP fit). This must stay BIT-IDENTICAL to the loop:
   - a feature already dropped in a prior trial (the old ``except KeyError: pass``
     branch) is silently skipped via ``errors="ignore"`` -- no raise.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,9 +41,7 @@ def test_single_drop_matches_loop_columns_and_order():
     bs.features_to_remove = to_remove
     bs.remove_features_if_rejected()
 
-    assert list(bs.X.columns) == list(ref.columns), (
-        f"surviving column ORDER diverged: opt={list(bs.X.columns)} ref={list(ref.columns)}"
-    )
+    assert list(bs.X.columns) == list(ref.columns), f"surviving column ORDER diverged: opt={list(bs.X.columns)} ref={list(ref.columns)}"
     assert bs.X.equals(ref), "surviving values diverged from the loop reference"
 
 

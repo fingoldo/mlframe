@@ -20,12 +20,14 @@ import pytest
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.models.ensembling import score as _ensembling_score
+
     return _ensembling_score
 
 
 @pytest.fixture(scope="module")
 def gate_sibling():
     from mlframe.models.ensembling import score_gate as _ensembling_score_gate
+
     return _ensembling_score_gate
 
 
@@ -80,11 +82,8 @@ def test_select_gate_source_split_coarse_fallback_flips_thresholds(gate_sibling)
     """No OOF + require_oof_for_gate=True -> coarse path picks val_preds + flips thresholds."""
     n = 50
     rng = np.random.default_rng(0)
-    members = [
-        SimpleNamespace(val_preds=rng.standard_normal(n), test_preds=None, train_preds=None)
-        for _ in range(3)
-    ]
-    preds, label, coarse, mae, std, mae_r, std_r = gate_sibling.select_gate_source_split(
+    members = [SimpleNamespace(val_preds=rng.standard_normal(n), test_preds=None, train_preds=None) for _ in range(3)]
+    _preds, label, coarse, mae, std, mae_r, std_r = gate_sibling.select_gate_source_split(
         level_models_and_predictions=members,
         require_oof_for_gate=True,
         coarse_gate_max_mae_relative=4.0,
@@ -112,7 +111,7 @@ def test_catastrophic_drop_k2_early_return_path(gate_sibling):
     tags = ["good_model", "bad_model"]
     short_tags = ["g", "b"]
     res = {}
-    out_lvl, out_tags, out_short, out_name, early = gate_sibling.catastrophic_drop_k2(
+    out_lvl, out_tags, out_short, _out_name, early = gate_sibling.catastrophic_drop_k2(
         level_models_and_predictions=members,
         _gate_preds_for_check=[good, bad],
         _gate_source_split="oof",

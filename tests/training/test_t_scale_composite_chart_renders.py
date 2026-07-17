@@ -16,9 +16,9 @@ Tests:
 * T-scale residual chart is skipped by default in the per-model
   reporter (avoids the misleading-RMSE footgun); env opt-in restores.
 """
+
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 
 import numpy as np
@@ -42,7 +42,7 @@ def test_yscale_chart_helper_runs_without_raising() -> None:
         composite_name="TVT-spline-TVT_prev",
         orig_tname="TVT",
         target_name="TVT",
-        plot_file="",         # interactive-session-only; we don't write
+        plot_file="",  # interactive-session-only; we don't write
         reporting_config=None,
         rmse_y=13.5,
         mae_y=8.0,
@@ -65,7 +65,9 @@ def test_yscale_chart_helper_no_op_on_empty_inputs() -> None:
         target_name="X",
         plot_file="",
         reporting_config=None,
-        rmse_y=0.0, mae_y=0.0, r2_y=0.0,
+        rmse_y=0.0,
+        mae_y=0.0,
+        r2_y=0.0,
     )
 
 

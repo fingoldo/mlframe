@@ -3,6 +3,7 @@
 - M13: the greedy step previously accepted a candidate on the aggregate relative-gain gate alone, which one fold can drive (positively-correlated repeated-CV folds understate variance). ``paired_fold_selection`` (default ON) additionally requires the chosen candidate to beat the kept-set on a majority of jointly-finite folds. A base whose benefit is concentrated in a minority of folds (and actively hurts the rest) is now rejected.
 - A20: the per-trial design matrix is built into a reused preallocated buffer (kept-prefix stacked once per round, candidate in the last column) instead of a fresh ``np.column_stack`` per trial. The matrix handed to OLS is byte-identical, so selection results must be UNCHANGED when the paired gate is off.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,14 +37,26 @@ class TestM13PairedFoldGate:
         y, b1, hb = _concentrated_signal_frame(seed=0)
 
         kept_legacy, diag_legacy = forward_stepwise_multi_base(
-            y, {"b1": b1, "hb": hb}, seed_bases=["b1"], cv_splitter=splitter,
-            time_aware=False, max_k=3, min_marginal_rmse_gain=0.02,
-            paired_fold_selection=False, cv_persist_fold_scores=True,
+            y,
+            {"b1": b1, "hb": hb},
+            seed_bases=["b1"],
+            cv_splitter=splitter,
+            time_aware=False,
+            max_k=3,
+            min_marginal_rmse_gain=0.02,
+            paired_fold_selection=False,
+            cv_persist_fold_scores=True,
         )
         kept_paired, diag_paired = forward_stepwise_multi_base(
-            y, {"b1": b1, "hb": hb}, seed_bases=["b1"], cv_splitter=splitter,
-            time_aware=False, max_k=3, min_marginal_rmse_gain=0.02,
-            paired_fold_selection=True, cv_persist_fold_scores=True,
+            y,
+            {"b1": b1, "hb": hb},
+            seed_bases=["b1"],
+            cv_splitter=splitter,
+            time_aware=False,
+            max_k=3,
+            min_marginal_rmse_gain=0.02,
+            paired_fold_selection=True,
+            cv_persist_fold_scores=True,
         )
         # Legacy point-estimate gate accepts hb (the two perfect folds dominate the mean -> large aggregate gain).
         assert "hb" in kept_legacy, "legacy gate should accept the concentrated-signal base on the aggregate"
@@ -61,13 +74,23 @@ class TestM13PairedFoldGate:
         splitter = KFold(n_splits=5, shuffle=False)
         y, b1, hb = _concentrated_signal_frame(seed=seed)
         _, diag_legacy = forward_stepwise_multi_base(
-            y, {"b1": b1, "hb": hb}, seed_bases=["b1"], cv_splitter=splitter,
-            time_aware=False, max_k=3, min_marginal_rmse_gain=0.02,
+            y,
+            {"b1": b1, "hb": hb},
+            seed_bases=["b1"],
+            cv_splitter=splitter,
+            time_aware=False,
+            max_k=3,
+            min_marginal_rmse_gain=0.02,
             paired_fold_selection=False,
         )
         _, diag_paired = forward_stepwise_multi_base(
-            y, {"b1": b1, "hb": hb}, seed_bases=["b1"], cv_splitter=splitter,
-            time_aware=False, max_k=3, min_marginal_rmse_gain=0.02,
+            y,
+            {"b1": b1, "hb": hb},
+            seed_bases=["b1"],
+            cv_splitter=splitter,
+            time_aware=False,
+            max_k=3,
+            min_marginal_rmse_gain=0.02,
             paired_fold_selection=True,
         )
         assert diag_legacy[0]["accepted"] is True
@@ -82,9 +105,15 @@ class TestM13PairedFoldGate:
         b2 = rng.normal(0.0, 1.0, n)
         y = b1 + 0.9 * b2 + rng.normal(0.0, 0.1, n)
         kept, diag = forward_stepwise_multi_base(
-            y, {"b1": b1, "b2": b2}, seed_bases=["b1"],
-            time_aware=False, cv_folds=4, max_k=3, min_marginal_rmse_gain=0.02,
-            paired_fold_selection=True, cv_persist_fold_scores=True,
+            y,
+            {"b1": b1, "b2": b2},
+            seed_bases=["b1"],
+            time_aware=False,
+            cv_folds=4,
+            max_k=3,
+            min_marginal_rmse_gain=0.02,
+            paired_fold_selection=True,
+            cv_persist_fold_scores=True,
         )
         assert "b2" in kept
         accepted = [d for d in diag if d["accepted"]]
@@ -100,7 +129,11 @@ class TestM13PairedFoldGate:
         b2 = rng.normal(size=n)
         y = b1 + b2 + rng.normal(scale=0.1, size=n)
         _, diag = forward_stepwise_multi_base(
-            y, {"b1": b1, "b2": b2}, seed_bases=["b1"], time_aware=False, max_k=3,
+            y,
+            {"b1": b1, "b2": b2},
+            seed_bases=["b1"],
+            time_aware=False,
+            max_k=3,
         )
         for entry in diag:
             assert "paired_fold_win_frac" in entry
@@ -113,8 +146,13 @@ class TestM13OptOut:
         splitter = KFold(n_splits=5, shuffle=False)
         y, b1, hb = _concentrated_signal_frame(seed=2)
         kept, _ = forward_stepwise_multi_base(
-            y, {"b1": b1, "hb": hb}, seed_bases=["b1"], cv_splitter=splitter,
-            time_aware=False, max_k=3, min_marginal_rmse_gain=0.02,
+            y,
+            {"b1": b1, "hb": hb},
+            seed_bases=["b1"],
+            cv_splitter=splitter,
+            time_aware=False,
+            max_k=3,
+            min_marginal_rmse_gain=0.02,
             paired_fold_selection=False,
         )
         assert "hb" in kept
@@ -127,20 +165,30 @@ class TestM13OptOut:
         # b2 helps on most folds but not all (mild noise so one fold can lose).
         b2 = rng.normal(size=n)
         y = b1 + 0.4 * b2 + rng.normal(scale=0.6, size=n)
-        kept_majority, diag_majority = forward_stepwise_multi_base(
-            y, {"b1": b1, "b2": b2}, seed_bases=["b1"], time_aware=False, cv_folds=5,
-            max_k=3, min_marginal_rmse_gain=0.0, paired_fold_selection=True,
+        _kept_majority, diag_majority = forward_stepwise_multi_base(
+            y,
+            {"b1": b1, "b2": b2},
+            seed_bases=["b1"],
+            time_aware=False,
+            cv_folds=5,
+            max_k=3,
+            min_marginal_rmse_gain=0.0,
+            paired_fold_selection=True,
             paired_fold_min_win_frac=0.5,
         )
-        kept_unanimous, diag_unanimous = forward_stepwise_multi_base(
-            y, {"b1": b1, "b2": b2}, seed_bases=["b1"], time_aware=False, cv_folds=5,
-            max_k=3, min_marginal_rmse_gain=0.0, paired_fold_selection=True,
+        _kept_unanimous, diag_unanimous = forward_stepwise_multi_base(
+            y,
+            {"b1": b1, "b2": b2},
+            seed_bases=["b1"],
+            time_aware=False,
+            cv_folds=5,
+            max_k=3,
+            min_marginal_rmse_gain=0.0,
+            paired_fold_selection=True,
             paired_fold_min_win_frac=1.0,
         )
         # Whatever the majority gate decides, the unanimity gate is never MORE permissive.
-        assert diag_unanimous[0]["accepted"] <= diag_majority[0]["accepted"] or (
-            diag_unanimous[0]["paired_fold_win_frac"] >= 1.0
-        )
+        assert diag_unanimous[0]["accepted"] <= diag_majority[0]["accepted"] or (diag_unanimous[0]["paired_fold_win_frac"] >= 1.0)
 
 
 class TestA20BufferBitIdentity:
@@ -153,8 +201,14 @@ class TestA20BufferBitIdentity:
         cands = {f"b{i}": rng.normal(size=n) for i in range(8)}
         y = 2.0 * cands["b0"] + 1.3 * cands["b1"] - 0.7 * cands["b3"] + rng.normal(scale=0.3, size=n)
         kept, diag = forward_stepwise_multi_base(
-            y, cands, seed_bases=["b0"], time_aware=False, cv_folds=4, max_k=4,
-            min_marginal_rmse_gain=0.0, paired_fold_selection=False,
+            y,
+            cands,
+            seed_bases=["b0"],
+            time_aware=False,
+            cv_folds=4,
+            max_k=4,
+            min_marginal_rmse_gain=0.0,
+            paired_fold_selection=False,
             cv_persist_fold_scores=True,
         )
         # Reconstruct the reference fold RMSEs for the FINAL kept set via an independent column_stack

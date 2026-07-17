@@ -1,4 +1,5 @@
 """Sensor: baselines.diagnostics method-rebinding preserves identity + class invariants."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -39,11 +40,13 @@ def test_w12b_baseline_diagnostics_smoke_fit_regression():
     diag = parent.BaselineDiagnostics(cfg)
     rng = np.random.default_rng(0)
     n = 300
-    X = pd.DataFrame({
-        "a": rng.normal(size=n),
-        "b": rng.normal(size=n),
-        "c": rng.normal(size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": rng.normal(size=n),
+            "b": rng.normal(size=n),
+            "c": rng.normal(size=n),
+        }
+    )
     y = (X["a"] + 0.3 * X["b"]).to_numpy()
     rep = diag.fit_and_report(X, y, ["a", "b", "c"], "regression", "smoke_target")
     assert isinstance(rep, parent.BaselineDiagnosticsReport)

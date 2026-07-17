@@ -5,7 +5,6 @@ specified in the Audit #02 plan. Kept dependency-light (no torch chain).
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 from sklearn.datasets import load_breast_cancer
 from sklearn.linear_model import LogisticRegression
@@ -22,6 +21,7 @@ from sklearn.preprocessing import (
 try:
     from tests.conftest import fast_subset
 except ImportError:  # pragma: no cover
+
     def fast_subset(values, **_):
         return list(values)
 

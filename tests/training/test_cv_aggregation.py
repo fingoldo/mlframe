@@ -9,6 +9,7 @@ Covers:
   - Pareto frontier construction (min and max direction)
   - select_from_pareto with risk_quantile knob
 """
+
 from __future__ import annotations
 
 import math
@@ -159,16 +160,14 @@ def test_select_from_pareto_risk_quantile_monotone() -> None:
     iter_means = [1.0, 0.95, 1.05]
     iter_stds = [0.05, 0.20, 0.02]
     iter_shard_scores = [
-        [0.95, 1.0, 1.05],            # tight cluster, mean 1.0
-        [0.75, 0.95, 1.15],           # wide cluster, mean 0.95
-        [1.03, 1.05, 1.07],           # very tight, mean 1.05
+        [0.95, 1.0, 1.05],  # tight cluster, mean 1.0
+        [0.75, 0.95, 1.15],  # wide cluster, mean 0.95
+        [1.03, 1.05, 1.07],  # very tight, mean 1.05
     ]
     # direction='min': aggressive (q=0.5) prefers low mean -> pick iter 1
-    pick_aggressive = select_from_pareto(frontier, iter_means, iter_stds, iter_shard_scores,
-                                          risk_quantile=0.5, direction="min")
+    pick_aggressive = select_from_pareto(frontier, iter_means, iter_stds, iter_shard_scores, risk_quantile=0.5, direction="min")
     # conservative (q=0.95) penalizes the wide cluster heavily -> pick iter 2 (tightest)
-    pick_conservative = select_from_pareto(frontier, iter_means, iter_stds, iter_shard_scores,
-                                            risk_quantile=0.95, direction="min")
+    pick_conservative = select_from_pareto(frontier, iter_means, iter_stds, iter_shard_scores, risk_quantile=0.95, direction="min")
     assert pick_aggressive == 1, f"aggressive should pick lowest-mean iter; got {pick_aggressive}"
     # conservative pick should NOT be the wide iter (1), and should differ from aggressive.
     assert pick_conservative != 1, f"conservative should avoid wide cluster; got {pick_conservative}"
@@ -235,10 +234,8 @@ def test_auto_inflation_with_geometry_applies_nadeau_bengio() -> None:
     scores = [0.5, 0.6, 0.7, 0.8, 0.9]
     k = len(scores)
     naive = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=1.0)
-    auto_geo = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9,
-                                     split_geometry=(k, 1.0 / k))
-    explicit = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9,
-                                     correlation_inflation=nadeau_bengio_inflation(k, 1.0 / k))
+    auto_geo = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, split_geometry=(k, 1.0 / k))
+    explicit = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=nadeau_bengio_inflation(k, 1.0 / k))
     mean = float(np.mean(scores))
     # AUTO+geometry must equal the explicit NB-factor call (proves the resolution path).
     assert auto_geo == pytest.approx(explicit, rel=1e-12)
@@ -282,10 +279,8 @@ def test_auto_inflation_mean_minus_std_with_geometry() -> None:
 def test_explicit_float_overrides_geometry() -> None:
     # An explicit numeric factor is applied verbatim and IGNORES split_geometry (caller knows best).
     scores = [0.5, 0.6, 0.7, 0.8, 0.9]
-    explicit = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9,
-                                     correlation_inflation=2.0, split_geometry=(5, 0.2))
-    expected = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9,
-                                     correlation_inflation=2.0)
+    explicit = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=2.0, split_geometry=(5, 0.2))
+    expected = aggregate_fold_scores(scores, mode="t_lcb", direction="min", confidence=0.9, correlation_inflation=2.0)
     assert explicit == pytest.approx(expected, rel=1e-12)
 
 

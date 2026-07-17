@@ -8,6 +8,7 @@ Reference: Witten, Frank, Hall (2011), "Data Mining: Practical ML Tools and
 Techniques", chapter on attribute evaluation. Formula
 ``SU(X, Y) := 2 * I(X; Y) / (H(X) + H(Y))`` bounded in [0, 1].
 """
+
 from __future__ import annotations
 
 import warnings
@@ -36,6 +37,7 @@ class TestSymmetricUncertaintyFormula:
 
     def test_su_bounded_in_unit_interval(self):
         from mlframe.feature_selection.filters.info_theory import symmetric_uncertainty
+
         rng = np.random.default_rng(0)
         n = 5000
         y = rng.integers(0, 2, size=n)
@@ -46,6 +48,7 @@ class TestSymmetricUncertaintyFormula:
 
     def test_su_identity_equals_one(self):
         from mlframe.feature_selection.filters.info_theory import symmetric_uncertainty
+
         rng = np.random.default_rng(0)
         n = 2000
         x = rng.integers(0, 5, size=n)
@@ -56,6 +59,7 @@ class TestSymmetricUncertaintyFormula:
 
     def test_su_independent_is_zero(self):
         from mlframe.feature_selection.filters.info_theory import symmetric_uncertainty
+
         rng = np.random.default_rng(0)
         n = 10000
         x = rng.integers(0, 5, size=n)
@@ -66,6 +70,7 @@ class TestSymmetricUncertaintyFormula:
 
     def test_su_symmetric(self):
         from mlframe.feature_selection.filters.info_theory import symmetric_uncertainty
+
         rng = np.random.default_rng(0)
         n = 3000
         y = rng.integers(0, 2, size=n)
@@ -112,25 +117,30 @@ class TestSUDefeatsMICardinalityBias:
         # Add some clear noise columns to flesh out the candidate pool.
         noise_lo = rng.integers(0, 3, size=n)
         noise_hi = rng.integers(0, 8, size=n)
-        Xdf = pd.DataFrame({
-            "true_signal_bin": true_signal,
-            "decoy_hicard_weak": decoy_hicard_weak,
-            "noise_lo": noise_lo,
-            "noise_hi": noise_hi,
-        }).astype("category")
+        Xdf = pd.DataFrame(
+            {
+                "true_signal_bin": true_signal,
+                "decoy_hicard_weak": decoy_hicard_weak,
+                "noise_lo": noise_lo,
+                "noise_hi": noise_hi,
+            }
+        ).astype("category")
         return Xdf, pd.Series(y, name="target")
 
     def test_raw_mi_prefers_high_cardinality_decoy(self, cardinality_bias_data):
         """Smoke that the SLIDE'S PROBLEM REALLY HAPPENS with raw MI on our data."""
         from mlframe.feature_selection.filters.info_theory import mi
         from mlframe.feature_selection.filters.discretization import categorize_dataset
+
         Xdf, ys = cardinality_bias_data
         # Encode via the same categorize path MRMR uses internally.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             _res = categorize_dataset(
                 pd.concat([Xdf, ys.to_frame()], axis=1),
-                method="quantile", n_bins=10, dtype=np.int32,
+                method="quantile",
+                n_bins=10,
+                dtype=np.int32,
             )
             # categorize_dataset returns (arr, factors_names, factors_nbins).
             arr = _res[0]
@@ -147,21 +157,21 @@ class TestSUDefeatsMICardinalityBias:
         # regression that lets raw MI cleanly crush the decoy -- removing the motivation
         # for SU -- fails here instead of being masked by a vacuous >=0 check.
         assert mi_true > 0.0 and mi_decoy > 0.0
-        assert mi_decoy >= 0.5 * mi_true, (
-            f"raw MI unexpectedly separated true vs decoy cleanly: "
-            f"mi_true={mi_true:.6f}, mi_decoy={mi_decoy:.6f}"
-        )
+        assert mi_decoy >= 0.5 * mi_true, f"raw MI unexpectedly separated true vs decoy cleanly: mi_true={mi_true:.6f}, mi_decoy={mi_decoy:.6f}"
 
     def test_su_correctly_ranks_true_signal_above_decoy(self, cardinality_bias_data):
         """The headline claim: SU recovers the right ordering."""
         from mlframe.feature_selection.filters.info_theory import symmetric_uncertainty
         from mlframe.feature_selection.filters.discretization import categorize_dataset
+
         Xdf, ys = cardinality_bias_data
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             _res = categorize_dataset(
                 pd.concat([Xdf, ys.to_frame()], axis=1),
-                method="quantile", n_bins=10, dtype=np.int32,
+                method="quantile",
+                n_bins=10,
+                dtype=np.int32,
             )
             arr = _res[0]
             nbins = np.asarray(_res[2], dtype=np.int64)
@@ -169,10 +179,7 @@ class TestSUDefeatsMICardinalityBias:
         su_true = symmetric_uncertainty(arr, np.array([0]), np.array([y_idx]), nbins)
         su_decoy = symmetric_uncertainty(arr, np.array([1]), np.array([y_idx]), nbins)
         # SU(true_signal) MUST beat SU(decoy_hicard_weak) on this data.
-        assert su_true > su_decoy, (
-            f"SU failed to overcome cardinality bias: "
-            f"SU(true_signal_bin)={su_true:.4f}, SU(decoy_hicard_weak)={su_decoy:.4f}"
-        )
+        assert su_true > su_decoy, f"SU failed to overcome cardinality bias: SU(true_signal_bin)={su_true:.4f}, SU(decoy_hicard_weak)={su_decoy:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +190,7 @@ class TestSUDefeatsMICardinalityBias:
 class TestMRMRMiNormalizationE2E:
     def test_mi_normalization_knob_validated(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         with pytest.raises(ValueError, match="mi_normalization"):
             MRMR(mi_normalization="bogus").fit(
                 pd.DataFrame({"x": [0, 1, 0, 1, 0, 1] * 50}, dtype="category"),
@@ -191,11 +199,13 @@ class TestMRMRMiNormalizationE2E:
 
     def test_mi_normalization_default_is_none(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         sel = MRMR()
         assert sel.mi_normalization == "none"
 
     def test_mi_normalization_su_does_not_crash(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         rng = np.random.default_rng(0)
         n = 1500
         y = rng.integers(0, 2, size=n)
@@ -207,7 +217,9 @@ class TestMRMRMiNormalizationE2E:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(
-                verbose=0, random_seed=42, mi_normalization="su",
+                verbose=0,
+                random_seed=42,
+                mi_normalization="su",
                 full_npermutations=3,
             )
             sel.fit(Xdf, pd.Series(y, name="target"))
@@ -252,21 +264,37 @@ class TestMRMRMiNormalizationE2E:
         try:
             set_su_normalization(False)
             mi_sig, _ = mi_direct(
-                factors_data=arr, x=(0,), y=(y_idx,),
-                factors_nbins=nbins, npermutations=0, prefer_gpu=False,
+                factors_data=arr,
+                x=(0,),
+                y=(y_idx,),
+                factors_nbins=nbins,
+                npermutations=0,
+                prefer_gpu=False,
             )
             mi_noise, _ = mi_direct(
-                factors_data=arr, x=(1,), y=(y_idx,),
-                factors_nbins=nbins, npermutations=0, prefer_gpu=False,
+                factors_data=arr,
+                x=(1,),
+                y=(y_idx,),
+                factors_nbins=nbins,
+                npermutations=0,
+                prefer_gpu=False,
             )
             set_su_normalization(True)
             su_sig, _ = mi_direct(
-                factors_data=arr, x=(0,), y=(y_idx,),
-                factors_nbins=nbins, npermutations=0, prefer_gpu=False,
+                factors_data=arr,
+                x=(0,),
+                y=(y_idx,),
+                factors_nbins=nbins,
+                npermutations=0,
+                prefer_gpu=False,
             )
             su_noise, _ = mi_direct(
-                factors_data=arr, x=(1,), y=(y_idx,),
-                factors_nbins=nbins, npermutations=0, prefer_gpu=False,
+                factors_data=arr,
+                x=(1,),
+                y=(y_idx,),
+                factors_nbins=nbins,
+                npermutations=0,
+                prefer_gpu=False,
             )
         finally:
             set_su_normalization(False)
@@ -280,10 +308,7 @@ class TestMRMRMiNormalizationE2E:
         #    Under raw MI this may or may not be the case (depends on the
         #    noise sample's random correlations + H ceiling). We assert the SU
         #    contract holds.
-        assert su_sig > su_noise, (
-            f"SU failed to rank low-card signal above hi-card noise: "
-            f"SU(sig)={su_sig:.4f}, SU(noise)={su_noise:.4f}"
-        )
+        assert su_sig > su_noise, f"SU failed to rank low-card signal above hi-card noise: SU(sig)={su_sig:.4f}, SU(noise)={su_noise:.4f}"
 
         # 3) Ratio SU(sig)/SU(noise) must be SHARPER than MI(sig)/MI(noise).
         #    On this 50-level noise vs 2-level signal scenario the cardinality
@@ -291,10 +316,7 @@ class TestMRMRMiNormalizationE2E:
         #    amplifies the gap.
         ratio_mi = mi_sig / max(mi_noise, 1e-12)
         ratio_su = su_sig / max(su_noise, 1e-12)
-        assert ratio_su > ratio_mi, (
-            f"SU did not sharpen the sig/noise ratio: "
-            f"MI ratio={ratio_mi:.2f}, SU ratio={ratio_su:.2f}"
-        )
+        assert ratio_su > ratio_mi, f"SU did not sharpen the sig/noise ratio: MI ratio={ratio_mi:.2f}, SU ratio={ratio_su:.2f}"
 
     def test_su_drops_hicard_noise_at_intermediate_threshold(self):
         """**Variant C headline:** end-to-end MRMR with mi_normalization='su'
@@ -312,10 +334,12 @@ class TestMRMRMiNormalizationE2E:
         correctly normalises away the cardinality bias, raw MI doesn't.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         n = 4000
         rng = np.random.default_rng(0)
         y = rng.integers(0, 2, size=n)
         sig_lo = np.where(rng.random(n) < 0.20, 1 - y, y).astype(np.int64)
+
         def hi_w(seed, prob=0.45):
             r = np.random.default_rng(seed)
             return np.where(
@@ -323,17 +347,26 @@ class TestMRMRMiNormalizationE2E:
                 np.where(y == 1, r.integers(40, 80, size=n), r.integers(0, 40, size=n)),
                 r.integers(0, 80, size=n),
             ).astype(np.int64)
-        Xdf = pd.DataFrame({
-            "sig_lo": sig_lo,
-            "hi_a": hi_w(1), "hi_b": hi_w(2), "hi_c": hi_w(3), "hi_d": hi_w(4),
-        }).astype("category")
+
+        Xdf = pd.DataFrame(
+            {
+                "sig_lo": sig_lo,
+                "hi_a": hi_w(1),
+                "hi_b": hi_w(2),
+                "hi_c": hi_w(3),
+                "hi_d": hi_w(4),
+            }
+        ).astype("category")
         ys = pd.Series(y, name="target").astype("category")
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel_none = MRMR(
-                verbose=0, random_seed=42, mi_normalization="none",
-                full_npermutations=10, min_relevance_gain_frac=0.16,
+                verbose=0,
+                random_seed=42,
+                mi_normalization="none",
+                full_npermutations=10,
+                min_relevance_gain_frac=0.16,
                 min_relevance_gain_mode="relative_to_entropy",
                 min_features_fallback=0,
                 # scope to RAW-feature SU normalization: the default-ON integer-lattice builds a
@@ -343,8 +376,11 @@ class TestMRMRMiNormalizationE2E:
             )
             sel_none.fit(Xdf.copy(), ys.copy())
             sel_su = MRMR(
-                verbose=0, random_seed=42, mi_normalization="su",
-                full_npermutations=10, min_relevance_gain_frac=0.16,
+                verbose=0,
+                random_seed=42,
+                mi_normalization="su",
+                full_npermutations=10,
+                min_relevance_gain_frac=0.16,
                 min_relevance_gain_mode="relative_to_entropy",
                 min_features_fallback=0,
                 fe_integer_lattice_enable=False,  # see sel_none note: isolate raw-feature SU normalization
@@ -364,6 +400,7 @@ class TestMRMRMiNormalizationE2E:
         # ``il_*__sig_lo__hi_a`` is signal-carrying, not a spurious-noise inclusion.
         def _has_signal(picks) -> bool:
             return any("sig_lo" in p for p in picks)
+
         # The cardinality bias this test probes is the inclusion of a RAW high-cardinality (80-level)
         # column on its own. A TE-encoded derivative (``hi_a__te``) is a LOW-cardinality float that
         # legitimately extracts the weak y-coupling ``hi_w`` injects (raw MI ~0.11); SU defeats raw
@@ -397,15 +434,10 @@ class TestMRMRMiNormalizationE2E:
                 "ALSO reject standalone hi-card noise on this fixture; the SU-vs-raw-MI "
                 f"discriminator is no longer measurable here. picks_none={picks_none}"
             )
-        assert n_noise_su == 0, (
-            f"SU should reject all hi-card noise at this threshold; got picks_su={picks_su}"
-        )
+        assert n_noise_su == 0, f"SU should reject all hi-card noise at this threshold; got picks_su={picks_su}"
 
         # 3) Headline: SU mode picks a STRICTLY SMALLER (more parsimonious) support.
-        assert len(picks_su) < len(picks_none), (
-            f"Cardinality-bias-defeat: SU should pick fewer features. "
-            f"picks_none={picks_none}, picks_su={picks_su}"
-        )
+        assert len(picks_su) < len(picks_none), f"Cardinality-bias-defeat: SU should pick fewer features. picks_none={picks_none}, picks_su={picks_su}"
 
     def test_mi_normalization_su_recovers_low_card_signal_over_hicard_decoy(self):
         """E2E: under raw MI the decoy may sneak in; under SU it should not.
@@ -415,6 +447,7 @@ class TestMRMRMiNormalizationE2E:
         randomness that may flip ranking on edge cases.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         n = 2000
         rng = np.random.default_rng(0)
         y = rng.integers(0, 2, size=n)
@@ -424,24 +457,25 @@ class TestMRMRMiNormalizationE2E:
         decoy_hicard = (weak_coupled * 4 + rng.integers(0, 4, size=n)).astype(np.int64)
         noise_lo = rng.integers(0, 2, size=n)
         noise_hi = rng.integers(0, 8, size=n)
-        Xdf = pd.DataFrame({
-            "true_signal": true_signal,
-            "decoy_hicard": decoy_hicard,
-            "noise_lo": noise_lo,
-            "noise_hi": noise_hi,
-        }).astype("category")
+        Xdf = pd.DataFrame(
+            {
+                "true_signal": true_signal,
+                "decoy_hicard": decoy_hicard,
+                "noise_lo": noise_lo,
+                "noise_hi": noise_hi,
+            }
+        ).astype("category")
         ys = pd.Series(y, name="target")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel_su = MRMR(
-                verbose=0, random_seed=42, mi_normalization="su",
+                verbose=0,
+                random_seed=42,
+                mi_normalization="su",
                 full_npermutations=3,
             )
             sel_su.fit(Xdf.copy(), ys.copy())
         su_picks = set(sel_su.get_feature_names_out())
         # Headline: under SU, the true low-cardinality signal MUST be among
         # the selected features.
-        assert "true_signal" in su_picks, (
-            f"SU mode failed to pick the low-cardinality true_signal; "
-            f"selected={su_picks}"
-        )
+        assert "true_signal" in su_picks, f"SU mode failed to pick the low-cardinality true_signal; selected={su_picks}"

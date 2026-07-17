@@ -9,13 +9,13 @@ The fix threads the real ``split_config`` into the phase and gates the rerank on
 config. These tests assert that ``CompositeTargetDiscovery._group_ids_for_rerank`` is set (group-aware rerank active) when the
 splitter is group-aware-by-config even with no recommendation, and stays unset when neither signal is present.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.configs import TargetTypes
 from mlframe.training.core._phase_composite_discovery import (
@@ -45,9 +45,7 @@ def _run_capture_rerank_groups(*, split_config, group_ids, metadata_extra=None):
 
     rng = np.random.default_rng(0)
     n = 120
-    feature_df = pd.DataFrame(
-        rng.standard_normal((n, 3)), columns=["a", "b", "c"]
-    )
+    feature_df = pd.DataFrame(rng.standard_normal((n, 3)), columns=["a", "b", "c"])
     target_y = rng.standard_normal(n)
     target_by_type = {TargetTypes.REGRESSION: {"y": target_y}}
     metadata: dict = {}
@@ -104,7 +102,8 @@ def test_group_aware_splitter_config_activates_rerank_without_recommendation():
     split_config = SimpleNamespace(use_groups=True)
 
     rerank_groups = _run_capture_rerank_groups(
-        split_config=split_config, group_ids=groups,
+        split_config=split_config,
+        group_ids=groups,
     )
     assert rerank_groups is not None, (
         "group-aware splitter (use_groups=True + group_ids) did not activate the "
@@ -119,11 +118,10 @@ def test_group_aware_splitter_accepts_dict_split_config():
     groups = np.repeat(np.arange(6), n // 6)
 
     rerank_groups = _run_capture_rerank_groups(
-        split_config={"use_groups": True}, group_ids=groups,
+        split_config={"use_groups": True},
+        group_ids=groups,
     )
-    assert rerank_groups is not None, (
-        "dict split_config with use_groups=True was not honoured for the rerank gate"
-    )
+    assert rerank_groups is not None, "dict split_config with use_groups=True was not honoured for the rerank gate"
     np.testing.assert_array_equal(np.asarray(rerank_groups), groups)
 
 
@@ -133,11 +131,10 @@ def test_no_group_signal_keeps_rerank_group_naive():
     groups = np.repeat(np.arange(6), n // 6)
 
     rerank_groups = _run_capture_rerank_groups(
-        split_config=SimpleNamespace(use_groups=False), group_ids=groups,
+        split_config=SimpleNamespace(use_groups=False),
+        group_ids=groups,
     )
-    assert rerank_groups is None, (
-        "group-aware rerank fired with use_groups=False and no analyzer recommendation"
-    )
+    assert rerank_groups is None, "group-aware rerank fired with use_groups=False and no analyzer recommendation"
 
 
 def test_recommendation_still_activates_rerank_without_split_config():
@@ -151,10 +148,11 @@ def test_recommendation_still_activates_rerank_without_split_config():
     }
 
     rerank_groups = _run_capture_rerank_groups(
-        split_config=None, group_ids=groups, metadata_extra=metadata_extra,
+        split_config=None,
+        group_ids=groups,
+        metadata_extra=metadata_extra,
     )
     assert rerank_groups is not None, (
-        "analyzer recommendation prefer_group_aware=True no longer activates the rerank "
-        "when split_config is None (regression in the OR gate)"
+        "analyzer recommendation prefer_group_aware=True no longer activates the rerank when split_config is None (regression in the OR gate)"
     )
     np.testing.assert_array_equal(np.asarray(rerank_groups), groups)

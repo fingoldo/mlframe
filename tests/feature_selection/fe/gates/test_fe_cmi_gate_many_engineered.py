@@ -31,6 +31,7 @@ redundant remaps, never starves a driver, and the cost is flat (1.0x-1.6x per do
 n<=20000 fixtures (RAM-shared box). The gate function is cheap (no MRMR fit), so the
 K-sweep runs in seconds.
 """
+
 from __future__ import annotations
 
 import time
@@ -63,9 +64,12 @@ def _mk(v, yb):
 def _world(seed=0, n=_N):
     """3 genuine drivers (a**2/b, log(c)*sin(d), g*h) + noise."""
     rng = np.random.default_rng(seed)
-    a = rng.uniform(0.5, 3.0, n); b = rng.uniform(0.5, 3.0, n)
-    c = rng.uniform(0.5, 5.0, n); d = rng.uniform(0.0, 2 * np.pi, n)
-    g = rng.uniform(0.5, 3.0, n); h = rng.uniform(0.5, 3.0, n)
+    a = rng.uniform(0.5, 3.0, n)
+    b = rng.uniform(0.5, 3.0, n)
+    c = rng.uniform(0.5, 5.0, n)
+    d = rng.uniform(0.0, 2 * np.pi, n)
+    g = rng.uniform(0.5, 3.0, n)
+    h = rng.uniform(0.5, 3.0, n)
     f = rng.normal(0.0, 1.0, n)
     y = a**2 / b + 3.0 * np.log(c) * np.sin(d) + g * h + f / 5.0
     base = {
@@ -103,8 +107,7 @@ def test_partition_duplicates_collapse_one_rep_per_driver(n_remaps):
         forms = {drv} | {nm for nm in cands if nm.startswith(f"red_{drv}_")}
         n_adm = len(forms & accepted)
         assert n_adm == 1, (
-            f"driver {drv}: expected exactly 1 admitted form, got {n_adm} "
-            f"(0 = starvation, >1 = redundancy leak). admitted={sorted(forms & accepted)}"
+            f"driver {drv}: expected exactly 1 admitted form, got {n_adm} (0 = starvation, >1 = redundancy leak). admitted={sorted(forms & accepted)}"
         )
     # The redundant remaps are explicitly labelled, not silently absent.
     collapsed = [nm for nm, d in diag.items() if d.get("reason") == "redundant_partition_duplicate"]
@@ -119,14 +122,10 @@ def test_no_driver_starvation_with_tied_marginal_mi_remaps(seed):
     drop the other two ENTIRELY. The partition-dedup-before-cap keeps all three drivers."""
     cands, yb, base = _pool_with_remaps(seed=seed, n_remaps=64)  # 3 + 192 = 195 candidates
     assert len(cands) > _DEFAULT_MAX_CANDIDATES  # the pool exceeds the cap (cap path exercised)
-    accepted, diag = apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
-    captured = {
-        drv for drv in base
-        if (drv in accepted) or any(nm in accepted for nm in cands if nm.startswith(f"red_{drv}_"))
-    }
+    accepted, _diag = apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
+    captured = {drv for drv in base if (drv in accepted) or any(nm in accepted for nm in cands if nm.startswith(f"red_{drv}_"))}
     assert captured == set(base), (
-        f"[seed={seed}] driver(s) starved by the cost cap: captured={captured} "
-        f"expected={set(base)}. The partition dedup must run BEFORE the marginal-MI cap."
+        f"[seed={seed}] driver(s) starved by the cost cap: captured={captured} expected={set(base)}. The partition dedup must run BEFORE the marginal-MI cap."
     )
 
 
@@ -134,7 +133,7 @@ def test_canonical_form_preferred_over_redundant_remap():
     """With the genuine canonical form AND its exact-partition remaps present, the gate
     admits the CANONICAL form (highest-marginal-MI representative, deterministic tie-break),
     not an arbitrary noisy remap."""
-    base, yb, rng = _world(seed=0)
+    base, yb, _rng = _world(seed=0)
     cands = {k: _mk(v, yb) for k, v in base.items()}
     # exact-partition remaps (no jitter -> identical partition, identical marginal MI;
     # canonical wins the tie by name ordering being deterministic).
@@ -157,29 +156,27 @@ def test_cost_is_bounded_as_K_grows():
     cap flatten it. We assert the wall-time growth from ~50 to ~200 candidates is far
     below the O(K^2) ~16x a doubling-twice would imply (generous threshold to stay robust
     on a shared box -- the point is sub-quadratic, not a tight constant)."""
+
     def _time(n_remaps):
         cands, yb, _ = _pool_with_remaps(seed=0, n_remaps=n_remaps)
         t0 = time.perf_counter()
         apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
         return time.perf_counter() - t0, len(cands)
 
-    t_small, k_small = _time(16)   # 3 + 48 = 51 candidates
-    t_large, k_large = _time(66)   # 3 + 198 = 201 candidates
-    assert k_large > 3 * k_small   # ~4x more candidates
+    t_small, k_small = _time(16)  # 3 + 48 = 51 candidates
+    t_large, k_large = _time(66)  # 3 + 198 = 201 candidates
+    assert k_large > 3 * k_small  # ~4x more candidates
     # O(K^2) would be ~16x; the capped gate is near-flat. Allow a generous 6x ceiling
     # so a loaded box doesn't flake, while still catching a return to quadratic (which
     # would be >>16x and far exceed 6x).
     ratio = t_large / max(1e-6, t_small)
-    assert ratio < 6.0, (
-        f"gate cost grew {ratio:.1f}x for ~4x candidates ({k_small}->{k_large}); "
-        f"expected sub-quadratic (cap + dedup). O(K^2) would be ~16x."
-    )
+    assert ratio < 6.0, f"gate cost grew {ratio:.1f}x for ~4x candidates ({k_small}->{k_large}); expected sub-quadratic (cap + dedup). O(K^2) would be ~16x."
 
 
 def test_cost_cap_disabled_runs_full_greedy():
     """``max_candidates <= 0`` disables the cap (unbounded greedy) -- the escape hatch.
     On a small pool the result is identical to the capped default (cap doesn't fire)."""
-    cands, yb, base = _pool_with_remaps(seed=0, n_remaps=2)  # 9 candidates < cap
+    cands, yb, _base = _pool_with_remaps(seed=0, n_remaps=2)  # 9 candidates < cap
     acc_capped, _ = apply_cmi_redundancy_gate(cands, yb, nbins=10, max_candidates=64, seed=0)
     acc_uncapped, _ = apply_cmi_redundancy_gate(cands, yb, nbins=10, max_candidates=0, seed=0)
     assert acc_capped == acc_uncapped
@@ -196,7 +193,12 @@ def test_cap_keeps_genuine_drops_low_marginal_tail():
     for j in range(80):
         cands[f"noise_{j}"] = _mk(rng.normal(0.0, 1.0, n), yb)
     accepted, diag = apply_cmi_redundancy_gate(
-        cands, yb, nbins=10, retain_frac=0.15, max_candidates=16, seed=0,
+        cands,
+        yb,
+        nbins=10,
+        retain_frac=0.15,
+        max_candidates=16,
+        seed=0,
     )
     # All three genuine drivers survive the cap (high marginal MI).
     for drv in base:
@@ -205,9 +207,7 @@ def test_cap_keeps_genuine_drops_low_marginal_tail():
     capped = [nm for nm, d in diag.items() if d.get("reason") == "dropped_cost_cap"]
     assert capped, "cap should have dropped low-marginal-MI noise candidates"
     # No admitted candidate is a pure-noise column.
-    assert not any(nm.startswith("noise_") for nm in accepted), (
-        f"pure-noise candidate wrongly admitted: {[nm for nm in accepted if nm.startswith('noise_')]}"
-    )
+    assert not any(nm.startswith("noise_") for nm in accepted), f"pure-noise candidate wrongly admitted: {[nm for nm in accepted if nm.startswith('noise_')]}"
 
 
 # ---------------------------------------------------------------------------

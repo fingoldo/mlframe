@@ -23,7 +23,6 @@ from mlframe.training.utils import (
     estimate_df_size_mb,
     should_clean_ram,
     maybe_clean_ram_and_gpu,
-    get_process_rss_mb,
 )
 
 
@@ -135,9 +134,7 @@ CPU_BEHAVIOR = {"prefer_gpu_configs": False, "prefer_calibrated_classifiers": Fa
 
 
 class TestSkipPandasConversion:
-    def test_no_pandas_conversion_when_all_polars_native(
-        self, temp_data_dir, common_init_params, monkeypatch
-    ):
+    def test_no_pandas_conversion_when_all_polars_native(self, temp_data_dir, common_init_params, monkeypatch):
         """CB-only run on Polars input must never call _convert_dfs_to_pandas."""
         pytest.importorskip("catboost")
         from .shared import SimpleFeaturesAndTargetsExtractor
@@ -222,8 +219,7 @@ class TestSkipPandasConversion:
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
         assert counter["lazy"] + counter["upfront"] >= 1, (
-            "ridge must have received pandas — either upfront or lazily. Neither "
-            f"call fired: lazy={counter['lazy']}, upfront={counter['upfront']}"
+            f"ridge must have received pandas — either upfront or lazily. Neither call fired: lazy={counter['lazy']}, upfront={counter['upfront']}"
         )
 
 
@@ -232,7 +228,6 @@ class TestSkipPandasConversion:
 # ======================================================================
 class TestShowcaseVerboseGate:
     def test_showcase_hidden_at_verbose_1(self, monkeypatch):
-        from mlframe.training.extractors import FeaturesAndTargetsExtractor
 
         called = {"n": 0}
         monkeypatch.setattr(
@@ -312,9 +307,7 @@ class TestArrowLargeStringCompat:
             import xgboost, catboost, pyarrow
 
             print(
-                f"[arrow-compat] pl={pl.__version__} "
-                f"pa={pyarrow.__version__} xgb={xgboost.__version__} "
-                f"cb={catboost.__version__} py={sys.version.split()[0]}"
+                f"[arrow-compat] pl={pl.__version__} pa={pyarrow.__version__} xgb={xgboost.__version__} cb={catboost.__version__} py={sys.version.split()[0]}"
             )
         except ImportError:
             pass
@@ -346,9 +339,7 @@ class TestArrowLargeStringCompat:
         self._assert_lib_versions_logged()
 
     @pytest.mark.parametrize("model_name", ["cb", "hgb", "xgb"])
-    def test_polars_native_models_handle_utf8_and_string_dtypes(
-        self, model_name, temp_data_dir, common_init_params
-    ):
+    def test_polars_native_models_handle_utf8_and_string_dtypes(self, model_name, temp_data_dir, common_init_params):
         """All Polars-native strategies must survive pl.Utf8 AND pl.String (same dtype
         under the hood in Polars >= 0.19; large_string is the tripwire for XGBoost)."""
         pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "hgb": "sklearn"}[model_name])
@@ -419,16 +410,12 @@ class TestFeatureSelectorsWithTextEmbedding:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             pipeline_config=PreprocessingBackendConfig(prefer_polarsds=True),
-            feature_types_config=FeatureTypesConfig(
-                text_features=["text_feat"], auto_detect_feature_types=False
-            ),
+            feature_types_config=FeatureTypesConfig(text_features=["text_feat"], auto_detect_feature_types=False),
             reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             behavior_config=CPU_BEHAVIOR,
             use_ordinary_models=False,
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.2, "verbose": 0}
-            ),
+            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.2, "verbose": 0}),
             use_mlframe_ensembles=False,
             verbose=0,
             output_config=OutputConfig(data_dir=temp_data_dir),
@@ -453,16 +440,12 @@ class TestFeatureSelectorsWithTextEmbedding:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             pipeline_config=PreprocessingBackendConfig(prefer_polarsds=True),
-            feature_types_config=FeatureTypesConfig(
-                embedding_features=["emb_feat"], auto_detect_feature_types=False
-            ),
+            feature_types_config=FeatureTypesConfig(embedding_features=["emb_feat"], auto_detect_feature_types=False),
             reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             behavior_config=CPU_BEHAVIOR,
             use_ordinary_models=False,
-            feature_selection_config=FeatureSelectionConfig(
-                use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.2, "verbose": 0}
-            ),
+            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.2, "verbose": 0}),
             use_mlframe_ensembles=False,
             verbose=0,
             output_config=OutputConfig(data_dir=temp_data_dir),
@@ -483,7 +466,7 @@ class TestParallelMetricsEquivalence:
         df = _make_simple_polars_df(n=400)
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models1, meta1 = train_mlframe_models_suite(
+        models1, _meta1 = train_mlframe_models_suite(
             df=df,
             target_name="t",
             model_name="par_eq_1",
@@ -497,7 +480,7 @@ class TestParallelMetricsEquivalence:
             verbose=0,
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
-        models2, meta2 = train_mlframe_models_suite(
+        models2, _meta2 = train_mlframe_models_suite(
             df=df,
             target_name="t",
             model_name="par_eq_2",

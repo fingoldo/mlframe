@@ -8,11 +8,11 @@ Post-fix the function uses ``orjson.dumps(payload, option=orjson.OPT_SORT_KEYS, 
 all non-pydantic inputs, so any dict-shaped payload (including ``OrderedDict`` or nested dicts)
 hashes identically across insertion orders.
 """
+
 from __future__ import annotations
 
 from collections import OrderedDict
 
-import pytest
 
 from mlframe.training.feature_handling.fingerprint import canonical_params_hash
 
@@ -44,6 +44,7 @@ def test_canonical_hash_handles_non_native_value_via_default_str():
     """Custom object values must coerce via ``default=str`` rather than raise (parity with the
     prior stdlib ``default=str`` behaviour).
     """
+
     class Custom:
         def __str__(self) -> str:
             return "custom_repr"

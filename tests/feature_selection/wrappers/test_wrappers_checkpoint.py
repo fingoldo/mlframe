@@ -9,12 +9,10 @@ The contract:
 - Atomic write (tmpfile + os.replace): a crash mid-write does NOT corrupt
   the previous valid checkpoint
 """
+
 from __future__ import annotations
 
-import os
 import pickle
-import tempfile
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -28,9 +26,15 @@ from tests.training.synthetic import make_sklearn_classification_df
 @pytest.fixture(scope="module")
 def small_problem():
     X_df, y, _ = make_sklearn_classification_df(
-        n_samples=200, n_features=8, n_informative=4,
-        n_redundant=0, n_classes=2, n_clusters_per_class=1,
-        shuffle=False, class_sep=2.0, seed=0,
+        n_samples=200,
+        n_features=8,
+        n_informative=4,
+        n_redundant=0,
+        n_classes=2,
+        n_clusters_per_class=1,
+        shuffle=False,
+        class_sep=2.0,
+        seed=0,
     )
     return X_df, y
 
@@ -75,10 +79,16 @@ class TestCheckpointSave:
         assert isinstance(state, dict)
         # Documented schema
         for required_key in (
-            "version", "signature", "nsteps",
-            "evaluated_scores_mean", "evaluated_scores_std",
-            "feature_importances", "selected_features_per_nfeatures",
-            "best_nfeatures", "best_iter", "best_score",
+            "version",
+            "signature",
+            "nsteps",
+            "evaluated_scores_mean",
+            "evaluated_scores_std",
+            "feature_importances",
+            "selected_features_per_nfeatures",
+            "best_nfeatures",
+            "best_iter",
+            "best_score",
             "optimizer",
         ):
             assert required_key in state, f"missing key {required_key!r} in checkpoint"
@@ -132,9 +142,7 @@ class TestCheckpointLoad:
         # After resumed fit: checkpoint nsteps must have advanced past
         # the saved-state's nsteps
         second_nsteps = pickle.loads(ckpt.read_bytes())["nsteps"]
-        assert second_nsteps > first_nsteps, (
-            f"resume failed to advance: first={first_nsteps}, second={second_nsteps}"
-        )
+        assert second_nsteps > first_nsteps, f"resume failed to advance: first={first_nsteps}, second={second_nsteps}"
 
     def test_signature_mismatch_starts_fresh(self, small_problem, tmp_path):
         """Same checkpoint file, different X shape -> must NOT load state.
@@ -150,9 +158,7 @@ class TestCheckpointLoad:
         sel2 = _make_selector(checkpoint_path=str(ckpt), max_refits=4)
         sel2.fit(X2, y2)
         assert sel2.n_features_in_ == 12
-        assert sel2.support_.shape[0] == 12, (
-            f"mismatched-signature path produced wrong support_ shape; got {sel2.support_.shape}"
-        )
+        assert sel2.support_.shape[0] == 12, f"mismatched-signature path produced wrong support_ shape; got {sel2.support_.shape}"
 
     def test_corrupt_checkpoint_starts_fresh(self, small_problem, tmp_path, caplog):
         """Truncated pickle file must not crash fit()."""
@@ -203,9 +209,7 @@ class TestCheckpointAtomicity:
         with pytest.raises((pickle.PicklingError, AttributeError, TypeError)):
             sel._save_checkpoint({"version": 1, "bad": lambda x: x})
         # Original target must be untouched
-        assert target.read_bytes() == original_bytes, (
-            "atomic write violated: failed save corrupted the existing checkpoint"
-        )
+        assert target.read_bytes() == original_bytes, "atomic write violated: failed save corrupted the existing checkpoint"
 
     def test_no_temp_files_left_on_success(self, tmp_path):
         sel = _make_selector(checkpoint_path=str(tmp_path / "ckpt.pkl"))

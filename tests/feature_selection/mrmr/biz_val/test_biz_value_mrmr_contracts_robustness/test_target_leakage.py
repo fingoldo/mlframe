@@ -89,6 +89,7 @@ wall-time bounded. These do NOT interact with the leakage detection
 path -- the leak features are individually high-MI on a 1-feature
 relevance computation, no interaction synthesis required.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -185,6 +186,7 @@ def _make_mrmr(**overrides):
     detection path being tested.
     """
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(
         verbose=0,
         interactions_max_order=1,
@@ -256,9 +258,7 @@ class TestMrmrSurvivesLeakyFrame:
         # If a noise column made it in but no leak did, MRMR's
         # relevance signal is fundamentally broken on this frame.
         if any_noise and not any_leak:
-            pytest.fail(
-                f"noise column selected while ALL leaks dropped; " f"seed={seed}, support={names}. Relevance maximiser is " f"misranking high-MI features."
-            )
+            pytest.fail(f"noise column selected while ALL leaks dropped; seed={seed}, support={names}. Relevance maximiser is misranking high-MI features.")
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +318,7 @@ class TestGainRatioAuditSignal:
         """mrmr_gains_ is exposed, length-aligned to support_, finite and non-negative."""
         _X, _y, sel = _build_and_fit_layer17(seed)
         assert hasattr(sel, "mrmr_gains_"), (
-            "MRMR.mrmr_gains_ must be exposed for user-level leak " "auditing (gain[top] / gain[median] is the canonical " "audit heuristic)."
+            "MRMR.mrmr_gains_ must be exposed for user-level leak auditing (gain[top] / gain[median] is the canonical audit heuristic)."
         )
         gains = np.asarray(sel.mrmr_gains_, dtype=np.float64)
         assert gains.shape == (sel.n_features_,), (
@@ -328,9 +328,9 @@ class TestGainRatioAuditSignal:
             f"seed={seed}"
         )
         assert np.all(np.isfinite(gains)), (
-            f"mrmr_gains_ contains non-finite entries {gains} -- a " f"user can't divide top/median on a NaN/Inf gain vector. " f"seed={seed}"
+            f"mrmr_gains_ contains non-finite entries {gains} -- a user can't divide top/median on a NaN/Inf gain vector. seed={seed}"
         )
-        assert np.all(gains >= 0.0), f"mrmr_gains_ has negative entries {gains}; gains are " f"defined as marginal MI deltas and must be >= 0. " f"seed={seed}"
+        assert np.all(gains >= 0.0), f"mrmr_gains_ has negative entries {gains}; gains are defined as marginal MI deltas and must be >= 0. seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_gain_ratio_flags_direct_leak(self, seed):
@@ -446,7 +446,7 @@ class TestDownstreamLeakSignatureVisible:
         _fit_quiet(sel, X_tr, y_tr)
         names = list(sel.get_feature_names_out())
         if "leaky_direct" not in names:
-            pytest.skip(f"direct-leak column not selected on this seed; " f"can't probe the train-saturation signature. " f"seed={seed}, support={names}")
+            pytest.skip(f"direct-leak column not selected on this seed; can't probe the train-saturation signature. seed={seed}, support={names}")
         Xs_tr = sel.transform(X_tr)
         Xs_te = sel.transform(X_te)
         model = Ridge(alpha=1.0).fit(Xs_tr, y_tr)
@@ -494,7 +494,7 @@ class TestSupportGainsAlignment:
         # leak alone has near-perfect MI with y); an empty gains array means MRMR
         # selected nothing, which is a regression, not a skippable case.
         assert gains.size >= 1, (
-            f"empty support on the leaky frame (seed={seed}); MRMR selected no " f"feature despite the direct leak having near-perfect MI with y."
+            f"empty support on the leaky frame (seed={seed}); MRMR selected no feature despite the direct leak having near-perfect MI with y."
         )
         # gain[0] is the FIRST greedy pick == largest relevance gain.
         # The remaining picks have STRICTLY non-increasing gains (relative-gain
@@ -513,6 +513,6 @@ class TestSupportGainsAlignment:
         """
         _X, _y, sel = _build_and_fit_layer17(1)
         assert len(sel.mrmr_gains_) == len(sel.support_), (
-            f"mrmr_gains_ length {len(sel.mrmr_gains_)} != support_ " f"length {len(sel.support_)}; bit-alignment broken."
+            f"mrmr_gains_ length {len(sel.mrmr_gains_)} != support_ length {len(sel.support_)}; bit-alignment broken."
         )
-        assert len(sel.mrmr_gains_) == sel.n_features_, f"mrmr_gains_ length {len(sel.mrmr_gains_)} != " f"n_features_ {sel.n_features_}."
+        assert len(sel.mrmr_gains_) == sel.n_features_, f"mrmr_gains_ length {len(sel.mrmr_gains_)} != n_features_ {sel.n_features_}."

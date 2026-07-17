@@ -6,6 +6,7 @@ Covers:
   * The ``MLFRAME_DISABLE_HNSW`` opt-out forcing the exact sklearn path (the production escape hatch
     for hosts where ``import hnswlib`` segfaults at the native-DLL level after cupy/MKL are resident).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -66,8 +67,8 @@ def test_disable_hnsw_env_falsey_is_noop(monkeypatch, falsey):
     real native hnswlib DLL (which segfaults on some Windows hosts -- the very reason the opt-out
     exists). With a falsey env-var, the probe must reach the (mocked) import and return True.
     """
-    import builtins
     import sys as _sys
+
     monkeypatch.setenv("MLFRAME_DISABLE_HNSW", falsey)
     monkeypatch.setattr(KH, "_HNSW_AVAILABLE", None, raising=False)
     # Inject a dummy hnswlib so the probe's ``import hnswlib`` resolves without loading the real DLL.
@@ -82,6 +83,7 @@ def test_disable_hnsw_truthy_skips_import(monkeypatch):
     cleanly -- proving the truthy env-var short-circuits BEFORE the import statement is reached.
     """
     import builtins
+
     monkeypatch.setenv("MLFRAME_DISABLE_HNSW", "1")
     monkeypatch.setattr(KH, "_HNSW_AVAILABLE", None, raising=False)
     real_import = builtins.__import__

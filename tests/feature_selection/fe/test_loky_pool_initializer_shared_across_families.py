@@ -17,6 +17,7 @@ This test pins the fix at the identity level: every module that builds a CPU-onl
 import and pass the ONE shared ``mlframe.feature_selection.filters._joblib_safe.disable_cuda_in_worker``
 -- not a local look-alike -- so loky's executor cache can actually recognize and reuse a warm pool.
 """
+
 from __future__ import annotations
 
 import pytest

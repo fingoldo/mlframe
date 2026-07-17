@@ -14,6 +14,7 @@ The clip is a safety net. The MODEL still extrapolates badly; the clip
 just stops the damage from poisoning charts, RMSE / MaxError, and the
 ensemble stacker.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,6 +26,7 @@ class TestComputeTrainEnvelopeStats:
         from mlframe.training._prediction_envelope_clip import (
             compute_train_envelope_stats,
         )
+
         y = np.array([10.0, 11.0, 12.0, 13.0, 14.0] * 100)
         stats = compute_train_envelope_stats(y)
         assert stats is not None
@@ -36,6 +38,7 @@ class TestComputeTrainEnvelopeStats:
         from mlframe.training._prediction_envelope_clip import (
             compute_train_envelope_stats,
         )
+
         stats = compute_train_envelope_stats(np.array([1.0, 2.0, 3.0]))
         assert stats is None
 
@@ -43,6 +46,7 @@ class TestComputeTrainEnvelopeStats:
         from mlframe.training._prediction_envelope_clip import (
             compute_train_envelope_stats,
         )
+
         stats = compute_train_envelope_stats(np.full(100, 5.0))
         assert stats is None
 
@@ -50,6 +54,7 @@ class TestComputeTrainEnvelopeStats:
         from mlframe.training._prediction_envelope_clip import (
             compute_train_envelope_stats,
         )
+
         y = np.array([10.0, 11.0, np.nan, np.inf, 14.0] * 50)
         stats = compute_train_envelope_stats(y)
         assert stats is not None
@@ -62,12 +67,14 @@ class TestClipPredictionsToTrainEnvelope:
         from mlframe.training._prediction_envelope_clip import (
             TrainEnvelopeStats,
         )
+
         return TrainEnvelopeStats(y_min=y_min, y_max=y_max, y_std=y_std)
 
     def test_in_envelope_preds_pass_through(self) -> None:
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
+
         # y_train [10, 20], std=2 -> envelope [10 - 3*2, 20 + 3*2] = [4, 26]
         preds = np.array([11.0, 15.0, 19.0, 25.0, 5.0])
         out = clip_predictions_to_train_envelope(preds, self._stats())
@@ -77,6 +84,7 @@ class TestClipPredictionsToTrainEnvelope:
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
+
         preds = np.array([15.0, 1000.0, 10000.0])
         out = clip_predictions_to_train_envelope(preds, self._stats())
         # envelope upper = 20 + 3*2 = 26
@@ -88,6 +96,7 @@ class TestClipPredictionsToTrainEnvelope:
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
+
         preds = np.array([-1e5, -5e4, 15.0])
         out = clip_predictions_to_train_envelope(preds, self._stats())
         # envelope lower = 10 - 3*2 = 4
@@ -99,6 +108,7 @@ class TestClipPredictionsToTrainEnvelope:
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
+
         preds = np.array([1e9, -1e9])
         out = clip_predictions_to_train_envelope(preds, None)
         np.testing.assert_allclose(out, preds)
@@ -107,9 +117,12 @@ class TestClipPredictionsToTrainEnvelope:
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
+
         preds = np.array([1e9, -1e9])
         out = clip_predictions_to_train_envelope(
-            preds, self._stats(), apply_clip=False,
+            preds,
+            self._stats(),
+            apply_clip=False,
         )
         np.testing.assert_allclose(out, preds)
 
@@ -117,6 +130,7 @@ class TestClipPredictionsToTrainEnvelope:
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
+
         monkeypatch.setenv("MLFRAME_DISABLE_PREDICTION_ENVELOPE_CLIP", "1")
         preds = np.array([1e9, -1e9])
         out = clip_predictions_to_train_envelope(preds, self._stats())
@@ -127,6 +141,7 @@ class TestClipPredictionsToTrainEnvelope:
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
+
         with caplog.at_level(logging.WARNING):
             clip_predictions_to_train_envelope(
                 np.array([1e6, 15.0, -1e6]),
@@ -145,6 +160,7 @@ class TestClipPredictionsToTrainEnvelope:
         from mlframe.training._prediction_envelope_clip import (
             clip_predictions_to_train_envelope,
         )
+
         preds = np.array([1e6, 15.0, -1e6])
         stats = self._stats()
         once = clip_predictions_to_train_envelope(preds, stats)
@@ -159,6 +175,7 @@ class TestReportingIntegration:
     def test_source_has_envelope_clip_wiring(self) -> None:
         from pathlib import Path
         from mlframe.training.reporting import _reporting as rep
+
         # ``report_regression_model_perf`` was carved out of ``_reporting.py``
         # into ``_reporting_regression.py``; the envelope-clip wiring moved
         # with it. Concat both files so the source-grep guard still matches.
@@ -175,6 +192,7 @@ class TestReportingIntegration:
         no-op (back-compat)."""
         from pathlib import Path
         from mlframe.training.reporting import _reporting as rep
+
         # Same carve as ``test_source_has_envelope_clip_wiring``: the
         # gate moved to ``_reporting_regression.py``.
         src = Path(rep.__file__).read_text(encoding="utf-8")
@@ -194,6 +212,7 @@ class TestReportingIntegration:
         that nobody ever wired."""
         import inspect
         from mlframe.training.reporting._reporting import report_model_perf
+
         sig = inspect.signature(report_model_perf)
         assert "y_train_envelope_stats" in sig.parameters
 
@@ -204,6 +223,7 @@ class TestReportingIntegration:
         bound."""
         import inspect
         from mlframe.training._eval_helpers import _compute_split_metrics
+
         sig = inspect.signature(_compute_split_metrics)
         assert "y_train_envelope_stats" in sig.parameters
 
@@ -213,8 +233,10 @@ class TestReportingIntegration:
         eval targets are available, k=10 (defensive). Bounds must
         differ accordingly so train-stats actually do work."""
         from mlframe.training._prediction_envelope_clip import (
-            TrainEnvelopeStats, clip_predictions_to_train_envelope,
+            TrainEnvelopeStats,
+            clip_predictions_to_train_envelope,
         )
+
         stats = TrainEnvelopeStats(y_min=10.0, y_max=20.0, y_std=2.0)
         # Train k=3 -> [10 - 6, 20 + 6] = [4, 26]
         preds = np.array([3.0, 15.0, 27.0])

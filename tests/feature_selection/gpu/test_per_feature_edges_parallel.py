@@ -9,6 +9,7 @@ threads, and report the measured speedup.
 
 Run: pytest tests/feature_selection/test_per_feature_edges_parallel.py -s
 """
+
 from __future__ import annotations
 
 import time
@@ -51,11 +52,14 @@ def _assert_edges_identical(a, b, label):
         assert np.array_equal(ea, eb), f"{label}: col {j} edges differ\n serial={ea}\n parallel={eb}"
 
 
-@pytest.mark.parametrize("method,needs_y", [
-    ("mdlp", True),
-    ("freedman_diaconis", False),
-    ("sturges", False),
-])
+@pytest.mark.parametrize(
+    "method,needs_y",
+    [
+        ("mdlp", True),
+        ("freedman_diaconis", False),
+        ("sturges", False),
+    ],
+)
 @pytest.mark.parametrize("seed", [0, 7])
 def test_parallel_edges_bit_identical(method, needs_y, seed):
     X = _make_X(2000, 200, seed=seed)
@@ -101,8 +105,7 @@ def test_narrow_frame_no_regression():
     par = per_feature_edges(X, y=y, method="mdlp", n_jobs=-1)
     t_par = time.perf_counter() - t0
     _assert_edges_identical(serial, par, "narrow")
-    print(f"\n[narrow p=50] serial={t_serial:.3f}s n_jobs=-1={t_par:.3f}s "
-          f"(gated to serial, no regression expected)")
+    print(f"\n[narrow p=50] serial={t_serial:.3f}s n_jobs=-1={t_par:.3f}s (gated to serial, no regression expected)")
     # Tolerate noise: parallel path must not be dramatically slower.
     assert t_par < t_serial * 2.0 + 0.5
 
@@ -125,5 +128,4 @@ def test_speedup_mdlp(p):
 
     _assert_edges_identical(serial, parallel, f"speedup-p={p}")
     speedup = t_serial / t_par if t_par > 0 else float("nan")
-    print(f"\n[MDLP n={n} p={p}] serial={t_serial:.3f}s parallel={t_par:.3f}s "
-          f"speedup={speedup:.2f}x  edges identical=True")
+    print(f"\n[MDLP n={n} p={p}] serial={t_serial:.3f}s parallel={t_par:.3f}s speedup={speedup:.2f}x  edges identical=True")

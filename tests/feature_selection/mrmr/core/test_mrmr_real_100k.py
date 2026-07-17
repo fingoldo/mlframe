@@ -62,6 +62,7 @@ MEASURED RESULTS:
      The values are machine-dependent; the ASSERTIONS below are the portable
      contract.
 """
+
 from __future__ import annotations
 
 import gc
@@ -138,19 +139,13 @@ def _plant_layout(n_cols: int) -> dict:
     # low-cardinality integer "categorical-like" informative columns.
     cats = {next(it): w for w in (1.2, 0.9)}
 
-    informative_base = (
-        set(linear)
-        | {pair_a1, pair_b1, pair_a2, pair_b2}
-        | {cluster_driver}
-        | set(heavy)
-        | set(cats)
-    )
+    informative_base = set(linear) | {pair_a1, pair_b1, pair_a2, pair_b2} | {cluster_driver} | set(heavy) | set(cats)
     return dict(
         linear=linear,
         pairs=pairs,
         cluster_driver=cluster_driver,
         cluster_copies=cluster_copies,
-        cluster_all=[cluster_driver] + cluster_copies,
+        cluster_all=[cluster_driver, *cluster_copies],
         heavy=heavy,
         cats=cats,
         informative_base=sorted(informative_base),  # cluster copies excluded (they're redundant)
@@ -209,7 +204,7 @@ def _build_memmap_frame(n_rows: int, n_cols: int, layout: dict, task: str, tmp_p
         s = np.zeros(m, dtype=np.float64)
         for j, w in layout["linear"].items():
             s += w * block[:, j]
-        for (ja, jb) in layout["pairs"]:
+        for ja, jb in layout["pairs"]:
             # pure sign-product interaction: ~0 marginal, needs both columns.
             s += 1.6 * np.sign(block[:, ja]) * np.sign(block[:, jb])
             # mild leakage L~0.1 so a marginal screen has a faint trail.
@@ -262,8 +257,14 @@ def _downstream_auc(X_tr, y_tr, X_te, y_te, cols, seed: int) -> float:
         import lightgbm as lgb
 
         gbm = lgb.LGBMClassifier(
-            n_estimators=fast_n_estimators(120, fast=80), num_leaves=31, learning_rate=0.05,
-            subsample=0.8, colsample_bytree=0.8, random_state=seed, n_jobs=2, verbose=-1,
+            n_estimators=fast_n_estimators(120, fast=80),
+            num_leaves=31,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=seed,
+            n_jobs=2,
+            verbose=-1,
         )
         gbm.fit(Xtr, np.asarray(y_tr))
         aucs.append(roc_auc_score(np.asarray(y_te), gbm.predict_proba(Xte)[:, 1]))
@@ -301,7 +302,7 @@ def test_mrmr_real_100k(tmp_path):
     budget_mins = 4.0 if mode == "fast" else 18.0
     rss0 = _peak_rss_mb()
 
-    df, y, mm_path, X = _build_memmap_frame(n_rows, n_cols, layout, task, tmp_path)
+    df, y, _mm_path, X = _build_memmap_frame(n_rows, n_cols, layout, task, tmp_path)
     rss_after_build = _peak_rss_mb()
 
     # train / test split (held-out test the model never saw).
@@ -373,14 +374,10 @@ def test_mrmr_real_100k(tmp_path):
     #    that it RETURNS a usable selection rather than running unbounded at 10k
     #    columns.
     max_allowed_s = budget_mins * 60 * 2.5 + 120
-    assert fit_s <= max_allowed_s, (
-        f"MRMR fit took {fit_s:.0f}s, exceeding bounded budget {max_allowed_s:.0f}s"
-    )
+    assert fit_s <= max_allowed_s, f"MRMR fit took {fit_s:.0f}s, exceeding bounded budget {max_allowed_s:.0f}s"
     # 2) non-empty and PARSIMONIOUS (<< n_cols).
     assert n_sel >= 1, "MRMR selected nothing"
-    assert n_sel <= max(50, n_cols // 100), (
-        f"MRMR not parsimonious: selected {n_sel} of {n_cols}"
-    )
+    assert n_sel <= max(50, n_cols // 100), f"MRMR not parsimonious: selected {n_sel} of {n_cols}"
 
     # 3) base-feature RECALL well above random baseline.
     informative = set(layout["informative_base"])
@@ -390,16 +387,13 @@ def test_mrmr_real_100k(tmp_path):
     # random baseline: picking n_sel of n_cols, expected hits = n_sel*|inf|/n_cols.
     exp_random_hits = n_sel * len(informative) / n_cols
     assert len(hits) >= 3, f"recovered only {len(hits)} planted base features: {sorted(hits)}"
-    assert len(hits) >= 5 * max(exp_random_hits, 1e-9), (
-        f"recall {len(hits)} not >> random expectation {exp_random_hits:.3f}"
-    )
+    assert len(hits) >= 5 * max(exp_random_hits, 1e-9), f"recall {len(hits)} not >> random expectation {exp_random_hits:.3f}"
 
     # 4) redundant cluster contributes AT MOST a small number (not all copies).
     cluster_all = set(layout["cluster_all"])  # driver + 4 copies = 5
     cluster_selected = cluster_all & sel_set
     assert len(cluster_selected) <= 2, (
-        f"MRMR kept {len(cluster_selected)} of {len(cluster_all)} redundant cluster "
-        f"members (should dedup to <=2): {sorted(cluster_selected)}"
+        f"MRMR kept {len(cluster_selected)} of {len(cluster_all)} redundant cluster members (should dedup to <=2): {sorted(cluster_selected)}"
     )
 
     # 5) downstream model on MRMR-selected features beats an equal-count RANDOM
@@ -412,10 +406,7 @@ def test_mrmr_real_100k(tmp_path):
 
     assert np.isfinite(auc_sel), "downstream AUC on selected features is not finite"
     assert np.isfinite(auc_rand), "downstream AUC on random subset is not finite"
-    assert auc_sel > auc_rand + 0.02, (
-        f"MRMR selection AUC {auc_sel:.4f} did not beat random-subset AUC "
-        f"{auc_rand:.4f} by a clear margin"
-    )
+    assert auc_sel > auc_rand + 0.02, f"MRMR selection AUC {auc_sel:.4f} did not beat random-subset AUC {auc_rand:.4f} by a clear margin"
     # sanity: a real selection should give materially-better-than-chance AUC.
     assert auc_sel >= 0.60, f"selected-feature AUC {auc_sel:.4f} suspiciously low"
 

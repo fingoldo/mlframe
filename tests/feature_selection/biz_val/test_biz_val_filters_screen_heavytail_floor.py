@@ -23,6 +23,7 @@ Both must hold for the floor to bite on a narrow pool. This file pins BOTH sides
 A future "just always apply the floor on narrow pools" would over-prune the diabetes side; the no-regression half catches that. A future "raise the wide-pool gate back so the
 narrow gate is dead code" would re-leak the lognormal noise; the win half catches that.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -48,8 +49,8 @@ SEEDS = (1, 7, 42)
 # ---------------------------------------------------------------------------
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _build_lognormal(seed: int):
     """Heavy-tailed y = exp(1.5*x1 + 0.8*x2 + 0.5*x3 + noise) + 6 noise cols.
@@ -127,21 +128,21 @@ def _corrected_marginal_mi(data, nbins, ci, y_idx):
 
 
 class TestLognormalOversplitFloorFires:
-
     @pytest.mark.parametrize("seed", SEEDS)
     def test_gate_fires_on_lognormal_narrow_pool(self, seed):
         X, y = _build_lognormal(seed)
-        data, cols, nbins, y_idx, cand = _categorize(X, y)
+        data, _cols, nbins, y_idx, cand = _categorize(X, y)
         # Narrow pool: 9 features, below the wide-pool gate of 30.
         assert len(cand) < 30
         nby = int(nbins[y_idx])
         feat = [int(nbins[i]) for i in cand]
         # The over-split signature: target binned into many more levels than features.
-        assert nby >= 3 * np.median(feat), (
-            f"lognormal target not over-split: nbins_y={nby}, median feat nbins={np.median(feat)}; seed={seed}"
-        )
+        assert nby >= 3 * np.median(feat), f"lognormal target not over-split: nbins_y={nby}, median feat nbins={np.median(feat)}; seed={seed}"
         assert target_oversplit_floor_applies(
-            nbins, cand, y_idx, data.shape[0],
+            nbins,
+            cand,
+            y_idx,
+            data.shape[0],
         ), f"narrow-pool over-split gate must fire on lognormal; seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -149,22 +150,23 @@ class TestLognormalOversplitFloorFires:
         X, y = _build_lognormal(seed)
         data, cols, nbins, y_idx, cand = _categorize(X, y)
         floor = pooled_permutation_null_gain_floor(
-            data, nbins, cand, y_idx,
-            n_permutations=25, quantile=0.95,
-            cardinality_bias_correction=True, random_seed=seed,
+            data,
+            nbins,
+            cand,
+            y_idx,
+            n_permutations=25,
+            quantile=0.95,
+            cardinality_bias_correction=True,
+            random_seed=seed,
         )
         assert floor > 0.0, f"floor must be positive on lognormal pool; seed={seed}"
         for i in cand:
             name = cols[i]
             mi_corr = _corrected_marginal_mi(data, nbins, i, y_idx)
             if name.startswith("noise_"):
-                assert mi_corr < floor, (
-                    f"noise column {name} corrected MI {mi_corr:.5f} must be below floor {floor:.5f}; seed={seed}"
-                )
+                assert mi_corr < floor, f"noise column {name} corrected MI {mi_corr:.5f} must be below floor {floor:.5f}; seed={seed}"
             else:
-                assert mi_corr >= floor, (
-                    f"signal {name} corrected MI {mi_corr:.5f} must clear floor {floor:.5f}; seed={seed}"
-                )
+                assert mi_corr >= floor, f"signal {name} corrected MI {mi_corr:.5f} must clear floor {floor:.5f}; seed={seed}"
 
 
 class TestLognormalEndToEndNoNoiseLeaks:
@@ -173,6 +175,7 @@ class TestLognormalEndToEndNoNoiseLeaks:
     @pytest.mark.parametrize("seed", SEEDS)
     def test_mrmr_fit_excludes_noise_on_lognormal(self, seed):
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_lognormal(seed)
         sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, random_seed=seed)
         with warnings.catch_warnings():
@@ -189,11 +192,10 @@ class TestLognormalEndToEndNoNoiseLeaks:
 
 
 class TestDenseWeakSignalFloorStaysOff:
-
     @pytest.mark.parametrize("seed", SEEDS)
     def test_gate_stays_off_on_dense_weak_signal_pool(self, seed):
         X, y = _build_dense_weak_regression(seed)
-        data, cols, nbins, y_idx, cand = _categorize(X, y)
+        data, _cols, nbins, y_idx, cand = _categorize(X, y)
         nby = int(nbins[y_idx])
         feat = [int(nbins[i]) for i in cand]
         # The target IS over-split at small n (precondition trips), but the (X,y)
@@ -205,20 +207,26 @@ class TestDenseWeakSignalFloorStaysOff:
             f"test bug: dense-weak pool unexpectedly dense (rows/joint={rows_per_joint:.1f}); the no-regression case must be the sparse-occupancy regime; seed={seed}"
         )
         assert not target_oversplit_floor_applies(
-            nbins, cand, y_idx, data.shape[0],
-        ), (
-            f"narrow-pool floor gate must stay OFF on the dense weak-signal pool (would over-prune genuine weak features); seed={seed}"
-        )
+            nbins,
+            cand,
+            y_idx,
+            data.shape[0],
+        ), f"narrow-pool floor gate must stay OFF on the dense weak-signal pool (would over-prune genuine weak features); seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_mrmr_keeps_majority_of_weak_features(self, seed):
         """With the floor correctly OFF, MRMR must retain a healthy fraction of the 10 genuine weak features (the diabetes over-prune regression was 10 -> 2)."""
         from mlframe.feature_selection.filters.mrmr import MRMR
+
         X, y = _build_dense_weak_regression(seed)
         sel = MRMR(
-            verbose=0, interactions_max_order=1, fe_max_steps=0,
-            dcd_enable=False, cluster_aggregate_enable=False,
-            build_friend_graph=False, cat_fe_config=None,
+            verbose=0,
+            interactions_max_order=1,
+            fe_max_steps=0,
+            dcd_enable=False,
+            cluster_aggregate_enable=False,
+            build_friend_graph=False,
+            cat_fe_config=None,
             random_seed=seed,
         )
         with warnings.catch_warnings():
@@ -237,7 +245,6 @@ class TestDenseWeakSignalFloorStaysOff:
 
 
 class TestGateThresholdSemantics:
-
     def test_low_cardinality_target_never_over_split(self):
         """A binary / 3-class classification target (nbins_y in {2,3}) is never over-split relative to multi-bin features, so the gate stays OFF regardless of n."""
         nbins = np.array([5, 5, 5, 3], dtype=np.int64)  # 3 features + 3-class target

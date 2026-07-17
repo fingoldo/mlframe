@@ -23,6 +23,7 @@ figure list in CI / Agg sessions. We instead instrument the function by
 monkeypatching ``matplotlib.axes.Axes.barh`` to capture (positions, values)
 and assert against the captured call args.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,6 +33,7 @@ import os
 
 # Ensure matplotlib uses a non-interactive backend in CI / fuzz contexts.
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -73,8 +75,11 @@ def _draw(fi, cols, **kwargs) -> None:
     try:
         plot_feature_importance(
             feature_importances=np.asarray(fi, dtype=float),
-            columns=list(cols), kind="t",
-            show_plots=False, plot_file=path, **kwargs,
+            columns=list(cols),
+            kind="t",
+            show_plots=False,
+            plot_file=path,
+            **kwargs,
         )
     finally:
         plt.close("all")
@@ -210,6 +215,7 @@ class TestFigsizeUnification:
         legibility contract, not the retired half-of-DEFAULT_FIGSIZE shape."""
         from mlframe.feature_selection.importance import _FI_DEFAULT_FIGSIZE
         from mlframe.training.evaluation import DEFAULT_FIGSIZE
+
         assert _FI_DEFAULT_FIGSIZE == (8.0, 6.0)
         # Width stays compact (about half the 3-panel perf chart); height is the legibility bump, not width/2.
         assert _FI_DEFAULT_FIGSIZE[0] <= DEFAULT_FIGSIZE[0] / 2 + 1.0
@@ -226,6 +232,7 @@ class TestFigsizeUnification:
         from mlframe.training.evaluation import (
             DEFAULT_FI_FIGSIZE,
         )
+
         assert DEFAULT_FI_FIGSIZE == (7.5, 2.5)
 
     def test_fi_plot_uses_grid_alpha_and_zero_line(self, captured_barh, monkeypatch) -> None:
@@ -233,6 +240,7 @@ class TestFigsizeUnification:
         ``alpha=0.7`` blue, light grid, explicit zero reference line."""
         # Spy on Axes.grid / axvline to confirm they fire.
         import matplotlib
+
         calls = {"grid": [], "axvline": []}
         real_grid = matplotlib.axes.Axes.grid
         real_axvline = matplotlib.axes.Axes.axvline
@@ -253,8 +261,7 @@ class TestFigsizeUnification:
         # Grid was enabled on x-axis with alpha=0.3.
         grid_kwargs = [c["kwargs"] for c in calls["grid"] if c["args"] and c["args"][0] is True]
         assert grid_kwargs, "grid(True, ...) not called -- FI plot styling regressed"
-        assert any(k.get("alpha") == 0.3 for k in grid_kwargs), \
-            "grid alpha=0.3 missing -- perf-chart styling not matched"
+        assert any(k.get("alpha") == 0.3 for k in grid_kwargs), "grid alpha=0.3 missing -- perf-chart styling not matched"
 
         # Zero reference line is present.
         assert calls["axvline"], "axvline(0) missing -- zero reference not drawn"
@@ -267,8 +274,9 @@ class TestFigsizeUnification:
         grid)."""
         # Replace captured_barh's wrapper with one that captures kwargs too.
         import matplotlib
+
         # Re-spy barh ourselves to grab kwargs the fixture drops.
-        import pytest as _pytest
+
         kwargs_captured = []
         real_barh = matplotlib.axes.Axes.barh
 
@@ -278,11 +286,11 @@ class TestFigsizeUnification:
 
         # Use monkeypatch via a context manager.
         from unittest.mock import patch
+
         with patch.object(matplotlib.axes.Axes, "barh", _spy_barh):
             _draw([1.0, 0.5, -0.3], list("abc"), n=3, max_zero_fi_to_plot=4)
 
         assert kwargs_captured, "barh never called"
         kw = kwargs_captured[0]
         assert kw.get("alpha") == 0.7, f"FI bars must be alpha=0.7; got {kw.get('alpha')!r}"
-        assert kw.get("color") == "tab:blue", \
-            f"FI bars must be tab:blue; got {kw.get('color')!r}"
+        assert kw.get("color") == "tab:blue", f"FI bars must be tab:blue; got {kw.get('color')!r}"

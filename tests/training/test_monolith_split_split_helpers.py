@@ -4,6 +4,7 @@ Verifies re-export identity AND calls into the moved bodies so a missing
 ``from .parent import <name>`` (lazy NameError) would fail the suite, not just
 pass an import-only check.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -33,14 +34,10 @@ def test_carve_calib_random_and_timeordered_bodies_callable():
     from mlframe.training._split_helpers import _carve_calib_from_train
 
     train = np.arange(16)
-    new_train, calib = _carve_calib_from_train(
-        train, 0.25, n_total=20, timestamps=None, groups=None, rng=np.random.default_rng(0)
-    )
+    new_train, calib = _carve_calib_from_train(train, 0.25, n_total=20, timestamps=None, groups=None, rng=np.random.default_rng(0))
     assert len(calib) == 5 and len(new_train) == 11
 
     ts = pd.Series(pd.date_range("2020-01-01", periods=16))
-    new_train2, calib2 = _carve_calib_from_train(
-        train, 0.25, n_total=20, timestamps=ts, groups=None, rng=np.random.default_rng(0)
-    )
+    _new_train2, calib2 = _carve_calib_from_train(train, 0.25, n_total=20, timestamps=ts, groups=None, rng=np.random.default_rng(0))
     # oldest train rows form the calib slice under timestamps
     assert set(calib2.tolist()) == {0, 1, 2, 3, 4}

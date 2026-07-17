@@ -14,6 +14,7 @@ Carve lifts 9 sub-bodies from ``train_mlframe_models_suite`` into ``_main_train_
 
 Bodies lifted verbatim so behavioural equivalence is preserved by construction.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -71,9 +72,7 @@ def test_encode_string_multiclass_target_body_callable():
     from mlframe.training.configs import TargetTypes
 
     md = {}
-    codes = _encode_string_multiclass_target(
-        TargetTypes.MULTICLASS_CLASSIFICATION, "y", np.array(["b", "a", "c", "a"]), md
-    )
+    codes = _encode_string_multiclass_target(TargetTypes.MULTICLASS_CLASSIFICATION, "y", np.array(["b", "a", "c", "a"]), md)
     assert list(codes) == [1, 0, 2, 0]
     assert md["target_label_classes"]["y"] == ["a", "b", "c"]
     # non-multiclass / numeric passes through unchanged

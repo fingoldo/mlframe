@@ -5,7 +5,6 @@ Pre-fix ``load_mlframe_model`` re-ran ``_SafeUnpickler(zstd.stream_reader(...))`
 
 from __future__ import annotations
 
-import io as _stdio
 import os
 from types import SimpleNamespace
 
@@ -24,6 +23,7 @@ def _write_dummy_bundle(path: str, payload) -> None:
 
 def test_load_mlframe_model_caches_by_path_and_mtime(tmp_path, monkeypatch):
     from mlframe.training import io as io_mod
+
     io_mod._load_model_cache_clear()
     bundle = tmp_path / "m.dump"
     obj = SimpleNamespace(score=1.5, fname="m")
@@ -36,6 +36,7 @@ def test_load_mlframe_model_caches_by_path_and_mtime(tmp_path, monkeypatch):
 
 def test_load_mlframe_model_invalidates_on_mtime_change(tmp_path):
     from mlframe.training import io as io_mod
+
     io_mod._load_model_cache_clear()
     bundle = tmp_path / "m.dump"
     _write_dummy_bundle(str(bundle), SimpleNamespace(version=1))
@@ -51,6 +52,7 @@ def test_load_mlframe_model_invalidates_on_mtime_change(tmp_path):
 
 def test_load_mlframe_model_size_gate_skips_cache(tmp_path, monkeypatch):
     from mlframe.training import io as io_mod
+
     io_mod._load_model_cache_clear()
     bundle = tmp_path / "m.dump"
     _write_dummy_bundle(str(bundle), SimpleNamespace(big=False))

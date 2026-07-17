@@ -6,6 +6,7 @@ the fold boundary, giving an artificially inflated CV score that doesn't reflect
 test both confirms the guard fires on the leaky split and quantifies the CV inflation it protects against
 (leaky-split AUC vs honest GroupKFold AUC on the identical data).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,7 +41,7 @@ def _make_nested_table(seed: int):
 
 
 def test_biz_val_assert_no_group_leakage_catches_leaky_kfold():
-    X, y, entity_ids = _make_nested_table(seed=0)
+    X, _y, entity_ids = _make_nested_table(seed=0)
     leaky_splits = list(KFold(n_splits=5, shuffle=True, random_state=0).split(X))
 
     import pytest
@@ -97,7 +98,7 @@ def test_biz_val_assert_no_group_leakage_near_duplicate_mode_catches_implicit_gr
     """The default (group-key-only) check misses this leak entirely because there IS no group id column --
     only the opt-in near-duplicate mode, given the raw features, can detect the implicit entity-sharing.
     """
-    X, entity_ids = _make_implicit_duplicate_table(seed=3)
+    X, _entity_ids = _make_implicit_duplicate_table(seed=3)
     # a plain shuffled split has no notion of the implicit entity clusters, so near-duplicate copies of the
     # same entity land on both sides of most folds.
     leaky_splits = list(KFold(n_splits=5, shuffle=True, random_state=3).split(X))

@@ -4,6 +4,7 @@
 it must be byte-identical (incl NaN on non-finite replay-drift rows) to the numpy loop, and any other op subset
 must still take the exact numpy path.
 """
+
 import numpy as np
 
 from mlframe.feature_selection.filters._integer_lattice_fe import (
@@ -15,6 +16,7 @@ from mlframe.feature_selection.filters._integer_lattice_fe import (
 
 def _numpy_ref(a, b, ops):
     from mlframe.feature_selection.filters._integer_lattice_fe import _nonfinite_mask, _to_int
+
     bad = _nonfinite_mask(a, b)
     ai, bi = _to_int(a), _to_int(b)
     g = np.gcd(ai, bi) if ("gcd" in ops or "lcm" in ops) else None

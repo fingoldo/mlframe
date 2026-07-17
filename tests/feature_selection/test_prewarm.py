@@ -8,6 +8,7 @@ pattern: when a new dispatcher path is added in production but NOT in the prewar
   - Coverage: known critical dispatchers (``compute_mi_from_classes``, discretisation kernels) have at least one compiled signature after prewarm.
   - Biz-value: a downstream ``compute_mi_from_classes`` call hits cache (post-warm >= 2x faster than its own first cold compile).
 """
+
 from __future__ import annotations
 
 import time
@@ -21,6 +22,7 @@ import pytest
 def warmed():
     """Run prewarm_fs_numba_cache once for the module and return True."""
     from mlframe.feature_selection.filters._prewarm import prewarm_fs_numba_cache
+
     prewarm_fs_numba_cache(verbose=False)
     return True
 
@@ -36,23 +38,27 @@ class TestPrewarmSmoke:
     def test_importable(self):
         """prewarm_fs_numba_cache is importable and callable."""
         from mlframe.feature_selection.filters import _prewarm
+
         assert hasattr(_prewarm, "prewarm_fs_numba_cache")
         assert callable(_prewarm.prewarm_fs_numba_cache)
 
     def test_public_api(self):
         """The module's __all__ exposes exactly prewarm_fs_numba_cache."""
         from mlframe.feature_selection.filters import _prewarm
+
         assert _prewarm.__all__ == ["prewarm_fs_numba_cache"]
 
     def test_runs_without_exception(self):
         """prewarm_fs_numba_cache runs without raising."""
         from mlframe.feature_selection.filters._prewarm import prewarm_fs_numba_cache
+
         # Must NOT raise even if individual kernels fail (the body wraps each call in try/except).
         prewarm_fs_numba_cache(verbose=False)
 
     def test_returns_none(self):
         """prewarm_fs_numba_cache returns None."""
         from mlframe.feature_selection.filters._prewarm import prewarm_fs_numba_cache
+
         out = prewarm_fs_numba_cache(verbose=False)
         assert out is None
 
@@ -60,6 +66,7 @@ class TestPrewarmSmoke:
         """A second prewarm call is near-instant (numba dispatcher cache hit) and does not raise."""
         # Second call must be near-instant (numba dispatcher cache hit) and again must not raise.
         from mlframe.feature_selection.filters._prewarm import prewarm_fs_numba_cache
+
         prewarm_fs_numba_cache(verbose=False)
         t0 = time.perf_counter()
         prewarm_fs_numba_cache(verbose=False)
@@ -71,6 +78,7 @@ class TestPrewarmSmoke:
         """verbose=True emits a log line and does not raise."""
         # Verbose path emits a log line; must not raise.
         from mlframe.feature_selection.filters._prewarm import prewarm_fs_numba_cache
+
         prewarm_fs_numba_cache(verbose=True)
 
     def test_regression_module_level_guard_short_circuits_second_call(self, monkeypatch):
@@ -127,12 +135,14 @@ class TestPrewarmCoverage:
     def test_compute_mi_from_classes_has_signatures(self, warmed):
         """compute_mi_from_classes has at least one compiled signature after prewarm."""
         from mlframe.feature_selection.filters.info_theory import compute_mi_from_classes
+
         # ``signatures`` is the public list of (dtype tuple) -> compiled-impl entries on a numba Dispatcher.
         assert len(compute_mi_from_classes.signatures) >= 1, "compute_mi_from_classes was not compiled by prewarm"
 
     def test_numba_utils_compiled(self, warmed):
         """The _numba_utils dispatchers have at least one compiled signature after prewarm."""
         from mlframe.feature_selection.filters._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
+
         assert len(arr2str.signatures) >= 1
         assert len(count_cand_nbins.signatures) >= 1
         assert len(unpack_and_sort.signatures) >= 1
@@ -140,6 +150,7 @@ class TestPrewarmCoverage:
     def test_permutation_kernels_compiled(self, warmed):
         """The permutation-null njit kernels have at least one compiled signature after prewarm."""
         from mlframe.feature_selection.filters.permutation import parallel_mi, parallel_mi_prange, shuffle_arr
+
         assert len(parallel_mi.signatures) >= 1
         assert len(parallel_mi_prange.signatures) >= 1
         assert len(shuffle_arr.signatures) >= 1
@@ -151,6 +162,7 @@ class TestPrewarmCoverage:
         # Run in a fresh subprocess so no other test / import incidentally compiles the kernel first; assert prewarm populated a signature.
         import subprocess
         import sys
+
         code = (
             "import sys; sys.modules['cupy']=None\n"
             "from mlframe.feature_selection.filters._prewarm import prewarm_fs_numba_cache\n"
@@ -168,6 +180,7 @@ class TestPrewarmCoverage:
         # The public ``discretize_array`` is a regular Python wrapper; its njit kernel is ``_discretize_array_impl``.
         # Guards the dtype-matrix prewarm regression (a missed dtype leaves a ~9s cold compile in prod).
         from mlframe.feature_selection.filters.discretization import _discretize_array_impl
+
         assert len(_discretize_array_impl.signatures) >= 1
 
     def test_renumber_joint_kernels_compiled(self, warmed):
@@ -181,10 +194,27 @@ class TestPrewarmCoverage:
         # and the measured-win bare-ufunc-to-lambda conversions (see bench_unary_transform_njit_wrap.py):
         # sign/tanh/neg/rint/cbrt/arccos/arctan/cosh/arcsinh.
         from mlframe.feature_selection.filters.feature_engineering import create_unary_transformations
+
         d = create_unary_transformations(preset="maximal")
         for name in (
-            "identity", "sqr", "reciproc", "sqrt", "qubed", "invsquared", "invqubed", "invcbrt", "invsqrt",
-            "sign", "tanh", "neg", "rint", "cbrt", "arccos", "arctan", "cosh", "arcsinh",
+            "identity",
+            "sqr",
+            "reciproc",
+            "sqrt",
+            "qubed",
+            "invsquared",
+            "invqubed",
+            "invcbrt",
+            "invsqrt",
+            "sign",
+            "tanh",
+            "neg",
+            "rint",
+            "cbrt",
+            "arccos",
+            "arctan",
+            "cosh",
+            "arcsinh",
         ):
             fn = d[name]
             assert len(fn.signatures) >= 1, f"unary transform {name!r} was not compiled by prewarm"
@@ -196,15 +226,19 @@ class TestPrewarmCoverage:
         # bare ufuncs. A future edit accidentally converting one without re-benchmarking would silently
         # regress -- this pins the current (intentional) unwrapped state so such a change is caught.
         from mlframe.feature_selection.filters.feature_engineering import create_unary_transformations
+
         d = create_unary_transformations(preset="maximal")
         for name in ("abs", "sin", "exp", "cos", "tan", "sinh", "arcsin", "arccosh", "arctanh"):
             fn = d[name]
-            assert not hasattr(fn, "signatures"), f"unary transform {name!r} is now njit-wrapped -- update the rejected-conversion bench/comment if this is an intentional, re-measured win"
+            assert not hasattr(fn, "signatures"), (
+                f"unary transform {name!r} is now njit-wrapped -- update the rejected-conversion bench/comment if this is an intentional, re-measured win"
+            )
 
     def test_post_warm_no_inf_or_nan_in_smoke_kernel(self, warmed):
         """After prewarm, compute_mi_from_classes on a tiny input returns a finite, non-negative scalar."""
         # Spot-check the canonical kernel: after prewarm, computing MI on tiny input must return a finite non-negative scalar.
         from mlframe.feature_selection.filters.info_theory import compute_mi_from_classes
+
         rng = np.random.default_rng(0)
         cx = rng.integers(0, 4, 32).astype(np.int32)
         cy = rng.integers(0, 3, 32).astype(np.int32)

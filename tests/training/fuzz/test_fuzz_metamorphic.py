@@ -1,4 +1,3 @@
-
 """Metamorphic fuzz tests for ``train_mlframe_models_suite`` (Fix D).
 
 A metamorphic test runs the suite twice under inputs that SHOULD yield
@@ -25,11 +24,11 @@ D3. Ensemble-of-one identity — training with ``use_mlframe_ensembles=True``
     on a single-model set must produce a val metric within noise of the
     non-ensembled run. Catches ensemble path drift.
 """
+
 from __future__ import annotations
 from mlframe.training import OutputConfig, PreprocessingConfig
 
 import os
-import tempfile
 from typing import Any
 
 import numpy as np
@@ -98,10 +97,10 @@ def _extract_primary_val_metric(trained: dict) -> float | None:
                         return float(v)
         # Sniff matched but no usable metric: fall through to None.
 
-    for tt, by_name in trained.items():
+    for by_name in trained.values():
         if not isinstance(by_name, dict):
             continue
-        for tn, lst in by_name.items():
+        for lst in by_name.values():
             if not isinstance(lst, list):
                 continue
             for entry in lst:
@@ -150,6 +149,7 @@ def _resolve_target_type_for_combo(combo: FuzzCombo):
     SimpleFeaturesAndTargetsExtractor resolves them from ``regression=...``.
     """
     from mlframe.training.configs import TargetTypes
+
     if combo.target_type in ("binary_classification", "regression"):
         return None
     name = _COMBO_TT_TO_TARGET_TYPE.get(combo.target_type)
@@ -264,6 +264,7 @@ def _curated_metamorphic_combos() -> list[FuzzCombo]:
 
 
 from tests.conftest import fast_subset
+
 # Fast mode keeps one representative combo so a full metamorphic dual-suite run completes within pytest-timeout.
 _METAMORPHIC_COMBOS = fast_subset(_curated_metamorphic_combos())
 
@@ -325,16 +326,11 @@ def test_metamorphic_column_rename_invariance(combo: FuzzCombo, tmp_path):
         pytest.skip("no val metric produced; metamorphic check not applicable")
 
     if _no_signal(combo, m_base, m_renamed):
-        pytest.skip(
-            f"base/renamed metric lacks signal "
-            f"({combo.target_type}: base={m_base:.3f}, renamed={m_renamed:.3f}); "
-            f"metamorphic check not meaningful"
-        )
+        pytest.skip(f"base/renamed metric lacks signal ({combo.target_type}: base={m_base:.3f}, renamed={m_renamed:.3f}); metamorphic check not meaningful")
 
     tol = _tolerance_for(combo)
     assert abs(m_base - m_renamed) <= tol, (
-        f"D1: val metric drifted under column rename — "
-        f"base={m_base:.4f}, renamed={m_renamed:.4f}, |Δ|={abs(m_base - m_renamed):.4f} > {tol}"
+        f"D1: val metric drifted under column rename — base={m_base:.4f}, renamed={m_renamed:.4f}, |Δ|={abs(m_base - m_renamed):.4f} > {tol}"
     )
 
 
@@ -397,14 +393,9 @@ def test_metamorphic_duplicate_rows_stable(combo: FuzzCombo, tmp_path):
         pytest.skip("no val metric produced; metamorphic check not applicable")
 
     if _no_signal(combo, m_base, m_dup):
-        pytest.skip(
-            f"base/dup metric lacks signal "
-            f"({combo.target_type}: base={m_base:.3f}, dup={m_dup:.3f}); "
-            f"metamorphic check not meaningful"
-        )
+        pytest.skip(f"base/dup metric lacks signal ({combo.target_type}: base={m_base:.3f}, dup={m_dup:.3f}); metamorphic check not meaningful")
 
     tol = _tolerance_for(combo)
     assert abs(m_base - m_dup) <= tol, (
-        f"D2: val metric drifted under 5% row duplication — "
-        f"base={m_base:.4f}, dup={m_dup:.4f}, |Δ|={abs(m_base - m_dup):.4f} > {tol}"
+        f"D2: val metric drifted under 5% row duplication — base={m_base:.4f}, dup={m_dup:.4f}, |Δ|={abs(m_base - m_dup):.4f} > {tol}"
     )

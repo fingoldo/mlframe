@@ -378,7 +378,7 @@ class TestMissingIndicatorAUCLift:
             cols=["credit_history"],
         )
         auc_aug = _logreg_auc(X_tr_aug, y_tr, X_ho_aug, y_ho)
-        assert auc_aug > auc_base + 0.10, f"Indicator-augmented AUC {auc_aug:.3f} not measurably above baseline " f"{auc_base:.3f} on the MNAR signal."
+        assert auc_aug > auc_base + 0.10, f"Indicator-augmented AUC {auc_aug:.3f} not measurably above baseline {auc_base:.3f} on the MNAR signal."
 
 
 class TestMissingCountAUCLift:
@@ -399,7 +399,7 @@ class TestMissingCountAUCLift:
         X_tr_aug, _, _ = missingness_count_with_recipes(X_tr, cols=field_cols)
         X_ho_aug, _, _ = missingness_count_with_recipes(X_ho, cols=field_cols)
         auc_aug = _logreg_auc(X_tr_aug, y_tr, X_ho_aug, y_ho)
-        assert auc_aug > auc_base + 0.05, f"Count-augmented AUC {auc_aug:.3f} not measurably above baseline " f"{auc_base:.3f} on the high-missing-row signal."
+        assert auc_aug > auc_base + 0.05, f"Count-augmented AUC {auc_aug:.3f} not measurably above baseline {auc_base:.3f} on the high-missing-row signal."
 
 
 # ---------------------------------------------------------------------------
@@ -612,7 +612,7 @@ class TestDefaultDisabledByteIdentical:
         ).fit(X, y)
         v_names = list(vanilla.get_feature_names_out())
         d_names = list(defaulted.get_feature_names_out())
-        assert v_names == d_names, f"Default-disabled Layer 37 changed selection: " f"vanilla={v_names} defaulted={d_names}"
+        assert v_names == d_names, f"Default-disabled Layer 37 changed selection: vanilla={v_names} defaulted={d_names}"
         # No engineered missingness columns leaked.
         for nm in v_names:
             assert not nm.startswith("is_missing__"), f"vanilla selection contains an unexpected missingness col: {nm}"

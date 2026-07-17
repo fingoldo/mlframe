@@ -5,6 +5,7 @@ Both the njit_parallel and CUDA backends must reproduce ``_abs_pearson_njit``'s 
 mean-then-center reduction for every one of the 9 candidate forms, including its documented degenerate
 cases (a near-constant column, NaN/inf rows). The CUDA test auto-skips when CUDA is unavailable.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -333,12 +334,20 @@ def _outlier_ratio_fixture(seed=7, n=6000, w_tail=0.055):
 
 def _serial_verdicts(y, operands, pair_a, pair_b, min_corr, pairness_margin, max_rank_frac):
     """Reference per-pair tail-concentration verdicts via the serial pair_is_tail_concentrated_rankaware."""
-    return np.array([
-        pair_is_tail_concentrated_rankaware(
-            y, operands[int(a)], operands[int(b)], min_corr=min_corr, pairness_margin=pairness_margin, max_rank_frac=max_rank_frac,
-        )
-        for a, b in zip(pair_a, pair_b)
-    ], dtype=bool)
+    return np.array(
+        [
+            pair_is_tail_concentrated_rankaware(
+                y,
+                operands[int(a)],
+                operands[int(b)],
+                min_corr=min_corr,
+                pairness_margin=pairness_margin,
+                max_rank_frac=max_rank_frac,
+            )
+            for a, b in zip(pair_a, pair_b)
+        ],
+        dtype=bool,
+    )
 
 
 def test_batch_tail_concentration_matches_serial_on_random_noise_pairs():
@@ -381,7 +390,14 @@ def test_batch_tail_concentration_precomputed_single_corr_matches_internal():
 
     single_corr = np.array([float(_single_operand_usability_corr(y, operand_matrix[i])) for i in range(4)])
     with_precomp = batch_pair_tail_concentration_rankaware(
-        y, operand_matrix, pair_a, pair_b, min_corr=0.6, pairness_margin=1.05, max_rank_frac=0.7, single_corr=single_corr,
+        y,
+        operand_matrix,
+        pair_a,
+        pair_b,
+        min_corr=0.6,
+        pairness_margin=1.05,
+        max_rank_frac=0.7,
+        single_corr=single_corr,
     )
     assert np.array_equal(without_precomp, with_precomp)
 

@@ -10,6 +10,7 @@ true response is smooth and the per-tree bias is already low.
 ``quantile-forest`` package being installed). A regression that ignores ``forest_kind`` (always
 building a RandomForest) collapses the ET-vs-RF gap and trips this test.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -63,9 +64,7 @@ def test_biz_val_qrf_extratrees_lowers_holdout_rmse_on_smooth_noisy_target():
     mean_rf = float(np.mean(rf_rmses))
     mean_et = float(np.mean(et_rmses))
     assert et_wins >= 5, f"ET backend should beat RF on >=5/6 seeds, won {et_wins}/6"
-    assert mean_et <= mean_rf * 0.92, (
-        f"ET mean RMSE {mean_et:.4f} should be <=92% of RF {mean_rf:.4f} on smooth+noisy target"
-    )
+    assert mean_et <= mean_rf * 0.92, f"ET mean RMSE {mean_et:.4f} should be <=92% of RF {mean_rf:.4f} on smooth+noisy target"
 
 
 def test_biz_val_qrf_forest_kind_is_actually_consumed():

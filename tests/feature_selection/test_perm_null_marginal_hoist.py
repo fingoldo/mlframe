@@ -6,6 +6,7 @@ Guards the perf hoist (2026-07-05): if a future edit drifts ``marginal_mi_binned
 the reference ``_cmi_from_binned(x_perm, y, None)`` path, the floor/null-mean the significance gate
 compares against would silently change. Pins exact equality against a brute-force reference loop.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -18,9 +19,7 @@ def _reference_marginal_null(x, y, *, n_permutations=25, quantile=0.95, seed=0, 
 
     _xh = np.ascontiguousarray(x, dtype=np.int64).ravel()
     y_i = np.ascontiguousarray(y, dtype=np.int64).ravel()
-    rng = np.random.default_rng(
-        np.random.SeedSequence([int(seed) & 0xFFFFFFFF, int(salt) & 0xFFFFFFFF])
-    )
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed) & 0xFFFFFFFF, int(salt) & 0xFFFFFFFF]))
     nulls = np.empty(n_permutations, dtype=np.float64)
     for i in range(n_permutations):
         x_perm = _xh[rng.permutation(_xh.size)]
@@ -28,11 +27,14 @@ def _reference_marginal_null(x, y, *, n_permutations=25, quantile=0.95, seed=0, 
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
 
-@pytest.mark.parametrize("n,kx,ky,seed,salt", [
-    (2000, 8, 4, 0, 0),
-    (2000, 16, 6, 3, 11),
-    (5000, 12, 5, 7, 2),
-])
+@pytest.mark.parametrize(
+    "n,kx,ky,seed,salt",
+    [
+        (2000, 8, 4, 0, 0),
+        (2000, 16, 6, 3, 11),
+        (5000, 12, 5, 7, 2),
+    ],
+)
 def test_marginal_perm_null_bit_identical_to_reference(monkeypatch, n, kx, ky, seed, salt):
     # Force the CPU host path (no analytic null at this n; no GPU-resident branch).
     monkeypatch.setenv("MLFRAME_CMI_GPU", "0")

@@ -1,4 +1,5 @@
 """Sensor: _phase_train_one_target dataset-cache carve preserves identity + facade under budget."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -29,10 +30,12 @@ def test_w12b_phase_train_one_target_dataset_cache_smoke():
     assert cache == {}
     key = parent._dataset_reuse_cache_key("LightGBM", "MRMR")
     assert key == ("LightGBM", "MRMR")
+
     # capture / restore round-trip
     class _Tmpl:
         _cached_train_dmatrix = "sentinel"
         _cached_train_key = "k1"
+
     tpl = _Tmpl()
     parent._capture_dataset_reuse_cache(ctx, "LightGBM", tpl, pp_name="MRMR")
     fresh = type("F", (), {})()

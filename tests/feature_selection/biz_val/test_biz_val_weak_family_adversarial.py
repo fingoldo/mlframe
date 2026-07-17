@@ -19,6 +19,7 @@ to a green pass:
 Heavy real-selector members are ``@pytest.mark.slow``; each scenario keeps a fast representative gated by the repo
 ``is_fast_mode()`` / ``fast_subset`` so ``MLFRAME_FAST=1`` still exercises one path per scenario.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,8 +35,8 @@ from tests.feature_selection.conftest import fast_subset, is_fast_mode
 # --------------------------------------------------------------------------------------------------------------------
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def _make_heavy_tail_label_noise(seed: int = 0, n: int = 2000, p_noise: int = 7, flip: float = 0.10):
     """3 informative ``standard_t(df=2)`` columns driving a linear logit, with ``flip`` fraction of labels flipped
@@ -69,12 +70,12 @@ def _make_mnar(seed: int = 0, n: int = 1200):
     x1 = rng.normal(size=n)
     score = 0.9 * x0 + 0.7 * x1 + 0.3 * rng.normal(size=n)
     y = (score > np.median(score)).astype(np.int64)
-    base = rng.normal(size=n)                       # pure-noise VALUES; only the NaN PATTERN carries signal
+    base = rng.normal(size=n)  # pure-noise VALUES; only the NaN PATTERN carries signal
     x_mnar = base.copy()
     pos = np.flatnonzero(y == 1)
     drop = rng.choice(pos, int(0.40 * len(pos)), replace=False)
     x_mnar[drop] = np.nan
-    x_mcar = base.copy()                            # control: same values, NaN independent of y at the same rate
+    x_mcar = base.copy()  # control: same values, NaN independent of y at the same rate
     mcar_rate = float(np.isnan(x_mnar).mean())
     mcar_idx = rng.choice(n, int(mcar_rate * n), replace=False)
     x_mcar[mcar_idx] = np.nan
@@ -135,8 +136,7 @@ def _fit_boruta(X, y, *, seed: int = 0, n_trials: int = 30):
     # can accept/reject a borderline column across processes). A seeded surrogate makes every per-seed
     # decision reproducible, which the fixed-seed majority contracts below depend on.
     model = RandomForestClassifier(n_estimators=fast_n_estimators(100), random_state=seed)
-    sel = BorutaShap(model=model, importance_measure="gini", classification=True, n_trials=n_trials,
-                     random_state=seed, verbose=False, optimistic=True)
+    sel = BorutaShap(model=model, importance_measure="gini", classification=True, n_trials=n_trials, random_state=seed, verbose=False, optimistic=True)
     sel.fit(X, y)
     return list(sel.selected_features_)
 
@@ -146,9 +146,18 @@ def _fit_shap_proxied(X, y, *, seed: int = 0):
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
     from sklearn.ensemble import RandomForestClassifier
 
-    sel = ShapProxiedFS(model=RandomForestClassifier(n_estimators=50, random_state=seed),
-                        classification=True, n_splits=3, n_models=1, top_n=10, revalidate=False,
-                        trust_guard=False, cluster_features=False, random_state=seed, n_jobs=1)
+    sel = ShapProxiedFS(
+        model=RandomForestClassifier(n_estimators=50, random_state=seed),
+        classification=True,
+        n_splits=3,
+        n_models=1,
+        top_n=10,
+        revalidate=False,
+        trust_guard=False,
+        cluster_features=False,
+        random_state=seed,
+        n_jobs=1,
+    )
     sel.fit(X, y)
     return list(sel.selected_features_)
 
@@ -157,8 +166,7 @@ def _run_hetero(X, y, *, seed: int = 0, n_shadow_trials: int = 3, vote_threshold
     pytest.importorskip("sklearn")
     from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
 
-    return heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=n_shadow_trials,
-                                        vote_threshold=vote_threshold, random_state=seed)
+    return heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=n_shadow_trials, vote_threshold=vote_threshold, random_state=seed)
 
 
 def _fit_hybrid(X, y, *, seed: int = 0):
@@ -335,9 +343,11 @@ def test_biz_val_hybrid_redundancy_chain_keeps_both_signal_paths():
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(reason="PROD GAP: HybridSelector keeps the redundant bridge b in a graded chain a~b~c "
-                          "(corr(a,b)=0.86 < default corr_thr=0.92, so b is never clustered away); measured kept 3/3 seeds.",
-                   strict=False)
+@pytest.mark.xfail(
+    reason="PROD GAP: HybridSelector keeps the redundant bridge b in a graded chain a~b~c "
+    "(corr(a,b)=0.86 < default corr_thr=0.92, so b is never clustered away); measured kept 3/3 seeds.",
+    strict=False,
+)
 def test_biz_val_hybrid_redundancy_chain_drops_redundant_bridge():
     seeds = _seeds((0, 1, 2))
     b_dropped = []

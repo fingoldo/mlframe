@@ -5,6 +5,7 @@ one vectorised pass (closed-form normal equations); it MUST be bit-identical to
 applying the scalar reference ``_linear_residual_fit_closed`` per fold -- INCLUDING
 the degenerate zero-variance fold, the ``n<2`` fold, and the empty fold.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -26,9 +27,9 @@ def _make_segments(seed: int = 0):
         xs.append(x)
         ys.append(y)
     # Degenerate folds the scalar guard must handle identically.
-    xs.append(np.full(50, 3.0))           # zero-variance base -> (0, mean(y)).
+    xs.append(np.full(50, 3.0))  # zero-variance base -> (0, mean(y)).
     ys.append(rng.normal(size=50))
-    xs.append(np.array([7.0]))            # n<2 -> (0, mean(y)).
+    xs.append(np.array([7.0]))  # n<2 -> (0, mean(y)).
     ys.append(np.array([2.5]))
     return xs, ys
 
@@ -62,8 +63,8 @@ def test_batched_empty_and_singleton_folds():
     xs = [np.array([]), np.array([4.0]), np.array([1.0, 2.0, 3.0])]
     ys = [np.array([]), np.array([9.0]), np.array([2.0, 4.0, 6.0])]
     alphas, betas = _linear_residual_fit_batched(xs, ys)
-    assert alphas[0] == 0.0 and betas[0] == 0.0          # empty.
-    assert alphas[1] == 0.0 and betas[1] == 9.0          # n<2.
+    assert alphas[0] == 0.0 and betas[0] == 0.0  # empty.
+    assert alphas[1] == 0.0 and betas[1] == 9.0  # n<2.
     for k in range(3):
         a_seq, b_seq = _linear_residual_fit_closed(xs[k], ys[k])
         assert a_seq == alphas[k] and b_seq == betas[k]

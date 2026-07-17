@@ -11,6 +11,7 @@ target where the dominant feature interacts non-linearly (a pure-interaction tar
 capture, so its residual fit leaves a large gap). A regression that disables / breaks the init_score path collapses
 this separation.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -24,6 +25,7 @@ warnings.filterwarnings("ignore")
 
 def _make_config(**overrides):
     from mlframe.training.configs import BaselineDiagnosticsConfig
+
     defaults = dict(
         enabled=True,
         ablation_top_k=4,
@@ -39,10 +41,14 @@ def _make_config(**overrides):
 
 def _fit(df, feature_cols):
     from mlframe.training.baselines.diagnostics import BaselineDiagnostics
+
     diag = BaselineDiagnostics(_make_config())
     return diag.fit_and_report(
-        train_df=df, train_target=df["y"],
-        feature_cols=feature_cols, target_type="regression", target_name="y",
+        train_df=df,
+        train_target=df["y"],
+        feature_cols=feature_cols,
+        target_type="regression",
+        target_name="y",
     )
 
 

@@ -19,11 +19,11 @@ Post-fix: transform() resets both at entry. The user-supplied initial
 columns_to_drop is captured in a snapshot on first transform() entry and re-applied
 each call so caller-supplied drops persist while build_targets's per-call adds don't.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
@@ -58,10 +58,7 @@ def test_columns_to_drop_reset_between_transform_calls():
     _ = fte.transform(df)
     # columns_to_drop now must reflect ONLY this call's target, not the prior y_a.
     assert "y_b" in fte.columns_to_drop
-    assert "y_a" not in fte.columns_to_drop, (
-        "columns_to_drop leaked 'y_a' from prior transform() call. "
-        "Pre-fix bug regression."
-    )
+    assert "y_a" not in fte.columns_to_drop, "columns_to_drop leaked 'y_a' from prior transform() call. Pre-fix bug regression."
 
 
 def test_columns_to_drop_initial_user_supplied_preserved():
@@ -85,6 +82,7 @@ def test_columns_to_drop_initial_user_supplied_preserved():
 def test_ftextractor_emitted_columns_reset_between_calls():
     """ftextractor_emitted_columns must NOT carry stale entries from a prior call."""
     import numpy as _np
+
     df = _make_df({"ts1": pd.date_range("2024-01-01", periods=100, freq="D")})
     fte = SimpleFeaturesAndTargetsExtractor(
         classification_targets=["y_a"],
@@ -101,8 +99,7 @@ def test_ftextractor_emitted_columns_reset_between_calls():
     _ = fte.transform(df2)
     # The 'ts1' entry from the prior call must be gone.
     assert "ts1" not in fte.ftextractor_emitted_columns, (
-        f"stale ts1 entry leaked from prior call: {dict(fte.ftextractor_emitted_columns)}. "
-        "Pre-fix bug regression."
+        f"stale ts1 entry leaked from prior call: {dict(fte.ftextractor_emitted_columns)}. Pre-fix bug regression."
     )
 
 
@@ -133,7 +130,4 @@ def test_transform_idempotent_across_three_calls():
     snap2 = (set(fte.columns_to_drop), dict(fte.ftextractor_emitted_columns))
     _ = fte.transform(df)
     snap3 = (set(fte.columns_to_drop), dict(fte.ftextractor_emitted_columns))
-    assert snap1 == snap2 == snap3, (
-        f"transform() state not idempotent across three calls:\n"
-        f"  call1: {snap1}\n  call2: {snap2}\n  call3: {snap3}"
-    )
+    assert snap1 == snap2 == snap3, f"transform() state not idempotent across three calls:\n  call1: {snap1}\n  call2: {snap2}\n  call3: {snap3}"

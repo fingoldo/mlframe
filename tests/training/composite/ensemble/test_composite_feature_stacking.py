@@ -4,6 +4,7 @@ Composite x FE-pipeline stacking: expose a composite-target model's predictions 
 - ``composite_predictions_as_feature``: attach a fitted wrapper's predictions (in-sample warning -- caller responsibility).
 - ``composite_oof_predictions``: K-fold out-of-fold predictions for leakage-free downstream stacking.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -76,7 +77,10 @@ class TestPredictionsAsFeature:
         # Predict on a df without the base column -- wrapper.predict raises.
         df_bad = df.drop(columns=["base"])
         out = composite_predictions_as_feature(
-            wrapper, df_bad, column_name="pred", fallback_value=0.0,
+            wrapper,
+            df_bad,
+            column_name="pred",
+            fallback_value=0.0,
         )
         assert "pred" in out.columns
         assert (out["pred"] == 0.0).all()
@@ -99,9 +103,7 @@ class TestPredictionsAsFeature:
         df_bad = df.drop(columns=["base"])
         with caplog.at_level("WARNING", logger="mlframe.training.composite.ensemble.feature_stacking"):
             composite_predictions_as_feature(wrapper, df_bad, column_name="pred", fallback_value=0.0)
-        assert any("predict failed" in rec.message for rec in caplog.records), (
-            "wrapper.predict failure must be logged at WARNING, not silently swallowed"
-        )
+        assert any("predict failed" in rec.message for rec in caplog.records), "wrapper.predict failure must be logged at WARNING, not silently swallowed"
 
     def test_large_frame_copy_raises_without_opt_in(self, monkeypatch) -> None:
         """A pandas frame above the large-frame threshold must raise instead of silently doubling RAM via ``df.copy()``."""
@@ -131,6 +133,7 @@ class TestPredictionsAsFeature:
 class TestOOFPredictions:
     def test_shape_matches_input(self) -> None:
         df, y = _make_dataset(n=300)
+
         def factory():
             inner = lgb.LGBMRegressor(n_estimators=15, num_leaves=7, verbose=-1, random_state=0)
             return CompositeTargetEstimator(
@@ -138,11 +141,13 @@ class TestOOFPredictions:
                 transform_name="linear_residual",
                 base_column="base",
             )
+
         oof = composite_oof_predictions(factory, df, y, n_splits=5, random_state=0)
         assert oof.shape == (len(df),)
 
     def test_oof_predictions_finite(self) -> None:
         df, y = _make_dataset(n=300)
+
         def factory():
             inner = lgb.LGBMRegressor(n_estimators=15, num_leaves=7, verbose=-1, random_state=0)
             return CompositeTargetEstimator(
@@ -150,6 +155,7 @@ class TestOOFPredictions:
                 transform_name="linear_residual",
                 base_column="base",
             )
+
         oof = composite_oof_predictions(factory, df, y, n_splits=5, random_state=0)
         # All folds should succeed on this clean DGP.
         assert np.all(np.isfinite(oof))
@@ -161,6 +167,7 @@ class TestOOFPredictions:
         wrapper = _fit_wrapper(df, y)
         in_sample_preds = wrapper.predict(df)
         in_sample_rmse = float(np.sqrt(np.mean((in_sample_preds - y) ** 2)))
+
         # OOF predictions.
         def factory():
             inner = lgb.LGBMRegressor(n_estimators=30, num_leaves=11, verbose=-1, random_state=0)
@@ -169,11 +176,10 @@ class TestOOFPredictions:
                 transform_name="linear_residual",
                 base_column="base",
             )
+
         oof = composite_oof_predictions(factory, df, y, n_splits=5, random_state=0)
         oof_rmse = float(np.sqrt(np.mean((oof - y) ** 2)))
-        assert in_sample_rmse <= oof_rmse, (
-            f"in-sample RMSE should be <= OOF RMSE; got in_sample={in_sample_rmse:.4f}, oof={oof_rmse:.4f}"
-        )
+        assert in_sample_rmse <= oof_rmse, f"in-sample RMSE should be <= OOF RMSE; got in_sample={in_sample_rmse:.4f}, oof={oof_rmse:.4f}"
 
 
 # ===========================================================================
@@ -207,9 +213,7 @@ class _SpyWrapper:
         # test can assert it equals len(X), never n.
         if sample_weight is not None:
             sw = np.asarray(sample_weight).reshape(-1)
-            assert sw.shape[0] == len(X), (
-                f"sample_weight length {sw.shape[0]} must match fold-train rows {len(X)}"
-            )
+            assert sw.shape[0] == len(X), f"sample_weight length {sw.shape[0]} must match fold-train rows {len(X)}"
             _SpyWrapper.sample_weight_lens.append(sw.shape[0])
         # Stash the train-row 'gid' values so the test can verify no group
         # bleeds across the train/val boundary under group-aware OOF.
@@ -265,7 +269,11 @@ class TestOOFN19GroupsAndSampleWeight:
         df = pd.DataFrame({"x": rng.normal(size=n), "gid": gid})
         y = rng.normal(size=n)
         oof = composite_oof_predictions(
-            lambda: _SpyWrapper(), df, y, n_splits=4, groups=gid,
+            lambda: _SpyWrapper(),
+            df,
+            y,
+            n_splits=4,
+            groups=gid,
         )
         assert oof.shape == (n,)
         assert np.all(np.isfinite(oof))
@@ -295,9 +303,7 @@ class TestOOFN19GroupsAndSampleWeight:
         # One fit per fold; each recorded a per-fold (sliced) weight length.
         assert len(_SpyWrapper.sample_weight_lens) == n_splits
         # KFold(5) on n=50 -> 40 train rows per fold; crucially NOT n=50.
-        assert all(L != n for L in _SpyWrapper.sample_weight_lens), (
-            f"sample_weight was forwarded full-length (n={n}); got {_SpyWrapper.sample_weight_lens}"
-        )
+        assert all(L != n for L in _SpyWrapper.sample_weight_lens), f"sample_weight was forwarded full-length (n={n}); got {_SpyWrapper.sample_weight_lens}"
         # The slices must sum to exactly (n_splits-1)*n across all folds.
         assert sum(_SpyWrapper.sample_weight_lens) == (n_splits - 1) * n
 
@@ -307,5 +313,8 @@ class TestOOFN19GroupsAndSampleWeight:
         y = np.zeros(n)
         with pytest.raises(ValueError, match="groups length"):
             composite_oof_predictions(
-                lambda: _SpyWrapper(), df, y, groups=np.arange(n - 1),
+                lambda: _SpyWrapper(),
+                df,
+                y,
+                groups=np.arange(n - 1),
             )

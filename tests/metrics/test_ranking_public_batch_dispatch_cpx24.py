@@ -18,6 +18,7 @@ This test pins the contract two ways:
      reference using the single-group kernels + the same sequential mean, incl.
      tied scores / variable group sizes / degenerate (all-zero-relevance) groups.
 """
+
 from __future__ import annotations
 
 import numpy as np

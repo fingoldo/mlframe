@@ -14,6 +14,7 @@ knows the blocker is structural/perf, not correctness.
     back is a memory-costly restructure, not a micro-change). Bench:
     ``mlframe/metrics/_benchmarks/bench_ks_shared_sort.py``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -63,7 +64,7 @@ def test_one_hot_unknown_label_yields_zero_row() -> None:
 
 
 def _ks_via_desc_reverse(yt: np.ndarray, ys: np.ndarray) -> float:
-    desc = np.argsort(ys)[::-1]          # the order the AUC path computes
+    desc = np.argsort(ys)[::-1]  # the order the AUC path computes
     asc = np.ascontiguousarray(desc[::-1])
     return float(_ks_statistic_kernel(yt[asc], ys[asc]))
 

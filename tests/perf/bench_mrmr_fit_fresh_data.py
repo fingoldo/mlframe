@@ -3,6 +3,7 @@
 Pre-warms numba JIT + kernel_tuning_cache at the same size on throwaway data,
 then profiles a FRESH-seed fit so the content-fingerprint replay cache is bypassed.
 """
+
 from __future__ import annotations
 
 import cProfile
@@ -18,6 +19,7 @@ warnings.filterwarnings("ignore")
 
 def _make_mrmr(**overrides):
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(verbose=0, random_seed=0)
     kwargs.update(overrides)
     return MRMR(**kwargs)
@@ -33,10 +35,7 @@ def _build(seed: int, n: int = 12000):
     cols["s1"] = np.sign(rng.standard_normal(n)) * np.abs(x) + 0.1 * rng.standard_normal(n)
     cols["s2"] = np.sin(3.7 * x) + 0.05 * rng.standard_normal(n)
     X = pd.DataFrame(cols)
-    y = (
-        np.sin(3.7 * x) + np.sin(5.3 * x) + np.abs(x)
-        + 0.05 * rng.standard_normal(n)
-    )
+    y = np.sin(3.7 * x) + np.sin(5.3 * x) + np.abs(x) + 0.05 * rng.standard_normal(n)
     return X, pd.Series(y, name="y")
 
 

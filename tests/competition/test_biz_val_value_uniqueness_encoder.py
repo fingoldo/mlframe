@@ -14,7 +14,6 @@ from sklearn.preprocessing import OneHotEncoder
 
 from mlframe.competition.value_uniqueness_encoder import (
     REPEATS_MIXED_TARGET,
-    REPEATS_ONLY_TARGET_0,
     REPEATS_ONLY_TARGET_1,
     REPEATS_UNKNOWN_TARGET,
     UNIQUE_GLOBALLY,
@@ -33,7 +32,6 @@ def _make_informative_dataset(n_train: int = 4000, n_test: int = 1000, seed: int
     rng = np.random.default_rng(seed)
 
     n_informative_1 = 60
-    n_informative_0 = 60
     n_mixed = 100
 
     # all value pools share the SAME numeric range so the raw scalar carries no

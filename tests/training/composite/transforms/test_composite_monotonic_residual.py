@@ -9,6 +9,7 @@ Coverage:
 - Under-populated knot slabs fall back to the global y median (locking against per-slab noise on small n).
 - Biz_value: on a saturating DGP ``y = log(1 + base) + eps``, the monotonic residual has STRICTLY lower variance than linear_residual (which leaves a wedge of curvature at the high-base end).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -31,9 +32,9 @@ class TestFit:
         base = rng.normal(loc=10.0, scale=2.0, size=n)
         y = 2.0 * base + rng.normal(scale=0.3, size=n)
         params = _monotonic_residual_fit(y, base)
-        assert params["n_knots_effective"] >= 8       # default 12, deduped down on ties
+        assert params["n_knots_effective"] >= 8  # default 12, deduped down on ties
         assert params["knots_x"].shape == params["knots_y"].shape
-        assert params["monotone_direction"] == 1      # positive Spearman
+        assert params["monotone_direction"] == 1  # positive Spearman
 
     def test_negative_correlation_yields_decreasing_g(self) -> None:
         rng = np.random.default_rng(1)
@@ -135,8 +136,10 @@ class TestBizValueBeatsLinearOnSaturating:
         y, base = self._make_saturating_dgp()
         # Linear residual (single-base OLS).
         from mlframe.training.composite import (
-            _linear_residual_fit, _linear_residual_forward,
+            _linear_residual_fit,
+            _linear_residual_forward,
         )
+
         lr_params = _linear_residual_fit(y, base)
         T_lr = _linear_residual_forward(y, base, lr_params)
         # Monotonic residual.
@@ -145,8 +148,7 @@ class TestBizValueBeatsLinearOnSaturating:
         var_lr = float(np.var(T_lr))
         var_mr = float(np.var(T_mr))
         assert var_mr < var_lr * 0.5, (
-            f"monotonic_residual variance must be << linear_residual's on a saturating DGP; "
-            f"got var_lr={var_lr:.4f}, var_mr={var_mr:.4f}"
+            f"monotonic_residual variance must be << linear_residual's on a saturating DGP; got var_lr={var_lr:.4f}, var_mr={var_mr:.4f}"
         )
         # And close to noise variance (~0.09 here).
         assert var_mr < 0.5

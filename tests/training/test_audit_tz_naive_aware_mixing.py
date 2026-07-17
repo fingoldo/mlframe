@@ -25,6 +25,7 @@ All 3 closed.
    ``tz_convert('UTC').tz_localize(None)`` so the rounding-resolution
    probe works across pandas eras.
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,6 +40,7 @@ def test_coerce_timestamps_for_audit_returns_datetime64ns_on_tz_aware(caplog):
     """Documented contract: returns datetime64[ns]. Pre-fix tz-aware
     input returned an OBJECT dtype array."""
     from mlframe.training.targets.target_temporal_audit import coerce_timestamps_for_audit
+
     ts_aware = pd.Series(pd.date_range("2024-01-01", periods=5, tz="UTC"))
     with caplog.at_level(logging.WARNING, logger="mlframe.training.targets.target_temporal_audit"):
         out = coerce_timestamps_for_audit(ts_aware)
@@ -48,15 +50,13 @@ def test_coerce_timestamps_for_audit_returns_datetime64ns_on_tz_aware(caplog):
         f"object dtype, silently corrupting downstream Grouper/comparisons."
     )
     # WARN log fires naming the tz strip:
-    assert any("tz-aware Timestamps" in r.message for r in caplog.records), (
-        "Expected WARN naming the tz strip; got: "
-        f"{[r.message for r in caplog.records]}"
-    )
+    assert any("tz-aware Timestamps" in r.message for r in caplog.records), f"Expected WARN naming the tz strip; got: {[r.message for r in caplog.records]}"
 
 
 def test_coerce_timestamps_for_audit_passthrough_tz_naive():
     """tz-naive input must not trigger the WARN (no spurious noise)."""
     from mlframe.training.targets.target_temporal_audit import coerce_timestamps_for_audit
+
     ts_naive = pd.Series(pd.date_range("2024-01-01", periods=5))
     out = coerce_timestamps_for_audit(ts_naive)
     assert str(out.dtype) == "datetime64[ns]"
@@ -67,18 +67,20 @@ def test_recommended_filter_mask_handles_tz_aware_segments():
     a mask without raising ``TypeError: Cannot compare tz-naive and tz-aware``
     against the tz-naive timestamps coerced from the input."""
     from mlframe.training.targets.target_temporal_audit import (
-        TemporalAuditResult, TimeBin,
+        TemporalAuditResult,
+        TimeBin,
     )
 
     # tz-AWARE bin edges (the polars Datetime(time_zone='UTC') hazard).
     starts = pd.date_range("2024-01-01", periods=4, freq="D", tz="UTC")
-    bins = [
-        TimeBin(bin_label=str(s.date()), bin_start=s, n_obs=10, target_rate=0.3, kept=True)
-        for s in starts
-    ]
+    bins = [TimeBin(bin_label=str(s.date()), bin_start=s, n_obs=10, target_rate=0.3, kept=True) for s in starts]
     result = TemporalAuditResult(
-        target_name="y", target_type="binary", timestamp_col="ts",
-        granularity="day", bins=bins, change_point_indices=[],
+        target_name="y",
+        target_type="binary",
+        timestamp_col="ts",
+        granularity="day",
+        bins=bins,
+        change_point_indices=[],
         segments=[{"start_idx": 0, "end_idx": 4, "n_obs": 40, "n_bins": 4, "mean_rate": 0.3}],
         warnings=[],
     )
@@ -97,18 +99,15 @@ def test_cleaning_datetime_probe_strips_tz_before_astype():
     is pre-empted by an upfront tz strip."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "preprocessing" / "cleaning.py"
-    ).read_text(encoding="utf-8")
+
+    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "preprocessing" / "cleaning.py").read_text(encoding="utf-8")
     # Pre-fix shape direct on values MUST be gone:
-    assert "if np.all(values.astype(f\"datetime64[{date_fract}]\") == values):" not in src, (
-        "cleaning.py reverted to .astype on the raw values, which raises on "
-        "pandas >=2.0 for tz-aware Series."
+    assert 'if np.all(values.astype(f"datetime64[{date_fract}]") == values):' not in src, (
+        "cleaning.py reverted to .astype on the raw values, which raises on pandas >=2.0 for tz-aware Series."
     )
     # Post-fix marker:
     assert "_vals_naive = values" in src
-    assert "values.tz_convert(\"UTC\").tz_localize(None)" in src
+    assert 'values.tz_convert("UTC").tz_localize(None)' in src
 
 
 # ---- behavioural: tz-aware input doesn't crash audit ---------------------
@@ -118,6 +117,7 @@ def test_audit_does_not_crash_on_tz_aware_input():
     """End-to-end-ish: coerce_timestamps_for_audit + a manual
     tz-aware ``ts`` Series comparison succeeds post-fix."""
     from mlframe.training.targets.target_temporal_audit import coerce_timestamps_for_audit
+
     ts_aware = pd.Series(pd.date_range("2024-01-01", periods=10, tz="UTC"))
     ts_naive = coerce_timestamps_for_audit(ts_aware)
     # Simulating the downstream comparison shape from recommended_filter_mask:

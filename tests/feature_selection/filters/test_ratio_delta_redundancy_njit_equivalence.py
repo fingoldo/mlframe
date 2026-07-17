@@ -4,6 +4,7 @@
 new implementation against a frozen copy of the pre-fix masked-corrcoef reference, including small
 joint-finite-overlap edge cases (the reason ``min_n=2`` rather than the kernel's default 8 was required).
 """
+
 from __future__ import annotations
 
 import numpy as np

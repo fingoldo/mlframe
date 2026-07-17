@@ -7,6 +7,7 @@ scenario that never actually happens), while plain KFold (which lets the model l
 effect from its other rows) tracks the true out-of-time score far more closely. ``compare_cv_schemes`` should
 correctly pick KFold as the best scheme here.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,9 +42,7 @@ def test_biz_val_compare_cv_schemes_picks_kfold_when_entities_persist_into_the_f
     future_idx = np.flatnonzero(~is_hist)
 
     kfold_splits = [(hist_idx[tr], hist_idx[te]) for tr, te in KFold(5, shuffle=True, random_state=0).split(hist_idx)]
-    groupkfold_splits = [
-        (hist_idx[tr], hist_idx[te]) for tr, te in GroupKFold(5).split(hist_idx, groups=df["entity"].to_numpy()[hist_idx])
-    ]
+    groupkfold_splits = [(hist_idx[tr], hist_idx[te]) for tr, te in GroupKFold(5).split(hist_idx, groups=df["entity"].to_numpy()[hist_idx])]
 
     result = compare_cv_schemes(
         X,
@@ -101,8 +100,12 @@ def test_compare_cv_schemes_empty_schemes_returns_none_best():
     X = np.zeros((10, 1))
     y = np.zeros(10)
     result = compare_cv_schemes(
-        X, y, schemes={}, ooo_time_idx=(np.arange(5), np.arange(5, 10)),
-        model_factory=lambda: RandomForestRegressor(n_estimators=5), metric_fn=_rmse,
+        X,
+        y,
+        schemes={},
+        ooo_time_idx=(np.arange(5), np.arange(5, 10)),
+        model_factory=lambda: RandomForestRegressor(n_estimators=5),
+        metric_fn=_rmse,
     )
     assert result["best_scheme"] is None
     assert result["scheme_scores"] == {}

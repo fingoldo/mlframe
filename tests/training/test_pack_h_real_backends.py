@@ -5,6 +5,7 @@ The earlier ``test_loss_recommendation.py`` covers the pure-function side of the
 1. ``set_params`` succeeds on every backend for the recommended loss name (catches a typo in the recommendation strings before it surfaces in production).
 2. After the mutation, each backend's ``fit`` + ``predict`` actually runs on a tiny heavy-tail target -- so the new objective is wire-compatible with the rest of the model machinery (no hidden validator rejects e.g. ``reg:absoluteerror`` on the installed XGBoost build).
 """
+
 from __future__ import annotations
 
 import logging
@@ -41,7 +42,8 @@ class TestPackHRealBackends:
     """Pack H integration test against the real CB / LGB / XGB classes."""
 
     def test_heavy_tail_target_switches_all_three_to_huber(
-        self, heavy_tail_target: np.ndarray,
+        self,
+        heavy_tail_target: np.ndarray,
     ) -> None:
         """2026-05-23 round-5 policy: kurt > 1.5 routes ALL three backends
         to Huber, not MAE / L1. Pure L1 was triggering the "MAE-gradient-
@@ -72,7 +74,8 @@ class TestPackHRealBackends:
         assert xgb_obj == "reg:pseudohubererror", f"xgb objective expected reg:pseudohubererror, got {xgb_obj!r}"
 
     def test_after_switch_backends_actually_fit_and_predict(
-        self, heavy_tail_target: np.ndarray,
+        self,
+        heavy_tail_target: np.ndarray,
     ) -> None:
         """The post-switch ``fit + predict`` round-trip MUST work on every backend (catches any installed-version incompatibility with the recommended objective string)."""
         from mlframe.training.core._phase_train_one_target import (
@@ -102,7 +105,8 @@ class TestPackHRealBackends:
             assert np.all(np.isfinite(preds)), f"{backend_name} produced non-finite preds"
 
     def test_gaussian_target_keeps_default_losses(
-        self, gaussian_target: np.ndarray,
+        self,
+        gaussian_target: np.ndarray,
     ) -> None:
         """Below-threshold kurtosis must leave all three backends at their default Gaussian losses."""
         from mlframe.training.core._phase_train_one_target import (

@@ -7,6 +7,7 @@ Fix: ``strict_groups: bool = False`` constructor knob. When True, passing
 ``groups`` raises NotImplementedError with a clear message; when False
 (legacy default), the original UserWarning fires.
 """
+
 from __future__ import annotations
 
 import warnings

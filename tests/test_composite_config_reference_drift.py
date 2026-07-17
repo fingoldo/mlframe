@@ -12,7 +12,6 @@ the updated doc.
 import importlib.util
 from pathlib import Path
 
-import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _GEN_PATH = _REPO_ROOT / "scripts" / "gen_composite_config_reference.py"
@@ -21,9 +20,7 @@ _DOC_PATH = _REPO_ROOT / "docs" / "composite_config_reference.md"
 
 def _load_generator():
     """Import the generator module from its file path (scripts/ is not a package)."""
-    spec = importlib.util.spec_from_file_location(
-        "gen_composite_config_reference", _GEN_PATH
-    )
+    spec = importlib.util.spec_from_file_location("gen_composite_config_reference", _GEN_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -54,18 +51,14 @@ def test_render_covers_every_config_field():
 def test_committed_doc_matches_generated():
     """The committed doc must equal the freshly generated content (no drift)."""
     module = _load_generator()
-    assert _DOC_PATH.exists(), (
-        f"{_DOC_PATH} is missing; run "
-        "`python scripts/gen_composite_config_reference.py`"
-    )
+    assert _DOC_PATH.exists(), f"{_DOC_PATH} is missing; run `python scripts/gen_composite_config_reference.py`"
     # Compare CONTENT, not line endings: git may check the committed .md out as LF while the generator emits
     # the platform EOL (CRLF on Windows). EOL is git's concern (.gitattributes), so normalise both sides -- this
     # keeps the sensor cross-platform while still catching any real field/text drift.
     committed = _DOC_PATH.read_text(encoding="utf-8", newline="").replace("\r\n", "\n")
     generated = module.render_markdown().replace("\r\n", "\n")
     assert committed == generated, (
-        "docs/composite_config_reference.md is out of date; run "
-        "`python scripts/gen_composite_config_reference.py` and commit the result."
+        "docs/composite_config_reference.md is out of date; run `python scripts/gen_composite_config_reference.py` and commit the result."
     )
 
 

@@ -14,19 +14,29 @@ registered) — under ``--strict-markers`` this is at minimum a
 documentation footgun (copy-paste of the docstring snippet into actual
 code would explode at collection). This test catches every such drift.
 """
+
 from __future__ import annotations
 
 import ast
 import re
 from pathlib import Path
 
-import pytest
 
 # Built-in pytest markers that don't need explicit registration.
-_BUILTIN_MARKERS = frozenset({
-    "skip", "skipif", "xfail", "parametrize", "usefixtures", "filterwarnings",
-    "tryfirst", "trylast", "order", "timeout",
-})
+_BUILTIN_MARKERS = frozenset(
+    {
+        "skip",
+        "skipif",
+        "xfail",
+        "parametrize",
+        "usefixtures",
+        "filterwarnings",
+        "tryfirst",
+        "trylast",
+        "order",
+        "timeout",
+    }
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _TESTS_DIR = _REPO_ROOT / "tests"
@@ -68,10 +78,7 @@ def _parse_conftest_markers() -> set[str]:
         if not isinstance(node, ast.Call):
             continue
         func = node.func
-        if not (
-            isinstance(func, ast.Attribute)
-            and func.attr == "addinivalue_line"
-        ):
+        if not (isinstance(func, ast.Attribute) and func.attr == "addinivalue_line"):
             continue
         # call signature: config.addinivalue_line("markers", "<name>: descr")
         if len(node.args) < 2:
@@ -127,15 +134,11 @@ def test_every_used_marker_is_registered():
     registered = pyproject_markers | conftest_markers | _BUILTIN_MARKERS
     used = _scan_used_markers()
 
-    unregistered: dict[str, list[str]] = {
-        name: paths for name, paths in used.items() if name not in registered
-    }
+    unregistered: dict[str, list[str]] = {name: paths for name, paths in used.items() if name not in registered}
     assert not unregistered, (
         f"Unregistered pytest markers found (collection under --strict-markers "
         f"would error or warn):\n"
-        + "\n".join(
-            f"  {name}: seen in {paths}" for name, paths in sorted(unregistered.items())
-        )
+        + "\n".join(f"  {name}: seen in {paths}" for name, paths in sorted(unregistered.items()))
         + f"\n\nRegister in pyproject.toml ``[tool.pytest.ini_options].markers`` "
         f"or in tests/conftest.py ``pytest_configure``."
     )
@@ -148,8 +151,7 @@ def test_pyproject_marker_parser_picks_up_known_entries():
     pyproject_markers = _parse_pyproject_markers()
     for required in ("slow", "fast", "gpu", "no_xdist"):
         assert required in pyproject_markers, (
-            f"Marker {required!r} missing from pyproject.toml registration; "
-            f"either pyproject was edited or the parser is broken."
+            f"Marker {required!r} missing from pyproject.toml registration; either pyproject was edited or the parser is broken."
         )
 
 
@@ -166,6 +168,5 @@ def test_conftest_marker_parser_picks_up_known_entries():
     conftest_markers = _parse_conftest_markers()
     for required in ("fuzz", "biz_transformer"):
         assert required in conftest_markers, (
-            f"Marker {required!r} missing from conftest.py addinivalue_line; "
-            f"either conftest was edited or the parser is broken."
+            f"Marker {required!r} missing from conftest.py addinivalue_line; either conftest was edited or the parser is broken."
         )

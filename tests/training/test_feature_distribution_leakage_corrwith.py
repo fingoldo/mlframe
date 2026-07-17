@@ -26,11 +26,13 @@ def test_strong_leakage_is_detected():
     rng = np.random.default_rng(0)
     n = 1000
     y = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "leaky": y + 0.001 * rng.standard_normal(n),
-        "unrelated": rng.standard_normal(n),
-        "mild": 0.5 * y + rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "leaky": y + 0.001 * rng.standard_normal(n),
+            "unrelated": rng.standard_normal(n),
+            "mild": 0.5 * y + rng.standard_normal(n),
+        }
+    )
     rep = analyze_feature_distribution(X, y)
     assert "leaky" in rep.leakage_candidates
     assert "unrelated" not in rep.leakage_candidates
@@ -55,10 +57,12 @@ def test_leakage_survives_20pct_nan_in_y():
     rng = np.random.default_rng(0)
     n = 1000
     y = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "leaky": y + 0.001 * rng.standard_normal(n),
-        "unrelated": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "leaky": y + 0.001 * rng.standard_normal(n),
+            "unrelated": rng.standard_normal(n),
+        }
+    )
     y_with_nan = y.copy()
     y_with_nan[::5] = np.nan
     rep = analyze_feature_distribution(X, y_with_nan)
@@ -70,10 +74,12 @@ def test_constant_feature_does_not_crash_or_flag_leakage():
     rng = np.random.default_rng(0)
     n = 500
     y = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "leaky": y + 0.001 * rng.standard_normal(n),
-        "const": np.full(n, 5.0),
-    })
+    X = pd.DataFrame(
+        {
+            "leaky": y + 0.001 * rng.standard_normal(n),
+            "const": np.full(n, 5.0),
+        }
+    )
     rep = analyze_feature_distribution(X, y)
     assert "leaky" in rep.leakage_candidates
     assert "const" not in rep.leakage_candidates
@@ -84,9 +90,11 @@ def test_constant_feature_does_not_crash_or_flag_leakage():
 def test_no_y_skips_leakage_detection_entirely():
     rng = np.random.default_rng(0)
     n = 500
-    X = pd.DataFrame({
-        "col_0": rng.standard_normal(n),
-        "col_1": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "col_0": rng.standard_normal(n),
+            "col_1": rng.standard_normal(n),
+        }
+    )
     rep = analyze_feature_distribution(X, y=None)
     assert rep.leakage_candidates == []

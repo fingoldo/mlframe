@@ -2,8 +2,7 @@
 
 import pytest
 import numpy as np
-import pandas as pd
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings
 
 from mlframe.feature_engineering.timeseries import (
     find_next_cumsum_left_index,
@@ -20,10 +19,7 @@ def _seed_global_numpy_rng():
     np.random.seed(0)
 
 
-@given(
-    st.floats(min_value=0.1, max_value=100, allow_nan=False, allow_infinity=False),
-    st.integers(min_value=1, max_value=100)
-)
+@given(st.floats(min_value=0.1, max_value=100, allow_nan=False, allow_infinity=False), st.integers(min_value=1, max_value=100))
 @settings(max_examples=50)
 def test_find_next_cumsum_left_index(amount, right_index):
     """Test cumsum index finder returns valid indices."""
@@ -33,10 +29,7 @@ def test_find_next_cumsum_left_index(amount, right_index):
     assert total >= 0
 
 
-@given(
-    st.floats(min_value=0.1, max_value=100, allow_nan=False, allow_infinity=False),
-    st.integers(min_value=0, max_value=50)
-)
+@given(st.floats(min_value=0.1, max_value=100, allow_nan=False, allow_infinity=False), st.integers(min_value=0, max_value=50))
 @settings(max_examples=50)
 def test_find_next_cumsum_right_index(amount, left_index):
     """Test cumsum right index finder returns valid indices."""
@@ -49,7 +42,7 @@ def test_find_next_cumsum_right_index(amount, left_index):
 @given(st.integers(min_value=1, max_value=10))
 def test_get_nwindows_expected(n_windows):
     """Test window count calculation."""
-    windows = {'': list(range(n_windows))}
+    windows = {"": list(range(n_windows))}
     result = get_nwindows_expected(windows)
     assert result == n_windows
 
@@ -57,10 +50,7 @@ def test_get_nwindows_expected(n_windows):
 @given(st.integers(min_value=1, max_value=10), st.integers(min_value=1, max_value=5))
 def test_get_nwindows_expected_multiple_vars(n_windows1, n_windows2):
     """Test window count with multiple variables."""
-    windows = {
-        '': list(range(n_windows1)),
-        'var2': list(range(n_windows2))
-    }
+    windows = {"": list(range(n_windows1)), "var2": list(range(n_windows2))}
     result = get_nwindows_expected(windows)
     assert result == n_windows1 + n_windows2
 
@@ -79,7 +69,7 @@ def test_get_ts_window_name_index(window_size):
     assert "D" in name
 
 
-@given(st.text(min_size=1, max_size=10, alphabet='abcdefghij'))
+@given(st.text(min_size=1, max_size=10, alphabet="abcdefghij"))
 def test_get_ts_window_name_var(var_name):
     """Test window naming for variable-based windows."""
     name = get_ts_window_name(var_name, 1000.0)
@@ -97,7 +87,7 @@ def test_find_cumsum_left_zero_index():
 def test_find_cumsum_right_end_index():
     """Test with left_index at end."""
     arr = np.array([1.0, 2.0, 3.0], dtype=np.float64)
-    right, total = find_next_cumsum_right_index(arr, 1.0, len(arr) - 1)
+    right, _total = find_next_cumsum_right_index(arr, 1.0, len(arr) - 1)
     assert right == len(arr) - 1
 
 
@@ -106,7 +96,7 @@ def test_find_cumsum_right_end_index():
 def test_find_cumsum_use_abs(use_abs):
     """Test absolute value mode."""
     arr = np.array([-1.0, -2.0, -3.0, -4.0, -5.0], dtype=np.float64)
-    left, total = find_next_cumsum_left_index(arr, 5.0, 4, use_abs=use_abs)
+    left, _total = find_next_cumsum_left_index(arr, 5.0, 4, use_abs=use_abs)
     assert 0 <= left <= 4
 
 
@@ -115,7 +105,7 @@ def test_find_cumsum_use_abs(use_abs):
 def test_find_cumsum_min_samples(min_samples):
     """Test min_samples constraint."""
     arr = np.ones(20, dtype=np.float64)
-    left, total = find_next_cumsum_left_index(arr, 1.0, 15, min_samples=min_samples)
+    left, _total = find_next_cumsum_left_index(arr, 1.0, 15, min_samples=min_samples)
     # Should respect min_samples
     assert 15 - left >= min_samples or left == 0
 
@@ -123,7 +113,7 @@ def test_find_cumsum_min_samples(min_samples):
 def test_find_cumsum_with_nans():
     """Test handling of NaN values in array."""
     arr = np.array([1.0, np.nan, 2.0, np.nan, 3.0], dtype=np.float64)
-    left, total = find_next_cumsum_left_index(arr, 3.0, 4)
+    left, _total = find_next_cumsum_left_index(arr, 3.0, 4)
     # Should skip NaN values
     assert 0 <= left <= 4
 
@@ -131,5 +121,5 @@ def test_find_cumsum_with_nans():
 def test_find_cumsum_none_index():
     """Test with None index (should use array length)."""
     arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
-    left, total = find_next_cumsum_left_index(arr, 10.0, None)
+    left, _total = find_next_cumsum_left_index(arr, 10.0, None)
     assert 0 <= left <= len(arr)

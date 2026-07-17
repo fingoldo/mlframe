@@ -7,6 +7,7 @@ Covers the three pieces of ``_synthetic_distributions``:
 and the two reproducibility guarantees (same seed -> identical data; per-operand
 family choice stable and operand-dependent).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,7 +40,7 @@ def test_positive_families_are_positive(name):
 def test_marginals_are_distinguishable():
     """Different families must produce genuinely different marginal shapes
     (guards against a registry entry silently aliasing another)."""
-    rng = np.random.default_rng(0)
+    np.random.default_rng(0)
     samples = {nm: fn(np.random.default_rng(0), 20000) for nm, fn in sd.DISTRIBUTIONS.items()}
     # skewness sign / magnitude separates skewed (lognormal, exp, gamma, pareto)
     # from symmetric (normal, t, bimodal) and U-shaped (beta_u).
@@ -137,7 +138,7 @@ def test_formula_well_defined_under_profile(profile):
     doms = {"a": sd.DOMAIN_ANY, "b": sd.DOMAIN_DIVISOR, "c": sd.DOMAIN_POSITIVE, "d": sd.DOMAIN_ANY}
     data = sd.sample_operands(seed=9, n=6000, domains=doms, profile=profile)
     a, b, c, d = data["a"], data["b"], data["c"], data["d"]
-    y = 0.2 * a ** 2 / b + np.log(c * 2.0) * np.sin(d / 3.0)
+    y = 0.2 * a**2 / b + np.log(c * 2.0) * np.sin(d / 3.0)
     assert np.all(np.isfinite(y)), f"[{profile}] F2 target produced non-finite values"
 
 

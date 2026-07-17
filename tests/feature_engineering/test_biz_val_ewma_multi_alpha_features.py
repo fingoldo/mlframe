@@ -7,6 +7,7 @@ few samples (high variance); a low-alpha (long-memory) EWMA effectively averages
 history without needing a fixed window size, giving a lower-variance rate estimate -- this should predict a
 persistent hidden per-entity trait better than a small fixed window.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -45,7 +46,9 @@ def test_biz_val_low_alpha_ewma_beats_fixed_window_rolling_mean():
     auc_ewma_long = roc_auc_score(label, last_per_entity["ewma_alpha_0.1"])
     auc_roll3 = roc_auc_score(label, roll3)
 
-    assert auc_ewma_long > auc_roll3 + 0.05, f"expected low-alpha EWMA to beat a fixed 3-window rolling mean by >=0.05 AUC, got ewma={auc_ewma_long:.4f} roll3={auc_roll3:.4f}"
+    assert auc_ewma_long > auc_roll3 + 0.05, (
+        f"expected low-alpha EWMA to beat a fixed 3-window rolling mean by >=0.05 AUC, got ewma={auc_ewma_long:.4f} roll3={auc_roll3:.4f}"
+    )
 
 
 def test_ewma_multi_alpha_features_matches_pandas_ewm():

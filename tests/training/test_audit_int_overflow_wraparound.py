@@ -31,6 +31,7 @@ histogram cell -- without any error.
       create_robustness_standard_bins used hardcoded int16; widened to
       range-aware dispatch.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -69,13 +70,14 @@ def test_categorize_dataset_auto_promotes_high_cardinality() -> None:
     import pandas as pd
     from mlframe.feature_selection.filters.discretization import categorize_dataset
 
-    high_card = pd.DataFrame({
-        "cat": pd.Categorical([f"c{i}" for i in range(200)]),
-    })
-    data, cols, nbins = categorize_dataset(high_card, dtype=np.int8)
+    high_card = pd.DataFrame(
+        {
+            "cat": pd.Categorical([f"c{i}" for i in range(200)]),
+        }
+    )
+    data, _cols, nbins = categorize_dataset(high_card, dtype=np.int8)
     assert int(data.max()) == 199, (
-        f"categorize_dataset must auto-promote int8 to fit 200 categories; "
-        f"got max code {int(data.max())} (wrap-symptom = negative or <199)."
+        f"categorize_dataset must auto-promote int8 to fit 200 categories; got max code {int(data.max())} (wrap-symptom = negative or <199)."
     )
     assert int(nbins[0]) == 200
 
@@ -95,9 +97,7 @@ def test_categorize_1d_array_auto_promotes_high_cardinality() -> None:
         dtype=np.int8,
     )
     # After auto-promote, dtype must be wider than int8 to fit codes > 127.
-    assert out.dtype != np.int8 or int(out.max()) <= 127, (
-        "categorize_1d_array must auto-promote dtype when codes exceed int8 range."
-    )
+    assert out.dtype != np.int8 or int(out.max()) <= 127, "categorize_1d_array must auto-promote dtype when codes exceed int8 range."
 
 
 def test_recurrent_classifier_predict_handles_high_class_count() -> None:
@@ -114,9 +114,7 @@ def test_recurrent_classifier_predict_handles_high_class_count() -> None:
         if cmax <= np.iinfo(_dt).max:
             out = classes.astype(_dt)
             break
-    assert int(out.max()) == 150, (
-        f"int8 wraps class 150 -> -106; auto-promoted dtype must preserve it. Got {int(out.max())}"
-    )
+    assert int(out.max()) == 150, f"int8 wraps class 150 -> -106; auto-promoted dtype must preserve it. Got {int(out.max())}"
 
 
 def test_chatgpt_mutual_information_rejects_out_of_range_bins() -> None:
@@ -154,27 +152,19 @@ def test_create_robustness_standard_bins_widens_dtype_when_needed() -> None:
 
 def test_categorize_dataset_no_longer_silent_truncate() -> None:
     src = _read("feature_selection/filters/discretization.py")
-    assert "auto-promoting" in src.lower(), (
-        "categorize_dataset must auto-promote dtype, not silently log-and-truncate."
-    )
+    assert "auto-promoting" in src.lower(), "categorize_dataset must auto-promote dtype, not silently log-and-truncate."
     # The standalone unconditional astype(dtype) AFTER the warning must be gone.
-    assert "factors exceeded dtype" not in src, (
-        "The log-warn-then-truncate phrasing must be replaced with the auto-promote path."
-    )
+    assert "factors exceeded dtype" not in src, "The log-warn-then-truncate phrasing must be replaced with the auto-promote path."
 
 
 def test_recurrent_classifier_no_hardcoded_int8_argmax() -> None:
     src = _read("training/neural/recurrent.py")
-    assert "proba.argmax(axis=1).astype(np.int8)" not in src, (
-        "Recurrent classifier must not unconditionally cast argmax to int8."
-    )
+    assert "proba.argmax(axis=1).astype(np.int8)" not in src, "Recurrent classifier must not unconditionally cast argmax to int8."
 
 
 def test_mi_int8_cast_has_range_validation() -> None:
     src = _read("feature_selection/mi.py")
-    assert "bin codes must be in [0, 127]" in src, (
-        "mi.py: chatgpt_compute_mutual_information must validate input range before int8 cast."
-    )
+    assert "bin codes must be in [0, 127]" in src, "mi.py: chatgpt_compute_mutual_information must validate input range before int8 cast."
 
 
 def test_robustness_bins_uses_range_aware_dtype() -> None:

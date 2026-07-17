@@ -8,6 +8,7 @@ EXACT integral in O(nu+nv). These tests pin numerical equivalence to scipy
 (reduction-order FP noise only) on continuous, discrete-tied and pathological
 inputs, so a future "just rewrite the merge" cannot silently change the value.
 """
+
 from __future__ import annotations
 
 import numpy as np

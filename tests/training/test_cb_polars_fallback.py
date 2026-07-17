@@ -20,9 +20,9 @@ Those are *orchestration* bugs (wrong ordering / wrong filter), not
 unit-level issues. The tests below run the full fallback with a stub model
 so we can assert end-to-end invariants.
 """
+
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
@@ -39,6 +39,7 @@ from mlframe.training.trainer import _train_model_with_fallback
 # up being passed to the retry.
 # ---------------------------------------------------------------------------
 
+
 class FakeCatBoost:
     """Minimal stand-in for a CatBoostClassifier used by the fallback path.
 
@@ -46,6 +47,7 @@ class FakeCatBoost:
     gates the fallback on the *model_type_name* argument string, so the
     test passes ``"CatBoostClassifier"`` explicitly — no pyx import needed.
     """
+
     def __init__(self):
         self.calls: List[Dict[str, Any]] = []
         self.fit_error_first_call: Exception = TypeError("No matching signature found")
@@ -77,6 +79,7 @@ class FakeCatBoost:
 # structurally matching the production case that triggered the bugs.
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def polars_frame_with_text_cats() -> Tuple[pl.DataFrame, pl.DataFrame, List[str], List[str]]:
     """Build train/val polars frames + cat/text feature lists.
@@ -87,20 +90,20 @@ def polars_frame_with_text_cats() -> Tuple[pl.DataFrame, pl.DataFrame, List[str]
     """
     rng = np.random.default_rng(0)
     n_train, n_val = 500, 100
-    train = pl.DataFrame({
-        "num":         rng.standard_normal(n_train).astype(np.float32),
-        "true_cat":    pl.Series("true_cat", rng.choice(["r", "g", "b"], size=n_train)).cast(pl.Categorical),
-        "skills_text": pl.Series("skills_text",
-                                 np.array([f"s_{i:04d}" for i in range(200)])[rng.integers(0, 200, size=n_train)]
-                                 ).cast(pl.Categorical),
-    })
-    val = pl.DataFrame({
-        "num":         rng.standard_normal(n_val).astype(np.float32),
-        "true_cat":    pl.Series("true_cat", rng.choice(["r", "g", "b"], size=n_val)).cast(pl.Categorical),
-        "skills_text": pl.Series("skills_text",
-                                 np.array([f"s_{i:04d}" for i in range(200)])[rng.integers(0, 200, size=n_val)]
-                                 ).cast(pl.Categorical),
-    })
+    train = pl.DataFrame(
+        {
+            "num": rng.standard_normal(n_train).astype(np.float32),
+            "true_cat": pl.Series("true_cat", rng.choice(["r", "g", "b"], size=n_train)).cast(pl.Categorical),
+            "skills_text": pl.Series("skills_text", np.array([f"s_{i:04d}" for i in range(200)])[rng.integers(0, 200, size=n_train)]).cast(pl.Categorical),
+        }
+    )
+    val = pl.DataFrame(
+        {
+            "num": rng.standard_normal(n_val).astype(np.float32),
+            "true_cat": pl.Series("true_cat", rng.choice(["r", "g", "b"], size=n_val)).cast(pl.Categorical),
+            "skills_text": pl.Series("skills_text", np.array([f"s_{i:04d}" for i in range(200)])[rng.integers(0, 200, size=n_val)]).cast(pl.Categorical),
+        }
+    )
     cat_features = ["true_cat"]
     text_features = ["skills_text"]
     return train, val, cat_features, text_features
@@ -109,6 +112,7 @@ def polars_frame_with_text_cats() -> Tuple[pl.DataFrame, pl.DataFrame, List[str]
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 def test_fallback_triggers_on_polars_typeerror(polars_frame_with_text_cats):
     """Baseline: fallback activates on the exact exception the production
@@ -125,10 +129,13 @@ def test_fallback_triggers_on_polars_typeerror(polars_frame_with_text_cats):
         "eval_set": (val_df, val_target),
     }
     out_model, _ = _train_model_with_fallback(
-        model=model, model_obj=model,
+        model=model,
+        model_obj=model,
         model_type_name="CatBoostClassifier",
-        train_df=train_df, train_target=train_target,
-        fit_params=fit_params, verbose=False,
+        train_df=train_df,
+        train_target=train_target,
+        fit_params=fit_params,
+        verbose=False,
     )
     assert out_model is model
     assert len(model.calls) == 2, f"expected 2 fit calls (raise then retry), got {len(model.calls)}"
@@ -143,10 +150,12 @@ def test_fallback_converts_train_df_to_pandas(polars_frame_with_text_cats):
 
     model = FakeCatBoost()
     _train_model_with_fallback(
-        model=model, model_obj=model, model_type_name="CatBoostClassifier",
-        train_df=train_df, train_target=train_target,
-        fit_params={"cat_features": cat, "text_features": text,
-                    "eval_set": (val_df, val_target)},
+        model=model,
+        model_obj=model,
+        model_type_name="CatBoostClassifier",
+        train_df=train_df,
+        train_target=train_target,
+        fit_params={"cat_features": cat, "text_features": text, "eval_set": (val_df, val_target)},
         verbose=False,
     )
     first, retry = model.calls
@@ -168,17 +177,18 @@ def test_fallback_decategorizes_text_columns_before_retry(polars_frame_with_text
 
     model = FakeCatBoost()
     _train_model_with_fallback(
-        model=model, model_obj=model, model_type_name="CatBoostClassifier",
-        train_df=train_df, train_target=train_target,
-        fit_params={"cat_features": cat, "text_features": text,
-                    "eval_set": (val_df, val_target)},
+        model=model,
+        model_obj=model,
+        model_type_name="CatBoostClassifier",
+        train_df=train_df,
+        train_target=train_target,
+        fit_params={"cat_features": cat, "text_features": text, "eval_set": (val_df, val_target)},
         verbose=False,
     )
     retry = model.calls[1]
     for col, dtype_str in retry["text_dtypes"].items():
         assert "category" not in dtype_str.lower(), (
-            f"text column {col!r} arrived at retry with dtype {dtype_str!r}; "
-            "must be object/string (text columns are decategorized before CB retry)"
+            f"text column {col!r} arrived at retry with dtype {dtype_str!r}; must be object/string (text columns are decategorized before CB retry)"
         )
 
 
@@ -191,28 +201,27 @@ def test_fallback_rewrites_eval_set_to_pandas(polars_frame_with_text_cats):
     val_target = np.arange(val_df.height) % 2
 
     model = FakeCatBoost()
-    fit_params = {"cat_features": cat, "text_features": text,
-                  "eval_set": (val_df, val_target)}
+    fit_params = {"cat_features": cat, "text_features": text, "eval_set": (val_df, val_target)}
     _train_model_with_fallback(
-        model=model, model_obj=model, model_type_name="CatBoostClassifier",
-        train_df=train_df, train_target=train_target,
-        fit_params=fit_params, verbose=False,
+        model=model,
+        model_obj=model,
+        model_type_name="CatBoostClassifier",
+        train_df=train_df,
+        train_target=train_target,
+        fit_params=fit_params,
+        verbose=False,
     )
     # After the fallback, fit_params["eval_set"] should hold pandas.
     eval_X = fit_params["eval_set"][0]
-    assert isinstance(eval_X, pd.DataFrame), (
-        f"eval_set X must be pandas after fallback, got {type(eval_X).__name__}"
-    )
+    assert isinstance(eval_X, pd.DataFrame), f"eval_set X must be pandas after fallback, got {type(eval_X).__name__}"
     # And its text column must not be pd.Categorical either.
-    assert not isinstance(eval_X["skills_text"].dtype, pd.CategoricalDtype), (
-        "eval_set text column must also be decategorized"
-    )
+    assert not isinstance(eval_X["skills_text"].dtype, pd.CategoricalDtype), "eval_set text column must also be decategorized"
 
 
 def test_fallback_passes_when_polars_fastpath_succeeds(polars_frame_with_text_cats):
     """Sanity: when the Polars fastpath succeeds on the first call, no
     fallback kicks in and the model is not reconverted."""
-    train_df, val_df, cat, text = polars_frame_with_text_cats
+    train_df, _val_df, cat, text = polars_frame_with_text_cats
     train_target = np.arange(train_df.height) % 2
 
     class OKModel(FakeCatBoost):
@@ -222,8 +231,11 @@ def test_fallback_passes_when_polars_fastpath_succeeds(polars_frame_with_text_ca
 
     model = OKModel()
     _train_model_with_fallback(
-        model=model, model_obj=model, model_type_name="CatBoostClassifier",
-        train_df=train_df, train_target=train_target,
+        model=model,
+        model_obj=model,
+        model_type_name="CatBoostClassifier",
+        train_df=train_df,
+        train_target=train_target,
         fit_params={"cat_features": cat, "text_features": text},
         verbose=False,
     )
@@ -236,7 +248,7 @@ def test_fallback_ignored_for_non_catboost_models(polars_frame_with_text_cats):
     MLP, ...) must not trigger the polars->pandas conversion even if they
     raise a similar-looking TypeError.
     """
-    train_df, val_df, cat, text = polars_frame_with_text_cats
+    train_df, _val_df, cat, text = polars_frame_with_text_cats
     train_target = np.arange(train_df.height) % 2
 
     model = FakeCatBoost()
@@ -244,9 +256,11 @@ def test_fallback_ignored_for_non_catboost_models(polars_frame_with_text_cats):
 
     with pytest.raises(TypeError, match="No matching signature"):
         _train_model_with_fallback(
-            model=model, model_obj=model,
+            model=model,
+            model_obj=model,
             model_type_name="XGBClassifier",  # <-- NOT CatBoost
-            train_df=train_df, train_target=train_target,
+            train_df=train_df,
+            train_target=train_target,
             fit_params={"cat_features": cat, "text_features": text},
             verbose=False,
         )
@@ -263,8 +277,11 @@ def test_fallback_without_eval_set_still_retries(polars_frame_with_text_cats):
 
     model = FakeCatBoost()
     _train_model_with_fallback(
-        model=model, model_obj=model, model_type_name="CatBoostClassifier",
-        train_df=train_df, train_target=train_target,
+        model=model,
+        model_obj=model,
+        model_type_name="CatBoostClassifier",
+        train_df=train_df,
+        train_target=train_target,
         fit_params={"cat_features": cat, "text_features": text},
         verbose=False,
     )
@@ -289,10 +306,12 @@ def test_fallback_retry_failure_propagates(polars_frame_with_text_cats):
     model = RaisingTwice()
     with pytest.raises(RuntimeError, match="retry also failed"):
         _train_model_with_fallback(
-            model=model, model_obj=model, model_type_name="CatBoostClassifier",
-            train_df=train_df, train_target=train_target,
-            fit_params={"cat_features": cat, "text_features": text,
-                        "eval_set": (val_df, val_target)},
+            model=model,
+            model_obj=model,
+            model_type_name="CatBoostClassifier",
+            train_df=train_df,
+            train_target=train_target,
+            fit_params={"cat_features": cat, "text_features": text, "eval_set": (val_df, val_target)},
             verbose=False,
         )
     assert len(model.calls) == 2
@@ -315,16 +334,14 @@ def test_polars_schema_diagnostic_flags_nullable_cat_culprit():
     header, not buried in the per-column list."""
     from mlframe.training.trainer import _polars_schema_diagnostic
 
-    df = pl.DataFrame({
-        "a": np.arange(20, dtype=np.float32),
-        "with_nulls": pl.Series(
-            "with_nulls", ["red", None, "green", "blue"] * 5
-        ).cast(pl.Categorical),
-        "category_group": pl.Series("category_group", ["x", "y"] * 10).cast(pl.Categorical),
-    })
-    dump = _polars_schema_diagnostic(
-        df, cat_features=["with_nulls", "category_group"], text_features=[]
+    df = pl.DataFrame(
+        {
+            "a": np.arange(20, dtype=np.float32),
+            "with_nulls": pl.Series("with_nulls", ["red", None, "green", "blue"] * 5).cast(pl.Categorical),
+            "category_group": pl.Series("category_group", ["x", "y"] * 10).cast(pl.Categorical),
+        }
     )
+    dump = _polars_schema_diagnostic(df, cat_features=["with_nulls", "category_group"], text_features=[])
     assert "with_nulls" in dump
     assert "null" in dump.lower() or "fill_null" in dump
     # category_group has no nulls -> must NOT be in the culprit header.
@@ -339,10 +356,12 @@ def test_polars_schema_diagnostic_enum_reported_but_not_flagged():
     from mlframe.training.trainer import _polars_schema_diagnostic
 
     enum_dt = pl.Enum(["red", "green", "blue"])
-    df = pl.DataFrame({
-        "a": np.arange(20, dtype=np.float32),
-        "job_type": pl.Series("job_type", ["red"] * 20, dtype=enum_dt),
-    })
+    df = pl.DataFrame(
+        {
+            "a": np.arange(20, dtype=np.float32),
+            "job_type": pl.Series("job_type", ["red"] * 20, dtype=enum_dt),
+        }
+    )
     dump = _polars_schema_diagnostic(df, cat_features=["job_type"], text_features=[])
     assert "job_type" in dump
     assert "Enum" in dump
@@ -356,10 +375,13 @@ def test_polars_schema_diagnostic_handles_empty_cat_features():
     is None/empty — operators may need to see it to rule out unexpected
     dtype mixes on text or numeric columns."""
     from mlframe.training.trainer import _polars_schema_diagnostic
-    df = pl.DataFrame({
-        "a": np.arange(5, dtype=np.float32),
-        "b": pl.Series("b", ["x", "y", "x", "y", "x"]),
-    })
+
+    df = pl.DataFrame(
+        {
+            "a": np.arange(5, dtype=np.float32),
+            "b": pl.Series("b", ["x", "y", "x", "y", "x"]),
+        }
+    )
     dump = _polars_schema_diagnostic(df, cat_features=None, text_features=None)
     # Even without any categoricals, the diagnostic must not crash and
     # must at least report shape.
@@ -373,6 +395,7 @@ def test_polars_schema_diagnostic_never_raises():
     return a string, even on malformed inputs.
     """
     from mlframe.training.trainer import _polars_schema_diagnostic
+
     # Nonsense input — passing a pandas DataFrame where polars is expected.
     bad_input = pd.DataFrame({"a": [1, 2, 3]})
     out = _polars_schema_diagnostic(bad_input, cat_features=["a"], text_features=[])
@@ -414,16 +437,16 @@ class TestFilterPolarsCatFeaturesByDtype:
         fastpath). Filter must drop it and WARN."""
         import logging
         from mlframe.training.core import _filter_polars_cat_features_by_dtype
-        df = pl.DataFrame({
-            "good_cat":    pl.Series("good_cat", ["a", "b", "a"]).cast(pl.Categorical),
-            "skills_text": pl.Series("skills_text", ["x", "y", "z"]),  # pl.String
-        })
+
+        df = pl.DataFrame(
+            {
+                "good_cat": pl.Series("good_cat", ["a", "b", "a"]).cast(pl.Categorical),
+                "skills_text": pl.Series("skills_text", ["x", "y", "z"]),  # pl.String
+            }
+        )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
             out = _filter_polars_cat_features_by_dtype(df, ["good_cat", "skills_text"])
-        assert out == ["good_cat"], (
-            "String-dtype column declared as cat must be dropped — "
-            "CatBoost's Polars dispatcher has no String overload"
-        )
+        assert out == ["good_cat"], "String-dtype column declared as cat must be dropped — CatBoost's Polars dispatcher has no String overload"
         warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
         assert any("skills_text" in m and "String" in m for m in warns), warns
 
@@ -432,10 +455,13 @@ class TestFilterPolarsCatFeaturesByDtype:
         no warning (runs on every CB fit, false positives would spam)."""
         import logging
         from mlframe.training.core import _filter_polars_cat_features_by_dtype
-        df = pl.DataFrame({
-            "a": pl.Series("a", ["x", "y"] * 5).cast(pl.Categorical),
-            "b": pl.Series("b", ["p", "q"] * 5).cast(pl.Categorical),
-        })
+
+        df = pl.DataFrame(
+            {
+                "a": pl.Series("a", ["x", "y"] * 5).cast(pl.Categorical),
+                "b": pl.Series("b", ["p", "q"] * 5).cast(pl.Categorical),
+            }
+        )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
             out = _filter_polars_cat_features_by_dtype(df, ["a", "b"])
         assert out == ["a", "b"]
@@ -449,10 +475,13 @@ class TestFilterPolarsCatFeaturesByDtype:
         territory, not ours."""
         import logging
         from mlframe.training.core import _filter_polars_cat_features_by_dtype
+
         enum_dt = pl.Enum(["A", "B", "C"])
-        df = pl.DataFrame({
-            "e": pl.Series("e", ["A", "B", "C"] * 2, dtype=enum_dt),
-        })
+        df = pl.DataFrame(
+            {
+                "e": pl.Series("e", ["A", "B", "C"] * 2, dtype=enum_dt),
+            }
+        )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
             out = _filter_polars_cat_features_by_dtype(df, ["e"])
         assert out == ["e"]
@@ -462,6 +491,7 @@ class TestFilterPolarsCatFeaturesByDtype:
         silently dropped (not the helper's job to raise — CB would
         error with a different, clearer message anyway)."""
         from mlframe.training.core import _filter_polars_cat_features_by_dtype
+
         df = pl.DataFrame({"a": pl.Series("a", ["x"] * 3).cast(pl.Categorical)})
         out = _filter_polars_cat_features_by_dtype(df, ["a", "not_in_df"])
         assert out == ["a"]
@@ -469,6 +499,7 @@ class TestFilterPolarsCatFeaturesByDtype:
     def test_empty_input_returns_empty(self):
         """Empty cat_features -> empty output, no crash, no warning."""
         from mlframe.training.core import _filter_polars_cat_features_by_dtype
+
         df = pl.DataFrame({"a": [1, 2, 3]})
         assert _filter_polars_cat_features_by_dtype(df, []) == []
         assert _filter_polars_cat_features_by_dtype(df, None) == []
@@ -479,10 +510,13 @@ class TestFilterPolarsCatFeaturesByDtype:
         but None would crash."""
         import logging
         from mlframe.training.core import _filter_polars_cat_features_by_dtype
-        df = pl.DataFrame({
-            "a": pl.Series("a", ["x"] * 3),  # pl.String
-            "b": pl.Series("b", ["y"] * 3),  # pl.String
-        })
+
+        df = pl.DataFrame(
+            {
+                "a": pl.Series("a", ["x"] * 3),  # pl.String
+                "b": pl.Series("b", ["y"] * 3),  # pl.String
+            }
+        )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
             out = _filter_polars_cat_features_by_dtype(df, ["a", "b"])
         assert out == []
@@ -494,10 +528,13 @@ class TestFilterPolarsCatFeaturesByDtype:
         cat_feature, the filter must drop it."""
         import logging
         from mlframe.training.core import _filter_polars_cat_features_by_dtype
-        df = pl.DataFrame({
-            "real_cat": pl.Series("real_cat", ["a", "b"] * 3).cast(pl.Categorical),
-            "numeric":  np.arange(6, dtype=np.float32),
-        })
+
+        df = pl.DataFrame(
+            {
+                "real_cat": pl.Series("real_cat", ["a", "b"] * 3).cast(pl.Categorical),
+                "numeric": np.arange(6, dtype=np.float32),
+            }
+        )
         with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
             out = _filter_polars_cat_features_by_dtype(df, ["real_cat", "numeric"])
         assert out == ["real_cat"]
@@ -524,6 +561,7 @@ class _FakeCBPredict:
     """CatBoost-like model that rejects pl.DataFrame with the exact prod
     TypeError but succeeds on pd.DataFrame. Records every call so tests
     can count retries."""
+
     def __init__(self, feature_names=None, cat_idx=None, text_idx=None):
         self._feat_names = feature_names or []
         self._cat_idx = cat_idx or []
@@ -532,8 +570,12 @@ class _FakeCBPredict:
 
     # CatBoost exposes these as private-but-stable helpers.
     feature_names_ = property(lambda self: self._feat_names)
-    def _get_cat_feature_indices(self): return list(self._cat_idx)
-    def _get_text_feature_indices(self): return list(self._text_idx)
+
+    def _get_cat_feature_indices(self):
+        return list(self._cat_idx)
+
+    def _get_text_feature_indices(self):
+        return list(self._text_idx)
 
     def predict(self, X):
         self.calls.append({"method": "predict", "X_type": type(X).__name__})
@@ -554,10 +596,12 @@ class _FakeCBPredict:
 
 def _make_predict_polars_df(n=20):
     cats = ["a", "b"] * (n // 2)
-    return pl.DataFrame({
-        "c1": pl.Series("c1", cats).cast(pl.Categorical),
-        "c2": pl.Series("c2", ["x", "y"] * (n // 2)),  # String (text feat after decat)
-    })
+    return pl.DataFrame(
+        {
+            "c1": pl.Series("c1", cats).cast(pl.Categorical),
+            "c2": pl.Series("c2", ["x", "y"] * (n // 2)),  # String (text feat after decat)
+        }
+    )
 
 
 class TestRecoverCBFeatureNames:
@@ -568,6 +612,7 @@ class TestRecoverCBFeatureNames:
 
     def test_recovers_names_from_indices(self):
         from mlframe.training._predict_guards import _recover_cb_feature_names
+
         m = _FakeCBPredict(
             feature_names=["a", "b", "c", "d"],
             cat_idx=[0, 2],
@@ -579,8 +624,10 @@ class TestRecoverCBFeatureNames:
 
     def test_empty_on_unfitted_model(self):
         from mlframe.training._predict_guards import _recover_cb_feature_names
+
         class Bare:
             pass
+
         cat, text = _recover_cb_feature_names(Bare())
         assert cat == []
         assert text == []
@@ -590,14 +637,15 @@ class TestRecoverCBFeatureNames:
         (shouldn't happen, but possible with a partially-loaded model),
         return what we can — don't raise."""
         from mlframe.training._predict_guards import _recover_cb_feature_names
+
         m = _FakeCBPredict(
             feature_names=["a", "b"],
             cat_idx=[0, 99],  # 99 is out of range
-            text_idx=[-1],    # negative also rejected
+            text_idx=[-1],  # negative also rejected
         )
         cat, text = _recover_cb_feature_names(m)
         assert cat == ["a"]  # 99 skipped
-        assert text == []    # -1 skipped
+        assert text == []  # -1 skipped
 
 
 class TestPredictWithFallback:
@@ -620,6 +668,7 @@ class TestPredictWithFallback:
     def test_polars_typeerror_triggers_pandas_retry(self, caplog):
         import logging
         from mlframe.training.trainer import _predict_with_fallback
+
         m = _FakeCBPredict(feature_names=["c1", "c2"], cat_idx=[0], text_idx=[1])
         m.__class__.__name__ = "CatBoostClassifier"
         df = _make_predict_polars_df()
@@ -638,6 +687,7 @@ class TestPredictWithFallback:
         """Same wrap for .predict() as for .predict_proba() — the 2026-04-19
         bug manifested in both methods."""
         from mlframe.training.trainer import _predict_with_fallback
+
         m = _FakeCBPredict(feature_names=["c1", "c2"], cat_idx=[0], text_idx=[1])
         m.__class__.__name__ = "CatBoostClassifier"
         df = _make_predict_polars_df()
@@ -649,12 +699,15 @@ class TestPredictWithFallback:
     def test_happy_path_no_fallback(self):
         """Clean pandas input, no error → single call, no log noise."""
         from mlframe.training.trainer import _predict_with_fallback
+
         m = _FakeCBPredict(feature_names=["c1", "c2"], cat_idx=[0], text_idx=[1])
         m.__class__.__name__ = "CatBoostClassifier"
-        df = pd.DataFrame({
-            "c1": pd.Categorical(["a", "b"] * 10),
-            "c2": (["x", "y"] * 10),
-        })
+        df = pd.DataFrame(
+            {
+                "c1": pd.Categorical(["a", "b"] * 10),
+                "c2": (["x", "y"] * 10),
+            }
+        )
         out = _predict_with_fallback(m, df, method="predict_proba")
         assert out.shape == (20, 2)
         assert len(m.calls) == 1
@@ -664,9 +717,11 @@ class TestPredictWithFallback:
         miss — must bubble up, not be swallowed by the CB-specific
         fallback path."""
         from mlframe.training.trainer import _predict_with_fallback
+
         class OtherModel:
             def predict(self, X):
                 raise TypeError("No matching signature found")
+
         m = OtherModel()
         df = _make_predict_polars_df()
         with pytest.raises(TypeError, match="No matching signature"):
@@ -676,9 +731,11 @@ class TestPredictWithFallback:
         """TypeError on a non-Polars input is not the dispatcher miss —
         bubble up (otherwise we'd spuriously retry on unrelated type bugs)."""
         from mlframe.training.trainer import _predict_with_fallback
+
         class CBLike:
             def predict(self, X):
                 raise TypeError("No matching signature found")
+
         m = CBLike()
         m.__class__.__name__ = "CatBoostClassifier"
         df = pd.DataFrame({"a": [1, 2, 3]})  # pandas, not polars
@@ -690,9 +747,11 @@ class TestPredictWithFallback:
         message (e.g. schema shape mismatch) is NOT the dispatcher miss
         — must propagate unchanged."""
         from mlframe.training.trainer import _predict_with_fallback
+
         class CBLike2:
             def predict(self, X):
                 raise TypeError("shape mismatch in eval set")
+
         m = CBLike2()
         m.__class__.__name__ = "CatBoostClassifier"
         df = _make_predict_polars_df()
@@ -704,9 +763,11 @@ class TestPredictWithFallback:
         without predict_proba) propagating, so it can retry via predict().
         The wrapper must NOT eat AttributeError."""
         from mlframe.training.trainer import _predict_with_fallback
+
         class NoProba:
             def predict(self, X):
                 return np.zeros(len(X))
+
         m = NoProba()
         m.__class__.__name__ = "CatBoostClassifier"
         df = pd.DataFrame({"a": [1, 2, 3]})
@@ -721,6 +782,7 @@ def test_cb_fallback_warning_emits_schema_dump_on_rejection(polars_frame_with_te
     2026-04-19 incident where the old one-line warning was unactionable.
     """
     import logging
+
     train_df, val_df, cat, text = polars_frame_with_text_cats
     train_target = np.arange(train_df.height) % 2
     val_target = np.arange(val_df.height) % 2
@@ -728,14 +790,14 @@ def test_cb_fallback_warning_emits_schema_dump_on_rejection(polars_frame_with_te
     model = FakeCatBoost()
     with caplog.at_level(logging.WARNING, logger="mlframe.training.trainer"):
         _train_model_with_fallback(
-            model=model, model_obj=model, model_type_name="CatBoostClassifier",
-            train_df=train_df, train_target=train_target,
-            fit_params={"cat_features": cat, "text_features": text,
-                        "eval_set": (val_df, val_target)},
+            model=model,
+            model_obj=model,
+            model_type_name="CatBoostClassifier",
+            train_df=train_df,
+            train_target=train_target,
+            fit_params={"cat_features": cat, "text_features": text, "eval_set": (val_df, val_target)},
             verbose=False,
         )
     warn_msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
     # One warning carries the schema context.
-    assert any("schema context" in m or "Polars schema diagnostic" in m for m in warn_msgs), (
-        f"Expected a WARNING with schema dump; got: {warn_msgs}"
-    )
+    assert any("schema context" in m or "Polars schema diagnostic" in m for m in warn_msgs), f"Expected a WARNING with schema dump; got: {warn_msgs}"

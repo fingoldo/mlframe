@@ -4,6 +4,7 @@ Pre-fix ``np.nanmedian`` of an all-NaN per-member-MAE array returned NaN, making
 comparison False -> the relative gate became a silent no-op. Post-fix the all-NaN case explicitly disables the relative
 gate (threshold 0.0) instead of leaking a NaN threshold.
 """
+
 import numpy as np
 
 from mlframe.models.ensembling.quality_gate import compute_member_quality_gate
@@ -13,7 +14,7 @@ def test_relative_gate_all_nan_mae_threshold_is_zero_not_nan():
     n_rows = 50
     # Three members, every prediction NaN -> per-member MAE/STD are all NaN.
     preds_list = [np.full(n_rows, np.nan) for _ in range(3)]
-    kept, excluded, stats = compute_member_quality_gate(
+    _kept, _excluded, stats = compute_member_quality_gate(
         preds_list,
         max_mae=0.0,
         max_std=0.0,

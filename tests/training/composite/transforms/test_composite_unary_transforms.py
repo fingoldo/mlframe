@@ -2,6 +2,7 @@
 
 Each transform must satisfy ``inverse(forward(y)) == y`` to machine epsilon on a representative sample. The chain test verifies ``inverse(forward(y, base)) == y`` when a unary is stacked on top of ``linear_residual`` (the production composite shape).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -13,10 +14,20 @@ from mlframe.training.composite import (
     _linear_residual_inverse,
 )
 from mlframe.training.composite.transforms.unary import (
-    cbrt_y_fit, cbrt_y_forward, cbrt_y_inverse, cbrt_y_domain,
-    log_y_fit, log_y_forward, log_y_inverse, log_y_domain,
-    yeo_johnson_y_fit, yeo_johnson_y_forward, yeo_johnson_y_inverse,
-    quantile_normal_y_fit, quantile_normal_y_forward, quantile_normal_y_inverse,
+    cbrt_y_fit,
+    cbrt_y_forward,
+    cbrt_y_inverse,
+    cbrt_y_domain,
+    log_y_fit,
+    log_y_forward,
+    log_y_inverse,
+    log_y_domain,
+    yeo_johnson_y_fit,
+    yeo_johnson_y_forward,
+    yeo_johnson_y_inverse,
+    quantile_normal_y_fit,
+    quantile_normal_y_forward,
+    quantile_normal_y_inverse,
     chain_bivariate_then_unary_fit,
     chain_bivariate_then_unary_forward,
     chain_bivariate_then_unary_inverse,
@@ -29,10 +40,13 @@ from mlframe.training.composite.transforms.unary import (
 
 
 class TestCbrtY:
-    @pytest.mark.parametrize("y", [
-        np.array([0.0, 1.0, -1.0, 8.0, -8.0, 1e6, -1e6]),
-        np.linspace(-1000.0, 1000.0, 200),
-    ])
+    @pytest.mark.parametrize(
+        "y",
+        [
+            np.array([0.0, 1.0, -1.0, 8.0, -8.0, 1e6, -1e6]),
+            np.linspace(-1000.0, 1000.0, 200),
+        ],
+    )
     def test_round_trip(self, y: np.ndarray) -> None:
         params = cbrt_y_fit(y)
         t = cbrt_y_forward(y, params)
@@ -112,7 +126,10 @@ class TestQuantileNormalY:
         # Tolerance: knots resolution + interp error -- relax to ~5% rel on the bulk; tail samples may drift more.
         # Compare ordered statistics to make the check distribution-free.
         np.testing.assert_allclose(
-            np.sort(y_back), np.sort(y), rtol=0.05, atol=0.5,
+            np.sort(y_back),
+            np.sort(y),
+            rtol=0.05,
+            atol=0.5,
         )
 
     def test_forward_is_approximately_standard_normal(self) -> None:
@@ -142,18 +159,25 @@ class TestChainBivariateUnary:
 
         unary = (cbrt_y_fit, cbrt_y_forward, cbrt_y_inverse)
         params = chain_bivariate_then_unary_fit(
-            y=y, base=base,
+            y=y,
+            base=base,
             bivariate_fit=_linear_residual_fit,
             bivariate_forward=_linear_residual_forward,
             unary=unary,
         )
         t2 = chain_bivariate_then_unary_forward(
-            y=y, base=base, params=params,
-            bivariate_forward=_linear_residual_forward, unary=unary,
+            y=y,
+            base=base,
+            params=params,
+            bivariate_forward=_linear_residual_forward,
+            unary=unary,
         )
         y_back = chain_bivariate_then_unary_inverse(
-            t2=t2, base=base, params=params,
-            bivariate_inverse=_linear_residual_inverse, unary=unary,
+            t2=t2,
+            base=base,
+            params=params,
+            bivariate_inverse=_linear_residual_inverse,
+            unary=unary,
         )
         np.testing.assert_allclose(y_back, y, rtol=1e-9, atol=1e-7)
 
@@ -166,18 +190,25 @@ class TestChainBivariateUnary:
 
         unary = (yeo_johnson_y_fit, yeo_johnson_y_forward, yeo_johnson_y_inverse)
         params = chain_bivariate_then_unary_fit(
-            y=y, base=base,
+            y=y,
+            base=base,
             bivariate_fit=_linear_residual_fit,
             bivariate_forward=_linear_residual_forward,
             unary=unary,
         )
         t2 = chain_bivariate_then_unary_forward(
-            y=y, base=base, params=params,
-            bivariate_forward=_linear_residual_forward, unary=unary,
+            y=y,
+            base=base,
+            params=params,
+            bivariate_forward=_linear_residual_forward,
+            unary=unary,
         )
         y_back = chain_bivariate_then_unary_inverse(
-            t2=t2, base=base, params=params,
-            bivariate_inverse=_linear_residual_inverse, unary=unary,
+            t2=t2,
+            base=base,
+            params=params,
+            bivariate_inverse=_linear_residual_inverse,
+            unary=unary,
         )
         np.testing.assert_allclose(y_back, y, rtol=1e-5, atol=1e-5)
 

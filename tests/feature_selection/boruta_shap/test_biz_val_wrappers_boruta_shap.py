@@ -15,6 +15,7 @@ Covered here (each asserts a measurable DELTA vs the param's baseline value, per
 
 Kept tiny (n <= 1500, few estimators, low n_trials) to stay within the audit's per-call wall budget.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -28,11 +29,16 @@ from sklearn.ensemble import RandomForestClassifier
 def _mk(**kw):
     base = dict(
         model=RandomForestClassifier(n_estimators=25, n_jobs=1, random_state=0),
-        importance_measure="gini", classification=True, n_trials=12, percentile=95,
-        verbose=False, random_state=0,
+        importance_measure="gini",
+        classification=True,
+        n_trials=12,
+        percentile=95,
+        verbose=False,
+        random_state=0,
     )
     base.update(kw)
     from mlframe.feature_selection.boruta_shap import BorutaShap
+
     return BorutaShap(**base)
 
 
@@ -50,8 +56,10 @@ def test_biz_val_boruta_shap_optimistic_recovers_tentative_tail():
         cols[f"noise_{j}"] = rng.standard_normal(n)
     X = pd.DataFrame(cols)
 
-    cons = _mk(optimistic=False); cons.fit(X, y)
-    opt = _mk(optimistic=True); opt.fit(X, y)
+    cons = _mk(optimistic=False)
+    cons.fit(X, y)
+    opt = _mk(optimistic=True)
+    opt.fit(X, y)
 
     inf = {"inf_0", "inf_1", "inf_2"}
     assert set(opt.selected_features_) >= set(cons.selected_features_), (
@@ -81,12 +89,13 @@ def test_biz_val_boruta_shap_normalize_keeps_scale_disparate_signal():
     X = pd.DataFrame(cols)
     inf = {"inf_small", "inf_large"}
 
-    off = _mk(normalize=False); off.fit(X, y)
-    on = _mk(normalize=True); on.fit(X, y)
+    off = _mk(normalize=False)
+    off.fit(X, y)
+    on = _mk(normalize=True)
+    on.fit(X, y)
 
     assert len(set(on.selected_features_) & inf) >= len(set(off.selected_features_) & inf), (
-        f"normalize=True recovered fewer informative columns: on={sorted(set(on.selected_features_) & inf)} "
-        f"off={sorted(set(off.selected_features_) & inf)}"
+        f"normalize=True recovered fewer informative columns: on={sorted(set(on.selected_features_) & inf)} off={sorted(set(off.selected_features_) & inf)}"
     )
     # normalize=True should recover BOTH scale-disparate signals.
     assert (set(on.selected_features_) & inf) == inf, (
@@ -113,8 +122,10 @@ def test_biz_val_boruta_shap_premerge_corr_thr_low_collapses_cluster():
         cols[f"noise_{k}"] = rng.standard_normal(n)
     X = pd.DataFrame(cols)
 
-    low = _mk(premerge_clusters=True, premerge_corr_thr=0.85); low.fit(X, y)
-    high = _mk(premerge_clusters=True, premerge_corr_thr=0.999); high.fit(X, y)
+    low = _mk(premerge_clusters=True, premerge_corr_thr=0.85)
+    low.fit(X, y)
+    high = _mk(premerge_clusters=True, premerge_corr_thr=0.999)
+    high.fit(X, y)
 
     low_members = cluster & set(low.selected_features_)
     high_members = cluster & set(high.selected_features_)
@@ -124,6 +135,4 @@ def test_biz_val_boruta_shap_premerge_corr_thr_low_collapses_cluster():
         f"low premerge_corr_thr recovered fewer cluster members: low={sorted(low_members)} high={sorted(high_members)}"
     )
     if low_members:
-        assert len(low_members) >= 2, (
-            "an accepted collapsed cluster must re-expand to >= 2 members under a below-correlation threshold"
-        )
+        assert len(low_members) >= 2, "an accepted collapsed cluster must re-expand to >= 2 members under a below-correlation threshold"

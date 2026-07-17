@@ -12,6 +12,7 @@ These tests pin the corrected behaviour:
 * the uplift denominator therefore matches the column's own raw-MI baseline (NOT the 1e-12 floor);
 * normal (no-``"__"``) inputs are unchanged.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -64,7 +65,7 @@ def test_uplift_denominator_not_floored_for_onehot_source():
     x = rng.normal(size=n)
     y = (x > 0).astype(np.int64)
     raw_X = pd.DataFrame({"city__NY": x})
-    eng_X = pd.DataFrame({"city__NY__He2": x ** 2, "city__NY__He3": x ** 3})
+    eng_X = pd.DataFrame({"city__NY__He2": x**2, "city__NY__He3": x**3})
 
     df = score_features_by_mi_uplift(raw_X, eng_X, y, nbins=10)
     # Every engineered row must attribute to the TRUE one-hot source, not the stem "city".
@@ -82,7 +83,7 @@ def test_normal_input_unchanged():
     x = rng.normal(size=n)
     y = (x > 0).astype(np.int64)
     raw_X = pd.DataFrame({"feat": x})
-    eng_X = pd.DataFrame({"feat__He2": x ** 2})
+    eng_X = pd.DataFrame({"feat__He2": x**2})
     df = score_features_by_mi_uplift(raw_X, eng_X, y, nbins=10)
     assert set(df["source_col"]) == {"feat"}
     assert (df["baseline_mi"] > 0).all()

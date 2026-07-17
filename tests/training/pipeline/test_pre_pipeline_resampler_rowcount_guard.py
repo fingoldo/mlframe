@@ -15,6 +15,7 @@ against a 10-row target (DESYNC), and the passthrough path raised an opaque
 paths raise a clear ValueError naming the row-count change and the supported
 model-level imbalance knobs.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,9 +33,7 @@ def _imb_pipeline():
     imb_pipe = pytest.importorskip("imblearn.pipeline")
     from sklearn.preprocessing import StandardScaler
 
-    return imb_pipe.Pipeline(
-        [("over", imb_over.RandomOverSampler(random_state=0)), ("sc", StandardScaler())]
-    )
+    return imb_pipe.Pipeline([("over", imb_over.RandomOverSampler(random_state=0)), ("sc", StandardScaler())])
 
 
 def _imbalanced_xy(n=20, pos=4):

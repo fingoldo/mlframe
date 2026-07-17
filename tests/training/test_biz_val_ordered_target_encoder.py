@@ -6,6 +6,7 @@ spurious, artificially high AUC purely from self-leakage. The ordered (row-level
 encoding correctly avoids this and stays near chance -- the honest result, matching CatBoost's motivation for
 ordered target statistics.
 """
+
 from __future__ import annotations
 
 import numpy as np

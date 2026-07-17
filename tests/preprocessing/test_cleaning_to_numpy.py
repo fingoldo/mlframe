@@ -3,6 +3,7 @@
 Behavioural smoke check: ``is_variable_truly_continuous`` still returns a sane verdict on a numeric column after the .values -> .to_numpy()
 migration; the migration must not have changed the function's output semantics.
 """
+
 from __future__ import annotations
 
 import numpy as np

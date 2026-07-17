@@ -14,6 +14,7 @@ CUDA fault stays visible as a WARNING.
 These tests monkey-patch ``L.Trainer.predict`` so the fault is
 deterministic on any host regardless of GPU availability.
 """
+
 from __future__ import annotations
 
 import logging
@@ -29,8 +30,11 @@ def _make_regressor():
     """Mirror ``test_predict_path_eval_and_datamodule._make_regressor``."""
     import torch
     from mlframe.training.neural import (
-        MLPTorchModel, PytorchLightningRegressor, TorchDataModule,
+        MLPTorchModel,
+        PytorchLightningRegressor,
+        TorchDataModule,
     )
+
     return PytorchLightningRegressor(
         model_class=MLPTorchModel,
         model_params={"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-3},
@@ -88,20 +92,11 @@ def test_predict_cpu_fallback_on_cuda_runtime_error(caplog, monkeypatch):
     caplog.set_level(logging.WARNING, logger="mlframe.training.neural.base")
     predictions = est.predict(X)
 
-    assert invocations["count"] == 2, (
-        f"expected 2 predict invocations (cuda fail + cpu retry), got "
-        f"{invocations['count']}"
-    )
+    assert invocations["count"] == 2, f"expected 2 predict invocations (cuda fail + cpu retry), got {invocations['count']}"
     assert predictions is not None
     assert len(predictions) > 0
-    fallback_logs = [
-        r for r in caplog.records
-        if "retrying on CPU" in r.message
-    ]
-    assert fallback_logs, (
-        "expected a WARNING about CPU retry after CUDA error; got: "
-        f"{[r.message for r in caplog.records]}"
-    )
+    fallback_logs = [r for r in caplog.records if "retrying on CPU" in r.message]
+    assert fallback_logs, f"expected a WARNING about CPU retry after CUDA error; got: {[r.message for r in caplog.records]}"
 
 
 def test_predict_3rd_tier_cuda_fail_moves_model_to_cpu_before_retry(caplog, monkeypatch):
@@ -122,9 +117,7 @@ def test_predict_3rd_tier_cuda_fail_moves_model_to_cpu_before_retry(caplog, monk
         if invocations["count"] in (1, 2):
             # First call: GPU path. Second call: first CPU retry, which
             # also fails with CUDA fingerprint (context invalidated).
-            raise RuntimeError(
-                "CUDA error: an illegal memory access was encountered"
-            )
+            raise RuntimeError("CUDA error: an illegal memory access was encountered")
         # Third call: only succeeds if model is now on CPU.
         return [torch.zeros(8, 1)]
 
@@ -136,10 +129,12 @@ def test_predict_3rd_tier_cuda_fail_moves_model_to_cpu_before_retry(caplog, monk
 
     # Wrap .to so we can observe whether the recovery path moved the model.
     _orig_to = est.model.to
+
     def _spy_to(*a, **kw):
         if a and a[0] == "cpu":
             moved_to_cpu["yes"] = True
         return _orig_to(*a, **kw)
+
     monkeypatch.setattr(est.model, "to", _spy_to)
 
     invocations["count"] = 0
@@ -149,13 +144,8 @@ def test_predict_3rd_tier_cuda_fail_moves_model_to_cpu_before_retry(caplog, monk
     caplog.set_level(logging.ERROR, logger="mlframe.training.neural.base")
     predictions = est.predict(X)
 
-    assert invocations["count"] == 3, (
-        f"expected 3 predict invocations (cuda fail + CPU fail + CPU retry), "
-        f"got {invocations['count']}"
-    )
-    assert moved_to_cpu["yes"], (
-        "expected self.model.to('cpu') to be called in the 3rd-tier recovery"
-    )
+    assert invocations["count"] == 3, f"expected 3 predict invocations (cuda fail + CPU fail + CPU retry), got {invocations['count']}"
+    assert moved_to_cpu["yes"], "expected self.model.to('cpu') to be called in the 3rd-tier recovery"
     assert predictions is not None
 
 

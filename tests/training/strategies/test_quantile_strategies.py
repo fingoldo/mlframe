@@ -17,7 +17,10 @@ from mlframe.metrics.quantile import coverage
 from mlframe.training.configs import QuantileRegressionConfig
 from mlframe.training.quantile_wrapper import _QuantileMultiOutputWrapper
 from mlframe.training.strategies import (
-    CatBoostStrategy, HGBStrategy, LinearModelStrategy, TreeModelStrategy,
+    CatBoostStrategy,
+    HGBStrategy,
+    LinearModelStrategy,
+    TreeModelStrategy,
     XGBoostStrategy,
 )
 
@@ -40,13 +43,11 @@ def _wrapper_strategies():
 
 
 class TestNativeFlag:
-    @pytest.mark.parametrize("strat", _native_strategies(),
-                             ids=lambda s: type(s).__name__)
+    @pytest.mark.parametrize("strat", _native_strategies(), ids=lambda s: type(s).__name__)
     def test_native_flag_true(self, strat):
         assert strat.supports_native_quantile is True
 
-    @pytest.mark.parametrize("strat", _wrapper_strategies(),
-                             ids=lambda s: type(s).__name__)
+    @pytest.mark.parametrize("strat", _wrapper_strategies(), ids=lambda s: type(s).__name__)
     def test_wrapper_flag_false(self, strat):
         assert strat.supports_native_quantile is False
 
@@ -100,6 +101,7 @@ class TestWrapDispatch:
 class TestNativeFit:
     def test_cb_native_fit(self, reg_data):
         from catboost import CatBoostRegressor
+
         X, y = reg_data
         qr = QuantileRegressionConfig(alphas=(0.1, 0.5, 0.9))
         kw = CatBoostStrategy().get_quantile_objective_kwargs(qr)
@@ -114,6 +116,7 @@ class TestNativeFit:
 
     def test_xgb_native_fit(self, reg_data):
         from xgboost import XGBRegressor
+
         X, y = reg_data
         qr = QuantileRegressionConfig(alphas=(0.1, 0.5, 0.9))
         kw = XGBoostStrategy().get_quantile_objective_kwargs(qr)
@@ -128,13 +131,18 @@ class TestNativeFit:
 class TestWrapperFit:
     def test_lgb_wrapper_fit(self, reg_data):
         from lightgbm import LGBMRegressor
+
         X, y = reg_data
         qr = QuantileRegressionConfig(alphas=(0.1, 0.5, 0.9))
         wrapped = _QuantileMultiOutputWrapper(
             base_estimator=LGBMRegressor(
-                objective="quantile", n_estimators=50, verbose=-1,
+                objective="quantile",
+                n_estimators=50,
+                verbose=-1,
             ),
-            alphas=qr.alphas, crossing_fix=qr.crossing_fix, n_jobs=1,
+            alphas=qr.alphas,
+            crossing_fix=qr.crossing_fix,
+            n_jobs=1,
         )
         wrapped.fit(X, y)
         preds = wrapped.predict(X)
@@ -144,13 +152,17 @@ class TestWrapperFit:
 
     def test_hgb_wrapper_fit(self, reg_data):
         from sklearn.ensemble import HistGradientBoostingRegressor
+
         X, y = reg_data
         qr = QuantileRegressionConfig(alphas=(0.1, 0.5, 0.9))
         wrapped = _QuantileMultiOutputWrapper(
             base_estimator=HistGradientBoostingRegressor(
-                loss="quantile", max_iter=50,
+                loss="quantile",
+                max_iter=50,
             ),
-            alphas=qr.alphas, crossing_fix=qr.crossing_fix, n_jobs=1,
+            alphas=qr.alphas,
+            crossing_fix=qr.crossing_fix,
+            n_jobs=1,
         )
         wrapped.fit(X, y)
         preds = wrapped.predict(X)
@@ -158,11 +170,14 @@ class TestWrapperFit:
 
     def test_linear_wrapper_fit(self, reg_data):
         from sklearn.linear_model import QuantileRegressor
+
         X, y = reg_data
         qr = QuantileRegressionConfig(alphas=(0.1, 0.5, 0.9))
         wrapped = _QuantileMultiOutputWrapper(
             base_estimator=QuantileRegressor(solver="highs", alpha=0.0),
-            alphas=qr.alphas, crossing_fix=qr.crossing_fix, n_jobs=1,
+            alphas=qr.alphas,
+            crossing_fix=qr.crossing_fix,
+            n_jobs=1,
         )
         wrapped.fit(X, y)
         preds = wrapped.predict(X)
@@ -171,7 +186,7 @@ class TestWrapperFit:
         # solver under-fits small synthetic data; we just verify that
         # the wrapper produces a non-collapsed PI (lower < higher in
         # MOST rows).
-        widening = (preds[:, 2] - preds[:, 0])
+        widening = preds[:, 2] - preds[:, 0]
         assert (widening >= 0).mean() >= 0.99
         assert widening.mean() > 0.0
 
@@ -179,6 +194,7 @@ class TestWrapperFit:
 class TestWrapperContract:
     def test_unknown_alpha_param_rejects(self, reg_data):
         from sklearn.linear_model import LinearRegression  # no alpha param
+
         X, y = reg_data
         wrapped = _QuantileMultiOutputWrapper(
             base_estimator=LinearRegression(),
@@ -190,6 +206,7 @@ class TestWrapperContract:
 
     def test_2d_y_rejects(self, reg_data):
         from sklearn.linear_model import QuantileRegressor
+
         X, _ = reg_data
         y2d = np.zeros((len(X), 2))
         wrapped = _QuantileMultiOutputWrapper(
@@ -203,6 +220,7 @@ class TestWrapperContract:
     def test_predict_before_fit_rejects(self, reg_data):
         from sklearn.exceptions import NotFittedError
         from sklearn.linear_model import QuantileRegressor
+
         X, _ = reg_data
         wrapped = _QuantileMultiOutputWrapper(
             base_estimator=QuantileRegressor(solver="highs", alpha=0.0),

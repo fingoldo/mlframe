@@ -7,6 +7,7 @@ and both call sites were swapped to it. This pins the new kernel against the exa
 nan_to_num-then-corrcoef reference, plus the ``min_n`` extension to ``_abs_corr_finite_njit`` used by the H2
 fix in ``_ratio_delta_fe.py``.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -9,7 +9,6 @@ range, a useless (random-score) model hugs treat-none and is flagged not-useful.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from mlframe.reporting.charts.decision_curve import (
     DecisionCurveResult,
@@ -52,14 +51,14 @@ def _brute_net_benefit(y, s, pt):
 
 def test_net_benefit_matches_bruteforce():
     y, s = _separable(n=3000, seed=1)
-    pt, nb, nb_all, nb_none = compute_net_benefit(y, s, n_thresholds=120)
+    pt, nb, _nb_all, _nb_none = compute_net_benefit(y, s, n_thresholds=120)
     ref = _brute_net_benefit(y, s, pt)
     assert np.allclose(nb, ref, atol=1e-12), np.max(np.abs(nb - ref))
 
 
 def test_treat_all_and_none_references():
     y, s = _separable(n=2000, seed=2)
-    pt, nb, nb_all, nb_none = compute_net_benefit(y, s, n_thresholds=80)
+    pt, _nb, nb_all, nb_none = compute_net_benefit(y, s, n_thresholds=80)
     prevalence = float(np.mean(y))
     odds = pt / (1.0 - pt)
     assert np.allclose(nb_all, prevalence - (1.0 - prevalence) * odds, atol=1e-12)
@@ -70,7 +69,7 @@ def test_tie_at_threshold_flagged_positive():
     # All-equal scores: at pt < score every row flagged; nb must equal treat-all there.
     y = np.array([0, 1, 0, 1, 1])
     s = np.full(5, 0.5)
-    pt, nb, nb_all, nb_none = compute_net_benefit(y, s, pt_grid=np.array([0.3, 0.5, 0.7]))
+    _pt, nb, nb_all, _nb_none = compute_net_benefit(y, s, pt_grid=np.array([0.3, 0.5, 0.7]))
     # pt=0.3 and 0.5: score(0.5) >= pt -> all flagged -> nb == treat-all.
     assert np.isclose(nb[0], nb_all[0], atol=1e-12)
     assert np.isclose(nb[1], nb_all[1], atol=1e-12)
@@ -79,7 +78,7 @@ def test_tie_at_threshold_flagged_positive():
 
 
 def test_empty_input_returns_zero_curves():
-    pt, nb, nb_all, nb_none = compute_net_benefit([], [], n_thresholds=10)
+    _pt, nb, _nb_all, nb_none = compute_net_benefit([], [], n_thresholds=10)
     assert np.allclose(nb, 0.0) and np.allclose(nb_none, 0.0)
 
 

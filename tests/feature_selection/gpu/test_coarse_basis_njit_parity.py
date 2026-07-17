@@ -6,6 +6,7 @@ class shift; that shift only perturbs the coarse-sweep ``best_f`` argmax that ``
 detector's emitted frequency LIST and the downstream MRMR selection stay byte-identical. These tests pin both sides:
 the kernel-vs-numpy numerical bound, and the detector fast-vs-exact byte-identity.
 """
+
 from __future__ import annotations
 
 import numpy as np

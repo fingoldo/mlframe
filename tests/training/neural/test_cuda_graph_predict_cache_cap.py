@@ -6,10 +6,10 @@ False capture-failure sentinels are NOT evicted, and that the most-recently-used
 The leaking resource is the retained Python-side tuple of device tensors; this targets the eviction
 bookkeeping directly (deterministic, no VRAM contention with the real GPU capture/replay path).
 """
+
 import gc
 import weakref
 
-import pytest
 
 from mlframe.training.neural._flat_torch_module import _flat_torch_predict_accel as accel
 

@@ -67,9 +67,7 @@ def test_sa17_coverage_stable_under_tiny_perturbation():
 
     nbins = 10
     # Per-bin predicted frequencies sitting right on rounding boundaries: a ~1e-3 nudge flips round(.,1) pockets.
-    freqs_predicted = np.array(
-        [0.0499, 0.1501, 0.2499, 0.3501, 0.4499, 0.5501, 0.6499, 0.7501, 0.8499, 0.9501], dtype=np.float64
-    )
+    freqs_predicted = np.array([0.0499, 0.1501, 0.2499, 0.3501, 0.4499, 0.5501, 0.6499, 0.7501, 0.8499, 0.9501], dtype=np.float64)
     freqs_true = freqs_predicted.copy()
     hits = np.full(nbins, 100, dtype=np.float64)
 
@@ -148,7 +146,9 @@ def _prefix_substitution_band(s, t, *, n_grid, n_boot, random_state):
 def test_sa19_band_not_narrowed_by_full_sample_substitution():
     pytest.importorskip("sklearn")
     from mlframe.reporting.charts.calibration import (
-        _BAND_N_BOOT, _SMOOTHED_GRID_POINTS, bootstrap_reliability_band,
+        _BAND_N_BOOT,
+        _SMOOTHED_GRID_POINTS,
+        bootstrap_reliability_band,
     )
 
     # Rare-positive small-n inputs so a MEANINGFUL fraction of bootstrap resamples are degenerate (miss all positives)
@@ -166,9 +166,7 @@ def test_sa19_band_not_narrowed_by_full_sample_substitution():
         if res is None:
             continue
         _g, lo, hi, _sig = res
-        w_pre, _sig_pre, dfrac = _prefix_substitution_band(
-            s, y, n_grid=_SMOOTHED_GRID_POINTS, n_boot=_BAND_N_BOOT, random_state=seed
-        )
+        w_pre, _sig_pre, dfrac = _prefix_substitution_band(s, y, n_grid=_SMOOTHED_GRID_POINTS, n_boot=_BAND_N_BOOT, random_state=seed)
         fixed_w.append(float(np.mean(hi - lo)))
         prefix_w.append(w_pre)
         deg_fracs.append(dfrac)
@@ -177,9 +175,7 @@ def test_sa19_band_not_narrowed_by_full_sample_substitution():
     assert np.mean(deg_fracs) > 0.05, f"setup must trigger degenerate resamples; got {np.mean(deg_fracs):.3f}"
     # Substituting the tight full-sample fit for degenerate draws NARROWS the band (reports miscalibration as
     # significant when it is noise). Dropping those draws must not narrow it -- the corrected band is at least as wide.
-    assert np.mean(fixed_w) >= np.mean(prefix_w), (
-        f"corrected band {np.mean(fixed_w):.4f} narrower than substitution {np.mean(prefix_w):.4f}"
-    )
+    assert np.mean(fixed_w) >= np.mean(prefix_w), f"corrected band {np.mean(fixed_w):.4f} narrower than substitution {np.mean(prefix_w):.4f}"
     assert np.mean(fixed_w) > np.mean(prefix_w) - 1e-9
 
 
@@ -217,10 +213,12 @@ def test_sa21_per_window_ece_uses_debiased_kernel():
     ``compute_ece_and_brier_decomposition`` (plug-in) into the windows.
     """
     from mlframe.reporting.charts.calibration_drift import (
-        calibration_drift, _window_edges_by_population,
+        calibration_drift,
+        _window_edges_by_population,
     )
     from mlframe.metrics.calibration._calibration_metrics import (
-        compute_ece_debiased, compute_ece_and_brier_decomposition,
+        compute_ece_debiased,
+        compute_ece_and_brier_decomposition,
     )
 
     rng = np.random.default_rng(13)

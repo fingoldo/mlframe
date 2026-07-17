@@ -7,6 +7,7 @@ into a pass-through and still claim coverage.
 ``run_composite_target_discovery`` / ``run_composite_post_processing`` are exercised with feature-flagged-on configs and minimal valid state.
 The full discovery / wrapping algorithms need real fitted models -- they're covered end-to-end by the suite-level tests in ``test_core.py``.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -29,6 +30,7 @@ from mlframe.training.core.predict import predict_from_models
 # ---------------------------------------------------------------------------
 # apply_polars_categorical_fixes — enabled path: nullable Categorical column gets filled
 # ---------------------------------------------------------------------------
+
 
 def test_apply_polars_categorical_fixes_fills_nullable_categorical():
     """A Polars ``pl.Categorical`` column containing nulls is fill_null'd to ``'__MISSING__'`` so CatBoost 1.2.10's fused-cpdef dispatcher won't trip."""
@@ -62,6 +64,7 @@ def test_apply_polars_categorical_fixes_fills_nullable_categorical():
 # run_temporal_audit_batch — enabled path: timestamps present, FTE-detected column triggers audit
 # ---------------------------------------------------------------------------
 
+
 def _ts_extractor(field_name: str = "ts"):
     """Build a minimal features_and_targets_extractor stub with a ``.ts_field`` attribute."""
     return SimpleNamespace(ts_field=field_name)
@@ -88,6 +91,7 @@ def test_run_temporal_audit_batch_with_timestamps_returns_per_target_results():
 # ---------------------------------------------------------------------------
 # setup_configuration — enabled path: dict hyperparams flow into ctx
 # ---------------------------------------------------------------------------
+
 
 def test_setup_configuration_dict_hyperparams_flow_into_ctx():
     """When ``hyperparams_config`` is a dict, ``setup_configuration`` materialises the typed Pydantic config and routes the user's values onto ``ctx``."""
@@ -126,9 +130,11 @@ def test_setup_configuration_dict_hyperparams_flow_into_ctx():
 # predict_from_models — enabled path: pre-fitted sklearn Ridge in models dict
 # ---------------------------------------------------------------------------
 
+
 def test_predict_from_models_with_fitted_ridge_returns_predictions():
     """A trained sklearn Ridge wrapped in a ``SimpleNamespace(model=...)`` shape returns numeric predictions when fed a compatible DataFrame."""
     from sklearn.linear_model import Ridge
+
     rng = np.random.default_rng(0)
     X_train = pd.DataFrame(rng.standard_normal((50, 3)), columns=["a", "b", "c"])
     y_train = 2 * X_train["a"] - X_train["b"] + 0.5 * X_train["c"] + rng.normal(0, 0.01, 50)
@@ -159,6 +165,7 @@ def test_predict_from_models_with_fitted_ridge_returns_predictions():
 # ---------------------------------------------------------------------------
 # run_dummy_baselines — enabled path: real regression target produces baseline metadata
 # ---------------------------------------------------------------------------
+
 
 def _dummy_baselines_min_kwargs(target_type, current_target, metadata, cfg, *, split_preds_probs=None):
     """Build the 25-kwarg call dict for ``run_dummy_baselines`` parameterised over the few inputs the body actually reads."""
@@ -210,10 +217,12 @@ def test_run_dummy_baselines_enabled_regression_returns_metadata():
 # run_composite_target_discovery — enabled path: REGRESSION target + minimal feature frame
 # ---------------------------------------------------------------------------
 
+
 def test_run_composite_target_discovery_enabled_regression_initializes_metadata():
     """``enabled=True`` + REGRESSION target progresses past the early-return gate at line 60 and runs the discovery prologue
     (``_init_composite_discovery_metadata``) which populates the three metadata buckets even when no composite specs survive screening."""
     from mlframe.training.configs import TargetTypes
+
     rng = np.random.default_rng(0)
     n = 80
     feature_df = pd.DataFrame(rng.standard_normal((n, 3)), columns=["a", "b", "c"])
@@ -256,6 +265,7 @@ def test_run_composite_target_discovery_enabled_regression_initializes_metadata(
 # ---------------------------------------------------------------------------
 # run_composite_post_processing — enabled path: discovery on + cross-ensemble strategy on, but no specs to act on
 # ---------------------------------------------------------------------------
+
 
 def test_run_composite_post_processing_enabled_no_specs_runs_all_three_blocks():
     """``enabled=True`` + ``cross_target_ensemble_strategy != 'off'`` progresses past the early-return gates for Block A (wrap),

@@ -25,6 +25,7 @@ Seeds fixed everywhere. The HybridSelector fits run the real MRMR + ShapProxiedF
 (~10-20 s), so the heavy legs carry @pytest.mark.slow with a smaller fast representative kept via
 MLFRAME_FAST=1 (the conftest fast-mode collection hook skips slow-marked tests). CPU-only.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -105,12 +106,8 @@ def test_hetero_vote_different_seed_changes_vote_fraction():
     floor only requires >=1, so seed noise cannot trip it while a fully-ignored seed (0 diffs) fails it.
     """
     X, y = _clf_data(seed=0)
-    _, i0 = heterogeneous_relevance_vote(
-        X, y, classification=True, n_shadow_trials=3, percentile=50, vote_threshold=0.5, random_state=0
-    )
-    _, i7 = heterogeneous_relevance_vote(
-        X, y, classification=True, n_shadow_trials=3, percentile=50, vote_threshold=0.5, random_state=7
-    )
+    _, i0 = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3, percentile=50, vote_threshold=0.5, random_state=0)
+    _, i7 = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3, percentile=50, vote_threshold=0.5, random_state=7)
     vf0, vf7 = i0["vote_fraction"], i7["vote_fraction"]
     assert vf0.keys() == vf7.keys()
     diffs = [c for c in vf0 if vf0[c] != vf7[c]]
@@ -127,9 +124,7 @@ def _assert_hybrid_deterministic(X, y):
     h1 = HybridSelector(use_fe=False, use_tree_member=False, random_state=0).fit(X, y)
     h2 = HybridSelector(use_fe=False, use_tree_member=False, random_state=0).fit(X, y)
 
-    assert h1.raw_selected_ == h2.raw_selected_, (
-        f"same-seed raw_selected_ differs: {h1.raw_selected_} vs {h2.raw_selected_}"
-    )
+    assert h1.raw_selected_ == h2.raw_selected_, f"same-seed raw_selected_ differs: {h1.raw_selected_} vs {h2.raw_selected_}"
     # member_selections_ is a dict name -> list of selected columns; full equality (keys + per-member lists).
     assert set(h1.member_selections_) == set(h2.member_selections_), (
         f"member_selections_ keys differ: {set(h1.member_selections_)} vs {set(h2.member_selections_)}"
@@ -189,6 +184,5 @@ def test_hybrid_selector_column_order_invariant():
     h_fwd = HybridSelector(use_fe=False, use_tree_member=False, random_state=0).fit(X, y)
     h_rev = HybridSelector(use_fe=False, use_tree_member=False, random_state=0).fit(X[rev], y)
     assert set(h_fwd.raw_selected_) == set(h_rev.raw_selected_), (
-        f"column reorder changed the selected set: fwd={sorted(h_fwd.raw_selected_)} "
-        f"rev={sorted(h_rev.raw_selected_)}"
+        f"column reorder changed the selected set: fwd={sorted(h_fwd.raw_selected_)} rev={sorted(h_rev.raw_selected_)}"
     )

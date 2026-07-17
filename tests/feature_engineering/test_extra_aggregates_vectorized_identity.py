@@ -6,6 +6,7 @@ The softmax-weight recompute, ``y_skew`` and ``x_centroid_dist`` were per-query 
 can differ from the per-row argsort by <=1 ULP. The degenerate-softmax uniform-1/k fallback
 must be preserved on non-finite logits.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -55,7 +56,7 @@ def _golden(q_proj, k_proj, y_train, topk_ids, softmax_temp, aggregates):
                 continue
             std = np.sqrt(var)
             m3 = float((w_q * d * d * d).sum())
-            y_skew[q] = m3 / (std ** 3)
+            y_skew[q] = m3 / (std**3)
         out["y_skew"] = y_skew
     if "x_centroid_dist" in aggregates:
         x_centroid_dist = np.empty(n_queries, dtype=np.float32)

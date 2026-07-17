@@ -2,13 +2,13 @@
 
 Concept-drift guard for the linear_residual alpha: Chow-style stability check on a rolling buffer of recent observations. When the buffer's alpha drifts significantly from the deployed alpha (|z| > threshold), the function returns the refit alpha for the caller to apply; otherwise no-op.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
 from mlframe.training.composite import (
-    _linear_residual_fit,
     streaming_alpha_check_and_refit,
 )
 
@@ -22,7 +22,10 @@ class TestNoDriftPath:
         true_alpha, true_beta = 0.85, 3.14
         y = true_alpha * base + true_beta + rng.normal(scale=0.5, size=n)
         new_alpha, new_beta, info = streaming_alpha_check_and_refit(
-            y, base, current_alpha=true_alpha, current_beta=true_beta,
+            y,
+            base,
+            current_alpha=true_alpha,
+            current_beta=true_beta,
         )
         assert info["refit"] is False
         assert new_alpha == pytest.approx(true_alpha, abs=1e-12)
@@ -35,7 +38,10 @@ class TestNoDriftPath:
         base = rng.normal(size=n)
         y = base + rng.normal(scale=0.1, size=n)
         _, _, info = streaming_alpha_check_and_refit(
-            y, base, current_alpha=1.0, current_beta=0.0,
+            y,
+            base,
+            current_alpha=1.0,
+            current_beta=0.0,
         )
         assert np.isfinite(info["z_score"])
 
@@ -49,8 +55,11 @@ class TestDriftDetected:
         true_alpha_new = 2.0
         y = true_alpha_new * base + 1.0 + rng.normal(scale=0.5, size=n)
         deployed_alpha = 0.5
-        new_alpha, new_beta, info = streaming_alpha_check_and_refit(
-            y, base, current_alpha=deployed_alpha, current_beta=0.0,
+        new_alpha, _new_beta, info = streaming_alpha_check_and_refit(
+            y,
+            base,
+            current_alpha=deployed_alpha,
+            current_beta=0.0,
             z_threshold=3.0,
         )
         assert info["refit"] is True
@@ -69,11 +78,19 @@ class TestDriftDetected:
         deployed = 0.95  # slight drift from 1.0
         # High threshold: no refit.
         _, _, info_high = streaming_alpha_check_and_refit(
-            y, base, current_alpha=deployed, current_beta=0.0, z_threshold=100.0,
+            y,
+            base,
+            current_alpha=deployed,
+            current_beta=0.0,
+            z_threshold=100.0,
         )
         # Low threshold: refit.
         _, _, info_low = streaming_alpha_check_and_refit(
-            y, base, current_alpha=deployed, current_beta=0.0, z_threshold=0.1,
+            y,
+            base,
+            current_alpha=deployed,
+            current_beta=0.0,
+            z_threshold=0.1,
         )
         assert info_high["refit"] is False
         assert info_low["refit"] is True
@@ -84,8 +101,12 @@ class TestEdgeCases:
         rng = np.random.default_rng(4)
         y = rng.normal(size=50)
         base = rng.normal(size=50)
-        new_alpha, new_beta, info = streaming_alpha_check_and_refit(
-            y, base, current_alpha=0.5, current_beta=0.0, min_buffer_n=200,
+        new_alpha, _new_beta, info = streaming_alpha_check_and_refit(
+            y,
+            base,
+            current_alpha=0.5,
+            current_beta=0.0,
+            min_buffer_n=200,
         )
         assert info["refit"] is False
         assert info["reason"] == "buffer_too_small"
@@ -95,8 +116,12 @@ class TestEdgeCases:
         n = 300
         base = np.array([7.0] * n)
         y = np.linspace(0.0, 10.0, n)
-        new_alpha, new_beta, info = streaming_alpha_check_and_refit(
-            y, base, current_alpha=0.5, current_beta=0.0, min_buffer_n=200,
+        new_alpha, _new_beta, info = streaming_alpha_check_and_refit(
+            y,
+            base,
+            current_alpha=0.5,
+            current_beta=0.0,
+            min_buffer_n=200,
         )
         assert info["refit"] is False
         assert info["reason"] == "degenerate_buffer"
@@ -110,8 +135,12 @@ class TestEdgeCases:
         y = 1.0 * base + rng.normal(scale=0.5, size=n)
         # Inject some NaN; finite count still well above min_buffer_n.
         y[:50] = np.nan
-        new_alpha, new_beta, info = streaming_alpha_check_and_refit(
-            y, base, current_alpha=1.0, current_beta=0.0, min_buffer_n=200,
+        _new_alpha, _new_beta, info = streaming_alpha_check_and_refit(
+            y,
+            base,
+            current_alpha=1.0,
+            current_beta=0.0,
+            min_buffer_n=200,
         )
         # Should not crash, info has finite z_score from the 450 surviving rows.
         assert np.isfinite(info["z_score"])

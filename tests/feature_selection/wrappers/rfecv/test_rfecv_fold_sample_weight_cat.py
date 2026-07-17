@@ -13,6 +13,7 @@ every index by len(must_include) and a categorical must_include column is droppe
 Both surface together with early_stopping_val_nsplits + sample_weight +
 must_include (a categorical column) + cat_features.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,22 +28,24 @@ def test_rfecv_fold_sample_weight_and_cat_index_with_early_stopping_and_must_inc
 
     rng = np.random.default_rng(0)
     n = 240
-    df = pd.DataFrame({
-        "num0": rng.normal(size=n),
-        "num1": rng.normal(size=n),
-        "num2": rng.normal(size=n),
-        "num3": rng.normal(size=n),
-        "cat0": pd.Categorical(rng.choice(["a", "b", "c"], size=n)),
-    })
+    df = pd.DataFrame(
+        {
+            "num0": rng.normal(size=n),
+            "num1": rng.normal(size=n),
+            "num2": rng.normal(size=n),
+            "num3": rng.normal(size=n),
+            "cat0": pd.Categorical(rng.choice(["a", "b", "c"], size=n)),
+        }
+    )
     y = (df["num0"].to_numpy() + df["num1"].to_numpy() > 0).astype(int)
     sw = rng.uniform(0.5, 1.5, size=n)
 
     sel = RFECV(
         estimator=lgb.LGBMClassifier(n_estimators=25, verbose=-1),
         cv=2,
-        early_stopping_val_nsplits=2,   # forces the per-fold val_cv re-split (P0 + P1 path)
+        early_stopping_val_nsplits=2,  # forces the per-fold val_cv re-split (P0 + P1 path)
         cat_features=["cat0"],
-        must_include=["cat0"],          # prepended -> fit_features = [cat0, num0, ...]
+        must_include=["cat0"],  # prepended -> fit_features = [cat0, num0, ...]
     )
     # Pre-fix this raised: P0 (sample_weight length-mismatch once X_train was
     # narrowed to true_train_index) and/or P1 (cat index computed against

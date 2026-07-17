@@ -26,7 +26,7 @@ def test_below_threshold_still_defragments(monkeypatch):
     _force_ram_rise(monkeypatch)
     df = pd.DataFrame({"a": np.arange(10)})
     # Large gate => small frame defrags as before.
-    monkeypatch.setattr(cleaning, "_DEFRAG_COPY_MAX_BYTES", 2 * 1024 ** 3)
+    monkeypatch.setattr(cleaning, "_DEFRAG_COPY_MAX_BYTES", 2 * 1024**3)
     out, _ = fragment_df_on_ram_usage_increase(df, prev_mem_usage=100.0)
     assert out is not df, "below the gate a defragmenting copy is returned"
     pd.testing.assert_frame_equal(out, df)

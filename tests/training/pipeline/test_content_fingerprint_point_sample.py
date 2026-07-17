@@ -33,24 +33,14 @@ def test_identical_polars_frames_share_fingerprint():
 def test_head_row_change_invalidates_fingerprint_polars():
     """Frames differing only at the head row -> different fingerprint -> cache miss as required."""
     base = _make_polars(1_000, 20, seed=42)
-    mutated = base.with_columns(
-        pl.when(pl.int_range(0, base.height) == 0)
-        .then(pl.lit(-999.0))
-        .otherwise(pl.col("c0"))
-        .alias("c0")
-    )
+    mutated = base.with_columns(pl.when(pl.int_range(0, base.height) == 0).then(pl.lit(-999.0)).otherwise(pl.col("c0")).alias("c0"))
     assert _content_fingerprint_for_cache(base) != _content_fingerprint_for_cache(mutated)
 
 
 def test_last_row_change_invalidates_fingerprint_polars():
     """The fix samples the last row -> a tail-only mutation must also miss."""
     base = _make_polars(1_000, 20, seed=42)
-    mutated = base.with_columns(
-        pl.when(pl.int_range(0, base.height) == base.height - 1)
-        .then(pl.lit(-999.0))
-        .otherwise(pl.col("c0"))
-        .alias("c0")
-    )
+    mutated = base.with_columns(pl.when(pl.int_range(0, base.height) == base.height - 1).then(pl.lit(-999.0)).otherwise(pl.col("c0")).alias("c0"))
     assert _content_fingerprint_for_cache(base) != _content_fingerprint_for_cache(mutated)
 
 
@@ -129,6 +119,6 @@ def test_biz_value_point_sample_beats_full_materialise(n_rows: int):
     ratio = post_fix_s / max(pre_fix_s, 1e-9)
     # Conservative floor: post-fix should be well under half the pre-fix cost on a 100k x 100 frame.
     assert ratio < 0.5, (
-        f"point-sample fingerprint ({post_fix_s*1000:.2f}ms) is not materially faster than full ``to_numpy()`` materialisation ({pre_fix_s*1000:.2f}ms); "
+        f"point-sample fingerprint ({post_fix_s * 1000:.2f}ms) is not materially faster than full ``to_numpy()`` materialisation ({pre_fix_s * 1000:.2f}ms); "
         f"ratio={ratio:.3f} (expected < 0.5)"
     )

@@ -8,6 +8,7 @@ several-hundred-column production pool into a multi-hour cliff. The fix enumerat
 ``C(k, 2)`` pair space in RAM-bounded row-block chunks (never materialising the full pair-index
 arrays) so the batched path is now used at any pool width the front-end SIS gate lets through.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -78,14 +79,24 @@ def test_dispatch_batch_pair_mi_chunked_matches_unchunked_dispatch(max_pairs_per
     ids = np.arange(n_cols, dtype=np.int64)
     ia, ib = np.triu_indices(n_cols, k=1)
     mi_ref, _ = dispatch_batch_pair_mi(
-        factors_data=data, pair_a=ids[ia], pair_b=ids[ib], nbins=nbins, classes_y=y, freqs_y=freqs_y,
+        factors_data=data,
+        pair_a=ids[ia],
+        pair_b=ids[ib],
+        nbins=nbins,
+        classes_y=y,
+        freqs_y=freqs_y,
         force_backend="njit",
     )
     ref_map = {(int(ids[ia[i]]), int(ids[ib[i]])): float(mi_ref[i]) for i in range(ia.shape[0])}
 
     a_out, b_out, mi_out, backend_counts = dispatch_batch_pair_mi_chunked(
-        factors_data=data, ids=ids, nbins=nbins, classes_y=y, freqs_y=freqs_y,
-        force_backend="njit", max_pairs_per_chunk=max_pairs_per_chunk,
+        factors_data=data,
+        ids=ids,
+        nbins=nbins,
+        classes_y=y,
+        freqs_y=freqs_y,
+        force_backend="njit",
+        max_pairs_per_chunk=max_pairs_per_chunk,
     )
 
     assert a_out.shape[0] == n_cols * (n_cols - 1) // 2
@@ -107,9 +118,14 @@ def test_dispatch_batch_pair_mi_chunked_handles_pool_width_above_old_cap():
     freqs_y = np.bincount(y, minlength=2).astype(np.float64) / 300
 
     ids = np.arange(n_cols, dtype=np.int64)
-    a_out, b_out, mi_out, backend_counts = dispatch_batch_pair_mi_chunked(
-        factors_data=data, ids=ids, nbins=nbins, classes_y=y, freqs_y=freqs_y,
-        force_backend="njit", max_pairs_per_chunk=2_000,
+    a_out, _b_out, mi_out, backend_counts = dispatch_batch_pair_mi_chunked(
+        factors_data=data,
+        ids=ids,
+        nbins=nbins,
+        classes_y=y,
+        freqs_y=freqs_y,
+        force_backend="njit",
+        max_pairs_per_chunk=2_000,
     )
     expected_pairs = n_cols * (n_cols - 1) // 2
     assert a_out.shape[0] == expected_pairs
@@ -127,7 +143,11 @@ def test_dispatch_batch_pair_mi_chunked_empty_and_singleton():
     freqs_y = np.array([1.0])
 
     a_out, b_out, mi_out, backend_counts = dispatch_batch_pair_mi_chunked(
-        factors_data=data, ids=np.array([0], dtype=np.int64), nbins=nbins, classes_y=y, freqs_y=freqs_y,
+        factors_data=data,
+        ids=np.array([0], dtype=np.int64),
+        nbins=nbins,
+        classes_y=y,
+        freqs_y=freqs_y,
     )
     assert a_out.shape == (0,)
     assert b_out.shape == (0,)

@@ -28,13 +28,13 @@ Fix at engineered_recipes.py:32 (~20 LOC):
 - ``ValueError`` from ambiguous truth-value -> return False
   conservatively rather than raising.
 """
+
 from __future__ import annotations
 
 import copy
 import pickle
 
 import numpy as np
-import pytest
 
 
 def test_pickle_roundtrip_with_nan_in_ndarray_extra():
@@ -42,8 +42,11 @@ def test_pickle_roundtrip_with_nan_in_ndarray_extra():
     itself after pickle round-trip.
     """
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     r = EngineeredRecipe(
-        name="te_x", kind="target_encoding", src_names=("a",),
+        name="te_x",
+        kind="target_encoding",
+        src_names=("a",),
         extra={"lookup": np.array([0.1, np.nan, 0.5])},
     )
     assert r == pickle.loads(pickle.dumps(r))
@@ -54,8 +57,11 @@ def test_deepcopy_with_scalar_nan_extra():
     after deepcopy.
     """
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     r = EngineeredRecipe(
-        name="c", kind="cluster_aggregate", src_names=("a", "b"),
+        name="c",
+        kind="cluster_aggregate",
+        src_names=("a", "b"),
         extra={
             "method": "mean_z",
             "member_mean": np.array([1.0, 2.0]),
@@ -72,8 +78,11 @@ def test_eq_does_not_raise_on_nested_list_of_arrays():
     value ambiguous`` from inside __eq__ - return bool instead.
     """
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     r = EngineeredRecipe(
-        name="t", kind="target_encoding", src_names=("a",),
+        name="t",
+        kind="target_encoding",
+        src_names=("a",),
         extra={"per_fold": [np.array([1, 2]), np.array([3, 4])]},
     )
     # Just verify it returns a bool, not raises.
@@ -84,8 +93,11 @@ def test_eq_does_not_raise_on_nested_list_of_arrays():
 def test_clean_array_equality_still_works():
     """Negative control: equality on clean integer arrays unchanged."""
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     r = EngineeredRecipe(
-        name="x", kind="factorize", src_names=("a",),
+        name="x",
+        kind="factorize",
+        src_names=("a",),
         extra={"lookup": np.array([0, 1, 2])},
     )
     assert r == copy.deepcopy(r)
@@ -94,12 +106,17 @@ def test_clean_array_equality_still_works():
 def test_different_scalar_values_still_unequal():
     """Negative control: different scalar values remain unequal."""
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     r_a = EngineeredRecipe(
-        name="x", kind="factorize", src_names=("a",),
+        name="x",
+        kind="factorize",
+        src_names=("a",),
         extra={"val": 1.0},
     )
     r_b = EngineeredRecipe(
-        name="x", kind="factorize", src_names=("a",),
+        name="x",
+        kind="factorize",
+        src_names=("a",),
         extra={"val": 2.0},
     )
     assert r_a != r_b
@@ -108,12 +125,17 @@ def test_different_scalar_values_still_unequal():
 def test_different_array_shapes_unequal():
     """Sanity: arrays of different shapes must be unequal."""
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     r_a = EngineeredRecipe(
-        name="x", kind="factorize", src_names=("a",),
+        name="x",
+        kind="factorize",
+        src_names=("a",),
         extra={"lookup": np.array([0, 1, 2])},
     )
     r_b = EngineeredRecipe(
-        name="x", kind="factorize", src_names=("a",),
+        name="x",
+        kind="factorize",
+        src_names=("a",),
         extra={"lookup": np.array([0, 1, 2, 3])},
     )
     assert r_a != r_b

@@ -7,6 +7,7 @@ Covers:
 - ``_predict_guards`` polars allow_copy=False dtype gate (finding #17).
 - ``composite_cache`` per-column hashing (finding #8 -- regression-only, no behavioural change).
 """
+
 from __future__ import annotations
 
 import numpy as np

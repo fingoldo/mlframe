@@ -24,6 +24,7 @@ so each test stays well under 5 s. Optional inners (LightGBM) are guarded with
 ``importorskip`` -- the pinball / GLM / margin families need a gradient-boosting
 inner with a raw-margin / pinball path, which the sklearn fallbacks do not give.
 """
+
 from __future__ import annotations
 
 import pickle
@@ -82,9 +83,7 @@ def _regression_xy(n: int = 700, seed: int = 11):
     rng = np.random.default_rng(seed)
     lag = rng.normal(40.0, 6.0, n)
     y = 1.1 * lag + rng.normal(0.0, 2.0, n)
-    X = pd.DataFrame(
-        {"lag": lag, "f1": rng.normal(size=n), "f2": rng.normal(size=n)}
-    )
+    X = pd.DataFrame({"lag": lag, "f1": rng.normal(size=n), "f2": rng.normal(size=n)})
     return X, y, "lag"
 
 
@@ -155,7 +154,10 @@ class TestHighLevelDiscoverAndWrapFlow:
             }
         )
         res = discover_and_wrap(
-            df, "y", ["a", "b"], train_idx=np.arange(n),
+            df,
+            "y",
+            ["a", "b"],
+            train_idx=np.arange(n),
             base_estimator=HistGradientBoostingRegressor(max_iter=20),
         )
         assert res.estimator is None
@@ -211,15 +213,11 @@ class TestCompositeClassificationEstimator:
 
         rng = np.random.default_rng(31)
         n = 700
-        X = pd.DataFrame(
-            {"f1": rng.normal(size=n), "f2": rng.normal(size=n), "f3": rng.normal(size=n)}
-        )
+        X = pd.DataFrame({"f1": rng.normal(size=n), "f2": rng.normal(size=n), "f3": rng.normal(size=n)})
         # Three separable-ish classes from a linear combination + noise.
         score = X["f1"].to_numpy() + 0.5 * X["f2"].to_numpy()
         y = np.digitize(score, np.quantile(score, [1 / 3, 2 / 3]))
-        clf = CompositeClassificationEstimator(
-            base_estimator=LGBMClassifier(n_estimators=50, verbose=-1, n_jobs=1)
-        )
+        clf = CompositeClassificationEstimator(base_estimator=LGBMClassifier(n_estimators=50, verbose=-1, n_jobs=1))
         clf.fit(X, y)
         proba = clf.predict_proba(X)
         assert proba.shape == (n, 3)
@@ -377,9 +375,7 @@ class TestPandasPolarsParity:
 
         def _fit_predict(X_train, X_pred):
             est = CompositeTargetEstimator(
-                base_estimator=HistGradientBoostingRegressor(
-                    max_iter=40, random_state=0
-                ),
+                base_estimator=HistGradientBoostingRegressor(max_iter=40, random_state=0),
                 transform_name="linear_residual",
                 base_column=base,
             )
@@ -452,9 +448,7 @@ def _families_for_roundtrip():
             ),
             (
                 "CompositeClassificationEstimator",
-                CompositeClassificationEstimator(
-                    base_estimator=LGBMClassifier(n_estimators=30, verbose=-1)
-                ),
+                CompositeClassificationEstimator(base_estimator=LGBMClassifier(n_estimators=30, verbose=-1)),
                 X,
                 yb,
             ),

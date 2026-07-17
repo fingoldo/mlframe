@@ -16,6 +16,7 @@ These tests prove the quantitative wins claimed in
   ``cmim`` on a redundant-signal fingerprint (the L99 FE-recommender
   foundation).
 """
+
 from __future__ import annotations
 
 import os
@@ -24,7 +25,6 @@ import random
 import orjson
 
 import numpy as np
-import pytest
 
 from mlframe.utils._param_oracle import (
     ParamOracle,
@@ -39,6 +39,7 @@ FIXED_TS = "2026-01-01T00:00:00+00:00"
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _store(tmp_path, name="oracle.parquet"):
     return os.path.join(str(tmp_path), name)
@@ -59,6 +60,7 @@ def _make_dataset(n, p, seed=0, redundant=False):
 # 1. benchmark mode records all combos x objective
 # ---------------------------------------------------------------------------
 
+
 def test_benchmark_mode_records_all_combos(tmp_path):
     X = _make_dataset(1000, 4, seed=1)
 
@@ -66,8 +68,7 @@ def test_benchmark_mode_records_all_combos(tmp_path):
         return float((x * alpha + beta).sum())
 
     space = {"alpha": [1, 2], "beta": [0, 10]}
-    oracle = ParamOracle(_store(tmp_path), param_space=space,
-                         mode="benchmark", minimize="elapsed_s")
+    oracle = ParamOracle(_store(tmp_path), param_space=space, mode="benchmark", minimize="elapsed_s")
     res = oracle.benchmark(toy, (X,), {}, ts=FIXED_TS)
 
     assert len(res) == 4  # 2 x 2 combos
@@ -80,10 +81,7 @@ def test_benchmark_mode_records_all_combos(tmp_path):
     # stdlib json (it's prod code, not test code, so the no-stdlib-json
     # meta-linter doesn't cover it); the test-side comparison is a
     # string equality check, hence byte-identity matters.
-    expected = {
-        orjson.dumps({"alpha": a, "beta": b}, option=orjson.OPT_SORT_KEYS).decode()
-        for a in (1, 2) for b in (0, 10)
-    }
+    expected = {orjson.dumps({"alpha": a, "beta": b}, option=orjson.OPT_SORT_KEYS).decode() for a in (1, 2) for b in (0, 10)}
     assert combos == expected
     # Every row carries an objective with the optimised metric.
     for r in rows:
@@ -95,6 +93,7 @@ def test_benchmark_mode_records_all_combos(tmp_path):
 # 2. inference recommends the best combo on a similar fingerprint
 # ---------------------------------------------------------------------------
 
+
 def test_inference_recommends_best_on_similar_fingerprint(tmp_path):
     X = _make_dataset(1000, 4, seed=2)
     fp = default_fingerprint((X,), {})
@@ -102,9 +101,7 @@ def test_inference_recommends_best_on_similar_fingerprint(tmp_path):
     # Hand-record so combo "fast" is clearly cheaper than "slow", with
     # enough observations to clear the confidence gate.
     space = {"impl": ["fast", "slow"]}
-    oracle = ParamOracle(_store(tmp_path), param_space=space,
-                         mode="inference", minimize="elapsed_s",
-                         min_observations=3)
+    oracle = ParamOracle(_store(tmp_path), param_space=space, mode="inference", minimize="elapsed_s", min_observations=3)
     for _ in range(4):
         oracle.record(fp, {"impl": "fast"}, {"elapsed_s": 0.001}, ts=FIXED_TS, fn_name="job")
         oracle.record(fp, {"impl": "slow"}, {"elapsed_s": 0.100}, ts=FIXED_TS, fn_name="job")
@@ -120,22 +117,21 @@ def test_inference_recommends_best_on_similar_fingerprint(tmp_path):
 # 3. stat-only persistence -- NO raw array / DataFrame on disk
 # ---------------------------------------------------------------------------
 
+
 def test_persistence_is_stat_only(tmp_path):
     X = _make_dataset(2000, 6, seed=3)
 
     def toy(x, k=1):
-        return float((x ** k).mean())
+        return float((x**k).mean())
 
-    oracle = ParamOracle(_store(tmp_path), param_space={"k": [1, 2]},
-                         mode="benchmark", minimize="elapsed_s")
+    oracle = ParamOracle(_store(tmp_path), param_space={"k": [1, 2]}, mode="benchmark", minimize="elapsed_s")
     oracle.benchmark(toy, (X,), {}, ts=FIXED_TS)
 
     rows = oracle.store.read_rows()
     # Every persisted value must be a scalar or a JSON string of scalars.
     for r in rows:
         for col, val in r.items():
-            assert not isinstance(val, (list, tuple, dict, np.ndarray)), \
-                f"non-scalar persisted in {col}: {type(val)}"
+            assert not isinstance(val, (list, tuple, dict, np.ndarray)), f"non-scalar persisted in {col}: {type(val)}"
         fp_bucket = orjson.loads(r["fp_bucket_json"])
         for v in fp_bucket.values():
             assert isinstance(v, (int, float, str)), f"non-scalar in fp_bucket: {v!r}"
@@ -149,18 +145,17 @@ def test_persistence_is_stat_only(tmp_path):
 # 4. cold-start fallback -> caller default, never crashes
 # ---------------------------------------------------------------------------
 
+
 def test_cold_start_returns_caller_default(tmp_path):
     space = {"impl": ["a", "b", "c"]}
-    oracle = ParamOracle(_store(tmp_path), param_space=space,
-                         mode="inference", minimize="elapsed_s")
+    oracle = ParamOracle(_store(tmp_path), param_space=space, mode="inference", minimize="elapsed_s")
     fp = default_fingerprint((_make_dataset(500, 3),), {})
     rec = oracle.recommend(fp, fn_name="never_seen")
     assert rec == {"impl": "a"}  # first combo = caller default
 
 
 def test_cold_start_empty_args_no_crash(tmp_path):
-    oracle = ParamOracle(_store(tmp_path), param_space={"x": [1]},
-                         mode="inference")
+    oracle = ParamOracle(_store(tmp_path), param_space={"x": [1]}, mode="inference")
     # Fingerprint of nothing array-like must not crash.
     fp = default_fingerprint((), {})
     assert fp["n"] == 0
@@ -170,6 +165,7 @@ def test_cold_start_empty_args_no_crash(tmp_path):
 # ---------------------------------------------------------------------------
 # 5. fingerprint bucketing is size-stable
 # ---------------------------------------------------------------------------
+
 
 def test_fingerprint_bucketing_size_stable(tmp_path):
     X1 = _make_dataset(1000, 5, seed=10)
@@ -184,12 +180,11 @@ def test_fingerprint_bucketing_size_stable(tmp_path):
 # 6. k-NN fallback -> recommend the neighbour's best
 # ---------------------------------------------------------------------------
 
+
 def test_knn_fallback_recommends_neighbor_best(tmp_path):
     # Benchmark on a SMALL dataset (n~100 -> bucket 2.0).
     fp_small = default_fingerprint((_make_dataset(100, 4, seed=20),), {})
-    oracle = ParamOracle(_store(tmp_path), param_space={"impl": ["x", "y"]},
-                         mode="inference", minimize="elapsed_s",
-                         min_observations=3)
+    oracle = ParamOracle(_store(tmp_path), param_space={"impl": ["x", "y"]}, mode="inference", minimize="elapsed_s", min_observations=3)
     for _ in range(4):
         oracle.record(fp_small, {"impl": "y"}, {"elapsed_s": 0.001}, ts=FIXED_TS, fn_name="job")
         oracle.record(fp_small, {"impl": "x"}, {"elapsed_s": 0.050}, ts=FIXED_TS, fn_name="job")
@@ -206,6 +201,7 @@ def test_knn_fallback_recommends_neighbor_best(tmp_path):
 # 7. concurrency -- two oracles writing same store don't corrupt it
 # ---------------------------------------------------------------------------
 
+
 def test_concurrent_writers_do_not_corrupt(tmp_path):
     path = _store(tmp_path)
     fp = default_fingerprint((_make_dataset(800, 3, seed=30),), {})
@@ -214,7 +210,7 @@ def test_concurrent_writers_do_not_corrupt(tmp_path):
     o2 = ParamOracle(path, param_space=space, mode="inference")
 
     # Simulate interleaved parallel shards writing the same store.
-    for i in range(5):
+    for _i in range(5):
         o1.record(fp, {"impl": "p"}, {"elapsed_s": 0.01}, ts=FIXED_TS, fn_name="job")
         o2.record(fp, {"impl": "q"}, {"elapsed_s": 0.02}, ts=FIXED_TS, fn_name="job")
 
@@ -234,6 +230,7 @@ def test_concurrent_writers_do_not_corrupt(tmp_path):
 # 8. hybrid epsilon-greedy -- mostly exploit, occasionally explore
 # ---------------------------------------------------------------------------
 
+
 def test_hybrid_epsilon_greedy_explore_vs_exploit(tmp_path):
     X = _make_dataset(1000, 4, seed=40)
     fp = default_fingerprint((X,), {})
@@ -246,9 +243,7 @@ def test_hybrid_epsilon_greedy_explore_vs_exploit(tmp_path):
 
     space = {"impl": ["a", "b"]}
     # Seed a clear best so exploit is well-defined.
-    oracle = ParamOracle(_store(tmp_path), param_space=space, mode="hybrid",
-                         minimize="elapsed_s", epsilon=0.3, min_observations=1,
-                         rng=random.Random(12345))
+    oracle = ParamOracle(_store(tmp_path), param_space=space, mode="hybrid", minimize="elapsed_s", epsilon=0.3, min_observations=1, rng=random.Random(12345))
     # Pre-seed: "a" is the cheap best.
     for _ in range(3):
         oracle.record(fp, {"impl": "a"}, {"elapsed_s": 0.001}, ts=FIXED_TS, fn_name="toy")
@@ -272,6 +267,7 @@ def test_hybrid_epsilon_greedy_explore_vs_exploit(tmp_path):
 # ---------------------------------------------------------------------------
 # 9. REAL consumer demo: MI-scorer selection (plug_in vs cmim)
 # ---------------------------------------------------------------------------
+
 
 def test_real_consumer_mi_scorer_selection(tmp_path):
     """Wire ParamOracle around the MI-scorer choice and prove it learns to
@@ -315,9 +311,9 @@ def test_real_consumer_mi_scorer_selection(tmp_path):
         fp = default_fingerprint((x,), {})
         redundancy = fp["mean_abs_corr"]
         if scorer == "cmim":
-            q = 0.5 + 0.4 * redundancy   # rewarded for handling redundancy
+            q = 0.5 + 0.4 * redundancy  # rewarded for handling redundancy
         else:  # plug_in
-            q = 0.7 - 0.3 * redundancy   # degrades as redundancy grows
+            q = 0.7 - 0.3 * redundancy  # degrades as redundancy grows
         return (scorer, q)
 
     # Benchmark on BOTH dataset types so the oracle sees both fingerprints.
@@ -326,12 +322,10 @@ def test_real_consumer_mi_scorer_selection(tmp_path):
 
     # Fresh redundant dataset -> recommend cmim.
     fresh_redundant = _make_dataset(2100, 8, seed=77, redundant=True)
-    rec_r = oracle.recommend(default_fingerprint((fresh_redundant,), {}),
-                             fn_name="select_features")
+    rec_r = oracle.recommend(default_fingerprint((fresh_redundant,), {}), fn_name="select_features")
     assert rec_r == {"scorer": "cmim"}, f"expected cmim on redundant, got {rec_r}"
 
     # Fresh clean dataset -> recommend plug_in.
     fresh_clean = _make_dataset(2100, 8, seed=78, redundant=False)
-    rec_c = oracle.recommend(default_fingerprint((fresh_clean,), {}),
-                             fn_name="select_features")
+    rec_c = oracle.recommend(default_fingerprint((fresh_clean,), {}), fn_name="select_features")
     assert rec_c == {"scorer": "plug_in"}, f"expected plug_in on clean, got {rec_c}"

@@ -18,11 +18,10 @@ These tests assert:
   - opting out (wide_data_fi_fallback=False) keeps the permutation getter on a wide frame;
   - self.n_repeats is never mutated by the guard.
 """
+
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
-import pytest
 
 from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
@@ -35,8 +34,11 @@ _AUC = make_scorer(roc_auc_score, response_method="predict_proba")
 
 def _wide_frame(n_samples=200, n_features=60, n_informative=6, seed=0):
     X, y = make_classification(
-        n_samples=n_samples, n_features=n_features, n_informative=n_informative,
-        n_redundant=4, random_state=seed,
+        n_samples=n_samples,
+        n_features=n_features,
+        n_informative=n_informative,
+        n_redundant=4,
+        random_state=seed,
     )
     Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(n_features)])
     return Xdf, pd.Series(y)
@@ -53,8 +55,11 @@ class TestWideDataGuardFires:
         sel = RFECV(
             estimator=_fast_rf(),
             importance_getter="permutation",
-            wide_data_fi_threshold=30,   # 60 > 30 -> fallback
-            cv=3, max_refits=4, random_state=0, n_repeats=5,
+            wide_data_fi_threshold=30,  # 60 > 30 -> fallback
+            cv=3,
+            max_refits=4,
+            random_state=0,
+            n_repeats=5,
         )
         sel.fit(Xdf, y)
         guard = sel._wide_data_fi_applied_
@@ -77,7 +82,10 @@ class TestWideDataGuardFires:
             importance_getter="permutation",
             scoring=_AUC,
             wide_data_fi_threshold=30,
-            cv=3, max_refits=12, random_state=0, n_repeats=5,
+            cv=3,
+            max_refits=12,
+            random_state=0,
+            n_repeats=5,
             init_design_size=5,
             n_features_selection_rule="one_se_min",
         )
@@ -95,9 +103,12 @@ class TestWideDataGuardFires:
         sel = RFECV(
             estimator=_fast_rf(),
             importance_getter="permutation",
-            wide_data_fi_threshold=50,         # 40 <= 50 -> no fallback
+            wide_data_fi_threshold=50,  # 40 <= 50 -> no fallback
             wide_data_fi_n_repeats=2,
-            cv=3, max_refits=3, random_state=0, n_repeats=5,
+            cv=3,
+            max_refits=3,
+            random_state=0,
+            n_repeats=5,
         )
         sel.fit(Xdf, y)
         guard = sel._wide_data_fi_applied_
@@ -115,7 +126,10 @@ class TestWideDataGuardNoOp:
             estimator=_fast_rf(),
             importance_getter="permutation",
             wide_data_fi_threshold=200,
-            cv=3, max_refits=3, random_state=0, n_repeats=5,
+            cv=3,
+            max_refits=3,
+            random_state=0,
+            n_repeats=5,
         )
         sel.fit(Xdf, y)
         assert sel._wide_data_fi_applied_ is None, "guard must be a no-op on a narrow frame"
@@ -127,9 +141,12 @@ class TestWideDataGuardNoOp:
         sel = RFECV(
             estimator=_fast_rf(),
             importance_getter="permutation",
-            wide_data_fi_fallback=False,   # opt out
+            wide_data_fi_fallback=False,  # opt out
             wide_data_fi_threshold=30,
-            cv=3, max_refits=3, random_state=0, n_repeats=5,
+            cv=3,
+            max_refits=3,
+            random_state=0,
+            n_repeats=5,
         )
         sel.fit(Xdf, y)
         assert sel._wide_data_fi_applied_ is None

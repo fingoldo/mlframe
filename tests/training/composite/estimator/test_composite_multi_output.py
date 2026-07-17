@@ -7,6 +7,7 @@ Covers:
   base, the per-column composite beats a single plain regressor per column on
   mean RMSE.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -17,7 +18,6 @@ from sklearn.tree import DecisionTreeRegressor
 
 from mlframe.training.composite import (
     CompositeMultiOutputEstimator,
-    CompositeTargetEstimator,
     make_per_column_specs,
 )
 from mlframe.training.composite.transforms import UnknownTransformError
@@ -26,6 +26,7 @@ from mlframe.training.composite.transforms import UnknownTransformError
 # ---------------------------------------------------------------------------
 # Synthetic data: K outputs, each with its OWN dominant affine base column.
 # ---------------------------------------------------------------------------
+
 
 def _make_multi_base_data(n=1500, k_outputs=3, seed=0):
     """Each output column k = alpha_k * base_k + small nonlinear residual(noise
@@ -60,6 +61,7 @@ def _rmse(a, b):
 # ---------------------------------------------------------------------------
 # Contract tests
 # ---------------------------------------------------------------------------
+
 
 def test_predict_shape_is_n_by_k():
     X, Y = _make_multi_base_data(n=400, k_outputs=3)
@@ -231,6 +233,7 @@ def test_sklearn_clone_is_unfitted_and_independent():
 # biz_value test: per-column composite beats plain per-column regressor.
 # ---------------------------------------------------------------------------
 
+
 def test_biz_val_multi_output_beats_plain_per_column_regressor():
     """Each of 3 outputs has its own dominant affine base. Subtracting the right
     affine base per column (composite) leaves an easy residual; a plain shallow
@@ -266,10 +269,7 @@ def test_biz_val_multi_output_beats_plain_per_column_regressor():
     comp_rmse = np.mean([_rmse(comp_pred[:, j], Yte[:, j]) for j in range(3)])
     plain_rmse = np.mean([_rmse(plain_pred[:, j], Yte[:, j]) for j in range(3)])
 
-    assert comp_rmse < plain_rmse, (
-        f"composite mean RMSE {comp_rmse:.4f} should beat plain {plain_rmse:.4f}"
-    )
+    assert comp_rmse < plain_rmse, f"composite mean RMSE {comp_rmse:.4f} should beat plain {plain_rmse:.4f}"
     assert plain_rmse / comp_rmse >= 1.5, (
-        f"composite should beat plain by >=1.5x; got "
-        f"{plain_rmse / comp_rmse:.2f}x (comp={comp_rmse:.4f}, plain={plain_rmse:.4f})"
+        f"composite should beat plain by >=1.5x; got {plain_rmse / comp_rmse:.2f}x (comp={comp_rmse:.4f}, plain={plain_rmse:.4f})"
     )

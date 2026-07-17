@@ -32,6 +32,7 @@ NEVER xfail.
 
 Consolidated verbatim from test_biz_value_mrmr_layer72.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -59,6 +60,7 @@ def _import_jmim_fe():
         hybrid_orth_mi_jmim_fe,
         hybrid_orth_mi_jmim_fe_with_recipes,
     )
+
     return (
         jmim_score,
         score_features_by_jmim,
@@ -73,6 +75,7 @@ def _import_plug_in_fe():
         generate_univariate_basis_features,
         score_features_by_mi_uplift,
     )
+
     return generate_univariate_basis_features, score_features_by_mi_uplift
 
 
@@ -124,6 +127,7 @@ def _build_redundant_quadratic(seed: int, n: int = 2000):
 
 from tests.feature_selection._biz_val_synth import _build_linear, _quantile_bin_local
 
+
 def _pairwise_mi_mean(df: pd.DataFrame, nbins: int = 10) -> float:
     """Mean pairwise MI across all unordered pairs of columns of ``df``.
 
@@ -171,7 +175,9 @@ class TestJmimBeatsMarginalOnRedundant:
             X, y = _build_redundant_quadratic(s, n=2000)
             engineered = gen(X, degrees=(2,), basis="hermite")
             scores = score_features_by_jmim(
-                X, engineered, y.to_numpy(),
+                X,
+                engineered,
+                y.to_numpy(),
                 current_support=X[["x1"]],  # x1 already in support
                 n_bins=10,
             )
@@ -181,7 +187,7 @@ class TestJmimBeatsMarginalOnRedundant:
         # JMIM must surface the independent secondary signal (x2) in the
         # top-2 on the majority of seeds. Marginal MI typically fills the
         # top-2 with x_dup_* duplicates of x1.
-        assert jmim_picks_x2 >= 3, f"JMIM picked x2__He2 in top-2 on only {jmim_picks_x2}/{len(SEEDS)} " f"seeds; redundancy-control contract violated."
+        assert jmim_picks_x2 >= 3, f"JMIM picked x2__He2 in top-2 on only {jmim_picks_x2}/{len(SEEDS)} seeds; redundancy-control contract violated."
 
     def test_jmim_suppresses_redundant_dups_more_than_marginal(self):
         """Concrete witness of the redundancy-control mechanism: the
@@ -198,12 +204,17 @@ class TestJmimBeatsMarginalOnRedundant:
             X, y = _build_redundant_quadratic(s, n=2000)
             engineered = gen(X, degrees=(2,), basis="hermite")
             jmim_scores = score_features_by_jmim(
-                X, engineered, y.to_numpy(),
-                current_support=X[["x1"]], n_bins=10,
+                X,
+                engineered,
+                y.to_numpy(),
+                current_support=X[["x1"]],
+                n_bins=10,
             )
             marg_scores = score_marginal(
                 X[[c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]],
-                engineered, y.to_numpy(), nbins=10,
+                engineered,
+                y.to_numpy(),
+                nbins=10,
             )
             jmim_top3 = list(jmim_scores.head(3)["source_col"])
             marg_top3 = list(marg_scores.head(3)["source_col"])
@@ -249,12 +260,18 @@ class TestSelectionDiversity:
             X, y = _build_redundant_quadratic(s, n=2000)
             engineered = gen(X, degrees=(2,), basis="hermite")
             jmim_scores = score_features_by_jmim(
-                X, engineered, y.to_numpy(),
-                current_support=X[["x1"]], n_bins=10,
+                X,
+                engineered,
+                y.to_numpy(),
+                current_support=X[["x1"]],
+                n_bins=10,
             )
             raw_X = X[[c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]]
             marg_scores = score_marginal(
-                raw_X, engineered, y.to_numpy(), nbins=10,
+                raw_X,
+                engineered,
+                y.to_numpy(),
+                nbins=10,
             )
             jmim_top = list(jmim_scores.head(3)["engineered_col"])
             marg_top = list(marg_scores.head(3)["engineered_col"])
@@ -292,17 +309,27 @@ class TestAucLiftOnRedundantFixture:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             hybrid_orth_mi_fe,
         )
+
         aucs_marg, aucs_jmim = [], []
         for s in (1, 7, 13, 42, 101, 202, 303, 404):
             X, y = _build_redundant_quadratic(s, n=2000)
             X_tr, X_te, y_tr, y_te = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             # marginal-MI augmentation baseline
             X_marg_tr, _ = hybrid_orth_mi_fe(
-                X_tr, y_tr.to_numpy(),
-                degrees=(2,), basis="hermite",
-                top_k=2, min_uplift=0.0, min_abs_mi_frac=0.0, nbins=10,
+                X_tr,
+                y_tr.to_numpy(),
+                degrees=(2,),
+                basis="hermite",
+                top_k=2,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
+                nbins=10,
             )
             marg_added = [c for c in X_marg_tr.columns if c not in X_tr.columns]
             eng_te_all = gen(X_te, degrees=(2,), basis="hermite")
@@ -319,10 +346,15 @@ class TestAucLiftOnRedundantFixture:
             )
             # JMIM augmentation
             X_jmim_tr, _scores, _recipes = hybrid_with_recipes(
-                X_tr, y_tr.to_numpy(),
+                X_tr,
+                y_tr.to_numpy(),
                 current_support=X_tr[["x1"]],
-                degrees=(2,), basis="hermite",
-                top_k=2, min_uplift=0.0, min_abs_mi_frac=0.0, n_bins=10,
+                degrees=(2,),
+                basis="hermite",
+                top_k=2,
+                min_uplift=0.0,
+                min_abs_mi_frac=0.0,
+                n_bins=10,
             )
             jmim_added = [c for c in X_jmim_tr.columns if c not in X_tr.columns]
             X_jmim_te = pd.concat([X_te, eng_te_all[jmim_added]], axis=1) if jmim_added else X_te
@@ -365,7 +397,7 @@ class TestDefaultDisabledByteIdentical:
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], f"seed={seed}: default fe_hybrid_orth_jmim_enable=False " f"should NOT append any engineered columns; got {added}"
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_jmim_enable=False should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
         """fe_hybrid_orth_jmim_enable defaults to False and fe_hybrid_orth_jmim_n_bins defaults to 10."""
@@ -393,7 +425,7 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_jmim_enable", True),
             ("fe_hybrid_orth_jmim_n_bins", 15),
         ]:
-            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_jmim_recipes(self):
         """A pickle round-trip preserves feature names, appended columns, and every orth_univariate recipe field."""
@@ -410,7 +442,7 @@ class TestPickleAndClone:
         assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, f"pickle changed hybrid_orth_features_: " f"before={added_before}, after={added_after}"
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, after={added_after}"
 
         def _extract_orth_recipes(model):
             """Return {name: recipe} for the orth_univariate recipes, regardless of container list/dict shape."""
@@ -422,12 +454,12 @@ class TestPickleAndClone:
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
                 )

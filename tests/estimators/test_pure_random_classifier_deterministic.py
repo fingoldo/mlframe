@@ -2,6 +2,7 @@
 two identical predict calls returned DIFFERENT outputs -- violating sklearn's predict determinism (a fitted
 estimator must give the same output for the same X). It now derives a fresh RNG from a concrete fit-time seed.
 """
+
 import numpy as np
 import pytest
 

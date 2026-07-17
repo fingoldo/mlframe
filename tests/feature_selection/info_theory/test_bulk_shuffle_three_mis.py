@@ -45,10 +45,14 @@ def _build_inputs(n: int = 50_000):
     freqs_x2 = np.bincount(classes_x2, minlength=K_x2).astype(np.float64) / n
     freqs_y = np.bincount(classes_y, minlength=K_y).astype(np.float64) / n
     return (
-        classes_pair, freqs_pair,
-        classes_x1, freqs_x1,
-        classes_x2, freqs_x2,
-        classes_y, freqs_y,
+        classes_pair,
+        freqs_pair,
+        classes_x1,
+        freqs_x1,
+        classes_x2,
+        freqs_x2,
+        classes_y,
+        freqs_y,
     )
 
 
@@ -56,8 +60,17 @@ def test_bulk_output_shape_and_finite():
     cp_, fp_, cx1, fx1, cx2, fx2, cy, fy = _build_inputs()
     n_perms = 8
     ip, ix1, ix2 = _bulk_shuffle_and_compute_three_mis(
-        cp_, fp_, cx1, fx1, cx2, fx2, cy, fy,
-        n_perms, np.uint64(0xC0FFEE), np.int32,
+        cp_,
+        fp_,
+        cx1,
+        fx1,
+        cx2,
+        fx2,
+        cy,
+        fy,
+        n_perms,
+        np.uint64(0xC0FFEE),
+        np.int32,
     )
     assert ip.shape == (n_perms,)
     assert ix1.shape == (n_perms,)
@@ -77,8 +90,17 @@ def test_bulk_mi_distribution_matches_serial_within_range():
 
     # Bulk: one parallel call
     bulk_ip, bulk_ix1, bulk_ix2 = _bulk_shuffle_and_compute_three_mis(
-        cp_, fp_, cx1, fx1, cx2, fx2, cy, fy,
-        n_perms, np.uint64(0xC0FFEE), np.int32,
+        cp_,
+        fp_,
+        cx1,
+        fx1,
+        cx2,
+        fx2,
+        cy,
+        fy,
+        n_perms,
+        np.uint64(0xC0FFEE),
+        np.int32,
     )
 
     # Serial: n_perms sequential calls
@@ -91,7 +113,16 @@ def test_bulk_mi_distribution_matches_serial_within_range():
         # is a DISTINCT permutation drawn from the same LCG family -> the empirical MI means are comparable.
         _serial_seed = np.uint64(0xC0FFEE) + np.uint64(p) * np.uint64(2654435761)
         ip_v, ix1_v, ix2_v = _shuffle_and_compute_three_mis(
-            cp_, fp_, cx1, fx1, cx2, fx2, cy_local, fy, _serial_seed, np.int32,
+            cp_,
+            fp_,
+            cx1,
+            fx1,
+            cx2,
+            fx2,
+            cy_local,
+            fy,
+            _serial_seed,
+            np.int32,
         )
         serial_ip[p] = ip_v
         serial_ix1[p] = ix1_v
@@ -107,14 +138,10 @@ def test_bulk_mi_distribution_matches_serial_within_range():
         bulk_mean = float(bulk.mean())
         ser_mean = float(ser.mean())
         # Both must be in the same order of magnitude.
-        assert bulk_mean > 0 and ser_mean > 0, (
-            f"{name}: MI under random shuffle should be small but positive "
-            f"(bulk={bulk_mean}, ser={ser_mean})"
-        )
+        assert bulk_mean > 0 and ser_mean > 0, f"{name}: MI under random shuffle should be small but positive (bulk={bulk_mean}, ser={ser_mean})"
         ratio = bulk_mean / ser_mean
         assert 0.6 < ratio < 1.4, (
-            f"{name}: bulk_mean/ser_mean = {ratio:.3f} (bulk={bulk_mean:.6f}, "
-            f"ser={ser_mean:.6f}) outside the Monte Carlo noise band [0.6, 1.4]"
+            f"{name}: bulk_mean/ser_mean = {ratio:.3f} (bulk={bulk_mean:.6f}, ser={ser_mean:.6f}) outside the Monte Carlo noise band [0.6, 1.4]"
         )
 
 
@@ -125,10 +152,30 @@ def test_bulk_deterministic_for_same_seed():
     n_perms = 16
 
     out_a = _bulk_shuffle_and_compute_three_mis(
-        cp_, fp_, cx1, fx1, cx2, fx2, cy, fy, n_perms, seed, np.int32,
+        cp_,
+        fp_,
+        cx1,
+        fx1,
+        cx2,
+        fx2,
+        cy,
+        fy,
+        n_perms,
+        seed,
+        np.int32,
     )
     out_b = _bulk_shuffle_and_compute_three_mis(
-        cp_, fp_, cx1, fx1, cx2, fx2, cy, fy, n_perms, seed, np.int32,
+        cp_,
+        fp_,
+        cx1,
+        fx1,
+        cx2,
+        fx2,
+        cy,
+        fy,
+        n_perms,
+        seed,
+        np.int32,
     )
     for arr_a, arr_b in zip(out_a, out_b):
         assert np.array_equal(arr_a, arr_b), "bulk should be deterministic under same base_seed"
@@ -142,12 +189,30 @@ def test_biz_value_bulk_faster_than_serial():
 
     # Warmup numba JIT cache
     _bulk_shuffle_and_compute_three_mis(
-        cp_, fp_, cx1, fx1, cx2, fx2, cy, fy, n_perms,
-        np.uint64(0xC0FFEE), np.int32,
+        cp_,
+        fp_,
+        cx1,
+        fx1,
+        cx2,
+        fx2,
+        cy,
+        fy,
+        n_perms,
+        np.uint64(0xC0FFEE),
+        np.int32,
     )
     cy_local = cy.copy()
     _shuffle_and_compute_three_mis(
-        cp_, fp_, cx1, fx1, cx2, fx2, cy_local, fy, np.uint64(0xC0FFEE), np.int32,
+        cp_,
+        fp_,
+        cx1,
+        fx1,
+        cx2,
+        fx2,
+        cy_local,
+        fy,
+        np.uint64(0xC0FFEE),
+        np.int32,
     )
 
     iters = 10
@@ -157,20 +222,37 @@ def test_biz_value_bulk_faster_than_serial():
         for _ in range(n_perms):
             cy_local = cy.copy()
             _shuffle_and_compute_three_mis(
-                cp_, fp_, cx1, fx1, cx2, fx2, cy_local, fy, np.uint64(0xC0FFEE), np.int32,
+                cp_,
+                fp_,
+                cx1,
+                fx1,
+                cx2,
+                fx2,
+                cy_local,
+                fy,
+                np.uint64(0xC0FFEE),
+                np.int32,
             )
     t_serial = time.perf_counter() - t0
 
     t0 = time.perf_counter()
     for _ in range(iters):
         _bulk_shuffle_and_compute_three_mis(
-            cp_, fp_, cx1, fx1, cx2, fx2, cy, fy, n_perms,
-            np.uint64(0xC0FFEE), np.int32,
+            cp_,
+            fp_,
+            cx1,
+            fx1,
+            cx2,
+            fx2,
+            cy,
+            fy,
+            n_perms,
+            np.uint64(0xC0FFEE),
+            np.int32,
         )
     t_bulk = time.perf_counter() - t0
 
     speedup = t_serial / t_bulk
     assert speedup >= 2.0, (
-        f"bulk parallel-prange not delivering: speedup={speedup:.2f}x "
-        f"(serial={t_serial*1000/iters:.2f}ms, bulk={t_bulk*1000/iters:.2f}ms)"
+        f"bulk parallel-prange not delivering: speedup={speedup:.2f}x (serial={t_serial * 1000 / iters:.2f}ms, bulk={t_bulk * 1000 / iters:.2f}ms)"
     )

@@ -84,8 +84,7 @@ def test_catboost_shap_shape_and_additivity(classification):
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(150, 6)), columns=[f"f{i}" for i in range(6)])
     signal = 2.0 * X["f0"] + X["f1"] - 0.5 * X["f2"]
-    y = ((signal + 0.3 * rng.normal(size=150) > 0).astype(int).values
-         if classification else (signal + 0.1 * rng.normal(size=150)).to_numpy())
+    y = (signal + 0.3 * rng.normal(size=150) > 0).astype(int).values if classification else (signal + 0.1 * rng.normal(size=150)).to_numpy()
     m = make_catboost_estimator(classification, n_estimators=30, random_state=0)
     m.fit(X, y)
     phi, base = catboost_shap(m, X)
@@ -101,11 +100,13 @@ def test_catboost_shap_with_cat_features():
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import catboost_shap, make_catboost_estimator
 
     rng = np.random.default_rng(2)
-    X = pd.DataFrame({
-        "n0": rng.normal(size=200),
-        "cat0": rng.integers(0, 4, size=200).astype(str),
-        "n1": rng.normal(size=200),
-    })
+    X = pd.DataFrame(
+        {
+            "n0": rng.normal(size=200),
+            "cat0": rng.integers(0, 4, size=200).astype(str),
+            "n1": rng.normal(size=200),
+        }
+    )
     y = ((X["n0"] + 0.5 * (X["cat0"].astype(int) - 1.5) + 0.2 * rng.normal(size=200)) > 0).astype(int).values
     m = make_catboost_estimator(classification=True, n_estimators=30, cat_features=["cat0"])
     m.fit(X, y)
@@ -125,8 +126,7 @@ def test_make_default_estimator_dispatches_catboost():
 
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
 
-    est = make_default_estimator(classification=True, random_state=0, booster_kind="catboost",
-                                  cat_features=["f1"])
+    est = make_default_estimator(classification=True, random_state=0, booster_kind="catboost", cat_features=["f1"])
     assert isinstance(est, CatBoostClassifier)
     assert getattr(est, "_shap_proxy_cat_features", None) == ["f1"]
 
@@ -164,17 +164,23 @@ def _make_informative_data(n_rows=400, n_features=30, n_informative=5, seed=0):
     coefs[:n_informative] = rng.normal(scale=2.0, size=n_informative)
     signal = X @ coefs
     y = (signal + 0.3 * rng.normal(size=n_rows) > 0).astype(int)
-    return (pd.DataFrame(X, columns=[f"f{i}" for i in range(n_features)]), y,
-            list(range(n_informative)))
+    return (pd.DataFrame(X, columns=[f"f{i}" for i in range(n_features)]), y, list(range(n_informative)))
 
 
 def _fit_and_recall(booster_kind, X, y, informative, *, cat_features=None, prefilter_method="univariate"):
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     fs = ShapProxiedFS(
-        classification=True, booster_kind=booster_kind, cat_features=cat_features,
-        n_jobs=1, random_state=0, cluster_features=False, trust_guard=False,
-        run_importance_ablation=False, revalidate=False, prefilter_method=prefilter_method,
+        classification=True,
+        booster_kind=booster_kind,
+        cat_features=cat_features,
+        n_jobs=1,
+        random_state=0,
+        cluster_features=False,
+        trust_guard=False,
+        run_importance_ablation=False,
+        revalidate=False,
+        prefilter_method=prefilter_method,
     )
     fs.fit(X, y)
     chosen = fs.get_support(indices=True).tolist()
@@ -202,19 +208,28 @@ def test_shap_proxied_fs_catboost_cat_features_pass_through():
 
     rng = np.random.default_rng(0)
     n = 300
-    X = pd.DataFrame({
-        "num0": rng.normal(size=n),
-        "num1": rng.normal(size=n),
-        "cat0": rng.integers(0, 3, size=n).astype(str),
-        "num2": rng.normal(size=n),
-        "cat1": rng.integers(0, 4, size=n).astype(str),
-    })
+    X = pd.DataFrame(
+        {
+            "num0": rng.normal(size=n),
+            "num1": rng.normal(size=n),
+            "cat0": rng.integers(0, 3, size=n).astype(str),
+            "num2": rng.normal(size=n),
+            "cat1": rng.integers(0, 4, size=n).astype(str),
+        }
+    )
     # Numeric features dominate the label so the recall isn't dependent on catboost's CTR quality.
     y = ((X["num0"] + X["num1"] + 0.3 * rng.normal(size=n)) > 0).astype(int)
     fs = ShapProxiedFS(
-        classification=True, booster_kind="catboost", cat_features=["cat0", "cat1"],
-        n_jobs=1, random_state=0, cluster_features=False, trust_guard=False,
-        run_importance_ablation=False, revalidate=False, prefilter_method="univariate",
+        classification=True,
+        booster_kind="catboost",
+        cat_features=["cat0", "cat1"],
+        n_jobs=1,
+        random_state=0,
+        cluster_features=False,
+        trust_guard=False,
+        run_importance_ablation=False,
+        revalidate=False,
+        prefilter_method="univariate",
     )
     with pytest.raises(ValueError, match="not yet supported"):
         fs.fit(X, y)

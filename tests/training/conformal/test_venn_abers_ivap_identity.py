@@ -7,6 +7,7 @@ the calibrated p0/p1 envelopes stay bit-exact (to division-order ULP, < 1e-9) vs
 sklearn construction over random, tied, and single-class calibration sets -- so a future
 "simplification" of the saddle that breaks the math fails here.
 """
+
 from __future__ import annotations
 
 import numpy as np

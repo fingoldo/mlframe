@@ -4,6 +4,7 @@ keyed on (id(y), K) with a weakref identity guard. These tests pin: (1) results 
 (equivalence vs the pre-fix uncached computation), (2) the cache actually avoids recomputation on repeat calls
 with the same y object, (3) different y objects (or y rebound to a new object after GC) never share a stale entry.
 """
+
 import numpy as np
 
 from mlframe.feature_selection.filters._mah import (
@@ -42,6 +43,7 @@ def test_get_y_binning_cache_hit_skips_recompute(monkeypatch):
         return orig(y_arr, K)
 
     import mlframe.feature_selection.filters._mah as mah_mod
+
     monkeypatch.setattr(mah_mod, "_compute_y_binning", counting_compute)
 
     for _ in range(5):

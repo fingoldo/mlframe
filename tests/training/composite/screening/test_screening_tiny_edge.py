@@ -14,6 +14,7 @@
 - P9: the all-rows-valid fast path skips the full-matrix fancy-index copy and is
   bit-identical to the masked path.
 """
+
 from __future__ import annotations
 
 import logging
@@ -73,17 +74,20 @@ class TestA13FixedLengthPerSeed:
         monkeypatch.setattr(st, "_tiny_cv_rmse_raw_y", _patched)
 
         _res, per_seed = _tiny_cv_rmse_raw_y_multiseed(
-            y, X,
-            family="linear", n_estimators=10, num_leaves=7,
-            learning_rate=0.1, cv_folds=3,
-            n_seed_repeats=4, base_random_state=base_rs,
-            return_per_seed=True, time_aware=False,
+            y,
+            X,
+            family="linear",
+            n_estimators=10,
+            num_leaves=7,
+            learning_rate=0.1,
+            cv_folds=3,
+            n_seed_repeats=4,
+            base_random_state=base_rs,
+            return_per_seed=True,
+            time_aware=False,
         )
         # Fixed length == n_seed_repeats (NOT compacted to 3).
-        assert per_seed.shape[0] == 4, (
-            f"per-seed array must stay fixed-length 4, got {per_seed.shape[0]} "
-            "(pre-A13 compaction)"
-        )
+        assert per_seed.shape[0] == 4, f"per-seed array must stay fixed-length 4, got {per_seed.shape[0]} (pre-A13 compaction)"
         # NaN lands in the failed seed's OWN slot; the others are finite.
         assert np.isnan(per_seed[fail_seed_idx])
         assert np.isfinite(per_seed[[0, 2, 3]]).all()
@@ -105,11 +109,17 @@ class TestA13FixedLengthPerSeed:
         monkeypatch.setattr(st, "_tiny_cv_rmse_raw_y", _patched)
 
         med_with_fail, per_seed = _tiny_cv_rmse_raw_y_multiseed(
-            y, X,
-            family="linear", n_estimators=10, num_leaves=7,
-            learning_rate=0.1, cv_folds=3,
-            n_seed_repeats=4, base_random_state=base_rs,
-            return_per_seed=True, time_aware=False,
+            y,
+            X,
+            family="linear",
+            n_estimators=10,
+            num_leaves=7,
+            learning_rate=0.1,
+            cv_folds=3,
+            n_seed_repeats=4,
+            base_random_state=base_rs,
+            return_per_seed=True,
+            time_aware=False,
         )
         finite = per_seed[np.isfinite(per_seed)]
         assert med_with_fail == pytest.approx(float(np.median(finite)), abs=1e-12)
@@ -140,9 +150,7 @@ class TestA13FixedLengthPerSeed:
         bad_comp = comp[np.isfinite(comp)]
         bad_raw = raw[np.isfinite(raw)]
         bad_diff = bad_comp - bad_raw
-        assert bad_diff.shape[0] == 4 and diff.shape[0] == 3, (
-            "compacted pairing keeps 4 mis-aligned pairs vs 3 correct pairs"
-        )
+        assert bad_diff.shape[0] == 4 and diff.shape[0] == 3, "compacted pairing keeps 4 mis-aligned pairs vs 3 correct pairs"
         # The compacted third entry mis-pairs seed3-vs-seed2 (.54 - .62);
         # the index-aligned diff never contains that value.
         assert not np.any(np.isclose(diff, 0.54 - 0.62))
@@ -163,12 +171,20 @@ class TestA13FixedLengthPerSeed:
         monkeypatch.setattr(st, "_tiny_cv_rmse_y_scale", _patched)
 
         _res, per_seed = _tiny_cv_rmse_y_scale_multiseed(
-            y_train=y, base_train=base, transform=transform,
-            fitted_params=params, x_train_matrix=X,
-            family="linear", n_estimators=10, num_leaves=7,
-            learning_rate=0.1, cv_folds=3,
-            n_seed_repeats=3, base_random_state=base_rs,
-            return_per_seed=True, time_aware=False,
+            y_train=y,
+            base_train=base,
+            transform=transform,
+            fitted_params=params,
+            x_train_matrix=X,
+            family="linear",
+            n_estimators=10,
+            num_leaves=7,
+            learning_rate=0.1,
+            cv_folds=3,
+            n_seed_repeats=3,
+            base_random_state=base_rs,
+            return_per_seed=True,
+            time_aware=False,
         )
         assert per_seed.shape[0] == 3
         assert np.isnan(per_seed[0])
@@ -187,14 +203,17 @@ class TestA10A11SplitterWarnings:
         groups[300:] = 1
         with caplog.at_level(logging.WARNING):
             _tiny_cv_rmse_raw_y(
-                y, X, family="linear",
-                n_estimators=10, num_leaves=7, learning_rate=0.1,
-                cv_folds=3, random_state=0, groups=groups,
+                y,
+                X,
+                family="linear",
+                n_estimators=10,
+                num_leaves=7,
+                learning_rate=0.1,
+                cv_folds=3,
+                random_state=0,
+                groups=groups,
             )
-        assert any(
-            "distinct group" in r.message and "falling" in r.message
-            for r in caplog.records
-        ), "A10 group-downgrade WARN not emitted"
+        assert any("distinct group" in r.message and "falling" in r.message for r in caplog.records), "A10 group-downgrade WARN not emitted"
 
     def test_a11_groups_over_time_warns(self, caplog) -> None:
         """groups + time_aware together: GroupKFold wins, temporal order dropped
@@ -203,13 +222,18 @@ class TestA10A11SplitterWarnings:
         groups = np.repeat(np.arange(6), 100)  # 6 groups >= cv_folds
         with caplog.at_level(logging.WARNING):
             _tiny_cv_rmse_raw_y(
-                y, X, family="linear",
-                n_estimators=10, num_leaves=7, learning_rate=0.1,
-                cv_folds=3, random_state=0, groups=groups, time_aware=True,
+                y,
+                X,
+                family="linear",
+                n_estimators=10,
+                num_leaves=7,
+                learning_rate=0.1,
+                cv_folds=3,
+                random_state=0,
+                groups=groups,
+                time_aware=True,
             )
-        assert any(
-            "GroupKFold takes precedence" in r.message for r in caplog.records
-        ), "A11 groups-over-time WARN not emitted"
+        assert any("GroupKFold takes precedence" in r.message for r in caplog.records), "A11 groups-over-time WARN not emitted"
 
     def test_a11_y_scale_cv_splitter_escape_hatch(self) -> None:
         """A11: _tiny_cv_rmse_y_scale gained the cv_splitter escape hatch (parity
@@ -220,10 +244,17 @@ class TestA10A11SplitterWarnings:
         y, base, X, params, transform = _linres_dataset()
         custom = KFold(n_splits=4, shuffle=True, random_state=123)
         res = _tiny_cv_rmse_y_scale(
-            y_train=y, base_train=base, transform=transform,
-            fitted_params=params, x_train_matrix=X,
-            family="linear", n_estimators=10, num_leaves=7,
-            learning_rate=0.1, cv_folds=3, random_state=0,
+            y_train=y,
+            base_train=base,
+            transform=transform,
+            fitted_params=params,
+            x_train_matrix=X,
+            family="linear",
+            n_estimators=10,
+            num_leaves=7,
+            learning_rate=0.1,
+            cv_folds=3,
+            random_state=0,
             cv_splitter=custom,
         )
         assert np.isfinite(res)
@@ -241,17 +272,31 @@ class TestP9NoCopyBitIdentical:
         valid = transform.domain_check(y, base)
         assert bool(valid.all()), "fixture must exercise the all-valid fast path"
         res = _tiny_cv_rmse_y_scale(
-            y_train=y, base_train=base, transform=transform,
-            fitted_params=params, x_train_matrix=X,
-            family="linear", n_estimators=15, num_leaves=8,
-            learning_rate=0.1, cv_folds=3, random_state=42,
+            y_train=y,
+            base_train=base,
+            transform=transform,
+            fitted_params=params,
+            x_train_matrix=X,
+            family="linear",
+            n_estimators=15,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            random_state=42,
         )
         # Recompute with a manually pre-masked (copied) matrix; the all-True mask
         # makes the masked inputs value-identical, so the score must match exactly.
         res_masked = _tiny_cv_rmse_y_scale(
-            y_train=y[valid], base_train=base[valid], transform=transform,
-            fitted_params=params, x_train_matrix=X[valid],
-            family="linear", n_estimators=15, num_leaves=8,
-            learning_rate=0.1, cv_folds=3, random_state=42,
+            y_train=y[valid],
+            base_train=base[valid],
+            transform=transform,
+            fitted_params=params,
+            x_train_matrix=X[valid],
+            family="linear",
+            n_estimators=15,
+            num_leaves=8,
+            learning_rate=0.1,
+            cv_folds=3,
+            random_state=42,
         )
         assert res == pytest.approx(res_masked, abs=1e-12)

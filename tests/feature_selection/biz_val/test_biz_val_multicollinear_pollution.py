@@ -36,6 +36,7 @@ them, real regressions do):
   - MRMR collapses to {x3} every seed -> AUC ~0.6 (the recovery GAP);
   - ShapProxiedFS keeps the near-collinear pair both -> maxVIF stays ~506 (the VIF GAP).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -46,11 +47,10 @@ import pytest
 
 warnings.filterwarnings("ignore")
 
-from sklearn.linear_model import LogisticRegression  # noqa: E402
-from sklearn.model_selection import cross_val_score  # noqa: E402
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score
 
-from tests.feature_selection._selector_factories import SELECTOR_SPECS, selected_names, spec_params  # noqa: E402
-from tests.feature_selection.conftest import fast_subset  # noqa: E402
+from tests.feature_selection._selector_factories import SELECTOR_SPECS, selected_names, spec_params
 
 
 # --------------------------------------------------------------------------- fixtures / metrics
@@ -60,8 +60,8 @@ _CLUSTER_PREFIX = "vif"
 _CLUSTER_SIZE = 5
 
 
-
 pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 
 def make_multicollinear_pollution(n: int = 600, seed: int = 0):
     """Signal+noise frame polluted with all four degeneracy forms (a)-(d). See module docstring.
@@ -137,15 +137,27 @@ def _subset_auc(names, X, y, cv: int = 4) -> float:
     cols = _selected_in_X(names, X)
     if not cols:
         return float("nan")
-    return float(cross_val_score(
-        LogisticRegression(max_iter=400), X[cols], y, cv=cv, scoring="roc_auc",
-    ).mean())
+    return float(
+        cross_val_score(
+            LogisticRegression(max_iter=400),
+            X[cols],
+            y,
+            cv=cv,
+            scoring="roc_auc",
+        ).mean()
+    )
 
 
 def _baseline_auc(X, y, cv: int = 4) -> float:
-    return float(cross_val_score(
-        LogisticRegression(max_iter=400), X[["x1", "x2"]], y, cv=cv, scoring="roc_auc",
-    ).mean())
+    return float(
+        cross_val_score(
+            LogisticRegression(max_iter=400),
+            X[["x1", "x2"]],
+            y,
+            cv=cv,
+            scoring="roc_auc",
+        ).mean()
+    )
 
 
 # --------------------------------------------------------------------------- the pollution is real
@@ -229,8 +241,7 @@ def test_does_not_keep_whole_high_vif_cluster(spec):
     if spec.name in _CLUSTER_KEEP_GAP:
         pytest.xfail(reason=f"FS GAP: {spec.name} keeps a majority of the high-VIF cluster (median {median_keep}/5)")
     assert median_keep <= 2, (
-        f"{spec.name} kept {median_keep}/5 of the high-VIF cluster (per-seed {keeps}); "
-        "a multicollinearity-aware selector should keep a representative (<=2)"
+        f"{spec.name} kept {median_keep}/5 of the high-VIF cluster (per-seed {keeps}); a multicollinearity-aware selector should keep a representative (<=2)"
     )
 
 
@@ -249,10 +260,7 @@ def test_recovers_linear_combo_signal(spec):
     if spec.name in _RECOVERY_GAP:
         pytest.xfail(reason=f"FS GAP: {spec.name} collapses onto the rank-deficient surrogate and loses the x1+x2 signal (AUC {auc:.3f})")
     assert np.isfinite(auc), f"{spec.name} selected an empty/untransformable subset"
-    assert auc >= base - 0.05, (
-        f"{spec.name} subset AUC {auc:.3f} fell >0.05 below the x1+x2 baseline {base:.3f}; "
-        "it did not recover the linear-combo signal"
-    )
+    assert auc >= base - 0.05, f"{spec.name} subset AUC {auc:.3f} fell >0.05 below the x1+x2 baseline {base:.3f}; it did not recover the linear-combo signal"
 
 
 @pytest.mark.parametrize("spec", spec_params())
@@ -263,18 +271,15 @@ def test_reduces_multicollinearity(spec):
     the full cluster (post-VIF stays unbounded/high) are xfailed to the correct bound.
     """
     X, y = make_multicollinear_pollution(seed=0)
-    names, cols = _fit_or_report(spec, X, y)
+    _names, cols = _fit_or_report(spec, X, y)
     post_vif = _max_vif(X[cols]) if cols else 1.0
     print(f"[vif-reduce] {spec.name}: post max-VIF={post_vif} on {cols}")
 
     if spec.name in _VIF_REDUCE_GAP:
         pytest.xfail(reason=f"FS GAP: {spec.name} leaves a rank-deficient / high-VIF subset (post max-VIF {post_vif})")
-    assert np.isfinite(post_vif), (
-        f"{spec.name} kept a rank-deficient subset (singular Gram, max-VIF inf); it did not break the collinearity"
-    )
+    assert np.isfinite(post_vif), f"{spec.name} kept a rank-deficient subset (singular Gram, max-VIF inf); it did not break the collinearity"
     assert post_vif < 20.0, (
-        f"{spec.name} post-selection max-VIF {post_vif:.1f} exceeds the 20.0 ceiling; "
-        "the high-VIF cluster / collinear pair was not reduced to a representative"
+        f"{spec.name} post-selection max-VIF {post_vif:.1f} exceeds the 20.0 ceiling; the high-VIF cluster / collinear pair was not reduced to a representative"
     )
 
 

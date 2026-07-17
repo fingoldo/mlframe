@@ -6,9 +6,9 @@ splits -- a 32% worse deployment. ``decide_ar1_failsafe_val_veto`` catches this:
 test) the trained component beats lag by far more than the failsafe tolerance, so the OOF tie is confirmed spurious and
 the veto returns the trained index to deploy instead of lag.
 """
+
 from __future__ import annotations
 
-import math
 
 import numpy as np
 
@@ -35,12 +35,17 @@ class TestComputeValVeto:
         # OOF tie (both ~13.64); on val the trained component is near-perfect, lag is far off -> veto -> trained idx 0.
         n = 400
         y = np.linspace(0.0, 100.0, n)
-        trained = _Comp(y + np.resize([0.3, -0.3], n))   # val RMSE ~0.3
-        lag = _Comp(y + 13.0)                             # val RMSE ~13
+        trained = _Comp(y + np.resize([0.3, -0.3], n))  # val RMSE ~0.3
+        lag = _Comp(y + 13.0)  # val RMSE ~13
         idx = compute_val_veto(
-            ["raw#lgb", "lag_predict"], [13.64, 13.64], [trained, lag],
-            filtered_val_df=object(), filtered_val_idx=np.arange(n), oof_y_full=y,
-            lag_failsafe_tol=0.10, config=_Cfg(on=True),
+            ["raw#lgb", "lag_predict"],
+            [13.64, 13.64],
+            [trained, lag],
+            filtered_val_df=object(),
+            filtered_val_idx=np.arange(n),
+            oof_y_full=y,
+            lag_failsafe_tol=0.10,
+            config=_Cfg(on=True),
         )
         assert idx == 0
 
@@ -49,18 +54,31 @@ class TestComputeValVeto:
         y = np.linspace(0.0, 100.0, n)
         trained, lag = _Comp(y), _Comp(y + 13.0)
         idx = compute_val_veto(
-            ["raw#lgb", "lag_predict"], [13.64, 13.64], [trained, lag],
-            filtered_val_df=object(), filtered_val_idx=np.arange(n), oof_y_full=y,
-            lag_failsafe_tol=0.10, config=_Cfg(on=False),
+            ["raw#lgb", "lag_predict"],
+            [13.64, 13.64],
+            [trained, lag],
+            filtered_val_df=object(),
+            filtered_val_idx=np.arange(n),
+            oof_y_full=y,
+            lag_failsafe_tol=0.10,
+            config=_Cfg(on=False),
         )
         assert idx is None
 
     def test_wrapper_no_val_data_returns_none(self):
-        assert compute_val_veto(
-            ["raw#lgb", "lag_predict"], [13.64, 13.64], [_Comp([0.0]), _Comp([0.0])],
-            filtered_val_df=None, filtered_val_idx=None, oof_y_full=None,
-            lag_failsafe_tol=0.10, config=_Cfg(on=True),
-        ) is None
+        assert (
+            compute_val_veto(
+                ["raw#lgb", "lag_predict"],
+                [13.64, 13.64],
+                [_Comp([0.0]), _Comp([0.0])],
+                filtered_val_df=None,
+                filtered_val_idx=None,
+                oof_y_full=None,
+                lag_failsafe_tol=0.10,
+                config=_Cfg(on=True),
+            )
+            is None
+        )
 
 
 def _val_map(d):

@@ -3,6 +3,7 @@
 When the suite injects a dict via ``_mlframe_identity_cache_override_``, MRMR reads / writes that dict
 instead of the module-level ``_MRMR_IDENTITY_FP_CACHE``. Default ``mrmr_identity_cache_scope="ctx"``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -12,12 +13,14 @@ import pytest
 
 def test_config_default_scope_is_ctx():
     from mlframe.training.configs import FeatureSelectionConfig
+
     cfg = FeatureSelectionConfig()
     assert cfg.mrmr_identity_cache_scope == "ctx"
 
 
 def test_config_validator_rejects_unknown_scope():
     from mlframe.training.configs import FeatureSelectionConfig
+
     with pytest.raises(ValueError):
         FeatureSelectionConfig(mrmr_identity_cache_scope="global")
 
@@ -53,6 +56,7 @@ def test_mrmr_uses_override_dict_when_stamped():
 def test_ctx_cache_field_present_on_training_context():
     """TrainingContext must have the slot for the ctx-scoped cache."""
     from mlframe.training.core._training_context import TrainingContext
+
     ctx = TrainingContext()
     assert hasattr(ctx, "_mrmr_identity_cache")
     assert ctx._mrmr_identity_cache == {}
@@ -63,7 +67,7 @@ def test_build_pre_pipelines_threads_cache_to_mrmr():
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
 
     ctx_cache: dict = {}
-    pre_pipelines, names = _build_pre_pipelines(
+    pre_pipelines, _names = _build_pre_pipelines(
         use_ordinary_models=False,
         rfecv_models=[],
         rfecv_models_params={},
@@ -91,7 +95,7 @@ def test_build_pre_pipelines_no_cache_when_none():
     """When mrmr_identity_cache is None, MRMR falls back to the module-level cache (no override stamped)."""
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
 
-    pre_pipelines, names = _build_pre_pipelines(
+    pre_pipelines, _names = _build_pre_pipelines(
         use_ordinary_models=False,
         rfecv_models=[],
         rfecv_models_params={},

@@ -7,6 +7,7 @@ normalization (A8-17), CompositeTargetEstimator predict-stub discoverability
 (A8-16), __init__ import-path docstring (bonus), and decision-threshold tuning
 (A7-04).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,6 +17,7 @@ import pytest
 # ----------------------------------------------------------------------------
 # A8-04 -- strict _ensure_config dict path
 # ----------------------------------------------------------------------------
+
 
 def test_ensure_config_dict_unknown_key_raises():
     from mlframe.training.core._setup_helpers import _ensure_config
@@ -53,6 +55,7 @@ def test_ensure_config_none_path_filters_silently():
 # A8-19 -- generic ReportingConfig field propagation in trainer
 # ----------------------------------------------------------------------------
 
+
 def test_build_configs_propagates_reporting_field_generically():
     from mlframe.training.trainer import _build_configs_from_params
 
@@ -73,6 +76,7 @@ def test_build_configs_drops_unknown_kwarg_without_raising(caplog):
 # A8-10 -- suite return-shape contract
 # ----------------------------------------------------------------------------
 
+
 def test_assert_suite_return_shape_accepts_2tuple_of_dicts():
     from mlframe.training.core._main_train_suite import _assert_suite_return_shape
 
@@ -92,8 +96,10 @@ def test_assert_suite_return_shape_rejects_bad_shapes(bad):
 # A8-17 -- lgb_shim eval_set normalization (one arm per supported shape)
 # ----------------------------------------------------------------------------
 
+
 def _Xy(n=5, k=3):
     import pandas as pd
+
     X = pd.DataFrame(np.zeros((n, k)), columns=[f"c{i}" for i in range(k)])
     y = np.zeros(n, dtype=int)
     return X, y
@@ -101,11 +107,13 @@ def _Xy(n=5, k=3):
 
 def test_normalize_eval_set_none():
     from mlframe.training.lgb_shim import normalize_eval_set
+
     assert normalize_eval_set(None) is None
 
 
 def test_normalize_eval_set_bare_2tuple():
     from mlframe.training.lgb_shim import normalize_eval_set
+
     X, y = _Xy()
     out = normalize_eval_set((X, y))
     assert isinstance(out, list) and len(out) == 1 and len(out[0]) == 2
@@ -113,6 +121,7 @@ def test_normalize_eval_set_bare_2tuple():
 
 def test_normalize_eval_set_bare_3tuple():
     from mlframe.training.lgb_shim import normalize_eval_set
+
     X, y = _Xy()
     w = np.ones(len(y))
     out = normalize_eval_set((X, y, w))
@@ -121,6 +130,7 @@ def test_normalize_eval_set_bare_3tuple():
 
 def test_normalize_eval_set_bare_2list():
     from mlframe.training.lgb_shim import normalize_eval_set
+
     X, y = _Xy()
     out = normalize_eval_set([X, y])
     assert isinstance(out, list) and len(out) == 1 and len(out[0]) == 2
@@ -130,6 +140,7 @@ def test_normalize_eval_set_bare_2list():
 
 def test_normalize_eval_set_proper_list_of_pairs():
     from mlframe.training.lgb_shim import normalize_eval_set
+
     X1, y1 = _Xy()
     X2, y2 = _Xy()
     out = normalize_eval_set([(X1, y1), (X2, y2)])
@@ -138,6 +149,7 @@ def test_normalize_eval_set_proper_list_of_pairs():
 
 def test_normalize_eval_set_single_pair_in_list():
     from mlframe.training.lgb_shim import normalize_eval_set
+
     X, y = _Xy()
     out = normalize_eval_set([(X, y)])
     assert isinstance(out, list) and len(out) == 1 and out[0][0] is X
@@ -147,13 +159,15 @@ def test_normalize_eval_set_single_pair_in_list():
 # A8-03 / A8-01 -- predict-stub discoverability + clone refusal
 # ----------------------------------------------------------------------------
 
+
 def test_composite_estimator_predict_methods_in_body():
     """predict / predict_quantile are defined on the class body (discoverable to tooling)."""
     from mlframe.training.composite import CompositeTargetEstimator
+
     assert "predict" in CompositeTargetEstimator.__dict__
     assert "predict_quantile" in CompositeTargetEstimator.__dict__
-    assert (CompositeTargetEstimator.predict.__doc__ or "")
-    assert (CompositeTargetEstimator.predict_quantile.__doc__ or "")
+    assert CompositeTargetEstimator.predict.__doc__ or ""
+    assert CompositeTargetEstimator.predict_quantile.__doc__ or ""
 
 
 def test_composite_estimator_clone_refuses_from_fitted_inner():
@@ -164,8 +178,11 @@ def test_composite_estimator_clone_refuses_from_fitted_inner():
     inner = LinearRegression()
     inner.fit(np.arange(20).reshape(-1, 1).astype(float), np.arange(20).astype(float))
     wrapped = CompositeTargetEstimator.from_fitted_inner(
-        fitted_inner=inner, transform_name="diff", base_column="b",
-        transform_fitted_params={}, y_train=np.arange(20).astype(float),
+        fitted_inner=inner,
+        transform_name="diff",
+        base_column="b",
+        transform_fitted_params={},
+        y_train=np.arange(20).astype(float),
     )
     with pytest.raises(NotImplementedError):
         clone(wrapped)
@@ -174,6 +191,7 @@ def test_composite_estimator_clone_refuses_from_fitted_inner():
 # ----------------------------------------------------------------------------
 # A8-02 -- check_estimator actually run (early-stop wrappers clean; CTE pinned)
 # ----------------------------------------------------------------------------
+
 
 def test_check_estimator_runs_clean_on_early_stop_wrapper():
     from sklearn.utils.estimator_checks import check_estimator
@@ -192,21 +210,41 @@ def test_check_estimator_runs_clean_on_early_stop_wrapper():
 _CTE_EXPECTED_FAILED = {
     name: "CompositeTargetEstimator requires a base column in X; generic raw-array check is N/A"
     for name in (
-        "check_complex_data", "check_dict_unchanged", "check_dont_overwrite_parameters",
-        "check_dtype_object", "check_estimator_sparse_array", "check_estimator_sparse_matrix",
-        "check_estimator_sparse_tag", "check_estimators_dtypes",
-        "check_estimators_empty_data_messages", "check_estimators_fit_returns_self",
-        "check_estimators_nan_inf", "check_estimators_overwrite_params",
-        "check_estimators_pickle", "check_estimators_unfitted",
-        "check_f_contiguous_array_estimator", "check_fit1d", "check_fit2d_1feature",
-        "check_fit2d_1sample", "check_fit2d_predict1d", "check_fit_check_is_fitted",
-        "check_fit_idempotent", "check_fit_score_takes_y",
-        "check_methods_sample_order_invariance", "check_methods_subset_invariance",
-        "check_mixin_order", "check_n_features_in", "check_n_features_in_after_fitting",
-        "check_pipeline_consistency", "check_positive_only_tag_during_fit",
-        "check_readonly_memmap_input", "check_sample_weight_equivalence_on_dense_data",
-        "check_sample_weights_list", "check_sample_weights_not_an_array",
-        "check_sample_weights_not_overwritten", "check_sample_weights_pandas_series",
+        "check_complex_data",
+        "check_dict_unchanged",
+        "check_dont_overwrite_parameters",
+        "check_dtype_object",
+        "check_estimator_sparse_array",
+        "check_estimator_sparse_matrix",
+        "check_estimator_sparse_tag",
+        "check_estimators_dtypes",
+        "check_estimators_empty_data_messages",
+        "check_estimators_fit_returns_self",
+        "check_estimators_nan_inf",
+        "check_estimators_overwrite_params",
+        "check_estimators_pickle",
+        "check_estimators_unfitted",
+        "check_f_contiguous_array_estimator",
+        "check_fit1d",
+        "check_fit2d_1feature",
+        "check_fit2d_1sample",
+        "check_fit2d_predict1d",
+        "check_fit_check_is_fitted",
+        "check_fit_idempotent",
+        "check_fit_score_takes_y",
+        "check_methods_sample_order_invariance",
+        "check_methods_subset_invariance",
+        "check_mixin_order",
+        "check_n_features_in",
+        "check_n_features_in_after_fitting",
+        "check_pipeline_consistency",
+        "check_positive_only_tag_during_fit",
+        "check_readonly_memmap_input",
+        "check_sample_weight_equivalence_on_dense_data",
+        "check_sample_weights_list",
+        "check_sample_weights_not_an_array",
+        "check_sample_weights_not_overwritten",
+        "check_sample_weights_pandas_series",
         "check_sample_weights_shape",
     )
 }
@@ -226,8 +264,10 @@ def test_check_estimator_runs_on_composite_with_pinned_failures():
 # bonus -- top-level __init__ import-path docstring is truthful
 # ----------------------------------------------------------------------------
 
+
 def test_top_level_docstring_composite_import_path_truthful():
     import mlframe
+
     doc = mlframe.__doc__ or ""
     assert "from mlframe.training.composite import CompositeTargetEstimator" in doc
     assert "from mlframe.training import CompositeTargetEstimator" not in doc
@@ -239,8 +279,10 @@ def test_top_level_docstring_composite_import_path_truthful():
 # A7-04 -- decision-threshold tuning (unit + biz_value)
 # ----------------------------------------------------------------------------
 
+
 def test_tune_threshold_degenerate_returns_default():
     from mlframe.training.core._setup_helpers import tune_decision_threshold, DEFAULT_PROBABILITY_THRESHOLD
+
     # single-class
     assert tune_decision_threshold(np.zeros(10, dtype=int), np.linspace(0, 1, 10)) == DEFAULT_PROBABILITY_THRESHOLD
     # empty
@@ -251,6 +293,7 @@ def test_tune_threshold_degenerate_returns_default():
 
 def test_get_decision_threshold_fallbacks():
     from mlframe.training.core._setup_helpers import get_decision_threshold
+
     assert get_decision_threshold(None) == 0.5
     assert get_decision_threshold({}, "k") == 0.5
     assert get_decision_threshold({"decision_thresholds": {"k": "bad"}}, "k") == 0.5
@@ -299,6 +342,7 @@ def test_tune_threshold_never_reads_test_only_given_inputs():
     """tune_decision_threshold operates ONLY on the arrays it is handed (no global
     test access); identical inputs -> identical output regardless of any other state."""
     from mlframe.training.core._setup_helpers import tune_decision_threshold
+
     y, p = _imbalanced_synth(seed=1)
     a = tune_decision_threshold(y, p, metric="f1")
     b = tune_decision_threshold(y.copy(), p.copy(), metric="f1")
@@ -309,6 +353,7 @@ def test_tune_threshold_never_reads_test_only_given_inputs():
 # AUTO-gate: imbalance detection + tri-state resolver (unit + biz_value)
 # ----------------------------------------------------------------------------
 
+
 def _balanced_synth(seed=42, n=6000):
     rng = np.random.default_rng(seed)
     y = (rng.random(n) < 0.5).astype(int)
@@ -318,8 +363,9 @@ def _balanced_synth(seed=42, n=6000):
 
 def test_is_target_imbalanced_detects_skew():
     from mlframe.training.core._setup_helpers import is_target_imbalanced, DECISION_THRESHOLD_IMBALANCE_FRACTION
-    y_imb, _ = _imbalanced_synth()       # ~6% positive
-    y_bal, _ = _balanced_synth()         # ~50% positive
+
+    y_imb, _ = _imbalanced_synth()  # ~6% positive
+    y_bal, _ = _balanced_synth()  # ~50% positive
     assert is_target_imbalanced(y_imb) is True
     assert is_target_imbalanced(y_bal) is False
     # cutoff boundary: just below the fraction is imbalanced, just above is not.
@@ -338,6 +384,7 @@ def test_is_target_imbalanced_detects_skew():
 def test_should_tune_decision_threshold_tristate():
     """Tri-state: True always tunes, False never, 'auto' gates on imbalance."""
     from mlframe.training.core._setup_helpers import should_tune_decision_threshold
+
     y_imb, _ = _imbalanced_synth()
     y_bal, _ = _balanced_synth()
     # True: always tune regardless of balance.
@@ -353,6 +400,7 @@ def test_should_tune_decision_threshold_tristate():
 
 def test_config_default_tune_decision_threshold_is_auto():
     from mlframe.training.configs import TrainingBehaviorConfig
+
     assert TrainingBehaviorConfig().tune_decision_threshold == "auto"
 
 

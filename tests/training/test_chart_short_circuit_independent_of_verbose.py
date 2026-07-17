@@ -7,6 +7,7 @@ charts to a temp dir nobody sees (~60s wasted on 1M-row multiclass). The gating
 computation + mutation are now hoisted out of the verbose block; only the INFO
 log lines stay verbose-gated.
 """
+
 from __future__ import annotations
 
 from mlframe.training._training_runtime_configs import OutputConfig
@@ -15,16 +16,28 @@ from mlframe.training.core._phase_config_setup import setup_configuration
 
 def _setup(output_config, verbose):
     return setup_configuration(
-        preprocessing_config=None, pipeline_config=None, feature_types_config=None,
-        split_config=None, hyperparams_config=None, behavior_config=None,
-        reporting_config=None, output_config=output_config, outlier_detection_config=None,
-        feature_selection_config=None, confidence_analysis_config=None,
-        baseline_diagnostics_config=None, dummy_baselines_config=None,
-        quantile_regression_config=None, composite_target_discovery_config=None,
+        preprocessing_config=None,
+        pipeline_config=None,
+        feature_types_config=None,
+        split_config=None,
+        hyperparams_config=None,
+        behavior_config=None,
+        reporting_config=None,
+        output_config=output_config,
+        outlier_detection_config=None,
+        feature_selection_config=None,
+        confidence_analysis_config=None,
+        baseline_diagnostics_config=None,
+        dummy_baselines_config=None,
+        quantile_regression_config=None,
+        composite_target_discovery_config=None,
         feature_handling_config=None,
-        linear_model_config=None, multilabel_dispatch_config=None,
-        model_name="sc_test", target_name="sc_test",
-        mlframe_models=None, verbose=verbose,
+        linear_model_config=None,
+        multilabel_dispatch_config=None,
+        model_name="sc_test",
+        target_name="sc_test",
+        mlframe_models=None,
+        verbose=verbose,
     )
 
 

@@ -59,9 +59,7 @@ def test_isotonic_overfit_risk_check_flags_noisy_fit():
     p = np.sort(rng.uniform(0, 1, size=n))
     y = rng.integers(0, 2, size=n).astype(np.float64)  # uncorrelated with p -> isotonic tracks noise
     cp = np.column_stack([1.0 - p, p])
-    ctx, _ = _binary_ctx(
-        cp, y, behavior_config=SimpleNamespace(check_isotonic_overfit_risk=True, isotonic_risk_kwargs={"segment_ratio_threshold": 1e-9})
-    )
+    ctx, _ = _binary_ctx(cp, y, behavior_config=SimpleNamespace(check_isotonic_overfit_risk=True, isotonic_risk_kwargs={"segment_ratio_threshold": 1e-9}))
 
     _isotonic_overfit_risk_check(ctx)
 
@@ -183,7 +181,7 @@ def _regression_entry(rng, n=400, discriminative=True):
 def test_confidence_shrinkage_shrinks_weak_target_toward_neutral():
     rng = np.random.default_rng(6)
     weak_entry, weak_test_preds = _regression_entry(rng, discriminative=False)
-    strong_entry, strong_test_preds = _regression_entry(rng, discriminative=True)
+    strong_entry, _strong_test_preds = _regression_entry(rng, discriminative=True)
     ctx = SimpleNamespace(
         models={"REGRESSION": {"weak": [weak_entry], "strong": [strong_entry]}},
         metadata={},

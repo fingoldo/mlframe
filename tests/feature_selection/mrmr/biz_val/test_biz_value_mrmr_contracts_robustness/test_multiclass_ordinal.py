@@ -285,7 +285,7 @@ class TestMulticlassNominalSignalRecovery:
         _X, _y, sel = _multiclass_5way_fit(seed)
         names = list(sel.get_feature_names_out())
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, f"noise column(s) {leaked} leaked into 5-class support_; " f"seed={seed}, support={names}"
+        assert not leaked, f"noise column(s) {leaked} leaked into 5-class support_; seed={seed}, support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -348,10 +348,10 @@ class TestImbalancedMulticlassMinorityRecall:
         _fit_quiet(sel, X.copy(), y)
         names = list(sel.get_feature_names_out())
         assert "x1" in names and "x2" in names, (
-            f"imbalanced 3-class: signals missing from support_; " f"seed={seed}, support={names}, class counts=" f"{np.bincount(y.to_numpy())}"
+            f"imbalanced 3-class: signals missing from support_; seed={seed}, support={names}, class counts={np.bincount(y.to_numpy())}"
         )
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, f"imbalanced 3-class: noise leaked into support_ " f"({leaked}); seed={seed}, support={names}"
+        assert not leaked, f"imbalanced 3-class: noise leaked into support_ ({leaked}); seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_minority_class_recall_preserved(self, seed):
@@ -362,7 +362,7 @@ class TestImbalancedMulticlassMinorityRecall:
         # Sanity: holdout must contain at least a few minority samples
         # for the recall number to be meaningful.
         if int((y_te == 2).sum()) < 10:
-            pytest.skip(f"holdout has <10 minority rows on seed={seed}; " f"recall estimate would be unstable")
+            pytest.skip(f"holdout has <10 minority rows on seed={seed}; recall estimate would be unstable")
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X_tr, y_tr)
         Xs_tr = sel.transform(X_tr)
@@ -397,8 +397,8 @@ class TestOrdinalIntCoded:
         _X, y, sel = _int_ordinal_fit(seed)
         assert y.dtype.kind in "iu", f"int ordinal y dtype={y.dtype}"
         names = list(sel.get_feature_names_out())
-        assert "x1" in names, f"int ordinal: x1 (stronger signal) missing from " f"support_; seed={seed}, support={names}"
-        assert "x2" in names, f"int ordinal: x2 missing from support_; " f"seed={seed}, support={names}"
+        assert "x1" in names, f"int ordinal: x1 (stronger signal) missing from support_; seed={seed}, support={names}"
+        assert "x2" in names, f"int ordinal: x2 missing from support_; seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_int_ordinal_x1_picked_first(self, seed):
@@ -408,7 +408,7 @@ class TestOrdinalIntCoded:
         _X, _y, sel = _int_ordinal_fit(seed)
         names = list(sel.get_feature_names_out())
         assert len(names) >= 1
-        assert names[0] == "x1", f"int ordinal: stronger signal x1 (coef=1.5) not picked " f"first; got {names[0]} on seed={seed}, support={names}"
+        assert names[0] == "x1", f"int ordinal: stronger signal x1 (coef=1.5) not picked first; got {names[0]} on seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_int_ordinal_no_noise(self, seed):
@@ -416,7 +416,7 @@ class TestOrdinalIntCoded:
         _X, _y, sel = _int_ordinal_fit(seed)
         names = list(sel.get_feature_names_out())
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, f"int ordinal: noise {leaked} in support_; " f"seed={seed}, support={names}"
+        assert not leaked, f"int ordinal: noise {leaked} in support_; seed={seed}, support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -494,9 +494,9 @@ class TestOrdinalOrderedCategorical:
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X.copy(), y)
         names = list(sel.get_feature_names_out())
-        assert "x1" in names and "x2" in names, f"ordered cat ordinal: signals missing from support_; " f"seed={seed}, support={names}"
+        assert "x1" in names and "x2" in names, f"ordered cat ordinal: signals missing from support_; seed={seed}, support={names}"
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, f"ordered cat ordinal: noise leaked ({leaked}); " f"seed={seed}, support={names}"
+        assert not leaked, f"ordered cat ordinal: noise leaked ({leaked}); seed={seed}, support={names}"
 
 
 # ---------------------------------------------------------------------------
@@ -516,11 +516,11 @@ class TestOrdinalFloatCoded:
         """Float32-coded ordinal y recovers x1/x2 with no noise leak."""
         _X, y, sel = _float_ordinal_fit(seed)
         assert y.dtype.kind == "f"
-        assert y.nunique() == 5, f"test bug: float-coded ordinal lost levels (nunique=" f"{y.nunique()})"
+        assert y.nunique() == 5, f"test bug: float-coded ordinal lost levels (nunique={y.nunique()})"
         names = list(sel.get_feature_names_out())
-        assert "x1" in names and "x2" in names, f"float ordinal: signals missing from support_; " f"seed={seed}, support={names}"
+        assert "x1" in names and "x2" in names, f"float ordinal: signals missing from support_; seed={seed}, support={names}"
         leaked = [n for n in names if n.startswith("noise_")]
-        assert not leaked, f"float ordinal: noise leaked ({leaked}); " f"seed={seed}, support={names}"
+        assert not leaked, f"float ordinal: noise leaked ({leaked}); seed={seed}, support={names}"
 
     @pytest.mark.parametrize("seed", (7, 42))
     def test_float_ordinal_matches_int_ordinal_support(self, seed):

@@ -8,6 +8,7 @@ The test pins both halves of the contract: (1) on an INDEPENDENT (X, Y) pair the
 markedly less biased than the pre-fix ``psi(n_x)`` convention; (2) on a known-MI Gaussian it lands within tolerance of
 the analytic value.
 """
+
 from __future__ import annotations
 
 import math
@@ -42,7 +43,9 @@ def test_pre_fix_psi_nx_convention_is_more_biased():
     """
     from sklearn.neighbors import KDTree
     from mlframe.feature_selection.filters._ksg import (
-        _digamma_scalar, _count_within_eps, _lnc_correction_v2,
+        _digamma_scalar,
+        _count_within_eps,
+        _lnc_correction_v2,
     )
 
     def _ksg_lnc_prefix(x, y, k=5, alpha=0.25, seed=0):
@@ -75,30 +78,25 @@ def test_pre_fix_psi_nx_convention_is_more_biased():
             lnc += _lnc_correction_v2(nb, math.log(dvx[i]), math.log(dvy[i]), alpha) / n
         return max(0.0, classical + lnc)
 
-    prefix = np.array([
-        _ksg_lnc_prefix(np.random.default_rng(s).standard_normal(800),
-                        np.random.default_rng(s + 1000).standard_normal(800), seed=s)
-        for s in range(8)
-    ])
+    prefix = np.array(
+        [_ksg_lnc_prefix(np.random.default_rng(s).standard_normal(800), np.random.default_rng(s + 1000).standard_normal(800), seed=s) for s in range(8)]
+    )
     fixed = _independent_mi_estimates()
     assert prefix.mean() > 2.0 * fixed.mean(), (
-        f"pre-fix psi(n_x) convention should be markedly more biased on X⊥Y: prefix mean {prefix.mean():.4f} "
-        f"vs fixed {fixed.mean():.4f}"
+        f"pre-fix psi(n_x) convention should be markedly more biased on X⊥Y: prefix mean {prefix.mean():.4f} vs fixed {fixed.mean():.4f}"
     )
 
 
 def test_known_mi_gaussian_within_tolerance():
     """On a bivariate Gaussian with rho=0.6 the true MI is -0.5*ln(1-rho^2); the fixed estimator must be within tolerance."""
     rho = 0.6
-    true_mi = -0.5 * math.log(1.0 - rho ** 2)
+    true_mi = -0.5 * math.log(1.0 - rho**2)
     est = []
     for s in range(8):
         rng = np.random.default_rng(100 + s)
         x = rng.standard_normal(800)
         e = rng.standard_normal(800)
-        y = rho * x + math.sqrt(1.0 - rho ** 2) * e
+        y = rho * x + math.sqrt(1.0 - rho**2) * e
         est.append(ksg_lnc_mi(x, y, k=5, low_entropy_skip=False, seed=s))
     mean_est = float(np.mean(est))
-    assert mean_est == pytest.approx(true_mi, abs=0.05), (
-        f"Gaussian rho=0.6 MI estimate {mean_est:.4f} should be within 0.05 of true {true_mi:.4f}"
-    )
+    assert mean_est == pytest.approx(true_mi, abs=0.05), f"Gaussian rho=0.6 MI estimate {mean_est:.4f} should be within 0.05 of true {true_mi:.4f}"

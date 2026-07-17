@@ -239,12 +239,12 @@ def test_fpoly_unary_binary_with_prewarp_recovers():
     fs = _poly_unb_fit(True)
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, (
-        "F-POLY/UNB+prewarp engineered nothing; the per-operand pre-warp is " "expected to recover the non-monotone inner via the unary/binary path"
+        "F-POLY/UNB+prewarp engineered nothing; the per-operand pre-warp is expected to recover the non-monotone inner via the unary/binary path"
     )
     assert "prewarp" in name, (
-        f"F-POLY recovery used '{name}' which does NOT involve the prewarp " f"pseudo-unary; the recovery should be attributable to the prewarp"
+        f"F-POLY recovery used '{name}' which does NOT involve the prewarp pseudo-unary; the recovery should be attributable to the prewarp"
     )
-    assert corr >= 0.70, f"F-POLY/UNB+prewarp best engineered |corr|={corr:.3f} < 0.70 ({name}); " f"the per-operand pre-warp recovery regressed"
+    assert corr >= 0.70, f"F-POLY/UNB+prewarp best engineered |corr|={corr:.3f} < 0.70 ({name}); the per-operand pre-warp recovery regressed"
 
 
 def test_fpoly_prewarp_is_the_lever_vs_no_prewarp_control():
@@ -271,9 +271,9 @@ def test_fpoly_prewarp_is_the_lever_vs_no_prewarp_control():
     _n_off, corr_off = _best_engineered_corr(fs_off, df, true)
     # Prewarp ON must reach a near-exact reconstruction AND use the prewarp pseudo-
     # unary -- this is what makes it the lever (not a generic library unary).
-    assert corr_on >= 0.85, f"F-POLY/UNB+prewarp best engineered |corr|={corr_on:.3f} < 0.85 ({n_on}); " f"the per-operand prewarp recovery regressed"
+    assert corr_on >= 0.85, f"F-POLY/UNB+prewarp best engineered |corr|={corr_on:.3f} < 0.85 ({n_on}); the per-operand prewarp recovery regressed"
     assert n_on is not None and "prewarp" in n_on, (
-        f"F-POLY recovery used '{n_on}' which does NOT involve the prewarp pseudo-" f"unary; the recovery should be attributable to the prewarp"
+        f"F-POLY recovery used '{n_on}' which does NOT involve the prewarp pseudo-unary; the recovery should be attributable to the prewarp"
     )
     # The lever margin: prewarp ON beats the best the library does WITHOUT it. A
     # 0.20 margin tolerates the control's partial-recovery ceiling (OFF reaches
@@ -305,7 +305,7 @@ def test_fpoly_downstream_score_recovers_with_prewarp():
         f"true-signal R^2 {true_r2:.3f}; the engineered feature did not deliver "
         f"the predictive lift"
     )
-    assert sel_r2 >= raw_r2 + 0.40, f"F-POLY/UNB+prewarp downstream R^2={sel_r2:.3f} did not materially beat " f"the all-raw baseline {raw_r2:.3f}"
+    assert sel_r2 >= raw_r2 + 0.40, f"F-POLY/UNB+prewarp downstream R^2={sel_r2:.3f} did not materially beat the all-raw baseline {raw_r2:.3f}"
 
     fs_off = _poly_unb_fit(False)
     sel_r2_off = _ridge_r2(np.asarray(fs_off.transform(df)), y)
@@ -334,7 +334,7 @@ def test_fmono_prewarp_does_not_disturb_monotone_recovery():
     fs = _fit(lambda: _unb(prewarp=True), df, y)
     name, corr = _best_engineered_corr(fs, df, true)
     assert name is not None, "F-MONO/UNB+prewarp engineered nothing (must still recover)"
-    assert corr >= 0.80, f"F-MONO/UNB+prewarp best engineered |corr|={corr:.3f} < 0.80 ({name}); " f"the prewarp disturbed the monotone recovery"
+    assert corr >= 0.80, f"F-MONO/UNB+prewarp best engineered |corr|={corr:.3f} < 0.80 ({name}); the prewarp disturbed the monotone recovery"
 
 
 # ---------------------------------------------------------------------------
@@ -351,13 +351,13 @@ def test_noise_control_prewarp_engineers_nothing():
     fs_off = _fit(lambda: _unb(prewarp=False), df, y)
     eng_on = _eng_names(fs_on)
     eng_off = _eng_names(fs_off)
-    assert not eng_on, f"noise control fabricated engineered feature(s) {eng_on} with prewarp " f"ON; the uplift gate let a spurious prewarp feature through"
-    assert not eng_off, f"noise control fabricated engineered feature(s) {eng_off} with prewarp " f"OFF; the elementary library overfit pure noise"
+    assert not eng_on, f"noise control fabricated engineered feature(s) {eng_on} with prewarp ON; the uplift gate let a spurious prewarp feature through"
+    assert not eng_off, f"noise control fabricated engineered feature(s) {eng_off} with prewarp OFF; the elementary library overfit pure noise"
     # Downstream stays at the (near-zero) noise baseline.
     raw_r2 = _ridge_r2(df.values, y)
     sel_r2 = _ridge_r2(np.asarray(fs_on.transform(df)), y)
     assert sel_r2 <= raw_r2 + 0.10, (
-        f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline " f"{raw_r2:.3f}: a spurious prewarp feature is leaking signal"
+        f"noise control downstream R^2={sel_r2:.3f} beats the raw noise baseline {raw_r2:.3f}: a spurious prewarp feature is leaking signal"
     )
 
 
@@ -372,12 +372,12 @@ def test_linear_control_prewarp_adds_no_spurious_overfit_feature():
     eng_on = _eng_names(fs_on)
     prewarp_cols = [nm for nm in eng_on if "prewarp" in nm]
     assert not prewarp_cols, (
-        f"linear control fabricated prewarp feature(s) {prewarp_cols}; the prewarp " f"over-fit a linear target the elementary library already covers"
+        f"linear control fabricated prewarp feature(s) {prewarp_cols}; the prewarp over-fit a linear target the elementary library already covers"
     )
     r2_on = _ridge_r2(np.asarray(fs_on.transform(df)), y)
     r2_off = _ridge_r2(np.asarray(fs_off.transform(df)), y)
     assert r2_on >= r2_off - 0.05, (
-        f"linear control downstream R^2 with prewarp ON ({r2_on:.3f}) is worse " f"than OFF ({r2_off:.3f}); the prewarp degraded a linear target"
+        f"linear control downstream R^2 with prewarp ON ({r2_on:.3f}) is worse than OFF ({r2_off:.3f}); the prewarp degraded a linear target"
     )
 
 
@@ -419,4 +419,4 @@ def test_prewarp_recipe_replay_is_deterministic_and_leak_free():
         assert nm in recipes, f"no recipe stored for engineered column '{nm}'"
         direct = np.asarray(apply_recipe(recipes[nm], df_test)).reshape(-1)
         r = abs(float(np.corrcoef(direct, Xt1[:, i])[0, 1]))
-        assert r > 0.999, f"recipe-apply replay of '{nm}' diverges from transform() output " f"(|corr|={r:.4f}); replay is not deterministic / leak-free"
+        assert r > 0.999, f"recipe-apply replay of '{nm}' diverges from transform() output (|corr|={r:.4f}); replay is not deterministic / leak-free"

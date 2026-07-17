@@ -15,13 +15,14 @@ The estimator list is discovered dynamically from ``sklearn.utils.all_estimators
 models are covered automatically; data-incompatible estimators (e.g. count-only NB on signed features,
 meta-estimators needing constructor args) are skipped, not silently passed.
 """
+
 from __future__ import annotations
 
 import warnings
 
 import numpy as np
 import pytest
-from sklearn.base import clone, is_regressor
+from sklearn.base import clone
 from sklearn.linear_model import SGDClassifier, SGDRegressor
 from sklearn.metrics import accuracy_score, mean_squared_error
 from sklearn.utils import all_estimators
@@ -105,8 +106,12 @@ def _fit_es(base_model, X, y):
         # trade-off, not a loss), so the no-loss guarantee is only meaningful over the full curve -- this
         # mirrors the warm-start sibling's correct full-curve design.
         es = EarlyStoppingWrapper(
-            clone(base_model), patience=81, max_iter=80, validation_fraction=0.1,
-            random_state=0, monotonic_decline_patience=None,
+            clone(base_model),
+            patience=81,
+            max_iter=80,
+            validation_fraction=0.1,
+            random_state=0,
+            monotonic_decline_patience=None,
         )
         try:
             with warnings.catch_warnings():
@@ -144,10 +149,7 @@ def test_biz_val_wrapper_classifier_no_accuracy_loss(name):
             full.partial_fit(Xtr, ytr, classes=classes)
     full_acc = accuracy_score(yv, full.predict(Xv))
 
-    assert es_acc >= full_acc - 1e-9, (
-        f"{name}: ES best model (acc {es_acc:.3f}) must not be worse than the fully-iterated "
-        f"model (acc {full_acc:.3f})"
-    )
+    assert es_acc >= full_acc - 1e-9, f"{name}: ES best model (acc {es_acc:.3f}) must not be worse than the fully-iterated model (acc {full_acc:.3f})"
     assert es_acc >= es.best_score_ - 1e-9
 
 
@@ -173,10 +175,7 @@ def test_biz_val_wrapper_regressor_no_rmse_loss(name):
             full.partial_fit(Xtr, ytr)
     full_rmse = _rmse(yv, full.predict(Xv))
 
-    assert es_rmse <= full_rmse + 1e-9, (
-        f"{name}: ES best model (RMSE {es_rmse:.3f}) must not be worse than the fully-iterated "
-        f"model (RMSE {full_rmse:.3f})"
-    )
+    assert es_rmse <= full_rmse + 1e-9, f"{name}: ES best model (RMSE {es_rmse:.3f}) must not be worse than the fully-iterated model (RMSE {full_rmse:.3f})"
     # best_score_ is -RMSE for regressors (greater-is-better); it must match the restored model's RMSE.
     assert -es_rmse >= es.best_score_ - 1e-9
 

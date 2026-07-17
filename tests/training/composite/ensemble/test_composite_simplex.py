@@ -1,4 +1,5 @@
 """Unit + biz_value tests for CompositeSimplexEstimator (compositional targets)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -145,6 +146,4 @@ def test_biz_val_simplex_beats_naive_independent_regressor():
 
     err_simplex = aitchison_distance(ps, yte).mean()
     err_naive = aitchison_distance(pn, yte).mean()
-    assert err_simplex < err_naive * 0.95, (
-        f"simplex Aitchison {err_simplex:.4f} should beat naive {err_naive:.4f}"
-    )
+    assert err_simplex < err_naive * 0.95, f"simplex Aitchison {err_simplex:.4f} should beat naive {err_naive:.4f}"

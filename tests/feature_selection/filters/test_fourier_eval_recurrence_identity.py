@@ -13,6 +13,7 @@ numerically; its real job is to lock the recurrence's correctness so a
 future "simplify back to the per-harmonic trig loop" or a buggy
 recurrence edit is caught.
 """
+
 import math
 
 import numpy as np

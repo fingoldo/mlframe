@@ -8,6 +8,7 @@ Trace from the production log (2026-05-17 run, target=TVT):
 
 Both paths used ``if columns`` / ``columns or []`` which raises ``ValueError`` when ``columns`` is a ``pd.Index`` (non-empty Index has ambiguous truthiness).
 """
+
 from __future__ import annotations
 
 import numpy as np

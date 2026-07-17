@@ -4,14 +4,15 @@ Covers INV-38 / INV-40: build_calibration_spec / build_reliability_overlay_spec
 are the one source for the reliability diagram; calibration.policy._emit_reliability_plot
 is expressed through the spec (LinePanelSpec overlay of raw vs calibrated curves).
 """
+
 from __future__ import annotations
 
 import os
 
 import matplotlib
+
 matplotlib.use("Agg")
 import numpy as np
-import pytest
 
 from mlframe.reporting.charts.calibration import build_reliability_overlay_spec
 from mlframe.reporting.spec import FigureSpec, LinePanelSpec
@@ -25,7 +26,11 @@ def test_overlay_spec_shape_and_series():
     calibrated = {"Iso": np.clip(raw + 0.05, 0, 1), "Beta": np.clip(raw - 0.03, 0, 1)}
     labels = {"Iso": "Iso ECE=0.0100", "Beta": "Beta ECE=0.0200"}
     spec = build_reliability_overlay_spec(
-        raw, y, calibrated_probs=calibrated, series_labels=labels, n_bins=15,
+        raw,
+        y,
+        calibrated_probs=calibrated,
+        series_labels=labels,
+        n_bins=15,
     )
     assert isinstance(spec, FigureSpec)
     panel = spec.panels[0][0]

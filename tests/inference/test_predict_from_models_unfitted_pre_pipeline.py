@@ -17,6 +17,7 @@ The fix probes ``check_is_fitted(pre_pipeline)`` before calling
 .transform. When the pipeline is unfitted (the tree-model placeholder
 case), the call is skipped and we trust the main pipeline's output.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -42,12 +43,14 @@ def test_predict_from_models_lgb_hgb_polars_unfitted_pre_pipeline():
     pytest.importorskip("polars_ds")
     rng = np.random.default_rng(0)
     n = 3_000
-    df = pl.DataFrame({
-        "x0": rng.normal(size=n).astype("float32"),
-        "x1": rng.normal(size=n).astype("float32"),
-        "c_low": rng.integers(0, 5, n).astype("int32"),
-        "y": (1.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
-    })
+    df = pl.DataFrame(
+        {
+            "x0": rng.normal(size=n).astype("float32"),
+            "x1": rng.normal(size=n).astype("float32"),
+            "c_low": rng.integers(0, 5, n).astype("int32"),
+            "y": (1.5 * rng.normal(size=n) + rng.normal(0, 0.3, n)).astype("float32"),
+        }
+    )
     fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
 
     models, metadata = train_mlframe_models_suite(
@@ -74,6 +77,5 @@ def test_predict_from_models_lgb_hgb_polars_unfitted_pre_pipeline():
         verbose=0,
     )
     assert len(results["models_used"]) >= 2, (
-        f"Expected lgb+hgb to predict; got {results['models_used']}. "
-        "If both crashed, the unfitted-pre_pipeline guard is missing."
+        f"Expected lgb+hgb to predict; got {results['models_used']}. If both crashed, the unfitted-pre_pipeline guard is missing."
     )

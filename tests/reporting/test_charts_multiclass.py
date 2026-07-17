@@ -14,12 +14,15 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.multiclass import (
-    ALLOWED_MULTICLASS_PANEL_TOKENS, compose_multiclass_figure,
+    ALLOWED_MULTICLASS_PANEL_TOKENS,
+    compose_multiclass_figure,
 )
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
 from mlframe.reporting.spec import (
-    BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec,
+    BarPanelSpec,
+    HeatmapPanelSpec,
+    LinePanelSpec,
     ViolinPanelSpec,
 )
 
@@ -69,10 +72,19 @@ def synth_4class():
 
 class TestAllowedTokens:
     def test_allowed_set_matches_documented(self):
-        assert ALLOWED_MULTICLASS_PANEL_TOKENS == frozenset({
-            "CONFUSION", "CONFUSION_MARGINS", "CONFUSED_PAIRS", "PR_F1", "ROC",
-            "PR_CURVES", "CALIB_GRID", "PROB_DIST", "TOP_K_ACC",
-        })
+        assert ALLOWED_MULTICLASS_PANEL_TOKENS == frozenset(
+            {
+                "CONFUSION",
+                "CONFUSION_MARGINS",
+                "CONFUSED_PAIRS",
+                "PR_F1",
+                "ROC",
+                "PR_CURVES",
+                "CALIB_GRID",
+                "PROB_DIST",
+                "TOP_K_ACC",
+            }
+        )
 
 
 # ----------------------------------------------------------------------------
@@ -92,6 +104,7 @@ class TestPanelTypes:
         """Confusion values are unsigned (counts / row-rates), so the heatmap must use the CB-safe sequential
         viridis -- a diverging red/blue map (RdBu_r) wrongly implies a meaningful zero-centre."""
         from mlframe.reporting.colors import HEATMAP_CMAP, resolve_heatmap_cmap
+
         y, p, c = synth_3class
         panel = compose_multiclass_figure(y, p, c, panels_template="CONFUSION").panels[0][0]
         assert panel.colormap == HEATMAP_CMAP
@@ -186,15 +199,12 @@ class TestComposer:
 
     def test_suptitle_propagated(self, synth_3class):
         y, p, c = synth_3class
-        spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION",
-                                          suptitle="my model")
+        spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION", suptitle="my model")
         assert spec.suptitle == "my model"
 
     def test_max_cols_controls_grid_width(self, synth_3class):
         y, p, c = synth_3class
-        spec = compose_multiclass_figure(y, p, c,
-                                          panels_template="CONFUSION PR_F1 ROC PR_CURVES",
-                                          max_cols=4)
+        spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION PR_F1 ROC PR_CURVES", max_cols=4)
         assert len(spec.panels) == 1
         assert len(spec.panels[0]) == 4
 
@@ -210,8 +220,7 @@ class TestRender:
         spec = compose_multiclass_figure(y, p, c)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"),
-                            str(tmp_path / "mc"))
+            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"), str(tmp_path / "mc"))
         assert os.path.exists(tmp_path / "mc.png")
         assert os.path.getsize(tmp_path / "mc.png") > 5000
 
@@ -220,6 +229,5 @@ class TestRender:
         spec = compose_multiclass_figure(y, p, c)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            render_and_save(spec, parse_plot_output_dsl("plotly[html]"),
-                            str(tmp_path / "mc"))
+            render_and_save(spec, parse_plot_output_dsl("plotly[html]"), str(tmp_path / "mc"))
         assert os.path.exists(tmp_path / "mc.html")

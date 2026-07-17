@@ -6,6 +6,7 @@ allocating a ``vc = v - v.mean()`` temporary. This is mathematically equal to th
 centered form to ~1e-13 (single ULP); the test pins that equivalence so a future
 "just center it again" or an algebra slip is caught.
 """
+
 from __future__ import annotations
 
 import numpy as np

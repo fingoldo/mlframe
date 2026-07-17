@@ -16,6 +16,7 @@ Effect: silent corruption whenever ``missing_strategy='separate_bin'``
 
 Fix: per-column NaN code = one past the column's highest regular bin.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -39,9 +40,10 @@ def test_nan_code_does_not_collide_with_real_data_bins(strategy):
     nan_idx = rng.choice(n, 30, replace=False)
     x[nan_idx] = np.nan
 
-    data, cols, nbins = categorize_dataset(
+    data, cols, _nbins = categorize_dataset(
         df=pd.DataFrame({"x": x}),
-        n_bins=4, dtype=np.int16,
+        n_bins=4,
+        dtype=np.int16,
         missing_strategy="separate_bin",
         nbins_strategy=strategy,
     )
@@ -70,19 +72,17 @@ def test_nan_code_is_one_past_max_real_code(strategy):
     nan_idx = rng.choice(n, 50, replace=False)
     x[nan_idx] = np.nan
 
-    data, cols, nbins = categorize_dataset(
+    data, cols, _nbins = categorize_dataset(
         df=pd.DataFrame({"x": x}),
-        n_bins=4, dtype=np.int16,
+        n_bins=4,
+        dtype=np.int16,
         missing_strategy="separate_bin",
         nbins_strategy=strategy,
     )
     codes = data[:, cols.index("x")]
     max_real = int(codes[~np.isnan(x)].max())
     nan_code = int(codes[np.isnan(x)].max())
-    assert nan_code == max_real + 1, (
-        f"strategy={strategy!r}: NaN code {nan_code} is not one past "
-        f"max real code {max_real}."
-    )
+    assert nan_code == max_real + 1, f"strategy={strategy!r}: NaN code {nan_code} is not one past max real code {max_real}."
 
 
 def test_non_adaptive_path_unchanged():
@@ -108,13 +108,15 @@ def test_non_adaptive_path_unchanged():
             xx = r.normal(size=n)
             xx[r.choice(n, 20, replace=False)] = np.nan
             data, cols, _ = categorize_dataset(
-                df=pd.DataFrame({"x": xx}), n_bins=n_bins, dtype=np.int16,
-                missing_strategy="separate_bin", nbins_strategy=None,  # legacy uniform path
+                df=pd.DataFrame({"x": xx}),
+                n_bins=n_bins,
+                dtype=np.int16,
+                missing_strategy="separate_bin",
+                nbins_strategy=None,  # legacy uniform path
             )
             codes = data[:, cols.index("x")]
             real_codes = {int(c) for c in codes[~np.isnan(xx)]}
             nan_codes = {int(c) for c in codes[np.isnan(xx)]}
             assert nan_codes.isdisjoint(real_codes), (
-                f"[seed={seed} n_bins={n_bins}] NaN code collides with a real bin on the legacy path: "
-                f"nan={sorted(nan_codes)} real={sorted(real_codes)}"
+                f"[seed={seed} n_bins={n_bins}] NaN code collides with a real bin on the legacy path: nan={sorted(nan_codes)} real={sorted(real_codes)}"
             )

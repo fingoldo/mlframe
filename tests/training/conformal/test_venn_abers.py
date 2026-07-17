@@ -6,6 +6,7 @@ Venn-Abers calibrated probabilities have a LOWER Expected Calibration Error than
 the raw ``predict_proba``, the ``[p0, p1]`` interval brackets the point estimate and
 the empirical frequency, and the calibrated probability is monotone in the score.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -21,9 +22,7 @@ def _overconfident_estimator():
     # A deep, near-unregularised forest over-fits the train split => its train-time
     # predict_proba is over-confident (probabilities pushed toward 0/1).
     return CompositeClassificationEstimator(
-        base_estimator=lgb.LGBMClassifier(
-            n_estimators=300, num_leaves=63, min_child_samples=2, learning_rate=0.2, verbose=-1
-        ),
+        base_estimator=lgb.LGBMClassifier(n_estimators=300, num_leaves=63, min_child_samples=2, learning_rate=0.2, verbose=-1),
     )
 
 
@@ -59,7 +58,7 @@ def test_envelopes_p0_le_p1():
     rng = np.random.default_rng(3)
     s = np.sort(rng.uniform(0, 1, 200))
     y = (rng.uniform(0, 1, 200) < s).astype(float)  # label prob ~ score
-    grid, p0, p1 = _isotonic_envelopes(s, y)
+    _grid, p0, p1 = _isotonic_envelopes(s, y)
     assert np.all(p0 <= p1 + 1e-12), "Venn-Abers p0 must be <= p1 on every grid point"
     assert np.all((p0 >= 0) & (p1 <= 1))
 
@@ -74,7 +73,7 @@ def test_calibrate_before_fit_raises():
 
 
 def test_predict_interval_without_calibration_raises():
-    est, X, y, sl_cal, sl_te = _fit_binary()
+    est, X, _y, _sl_cal, sl_te = _fit_binary()
     with pytest.raises(RuntimeError):
         est.predict_proba_interval(X[sl_te])
 
@@ -101,7 +100,7 @@ def test_interval_contains_point_estimate():
 
 # -- unit: monotone in score ------------------------------------------------
 def test_calibrated_prob_monotone_in_score():
-    est, X, y, sl_cal, sl_te = _fit_binary()
+    est, X, y, sl_cal, _sl_te = _fit_binary()
     est.calibrate_venn_abers(X[sl_cal], y[sl_cal])
     grid = np.linspace(0.0, 1.0, 50)
     from mlframe.training.composite.venn_abers import _lookup_interval

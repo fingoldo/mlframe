@@ -1,4 +1,5 @@
 """Additional coverage for mrmr.py edge cases: validation paths, pickle BC, transform branches, clone-replay."""
+
 from __future__ import annotations
 
 import pickle
@@ -28,6 +29,7 @@ def _fast_mrmr(**overrides):
 # __init__ kwarg validation
 # ----------------------------------------------------------------------------
 
+
 @pytest.mark.fast
 def test_init_quantization_nbins_over_1000_raises():
     """quantization_nbins > 1000 raises ValueError."""
@@ -55,6 +57,7 @@ def test_init_fe_max_steps_over_20_raises():
 # _validate_inputs branches
 # ----------------------------------------------------------------------------
 
+
 def test_validate_inputs_empty_rows_raises():
     df = pd.DataFrame(np.empty((0, 3)), columns=list("abc"))
     y = np.array([], dtype=np.int32)
@@ -72,13 +75,17 @@ def test_validate_inputs_single_row_raises():
 def test_validate_inputs_memory_cap_uses_available_ram_not_absolute(monkeypatch):
     """The absolute 1e9-cell cap rejected datasets that comfortably fit on a 128 GB host. The RAM-relative cap accepts a frame whose ~int32 footprint sits well below half of available RAM, even when ``n_rows * n_cols`` exceeds 1e9. Mock ``psutil.virtual_memory`` so the test is deterministic regardless of the actual host."""
     import psutil
+
     class _FakeVM:
         # 256 GB available -- half is 128 GB, comfortably larger than any realistic test footprint.
-        available = 256 * 1024 ** 3
+        available = 256 * 1024**3
+
     monkeypatch.setattr(psutil, "virtual_memory", lambda: _FakeVM())
+
     # Build a SHAPE that exceeds the old 1e9 cell ceiling but stays under the new RAM-relative cap. ~5_000_000 rows * 250 cols = 1.25e9 cells -> ~5 GB int32 working set; clearly under 128 GB half-RAM headroom.
     class _FakeFrame:
         shape = (5_000_000, 250)
+
     sel = _fast_mrmr()
     # _validate_inputs is the only thing under test -- y is provided to satisfy the duplicate-column check path. The full fit would OOM the test runner; intercepting after _validate_inputs is sufficient.
     sel._validate_inputs(_FakeFrame(), np.array([0, 1, 0, 1]))  # must NOT raise
@@ -87,13 +94,17 @@ def test_validate_inputs_memory_cap_uses_available_ram_not_absolute(monkeypatch)
 def test_validate_inputs_memory_cap_rejects_when_footprint_exceeds_half_ram(monkeypatch):
     """Under the RAM-relative cap, a frame whose int32 footprint exceeds half of available RAM must still be rejected with a message that mentions both the footprint and the RAM headroom (so the operator knows whether to subsample or free RAM)."""
     import psutil
+
     class _FakeVM:
         # 2 GB available -> 1 GB headroom; any frame above ~250M cells (1 GB int32) gets rejected.
-        available = 2 * 1024 ** 3
+        available = 2 * 1024**3
+
     monkeypatch.setattr(psutil, "virtual_memory", lambda: _FakeVM())
+
     class _FakeFrame:
         # 1_000_000 rows * 500 cols = 5e8 cells -> ~2 GB int32, exceeds half-of-2GB headroom of 1 GB.
         shape = (1_000_000, 500)
+
     sel = _fast_mrmr()
     with pytest.raises(ValueError, match=r"available RAM"):
         sel._validate_inputs(_FakeFrame(), np.array([0, 1, 0, 1]))
@@ -135,14 +146,14 @@ def test_validate_inputs_polars_struct_column_raises():
 # __setstate__ pickle BC
 # ----------------------------------------------------------------------------
 
+
 def test_setstate_injects_legacy_defaults():
     """Old pickle without newer attrs gets defaults injected by __setstate__."""
     sel = _fast_mrmr()
     # Build a minimal legacy state lacking newer attrs
     state = sel.__dict__.copy()
     # Pretend old pickle: strip every newer attribute
-    for k in ("max_confirmation_cand_nbins", "fe_fallback_to_all", "_engineered_features_",
-              "_engineered_recipes_", "ran_out_of_time_"):
+    for k in ("max_confirmation_cand_nbins", "fe_fallback_to_all", "_engineered_features_", "_engineered_recipes_", "ran_out_of_time_"):
         state.pop(k, None)
     fresh = _fast_mrmr.__wrapped__() if hasattr(_fast_mrmr, "__wrapped__") else MRMR(random_seed=42, verbose=0)
     fresh.__setstate__(state)
@@ -167,8 +178,10 @@ def test_pickle_round_trip_smoke():
 # transform / get_feature_names_out edges
 # ----------------------------------------------------------------------------
 
+
 def test_transform_unfitted_raises_not_fitted_error():
     from sklearn.exceptions import NotFittedError
+
     df, _ = _make_data()
     with pytest.raises(NotFittedError):
         _fast_mrmr().transform(df)
@@ -176,6 +189,7 @@ def test_transform_unfitted_raises_not_fitted_error():
 
 def test_get_feature_names_out_unfitted_raises():
     from sklearn.exceptions import NotFittedError
+
     with pytest.raises(NotFittedError):
         _fast_mrmr().get_feature_names_out()
 
@@ -256,6 +270,7 @@ def test_transform_all_cols_selected_identity_fast_path():
 # _FIT_CACHE behaviour
 # ----------------------------------------------------------------------------
 
+
 def test_fit_cache_clear_resets_state():
     """Clearing _FIT_CACHE forces a fresh fit on the same arrays."""
     df, y = _make_data(seed=30)
@@ -271,9 +286,11 @@ def test_fit_cache_clear_resets_state():
 # Clone-replay helper
 # ----------------------------------------------------------------------------
 
+
 def test_replay_fitted_state_preserves_constructor_params():
     """_replay_fitted_state copies fitted attrs from source onto target without touching constructor params."""
     from mlframe.feature_selection.filters.mrmr import _replay_fitted_state
+
     df, y = _make_data(seed=40)
     src = _fast_mrmr(random_seed=42).fit(df, y)
     tgt = _fast_mrmr(random_seed=99)  # different seed
@@ -287,8 +304,10 @@ def test_replay_fitted_state_preserves_constructor_params():
 # Module-level helpers
 # ----------------------------------------------------------------------------
 
+
 def test_target_to_numpy_values_various_inputs():
     from mlframe.feature_selection.filters.mrmr import _target_to_numpy_values
+
     arr = np.array([1, 2, 3])
     np.testing.assert_array_equal(_target_to_numpy_values(arr), arr)
     series = pd.Series([1, 2, 3])
@@ -301,6 +320,7 @@ def test_target_to_numpy_values_various_inputs():
 
 def test_content_array_signature_deterministic():
     from mlframe.feature_selection.filters.mrmr import _content_array_signature
+
     arr1 = np.arange(100, dtype=np.float64).reshape(20, 5)
     arr2 = np.arange(100, dtype=np.float64).reshape(20, 5)
     assert _content_array_signature(arr1) == _content_array_signature(arr2)
@@ -308,6 +328,7 @@ def test_content_array_signature_deterministic():
 
 def test_hashable_params_signature_invariant_to_dict_order():
     from mlframe.feature_selection.filters.mrmr import _hashable_params_signature
+
     a = _hashable_params_signature({"x": 1, "y": 2})
     b = _hashable_params_signature({"y": 2, "x": 1})
     assert a == b

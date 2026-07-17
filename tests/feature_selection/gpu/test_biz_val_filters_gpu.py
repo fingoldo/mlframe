@@ -6,6 +6,7 @@ over the CPU baseline at the size where the GPU is supposed to win.
 
 Naming: ``test_biz_val_gpu_<variant>_<scenario>``.
 """
+
 from __future__ import annotations
 
 import time
@@ -26,11 +27,11 @@ pytestmark = pytest.mark.gpu
 def _make_signal(n=50_000, seed=42):
     """Strong-signal synthetic for GPU MI: ``y = sign(x + 0.3*noise)``."""
     from mlframe.feature_selection.filters.discretization import discretize_array
+
     rng = np.random.default_rng(seed)
     x_cont = rng.normal(size=n)
     y = (x_cont + 0.3 * rng.normal(size=n) > 0).astype(np.int64)
-    x_bin = discretize_array(arr=x_cont, n_bins=10, method="quantile",
-                              dtype=np.int32)
+    x_bin = discretize_array(arr=x_cont, n_bins=10, method="quantile", dtype=np.int32)
     factors = np.column_stack([x_bin, y]).astype(np.int32)
     factors_nbins = np.array([10, 2], dtype=np.int64)
     return factors, factors_nbins
@@ -49,10 +50,8 @@ def _warmup():
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched
 
     factors, factors_nbins = _make_signal(n=10_000, seed=0)
-    mi_direct(factors, (0,), (1,), factors_nbins, npermutations=500,
-              parallelism="none")
-    mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins,
-                            npermutations=500, batch_size=64)
+    mi_direct(factors, (0,), (1,), factors_nbins, npermutations=500, parallelism="none")
+    mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins, npermutations=500, batch_size=64)
 
 
 # ---------------------------------------------------------------------------
@@ -92,10 +91,7 @@ def test_biz_val_gpu_mi_batched_at_least_1_5x_faster_than_cpu_at_n10k():
                 f"on AVX-2 njit that H2D + launch overhead dominate."
             )
         if _vram_total < 4 * 1024 * 1024 * 1024:
-            pytest.skip(
-                f"GPU VRAM {_vram_total / 1e9:.1f} GB below 4 GB threshold; "
-                f"launch-overhead floors do not apply on tiny devices."
-            )
+            pytest.skip(f"GPU VRAM {_vram_total / 1e9:.1f} GB below 4 GB threshold; launch-overhead floors do not apply on tiny devices.")
     except Exception as _gpu_info_err:
         pytest.skip(f"CUDA runtime not usable: {_gpu_info_err}")
 
@@ -111,13 +107,11 @@ def test_biz_val_gpu_mi_batched_at_least_1_5x_faster_than_cpu_at_n10k():
     # (commit ba78f04 added a transparent GPU route at npermutations>=32
     # that would otherwise hijack this CPU baseline call and break the
     # GPU-vs-CPU comparison this test is asserting).
-    mi_direct(factors, (0,), (1,), factors_nbins,
-              npermutations=N_PERMS, parallelism="none", prefer_gpu=False)
+    mi_direct(factors, (0,), (1,), factors_nbins, npermutations=N_PERMS, parallelism="none", prefer_gpu=False)
     t_cpu = time.perf_counter() - t0
 
     t0 = time.perf_counter()
-    mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins,
-                            npermutations=N_PERMS, batch_size=64)
+    mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins, npermutations=N_PERMS, batch_size=64)
     t_gpu = time.perf_counter() - t0
 
     speedup = t_cpu / max(t_gpu, 1e-6)
@@ -146,7 +140,7 @@ def test_biz_val_gpu_mi_batched_at_least_1_5x_faster_than_cpu_at_n10k():
             f"GPU batched MI CATASTROPHICALLY slow vs CPU at n=10k "
             f"(speedup={speedup:.2f}x, floor 0.02x). Likely a kernel decompile "
             f"/ H2D sync storm. "
-            f"({t_cpu*1000:.1f}ms CPU vs {t_gpu*1000:.1f}ms GPU)"
+            f"({t_cpu * 1000:.1f}ms CPU vs {t_gpu * 1000:.1f}ms GPU)"
         )
     if speedup < 0.5:
         pytest.xfail(
@@ -154,7 +148,7 @@ def test_biz_val_gpu_mi_batched_at_least_1_5x_faster_than_cpu_at_n10k():
             f"(speedup={speedup:.2f}x). Shared / contended GPU vs aggressive "
             f"CPU baseline; the GPU path still wins at n>=200k "
             f"(test_biz_val_gpu_mi_batched_scales_to_n200k covers it). "
-            f"({t_cpu*1000:.1f}ms CPU vs {t_gpu*1000:.1f}ms GPU)"
+            f"({t_cpu * 1000:.1f}ms CPU vs {t_gpu * 1000:.1f}ms GPU)"
         )
 
 
@@ -170,13 +164,9 @@ def test_biz_val_gpu_mi_batched_scales_to_n200k():
     N_PERMS = 500
 
     t0 = time.perf_counter()
-    mi, conf = mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins,
-                                        npermutations=N_PERMS, batch_size=64)
+    mi, conf = mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins, npermutations=N_PERMS, batch_size=64)
     t_gpu = time.perf_counter() - t0
-    assert t_gpu < 30.0, (
-        f"GPU batched MI must complete n=200k within 30s; "
-        f"got {t_gpu:.1f}s"
-    )
+    assert t_gpu < 30.0, f"GPU batched MI must complete n=200k within 30s; got {t_gpu:.1f}s"
     # The return contract: ``(mi_or_zero, confidence)``. On strong
     # signal the kernel must complete and emit a valid tuple. ``mi``
     # may be the original MI value OR 0.0 if the permutation test
@@ -197,8 +187,7 @@ def test_biz_val_gpu_mi_batched_returns_valid_tuple_on_strong_signal():
 
     _warmup()
     factors, factors_nbins = _make_signal(n=10_000, seed=42)
-    res = mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins,
-                                  npermutations=20, batch_size=64)
+    res = mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins, npermutations=20, batch_size=64)
     assert isinstance(res, tuple) and len(res) == 2
     mi_val, conf = res
     assert mi_val >= 0.0
@@ -225,8 +214,7 @@ def test_biz_val_gpu_mi_batched_oom_safe_fallback_smoke():
     # batch_size=1 forces the per-permutation launch path inside the
     # batched implementation. Must still complete and return a valid
     # MI tuple.
-    res = mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins,
-                                  npermutations=20, batch_size=1)
+    res = mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins, npermutations=20, batch_size=1)
     assert isinstance(res, tuple) and len(res) == 2
-    mi, conf = res
+    mi, _conf = res
     assert mi > 0, f"batch_size=1 path must compute valid MI; got {mi}"

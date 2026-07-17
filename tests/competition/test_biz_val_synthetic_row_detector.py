@@ -14,9 +14,7 @@ from mlframe.competition.synthetic_row_detector import (
 )
 
 
-def _make_public_fake_test_dataset(
-    n_real: int = 3000, n_synthetic: int = 3000, n_cols: int = 8, seed: int = 0
-) -> tuple[pd.DataFrame, np.ndarray]:
+def _make_public_fake_test_dataset(n_real: int = 3000, n_synthetic: int = 3000, n_cols: int = 8, seed: int = 0) -> tuple[pd.DataFrame, np.ndarray]:
     """Replicate the public "fake test row" structure documented for
     Santander Customer Transaction Prediction: real rows carry genuinely independent,
     high-cardinality float values (so most values are globally unique), while synthetic
@@ -28,19 +26,12 @@ def _make_public_fake_test_dataset(
 
     # real rows: high-cardinality continuous values, rounded to keep occasional natural
     # ties minimal but nonzero, mimicking rounded sensor/measurement data.
-    real = pd.DataFrame(
-        {f"col_{j}": np.round(rng.uniform(0, 1000, n_real), 4) for j in range(n_cols)}
-    )
+    real = pd.DataFrame({f"col_{j}": np.round(rng.uniform(0, 1000, n_real), 4) for j in range(n_cols)})
 
     # synthetic rows: for each column, independently sample WITH REPLACEMENT from the
     # real rows' own values in that column - this is exactly how organizer-injected
     # padding rows are constructed (per-column resampling breaks the joint structure).
-    synthetic = pd.DataFrame(
-        {
-            f"col_{j}": rng.choice(real[f"col_{j}"].to_numpy(), size=n_synthetic, replace=True)
-            for j in range(n_cols)
-        }
-    )
+    synthetic = pd.DataFrame({f"col_{j}": rng.choice(real[f"col_{j}"].to_numpy(), size=n_synthetic, replace=True) for j in range(n_cols)})
 
     combined = pd.concat([real, synthetic], ignore_index=True)
     is_synthetic_true = np.concatenate([np.zeros(n_real, dtype=bool), np.ones(n_synthetic, dtype=bool)])
@@ -105,7 +96,7 @@ def test_biz_val_detect_synthetic_rows_precision_recall_on_public_fake_row_patte
 
 
 def test_biz_val_count_encoding_shift_report_detects_drastic_shift_from_synthetic_padding():
-    test_df, is_synthetic_true = _make_public_fake_test_dataset(n_real=2000, n_synthetic=4000, n_cols=5, seed=3)
+    test_df, _is_synthetic_true = _make_public_fake_test_dataset(n_real=2000, n_synthetic=4000, n_cols=5, seed=3)
 
     predicted_synthetic = detect_synthetic_rows(test_df)
 

@@ -4,6 +4,7 @@ Each test pins a guard that turns an opaque crash (empty-axis reduction, negativ
 slipping past the float-only scan) into clean handling or a clear, source-naming error. The constant-y / inf validation
 scans additionally log (do not re-raise) any unexpected failure so a swallowed bug stays traceable.
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,6 +24,7 @@ import mlframe.feature_selection.filters._mrmr_validate_transform as VT
 # columns OR an empty reduction axis (the final ``data.max(axis=0)`` and the
 # in-loop categorical ``new_vals.max(axis=0)`` both raise on an empty axis).
 # --------------------------------------------------------------------------
+
 
 @pytest.mark.fast
 def test_categorize_dataset_zero_row_categorical_returns_empty_not_crash():
@@ -62,6 +64,7 @@ def test_categorize_dataset_normal_frame_unaffected():
 # B12: ``_assert_nonneg_codes`` fails loudly (naming the cause) on a negative
 # bin code, instead of letting ``np.bincount`` raise its opaque error.
 # --------------------------------------------------------------------------
+
 
 @pytest.mark.fast
 def test_assert_nonneg_codes_raises_clear_error_on_negative():
@@ -104,13 +107,12 @@ def test_compute_mrmr_artifacts_guard_triggers_on_negative_target_code():
 # MRMR._validate_inputs, not slip through to the discretiser.
 # --------------------------------------------------------------------------
 
+
 @pytest.mark.fast
 def test_validate_inputs_catches_inf_in_object_column():
     m = MRMR()
     y = np.array([0, 1, 0, 1, 0, 1])
-    df = pd.DataFrame(
-        {"a": pd.Series([1.0, 2.0, float("inf"), 4.0, 5.0, 6.0], dtype="object"), "b": [1, 2, 3, 4, 5, 6]}
-    )
+    df = pd.DataFrame({"a": pd.Series([1.0, 2.0, float("inf"), 4.0, 5.0, 6.0], dtype="object"), "b": [1, 2, 3, 4, 5, 6]})
     with pytest.raises(ValueError, match="object-dtype column"):
         m._validate_inputs(df, y)
 
@@ -119,9 +121,7 @@ def test_validate_inputs_catches_inf_in_object_column():
 def test_validate_inputs_clean_object_column_no_false_positive():
     m = MRMR()
     y = np.array([0, 1, 0, 1, 0, 1])
-    df = pd.DataFrame(
-        {"a": pd.Series(["x", "y", "z", "w", "u", "v"], dtype="object"), "b": [1, 2, 3, 4, 5, 6]}
-    )
+    df = pd.DataFrame({"a": pd.Series(["x", "y", "z", "w", "u", "v"], dtype="object"), "b": [1, 2, 3, 4, 5, 6]})
     m._validate_inputs(df, y)  # no raise
 
 
@@ -139,6 +139,7 @@ def test_validate_inputs_float_inf_still_caught():
 # unexpected non-ValueError failure rather than swallowing it silently, and
 # control flow continues unchanged.
 # --------------------------------------------------------------------------
+
 
 @pytest.mark.fast
 def test_constant_y_scan_logs_unexpected_failure(monkeypatch, caplog):

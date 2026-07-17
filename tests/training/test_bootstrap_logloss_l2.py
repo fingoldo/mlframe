@@ -13,16 +13,17 @@ This test asserts:
 3. The vectorised path runs faster than the sklearn loop at n=600 (perf
    sanity; gate at >= 5x to leave headroom for slow CI).
 """
+
 from __future__ import annotations
 
 import time
 import numpy as np
-import pytest
 
 
 def _sklearn_loop_bootstrap_binary(y: np.ndarray, p: np.ndarray, n_resamples: int, seed: int) -> np.ndarray:
     """Reference impl: the pre-optimization sklearn-per-call loop."""
     from sklearn.metrics import log_loss as _ll
+
     rng = np.random.default_rng(seed)
     n = len(y)
     samples = []
@@ -56,10 +57,7 @@ def test_vectorised_binary_logloss_matches_sklearn_loop_percentiles():
     for q in (2.5, 50.0, 97.5):
         v = float(np.percentile(vec, q))
         r = float(np.percentile(ref, q))
-        assert abs(v - r) < 0.02, (
-            f"Percentile q={q}: vectorised={v:.4f} vs sklearn-loop={r:.4f} -- "
-            f"drift exceeds 0.02 tolerance"
-        )
+        assert abs(v - r) < 0.02, f"Percentile q={q}: vectorised={v:.4f} vs sklearn-loop={r:.4f} -- drift exceeds 0.02 tolerance"
 
 
 def test_vectorised_multilabel_logloss_macro_returns_finite_samples():
@@ -89,21 +87,22 @@ def test_vectorised_multilabel_logloss_macro_returns_finite_samples():
 def test_vectorised_returns_none_on_bad_shapes():
     """Shape mismatch / 3D y must return None so caller falls back."""
     from mlframe.training.baselines.dummy import _vectorized_bootstrap_logloss_samples
+
     rng = np.random.default_rng(2)
     # Mismatch
-    assert _vectorized_bootstrap_logloss_samples(
-        rng.integers(0, 2, size=10), rng.random(20), n_resamples=10, seed=0
-    ) is None
+    assert _vectorized_bootstrap_logloss_samples(rng.integers(0, 2, size=10), rng.random(20), n_resamples=10, seed=0) is None
     # 3D y
-    assert _vectorized_bootstrap_logloss_samples(
-        rng.integers(0, 2, size=(10, 3, 2)),
-        rng.random((10, 3, 2)),
-        n_resamples=10, seed=0,
-    ) is None
+    assert (
+        _vectorized_bootstrap_logloss_samples(
+            rng.integers(0, 2, size=(10, 3, 2)),
+            rng.random((10, 3, 2)),
+            n_resamples=10,
+            seed=0,
+        )
+        is None
+    )
     # n < 10 minimum gate
-    assert _vectorized_bootstrap_logloss_samples(
-        rng.integers(0, 2, size=5), rng.random(5), n_resamples=10, seed=0
-    ) is None
+    assert _vectorized_bootstrap_logloss_samples(rng.integers(0, 2, size=5), rng.random(5), n_resamples=10, seed=0) is None
 
 
 def test_vectorised_binary_logloss_is_faster_than_sklearn_loop():
@@ -133,7 +132,7 @@ def test_vectorised_binary_logloss_is_faster_than_sklearn_loop():
     speedup = t_sk / max(t_vec, 1e-9)
     assert speedup >= 5.0, (
         f"Vectorised log-loss bootstrap only {speedup:.1f}x faster than "
-        f"sklearn loop (vec={t_vec*1000:.1f}ms, sklearn={t_sk*1000:.1f}ms); "
+        f"sklearn loop (vec={t_vec * 1000:.1f}ms, sklearn={t_sk * 1000:.1f}ms); "
         f"expected >=5x. Either the optimization regressed or the test "
         f"machine is unusually slow at numpy ops."
     )

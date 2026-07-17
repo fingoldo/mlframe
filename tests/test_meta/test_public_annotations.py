@@ -110,7 +110,7 @@ def test_no_new_unannotated_public_functions():
             orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"),
             encoding="utf-8",
         )
-        pytest.skip(f"annotation baseline refreshed at {_BASELINE_PATH.name} " f"({len(current)} unannotated function(s))")
+        pytest.skip(f"annotation baseline refreshed at {_BASELINE_PATH.name} ({len(current)} unannotated function(s))")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

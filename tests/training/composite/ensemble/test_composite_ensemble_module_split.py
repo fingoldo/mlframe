@@ -8,6 +8,7 @@ re-exported from ``composite_ensemble`` so every existing caller
 (``from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble``)
 keeps working unchanged.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,6 +16,7 @@ from pathlib import Path
 
 def test_class_still_importable_from_facade() -> None:
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
+
     assert CompositeCrossTargetEnsemble is not None
     # Classmethods on the public API.
     assert hasattr(CompositeCrossTargetEnsemble, "from_uniform_weights")
@@ -28,6 +30,7 @@ def test_other_composite_ensemble_symbols_still_importable() -> None:
         env_signature,
         compute_oof_holdout_predictions,
     )
+
     for fn in (
         derive_seeds,
         detect_gpu_in_use,
@@ -48,6 +51,7 @@ def test_sibling_owns_the_moved_class() -> None:
     """Identity: facade and sibling expose the SAME class object."""
     from mlframe.training.composite import ensemble as composite_ensemble
     from mlframe.training.composite.ensemble import _cross_target as _composite_cross_target_ensemble
+
     assert composite_ensemble.CompositeCrossTargetEnsemble is _composite_cross_target_ensemble.CompositeCrossTargetEnsemble
 
 
@@ -59,6 +63,7 @@ def test_from_uniform_weights_round_trip() -> None:
 
     class _ConstModel:
         """Tiny stub that satisfies the ensemble's predict contract."""
+
         def __init__(self, value: float):
             self._v = value
 
@@ -80,6 +85,7 @@ def test_from_uniform_weights_empty_components_raises_clear_error() -> None:
     """The fail-fast error message survived the split unchanged."""
     import pytest
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
+
     with pytest.raises(ValueError, match="empty component list"):
         CompositeCrossTargetEnsemble.from_uniform_weights(
             component_models=[],

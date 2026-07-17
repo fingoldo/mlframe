@@ -184,6 +184,7 @@ class TestNewPanelsDefaultOn:
             ALLOWED_QUANTILE_PANEL_TOKENS,
             ALLOWED_REGRESSION_PANEL_TOKENS,
         )
+
         for field, allowed in (
             ("multiclass_panels", ALLOWED_MULTICLASS_PANEL_TOKENS),
             ("multilabel_panels", ALLOWED_MULTILABEL_PANEL_TOKENS),

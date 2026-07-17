@@ -34,6 +34,7 @@ os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 if os.environ.get("CUDA_VISIBLE_DEVICES") != "":
     try:
         import torch as _torch_warm
+
         if _torch_warm.cuda.is_available():
             _wm = _torch_warm.randn(8, 8, device="cuda")
             _ = _wm @ _wm
@@ -53,7 +54,8 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 # the swept ``backend_choice`` (e.g. numpy-wins) and fail. Routing to a per-process tmp dir also stops the suite from
 # polluting the real cache. ``load_or_create()`` binds the dir at first construction, so the companion
 # ``_reset_kernel_tuning_singleton`` autouse fixture resets the singleton per test so a test's own override takes effect.
-import tempfile as _tempfile  # noqa: E402
+import tempfile as _tempfile
+
 _kt_worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
 os.environ["PYUTILZ_KERNEL_CACHE_DIR"] = os.path.join(_tempfile.gettempdir(), f"mlframe_test_kt_cache_{os.getpid()}_{_kt_worker}")
 # Skip the on-miss auto-sweep during tests: with the cache isolated to an empty tmp dir, every cache-dependent dispatch
@@ -71,6 +73,7 @@ os.environ.setdefault("PYUTILZ_KERNEL_DISABLE_SWEEP", "1")
 # documented install roots in order; first hit becomes ``CUDA_PATH``.
 if not (os.environ.get("CUDA_PATH") or os.environ.get("CUDA_HOME")):
     import glob as _cuda_glob_probe
+
     _cuda_candidates = [
         # Windows installer default
         r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA",
@@ -153,6 +156,7 @@ def _catboost_per_worker_train_dir(tmp_path, monkeypatch):
         return str(per_worker)
 
     monkeypatch.setattr(_cb_core, "_get_train_dir", _patched_get_train_dir)
+
 
 # Auto-register synthetic-data fixtures from tests.training.synthetic so they're
 # discoverable from tests outside tests/training (cross-package fixture sharing
@@ -324,11 +328,13 @@ def pytest_sessionfinish(session, exitstatus):
     multi-CUDA-library host (cupy-cu12 + numba-cuda-12.9 + torch-cu128). Best-effort; never raises."""
     try:
         from mlframe.feature_selection.filters import gpu as _gpu
+
         _gpu._GPU_POOL.free()
     except Exception:
         pass
     try:
         import cupy as _cp
+
         _cp.get_default_memory_pool().free_all_blocks()
         _cp.get_default_pinned_memory_pool().free_all_blocks()
     except Exception:
@@ -341,7 +347,7 @@ def pytest_addoption(parser):
         "--fast",
         action="store_true",
         default=False,
-        help="Fast mode: parametrized tests run one representative variant per group " f"(also enabled by {_FAST_ENV}=1).",
+        help=f"Fast mode: parametrized tests run one representative variant per group (also enabled by {_FAST_ENV}=1).",
     )
     parser.addoption(
         "--run-fuzz",
@@ -377,9 +383,7 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
-        "biz_transformer: feature_engineering/transformer biz_val test (real "
-        "datasets, multi-boosting); deselected unless --run-biz-transformer "
-        "is passed.",
+        "biz_transformer: feature_engineering/transformer biz_val test (real datasets, multi-boosting); deselected unless --run-biz-transformer is passed.",
     )
     # B2#38 marker: opts a test OUT of the ``suppress_convergence_warnings`` autouse filter so
     # ``pytest.warns(ConvergenceWarning)`` can catch the warning instead of having it pre-filtered.
@@ -405,7 +409,7 @@ def pytest_collection_modifyitems(config, items):
     # tests: real-dataset fits across multiple boostings, several minutes
     # per test, not standard CI loop material.
     if not config.getoption("--run-biz-transformer"):
-        skip_bt = pytest.mark.skip(reason="skipped by default; pass --run-biz-transformer to include " "feature_engineering/transformer biz_val tests")
+        skip_bt = pytest.mark.skip(reason="skipped by default; pass --run-biz-transformer to include feature_engineering/transformer biz_val tests")
         for item in items:
             if "biz_transformer" in item.keywords:
                 item.add_marker(skip_bt)
@@ -474,7 +478,8 @@ def fast_mode() -> bool:
 # values; if no ``ValueError: Seed must be between 0 and 2**32 - 1`` cascades,
 # the upstream fix has landed).
 try:
-    import thinc.util as _thinc_util  # noqa: E402
+    import thinc.util as _thinc_util
+
     _thinc_original_fix = _thinc_util.fix_random_seed
 
     def _thinc_clamped_fix_random_seed(seed: int = 0) -> None:
@@ -491,12 +496,11 @@ try:
             # whatever thinc was trying to do with cupy.
             import random
             import numpy as np
+
             random.seed(int(seed) % (2**32))
             np.random.seed(int(seed) % (2**32))
             warnings.warn(
-                f"thinc.util.fix_random_seed raised {_seed_err!r}; "
-                f"fell back to seeding python+numpy directly. cupy random "
-                f"state is unset for this session.",
+                f"thinc.util.fix_random_seed raised {_seed_err!r}; fell back to seeding python+numpy directly. cupy random state is unset for this session.",
                 RuntimeWarning,
                 stacklevel=2,
             )
@@ -506,7 +510,8 @@ try:
     # If pytest-randomly already populated its cache (e.g. another
     # conftest loaded before us), swap in the wrapper.
     try:
-        import pytest_randomly as _pr  # noqa: E402
+        import pytest_randomly as _pr
+
         if getattr(_pr, "entrypoint_reseeds", None):
             _pr.entrypoint_reseeds = [_thinc_clamped_fix_random_seed if r is _thinc_original_fix else r for r in _pr.entrypoint_reseeds]
     except Exception:  # pragma: no cover
@@ -518,7 +523,7 @@ except (OSError, RuntimeError) as exc:  # pragma: no cover
     # thinc is present but its import side-effects (cupy/CUDA init) failed: surface as a config notice, not a numeric RuntimeWarning.
     warnings.warn(
         f"Skipping optional thinc pytest-randomly seed shim because thinc import failed: {exc}",
-        UserWarning,
+        UserWarning, stacklevel=2,
     )
 
 
@@ -544,11 +549,13 @@ except (OSError, RuntimeError) as exc:  # pragma: no cover
 # earlier hypothesis this session, ruled out: the crash reproduces at LOW machine load
 # and is deterministic per pyarrow version, not load-dependent).
 try:
-    import pyutilz.system as _pus  # noqa: E402
+    import pyutilz.system as _pus
+
     # Inner module holds the LIVE definition; pyutilz.system re-exports via
     # ``from .system import *`` so the two names are separate bindings to the
     # same function object until we rebind one of them.
-    import pyutilz.system.system as _pus_inner  # noqa: E402
+    import pyutilz.system.system as _pus_inner
+
     if not getattr(_pus.tqdmu, "_mlframe_test_quieted", False):
         _orig_tqdmu = _pus.tqdmu
 
@@ -581,6 +588,7 @@ try:
         ):
             try:
                 import importlib
+
                 _mod = importlib.import_module(_mod_path)
                 if hasattr(_mod, "tqdmu"):
                     _mod.tqdmu = _quiet_tqdmu
@@ -599,7 +607,7 @@ def _pytest_randomly_active() -> bool:
     of randomly shuffling test ordering). When randomly is active, defer to it.
     """
     try:
-        import pytest_randomly  # noqa: F401
+        import pytest_randomly
     except ImportError:
         return False
     # ``-p no:randomly`` makes the plugin importable but not loaded into the
@@ -609,6 +617,7 @@ def _pytest_randomly_active() -> bool:
     # but cheap heuristic: presence of the env var pytest-randomly sets when
     # it claims a session.
     import os
+
     return os.environ.get("PYTEST_RANDOMLY_SEED") is not None
 
 
@@ -627,10 +636,12 @@ def _reset_global_rng_state(request):
         return
     import random as _random
     import numpy as _np
+
     _random.seed(0)
     _np.random.seed(0)
     try:
         import torch as _torch
+
         # ``torch.manual_seed`` calls ``torch.cuda.manual_seed_all`` internally
         # when CUDA is built-in. A prior test that exhausted GPU memory or
         # crashed mid-kernel can leave the CUDA context corrupted -- the next
@@ -697,6 +708,7 @@ def cleanup_memory(request):
     # a stale Categorical (seed=2024 c0060 flake).
     try:
         import pyarrow as _pa_cleanup
+
         try:
             _pa_cleanup.default_memory_pool().release_unused()
         except Exception:
@@ -712,6 +724,7 @@ def cleanup_memory(request):
     # 3-way fuzz c0024 (29 mins into a 60-combo sweep).
     try:
         import matplotlib.pyplot as _plt
+
         _plt.close("all")
     except Exception:
         pass
@@ -723,6 +736,7 @@ def cleanup_memory(request):
     # race with tests that legitimately share a process group across fixtures.
     try:
         import torch
+
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
@@ -775,6 +789,7 @@ def _purge_stale_test_caches():
         yield
         return
     from pathlib import Path
+
     cutoff = time.time() - 7 * 24 * 3600
     repo_root = Path(__file__).resolve().parent.parent
     cache_dirs = (
@@ -794,6 +809,7 @@ def _purge_stale_test_caches():
             continue
         try:
             import shutil
+
             shutil.rmtree(cache_dir, ignore_errors=True)
         except Exception:
             pass

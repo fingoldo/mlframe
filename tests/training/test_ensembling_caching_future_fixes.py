@@ -15,7 +15,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import sys
 from unittest import mock
 
 
@@ -39,16 +38,19 @@ class TestENS_P1_7_FilterMaskHoist:
         # surface). Use a deterministic mock wrapper.
         n = 60
         rng = np.random.default_rng(0)
-        df = pl.DataFrame({
-            "x": rng.normal(size=n).tolist(),
-            "base": rng.normal(size=n).tolist(),
-        })
+        df = pl.DataFrame(
+            {
+                "x": rng.normal(size=n).tolist(),
+                "base": rng.normal(size=n).tolist(),
+            }
+        )
         y = rng.normal(size=n)
 
         class FakeWrapper:
             def fit(self, X, y, **kw):
                 self._n = len(X)
                 return self
+
             def predict(self, X):
                 return np.full(len(X), 0.5)
 
@@ -59,28 +61,27 @@ class TestENS_P1_7_FilterMaskHoist:
             wraps=np.isin,
         ) as spy:
             out = composite_oof_predictions(
-                lambda: FakeWrapper(), df, y, n_splits=5, random_state=0,
+                lambda: FakeWrapper(),
+                df,
+                y,
+                n_splits=5,
+                random_state=0,
             )
         assert out.shape == (n,)
         # 5 folds * 2 masks (train+val) = 10 calls to np.isin.
-        assert spy.call_count == 10, (
-            f"expected exactly 10 np.isin calls (5 folds * 2 masks); "
-            f"got {spy.call_count}"
-        )
+        assert spy.call_count == 10, f"expected exactly 10 np.isin calls (5 folds * 2 masks); got {spy.call_count}"
 
     def test_polars_mask_selects_same_indices_as_pre_fix(self) -> None:
         """Vectorised mask must produce the same row subset as the original
         ``i in set(train_idx)`` membership check."""
-        pl = pytest.importorskip("polars")
+        pytest.importorskip("polars")
         n = 30
         train_idx = np.array([1, 5, 8, 10, 12, 18, 22, 26], dtype=np.int64)
         indices = np.arange(n)
         # Vectorised (post-fix).
         mask_new = np.isin(indices, train_idx, assume_unique=True)
         # Original (pre-fix) form.
-        mask_old = np.array(
-            [i in set(train_idx.tolist()) for i in range(n)]
-        )
+        mask_old = np.array([i in set(train_idx.tolist()) for i in range(n)])
         np.testing.assert_array_equal(mask_new, mask_old)
 
 
@@ -101,6 +102,7 @@ class TestENS_P2_2_Level2Ensembling:
         # that for max_ensembling_level=2 the inner loop runs twice. We
         # verify the contract via a focused unit on a stand-in driver.
         from types import SimpleNamespace
+
         # Three "base" members with finite val_preds / test_preds.
         n = 50
         rng = np.random.default_rng(0)
@@ -175,16 +177,19 @@ class TestENS_P2_4_ZeroCrossingVectorised:
     @pytest.mark.parametrize("seed", [0, 1, 2, 3, 4, 5, 7])
     def test_vectorised_matches_loop(self, seed: int) -> None:
         from types import SimpleNamespace
+
         rng = np.random.default_rng(seed)
         members = []
         for _ in range(3):
             # Mix of crossing-zero, all-positive, all-negative samples.
             shift = rng.uniform(-2.0, 2.0)
-            members.append(SimpleNamespace(
-                val_preds=rng.normal(size=50) + shift,
-                test_preds=rng.normal(size=50) + shift,
-                train_preds=None,
-            ))
+            members.append(
+                SimpleNamespace(
+                    val_preds=rng.normal(size=50) + shift,
+                    test_preds=rng.normal(size=50) + shift,
+                    train_preds=None,
+                )
+            )
         assert self._vectorised_scan(members) == self._loop_scan(members)
 
 
@@ -208,20 +213,19 @@ class TestENS_P2_5_CachedPerBin:
         # Walk parent + every sibling so the per_bin sensor still matches.
         import pathlib
         import mlframe.training.composite.discovery as cd
+
         _dir = pathlib.Path(cd.__file__).resolve().parent
         src = open(cd.__file__, encoding="utf-8").read()
         for sibling in _dir.glob("*.py"):
             if sibling.name == "__init__.py":
                 continue
             src += "\n" + sibling.read_text(encoding="utf-8")
-        assert "_per_bin_first_pass" in src, (
-            "ENS-P2-5: the per-bin caching dict was removed/renamed; "
-            "second pass will re-run the K-fold LGBM fits."
-        )
+        assert "_per_bin_first_pass" in src, "ENS-P2-5: the per-bin caching dict was removed/renamed; second pass will re-run the K-fold LGBM fits."
         # The reuse branch must precede the recompute branch. Use a
         # whitespace-tolerant regex because the 2026-05-21 composite_discovery
         # monolith split changed the line indentation (top-level vs nested).
         import re as _re
+
         reuse_pos = src.index("cached_pb = _per_bin_first_pass.get")
         m = _re.search(r"if isinstance\(result, tuple\):\s+_, per_bin = result", src)
         assert m is not None, "recompute branch shape missing"
@@ -258,14 +262,12 @@ class TestENS_P2_6_NoDuckTyping:
 
         obj = FakePolarsLike()
         for fn in (_is_polars_df, _scr_is, _ad_is, _c_is, _e_is):
-            assert fn(obj) is False, (
-                f"{fn.__module__}._is_polars_df mis-detected a non-polars "
-                "object exposing to_pandas() as a polars frame."
-            )
+            assert fn(obj) is False, f"{fn.__module__}._is_polars_df mis-detected a non-polars object exposing to_pandas() as a polars frame."
 
     def test_real_polars_detected(self) -> None:
         pl = pytest.importorskip("polars")
         from mlframe.training.composite import _is_polars_df
+
         df = pl.DataFrame({"a": [1, 2, 3]})
         assert _is_polars_df(df) is True
 
@@ -285,6 +287,7 @@ class TestENS_Low_1_KFoldParameter:
         from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
+
         sig = inspect.signature(compute_oof_holdout_predictions)
         assert "kfold" in sig.parameters
         assert sig.parameters["kfold"].default == 1
@@ -296,22 +299,27 @@ class TestENS_Low_1_KFoldParameter:
         from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
+
         n = 200
         rng = np.random.default_rng(0)
-        X = pd.DataFrame({
-            "x": rng.normal(size=n), "x2": rng.normal(size=n),
-        })
+        X = pd.DataFrame(
+            {
+                "x": rng.normal(size=n),
+                "x2": rng.normal(size=n),
+            }
+        )
         y = (X["x"] * 1.0 + X["x2"] * 0.3 + rng.normal(scale=0.1, size=n)).to_numpy()
         base_per_spec = {"x": X["x"].to_numpy()}
         # Use plain LinearRegression (raw target, no composite wrapper).
         models = [LinearRegression()]
         # Each model must already be fitted for the orchestrator; mimic.
         models[0].fit(X, y)
-        preds, y_h, names = compute_oof_holdout_predictions(
+        preds, _y_h, names = compute_oof_holdout_predictions(
             component_models=models,
             component_names=["lr"],
             component_specs=[None],
-            train_X=X, y_train_full=y,
+            train_X=X,
+            y_train_full=y,
             base_train_full_per_spec=base_per_spec,
             holdout_frac=0.3,
             random_state=0,
@@ -328,21 +336,26 @@ class TestENS_Low_1_KFoldParameter:
         from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
+
         n = 200
         rng = np.random.default_rng(0)
         X = pd.DataFrame({"x": rng.normal(size=n)})
         y = X["x"].to_numpy() + rng.normal(scale=0.1, size=n)
         base_per_spec = {"x": X["x"].to_numpy()}
         m = LinearRegression().fit(X, y)
-        preds, y_h, names = compute_oof_holdout_predictions(
-            component_models=[m], component_names=["lr"],
-            component_specs=[None], train_X=X, y_train_full=y,
+        preds, _y_h, _names = compute_oof_holdout_predictions(
+            component_models=[m],
+            component_names=["lr"],
+            component_specs=[None],
+            train_X=X,
+            y_train_full=y,
             base_train_full_per_spec=base_per_spec,
-            holdout_frac=0.3, random_state=0,
+            holdout_frac=0.3,
+            random_state=0,
             kfold=1,
         )
         # Single split: holdout_frac*n rows expected.
-        assert preds.shape[0] == int(round(n * 0.3))
+        assert preds.shape[0] == round(n * 0.3)
 
 
 # ---------------------------------------------------------------------------
@@ -363,12 +376,14 @@ class TestENS_Low_2_3_OLS_SE:
         noise = rng.normal(scale=0.7, size=n)
         y = true_alpha * x + true_beta + noise
         # OLS fit.
-        x_mean = x.mean(); y_mean = y.mean()
-        x_c = x - x_mean; y_c = y - y_mean
+        x_mean = x.mean()
+        y_mean = y.mean()
+        x_c = x - x_mean
+        y_c = y - y_mean
         alpha_hat = float((x_c * y_c).sum() / (x_c * x_c).sum())
         beta_hat = float(y_mean - alpha_hat * x_mean)
         residuals = y - (alpha_hat * x + beta_hat)
-        sse = float((residuals ** 2).sum())
+        sse = float((residuals**2).sum())
         sigma_resid = math.sqrt(sse / (n - 2))
         base_std = float(x.std())
         se_alpha_correct = sigma_resid / (math.sqrt(n) * base_std)
@@ -381,9 +396,7 @@ class TestENS_Low_2_3_OLS_SE:
         y_std = float(y.std())
         se_alpha_old = y_std / (math.sqrt(n) * base_std)
         assert abs(se_alpha_correct - se_alpha_old) / se_alpha_old > 0.1, (
-            "On a strong-signal fixture the pre-fix SE should differ from "
-            "the residual-based SE by >10% (otherwise the bug doesn't "
-            "matter)."
+            "On a strong-signal fixture the pre-fix SE should differ from the residual-based SE by >10% (otherwise the bug doesn't matter)."
         )
 
 
@@ -402,6 +415,7 @@ class TestENS_Low_6_PoolArraysHoist:
         # sibling so the source-pattern sensor still matches.
         import pathlib
         import mlframe.training.composite.discovery as cd
+
         _dir = pathlib.Path(cd.__file__).resolve().parent
         src = open(cd.__file__, encoding="utf-8").read()
         for sibling in _dir.glob("*.py"):
@@ -426,6 +440,7 @@ class TestENS_Low_7_RidgeImportHoisted:
 
     def test_module_top_imports_present(self) -> None:
         import mlframe.training.composite.ensemble as ce
+
         assert hasattr(ce, "Ridge")
         assert hasattr(ce, "RidgeCV")
 
@@ -440,32 +455,40 @@ class TestCACHE_P0_2_DataSignature:
 
     def test_pandas_append_changes_signature(self) -> None:
         from mlframe.training.composite.cache import data_signature
+
         rng = np.random.default_rng(0)
         n = 500
-        df = pd.DataFrame({
-            "y": rng.normal(size=n),
-            "x1": rng.normal(size=n),
-            "x2": rng.normal(size=n),
-        })
+        df = pd.DataFrame(
+            {
+                "y": rng.normal(size=n),
+                "x1": rng.normal(size=n),
+                "x2": rng.normal(size=n),
+            }
+        )
         sig_before = data_signature(df, "y", ["x1", "x2"])
         # Append one row.
-        df2 = pd.concat([
-            df, pd.DataFrame({"y": [0.0], "x1": [0.0], "x2": [0.0]}),
-        ], ignore_index=True)
-        sig_after = data_signature(df2, "y", ["x1", "x2"])
-        assert sig_before != sig_after, (
-            "CACHE-P0-2: appending one row did not change the signature."
+        df2 = pd.concat(
+            [
+                df,
+                pd.DataFrame({"y": [0.0], "x1": [0.0], "x2": [0.0]}),
+            ],
+            ignore_index=True,
         )
+        sig_after = data_signature(df2, "y", ["x1", "x2"])
+        assert sig_before != sig_after, "CACHE-P0-2: appending one row did not change the signature."
 
     def test_polars_append_changes_signature(self) -> None:
         pl = pytest.importorskip("polars")
         from mlframe.training.composite.cache import data_signature
+
         rng = np.random.default_rng(0)
         n = 300
-        df = pl.DataFrame({
-            "y": rng.normal(size=n).tolist(),
-            "x1": rng.normal(size=n).tolist(),
-        })
+        df = pl.DataFrame(
+            {
+                "y": rng.normal(size=n).tolist(),
+                "x1": rng.normal(size=n).tolist(),
+            }
+        )
         sig_before = data_signature(df, "y", ["x1"])
         df2 = df.vstack(pl.DataFrame({"y": [0.0], "x1": [0.0]}))
         sig_after = data_signature(df2, "y", ["x1"])
@@ -486,6 +509,7 @@ class TestCACHE_P1_2_GetCacheKeyDeleted:
 
     def test_not_in_all(self) -> None:
         import mlframe.training.strategies as s
+
         assert "get_cache_key" not in s.__all__
 
 
@@ -500,6 +524,7 @@ class TestCACHE_P1_7_SizeSafetyFactor:
 
     def test_safety_factor_function_present(self) -> None:
         import mlframe.training.core._phase_helpers as ph
+
         src = open(ph.__file__, encoding="utf-8").read()
         assert "_CAT_SIZE_SAFETY_FACTOR = 1.5" in src
         assert "_cat_heavy_size" in src
@@ -525,6 +550,7 @@ class TestCACHE_P2_1_OrderingNote:
         # Read both files so the docstring/comment sensor still matches.
         import pathlib
         import mlframe.training.core.main as m
+
         _dir = pathlib.Path(m.__file__).resolve().parent
         src = open(m.__file__, encoding="utf-8").read()
         sibling = _dir / "_main_train_suite.py"
@@ -541,13 +567,17 @@ class TestCACHE_P2_1_OrderingNote:
 class TestCACHE_P2_5_SeedConstant:
     def test_constant_value(self) -> None:
         from mlframe.training.composite.cache import _DISCOVERY_DEFAULT_SEED
+
         assert _DISCOVERY_DEFAULT_SEED == 42
 
     def test_both_functions_reference_it(self) -> None:
         import inspect
         from mlframe.training.composite.cache import (
-            data_signature, make_discovery_cache_key, _DISCOVERY_DEFAULT_SEED,
+            data_signature,
+            make_discovery_cache_key,
+            _DISCOVERY_DEFAULT_SEED,
         )
+
         sig_a = inspect.signature(data_signature)
         sig_b = inspect.signature(make_discovery_cache_key)
         assert sig_a.parameters["random_state"].default == _DISCOVERY_DEFAULT_SEED
@@ -558,10 +588,7 @@ class TestCACHE_P2_5_SeedConstant:
         #     only fires when the caller passes it explicitly; otherwise the prior default
         #     silently clobbered any positional sentinel.
         # Verify the constant remains the source-of-truth for the positional slot.
-        assert (
-            sig_b.parameters["_legacy_random_state_sentinel"].default
-            == _DISCOVERY_DEFAULT_SEED
-        )
+        assert sig_b.parameters["_legacy_random_state_sentinel"].default == _DISCOVERY_DEFAULT_SEED
 
 
 # ---------------------------------------------------------------------------
@@ -572,6 +599,7 @@ class TestCACHE_P2_5_SeedConstant:
 class TestCACHE_Low_1_NodfDigestLength:
     def test_len_eq_10(self) -> None:
         from mlframe.training.utils import compute_model_input_fingerprint
+
         digest, _ = compute_model_input_fingerprint(None)
         assert len(digest) == 10
 
@@ -586,6 +614,7 @@ class TestCACHE_Low_2_NumpyHashable:
         from mlframe.feature_selection.filters.mrmr import (
             _hashable_params_signature,
         )
+
         a = np.arange(100, dtype=np.int64)
         b = a.copy()
         sig_a = _hashable_params_signature({"arr": a})
@@ -596,6 +625,7 @@ class TestCACHE_Low_2_NumpyHashable:
         from mlframe.feature_selection.filters.mrmr import (
             _hashable_params_signature,
         )
+
         a = np.arange(100, dtype=np.int64)
         b = np.arange(100, dtype=np.int64)
         b[50] = 999
@@ -613,6 +643,7 @@ class TestCACHE_Low_3_DtypeCoverage:
     def test_list_inner_dtype_recorded(self) -> None:
         pl = pytest.importorskip("polars")
         from mlframe.training.utils import _canonical_dtype_str
+
         a = _canonical_dtype_str(pl.List(pl.Int64))
         b = _canonical_dtype_str(pl.List(pl.Float64))
         assert a != b
@@ -621,6 +652,7 @@ class TestCACHE_Low_3_DtypeCoverage:
     def test_datetime_tz_recorded(self) -> None:
         pl = pytest.importorskip("polars")
         from mlframe.training.utils import _canonical_dtype_str
+
         a = _canonical_dtype_str(pl.Datetime(time_unit="us", time_zone="UTC"))
         b = _canonical_dtype_str(pl.Datetime(time_unit="us"))
         assert a != b
@@ -628,6 +660,7 @@ class TestCACHE_Low_3_DtypeCoverage:
     def test_duration_unit_recorded(self) -> None:
         pl = pytest.importorskip("polars")
         from mlframe.training.utils import _canonical_dtype_str
+
         a = _canonical_dtype_str(pl.Duration(time_unit="us"))
         b = _canonical_dtype_str(pl.Duration(time_unit="ms"))
         assert a != b
@@ -641,13 +674,10 @@ class TestCACHE_Low_3_DtypeCoverage:
 class TestENS_Low_8_AuditNotesDoc:
     def test_audit_notes_file_present(self) -> None:
         import os
+
         here = os.path.dirname(__file__)
-        target = os.path.normpath(
-            os.path.join(here, "..", "composite_discovery_audit_notes.md")
-        )
-        assert os.path.exists(target), (
-            f"ENS-Low-8: expected audit notes at {target}"
-        )
+        target = os.path.normpath(os.path.join(here, "..", "composite_discovery_audit_notes.md"))
+        assert os.path.exists(target), f"ENS-Low-8: expected audit notes at {target}"
         with open(target, encoding="utf-8") as f:
             content = f.read()
         assert "Welford" in content

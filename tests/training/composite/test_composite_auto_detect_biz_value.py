@@ -11,6 +11,7 @@ the group-detector thresholds (``min_unique=3, max_unique=500``) are calibrated 
 ``linear_residual_grouped``. The biz_value test below pins those calibration points
 so a future tweak that breaks the contract is caught.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -32,13 +33,14 @@ from mlframe.training.composite.discovery.auto_detect import (
 
 
 def test_time_detect_picks_datetime_column():
-    df = pd.DataFrame({
-        "ts": pd.date_range("2024-01-01", periods=100, freq="D"),
-        "noise": np.random.default_rng(0).normal(size=100),
-    })
+    df = pd.DataFrame(
+        {
+            "ts": pd.date_range("2024-01-01", periods=100, freq="D"),
+            "noise": np.random.default_rng(0).normal(size=100),
+        }
+    )
     out = detect_time_column_candidates(df)
-    assert any(name == "ts" for name, _ in out), \
-        f"datetime col must be detected; got {[n for n, _ in out]}"
+    assert any(name == "ts" for name, _ in out), f"datetime col must be detected; got {[n for n, _ in out]}"
     # Datetime should be highest-scored
     top_name, top_info = out[0]
     assert top_name == "ts"
@@ -47,10 +49,12 @@ def test_time_detect_picks_datetime_column():
 
 
 def test_time_detect_picks_monotonic_numeric():
-    df = pd.DataFrame({
-        "row_id": np.arange(50, dtype=np.int64),  # strictly monotonic asc
-        "noise": np.random.default_rng(1).normal(size=50),
-    })
+    df = pd.DataFrame(
+        {
+            "row_id": np.arange(50, dtype=np.int64),  # strictly monotonic asc
+            "noise": np.random.default_rng(1).normal(size=50),
+        }
+    )
     out = detect_time_column_candidates(df)
     names = [n for n, _ in out]
     assert "row_id" in names, f"monotonic numeric col must be detected; got {names}"
@@ -123,10 +127,12 @@ def test_group_detect_picks_uniform_group_id():
     # Each group gets exactly 20 rows (uniform, satisfies min_size_ratio=0.01 default)
     group_ids = np.tile(np.arange(n_groups, dtype=np.int64), n_rows // n_groups)
     rng.shuffle(group_ids)
-    df = pd.DataFrame({
-        "well_id": group_ids,
-        "feature_x": rng.normal(size=n_rows),
-    })
+    df = pd.DataFrame(
+        {
+            "well_id": group_ids,
+            "feature_x": rng.normal(size=n_rows),
+        }
+    )
     out = detect_group_column_candidates(df)
     names = [n for n, _ in out]
     assert "well_id" in names, f"uniform 100-group col must be flagged; got {names}"
@@ -158,15 +164,16 @@ def test_group_detect_rejects_too_many_groups():
 
 def test_group_detect_rejects_tiny_smallest_group():
     """min_size_ratio=0.01: smallest group must hold >= 1% of rows."""
-    n_rows = 2000
     # 5 groups, but group 0 has only 5 rows (< 20 = 1% * 2000)
-    ids = np.concatenate([
-        np.full(5, 0, dtype=np.int64),
-        np.full(500, 1, dtype=np.int64),
-        np.full(500, 2, dtype=np.int64),
-        np.full(495, 3, dtype=np.int64),
-        np.full(500, 4, dtype=np.int64),
-    ])
+    ids = np.concatenate(
+        [
+            np.full(5, 0, dtype=np.int64),
+            np.full(500, 1, dtype=np.int64),
+            np.full(500, 2, dtype=np.int64),
+            np.full(495, 3, dtype=np.int64),
+            np.full(500, 4, dtype=np.int64),
+        ]
+    )
     df = pd.DataFrame({"unbalanced": ids})
     out = detect_group_column_candidates(df)
     names = [n for n, _ in out]
@@ -206,8 +213,7 @@ def test_group_detect_polars_pandas_parity_explicit_candidates():
     pl_df = pl.DataFrame({"gid": group_ids, "x": rng.normal(size=len(group_ids))})
     pd_names = {n for n, _ in detect_group_column_candidates(pd_df, candidate_columns=["gid"])}
     pl_names = {n for n, _ in detect_group_column_candidates(pl_df, candidate_columns=["gid"])}
-    assert "gid" in pd_names and "gid" in pl_names, \
-        f"polars/pandas with explicit candidate list must both pick gid; pd={pd_names}, pl={pl_names}"
+    assert "gid" in pd_names and "gid" in pl_names, f"polars/pandas with explicit candidate list must both pick gid; pd={pd_names}, pl={pl_names}"
 
 
 def test_group_detect_unsupported_raises():
@@ -232,7 +238,6 @@ def test_cat_detect_picks_balanced_categorical():
 
 def test_cat_detect_rejects_rare_categories():
     """min_samples_per_cat=20 (default): a category with only 5 samples must reject the col."""
-    n = 1000
     cats = np.array(["A"] * 495 + ["B"] * 495 + ["RARE"] * 10)
     np.random.default_rng(0).shuffle(cats)
     df = pd.DataFrame({"feat": cats})
@@ -278,19 +283,22 @@ def _build_equal_coverage_cat_columns(n_total: int = 200_000):
     equal and the detector's ranking is decided ENTIRELY by ``info_bonus``.
     Every level holds >= the default 20 samples, so both clear the gates.
     """
+
     def realise(n_tail_levels: int, hot_frac: float = 0.60):
-        hot_rows = int(round(n_total * hot_frac))
+        hot_rows = round(n_total * hot_frac)
         tail_rows = n_total - hot_rows
         counts = [hot_rows // 10] * 10 + [tail_rows // n_tail_levels] * n_tail_levels
         return np.repeat(np.arange(len(counts)), counts)
 
-    clean = realise(15)   # 10 hot + 15 tail = 25 levels
+    clean = realise(15)  # 10 hot + 15 tail = 25 levels
     idlike = realise(390)  # 10 hot + 390 tail = 400 levels
     m = min(len(clean), len(idlike))
-    return pd.DataFrame({
-        "clean_cat": clean[:m].astype(np.int64),
-        "id_like": idlike[:m].astype(np.int64),
-    })
+    return pd.DataFrame(
+        {
+            "clean_cat": clean[:m].astype(np.int64),
+            "id_like": idlike[:m].astype(np.int64),
+        }
+    )
 
 
 def test_cat_detect_info_bonus_is_unimodal():
@@ -303,8 +311,7 @@ def test_cat_detect_info_bonus_is_unimodal():
     assert _cat_info_bonus(5, peak) > _cat_info_bonus(2, peak)
     assert _cat_info_bonus(40, peak) > _cat_info_bonus(5, peak)
     # Decaying past the peak -- the half the OLD monotone bonus violated.
-    assert _cat_info_bonus(40, peak) > _cat_info_bonus(500, peak), \
-        "info_bonus must decay for ID-like high cardinality (A24)"
+    assert _cat_info_bonus(40, peak) > _cat_info_bonus(500, peak), "info_bonus must decay for ID-like high cardinality (A24)"
     assert _cat_info_bonus(40, peak) > _cat_info_bonus(1000, peak)
     # Unique global maximum at the configured peak.
     grid = [_cat_info_bonus(n, peak) for n in (2, 5, 10, 40, 100, 500, 1000)]
@@ -366,11 +373,13 @@ def test_cat_detect_sweet_spot_peak_is_tunable():
 
 def _df_with_embedding_column(n: int = 200) -> pd.DataFrame:
     rng = np.random.default_rng(0)
-    return pd.DataFrame({
-        "cat_0": rng.integers(0, 5, size=n),
-        "num_0": rng.normal(size=n),
-        "emb_0": [rng.normal(size=8) for _ in range(n)],
-    })
+    return pd.DataFrame(
+        {
+            "cat_0": rng.integers(0, 5, size=n),
+            "num_0": rng.normal(size=n),
+            "emb_0": [rng.normal(size=8) for _ in range(n)],
+        }
+    )
 
 
 def test_group_detect_skips_unhashable_embedding_column_instead_of_raising():

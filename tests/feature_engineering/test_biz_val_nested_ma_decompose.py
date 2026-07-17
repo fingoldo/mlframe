@@ -6,6 +6,7 @@ computed moving averages, instead of a third rolling pass over the raw series. T
 algebraic decomposition is numerically identical to directly computing the exclusive window's average from
 raw data (the actual claimed win: same result, one fewer rolling computation).
 """
+
 from __future__ import annotations
 
 import time
@@ -132,6 +133,5 @@ def test_biz_val_nested_ma_decompose_chain_speedup_over_pairwise_calls():
     chain_median = float(np.median(chain_times))
 
     assert chain_median < pairwise_median * 0.7, (
-        f"expected chained decomposition to beat pairwise calls by >=30%, "
-        f"got chain_median={chain_median:.6f}s vs pairwise_median={pairwise_median:.6f}s"
+        f"expected chained decomposition to beat pairwise calls by >=30%, got chain_median={chain_median:.6f}s vs pairwise_median={pairwise_median:.6f}s"
     )

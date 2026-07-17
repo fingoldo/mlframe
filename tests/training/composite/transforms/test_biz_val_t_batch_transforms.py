@@ -9,6 +9,7 @@ Quantitative claims (thresholds set with margin below the measured values, per r
   gives the ridge model a homoscedastic target; multiplying the prediction back by the per-row vol beats the plain ``ewma_residual`` pipeline whose
   single global coefficient over-scales the calm regime.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -66,12 +67,8 @@ def test_biz_val_ewma_grouped_beats_raw_and_ungrouped_on_interleaved_panel() -> 
     rmse_raw = _rmse(_ridge_1d(f[tr], y[tr], f[te]), y[te])
 
     # Measured (seed 0): grouped ~2.6, ungrouped ~570, raw ~630. Thresholds with wide margin.
-    assert rmse_grouped <= 0.05 * rmse_ungrouped, (
-        f"grouped EWMA RMSE {rmse_grouped:.2f} should be <=0.05x ungrouped {rmse_ungrouped:.2f}"
-    )
-    assert rmse_grouped <= 0.05 * rmse_raw, (
-        f"grouped EWMA RMSE {rmse_grouped:.2f} should be <=0.05x raw-y {rmse_raw:.2f}"
-    )
+    assert rmse_grouped <= 0.05 * rmse_ungrouped, f"grouped EWMA RMSE {rmse_grouped:.2f} should be <=0.05x ungrouped {rmse_ungrouped:.2f}"
+    assert rmse_grouped <= 0.05 * rmse_raw, f"grouped EWMA RMSE {rmse_grouped:.2f} should be <=0.05x raw-y {rmse_raw:.2f}"
 
 
 def test_biz_val_volatility_normalized_beats_plain_ewma_on_regime_switch() -> None:
@@ -103,9 +100,5 @@ def test_biz_val_volatility_normalized_beats_plain_ewma_on_regime_switch() -> No
     rmse_raw = _rmse(_ridge_1d(f[tr_mask], y[tr_mask], f)[te_mask], y[te_mask])
 
     # Measured (seed 1): vnr clearly below plain ewma (per-row vol rescaling) and far below raw.
-    assert rmse_vnr <= 0.9 * rmse_ewma, (
-        f"vol-normalised RMSE {rmse_vnr:.3f} should be <=0.9x plain EWMA {rmse_ewma:.3f}"
-    )
-    assert rmse_vnr <= 0.8 * rmse_raw, (
-        f"vol-normalised RMSE {rmse_vnr:.3f} should be <=0.8x raw-y {rmse_raw:.3f}"
-    )
+    assert rmse_vnr <= 0.9 * rmse_ewma, f"vol-normalised RMSE {rmse_vnr:.3f} should be <=0.9x plain EWMA {rmse_ewma:.3f}"
+    assert rmse_vnr <= 0.8 * rmse_raw, f"vol-normalised RMSE {rmse_vnr:.3f} should be <=0.8x raw-y {rmse_raw:.3f}"

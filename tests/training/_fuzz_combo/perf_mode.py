@@ -1,7 +1,8 @@
 """Perf-mode downgrade of a combo for fast suite-wiring smoke runs."""
+
 from __future__ import annotations
 
-from .combo import FuzzCombo  # noqa: F401  (annotation strings under PEP 563)
+from .combo import FuzzCombo
 
 
 # ---------------------------------------------------------------------------
@@ -29,6 +30,7 @@ def apply_perf_mode(combo: FuzzCombo) -> FuzzCombo:
     BOTH modes back-to-back.
     """
     import dataclasses
+
     return dataclasses.replace(
         combo,
         n_rows=1000,

@@ -30,6 +30,7 @@ NEVER xfail.
 
 Consolidated verbatim from test_biz_value_mrmr_layer66.py (per audit finding test_code_quality-16).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -57,6 +58,7 @@ def _import_copula_fe():
         hybrid_orth_mi_copula_fe,
         hybrid_orth_mi_copula_fe_with_recipes,
     )
+
     return (
         copula_mi,
         score_features_by_copula_mi_uplift,
@@ -71,6 +73,7 @@ def _import_plug_in_fe():
         generate_univariate_basis_features,
         score_features_by_mi_uplift,
     )
+
     return generate_univariate_basis_features, score_features_by_mi_uplift
 
 
@@ -129,7 +132,7 @@ class TestMonotoneTransformInvariance:
         mi_exp = copula_mi(np.exp(x), y, n_bins=20)
         # rank(exp(x)) == rank(x) exactly (no ties added by the strictly-
         # monotone transform), so the two copula MIs must be BIT-equal.
-        assert mi_raw == pytest.approx(mi_exp, abs=1e-12), f"seed={seed}: copula_mi not invariant under exp; " f"mi(x,y)={mi_raw}, mi(exp(x),y)={mi_exp}"
+        assert mi_raw == pytest.approx(mi_exp, abs=1e-12), f"seed={seed}: copula_mi not invariant under exp; mi(x,y)={mi_raw}, mi(exp(x),y)={mi_exp}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_invariant_under_log_of_positive(self, seed):
@@ -141,7 +144,7 @@ class TestMonotoneTransformInvariance:
         y = np.log(x) + 0.4 * rng.standard_normal(n)
         mi_raw = copula_mi(x, y, n_bins=20)
         mi_log = copula_mi(np.log(x), y, n_bins=20)
-        assert mi_raw == pytest.approx(mi_log, abs=1e-12), f"seed={seed}: copula_mi not invariant under log; " f"mi(x,y)={mi_raw}, mi(log(x),y)={mi_log}"
+        assert mi_raw == pytest.approx(mi_log, abs=1e-12), f"seed={seed}: copula_mi not invariant under log; mi(x,y)={mi_raw}, mi(log(x),y)={mi_log}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_invariant_under_target_monotone(self, seed):
@@ -154,7 +157,7 @@ class TestMonotoneTransformInvariance:
         mi_raw = copula_mi(x, y, n_bins=20)
         # tanh is strictly monotone -- rank(tanh(y)) == rank(y).
         mi_tanh = copula_mi(x, np.tanh(y), n_bins=20)
-        assert mi_raw == pytest.approx(mi_tanh, abs=1e-12), f"seed={seed}: copula_mi not invariant under tanh(y); " f"mi(x,y)={mi_raw}, mi(x,tanh(y))={mi_tanh}"
+        assert mi_raw == pytest.approx(mi_tanh, abs=1e-12), f"seed={seed}: copula_mi not invariant under tanh(y); mi(x,y)={mi_raw}, mi(x,tanh(y))={mi_tanh}"
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +204,7 @@ class TestHeavyTailInvariance:
             mi_cube = copula_mi(x**3, y, n_bins=20)
             for tag, mi in [("log", mi_log), ("z", mi_z), ("cube", mi_cube)]:
                 assert mi == pytest.approx(mi_raw, abs=1e-12), (
-                    f"seed={s}: copula MI not invariant under monotone " f"{tag} on heavy-tail x; mi(x,y)={mi_raw}, " f"mi({tag}(x),y)={mi}"
+                    f"seed={s}: copula MI not invariant under monotone {tag} on heavy-tail x; mi(x,y)={mi_raw}, mi({tag}(x),y)={mi}"
                 )
 
     def test_copula_mi_above_zero_on_heavy_tail_threshold(self):
@@ -219,7 +222,7 @@ class TestHeavyTailInvariance:
                     n_bins=20,
                 )
             )
-            assert cm > 0.3, f"seed={s}: copula MI on heavy-tail x1 / log-threshold y " f"= {cm:.4f}; expected >= 0.3 nats (genuine dependence " f"floor)."
+            assert cm > 0.3, f"seed={s}: copula MI on heavy-tail x1 / log-threshold y = {cm:.4f}; expected >= 0.3 nats (genuine dependence floor)."
 
 
 # ---------------------------------------------------------------------------
@@ -243,18 +246,30 @@ class TestAucLiftOnHeavyTail:
         for s in (1, 7, 13, 42, 101, 202, 303, 404):
             X, y = _build_heavy_tail_log_threshold(s, n=2000)
             X_tr, X_te, y_tr, y_te = train_test_split(
-                X, y, test_size=0.3, random_state=s, stratify=y,
+                X,
+                y,
+                test_size=0.3,
+                random_state=s,
+                stratify=y,
             )
             lr_raw = LogisticRegression(
-                max_iter=2000, solver="lbfgs",
+                max_iter=2000,
+                solver="lbfgs",
             ).fit(X_tr, y_tr)
-            aucs_raw.append(roc_auc_score(
-                y_te, lr_raw.predict_proba(X_te)[:, 1],
-            ))
+            aucs_raw.append(
+                roc_auc_score(
+                    y_te,
+                    lr_raw.predict_proba(X_te)[:, 1],
+                )
+            )
             X_aug_tr, _scores, _recipes = hybrid_with_recipes(
-                X_tr, y_tr.to_numpy(),
-                degrees=(2, 3), basis="hermite",
-                top_k=3, min_uplift=0.5, min_abs_mi_frac=0.0,
+                X_tr,
+                y_tr.to_numpy(),
+                degrees=(2, 3),
+                basis="hermite",
+                top_k=3,
+                min_uplift=0.5,
+                min_abs_mi_frac=0.0,
                 n_bins=20,
             )
             added = [c for c in X_aug_tr.columns if c not in X_tr.columns]
@@ -284,7 +299,7 @@ class TestAucLiftOnHeavyTail:
             f"cop_per_seed={aucs_cop}"
         )
         wins = sum(c >= r - 1e-9 for c, r in zip(aucs_cop, aucs_raw))
-        assert wins >= len(aucs_raw) - 1, f"copula-augmented AUC matched-or-beat raw on only " f"{wins}/{len(aucs_raw)} seeds; per-seed floor too soft."
+        assert wins >= len(aucs_raw) - 1, f"copula-augmented AUC matched-or-beat raw on only {wins}/{len(aucs_raw)} seeds; per-seed floor too soft."
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +316,7 @@ class TestDefaultDisabledByteIdentical:
         X, y = _build_linear(seed)
         m = _make_mrmr().fit(X, y)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
-        assert added == [], f"seed={seed}: default fe_hybrid_orth_copula_enable=False " f"should NOT append any engineered columns; got {added}"
+        assert added == [], f"seed={seed}: default fe_hybrid_orth_copula_enable=False should NOT append any engineered columns; got {added}"
 
     def test_default_ctor_values(self):
         """fe_hybrid_orth_copula_enable defaults to False and fe_hybrid_orth_copula_n_bins defaults to 20."""
@@ -329,7 +344,7 @@ class TestPickleAndClone:
             ("fe_hybrid_orth_copula_enable", True),
             ("fe_hybrid_orth_copula_n_bins", 25),
         ]:
-            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got " f"{getattr(m2, name)}"
+            assert getattr(m2, name) == expected, f"clone() dropped {name}: expected {expected}, got {getattr(m2, name)}"
 
     def test_pickle_roundtrip_preserves_copula_recipes(self):
         """A pickle round-trip preserves feature names, appended columns, and every orth_univariate recipe field."""
@@ -346,7 +361,7 @@ class TestPickleAndClone:
         assert list(m2.feature_names_in_) == list(m.feature_names_in_), "pickle changed feature_names_in_"
         added_before = list(getattr(m, "hybrid_orth_features_", []) or [])
         added_after = list(getattr(m2, "hybrid_orth_features_", []) or [])
-        assert added_before == added_after, f"pickle changed hybrid_orth_features_: " f"before={added_before}, after={added_after}"
+        assert added_before == added_after, f"pickle changed hybrid_orth_features_: before={added_before}, after={added_after}"
 
         # Copula-stage recipes are ``orth_univariate`` (engineered VALUES
         # bit-equal to Layer 21; only SCORING differs).
@@ -360,12 +375,12 @@ class TestPickleAndClone:
         recipes_before = _extract_orth_recipes(m)
         recipes_after = _extract_orth_recipes(m2)
         assert set(recipes_before.keys()) == set(recipes_after.keys()), (
-            f"pickle dropped or added orth_univariate recipe names: " f"before={set(recipes_before.keys())}, " f"after={set(recipes_after.keys())}"
+            f"pickle dropped or added orth_univariate recipe names: before={set(recipes_before.keys())}, after={set(recipes_after.keys())}"
         )
         for name, r_before in recipes_before.items():
             r_after = recipes_after[name]
-            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: " f"before={r_before.src_names}, after={r_after.src_names}"
+            assert r_before.src_names == r_after.src_names, f"pickle changed src_names for {name!r}: before={r_before.src_names}, after={r_after.src_names}"
             for key in ("basis", "degree"):
                 assert r_before.extra.get(key) == r_after.extra.get(key), (
-                    f"pickle changed '{key}' for recipe {name!r}: " f"before={r_before.extra}, after={r_after.extra}"
+                    f"pickle changed '{key}' for recipe {name!r}: before={r_before.extra}, after={r_after.extra}"
                 )

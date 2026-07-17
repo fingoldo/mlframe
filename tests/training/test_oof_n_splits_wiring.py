@@ -66,7 +66,7 @@ def _trained_entries(models):
 
 def test_e2e_oof_n_splits_stamps_oof_preds_on_model(tmp_path):
     """``oof_n_splits=3`` must produce a real K-fold OOF array, row-aligned with the train target."""
-    models, metadata = _run_suite(tmp_path, oof_n_splits=3)
+    models, _metadata = _run_suite(tmp_path, oof_n_splits=3)
     trained = _trained_entries(models)
     assert trained, "no models trained"
 
@@ -84,7 +84,7 @@ def test_e2e_oof_n_splits_stamps_oof_preds_on_model(tmp_path):
 
 def test_default_oof_n_splits_leaves_oof_preds_unset(tmp_path):
     """Default oof_n_splits=0 must be a genuine no-op: no oof_preds attribute, no extra K-fold compute."""
-    models, metadata = _run_suite(tmp_path, oof_n_splits=0)
+    models, _metadata = _run_suite(tmp_path, oof_n_splits=0)
     trained = _trained_entries(models)
     assert trained, "no models trained"
 
@@ -122,9 +122,7 @@ def test_e2e_oof_n_splits_unlocks_diversity_recommendations(tmp_path):
         use_mlframe_ensembles=True,
         pipeline_config=PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding=None, scaler_name=None, imputer_strategy=None),
         split_config=TrainingSplitConfig(test_size=0.25, val_size=0.1),
-        behavior_config=TrainingBehaviorConfig(
-            prefer_gpu_configs=False, oof_n_splits=3, recommend_diversity_additions_in_leaderboard=True
-        ),
+        behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False, oof_n_splits=3, recommend_diversity_additions_in_leaderboard=True),
         hyperparams_config={"iterations": 40},
         baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
         dummy_baselines_config=DummyBaselinesConfig(enabled=False),

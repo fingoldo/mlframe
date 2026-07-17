@@ -11,13 +11,13 @@ the column was absent yet train_df.columns contained it.
 Post-fix: any predict failure rolls back the column from EVERY frame where it
 was already written, logs a warning, and continues to the next equation.
 """
+
 from __future__ import annotations
 
 import logging
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 class _FakeEqDF:
@@ -35,7 +35,7 @@ class _FakeEqDF:
                 self.outer = outer
 
             def __getitem__(self, key):
-                idx, col = key
+                idx, _col = key
                 # Per-equation distinct text so hashes differ
                 return f"eq_{idx}"
 
@@ -64,9 +64,7 @@ class _PartialFailModel:
     def predict(self, df, index=None):
         self.predict_calls.append((id(df), index))
         if id(df) == self._val:
-            raise ValueError(
-                f"simulated PySR predict failure on val_df at equation idx={index}"
-            )
+            raise ValueError(f"simulated PySR predict failure on val_df at equation idx={index}")
         return np.full(len(df), float(index or 0), dtype=np.float32)
 
 
@@ -80,7 +78,7 @@ def test_pysr_per_equation_predict_failure_rolls_back_all_frames(caplog):
     # Instead test the property at the integration level: after the rollback fix, no
     # column starting with "pysr__" leaks into train_df without appearing in val/test.
     import hashlib
-    from mlframe.training import pipeline as _pipeline_mod
+
     # Reproduce the loop's logic in isolation (the production function is too coupled to
     # the run_pysr_feature_engineering call to test directly; this validates the rollback contract).
     train_df = pd.DataFrame({"x0": np.arange(100, dtype=np.float32), "x1": np.arange(100, dtype=np.float32)})
@@ -140,6 +138,7 @@ def test_pysr_all_succeed_baseline_no_rollback():
     """Sanity: when no equation fails, the rollback path is not triggered and
     columns are uniformly added to all three frames."""
     import hashlib
+
     train_df = pd.DataFrame({"x0": np.arange(100, dtype=np.float32)})
     val_df = pd.DataFrame({"x0": np.arange(50, dtype=np.float32)})
     test_df = pd.DataFrame({"x0": np.arange(50, dtype=np.float32)})

@@ -20,13 +20,13 @@ If the test surfaces a bug, the fix is to detect (N, K>=2) y in
 _fit_common and route num_classes -> K (with regression metric
 applied per-column).
 """
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 import torch
 from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
@@ -56,9 +56,12 @@ def _regressor_params():
         "model_class": MLPTorchModel,
         "model_params": {"loss_fn": torch.nn.MSELoss(), "learning_rate": 5e-3},
         "network_params": {
-            "nlayers": 2, "first_layer_num_neurons": 32,
-            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
-            "use_layernorm": False, "use_batchnorm": False,
+            "nlayers": 2,
+            "first_layer_num_neurons": 32,
+            "dropout_prob": 0.0,
+            "inputs_dropout_prob": 0.0,
+            "use_layernorm": False,
+            "use_batchnorm": False,
             "activation_function": torch.nn.ReLU,
         },
         "datamodule_class": TorchDataModule,
@@ -68,9 +71,13 @@ def _regressor_params():
             "dataloader_params": {"batch_size": 32, "num_workers": 0},
         },
         "trainer_params": {
-            "max_epochs": 20, "enable_model_summary": False,
-            "enable_progress_bar": False, "log_every_n_steps": 1,
-            "devices": 1, "accelerator": "cpu", "logger": False,
+            "max_epochs": 20,
+            "enable_model_summary": False,
+            "enable_progress_bar": False,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "accelerator": "cpu",
+            "logger": False,
         },
         "random_state": 0,
     }
@@ -98,14 +105,10 @@ def test_multi_target_regression_k3_native_support():
     preds = reg.predict(data["X_test"])
     assert preds.shape == data["y_test"].shape
 
-    per_col_r2 = [
-        r2_score(data["y_test"][:, k], preds[:, k]) for k in range(preds.shape[1])
-    ]
+    per_col_r2 = [r2_score(data["y_test"][:, k], preds[:, k]) for k in range(preds.shape[1])]
     print(f"\nF-24 multi-target (K=3) per-column R^2: {per_col_r2}")
     assert min(per_col_r2) > 0.5, (
-        f"per-column R^2 = {per_col_r2}; multi-target MLP did not learn "
-        "each target. Expected per-column R^2 > 0.5 on this clean "
-        "linear synthetic problem."
+        f"per-column R^2 = {per_col_r2}; multi-target MLP did not learn each target. Expected per-column R^2 > 0.5 on this clean linear synthetic problem."
     )
 
 

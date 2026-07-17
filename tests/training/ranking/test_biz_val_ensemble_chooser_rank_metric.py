@@ -7,6 +7,7 @@ in 21/21 synthetic cells (mean +0.0024). These tests pin that the REAL chooser p
 higher-AUC flavour when discrimination and calibration disagree, and that the pre-flip ICE-first
 order would have picked the worse-discriminating one.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -34,13 +35,18 @@ def _build_ensembles_from_members(members, y_oof, oof_i, y_test, test_i):
         c_oof = combine_probs(members[:, oof_i], flav)
         c_test = combine_probs(members[:, test_i], flav)
         ice = compute_probabilistic_multiclass_error(
-            y_true=y_oof, y_score=_two_col(c_oof), method="multicrit", nbins=10,
+            y_true=y_oof,
+            y_score=_two_col(c_oof),
+            method="multicrit",
+            nbins=10,
         )
         out[flav] = (
-            _FakeEns({
-                "oof": {1: {"ice": float(ice), "roc_auc": float(roc_auc_score(y_oof, c_oof))}},
-                "test": {1: {"roc_auc": float(roc_auc_score(y_test, c_test))}},
-            }),
+            _FakeEns(
+                {
+                    "oof": {1: {"ice": float(ice), "roc_auc": float(roc_auc_score(y_oof, c_oof))}},
+                    "test": {1: {"roc_auc": float(roc_auc_score(y_test, c_test))}},
+                }
+            ),
             float(roc_auc_score(y_test, c_test)),
         )
     return out
@@ -75,16 +81,14 @@ def test_biz_chooser_picks_higher_test_auc_flavour():
 
     # Production (AUC-first) winner is the best-discriminating flavour on the honest split.
     assert test_auc[winner] >= test_auc[best_flav] - 1e-6, (
-        f"chooser picked {winner} (test AUC {test_auc[winner]:.5f}) but best is "
-        f"{best_flav} ({test_auc[best_flav]:.5f})"
+        f"chooser picked {winner} (test AUC {test_auc[winner]:.5f}) but best is {best_flav} ({test_auc[best_flav]:.5f})"
     )
 
     # What ICE-first WOULD have picked (lowest OOF ice). It must be measurably worse on test AUC --
     # this is the regression guard: reverting the flip drops honest test AUC here.
     ice_pick = min(ensembles, key=lambda k: ensembles[k].metrics["oof"][1]["ice"])
     assert test_auc[winner] > test_auc[ice_pick] + 1e-3, (
-        f"AUC-first winner {winner} ({test_auc[winner]:.5f}) should beat ICE-first pick "
-        f"{ice_pick} ({test_auc[ice_pick]:.5f}) by >1e-3"
+        f"AUC-first winner {winner} ({test_auc[winner]:.5f}) should beat ICE-first pick {ice_pick} ({test_auc[ice_pick]:.5f}) by >1e-3"
     )
 
 

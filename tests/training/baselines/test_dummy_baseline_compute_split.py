@@ -16,6 +16,7 @@ After wave 92:
   _dummy_baseline_classification.py: new, 139 lines
   _dummy_baseline_quantile.py:       new, 113 lines
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,6 +38,7 @@ def test_all_public_symbols_still_importable_from_facade() -> None:
         _compute_quantile_baselines,
         compute_dummy_baselines,
     )
+
     for fn in (
         _per_target_seed,
         _to_pandas_for_baseline,
@@ -60,6 +62,7 @@ def test_sibling_files_exist_and_define_the_moved_symbol() -> None:
         _dummy_baseline_classification,
         _dummy_baseline_quantile,
     )
+
     assert hasattr(_dummy_baseline_regression, "_compute_regression_baselines")
     assert hasattr(_dummy_baseline_classification, "_compute_classification_baselines")
     assert hasattr(_dummy_baseline_quantile, "_compute_quantile_baselines")
@@ -79,6 +82,7 @@ def test_per_target_seed_still_deterministic_after_split() -> None:
     """Sanity: import via the facade and exercise one of the helpers
     that the moved sub-modules lazy-import back."""
     from mlframe.training.baselines._dummy_baseline_compute import _per_target_seed
+
     a = _per_target_seed(42, "revenue")
     b = _per_target_seed(42, "revenue")
     c = _per_target_seed(42, "churn")
@@ -98,7 +102,7 @@ def test_compute_quantile_baselines_round_trips_via_facade() -> None:
     train_y = np.linspace(0.0, 1.0, 101)
     val_y = train_y.copy()
     test_y = train_y.copy()
-    val_preds, test_preds, extras = _compute_quantile_baselines(
+    val_preds, test_preds, _extras = _compute_quantile_baselines(
         target_name="t",
         train_y=train_y,
         val_y=val_y,

@@ -1,4 +1,5 @@
 """A2-10: predict-path extensions replay must HARD-FAIL on transform error, never silently serve the raw frame."""
+
 from __future__ import annotations
 
 import numpy as np

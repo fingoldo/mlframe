@@ -31,6 +31,7 @@ no n>30000 (RAM-contended box).
 
 Run with MLFRAME_DISABLE_HNSW=1 (harness-set); each fit is seeded.
 """
+
 from __future__ import annotations
 
 import os
@@ -42,6 +43,7 @@ import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 from tests.feature_selection import _synthetic_distributions as sd
+
 # Reuse the battle-tested tolerant matcher from the uniform suite (no duplication).
 from tests.feature_selection.mrmr.core.test_mrmr_create_keep_drop import _artifact_path, _covers, _operand_tokens
 
@@ -153,30 +155,25 @@ _reg(
 # vocabulary or wiring bug -- the strong interactions survive every marginal.
 SIGNAL_LOSS = {
     # two_pairs_strong: divisor (a,b) ratio is the fragile term; (c,d) survives.
-    ("two_pairs_strong", "mixed", 20000):
-        "divisor (a,b) ratio lost under mixed marginals (bimodal a + beta_u divisor b); "
-        "(c,d) log*sin term recovered cleanly (sel keeps mul(log(c),sin(d)))",
-    ("two_pairs_strong", "heavy_tailed_outliers", 20000):
-        "BOTH terms degrade under pareto-tailed marginals + 2% outliers (the harshest "
-        "profile): selector keeps only raw a,d (+noise e); the (a,b) divisor ratio and the "
-        "(c,d) log*sin term both collapse -- the only cell where the (c,d) term does not survive",
+    ("two_pairs_strong", "mixed", 20000): "divisor (a,b) ratio lost under mixed marginals (bimodal a + beta_u divisor b); "
+    "(c,d) log*sin term recovered cleanly (sel keeps mul(log(c),sin(d)))",
+    ("two_pairs_strong", "heavy_tailed_outliers", 20000): "BOTH terms degrade under pareto-tailed marginals + 2% outliers (the harshest "
+    "profile): selector keeps only raw a,d (+noise e); the (a,b) divisor ratio and the "
+    "(c,d) log*sin term both collapse -- the only cell where the (c,d) term does not survive",
     # ratio_sqr: under MIXED marginals the lone weak a**2/b ratio collapses entirely
     # -- the selector keeps only a noise-mixing engineered feature. This is the
     # sharpest robustness finding: a signal cleanly recovered under uniform/heavy/
     # outlier marginals is LOST specifically under the bimodal-a + beta_u-divisor
     # mix, where neither operand's binned marginal exposes the ratio.
-    ("ratio_sqr", "mixed", 20000):
-        "weak a**2/b ratio collapses under mixed marginals (bimodal a, beta_u divisor b); "
-        "selector keeps only a noise feature add(exp(a),prewarp(e)) -- genuine ratio lost",
+    ("ratio_sqr", "mixed", 20000): "weak a**2/b ratio collapses under mixed marginals (bimodal a, beta_u divisor b); "
+    "selector keeps only a noise feature add(exp(a),prewarp(e)) -- genuine ratio lost",
     # product_square_decoys: the WEAK linear side-term 0.20*dd is the fragile one;
     # the dominant (a^2)*b product is recovered under every profile. dd's small
     # marginal uplift is washed out by the skewed/outlier binning.
-    ("product_square_decoys", "mixed", 20000):
-        "weak linear side-term 0.20*dd lost under mixed marginals; dominant (a,b) product "
-        "recovered (sel div(invsquared(a),neg(b)))",
-    ("product_square_decoys", "heavy_tailed_outliers", 20000):
-        "weak linear side-term 0.20*dd lost under pareto tails + outliers; (a,b) product "
-        "recovered (sel keeps a,b + add(sqrt(b),log(a__He2)))",
+    ("product_square_decoys", "mixed", 20000): "weak linear side-term 0.20*dd lost under mixed marginals; dominant (a,b) product "
+    "recovered (sel div(invsquared(a),neg(b)))",
+    ("product_square_decoys", "heavy_tailed_outliers", 20000): "weak linear side-term 0.20*dd lost under pareto tails + outliers; (a,b) product "
+    "recovered (sel keeps a,b + add(sqrt(b),log(a__He2)))",
     # --- 2026-06-11 re-measurement: outlier-profile (a,b)-ratio collapses ----
     # The 2026-06 FE campaign (default-on hinge legs + pair-prewarp + the CMI
     # acceptance/raw-retention gate) shifted WHERE the weak divisor-ratio collapses
@@ -186,24 +183,20 @@ SIGNAL_LOSS = {
     # (a divisor ratio whose binned MI the 3%-outlier denominator distorts) -- NOT a
     # vocabulary/wiring regression. The strong terms still survive; only the faint
     # ``a**2/b`` ratio is lost. Observed selections recorded per cell.
-    ("ratio_sqr", "with_outliers", 20000):
-        "weak a**2/b ratio collapses under uniform+3%-outlier marginals; the 15-IQR "
-        "denominator outliers distort b's binned MI so the ratio falls below the screen "
-        "floor (sel keeps only raw a + noise-mixing add(qubed(a),log(e)) -- b lost)",
-    ("ratio_sqr", "with_outliers", 30000):
-        "weak a**2/b ratio: an IN-SUITE BOUNDARY flip. In a fresh process this cell "
-        "RECOVERS (a,b) via max(abs(a),b__haar_j1k0); after the full-file run's prior "
-        "fits accumulate process-global dispatcher/JIT state the divisor ratio falls "
-        "just under the floor and b is lost. pytest.xfail is imperative so it fires ONLY "
-        "when the loss actually occurs (in-suite); the isolated run passes cleanly",
-    ("ratio_sqr", "heavy_tailed_outliers", 20000):
-        "weak a**2/b ratio collapses under pareto tails + 2% outliers (the dirtiest "
-        "profile): only raw a survives, b lost (sel add(sqr(a),prewarp(e))) -- same "
-        "divisor-MI-distortion limit as the mixed/with_outliers cells",
-    ("two_pairs_strong", "with_outliers", 20000):
-        "divisor (a,b) ratio lost under uniform+3%-outlier marginals (BOTH operands "
-        "gone); the (c,d) log*sin term survives (sel keeps d + c__haar_j1k0). Same "
-        "fragile-divisor-term pattern as the documented mixed-marginal two_pairs_strong cell",
+    ("ratio_sqr", "with_outliers", 20000): "weak a**2/b ratio collapses under uniform+3%-outlier marginals; the 15-IQR "
+    "denominator outliers distort b's binned MI so the ratio falls below the screen "
+    "floor (sel keeps only raw a + noise-mixing add(qubed(a),log(e)) -- b lost)",
+    ("ratio_sqr", "with_outliers", 30000): "weak a**2/b ratio: an IN-SUITE BOUNDARY flip. In a fresh process this cell "
+    "RECOVERS (a,b) via max(abs(a),b__haar_j1k0); after the full-file run's prior "
+    "fits accumulate process-global dispatcher/JIT state the divisor ratio falls "
+    "just under the floor and b is lost. pytest.xfail is imperative so it fires ONLY "
+    "when the loss actually occurs (in-suite); the isolated run passes cleanly",
+    ("ratio_sqr", "heavy_tailed_outliers", 20000): "weak a**2/b ratio collapses under pareto tails + 2% outliers (the dirtiest "
+    "profile): only raw a survives, b lost (sel add(sqr(a),prewarp(e))) -- same "
+    "divisor-MI-distortion limit as the mixed/with_outliers cells",
+    ("two_pairs_strong", "with_outliers", 20000): "divisor (a,b) ratio lost under uniform+3%-outlier marginals (BOTH operands "
+    "gone); the (c,d) log*sin term survives (sel keeps d + c__haar_j1k0). Same "
+    "fragile-divisor-term pattern as the documented mixed-marginal two_pairs_strong cell",
     # 2026-06-16 -- VERIFIED ACCURACY-SAFE limit (extends the documented heavy_tailed_outliers cell to the
     # adjacent heavy_tailed profile). The weak 0.20*dd linear side-term washes out under pareto tails: its
     # held-out LINEAR lift over the selected design is 0.00072 and its raw |corr(dd,y)| is 0.0052 -- i.e. dd
@@ -211,9 +204,8 @@ SIGNAL_LOSS = {
     # require admitting 0.005-corr features, which also admits noise -> a NET ACCURACY LOSS. The dominant a**2*b
     # term IS recovered (a__He2 + b), so downstream accuracy is preserved; dd's omission is a measured
     # distribution-robustness limit, not a fixable regression.
-    ("product_square_decoys", "heavy_tailed", 20000):
-        "weak 0.20*dd linear side-term washed out under pareto tails -- held-out lift 0.00072 / |corr| 0.0052 "
-        "(noise-level); recovering it would admit noise (accuracy loss). a**2*b recovered via a__He2+b. Verified limit.",
+    ("product_square_decoys", "heavy_tailed", 20000): "weak 0.20*dd linear side-term washed out under pareto tails -- held-out lift 0.00072 / |corr| 0.0052 "
+    "(noise-level); recovering it would admit noise (accuracy loss). a**2*b recovered via a__He2+b. Verified limit.",
     # 2026-06-27 -- VERIFIED ACCURACY-SAFE limit: the weak ``log(c)`` factor of the log(c)*sin(d) term washes out
     # under the dirtiest profile (pareto tails + outliers). Direct MI at n=20000/seed=42: MI(c,y)=0.069 sits AT the
     # noise floor (MI(e1,y)=0.052, MI(e2,y)=0.034) while the ``d`` factor dominates (MI(d,y)=2.09). The outlier-
@@ -224,11 +216,10 @@ SIGNAL_LOSS = {
     # measured distribution-robustness limit, NOT a fixable wiring regression. Same weak-operand binning-resolution
     # limit as the documented two_pairs_strong/heavy_tailed_outliers (both terms degrade) and product_square_decoys
     # heavy_tailed (weak dd at noise floor) cells.
-    ("log_sin_product", "heavy_tailed_outliers", 20000):
-        "weak log(c) factor washed out under pareto tails + outliers: MI(c,y)=0.069 AT the noise floor "
-        "(e1=0.052,e2=0.034) vs the dominant d factor MI=2.09; the dominant sin(d) half IS recovered (d + "
-        "d__relu legs + sin(d) in the surviving compound), c's ~noise-level factor is unrecoverable without "
-        "admitting noise -- a verified accuracy-safe distribution-robustness limit, not a wiring regression",
+    ("log_sin_product", "heavy_tailed_outliers", 20000): "weak log(c) factor washed out under pareto tails + outliers: MI(c,y)=0.069 AT the noise floor "
+    "(e1=0.052,e2=0.034) vs the dominant d factor MI=2.09; the dominant sin(d) half IS recovered (d + "
+    "d__relu legs + sin(d) in the surviving compound), c's ~noise-level factor is unrecoverable without "
+    "admitting noise -- a verified accuracy-safe distribution-robustness limit, not a wiring regression",
 }
 
 # NOISE-ADMISSION residuals (a SEPARATE, weaker concern -- NOT signal-loss).
@@ -261,7 +252,11 @@ NOISE_ADMISSION = {
     # (sel keeps a, c, add(sqrt(a),sqrt(c)) + the a/c warp surrogates), only the tiny-weight noise operand e is
     # co-admitted by the marginal-uplift raw-retention pass -- downstream-cosmetic, no accuracy cost, the same
     # heavy-tail finite-sample-MI-of-e limit the sibling with_outliers / heavy_tailed_outliers cells document.
-    ("additive_two_term", "heavy_tailed", 20000): "e (0.02-weight noise) admitted; (a,c) recovered via a + c + add(sqrt(a),sqrt(c)) (pareto-tail raw-retention residual)",
+    (
+        "additive_two_term",
+        "heavy_tailed",
+        20000,
+    ): "e (0.02-weight noise) admitted; (a,c) recovered via a + c + add(sqrt(a),sqrt(c)) (pareto-tail raw-retention residual)",
     ("ratio_sqr", "heavy_tailed", 10000): "e (0.01-weight noise) admitted; (a,b) recovered via div(abs(b),a__p2sin1)",
     ("ratio_sqr", "uniform", 30000): "e (0.01-weight noise) admitted; (a,b) recovered via div(invsquared(a),...min(abs(b),...))",
     ("ratio_sqr", "heavy_tailed", 30000): "e (0.01-weight noise) admitted; (a,b) recovered via div(sqr(a),neg(b))",
@@ -317,10 +312,7 @@ def _eval_keep(selected, df_cols, keep):
     union = _union_tokens(selected, df_cols)
     results, failures = [], []
     for sig in keep:
-        ok = any(
-            _covers(selected, df_cols, want) or set(want) <= union
-            for want in sig
-        )
+        ok = any(_covers(selected, df_cols, want) or set(want) <= union for want in sig)
         label = " | ".join("+".join(sorted(w)) for w in sig)
         results.append((label, ok))
         if not ok:
@@ -350,12 +342,18 @@ def _fit_profile(formula, profile, n):
     df_cols = set(df.columns)
     keep_res, keep_fail = _eval_keep(selected, df_cols, spec["keep"])
     drop_res, drop_fail = _eval_drop(selected, spec["drop"])
-    _LEDGER.append(dict(
-        formula=formula, profile=profile, n=int(n), selected=selected,
-        keep=[{"want": l, "covered": c} for l, c in keep_res],
-        drop=[{"col": c, "admitted": a} for c, a in drop_res],
-        signal_lost=keep_fail, noise_admitted=drop_fail,
-    ))
+    _LEDGER.append(
+        dict(
+            formula=formula,
+            profile=profile,
+            n=int(n),
+            selected=selected,
+            keep=[{"want": l, "covered": c} for l, c in keep_res],
+            drop=[{"col": c, "admitted": a} for c, a in drop_res],
+            signal_lost=keep_fail,
+            noise_admitted=drop_fail,
+        )
+    )
     return selected, keep_fail, drop_fail
 
 
@@ -381,10 +379,7 @@ def _gate(formula, profile, n, selected, keep_fail, drop_fail):
     if keep_fail:
         reason = _signal_loss_reason(formula, profile, n)
         if reason is not None:
-            pytest.xfail(
-                f"{formula}/{profile} n={n}: SIGNAL-LOSS (documented robustness gap): {reason}; "
-                f"observed={keep_fail}; selected={selected}"
-            )
+            pytest.xfail(f"{formula}/{profile} n={n}: SIGNAL-LOSS (documented robustness gap): {reason}; observed={keep_fail}; selected={selected}")
         pytest.fail(
             f"{formula}/{profile} n={n}: GENUINE SIGNAL LOST: {'; '.join(keep_fail)}  selected={selected}",
             pytrace=False,
@@ -392,13 +387,9 @@ def _gate(formula, profile, n, selected, keep_fail, drop_fail):
     if drop_fail:
         reason = _noise_admission_reason(formula, profile, n)
         if reason is not None:
-            pytest.xfail(
-                f"{formula}/{profile} n={n}: noise-admission residual (signal recovered): {reason}; "
-                f"observed={drop_fail}; selected={selected}"
-            )
+            pytest.xfail(f"{formula}/{profile} n={n}: noise-admission residual (signal recovered): {reason}; observed={drop_fail}; selected={selected}")
         pytest.fail(
-            f"{formula}/{profile} n={n}: NOISE ADMITTED (signal recovered): {'; '.join(drop_fail)}  "
-            f"selected={selected}",
+            f"{formula}/{profile} n={n}: NOISE ADMITTED (signal recovered): {'; '.join(drop_fail)}  selected={selected}",
             pytrace=False,
         )
 
@@ -409,10 +400,7 @@ def _gate(formula, profile, n, selected, keep_fail, drop_fail):
 def test_create_keep_drop_under_profile(profile, formula):
     _checkpoint(f"PROFILE start {formula}/{profile} n={_BROAD_N}")
     selected, keep_fail, drop_fail = _fit_profile(formula, profile, _BROAD_N)
-    _checkpoint(
-        f"PROFILE done  {formula}/{profile} n={_BROAD_N} sel={selected} "
-        f"signal_lost={keep_fail} noise={drop_fail}"
-    )
+    _checkpoint(f"PROFILE done  {formula}/{profile} n={_BROAD_N} sel={selected} signal_lost={keep_fail} noise={drop_fail}")
     _gate(formula, profile, _BROAD_N, selected, keep_fail, drop_fail)
 
 
@@ -428,10 +416,7 @@ _NSWEEP_NS = [10000, 30000]
 def test_ratio_sqr_nsweep_under_profile(profile, n):
     _checkpoint(f"NSWEEP start ratio_sqr/{profile} n={n}")
     selected, keep_fail, drop_fail = _fit_profile("ratio_sqr", profile, n)
-    _checkpoint(
-        f"NSWEEP done  ratio_sqr/{profile} n={n} sel={selected} "
-        f"signal_lost={keep_fail} noise={drop_fail}"
-    )
+    _checkpoint(f"NSWEEP done  ratio_sqr/{profile} n={n} sel={selected} signal_lost={keep_fail} noise={drop_fail}")
     _gate("ratio_sqr", profile, n, selected, keep_fail, drop_fail)
 
 
@@ -487,9 +472,7 @@ def _recovery_subprocess_src(kind: str, formula: str, profile, n: int) -> str:
         "import os, sys, warnings\n"
         "warnings.filterwarnings('ignore')\n"
         "os.environ.setdefault('MLFRAME_DISABLE_HNSW', '1')\n"
-        "os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')\n"
-        + body +
-        "print('KEEP_FAIL=' + repr(keep_fail))\n"
+        "os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')\n" + body + "print('KEEP_FAIL=' + repr(keep_fail))\n"
         "print('SELECTED=' + repr(sel))\n"
         "sys.exit(0 if not keep_fail else 3)\n"
     )
@@ -497,7 +480,8 @@ def _recovery_subprocess_src(kind: str, formula: str, profile, n: int) -> str:
 
 @pytest.mark.timeout(FIT_TIMEOUT)
 @pytest.mark.parametrize(
-    "kind,formula,profile,n,label", _RECOVERY_SENSOR_CELLS,
+    "kind,formula,profile,n,label",
+    _RECOVERY_SENSOR_CELLS,
     ids=[f"{c[0]}:{c[1]}:{c[2]}:{c[3]}" for c in _RECOVERY_SENSOR_CELLS],
 )
 def test_documented_xfail_cell_recovers_in_fresh_process(kind, formula, profile, n, label):
@@ -514,7 +498,10 @@ def test_documented_xfail_cell_recovers_in_fresh_process(kind, formula, profile,
     env.setdefault("CUDA_VISIBLE_DEVICES", "")
     proc = subprocess.run(
         [sys.executable, "-c", src],
-        capture_output=True, text=True, env=env, timeout=FIT_TIMEOUT - 5,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=FIT_TIMEOUT - 5,
     )
     if proc.returncode == 3:
         pytest.fail(
@@ -525,8 +512,7 @@ def test_documented_xfail_cell_recovers_in_fresh_process(kind, formula, profile,
             pytrace=False,
         )
     assert proc.returncode == 0, (
-        f"recovery subprocess for {kind}:{formula}:{profile}:{n} errored "
-        f"(rc={proc.returncode}); stdout:\n{proc.stdout}\nstderr tail:\n{proc.stderr[-2000:]}"
+        f"recovery subprocess for {kind}:{formula}:{profile}:{n} errored (rc={proc.returncode}); stdout:\n{proc.stdout}\nstderr tail:\n{proc.stderr[-2000:]}"
     )
 
 
@@ -536,6 +522,7 @@ def _dump_profile_ledger():
     ledger_path = _artifact_path("distros_profile_ledger.json")
     try:
         import orjson
+
         with open(ledger_path, "wb") as fh:
             fh.write(orjson.dumps(_LEDGER, option=orjson.OPT_INDENT_2))
     except Exception as exc:
@@ -543,9 +530,10 @@ def _dump_profile_ledger():
             import json
             import warnings
 
-            warnings.warn(f"distros ledger orjson dump failed ({exc!r}); using json fallback")
+            warnings.warn(f"distros ledger orjson dump failed ({exc!r}); using json fallback", stacklevel=2)
             with open(ledger_path, "w", encoding="utf-8") as fh:
                 json.dump(_LEDGER, fh, indent=2)
         except Exception as exc2:
             import warnings
-            warnings.warn(f"distros ledger dump failed entirely: {exc2!r}")
+
+            warnings.warn(f"distros ledger dump failed entirely: {exc2!r}", stacklevel=2)

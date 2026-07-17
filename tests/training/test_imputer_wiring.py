@@ -18,7 +18,6 @@ landed in `create_polarsds_pipeline`.
 
 from __future__ import annotations
 
-import logging
 
 import numpy as np
 import polars as pl
@@ -59,6 +58,7 @@ def _require_pds_pipeline():
 # Fixtures
 # =====================================================================
 
+
 @pytest.fixture
 def df_with_nans():
     """Numeric frame with NULL holes (polars-native) in two columns + a clean column.
@@ -76,11 +76,12 @@ def df_with_nans():
     f2 = rng.standard_normal(n).astype(np.float32)  # clean
     df = pl.DataFrame({"f0": f0, "f1": f1, "f2": f2})
     # Inject ~14% nulls in f0 (every 7th row), 20-row block of nulls in f1.
-    df = df.with_columns([
-        pl.when(pl.int_range(pl.len()) % 7 == 0).then(None).otherwise(pl.col("f0")).alias("f0"),
-        pl.when((pl.int_range(pl.len()) >= 3) & (pl.int_range(pl.len()) < 23))
-            .then(None).otherwise(pl.col("f1")).alias("f1"),
-    ])
+    df = df.with_columns(
+        [
+            pl.when(pl.int_range(pl.len()) % 7 == 0).then(None).otherwise(pl.col("f0")).alias("f0"),
+            pl.when((pl.int_range(pl.len()) >= 3) & (pl.int_range(pl.len()) < 23)).then(None).otherwise(pl.col("f1")).alias("f1"),
+        ]
+    )
     return df
 
 
@@ -91,22 +92,30 @@ def df_train_test_with_nans():
     statistic application (no leak)."""
     rng = np.random.default_rng(0)
     n = 200
-    train = pl.DataFrame({
-        "f0": rng.standard_normal(n).astype(np.float32),
-        "f1": rng.standard_normal(n).astype(np.float32),
-    })
-    train = train.with_columns([
-        pl.when(pl.int_range(pl.len()) % 5 == 0).then(None).otherwise(pl.col("f0")).alias("f0"),
-        pl.when(pl.int_range(pl.len()) % 7 == 0).then(None).otherwise(pl.col("f1")).alias("f1"),
-    ])
-    test = pl.DataFrame({
-        "f0": rng.standard_normal(50).astype(np.float32),
-        "f1": rng.standard_normal(50).astype(np.float32),
-    })
-    test = test.with_columns([
-        pl.when(pl.int_range(pl.len()) % 3 == 0).then(None).otherwise(pl.col("f0")).alias("f0"),
-        pl.when(pl.int_range(pl.len()) % 4 == 0).then(None).otherwise(pl.col("f1")).alias("f1"),
-    ])
+    train = pl.DataFrame(
+        {
+            "f0": rng.standard_normal(n).astype(np.float32),
+            "f1": rng.standard_normal(n).astype(np.float32),
+        }
+    )
+    train = train.with_columns(
+        [
+            pl.when(pl.int_range(pl.len()) % 5 == 0).then(None).otherwise(pl.col("f0")).alias("f0"),
+            pl.when(pl.int_range(pl.len()) % 7 == 0).then(None).otherwise(pl.col("f1")).alias("f1"),
+        ]
+    )
+    test = pl.DataFrame(
+        {
+            "f0": rng.standard_normal(50).astype(np.float32),
+            "f1": rng.standard_normal(50).astype(np.float32),
+        }
+    )
+    test = test.with_columns(
+        [
+            pl.when(pl.int_range(pl.len()) % 3 == 0).then(None).otherwise(pl.col("f0")).alias("f0"),
+            pl.when(pl.int_range(pl.len()) % 4 == 0).then(None).otherwise(pl.col("f1")).alias("f1"),
+        ]
+    )
     return train, test
 
 
@@ -118,11 +127,13 @@ def df_with_string_and_numeric_nans():
     """
     rng = np.random.default_rng(0)
     n = 100
-    return pl.DataFrame({
-        "num_col": np.where(rng.random(n) < 0.2, np.nan, rng.standard_normal(n)).astype(np.float32),
-        "str_col": ["a", "b", "c", None, "a"] * (n // 5),
-        "cat_col": pl.Series(["x", "y", None, "x", "y"] * (n // 5), dtype=pl.Categorical),
-    })
+    return pl.DataFrame(
+        {
+            "num_col": np.where(rng.random(n) < 0.2, np.nan, rng.standard_normal(n)).astype(np.float32),
+            "str_col": ["a", "b", "c", None, "a"] * (n // 5),
+            "cat_col": pl.Series(["x", "y", None, "x", "y"] * (n // 5), dtype=pl.Categorical),
+        }
+    )
 
 
 def _scaler_off() -> dict:
@@ -134,6 +145,7 @@ def _scaler_off() -> dict:
 # =====================================================================
 # 1. Strategy="mean" fills NaN with train-column mean
 # =====================================================================
+
 
 class TestImputerStrategyMean:
     def test_strategy_mean_fills_all_numeric_nans(self, df_with_nans):
@@ -156,7 +168,9 @@ class TestImputerStrategyMean:
         imputed_positions = list(range(0, 200, 7))
         for pos in imputed_positions:
             np.testing.assert_allclose(
-                out["f0"][pos], train_f0_mean, atol=1e-5,
+                out["f0"][pos],
+                train_f0_mean,
+                atol=1e-5,
                 err_msg=f"f0[{pos}] should equal train mean {train_f0_mean}",
             )
 
@@ -164,6 +178,7 @@ class TestImputerStrategyMean:
 # =====================================================================
 # 2. Strategy="median"
 # =====================================================================
+
 
 class TestImputerStrategyMedian:
     def test_strategy_median_fills_nans(self, df_with_nans):
@@ -179,7 +194,9 @@ class TestImputerStrategyMedian:
         out = pipe.transform(df_with_nans)
         train_f0_median = float(df_with_nans["f0"].median())
         np.testing.assert_allclose(
-            out["f0"][0], train_f0_median, atol=1e-5,
+            out["f0"][0],
+            train_f0_median,
+            atol=1e-5,
             err_msg="imputed value should be train median",
         )
 
@@ -187,6 +204,7 @@ class TestImputerStrategyMedian:
 # =====================================================================
 # 3. Strategy=None skips imputation (NaN survives)
 # =====================================================================
+
 
 class TestImputerStrategyNone:
     def test_strategy_none_leaves_nans(self, df_with_nans):
@@ -203,6 +221,7 @@ class TestImputerStrategyNone:
 # 4. No-leak: train-only fit applies same statistic to test
 # =====================================================================
 
+
 class TestImputerTrainOnlyNoLeak:
     def test_test_set_imputed_with_train_mean_not_test_mean(self, df_train_test_with_nans):
         train, test = df_train_test_with_nans
@@ -214,15 +233,14 @@ class TestImputerTrainOnlyNoLeak:
         train_f0_mean = float(train["f0"].mean())
         test_f0_mean = float(test["f0"].mean())
         # Sanity: train and test means differ enough to discriminate.
-        assert abs(train_f0_mean - test_f0_mean) > 1e-3, (
-            "fixture broken: train and test means too close to discriminate"
-        )
+        assert abs(train_f0_mean - test_f0_mean) > 1e-3, "fixture broken: train and test means too close to discriminate"
         # First imputed row in test (every 3rd) — must be train mean.
         np.testing.assert_allclose(
-            out_test["f0"][0], train_f0_mean, atol=1e-5,
+            out_test["f0"][0],
+            train_f0_mean,
+            atol=1e-5,
             err_msg=(
-                f"test imputation used the wrong statistic: got {float(out_test['f0'][0])}, "
-                f"expected train mean {train_f0_mean} (test mean was {test_f0_mean})"
+                f"test imputation used the wrong statistic: got {float(out_test['f0'][0])}, expected train mean {train_f0_mean} (test mean was {test_f0_mean})"
             ),
         )
 
@@ -230,6 +248,7 @@ class TestImputerTrainOnlyNoLeak:
 # =====================================================================
 # 5. Numeric-only target — string columns untouched
 # =====================================================================
+
 
 class TestImputerLeavesStringColumnsAlone:
     def test_string_nulls_not_filled_by_numeric_imputer(self, df_with_string_and_numeric_nans):
@@ -253,13 +272,16 @@ class TestImputerLeavesStringColumnsAlone:
 # 6. Idempotency on clean data — no-op behaviour
 # =====================================================================
 
+
 class TestImputerIdempotentOnCleanData:
     def test_clean_data_passes_through_unchanged(self):
         rng = np.random.default_rng(0)
-        clean = pl.DataFrame({
-            "f0": rng.standard_normal(100).astype(np.float32),
-            "f1": rng.standard_normal(100).astype(np.float32),
-        })
+        clean = pl.DataFrame(
+            {
+                "f0": rng.standard_normal(100).astype(np.float32),
+                "f1": rng.standard_normal(100).astype(np.float32),
+            }
+        )
         cfg = PreprocessingBackendConfig(imputer_strategy="mean", **_scaler_off())
         pipe = create_polarsds_pipeline(clean, cfg, verbose=0)
         out = pipe.transform(clean)
@@ -271,6 +293,7 @@ class TestImputerIdempotentOnCleanData:
 # =====================================================================
 # 7. Imputer + scaler compose: NaN-fill happens BEFORE scaling
 # =====================================================================
+
 
 class TestImputerComposesWithScaler:
     def test_imputer_runs_before_scaler(self, df_with_nans):
@@ -287,9 +310,7 @@ class TestImputerComposesWithScaler:
         out = pipe.transform(df_with_nans)
         # No NaN in any numeric column post-pipeline.
         for col in ("f0", "f1", "f2"):
-            assert out[col].null_count() == 0, (
-                f"{col} has NaN after imputer+scaler — order is likely wrong"
-            )
+            assert out[col].null_count() == 0, f"{col} has NaN after imputer+scaler — order is likely wrong"
         # Scaling actually applied (mean ≈ 0, std ≈ 1 for f2 which had no NaN).
         f2_vals = out["f2"].to_numpy()
         assert abs(float(np.mean(f2_vals))) < 0.5, "scaler did not run"
@@ -298,6 +319,7 @@ class TestImputerComposesWithScaler:
 # =====================================================================
 # 8. Float NaN (not just polars NULL) is imputed
 # =====================================================================
+
 
 class TestFloatNanImputed:
     """polars-ds ``Blueprint.impute`` only fills polars NULL; float ``NaN``
@@ -318,9 +340,7 @@ class TestFloatNanImputed:
 
     def test_float_nan_is_imputed_not_survived(self):
         df, _ = self._nan_frame()
-        cfg = PreprocessingBackendConfig(
-            imputer_strategy="mean", scaler_name=None, categorical_encoding=None
-        )
+        cfg = PreprocessingBackendConfig(imputer_strategy="mean", scaler_name=None, categorical_encoding=None)
         pipe = create_polarsds_pipeline(df, cfg, verbose=0)
         out = pipe.transform(df).to_numpy()
         assert not np.isnan(out).any(), "float NaN survived the imputer"
@@ -331,20 +351,17 @@ class TestFloatNanImputed:
         df, mask = self._nan_frame()
         fills = {}
         for strat in ("mean", "median"):
-            cfg = PreprocessingBackendConfig(
-                imputer_strategy=strat, scaler_name=None, categorical_encoding=None
-            )
+            cfg = PreprocessingBackendConfig(imputer_strategy=strat, scaler_name=None, categorical_encoding=None)
             out = create_polarsds_pipeline(df, cfg, verbose=0).transform(df).to_numpy()
             assert not np.isnan(out).any()
             fills[strat] = float(out[mask[:, 0], 0][0])
-        assert abs(fills["mean"] - fills["median"]) > 0.1, (
-            "mean and median imputation produced identical fills on a skewed column"
-        )
+        assert abs(fills["mean"] - fills["median"]) > 0.1, "mean and median imputation produced identical fills on a skewed column"
 
 
 # =====================================================================
 # 11. All-NULL / all-NaN column must NOT survive the impute step as NULL
 # =====================================================================
+
 
 class TestAllNullColumnFilledNotSurvived:
     """A column with NO finite value (e.g. the fuzz ``inject_all_nan_col`` axis) has no mean/median to
@@ -360,10 +377,12 @@ class TestAllNullColumnFilledNotSurvived:
     def _frame_with_all_null_col(self):
         rng = np.random.default_rng(0)
         n = 100
-        return pl.DataFrame({
-            "f0": rng.standard_normal(n).astype(np.float32),
-            "f_all_null": pl.Series([None] * n, dtype=pl.Float32),
-        })
+        return pl.DataFrame(
+            {
+                "f0": rng.standard_normal(n).astype(np.float32),
+                "f_all_null": pl.Series([None] * n, dtype=pl.Float32),
+            }
+        )
 
     def test_all_null_column_filled_finite_not_left_null(self):
         df = self._frame_with_all_null_col()
@@ -372,8 +391,7 @@ class TestAllNullColumnFilledNotSurvived:
         assert pipe is not None
         out = pipe.transform(df)
         assert out["f_all_null"].null_count() == 0, (
-            "all-NULL column must be filled to a finite value, not left NULL relying on the "
-            "constant-column dropper (which may be disabled)"
+            "all-NULL column must be filled to a finite value, not left NULL relying on the constant-column dropper (which may be disabled)"
         )
         assert out["f0"].null_count() == 0
 

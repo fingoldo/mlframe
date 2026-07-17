@@ -6,6 +6,7 @@ tallies, and the count of groups where the composite is worse than the lag fails
 engineer a synthetic with a KNOWN helped subset and a KNOWN hurt subset and assert the report recovers
 both, the worse-than-lag set, and the sign of the net lift with quantitative floors.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,6 +23,7 @@ from mlframe.training.composite.report import composite_value_report
 
 
 # --------------------------------------------------------------------------- unit: per-group RMSE
+
 
 def test_per_group_rmse_correctness():
     # Group A: y=[0,0], raw=[2,2] -> rmse 2; comp=[1,1] -> rmse 1. Group B: y=[0], raw=[1], comp=[2].
@@ -99,6 +101,7 @@ def test_winner_and_lag_lift():
 
 
 # --------------------------------------------------------------------------- unit: edges / NaN / json
+
 
 def test_single_group():
     y = np.zeros(5)
@@ -208,12 +211,8 @@ def test_bincount_fallback_matches_njit_default(monkeypatch):
     assert rep_bc["n_rows"] == rep_njit["n_rows"]
     assert rep_bc["aggregate"]["vs_raw"] == rep_njit["aggregate"]["vs_raw"]
     assert rep_bc["aggregate"]["n_worse_than_lag"] == rep_njit["aggregate"]["n_worse_than_lag"]
-    assert rep_bc["aggregate"]["net_weighted_lift_over_raw"] == pytest.approx(
-        rep_njit["aggregate"]["net_weighted_lift_over_raw"], rel=1e-9
-    )
-    assert rep_bc["aggregate"]["pooled_rmse_composite"] == pytest.approx(
-        rep_njit["aggregate"]["pooled_rmse_composite"], rel=1e-9
-    )
+    assert rep_bc["aggregate"]["net_weighted_lift_over_raw"] == pytest.approx(rep_njit["aggregate"]["net_weighted_lift_over_raw"], rel=1e-9)
+    assert rep_bc["aggregate"]["pooled_rmse_composite"] == pytest.approx(rep_njit["aggregate"]["pooled_rmse_composite"], rel=1e-9)
 
 
 def test_expected_vs_realized_calibration():
@@ -233,6 +232,7 @@ def test_expected_vs_realized_calibration():
 
 # --------------------------------------------------------------------------- biz_value
 
+
 def _make_split_synthetic(seed=0):
     """8 groups the composite HELPS (comp err << raw err) + 4 it HURTS (comp err >> raw err, and >lag)."""
     rng = np.random.default_rng(seed)
@@ -242,15 +242,18 @@ def _make_split_synthetic(seed=0):
     for g in helped + hurt:
         n = 1000 if g in helped else 250
         yv = rng.normal(50.0, 5.0, n)
-        raw = yv + rng.normal(0.0, 1.0, n)          # raw RMSE ~ 1.0 everywhere
+        raw = yv + rng.normal(0.0, 1.0, n)  # raw RMSE ~ 1.0 everywhere
         if g in helped:
-            comp = yv + rng.normal(0.0, 0.3, n)     # comp RMSE ~ 0.3 -> helps
+            comp = yv + rng.normal(0.0, 0.3, n)  # comp RMSE ~ 0.3 -> helps
         else:
-            comp = yv + rng.normal(0.0, 2.0, n)     # comp RMSE ~ 2.0 -> hurts, and > lag
-        lag = yv + rng.normal(0.0, 1.5, n)          # lag RMSE ~ 1.5
-        ys.append(yv); raws.append(raw); comps.append(comp); lags.append(lag); gids.append(np.full(n, g))
-    return (np.concatenate(ys), np.concatenate(raws), np.concatenate(comps),
-            np.concatenate(lags), np.concatenate(gids), set(helped), set(hurt))
+            comp = yv + rng.normal(0.0, 2.0, n)  # comp RMSE ~ 2.0 -> hurts, and > lag
+        lag = yv + rng.normal(0.0, 1.5, n)  # lag RMSE ~ 1.5
+        ys.append(yv)
+        raws.append(raw)
+        comps.append(comp)
+        lags.append(lag)
+        gids.append(np.full(n, g))
+    return (np.concatenate(ys), np.concatenate(raws), np.concatenate(comps), np.concatenate(lags), np.concatenate(gids), set(helped), set(hurt))
 
 
 def test_biz_val_value_report_identifies_helped_and_hurt_split():
@@ -272,7 +275,7 @@ def test_biz_val_value_report_identifies_helped_and_hurt_split():
 
 
 def test_biz_val_value_report_worse_than_lag_set():
-    y, raw, comp, lag, g, helped, hurt = _make_split_synthetic()
+    y, raw, comp, lag, g, _helped, hurt = _make_split_synthetic()
     rep = build_composite_value_report(y, raw, comp, g, y_pred_lag=lag)
     agg = rep["aggregate"]
     # The hurt groups (comp RMSE ~2.0 > lag ~1.5) are exactly the "should not have deployed" set.
@@ -281,7 +284,7 @@ def test_biz_val_value_report_worse_than_lag_set():
 
 
 def test_biz_val_value_report_net_lift_sign_positive_when_helped_rows_dominate():
-    y, raw, comp, lag, g, helped, hurt = _make_split_synthetic()
+    y, raw, comp, lag, g, _helped, _hurt = _make_split_synthetic()
     rep = build_composite_value_report(y, raw, comp, g, y_pred_lag=lag)
     net = rep["aggregate"]["net_weighted_lift_over_raw"]
     # Helped groups carry 8000 rows @ +0.70; hurt carry 1000 rows @ -1.0.
@@ -305,9 +308,11 @@ def test_biz_val_value_report_net_lift_sign_flips_when_hurt_dominates():
         yv = rng.normal(50.0, 5.0, n)
         raw = yv + rng.normal(0.0, 1.0, n)
         comp = yv + rng.normal(0.0, 0.3 if helped else 2.0, n)
-        ys.append(yv); raws.append(raw); comps.append(comp); gids.append(np.full(n, g))
-    rep = build_composite_value_report(np.concatenate(ys), np.concatenate(raws),
-                                       np.concatenate(comps), np.concatenate(gids))
+        ys.append(yv)
+        raws.append(raw)
+        comps.append(comp)
+        gids.append(np.full(n, g))
+    rep = build_composite_value_report(np.concatenate(ys), np.concatenate(raws), np.concatenate(comps), np.concatenate(gids))
     net = rep["aggregate"]["net_weighted_lift_over_raw"]
     assert net < 0.0, f"net lift must be negative when hurt rows dominate: {net}"
     assert rep["aggregate"]["net_verdict"] == "composite hurt overall"

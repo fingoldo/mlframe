@@ -15,7 +15,11 @@ import pytest
 from mlframe.reporting.renderers import get_renderer
 from mlframe.reporting.renderers._trend import robust_fit_endpoints
 from mlframe.reporting.spec import (
-    BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec, ScatterPanelSpec,
+    BarPanelSpec,
+    FigureSpec,
+    HeatmapPanelSpec,
+    LinePanelSpec,
+    ScatterPanelSpec,
 )
 
 BACKENDS = ["matplotlib", "plotly"]
@@ -44,8 +48,7 @@ class TestScatterErrorBars:
     def panel_asymmetric(self):
         # Wilson CIs are asymmetric: separate lower / upper distance arrays.
         x = np.linspace(0, 1, 12)
-        return ScatterPanelSpec(x=x, y=x, y_err=(np.full(12, 0.03), np.full(12, 0.07)),
-                                x_err=np.full(12, 0.01))
+        return ScatterPanelSpec(x=x, y=x, y_err=(np.full(12, 0.03), np.full(12, 0.07)), x_err=np.full(12, 0.01))
 
     def test_symmetric_renders_both(self, panel_symmetric):
         for b in BACKENDS:
@@ -83,8 +86,7 @@ class TestScatterHighlight:
     @pytest.fixture
     def panel(self):
         x = np.linspace(0, 10, 50)
-        return ScatterPanelSpec(x=x, y=x, highlight_indices=np.array([0, 25, 49]),
-                                highlight_color="red")
+        return ScatterPanelSpec(x=x, y=x, highlight_indices=np.array([0, 25, 49]), highlight_color="red")
 
     def test_renders_both(self, panel):
         for b in BACKENDS:
@@ -138,8 +140,7 @@ class TestTrendLine:
         m = np.random.default_rng(1).random((6, 6))
         x = np.linspace(0, 1, 40)
         y = x + np.random.default_rng(2).standard_normal(40) * 0.1
-        panel = HeatmapPanelSpec(matrix=m, row_labels=tuple("abcdef"), col_labels=tuple("123456"),
-                                 trend_line="theil-sen", trend_xy=(x, y))
+        panel = HeatmapPanelSpec(matrix=m, row_labels=tuple("abcdef"), col_labels=tuple("123456"), trend_line="theil-sen", trend_xy=(x, y))
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -161,6 +162,7 @@ class TestTrendLine:
     def test_robust_fit_large_n_is_bounded(self):
         # Default-ON hexbin overlay can feed millions of points; the fit-cap keeps it fast and still slope-correct.
         import time
+
         rng = np.random.default_rng(7)
         n = 2_000_000
         x = rng.standard_normal(n) * 5.0
@@ -183,8 +185,7 @@ class TestTrendLine:
 class TestBarOrientation:
     @pytest.fixture
     def panel(self):
-        return BarPanelSpec(categories=("A->B", "C->D", "E->F"),
-                            values=np.array([0.4, 0.25, 0.1]), orientation="horizontal")
+        return BarPanelSpec(categories=("A->B", "C->D", "E->F"), values=np.array([0.4, 0.25, 0.1]), orientation="horizontal")
 
     def test_renders_both(self, panel):
         for b in BACKENDS:
@@ -210,9 +211,9 @@ class TestBarOrientation:
         assert fig.data[0].orientation in (None, "v")
 
     def test_grouped_horizontal(self):
-        panel = BarPanelSpec(categories=("a", "b"),
-                             values=(np.array([1.0, 2.0]), np.array([0.5, 1.5])),
-                             series_labels=("seg", "global"), orientation="horizontal")
+        panel = BarPanelSpec(
+            categories=("a", "b"), values=(np.array([1.0, 2.0]), np.array([0.5, 1.5])), series_labels=("seg", "global"), orientation="horizontal"
+        )
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -224,27 +225,23 @@ class TestBarOrientation:
 
 class TestBarHline:
     def test_vertical_hline_renders_both(self):
-        panel = BarPanelSpec(categories=("a", "b", "c"), values=np.array([1.0, 2.0, 3.0]),
-                             hline=(2.0, "black", "global"))
+        panel = BarPanelSpec(categories=("a", "b", "c"), values=np.array([1.0, 2.0, 3.0]), hline=(2.0, "black", "global"))
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
     def test_horizontal_hline_renders_both(self):
-        panel = BarPanelSpec(categories=("a", "b"), values=np.array([1.0, 2.0]),
-                             orientation="horizontal", hline=(1.5, "red", "ref"))
+        panel = BarPanelSpec(categories=("a", "b"), values=np.array([1.0, 2.0]), orientation="horizontal", hline=(1.5, "red", "ref"))
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
     def test_matplotlib_reference_line_added(self):
-        panel = BarPanelSpec(categories=("a", "b"), values=np.array([1.0, 2.0]),
-                             hline=(1.5, "black", "global"))
+        panel = BarPanelSpec(categories=("a", "b"), values=np.array([1.0, 2.0]), hline=(1.5, "black", "global"))
         fig = _render(panel, "matplotlib")
         # axhline adds a Line2D to ax.lines.
         assert len(fig.axes[0].lines) >= 1
 
     def test_plotly_hline_shape_added(self):
-        panel = BarPanelSpec(categories=("a", "b"), values=np.array([1.0, 2.0]),
-                             hline=(1.5, "black", "global"))
+        panel = BarPanelSpec(categories=("a", "b"), values=np.array([1.0, 2.0]), hline=(1.5, "black", "global"))
         fig = _render(panel, "plotly")
         assert len(fig.layout.shapes) >= 1
 
@@ -257,9 +254,13 @@ class TestBarHline:
 class TestSecondaryY:
     @pytest.fixture
     def panel(self):
-        return LinePanelSpec(x=np.arange(10), y=(np.arange(10.0), np.arange(10.0) * 3.0),
-                             secondary_y=(False, True), secondary_ylabel="queue-rate",
-                             series_labels=("recall", "queue"))
+        return LinePanelSpec(
+            x=np.arange(10),
+            y=(np.arange(10.0), np.arange(10.0) * 3.0),
+            secondary_y=(False, True),
+            secondary_ylabel="queue-rate",
+            series_labels=("recall", "queue"),
+        )
 
     def test_renders_both(self, panel):
         for b in BACKENDS:
@@ -300,8 +301,7 @@ class TestFillToBaseline:
             assert _render(panel, b) is not None
 
     def test_step_fill_renders_both(self):
-        panel = LinePanelSpec(x=np.arange(10), y=np.arange(10.0),
-                              fill_to_baseline=True, step_fill=True)
+        panel = LinePanelSpec(x=np.arange(10), y=np.arange(10.0), fill_to_baseline=True, step_fill=True)
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -316,8 +316,7 @@ class TestFillToBaseline:
         assert any(t.fill is not None for t in fig.data)
 
     def test_per_series_fill(self):
-        panel = LinePanelSpec(x=np.arange(10), y=(np.arange(10.0), np.arange(10.0)),
-                              fill_to_baseline=(True, False))
+        panel = LinePanelSpec(x=np.arange(10), y=(np.arange(10.0), np.arange(10.0)), fill_to_baseline=(True, False))
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
@@ -331,8 +330,7 @@ class TestThresholdContours:
     @pytest.fixture
     def panel(self):
         m = np.random.default_rng(0).random((6, 6)) * 0.4  # spans below+above 0.10/0.25
-        return HeatmapPanelSpec(matrix=m, row_labels=tuple("abcdef"), col_labels=tuple("123456"),
-                                threshold_contours=((0.10, "blue"), (0.25, "red")))
+        return HeatmapPanelSpec(matrix=m, row_labels=tuple("abcdef"), col_labels=tuple("123456"), threshold_contours=((0.10, "blue"), (0.25, "red")))
 
     def test_renders_both(self, panel):
         for b in BACKENDS:
@@ -349,8 +347,7 @@ class TestThresholdContours:
 
     def test_level_outside_range_skipped(self):
         m = np.full((4, 4), 0.05)  # all below both thresholds -> no contour crosses
-        panel = HeatmapPanelSpec(matrix=m, row_labels=tuple("abcd"), col_labels=tuple("1234"),
-                                 threshold_contours=((0.10, "blue"), (0.25, "red")))
+        panel = HeatmapPanelSpec(matrix=m, row_labels=tuple("abcd"), col_labels=tuple("1234"), threshold_contours=((0.10, "blue"), (0.25, "red")))
         fig = _render(panel, "plotly")
         assert [t.type for t in fig.data].count("contour") == 0
 
@@ -362,26 +359,22 @@ class TestThresholdContours:
 
 class TestVspanLabels:
     def test_labeled_vspan_renders_both(self):
-        panel = LinePanelSpec(x=np.arange(20), y=np.arange(20.0),
-                              vspans=((2, 6, "green", 0.2, "train"), (10, 15, "orange", 0.2, "test")))
+        panel = LinePanelSpec(x=np.arange(20), y=np.arange(20.0), vspans=((2, 6, "green", 0.2, "train"), (10, 15, "orange", 0.2, "test")))
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
     def test_backcompat_unlabeled_4tuple(self):
-        panel = LinePanelSpec(x=np.arange(20), y=np.arange(20.0),
-                              vspans=((2, 6, "green", 0.2),))
+        panel = LinePanelSpec(x=np.arange(20), y=np.arange(20.0), vspans=((2, 6, "green", 0.2),))
         for b in BACKENDS:
             assert _render(panel, b) is not None
 
     def test_plotly_legend_proxy_for_label(self):
-        panel = LinePanelSpec(x=np.arange(20), y=np.arange(20.0),
-                              vspans=((2, 6, "green", 0.2, "train"),))
+        panel = LinePanelSpec(x=np.arange(20), y=np.arange(20.0), vspans=((2, 6, "green", 0.2, "train"),))
         fig = _render(panel, "plotly")
         assert "train" in [t.name for t in fig.data]
 
     def test_matplotlib_legend_has_label(self):
-        panel = LinePanelSpec(x=np.arange(20), y=np.arange(20.0),
-                              vspans=((2, 6, "green", 0.2, "regime A"),))
+        panel = LinePanelSpec(x=np.arange(20), y=np.arange(20.0), vspans=((2, 6, "green", 0.2, "regime A"),))
         fig = _render(panel, "matplotlib")
         legend = fig.axes[0].get_legend()
         assert legend is not None
@@ -397,8 +390,7 @@ class TestDatetimeVline:
     @pytest.fixture
     def dt_panel(self):
         dt = np.array([np.datetime64("2020-01-01") + np.timedelta64(i, "D") for i in range(15)])
-        return LinePanelSpec(x=dt, y=np.arange(15.0), x_is_time=True,
-                             vlines=((dt[7], "red", "change-point"),))
+        return LinePanelSpec(x=dt, y=np.arange(15.0), x_is_time=True, vlines=((dt[7], "red", "change-point"),))
 
     def test_plotly_datetime_vline_no_raise(self, dt_panel):
         # add_vline raises on datetime; the shape-based path must render cleanly.
@@ -420,8 +412,7 @@ class TestDatetimeVline:
 
     def test_python_datetime_vline(self):
         dt = np.array([datetime.datetime(2021, 1, 1) + datetime.timedelta(days=i) for i in range(10)])
-        panel = LinePanelSpec(x=dt, y=np.arange(10.0), x_is_time=True,
-                              vlines=((dt[5], "blue", "cp"),))
+        panel = LinePanelSpec(x=dt, y=np.arange(10.0), x_is_time=True, vlines=((dt[5], "blue", "cp"),))
         fig = _render(panel, "plotly")
         assert len(fig.layout.shapes) >= 1
 
@@ -440,9 +431,7 @@ class TestPerSeriesX:
         chance = np.array([0.0, 1.0])
         return LinePanelSpec(
             x=(fpr_train, fpr_test, chance),
-            y=(np.array([0.0, 0.6, 0.85, 1.0]),
-               np.array([0.0, 0.5, 0.75, 1.0]),
-               np.array([0.0, 1.0])),
+            y=(np.array([0.0, 0.6, 0.85, 1.0]), np.array([0.0, 0.5, 0.75, 1.0]), np.array([0.0, 1.0])),
             series_labels=("train-vs-test", "train-vs-val", "chance"),
             line_styles=("-", "-", "--"),
         )
@@ -464,7 +453,6 @@ class TestPerSeriesX:
 
     def test_shared_x_still_works(self):
         # Back-compat: a single shared x array across two series.
-        panel = LinePanelSpec(x=np.arange(10), y=(np.arange(10.0), np.arange(10.0) * 2),
-                              series_labels=("a", "b"))
+        panel = LinePanelSpec(x=np.arange(10), y=(np.arange(10.0), np.arange(10.0) * 2), series_labels=("a", "b"))
         fig = _render(panel, "matplotlib")
         assert len(fig.axes[0].lines) == 2

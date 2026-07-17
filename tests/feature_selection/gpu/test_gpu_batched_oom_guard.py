@@ -6,6 +6,7 @@ undercounting the true simultaneously-live working set (``rand`` float64 + ``per
 ``perms_y`` int32 = 20 bytes/row) by ~5x -- a batch sized "safe" by the old formula could actually need
 5x more VRAM than budgeted. Pure arithmetic, no cupy/GPU required.
 """
+
 from __future__ import annotations
 
 from mlframe.feature_selection.filters.gpu import _gpu_batched_bytes_per_perm

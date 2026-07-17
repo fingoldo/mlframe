@@ -6,6 +6,7 @@ Pre-existing `test_phases_phases.py` exercises a different `phases` module
 (validate_input_columns / dataset_reuse_cache_key); the registry helpers had
 no direct test coverage.
 """
+
 from __future__ import annotations
 
 import logging
@@ -218,6 +219,6 @@ def test_phase_registry_thread_safety_same_name():
         t.join()
     snap = phase_snapshot()
     assert len(snap) == 1
-    name, total, count = snap[0]
+    _name, total, count = snap[0]
     assert count == 400
     assert total == pytest.approx(0.4)

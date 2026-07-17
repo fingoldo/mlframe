@@ -28,9 +28,7 @@ def test_default_candidates_polars_matches_pandas_for_lowcard_int_gid():
     pd_names = {n for n, _ in detect_group_column_candidates(pd_df)}
     pl_names = {n for n, _ in detect_group_column_candidates(pl_df)}
     assert "gid" in pd_names, "pandas branch already kept low-card int gid via int-as-cat heuristic"
-    assert "gid" in pl_names, (
-        "polars default-candidates must mirror pandas int-as-cat: low-card int columns are valid group keys (FU-w3a-1)"
-    )
+    assert "gid" in pl_names, "polars default-candidates must mirror pandas int-as-cat: low-card int columns are valid group keys (FU-w3a-1)"
     assert pd_names == pl_names, f"polars / pandas default-candidates diverged: pd={pd_names}, pl={pl_names}"
 
 

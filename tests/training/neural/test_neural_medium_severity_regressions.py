@@ -16,7 +16,6 @@ Categories covered (matches the wave 3 prompt enumeration):
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -291,7 +290,9 @@ def test_m_neu_09_ensemble_method_conflict_warns(caplog) -> None:
         _typed = cfg.ltr_ensemble_method
         if _legacy != "rrf" and _typed != "rrf" and _typed != _legacy:
             logging.getLogger("mlframe.training.ranking.ranker_suite").warning(
-                "conflict: legacy=%s typed=%s", _legacy, _typed,
+                "conflict: legacy=%s typed=%s",
+                _legacy,
+                _typed,
             )
     assert any("conflict" in r.message for r in caplog.records), caplog.records
 
@@ -331,6 +332,7 @@ def test_m_neu_11_no_lazy_import_in_create_dataset() -> None:
     """
     import mlframe.training.neural.recurrent_dataset_helpers as ds
     from concurrent.futures import ThreadPoolExecutor
+
     # Module top of the owning module must expose ThreadPoolExecutor.
     assert getattr(ds, "ThreadPoolExecutor") is ThreadPoolExecutor
 
@@ -351,6 +353,7 @@ def test_m_neu_11_no_lazy_xxhash_in_cache_key() -> None:
     module that defines _compute_cache_key (carved into _recurrent_cat_embeddings).
     """
     import mlframe.training.neural._recurrent_cat_embeddings as ce
+
     assert hasattr(ce, "_HAS_XXHASH")
     assert hasattr(ce, "_hashlib")
 
@@ -362,6 +365,7 @@ def test_m_neu_11_no_lazy_import_in_mlp_ranker_fit() -> None:
     the hot fit path.
     """
     import mlframe.training.neural.ranker as rk
+
     assert hasattr(rk, "_L_MODULE")
     assert hasattr(rk, "_EarlyStopping")
 
@@ -378,10 +382,11 @@ def test_m_neu_13a_dataloader_generator_seeded_reproducibility() -> None:
     different batches when other torch RNG users were interleaved.
     """
     from mlframe.training.neural.recurrent import (
-        _RecurrentWrapperBase, RecurrentClassifierWrapper,
+        RecurrentClassifierWrapper,
     )
     from mlframe.training.neural._recurrent_config import (
-        RecurrentConfig, InputMode,
+        RecurrentConfig,
+        InputMode,
     )
 
     cfg = RecurrentConfig(
@@ -429,7 +434,8 @@ def test_m_neu_14_set_epoch_called_each_epoch() -> None:
     _SamplerSetEpochCallback bumps _epoch on every train_epoch_start.
     """
     from mlframe.training.neural.ranker import (
-        _SamplerSetEpochCallback, GroupBatchSampler,
+        _SamplerSetEpochCallback,
+        GroupBatchSampler,
     )
 
     group_ids = np.array([0, 0, 1, 1, 2, 2])

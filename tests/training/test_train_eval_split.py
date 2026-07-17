@@ -10,12 +10,14 @@ import pytest
 @pytest.fixture(scope="module")
 def parent_module():
     from mlframe.training import train_eval
+
     return train_eval
 
 
 @pytest.fixture(scope="module")
 def sibling():
     from mlframe.training.targets import _train_eval_select_target
+
     return _train_eval_select_target
 
 
@@ -31,6 +33,7 @@ def test_facade_loc_budget(parent_module):
 
 def test_smoke_select_target_callable(parent_module):
     import inspect
+
     sig = inspect.signature(parent_module.select_target)
     # Required first 4 positional params per public signature contract.
     required = ["model_name", "target", "target_type", "df"]

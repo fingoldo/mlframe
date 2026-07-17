@@ -49,6 +49,7 @@ What this layer pins
 
 NEVER xfail. NEVER mask bugs via runtime workarounds.
 """
+
 from __future__ import annotations
 
 import glob
@@ -109,7 +110,7 @@ class TestSmokeL56_63Imports:
         # Belt-and-braces: the named attribute must be callable (a
         # silent ``= None`` reassignment would still pass hasattr).
         assert callable(getattr(mod, expected_callable)), (
-            f"L{layer} {module_name}.{expected_callable} is no longer " f"callable; got {type(getattr(mod, expected_callable))!r}"
+            f"L{layer} {module_name}.{expected_callable} is no longer callable; got {type(getattr(mod, expected_callable))!r}"
         )
 
 
@@ -167,25 +168,27 @@ def _build_kitchen_sink_frame(seed: int = 0, n: int = 1500):
     maybe_a[mask_a] = np.nan
     maybe_b[mask_b] = np.nan
 
-    X = pd.DataFrame({
-        "x_gauss": x_gauss,
-        "x_gauss_corr": x_gauss_corr,
-        "x_uni": x_uni,
-        "x_uni_corr": x_uni_corr,
-        "x1": x1,
-        "x2": x2,
-        "x3": x3,
-        "cat_lo": cat_lo,
-        "cat_med": cat_med,
-        "region": region,
-        "t": t,
-        "temperature": temperature,
-        "maybe_missing_a": maybe_a,
-        "maybe_missing_b": maybe_b,
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-        "noise_2": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "x_gauss": x_gauss,
+            "x_gauss_corr": x_gauss_corr,
+            "x_uni": x_uni,
+            "x_uni_corr": x_uni_corr,
+            "x1": x1,
+            "x2": x2,
+            "x3": x3,
+            "cat_lo": cat_lo,
+            "cat_med": cat_med,
+            "region": region,
+            "t": t,
+            "temperature": temperature,
+            "maybe_missing_a": maybe_a,
+            "maybe_missing_b": maybe_b,
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+            "noise_2": rng.standard_normal(n),
+        }
+    )
 
     # Strong linear-additive backbone -> AUC floor is reachable even if
     # half the engineered mechanisms drop nothing useful into support.
@@ -208,6 +211,7 @@ def _build_kitchen_sink_mrmr():
     helper so the composite + provenance tests share the exact ctor
     and a regression to one knob fails both tests."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     return MRMR(
         verbose=0,
         random_seed=0,
@@ -410,7 +414,7 @@ class TestProvenanceSpansEnabledMechanisms:
         the ledger fails here with the missing label named.
         """
         m = kitchen_sink_fitted[0]
-        assert hasattr(m, "fe_provenance_"), "MRMR must populate fe_provenance_ on every successful fit " "(L54 contract)."
+        assert hasattr(m, "fe_provenance_"), "MRMR must populate fe_provenance_ on every successful fit (L54 contract)."
         prov = m.fe_provenance_
         assert isinstance(prov, pd.DataFrame)
         observed_origins = set(prov["origin"].tolist())
@@ -428,9 +432,7 @@ class TestProvenanceSpansEnabledMechanisms:
         # is correct, not a vacuous relaxation. The load-bearing ledger-
         # completeness contract -- every ENABLED mechanism contributes a
         # provenance row -- is asserted just below and is unchanged.)
-        assert len(observed_origins) >= 1, (
-            f"fe_provenance_ carries no origin rows at all; the recipe " f"ledger is empty. Observed origins: {observed_origins!r}"
-        )
+        assert len(observed_origins) >= 1, f"fe_provenance_ carries no origin rows at all; the recipe ledger is empty. Observed origins: {observed_origins!r}"
         # Of the enabled mechanisms, allow a small documented shortfall
         # for buckets whose outputs are NEAR-DUPLICATES (Spearman |rho|
         # >= 0.99) of a sibling-bucket output on this kitchen-sink
@@ -537,7 +539,7 @@ class TestLayerRoster:
             glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_*", "test_*.py"))
         )
         assert module_count >= 110, (
-            f"biz_value test-module roster shrank to {module_count} (floor 110); " f"a prior-layer test module was likely dropped or renamed."
+            f"biz_value test-module roster shrank to {module_count} (floor 110); a prior-layer test module was likely dropped or renamed."
         )
 
 

@@ -22,12 +22,11 @@ Post-fix: ``export_specs`` includes the field; downstream consumers
 that read ``spec_dict.get("extra_base_columns")`` see the full tuple
 and can build the (n, 1+K) matrix correctly.
 """
+
 from __future__ import annotations
 
-from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from mlframe.training.composite.discovery import CompositeTargetDiscovery
 from mlframe.training.composite.spec import CompositeSpec
@@ -46,7 +45,9 @@ def _make_discovery_with_multibase_spec():
     y = 0.7 * b1 - 0.4 * b2 + 1.0 + 0.05 * rng.standard_normal(n)
 
     fitted_params = _linear_residual_multi_fit(
-        y=y, base=np.column_stack([b1, b2]), sample_weight=None,
+        y=y,
+        base=np.column_stack([b1, b2]),
+        sample_weight=None,
     )
 
     spec = CompositeSpec(
@@ -102,8 +103,11 @@ def test_export_specs_legacy_single_base_returns_empty_tuple() -> None:
         transform_name="linear_residual",
         base_column="b1",
         fitted_params=fitted_params,
-        mi_gain=0.5, mi_y=1.0, mi_t=1.5,
-        valid_domain_frac=1.0, n_train_rows=n,
+        mi_gain=0.5,
+        mi_y=1.0,
+        mi_t=1.5,
+        valid_domain_frac=1.0,
+        n_train_rows=n,
         # extra_base_columns defaults to ()
     )
     disc = CompositeTargetDiscovery.__new__(CompositeTargetDiscovery)
@@ -126,9 +130,15 @@ def test_exported_dict_contract_for_downstream_consumers() -> None:
     # An old-format dict (pre-fix payload from cache) should still
     # round-trip through the same .get(..., None) idiom.
     legacy_format_d = {
-        "name": "x", "target_col": "y", "transform_name": "linear_residual",
-        "base_column": "b1", "fitted_params": {},
-        "mi_gain": 0.0, "mi_y": 0.0, "mi_t": 0.0,
-        "valid_domain_frac": 1.0, "n_train_rows": 1,
+        "name": "x",
+        "target_col": "y",
+        "transform_name": "linear_residual",
+        "base_column": "b1",
+        "fitted_params": {},
+        "mi_gain": 0.0,
+        "mi_y": 0.0,
+        "mi_t": 0.0,
+        "valid_domain_frac": 1.0,
+        "n_train_rows": 1,
     }
     assert tuple(legacy_format_d.get("extra_base_columns") or ()) == ()

@@ -5,6 +5,7 @@ invariant) and ``ry`` is fixed, so the only varying term is the cross dot produc
 the result must stay bit-identical (FP reduction order, ~1e-17) to the legacy
 ``np.corrcoef`` formulation, and the keep/drop verdict must not move.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -57,8 +58,8 @@ def test_keep_verdict_unchanged_with_private_linear_signal() -> None:
     n = 4000
     raw = rng.standard_normal(n)
     noise = rng.standard_normal(n)
-    y = 2.0 * raw + 0.5 * noise          # raw carries strong private linear signal
-    child = raw * raw + rng.standard_normal(n) * 0.1   # non-monotone -> not a linear equivalent
+    y = 2.0 * raw + 0.5 * noise  # raw carries strong private linear signal
+    child = raw * raw + rng.standard_normal(n) * 0.1  # non-monotone -> not a linear equivalent
     assert raw_retains_linear_signal_given_children(raw, y, [child], seed=909) is True
 
 
@@ -68,7 +69,7 @@ def test_drop_verdict_unchanged_when_child_is_linear_equivalent() -> None:
     rng = np.random.default_rng(1)
     n = 4000
     raw = rng.standard_normal(n)
-    child = raw + rng.standard_normal(n) * 1e-6   # child IS raw linearly
+    child = raw + rng.standard_normal(n) * 1e-6  # child IS raw linearly
     y = 3.0 * child + rng.standard_normal(n) * 0.01
     assert raw_retains_linear_signal_given_children(raw, y, [child], seed=909) is False
 
@@ -84,8 +85,8 @@ def test_heldout_ridge_r2_separates_good_from_lossy_feature_set() -> None:
     b = rng.standard_normal(n)
     a = rng.standard_normal(n)
     y = 2.0 * b + 0.3 * a  # linear in b (and a)
-    r_raw = _heldout_ridge_r2(np.column_stack([a, b]), y)          # raw-only baseline: recovers y
-    r_lossy = _heldout_ridge_r2(np.column_stack([a, b ** 3]), y)   # linearly-lossy replacement of b
+    r_raw = _heldout_ridge_r2(np.column_stack([a, b]), y)  # raw-only baseline: recovers y
+    r_lossy = _heldout_ridge_r2(np.column_stack([a, b**3]), y)  # linearly-lossy replacement of b
     assert r_raw is not None and r_lossy is not None
     assert r_raw > 0.9
     # The lossy set is materially worse -> a drop that replaced raw b with b**3 would fall below raw-only by

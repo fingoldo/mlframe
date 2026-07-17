@@ -29,10 +29,10 @@ upstream test ``test_input_normalization_strategies::
 test_layernorm_is_ok_on_homogeneous_scale_features`` since F-40
 landed (2e52d298's ancestor 2f6fb858).
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 import torch
 from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
@@ -96,7 +96,7 @@ def test_f58_first_batch_predict_matches_manual_forward():
     they diverged by ~3.9 on the first 64 samples (zeros vs real values).
     """
     X, y = _make_linear_regression_data()
-    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=2)
+    X_tr, X_te, y_tr, _y_te = train_test_split(X, y, test_size=0.3, random_state=2)
 
     torch.manual_seed(0)
     np.random.seed(0)

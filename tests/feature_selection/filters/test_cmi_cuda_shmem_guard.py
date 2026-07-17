@@ -4,6 +4,7 @@ exceeds the 48 KB/block limit. The original guard checked only kernel 1 (joint_s
 nbx*nbz == joint_size, so kernel 2 = joint_size*4 + 2048 + 8*nbz). Such a case would pass the gate and launch-fail on
 the device. This pins that _cmi_cuda_shmem_fits rejects it, while a comfortably-small config is still accepted and the
 kernel-1-only overflow is still rejected."""
+
 from mlframe.feature_selection.filters.info_theory._cmi_cuda import _cmi_cuda_shmem_fits
 
 _CC = 48 * 1024
@@ -33,5 +34,5 @@ def test_kernel1_overflow_rejected():
 
 def test_legacy_no_nbins_checks_kernel1_only():
     # nbins unknown (0) -> only kernel 1 is guarded (back-compat for callers not passing nbins)
-    assert _cmi_cuda_shmem_fits(10000) is True          # 40000 <= 49152
-    assert _cmi_cuda_shmem_fits(20000) is False          # 80000 > 49152
+    assert _cmi_cuda_shmem_fits(10000) is True  # 40000 <= 49152
+    assert _cmi_cuda_shmem_fits(20000) is False  # 80000 > 49152

@@ -4,6 +4,7 @@ Pre-fix, a (n, 1) col made the njit `_factorize_dense_njit` see a 2-D array, rai
 `TypingError: Cannot unify Literal[int](0) and array(int64, 1d, C) for 'jmax'` at compile -- which the MRMR
 unified_second_pass_gate FE swallowed ("continuing without ... columns"), silently dropping the CMI-greedy FE.
 """
+
 from __future__ import annotations
 
 import numpy as np

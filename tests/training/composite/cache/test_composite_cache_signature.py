@@ -7,6 +7,7 @@
 - P8/S2: _row_order_fingerprint ran hash_rows() over the ENTIRE polars frame to
   keep only the first 256 hashes; slice-first is digest-identical and bounded.
 """
+
 from __future__ import annotations
 
 import os
@@ -26,11 +27,13 @@ def _string_frame_pd(seed=0):
     rng = np.random.default_rng(seed)
     n = 500
     cats = np.array(["alpha", "beta", "gamma", "delta"])
-    return pd.DataFrame({
-        "y": rng.normal(size=n),
-        "city": cats[rng.integers(0, 4, n)],
-        "ts": pd.to_datetime("2020-01-01") + pd.to_timedelta(rng.integers(0, 1000, n), unit="D"),
-    })
+    return pd.DataFrame(
+        {
+            "y": rng.normal(size=n),
+            "city": cats[rng.integers(0, 4, n)],
+            "ts": pd.to_datetime("2020-01-01") + pd.to_timedelta(rng.integers(0, 1000, n), unit="D"),
+        }
+    )
 
 
 class TestSignatureDeterministicAcrossProcesses:
@@ -58,21 +61,20 @@ class TestSignatureDeterministicAcrossProcesses:
         # Different PYTHONHASHSEED in a full env copy: str.__hash__ randomisation
         # must NOT affect the content-based blake2b signature.
         out = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True,
-            env={**os.environ, "PYTHONHASHSEED": "12345"}, timeout=120,
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONHASHSEED": "12345"},
+            timeout=120,
         )
         assert out.returncode == 0, out.stderr
         remote = out.stdout.strip().splitlines()[-1]
-        assert local == remote, (
-            f"signature differs across processes: {local} != {remote}"
-        )
+        assert local == remote, f"signature differs across processes: {local} != {remote}"
 
     def test_string_signature_changes_with_content(self) -> None:
         df1 = _string_frame_pd(seed=0)
         df2 = _string_frame_pd(seed=1)
-        assert data_signature(df1, "y", ["city", "ts"]) != data_signature(
-            df2, "y", ["city", "ts"]
-        )
+        assert data_signature(df1, "y", ["city", "ts"]) != data_signature(df2, "y", ["city", "ts"])
 
     def test_polars_string_signature_stable(self) -> None:
         rng = np.random.default_rng(2)
@@ -101,6 +103,7 @@ class TestRowOrderFingerprintBounded:
         n_take = min(df.height, 256)
         head_hashes = whole.slice(0, n_take).to_numpy()
         import hashlib
+
         payload = np.ascontiguousarray(head_hashes).tobytes()
         if df.height > n_take:
             n_tail = min(df.height - n_take, 256)
@@ -121,12 +124,10 @@ class TestRowOrderFingerprintBounded:
         head_part = base.slice(0, n - 256)
         tail_part = base.slice(n - 256, 256).sample(fraction=1.0, shuffle=True, seed=11)
         reordered = pl.concat([head_part, tail_part])
-        assert _row_order_fingerprint(base) != _row_order_fingerprint(reordered), (
-            "polars tail-only reorder must burst the row-order fingerprint"
-        )
+        assert _row_order_fingerprint(base) != _row_order_fingerprint(reordered), "polars tail-only reorder must burst the row-order fingerprint"
 
     def test_prefix_reorder_bursts_fingerprint(self) -> None:
-        rng = np.random.default_rng(4)
+        np.random.default_rng(4)
         n = 2000
         df = pl.DataFrame({"a": np.arange(n).astype(float)})
         shuffled = df.sample(fraction=1.0, shuffle=True, seed=7)

@@ -13,6 +13,7 @@ other the entity's 6th acquire/cancel cycle. Pure duration-since-change cannot s
 ``activation_count`` output (number of prior acquire/reacquire events) can, and predicts churn-recidivism
 driven outcomes (permanent, non-reactivating cancellation) that duration alone is blind to by construction.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -126,8 +127,7 @@ def test_biz_val_cancellation_duration_beats_raw_lag1_flag_on_recency_dependent_
     # "currently cancelled" row regardless of recency) should show far weaker correlation on the same rows.
     assert abs(corr_duration) > 0.15, f"cancellation_duration should predict the recency-dependent target, got corr={corr_duration:.3f}"
     assert abs(corr_duration) > abs(corr_lag1) + 0.10, (
-        f"cancellation_duration should carry materially more signal than a raw lag-1 flag: "
-        f"duration_corr={corr_duration:.3f} lag1_corr={corr_lag1:.3f}"
+        f"cancellation_duration should carry materially more signal than a raw lag-1 flag: duration_corr={corr_duration:.3f} lag1_corr={corr_lag1:.3f}"
     )
 
 

@@ -20,6 +20,7 @@ Fix: mirror the bc / inner pattern - fall back to classes_y on None.
 ``parallel_mi`` already ``.copy()``s the array internally so workers
 don't race on the shared buffer.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -30,6 +31,7 @@ import pytest
 def test_mi_direct_works_without_classes_y_safe(parallelism):
     """All three parallel modes must accept ``classes_y_safe=None``."""
     from mlframe.feature_selection.filters.permutation import mi_direct
+
     rng = np.random.default_rng(0)
     n = 500
     x = rng.integers(0, 4, n).astype(np.int32)
@@ -38,9 +40,14 @@ def test_mi_direct_works_without_classes_y_safe(parallelism):
     nbins = np.array([4, 2], dtype=np.int32)
     # No classes_y_safe argument supplied -> defaults to None.
     mi_val, conf = mi_direct(
-        factors, x=(0,), y=(1,), factors_nbins=nbins,
-        npermutations=500, n_workers=2 if parallelism != "bc" else 1,
-        parallelism=parallelism, prefer_gpu=False,
+        factors,
+        x=(0,),
+        y=(1,),
+        factors_nbins=nbins,
+        npermutations=500,
+        n_workers=2 if parallelism != "bc" else 1,
+        parallelism=parallelism,
+        prefer_gpu=False,
     )
     # Validity of the numeric result is not the focus; the test is
     # passing if mi_direct does NOT crash with a numba TypingError.
@@ -54,6 +61,7 @@ def test_outer_path_specifically_no_crash():
     branch. Pre-fix this was a guaranteed crash.
     """
     from mlframe.feature_selection.filters.permutation import mi_direct
+
     rng = np.random.default_rng(1)
     n = 500
     x = rng.integers(0, 4, n).astype(np.int32)
@@ -61,9 +69,14 @@ def test_outer_path_specifically_no_crash():
     factors = np.column_stack([x, y]).astype(np.int32)
     nbins = np.array([4, 2], dtype=np.int32)
     # This MUST complete without raising.
-    mi_val, conf = mi_direct(
-        factors, x=(0,), y=(1,), factors_nbins=nbins,
-        npermutations=1000, n_workers=4,
-        parallelism="outer", prefer_gpu=False,
+    mi_val, _conf = mi_direct(
+        factors,
+        x=(0,),
+        y=(1,),
+        factors_nbins=nbins,
+        npermutations=1000,
+        n_workers=4,
+        parallelism="outer",
+        prefer_gpu=False,
     )
     assert isinstance(mi_val, float)

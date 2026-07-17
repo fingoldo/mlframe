@@ -4,6 +4,7 @@
 
 #3 Monres auto-knot: ``_monotonic_residual_fit`` previously used a fixed ``n_knots=12`` regardless of base cardinality. For categorical / discrete bases the 12 quantile knots collapse to fewer unique x-positions, oversmoothing the spline + producing degenerate fits. Auto-cap by ``n_unique_base // 200``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,29 +55,37 @@ class TestMRMRIdentityCache:
     def test_default_skip_flag_is_true_post_flip(self) -> None:
         """Default ``mrmr_skip_when_prior_was_identity`` flipped False -> True on 2026-05-18 (Accuracy/perf over legacy). Set explicitly to False to restore historical "always re-fit"."""
         from time import perf_counter
+
         rng = np.random.default_rng(0)
         n = 1000
-        X = pd.DataFrame({
-            "a": rng.normal(size=n), "b": rng.normal(size=n),
-            "c": rng.normal(size=n), "d": rng.normal(size=n),
-        })
+        X = pd.DataFrame(
+            {
+                "a": rng.normal(size=n),
+                "b": rng.normal(size=n),
+                "c": rng.normal(size=n),
+                "d": rng.normal(size=n),
+            }
+        )
         y1 = rng.normal(size=n)
         m = MRMR(verbose=0)
         # The default flag is now True (post-flip).
         assert m.mrmr_skip_when_prior_was_identity is True
         t0 = perf_counter()
         m.fit(X, y1)
-        elapsed_first = perf_counter() - t0
+        perf_counter() - t0
         assert hasattr(m, "support_")
 
     def test_explicit_false_disables_skip(self) -> None:
         """Setting ``mrmr_skip_when_prior_was_identity=False`` explicitly restores the historical "no short-circuit" behaviour. Even if cache has an identity flag, the fit runs normally."""
         rng = np.random.default_rng(0)
         n = 500
-        X = pd.DataFrame({
-            "a": rng.normal(size=n), "b": rng.normal(size=n),
-            "c": rng.normal(size=n),
-        })
+        X = pd.DataFrame(
+            {
+                "a": rng.normal(size=n),
+                "b": rng.normal(size=n),
+                "c": rng.normal(size=n),
+            }
+        )
         y = rng.normal(size=n)
         # Pre-populate cache as if a previous fit returned identity.
         fp = _mrmr_compute_x_fingerprint(X)
@@ -99,13 +108,15 @@ class TestMRMRIdentityCache:
         """
         rng = np.random.default_rng(7)
         n = 500
-        X = pd.DataFrame({
-            "a": rng.normal(size=n),
-            "b": rng.normal(size=n),
-            "c": rng.normal(size=n),
-            "d": rng.normal(size=n),
-        })
-        y1 = rng.normal(size=n)
+        X = pd.DataFrame(
+            {
+                "a": rng.normal(size=n),
+                "b": rng.normal(size=n),
+                "c": rng.normal(size=n),
+                "d": rng.normal(size=n),
+            }
+        )
+        rng.normal(size=n)
         y2 = rng.normal(size=n)  # different target
 
         # Pre-populate cache as if a previous fit returned identity.
@@ -113,6 +124,7 @@ class TestMRMRIdentityCache:
         _MRMR_IDENTITY_FP_CACHE[fp] = True
 
         from time import perf_counter
+
         m = MRMR(
             verbose=0,
             mrmr_skip_when_prior_was_identity=True,
@@ -150,10 +162,7 @@ class TestMonresAutoKnotTuning:
         base = rng.choice(np.linspace(0, 10, 5), size=n)
         y = 0.5 * base + rng.normal(0, 0.5, n)
         params = _monotonic_residual_fit(y, base)
-        assert params["n_knots_effective"] <= 5, (
-            f"5-distinct base produced {params['n_knots_effective']} knots; "
-            f"distinctness cap should hold it at <= 5"
-        )
+        assert params["n_knots_effective"] <= 5, f"5-distinct base produced {params['n_knots_effective']} knots; distinctness cap should hold it at <= 5"
 
     def test_high_cardinality_base_keeps_default_knots(self) -> None:
         """When base has 5000+ unique values (continuous), n_unique // 200 = 25 -> cap at 12 (default n_knots)."""
@@ -197,21 +206,21 @@ class TestIdentityCacheCellContentDifferentiation:
         """Two DataFrames with identical schema but different cell values
         MUST produce DIFFERENT X-fingerprints. The 10-cell content sample
         in ``_mrmr_compute_x_fingerprint`` differentiates them."""
-        df_a = pd.DataFrame({
-            "a": np.array([1.0, 2.0, 3.0], dtype=np.float32),
-            "b": np.array([4.0, 5.0, 6.0], dtype=np.float32),
-        })
-        df_b = pd.DataFrame({
-            "a": np.array([100.0, 200.0, 300.0], dtype=np.float32),
-            "b": np.array([400.0, 500.0, 600.0], dtype=np.float32),
-        })
+        df_a = pd.DataFrame(
+            {
+                "a": np.array([1.0, 2.0, 3.0], dtype=np.float32),
+                "b": np.array([4.0, 5.0, 6.0], dtype=np.float32),
+            }
+        )
+        df_b = pd.DataFrame(
+            {
+                "a": np.array([100.0, 200.0, 300.0], dtype=np.float32),
+                "b": np.array([400.0, 500.0, 600.0], dtype=np.float32),
+            }
+        )
         fp_a = _mrmr_compute_x_fingerprint(df_a)
         fp_b = _mrmr_compute_x_fingerprint(df_b)
-        assert fp_a != fp_b, (
-            f"X-fingerprint should DIFFER when cell values differ "
-            f"(content-sample differentiation); got fp_a={fp_a!r}, "
-            f"fp_b={fp_b!r}"
-        )
+        assert fp_a != fp_b, f"X-fingerprint should DIFFER when cell values differ (content-sample differentiation); got fp_a={fp_a!r}, fp_b={fp_b!r}"
 
 
 class TestIdentityCacheYFingerprintOption:
@@ -233,10 +242,13 @@ class TestIdentityCacheYFingerprintOption:
         """When the option is ON, different y values on same X must produce different cache keys."""
         rng = np.random.default_rng(0)
         n = 400
-        X = pd.DataFrame({
-            "a": rng.normal(size=n), "b": rng.normal(size=n),
-            "c": rng.normal(size=n),
-        })
+        pd.DataFrame(
+            {
+                "a": rng.normal(size=n),
+                "b": rng.normal(size=n),
+                "c": rng.normal(size=n),
+            }
+        )
         y1 = rng.normal(size=n)
         y2 = rng.normal(size=n)  # different target
         fp_y1 = _mrmr_compute_y_fingerprint_sample(y1)
@@ -248,7 +260,7 @@ class TestIdentityCacheYFingerprintOption:
         rng = np.random.default_rng(0)
         y = rng.normal(size=500)
         fp_64 = _mrmr_compute_y_fingerprint_sample(y.astype(np.float64))
-        fp_32 = _mrmr_compute_y_fingerprint_sample(y.astype(np.float32))
+        _mrmr_compute_y_fingerprint_sample(y.astype(np.float32))
         # 6-decimal rounding inside the fingerprint means tiny dtype-cast noise doesn't flip the hash.
         # (Strict equality would be brittle; just verify they're close to the same hash family.)
         # Loose: at least one of them is reproducible across two calls.
@@ -262,16 +274,18 @@ class TestIdentityCacheThreadSafe:
     def test_lock_exists(self) -> None:
         # Lock instance is a threading.Lock object; cannot easily assert its identity / type without import.
         import threading
+
         assert isinstance(_MRMR_IDENTITY_FP_LOCK, type(threading.Lock()))
 
     def test_concurrent_cache_writes_do_not_race(self) -> None:
         """Spawn 4 threads writing different X-fingerprints concurrently; verify all entries land in the cache."""
         import threading
+
         _MRMR_IDENTITY_FP_CACHE.clear()
         keys = [f"fp_{i:04d}" for i in range(50)]
 
         def _writer(start_idx: int) -> None:
-            for k in keys[start_idx:start_idx + 25]:
+            for k in keys[start_idx : start_idx + 25]:
                 with _MRMR_IDENTITY_FP_LOCK:
                     _MRMR_IDENTITY_FP_CACHE[k] = True
 
@@ -295,6 +309,7 @@ class TestIdentityCacheThreadSafe:
         critical section is atomic and the final count equals 8000.
         """
         import threading
+
         _MRMR_IDENTITY_FP_CACHE.clear()
         shared_key = "fp_contended"
         _MRMR_IDENTITY_FP_CACHE[shared_key] = 0
@@ -305,10 +320,7 @@ class TestIdentityCacheThreadSafe:
                     val = _MRMR_IDENTITY_FP_CACHE[shared_key]
                     _MRMR_IDENTITY_FP_CACHE[shared_key] = val + 1
 
-        threads = [
-            threading.Thread(target=_increment_under_lock)
-            for _ in range(8)
-        ]
+        threads = [threading.Thread(target=_increment_under_lock) for _ in range(8)]
         for t in threads:
             t.start()
         for t in threads:

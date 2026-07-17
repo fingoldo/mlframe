@@ -17,6 +17,7 @@ scenario exercise both the batched path (B=199, default) and the small-B serial 
 n_swaps / accepted branch / selected columns match a fixed pre-fix reference recorded from a clean-HEAD
 run of the identical fixture (mirrors ``test_dcd_swap_null_default_npermutations.py``'s fixture).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -32,14 +33,16 @@ def _three_dups_plus_strong_frame(n: int = 4000, seed: int = 0):
     rng = np.random.default_rng(int(seed))
     latent = rng.standard_normal(n)
     other = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "strong": other,
-        "dup_a": latent + 0.01 * rng.standard_normal(n),
-        "dup_b": latent + 0.01 * rng.standard_normal(n),
-        "dup_c": latent + 0.01 * rng.standard_normal(n),
-        "noise_0": rng.standard_normal(n),
-        "noise_1": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "strong": other,
+            "dup_a": latent + 0.01 * rng.standard_normal(n),
+            "dup_b": latent + 0.01 * rng.standard_normal(n),
+            "dup_c": latent + 0.01 * rng.standard_normal(n),
+            "noise_0": rng.standard_normal(n),
+            "noise_1": rng.standard_normal(n),
+        }
+    )
     y = pd.Series((2 * other + latent + 0.3 * rng.standard_normal(n) > 0).astype(int))
     return X, y
 
@@ -53,8 +56,13 @@ def test_dcd_swap_fires_and_selects_a_duplicate_at_default_npermutations(seed):
 
     X, y = _three_dups_plus_strong_frame(seed=seed)
     m = MRMR(
-        dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2,
-        dcd_swap_npermutations=199, dcd_swap_alpha=0.05, verbose=0, random_seed=0,
+        dcd_enable=True,
+        dcd_tau_cluster=0.5,
+        dcd_cluster_size_threshold=2,
+        dcd_swap_npermutations=199,
+        dcd_swap_alpha=0.05,
+        verbose=0,
+        random_seed=0,
     ).fit(X, y)
     assert int(m.dcd_["n_swaps"]) >= 1
     swap_log = m.dcd_.get("swap_log") or []
@@ -73,9 +81,13 @@ def test_dcd_swap_tiny_b_stays_on_serial_fallback_and_still_fires():
     assert _PARALLEL_MIN_B == 8
     X, y = _three_dups_plus_strong_frame(seed=7)
     m = MRMR(
-        dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2,
-        dcd_swap_npermutations=3, dcd_swap_alpha=0.5,  # B auto-raised to ceil(1/0.5)=2 < 8 -> serial path
-        verbose=0, random_seed=0,
+        dcd_enable=True,
+        dcd_tau_cluster=0.5,
+        dcd_cluster_size_threshold=2,
+        dcd_swap_npermutations=3,
+        dcd_swap_alpha=0.5,  # B auto-raised to ceil(1/0.5)=2 < 8 -> serial path
+        verbose=0,
+        random_seed=0,
     ).fit(X, y)
     assert int(m.dcd_["n_swaps"]) >= 1
 
@@ -101,9 +113,15 @@ def test_batched_member_relevance_matches_reference_conditional_and_unconditiona
         for k, idx in enumerate(cand):
             if s_minus_anchor:
                 expected[k] = conditional_mi(
-                    factors_data=factors_data, x=np.array([int(idx)], dtype=np.int64), y=target,
-                    z=np.array(s_minus_anchor, dtype=np.int64), var_is_nominal=None, factors_nbins=nbins,
-                    entropy_cache=None, can_use_x_cache=False, can_use_y_cache=True,
+                    factors_data=factors_data,
+                    x=np.array([int(idx)], dtype=np.int64),
+                    y=target,
+                    z=np.array(s_minus_anchor, dtype=np.int64),
+                    var_is_nominal=None,
+                    factors_nbins=nbins,
+                    entropy_cache=None,
+                    can_use_x_cache=False,
+                    can_use_y_cache=True,
                 )
             else:
                 expected[k] = mi(factors_data, np.array([int(idx)], dtype=np.int64), target, nbins)

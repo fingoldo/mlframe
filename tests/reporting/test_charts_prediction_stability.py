@@ -15,14 +15,21 @@ import numpy as np
 import pytest
 
 from mlframe.reporting.charts.prediction_stability import (
-    DEFAULT_CALIB_BINS, PredictionStabilityResult, compose_prediction_stability_figure,
+    DEFAULT_CALIB_BINS,
+    PredictionStabilityResult,
+    compose_prediction_stability_figure,
     compute_prediction_stability,
 )
 from mlframe.reporting.charts.prediction_stability import (
-    MIN_CALIB_ROWS, _spearman, _uncertainty_calibration,
+    _spearman,
+    _uncertainty_calibration,
 )
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, ScatterPanelSpec,
+    AnnotationPanelSpec,
+    FigureSpec,
+    HistogramPanelSpec,
+    LinePanelSpec,
+    ScatterPanelSpec,
 )
 
 
@@ -122,7 +129,7 @@ def test_compose_adds_calibration_panel_with_y_true():
 def test_scatter_subsampled_to_cap():
     preds, _, _ = _easy_hard_ensemble(n=20_000, m=6)
     fig = compose_prediction_stability_figure(preds, scatter_cap=5000)
-    scatter = [p for row in fig.panels for p in row if isinstance(p, ScatterPanelSpec)][0]
+    scatter = next(p for row in fig.panels for p in row if isinstance(p, ScatterPanelSpec))
     assert scatter.x.size <= 5000
 
 
@@ -146,13 +153,16 @@ def test_tiny_n_calibration_annotates():
 
 def test_figure_renders_matplotlib():
     import os
+
     os.environ.setdefault("MPLBACKEND", "Agg")
     from mlframe.reporting.renderers.base import get_renderer
+
     preds, yt, _ = _easy_hard_ensemble()
     fig = compose_prediction_stability_figure(preds, y_true=yt)
     rend = get_renderer("matplotlib")
     rendered = rend.render(fig)
     import matplotlib.pyplot as plt
+
     plt.close(rendered)
 
 
@@ -164,6 +174,7 @@ def test_figure_renders_matplotlib():
 def test_spearman_matches_scipy_on_random():
     pytest.importorskip("scipy")
     from scipy.stats import spearmanr
+
     rng = np.random.default_rng(3)
     a = rng.normal(size=500)
     b = a * 0.6 + rng.normal(size=500)
@@ -173,6 +184,7 @@ def test_spearman_matches_scipy_on_random():
 def test_spearman_handles_ties():
     pytest.importorskip("scipy")
     from scipy.stats import spearmanr
+
     rng = np.random.default_rng(4)
     a = rng.integers(0, 5, size=300).astype(float)  # heavy ties
     b = rng.integers(0, 5, size=300).astype(float)
@@ -218,7 +230,7 @@ def test_biz_val_uncertainty_calibration_curve_monotone_increasing():
     preds, yt, _ = _easy_hard_ensemble(n=6000, m=10, seed=1)
     res = compute_prediction_stability(preds)
     abs_err = np.abs(yt - res.ensemble_mean)
-    mid, mean_err, rho = _uncertainty_calibration(res.spread_std, abs_err, nbins=DEFAULT_CALIB_BINS)
+    mid, mean_err, _rho = _uncertainty_calibration(res.spread_std, abs_err, nbins=DEFAULT_CALIB_BINS)
     assert mid is not None
     assert mean_err[-1] > 2.0 * mean_err[0], "top-spread bin error should dwarf bottom-spread bin error"
     assert _spearman(mid, mean_err) > 0.8, "uncertainty-calibration curve should rise nearly monotonically"

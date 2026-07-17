@@ -4,13 +4,14 @@ utilities. Carved out of test_fuzz_suite.py so that module stays a
 lean pytest-discoverable test file. Heavy mlframe / sklearn deps are
 imported lazily in-body to keep import time low.
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
 from ._fuzz_combo import (
-    FuzzCombo,  # noqa: F401  (annotation strings under PEP 563)
+    FuzzCombo,
     build_composite_discovery_config,
 )
 
@@ -76,7 +77,8 @@ def _config_for_models(
         cfg["mlp_predict_batch_size"] = mlp_predict_batch_size
     if "lgb" in models:
         _lgb_kw = {
-            "device_type": "cpu", "verbose": -1,
+            "device_type": "cpu",
+            "verbose": -1,
             # iter170 inner knobs.
             "feature_fraction": lgb_feature_fraction,
             "num_leaves": lgb_num_leaves,
@@ -93,7 +95,8 @@ def _config_for_models(
         cfg["lgb_kwargs"] = _lgb_kw
     if "xgb" in models:
         _xgb_kw = {
-            "device": "cpu", "verbosity": 0,
+            "device": "cpu",
+            "verbosity": 0,
             # iter170 inner knobs.
             "max_depth": xgb_max_depth,
             "colsample_bynode": xgb_colsample_bynode,
@@ -106,7 +109,8 @@ def _config_for_models(
         cfg["xgb_kwargs"] = _xgb_kw
     if "cb" in models:
         _cb_kw = {
-            "task_type": "CPU", "verbose": 0,
+            "task_type": "CPU",
+            "verbose": 0,
             # iter170 inner knob.
             "border_count": cb_border_count,
             # iter180 depth-3 gates.
@@ -181,6 +185,7 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         MultilabelDispatchConfig,
         PreprocessingExtensionsConfig,
     )
+
     # Mirror the ``want_text`` / ``want_embedding`` gates in
     # ``build_frame_for_combo`` so the declared column lists exactly
     # match what the frame actually contains — no false positives,
@@ -196,35 +201,20 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     # 2026-05-20 by combo c0029 (cb_hgb_mlp + use_text_features=False
     # but cb-in-models → text list assigned → validation crash before
     # the suite even started).
-    emits_text = (
-        _eff_text_count > 0 and "cb" in combo.models and combo.use_text_features
-    )
-    emits_emb = (
-        combo.embedding_col_count > 0
-        and "cb" in combo.models
-        and combo.input_type != "pandas"
-    )
-    text_features = (
-        [f"text_{i}" for i in range(_eff_text_count)] if emits_text else None
-    )
-    embedding_features = (
-        [f"emb_{i}" for i in range(combo.embedding_col_count)] if emits_emb else None
-    )
+    emits_text = _eff_text_count > 0 and "cb" in combo.models and combo.use_text_features
+    emits_emb = combo.embedding_col_count > 0 and "cb" in combo.models and combo.input_type != "pandas"
+    text_features = [f"text_{i}" for i in range(_eff_text_count)] if emits_text else None
+    embedding_features = [f"emb_{i}" for i in range(combo.embedding_col_count)] if emits_emb else None
     # Fairness: only valid if the referenced column actually exists in
     # the frame (cat_0 requires cat_feature_count >= 1).
-    fairness_features = (
-        [combo.fairness_col]
-        if combo.fairness_col is not None and combo.cat_feature_count > 0
-        else None
-    )
+    fairness_features = [combo.fairness_col] if combo.fairness_col is not None and combo.cat_feature_count > 0 else None
     # 2026-04-28: ``prefer_calibrated_classifiers=True`` + multilabel target
     # is a known-incompatible combination (CalibratedClassifierCV is
     # single-output only; mlframe raises NotImplementedError). Force False
     # for multilabel combos so the suite call doesn't trip the guard.
     # Mirrors the canon in ``FuzzCombo.canonical_key``.
     _effective_prefer_calibrated = (
-        False if (combo.prefer_calibrated_classifiers and combo.target_type == "multilabel_classification")
-        else combo.prefer_calibrated_classifiers
+        False if (combo.prefer_calibrated_classifiers and combo.target_type == "multilabel_classification") else combo.prefer_calibrated_classifiers
     )
     behavior_kwargs: dict = {
         "align_polars_categorical_dicts": combo.align_polars_categorical_dicts,
@@ -314,11 +304,7 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     # drop aging — keep the backward placement, since it's the
     # less-common axis being tested.
     _aging_eff = combo.trainset_aging_limit_cfg
-    if (
-        _aging_eff is not None
-        and combo.val_placement_cfg == "backward"
-        and combo.with_datetime_col
-    ):
+    if _aging_eff is not None and combo.val_placement_cfg == "backward" and combo.with_datetime_col:
         _aging_eff = None
     # 2026-05-21 iter151 P1-5/P1-6: test_sequential_fraction + calib_size
     # canon. test_sequential_fraction needs with_datetime_col (no time
@@ -429,13 +415,9 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
                 # iter180 DEPTH-4 list-typed: per_label_thresholds (uniform 0.4 vs None),
                 # chain_seeds (deterministic per-chain seeds vs None).
                 per_label_thresholds=(
-                    None if combo.multilabel_per_label_thresholds_cfg is None
-                    else [0.4, 0.4, 0.4]  # K=3 default labels in fuzz frame
+                    None if combo.multilabel_per_label_thresholds_cfg is None else [0.4, 0.4, 0.4]  # K=3 default labels in fuzz frame
                 ),
-                chain_seeds=(
-                    None if combo.multilabel_chain_seeds_cfg is None
-                    else list(range(combo.multilabel_n_chains_cfg))
-                ),
+                chain_seeds=(None if combo.multilabel_chain_seeds_cfg is None else list(range(combo.multilabel_n_chains_cfg))),
             ),
         ),
     }
@@ -554,11 +536,20 @@ def _maybe_preprocessing_extensions(combo: FuzzCombo, config_cls):
     two_step_target_enc = combo.two_step_target_encode_enabled_cfg
     recency_agg = combo.recency_aggregation_enabled_cfg
     if (
-        scaler is None and kbins is None and poly_deg is None and dim_red is None and nonlin is None
-        and row_wise_summary and row_wise_extreme
-        and not cat_powerset and not cat_group_auto
-        and not cross_sec_neighbors and not ma_crossover and not event_prox_decay
-        and not two_step_target_enc and not recency_agg
+        scaler is None
+        and kbins is None
+        and poly_deg is None
+        and dim_red is None
+        and nonlin is None
+        and row_wise_summary
+        and row_wise_extreme
+        and not cat_powerset
+        and not cat_group_auto
+        and not cross_sec_neighbors
+        and not ma_crossover
+        and not event_prox_decay
+        and not two_step_target_enc
+        and not recency_agg
     ):
         return None
     # PreprocessingExtensionsConfig validates that binarization_threshold
@@ -574,7 +565,8 @@ def _maybe_preprocessing_extensions(combo: FuzzCombo, config_cls):
     dim_components_kwargs: dict = {}
     if dim_red is not None:
         dim_components_kwargs = _safe_cfg_kwargs(
-            config_cls, dim_n_components=combo.prep_ext_dim_n_components_cfg,
+            config_cls,
+            dim_n_components=combo.prep_ext_dim_n_components_cfg,
         )
     return config_cls(
         scaler=scaler,
@@ -621,8 +613,11 @@ def _outlier_detector_for_combo(combo: FuzzCombo):
     try:
         if od == "isolation_forest":
             from sklearn.ensemble import IsolationForest
+
             return IsolationForest(
-                contamination=0.05, random_state=combo.seed, n_estimators=20,
+                contamination=0.05,
+                random_state=combo.seed,
+                n_estimators=20,
             )
         if od in ("lof", "ocsvm"):
             # LOF and OneClassSVM both raise on NaN inputs (unlike
@@ -638,18 +633,25 @@ def _outlier_detector_for_combo(combo: FuzzCombo):
             # mlframe pipeline expects.
             from sklearn.impute import SimpleImputer
             from sklearn.pipeline import Pipeline
+
             if od == "lof":
                 from sklearn.neighbors import LocalOutlierFactor
+
                 detector = LocalOutlierFactor(
-                    contamination=0.05, novelty=True, n_neighbors=20,
+                    contamination=0.05,
+                    novelty=True,
+                    n_neighbors=20,
                 )
             else:  # ocsvm
                 from sklearn.svm import OneClassSVM
+
                 detector = OneClassSVM(nu=0.05, kernel="rbf", gamma="scale")
-            return Pipeline([
-                ("imputer", SimpleImputer(strategy="mean")),
-                (od, detector),
-            ])
+            return Pipeline(
+                [
+                    ("imputer", SimpleImputer(strategy="mean")),
+                    (od, detector),
+                ]
+            )
     except ImportError:
         return None
     return None
@@ -680,6 +682,7 @@ def _custom_pre_pipelines_for_combo(combo: FuzzCombo):
     if combo.custom_prep == "pca2" and not pca_incompatible:
         try:
             from sklearn.decomposition import IncrementalPCA
+
             return {"pca2": IncrementalPCA(n_components=2)}
         except ImportError:
             return None
@@ -697,6 +700,7 @@ def _custom_pre_pipelines_for_combo(combo: FuzzCombo):
 def _live_boruta_shap_params() -> set[str]:
     import inspect
     from mlframe.feature_selection.boruta_shap import BorutaShap
+
     return set(inspect.signature(BorutaShap.__init__).parameters) - {"self"}
 
 
@@ -747,6 +751,7 @@ def _maybe_to_parquet(combo: FuzzCombo, df, tmp_path):
     if combo.input_storage != "parquet":
         return df
     import polars as _pl
+
     path = str(tmp_path / "combo_input.parquet")
     if isinstance(df, _pl.DataFrame):
         df.write_parquet(path)
@@ -765,6 +770,7 @@ def _preprocessing_for_combo(combo: FuzzCombo):
     tests use.
     """
     from mlframe.training.configs import PreprocessingConfig
+
     # fix_inf_eff / rm_const_eff runtime canons RETIRED 2026-04-27
     # (batch 2). Production fixes:
     #   * fix_infinities=False + inject_inf_nan: trainer pre-fit dtype
@@ -791,6 +797,7 @@ def _preprocessing_for_combo(combo: FuzzCombo):
             import category_encoders as ce
             from sklearn.preprocessing import StandardScaler
             from sklearn.impute import SimpleImputer
+
             return PreprocessingConfig(
                 drop_columns=[],
                 fillna_value=combo.fillna_value_cfg,
@@ -822,8 +829,11 @@ def _preprocessing_for_combo(combo: FuzzCombo):
 
 def _skip_if_deps_missing(models: tuple[str, ...]) -> None:
     pkg = {
-        "cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm",
-        "hgb": "sklearn", "linear": "sklearn",
+        "cb": "catboost",
+        "xgb": "xgboost",
+        "lgb": "lightgbm",
+        "hgb": "sklearn",
+        "linear": "sklearn",
         "mlp": "lightning",  # PyTorch Lightning gates the MLP path
     }
     for m in models:
@@ -888,31 +898,21 @@ def _assert_prediction_invariants(trained, meta, combo) -> None:
             # assert finiteness here to stay model-agnostic.
             if np.issubdtype(arr_np.dtype, np.floating):
                 n_bad = int(np.count_nonzero(~np.isfinite(arr_np)))
-                assert n_bad == 0, (
-                    f"I1: non-finite values in {tt}/{tn}/{type(entry.model).__name__}.{attr} "
-                    f"({n_bad}/{arr_np.size})"
-                )
+                assert n_bad == 0, f"I1: non-finite values in {tt}/{tn}/{type(entry.model).__name__}.{attr} ({n_bad}/{arr_np.size})"
             # I3 — shape upper-bound. ``meta['val_size']`` is measured
             # before outlier-detection filters rows, so post-OD ``val_preds``
             # can be strictly smaller. Asserting ``<=`` catches only the
             # bug we care about (preds longer than val slice → row-slicing
             # drift), not OD-expected shrinkage.
             if val_size is not None and val_size > 0 and arr_np.ndim >= 1:
-                assert arr_np.shape[0] <= val_size, (
-                    f"I3: {attr} shape[0]={arr_np.shape[0]} > val_size={val_size} "
-                    f"for {tt}/{tn}/{type(entry.model).__name__}"
-                )
+                assert arr_np.shape[0] <= val_size, f"I3: {attr} shape[0]={arr_np.shape[0]} > val_size={val_size} for {tt}/{tn}/{type(entry.model).__name__}"
             # I2 — non-constant predictions when val has >1 row.
             # Skipped for tiny val slices (< 4 rows; statistical noise).
             # Skipped when outlier-detection could have reduced val to
             # a single class (we can't cheaply check val target variance
             # here without re-extracting). Asserted only for classification
             # probs where the "all-same" outcome is provably degenerate.
-            if (
-                attr == "val_probs"
-                and arr_np.size >= 4
-                and np.issubdtype(arr_np.dtype, np.floating)
-            ):
+            if attr == "val_probs" and arr_np.size >= 4 and np.issubdtype(arr_np.dtype, np.floating):
                 # Pull scalar series for 1-D, flatten for 2-D.
                 vals = arr_np.ravel()
                 unique_near = np.unique(np.round(vals, 6))
@@ -957,12 +957,8 @@ def _assert_serialization_roundtrip(trained, data_dir: str, combo) -> None:
     try:
         obj = joblib.load(files[0])
     except Exception as exc:
-        raise AssertionError(
-            f"I4: saved model artifact {files[0]!r} failed joblib.load: "
-            f"{type(exc).__name__}: {exc}"
-        )
+        raise AssertionError(f"I4: saved model artifact {files[0]!r} failed joblib.load: {type(exc).__name__}: {exc}")
     # The dump contains at least one object with a predict-like attribute
     # (the trained pipeline / model). Not asserting specific type — the
     # wrapper class can evolve; catching "can't unpickle" is the goal.
     assert obj is not None, f"I4: joblib.load returned None for {files[0]}"
-

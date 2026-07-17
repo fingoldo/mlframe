@@ -5,6 +5,7 @@ feature-target relationships, a single global model is forced to compromise acro
 none well. Training one specialist per regime and routing each row to its own regime's model recovers each
 regime's own relationship -- mirroring the G-Research Crypto Forecasting 9th place's 3-regime LightGBM split.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -134,8 +135,7 @@ def test_biz_val_regime_split_ensemble_blend_smooths_regime_boundary_mse():
 
     improvement = 1.0 - mse_blend_band / mse_route_band
     assert improvement > 0.4, (
-        f"expected blend to cut boundary-band MSE by >20% vs. hard routing, "
-        f"got {improvement:.4f} (route={mse_route_band:.4f}, blend={mse_blend_band:.4f})"
+        f"expected blend to cut boundary-band MSE by >20% vs. hard routing, got {improvement:.4f} (route={mse_route_band:.4f}, blend={mse_blend_band:.4f})"
     )
 
 

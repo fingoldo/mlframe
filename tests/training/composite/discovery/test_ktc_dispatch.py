@@ -2,6 +2,7 @@
 backend lookup: with a pre-populated cache entry the dispatcher must use the
 cached ``backend_choice``, and with no cache entry it must fall back cleanly to
 the hardcoded size gate (never raise, never leave the choice undefined)."""
+
 import pytest
 
 from mlframe.training.composite.discovery._ktc_dispatch import (

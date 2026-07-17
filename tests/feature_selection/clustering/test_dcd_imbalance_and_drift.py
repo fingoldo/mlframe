@@ -3,6 +3,7 @@ imbalance (a known mlframe sensitivity) and recipe replay under train/test
 distribution DRIFT. Assert graceful, finite, non-crashing behaviour -- failures
 are prod bugs.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -15,8 +16,8 @@ warnings.filterwarnings("ignore")
 
 def _fit(X, y, **kw):
     from mlframe.feature_selection.filters.mrmr import MRMR
-    base = dict(dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2,
-                verbose=0, random_seed=0)
+
+    base = dict(dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2, verbose=0, random_seed=0)
     base.update(kw)
     return MRMR(**base).fit(X, y)
 
@@ -27,12 +28,14 @@ def test_dcd_extreme_imbalance_no_crash():
     rng = np.random.default_rng(0)
     n = 6000
     z = rng.standard_normal(n)
-    X = pd.DataFrame({
-        "a": z + 0.05 * rng.standard_normal(n),
-        "b": z + 0.05 * rng.standard_normal(n),
-        "c": z + 0.05 * rng.standard_normal(n),
-        "noise": rng.standard_normal(n),
-    })
+    X = pd.DataFrame(
+        {
+            "a": z + 0.05 * rng.standard_normal(n),
+            "b": z + 0.05 * rng.standard_normal(n),
+            "c": z + 0.05 * rng.standard_normal(n),
+            "noise": rng.standard_normal(n),
+        }
+    )
     # ~1.5% positives driven by the extreme upper tail of z.
     thresh = np.quantile(z, 0.985)
     y = pd.Series((z > thresh).astype(int))
@@ -52,23 +55,27 @@ def test_dcd_transform_under_distribution_drift_is_finite():
     rng = np.random.default_rng(1)
     n = 2000
     z = rng.standard_normal(n)
-    Xtr = pd.DataFrame({
-        "a": z + 0.05 * rng.standard_normal(n),
-        "b": z + 0.05 * rng.standard_normal(n),
-        "c": z + 0.05 * rng.standard_normal(n),
-        "noise": rng.standard_normal(n),
-    })
+    Xtr = pd.DataFrame(
+        {
+            "a": z + 0.05 * rng.standard_normal(n),
+            "b": z + 0.05 * rng.standard_normal(n),
+            "c": z + 0.05 * rng.standard_normal(n),
+            "noise": rng.standard_normal(n),
+        }
+    )
     ytr = pd.Series((z > 0).astype(int))
     m = _fit(Xtr, ytr)
 
     rng2 = np.random.default_rng(2)
     zt = 3.0 + 2.5 * rng2.standard_normal(800)  # shifted mean, inflated variance
-    Xte = pd.DataFrame({
-        "a": zt + 0.05 * rng2.standard_normal(800),
-        "b": zt + 0.05 * rng2.standard_normal(800),
-        "c": zt + 0.05 * rng2.standard_normal(800),
-        "noise": 2.0 * rng2.standard_normal(800) - 1.0,
-    })
+    Xte = pd.DataFrame(
+        {
+            "a": zt + 0.05 * rng2.standard_normal(800),
+            "b": zt + 0.05 * rng2.standard_normal(800),
+            "c": zt + 0.05 * rng2.standard_normal(800),
+            "noise": 2.0 * rng2.standard_normal(800) - 1.0,
+        }
+    )
     out = np.asarray(m.transform(Xte), dtype=np.float64)
     assert out.shape[0] == 800
     assert np.all(np.isfinite(np.nan_to_num(out))), "drifted-test transform emitted non-finite"
@@ -78,10 +85,14 @@ def test_dcd_transform_with_all_nan_test_column_no_crash():
     rng = np.random.default_rng(3)
     n = 1500
     z = rng.standard_normal(n)
-    Xtr = pd.DataFrame({"a": z + 0.05 * rng.standard_normal(n),
-                        "b": z + 0.05 * rng.standard_normal(n),
-                        "c": z + 0.05 * rng.standard_normal(n),
-                        "noise": rng.standard_normal(n)})
+    Xtr = pd.DataFrame(
+        {
+            "a": z + 0.05 * rng.standard_normal(n),
+            "b": z + 0.05 * rng.standard_normal(n),
+            "c": z + 0.05 * rng.standard_normal(n),
+            "noise": rng.standard_normal(n),
+        }
+    )
     ytr = pd.Series((z > 0).astype(int))
     m = _fit(Xtr, ytr)
     Xte = Xtr.iloc[:300].copy()

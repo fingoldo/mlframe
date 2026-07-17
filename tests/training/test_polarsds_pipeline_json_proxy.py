@@ -26,13 +26,14 @@ This sensor pins:
    downstream consumers that pulled metadata["pipeline"] keep working
    unchanged.
 """
+
 from __future__ import annotations
 
 import pickle
 
-import numpy as np
 import polars as pl
 import pytest
+
 
 # Some polars_ds installs ship the core package without the Pipeline /
 # Blueprint submodule (legacy split builds). Use a runtime autouse skip
@@ -52,11 +53,14 @@ def _require_pds_pipeline():
 def _make_pipeline():
     """Build a representative polars-ds Pipeline (impute + scale)."""
     from polars_ds.pipeline import Blueprint
-    df = pl.DataFrame({
-        "x0": [float(i) for i in range(200)],
-        "x1": [float(i * 0.5) for i in range(200)],
-        "x2": [float(i ** 0.5) for i in range(200)],
-    })
+
+    df = pl.DataFrame(
+        {
+            "x0": [float(i) for i in range(200)],
+            "x1": [float(i * 0.5) for i in range(200)],
+            "x2": [float(i**0.5) for i in range(200)],
+        }
+    )
     bp = Blueprint(df, name="sensor")
     bp = bp.impute(["x0", "x1", "x2"], method="mean")
     bp = bp.scale(["x0", "x1", "x2"], method="standard")
@@ -70,6 +74,7 @@ def test_proxy_class_exists_and_is_importable():
         _PolarsDsPipelineJsonProxy,
         _polars_ds_pipeline_from_json,
     )
+
     assert _PolarsDsPipelineJsonProxy is not None
     assert callable(_polars_ds_pipeline_from_json)
 
@@ -124,10 +129,7 @@ def test_proxy_does_not_corrupt_transform_when_pickled_via_dill():
 
     out_orig = pipe.transform(df)
     out_loaded = loaded.transform(df)
-    assert out_orig.equals(out_loaded), (
-        "dill round-trip diverged on Pipeline output. The proxy's "
-        "__reduce__ must work for both pickle and dill paths."
-    )
+    assert out_orig.equals(out_loaded), "dill round-trip diverged on Pipeline output. The proxy's __reduce__ must work for both pickle and dill paths."
 
 
 def test_save_path_falls_back_to_pickle_when_from_json_roundtrip_fails(monkeypatch):
@@ -153,6 +155,7 @@ def test_save_path_falls_back_to_pickle_when_from_json_roundtrip_fails(monkeypat
 
     def _broken_from_json(_js):
         raise RuntimeError("simulated from_json failure")
+
     monkeypatch.setattr(_PdsPipeline, "from_json", staticmethod(_broken_from_json))
 
     try:

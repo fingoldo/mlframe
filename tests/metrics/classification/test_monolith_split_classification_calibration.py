@@ -3,6 +3,7 @@
 Verifies parent + ``metrics.core`` re-export identity AND calls into the moved
 bodies (Hosmer-Lemeshow + Accuracy Ratio), forcing the njit compile.
 """
+
 from __future__ import annotations
 
 import numpy as np

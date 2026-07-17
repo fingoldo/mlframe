@@ -23,8 +23,7 @@ pytest.importorskip("numba")
 def _fit_lgb(X, y, *, classification, n_estimators=40, max_depth=4, num_leaves=15, seed=0):
     from lightgbm import LGBMClassifier, LGBMRegressor
 
-    params = dict(n_estimators=n_estimators, max_depth=max_depth, num_leaves=num_leaves,
-                  learning_rate=0.2, random_state=seed, verbose=-1)
+    params = dict(n_estimators=n_estimators, max_depth=max_depth, num_leaves=num_leaves, learning_rate=0.2, random_state=seed, verbose=-1)
     m = LGBMClassifier(**params) if classification else LGBMRegressor(**params)
     m.fit(X, y)
     return m
@@ -52,8 +51,7 @@ def test_lightgbm_is_supported_and_extracts(classification):
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(150, 6)), columns=[f"f{i}" for i in range(6)])
     signal = 2.0 * X["f0"] + X["f1"] - 0.5 * X["f2"]
-    y = (signal + 0.3 * rng.normal(size=150) > 0).astype(int) if classification else \
-        (signal + 0.1 * rng.normal(size=150)).to_numpy()
+    y = (signal + 0.3 * rng.normal(size=150) > 0).astype(int) if classification else (signal + 0.1 * rng.normal(size=150)).to_numpy()
     model = _fit_lgb(X, y, classification=classification)
     assert is_supported_lightgbm(model)
     ens = extract_ensemble(model)
@@ -68,8 +66,7 @@ def test_lightgbm_main_effect_additivity_and_parity(classification):
     rng = np.random.default_rng(1)
     X = pd.DataFrame(rng.normal(size=(250, 8)), columns=[f"f{i}" for i in range(8)])
     signal = X["f0"] + 0.5 * X["f1"] - X["f3"]
-    y = (signal + 0.3 * rng.normal(size=250) > 0).astype(int) if classification else \
-        (signal + 0.1 * rng.normal(size=250)).to_numpy()
+    y = (signal + 0.3 * rng.normal(size=250) > 0).astype(int) if classification else (signal + 0.1 * rng.normal(size=250)).to_numpy()
     model = _fit_lgb(X, y, classification=classification, n_estimators=50, max_depth=5, num_leaves=31)
 
     ens = extract_ensemble(model)
@@ -111,8 +108,7 @@ def test_lightgbm_interaction_parity(classification):
     rng = np.random.default_rng(3)
     X = pd.DataFrame(rng.normal(size=(180, 7)), columns=[f"f{i}" for i in range(7)])
     signal = X["f0"] * X["f1"] + 0.5 * X["f2"] - X["f3"]
-    y = (signal + 0.3 * rng.normal(size=180) > 0).astype(int) if classification else \
-        (signal + 0.1 * rng.normal(size=180)).to_numpy()
+    y = (signal + 0.3 * rng.normal(size=180) > 0).astype(int) if classification else (signal + 0.1 * rng.normal(size=180)).to_numpy()
     model = _fit_lgb(X, y, classification=classification, n_estimators=50, max_depth=5, num_leaves=31)
 
     ens = extract_ensemble(model)
@@ -123,6 +119,7 @@ def test_lightgbm_interaction_parity(classification):
     np.testing.assert_allclose(Phi.sum(axis=2), phi, rtol=0, atol=1e-10)
 
     import shap
+
     ex = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
     Phi_ref = np.asarray(ex.shap_interaction_values(X), dtype=np.float64)
     if Phi_ref.ndim == 4:

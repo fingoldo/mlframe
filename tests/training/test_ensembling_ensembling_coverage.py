@@ -13,7 +13,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +118,10 @@ def test_composite_ensemble_has_no_per_family_calibrators_today():
     blocks accidental silent introduction of a calibrator that is never replayed at predict
     time."""
     from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
+
     # Construct via the cheapest factory available -- from_train_metrics needs only model metrics.
     from unittest.mock import MagicMock
+
     ens = CompositeCrossTargetEnsemble.from_train_metrics(
         component_models=[MagicMock(name="cb"), MagicMock(name="xgb")],
         component_names=["cb", "xgb"],
@@ -132,6 +133,4 @@ def test_composite_ensemble_has_no_per_family_calibrators_today():
     assert hasattr(ens, "weights")
     # The aspirational per-family calibrator slot is NOT present today; if it lands later,
     # convert this assertion into a positive behavioural test.
-    assert not hasattr(ens, "per_family_calibrators"), (
-        "per_family_calibrators slot appeared -- flip this test into a positive replay assertion"
-    )
+    assert not hasattr(ens, "per_family_calibrators"), "per_family_calibrators slot appeared -- flip this test into a positive replay assertion"

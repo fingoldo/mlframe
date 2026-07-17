@@ -3,6 +3,7 @@ the chi-square asymptotic is valid. On a sparse / high-cardinality contingency t
 (analytic_null_applicable False) the analytic p is unreliable, so a genuine-signal candidate must be
 KEPT, not zeroed. Pre-fix the gate ran the chi-square unconditionally and could reject on an invalid test.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,15 +17,13 @@ from mlframe.feature_selection.filters._analytic_mi_null import (
 def test_sparse_high_cardinality_candidate_not_rejected():
     n = 100
     rng = np.random.default_rng(0)
-    disc = rng.integers(0, 50, size=(n, 1)).astype(np.int64)   # ~50 occupied x bins (high cardinality)
-    classes_y = rng.integers(0, 3, size=n).astype(np.int64)    # by = 3
+    disc = rng.integers(0, 50, size=(n, 1)).astype(np.int64)  # ~50 occupied x bins (high cardinality)
+    classes_y = rng.integers(0, 3, size=n).astype(np.int64)  # by = 3
     bx = int(np.unique(disc[:, 0]).size)
-    assert not analytic_null_applicable(n, bx, 3)               # sparse: n/(bx*by) << min-cell floor
-    observed = np.array([0.001])                               # tiny but positive observed MI
+    assert not analytic_null_applicable(n, bx, 3)  # sparse: n/(bx*by) << min-cell floor
+    observed = np.array([0.001])  # tiny but positive observed MI
     fe = analytic_batch_noise_gate(disc, observed, classes_y, n, min_nonzero_confidence=0.5)
-    assert fe[0] == observed[0], (
-        "sparse-table candidate wrongly zeroed -- the gate must not reject where the chi-square is invalid"
-    )
+    assert fe[0] == observed[0], "sparse-table candidate wrongly zeroed -- the gate must not reject where the chi-square is invalid"
 
 
 def test_dense_table_still_rejects_pure_noise():

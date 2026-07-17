@@ -9,6 +9,7 @@ BEFORE the ratio/overhead/worker divide. These tests pin:
   (iii) reserve unmet -> budget collapses but the caller's chunk-col floor keeps >= one pair
         (always makes progress, never 0/negative chunk).
 """
+
 import importlib
 
 import pytest
@@ -66,9 +67,7 @@ def test_reserve_zero_is_byte_identical_legacy(monkeypatch):
     assert fe._fe_min_free_ram_bytes() == 0
     for available in (0, 1, 1023, 2**20, 2**30, 7 * 2**30, 64 * 2**30):
         for nw in (1, 2, 8):
-            assert fe._fe_effective_buffer_budget_bytes(available, n_workers=nw) == _legacy_budget(
-                available, n_workers=nw
-            ), (available, nw)
+            assert fe._fe_effective_buffer_budget_bytes(available, n_workers=nw) == _legacy_budget(available, n_workers=nw), (available, nw)
 
 
 def test_reserve_zero_via_constant_is_byte_identical(monkeypatch):
@@ -101,7 +100,7 @@ def test_env_overrides_constant(monkeypatch):
     """The env var overrides the module constant for the reserve size."""
     monkeypatch.setattr(fe, "_FE_MIN_FREE_RAM_GB", 1.0)
     monkeypatch.setenv("MLFRAME_FE_MIN_FREE_RAM_GB", "4")
-    assert fe._fe_min_free_ram_bytes() == int(4 * 2**30)
+    assert fe._fe_min_free_ram_bytes() == (4 * 2**30)
     # Garbage env value falls back to the constant (no crash).
     monkeypatch.setenv("MLFRAME_FE_MIN_FREE_RAM_GB", "not-a-number")
     assert fe._fe_min_free_ram_bytes() == int(1.0 * 2**30)

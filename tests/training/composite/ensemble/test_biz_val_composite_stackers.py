@@ -13,6 +13,7 @@ Verdict (recorded here + in bench_meta_stackers.py): GBM wins decisively only on
 NNLS ties ridge and beats GBM. So a richer stacker does NOT win on the MAJORITY of (convex) scenarios -> NNLS stays the
 DEFAULT, GBM/ridge ship as opt-in (REJECTED-as-default != deleted).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -54,8 +55,10 @@ def _gen_convex(n, seed):
 
 def _mean_rmse(gen, stacker, n_seeds=6, n=1500):
     from mlframe.training.composite.ensemble import (
-        CompositeCrossTargetEnsemble as E, build_meta_stack_ensemble,
+        CompositeCrossTargetEnsemble as E,
+        build_meta_stack_ensemble,
     )
+
     out = []
     for seed in range(n_seeds):
         xtr, ytr = gen(n, seed)

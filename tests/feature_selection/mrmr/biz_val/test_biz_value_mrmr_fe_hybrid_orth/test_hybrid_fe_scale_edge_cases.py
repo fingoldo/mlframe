@@ -165,9 +165,7 @@ class TestScaleP200:
         # MI-ranking passes.
         budget = perf_time_budget(30.0)
         assert elapsed <= budget, (
-            f"A seed={seed}: hybrid p=200 took {elapsed:.2f}s, must be "
-            f"<= {budget:.1f}s; check basis_n generation or MI ranking for "
-            f"quadratic-in-p hotspots."
+            f"A seed={seed}: hybrid p=200 took {elapsed:.2f}s, must be <= {budget:.1f}s; check basis_n generation or MI ranking for quadratic-in-p hotspots."
         )
 
         # Contract A.2: signal IS recovered in some form. The true
@@ -226,7 +224,7 @@ class TestBasisAutoRoutingEdges:
         # Names follow the chebyshev code "T" when auto-routing the
         # small sample.
         assert not out.empty, (
-            "B small-n: generate_univariate_basis_features returned " "empty DataFrame on n=50; should fall back to chebyshev " "and emit per-column T_2/T_3."
+            "B small-n: generate_univariate_basis_features returned empty DataFrame on n=50; should fall back to chebyshev and emit per-column T_2/T_3."
         )
         # Verify the emitted columns are finite (no NaN/inf leaking
         # through from the preprocess + polyeval path on small n).
@@ -292,7 +290,7 @@ class TestBasisAutoRoutingEdges:
         binned = rng.integers(0, 10, size=2000).astype(np.int64)
         X = pd.DataFrame({"binned": binned, "cont": rng.standard_normal(2000)})
         out = generate_univariate_basis_features(X, degrees=(2, 3), basis="auto")
-        assert not out.empty, "B int-binned: generate_univariate_basis_features should " "emit basis columns for the int column too (it's still " "numeric)."
+        assert not out.empty, "B int-binned: generate_univariate_basis_features should emit basis columns for the int column too (it's still numeric)."
         # All emitted values finite.
         assert np.isfinite(out.to_numpy()).all(), "B int-binned: non-finite values in output."
 
@@ -356,14 +354,12 @@ class TestInteractionWithPolynomPair:
         sup = list(m.get_feature_names_out())
         # A univariate x1 basis feature (He2 / L2 / Fourier sin/cos ...) must
         # recover the quadratic.
-        assert any(str(c).startswith("x1__") for c in sup), (
-            f"C hybrid-only seed={seed}: a univariate x1__* basis feature must " f"recover the quadratic; got {sup}"
-        )
+        assert any(str(c).startswith("x1__") for c in sup), f"C hybrid-only seed={seed}: a univariate x1__* basis feature must recover the quadratic; got {sup}"
         # No polynom_pair recipe with fe_smart_polynom_iters=0 (the original
         # "only hybrid columns, no pair" intent).
         recipes = getattr(m, "_engineered_recipes_", []) or []
         assert not any(getattr(r, "kind", None) == "hermite_pair" for r in recipes), (
-            f"C hybrid-only seed={seed}: no hermite_pair recipe should be built " f"with fe_smart_polynom_iters=0"
+            f"C hybrid-only seed={seed}: no hermite_pair recipe should be built with fe_smart_polynom_iters=0"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -380,7 +376,7 @@ class TestInteractionWithPolynomPair:
         m = _fit_mrmr(X, y, hybrid=False, fe_smart_polynom_iters=0)
         sup = list(m.get_feature_names_out())
         assert any(str(c).startswith("x1__") for c in sup), (
-            f"C seed={seed}: the DEFAULT should recover the univariate quadratic " f"via an x1 basis feature; got {sup}"
+            f"C seed={seed}: the DEFAULT should recover the univariate quadratic via an x1 basis feature; got {sup}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -391,7 +387,7 @@ class TestInteractionWithPolynomPair:
         m = _fit_mrmr(X, y, hybrid=False, fe_smart_polynom_iters=0, fe_univariate_basis_enable=False)
         sup = list(m.get_feature_names_out())
         engineered = [c for c in sup if ("__He" in c) or ("__T" in c) or ("*" in c)]
-        assert engineered == [], f"C no-FE seed={seed}: pure-baseline run (all FE off) must not emit " f"engineered columns; got {engineered}; support={sup}"
+        assert engineered == [], f"C no-FE seed={seed}: pure-baseline run (all FE off) must not emit engineered columns; got {engineered}; support={sup}"
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +449,7 @@ class TestNanInfHandling:
         m = _fit_mrmr(X, y, hybrid=True, pair=False)
         sup = list(m.get_feature_names_out())
         assert any(str(c).startswith("x1__") for c in sup), (
-            f"D nan5pct seed={seed}: the quadratic must still be recovered via " f"an x1__* basis feature even with a 5%-NaN nuisance column; got {sup}"
+            f"D nan5pct seed={seed}: the quadratic must still be recovered via an x1__* basis feature even with a 5%-NaN nuisance column; got {sup}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -487,9 +483,7 @@ class TestNanInfHandling:
             top_k=5,
         )
         appended = [c for c in X_aug.columns if c not in X.columns]
-        assert "x1__He2" in appended, (
-            f"D pos_inf seed={seed}: hybrid_orth_mi_fe should recover " f"x1__He2 despite +inf in nuisance column; appended={appended}"
-        )
+        assert "x1__He2" in appended, f"D pos_inf seed={seed}: hybrid_orth_mi_fe should recover x1__He2 despite +inf in nuisance column; appended={appended}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_all_nan_column_silently_skipped(self, seed):
@@ -516,13 +510,13 @@ class TestNanInfHandling:
         # specific x1__He2 to any x1__* basis feature; adaptive Fourier now
         # recovers the binarised quadratic via sin/cos pairs.)
         assert any(str(c).startswith("x1__") for c in sup), (
-            f"D all-NaN seed={seed}: an x1__* basis feature must still appear " f"despite an all-NaN nuisance column; got {sup}"
+            f"D all-NaN seed={seed}: an x1__* basis feature must still appear despite an all-NaN nuisance column; got {sup}"
         )
         # And no engineered column derived from the perturb source
         # ('perturb__...') should make the cut, because all-NaN gives
         # zero MI.
         perturb_engineered = [c for c in sup if c.startswith("perturb__")]
-        assert perturb_engineered == [], f"D all-NaN seed={seed}: no perturb-derived engineered " f"column should enter the support; got {perturb_engineered}"
+        assert perturb_engineered == [], f"D all-NaN seed={seed}: no perturb-derived engineered column should enter the support; got {perturb_engineered}"
 
 
 # ---------------------------------------------------------------------------
@@ -550,7 +544,7 @@ class TestCardinalityPrescreenInteraction:
         # Fourier recovers the binarised quadratic). The cardinality-prescreen
         # contract (continuous hybrid winners must clear the gate) is unchanged.
         assert any(str(c).startswith("x1__") for c in sup), (
-            f"E default seed={seed}: cardinality pre-screen must not " f"block hybrid winners; no x1__* basis feature in {sup}"
+            f"E default seed={seed}: cardinality pre-screen must not block hybrid winners; no x1__* basis feature in {sup}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -566,7 +560,7 @@ class TestCardinalityPrescreenInteraction:
         # Fourier recovers the binarised quadratic). Recovery is not
         # gate-dependent regardless of which basis wins.
         assert any(str(c).startswith("x1__") for c in sup), (
-            f"E gate-off seed={seed}: the quadratic must still be recovered via " f"an x1__* basis feature with cardinality_bias_correction=False; got {sup}"
+            f"E gate-off seed={seed}: the quadratic must still be recovered via an x1__* basis feature with cardinality_bias_correction=False; got {sup}"
         )
 
     def test_hybrid_nbins_under_prescreen_threshold(self):

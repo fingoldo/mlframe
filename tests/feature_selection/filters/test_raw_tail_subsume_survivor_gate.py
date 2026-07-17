@@ -13,6 +13,7 @@ continuous ``|corr(y)|`` is only ~0.674, so the pre-fix gate of 0.6 wrongly drop
 not). This test pins BOTH sides on the REAL failing case via the constructor knob: gate 0.6 drops ``b``
 (the pre-fix bug), gate 0.85 (the shipped default) keeps it.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,21 +25,26 @@ from tests.feature_selection._mrmr_realistic_data import make_realistic_case
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 _FE_KWARGS = dict(
-    dcd_enable=False, build_friend_graph=False, cluster_aggregate_enable=False,
-    redundancy_policy="drop", fe_max_steps=1,
+    dcd_enable=False,
+    build_friend_graph=False,
+    cluster_aggregate_enable=False,
+    redundancy_policy="drop",
+    fe_max_steps=1,
 )
 
 
 def _fit_kept_raws(gate: float):
     df, y, _meta = make_realistic_case(
-        seed=312, n=25000, distribution="heavytail",
-        target_family="subsumed_plus_private", task="regression",
+        seed=312,
+        n=25000,
+        distribution="heavytail",
+        target_family="subsumed_plus_private",
+        task="regression",
     )
     raw_cols = list(df.columns)
     # MRMR.fit consumes the GLOBAL np.random stream; seed it so the redundancy-drop verdict is deterministic.
     np.random.seed(312 & 0x7FFFFFFF)
-    m = MRMR(max_runtime_mins=5, verbose=0, random_seed=312,
-             fe_raw_tail_subsume_min_corr=gate, **_FE_KWARGS)
+    m = MRMR(max_runtime_mins=5, verbose=0, random_seed=312, fe_raw_tail_subsume_min_corr=gate, **_FE_KWARGS)
     m.fit(df, y)
     names_out = list(m.get_feature_names_out())
     return {c for c in names_out if c in raw_cols}

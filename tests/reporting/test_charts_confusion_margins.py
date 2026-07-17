@@ -32,7 +32,7 @@ def _imbalanced(n: int, K: int, prevalence, majority_bias: float, seed: int = 0)
     y = rng.choice(K, size=n, p=p)
     proba = rng.dirichlet([1.0] * K, size=n)
     for i, t in enumerate(y):
-        proba[i, t] += 0.5            # genuine signal on the true class
+        proba[i, t] += 0.5  # genuine signal on the true class
         proba[i, 0] += majority_bias  # majority-class bias
     proba /= proba.sum(axis=1, keepdims=True)
     return y, proba, list(range(K))
@@ -80,6 +80,7 @@ class TestStructure:
         y, p, c = _balanced(900, 3, seed=2)
         K = len(c)
         from mlframe.reporting.charts.multiclass import _confusion_counts
+
         counts = _confusion_counts(y, np.argmax(p, axis=1), K)
         panel = _panel(y, p, c)
         np.testing.assert_allclose(panel.row_margin, counts.sum(axis=1))
@@ -87,6 +88,7 @@ class TestStructure:
 
     def test_viridis_cb_safe_colormap(self):
         from mlframe.reporting.colors import HEATMAP_CMAP, resolve_heatmap_cmap
+
         y, p, c = _balanced(400, 4)
         panel = _panel(y, p, c)
         assert panel.colormap == HEATMAP_CMAP
@@ -113,12 +115,10 @@ class TestEdgeCases:
     def test_single_class_annotates(self):
         panel = _panel(np.zeros(50, dtype=int), np.ones((50, 1)), [0])
         assert panel.note == "single-class problem"
-        get_renderer("matplotlib").render(
-            compose_multiclass_figure(np.zeros(50, dtype=int), np.ones((50, 1)), [0], panels_template="CONFUSION_MARGINS"))
+        get_renderer("matplotlib").render(compose_multiclass_figure(np.zeros(50, dtype=int), np.ones((50, 1)), [0], panels_template="CONFUSION_MARGINS"))
 
     def test_empty_annotates_and_renders(self):
-        spec = compose_multiclass_figure(np.array([], dtype=int), np.zeros((0, 3)), [0, 1, 2],
-                                         panels_template="CONFUSION_MARGINS")
+        spec = compose_multiclass_figure(np.array([], dtype=int), np.zeros((0, 3)), [0, 1, 2], panels_template="CONFUSION_MARGINS")
         panel = spec.panels[0][0]
         assert panel.note == "no in-range samples"
         get_renderer("matplotlib").render(spec)  # must not raise

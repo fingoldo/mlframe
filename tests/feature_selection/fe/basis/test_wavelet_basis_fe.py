@@ -33,6 +33,7 @@ on data without localized structure:
 * on pure noise / a smooth sin / the canonical pair-FE fixture the default path
   retains ZERO wavelet legs (no spurious columns, canonical recovery intact).
 """
+
 from __future__ import annotations
 
 import pickle
@@ -40,7 +41,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -50,6 +50,7 @@ N = 4000
 def _heldout_r2(feat_cols, y):
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import StandardScaler
+
     X = np.column_stack([np.asarray(c, float) for c in feat_cols])
     idx = np.arange(len(y))
     va = (idx % 3) == 0
@@ -67,6 +68,7 @@ def _best_set_r2(legs, x, y, k=4):
     """Held-out Ridge R^2 of [x, top-k legs by train-side MI] -- the real
     operator behaviour (small scale-selected SET, not a single leg)."""
     from mlframe.feature_selection.filters._wavelet_basis_fe import _binned_mi
+
     n = len(y)
     va = (np.arange(n) % 3) == 0
     tr = ~va
@@ -84,10 +86,11 @@ def _best_set_r2(legs, x, y, k=4):
 
 def _haar_set(x, lo, span, max_scale=3):
     from mlframe.feature_selection.filters._wavelet_basis_fe import _dyadic_haar_leg
+
     z = np.clip((x - lo) / span, 0.0, 1.0)
     legs = {}
     for j in range(max_scale + 1):
-        for k in range(2 ** j):
+        for k in range(2**j):
             legs[(j, k)] = _dyadic_haar_leg(z, j, k)
     return legs
 
@@ -103,6 +106,7 @@ def _fourier_set(x, lo, span, n_freq=8):
 
 def _spline_set(x, lo, hi, n_inner=8, degree=3):
     from scipy.interpolate import BSpline
+
     z = np.clip((x - lo) / max(hi - lo, 1e-12), 0.0, 1.0)
     inner = np.linspace(1.0 / (n_inner + 1), n_inner / (n_inner + 1), n_inner)
     knots = np.concatenate([np.zeros(degree + 1), inner, np.ones(degree + 1)])
@@ -122,6 +126,7 @@ def test_dyadic_haar_leg_closed_form():
     """psi_{j,k} is +1 on the left half, -1 on the right half of the dyadic cell
     [k/2^j, (k+1)/2^j), 0 outside."""
     from mlframe.feature_selection.filters._wavelet_basis_fe import _dyadic_haar_leg
+
     z = np.linspace(0.0, 1.0, 1001)
     # j=0,k=0: +1 on [0,0.5), -1 on [0.5,1)
     leg = _dyadic_haar_leg(z, 0, 0)
@@ -141,9 +146,11 @@ def test_recipe_replay_is_leak_safe_and_bit_exact():
     """The emitted column == apply_recipe replay byte-for-byte, and the recipe
     reads only X (no y)."""
     from mlframe.feature_selection.filters._wavelet_basis_fe import (
-        generate_wavelet_features, build_orth_wavelet_recipe,
+        generate_wavelet_features,
+        build_orth_wavelet_recipe,
     )
     from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
     rng = np.random.default_rng(0)
     x = rng.uniform(0, 1, N)
     y = ((x > 0.5).astype(float) + rng.normal(0, 0.3, N) > 0.5).astype(int)
@@ -153,8 +160,12 @@ def test_recipe_replay_is_leak_safe_and_bit_exact():
     for nm in eng.columns:
         m = meta[nm]
         r = build_orth_wavelet_recipe(
-            name=nm, src_name=m["src"], j=m["j"], k=m["k"],
-            lo=m["lo"], span=m["span"],
+            name=nm,
+            src_name=m["src"],
+            j=m["j"],
+            k=m["k"],
+            lo=m["lo"],
+            span=m["span"],
         )
         replay = apply_recipe(r, X)
         assert np.array_equal(replay, eng[nm].to_numpy()), f"{nm} not bit-exact"
@@ -165,8 +176,10 @@ def test_recipe_replay_is_leak_safe_and_bit_exact():
 
 def test_dispatcher_routes_orth_wavelet():
     from mlframe.feature_selection.filters.engineered_recipes import (
-        apply_recipe, build_orth_wavelet_recipe,
+        apply_recipe,
+        build_orth_wavelet_recipe,
     )
+
     rng = np.random.default_rng(1)
     X = pd.DataFrame({"a": rng.uniform(0, 1, 500)})
     r = build_orth_wavelet_recipe(name="a__haar_j1k0", src_name="a", j=1, k=0, lo=0.0, span=1.0)
@@ -181,13 +194,18 @@ def test_pure_noise_admits_no_wavelet():
     from mlframe.feature_selection.filters._wavelet_basis_fe import (
         hybrid_wavelet_fe_with_recipes,
     )
+
     n_admit = 0
     for seed in range(8):
         rng = np.random.default_rng(100 + seed)
-        X = pd.DataFrame({
-            "a": rng.uniform(0, 1, N), "b": rng.normal(0, 1, N),
-            "c": rng.uniform(-1, 1, N), "d": rng.normal(0, 1, N),
-        })
+        X = pd.DataFrame(
+            {
+                "a": rng.uniform(0, 1, N),
+                "b": rng.normal(0, 1, N),
+                "c": rng.uniform(-1, 1, N),
+                "d": rng.normal(0, 1, N),
+            }
+        )
         yc = (rng.normal(0, 1, N) > 0).astype(int)
         _, keep, _, _ = hybrid_wavelet_fe_with_recipes(X, yc)
         n_admit += len(keep)
@@ -206,6 +224,7 @@ def test_noise_columns_admit_no_wavelet_with_correlated_target():
     from mlframe.feature_selection.filters._wavelet_basis_fe import (
         hybrid_wavelet_fe_with_recipes,
     )
+
     rng = np.random.default_rng(49)
     n = 1500
     cols = {}
@@ -232,11 +251,11 @@ def test_scale_selection_bounds_candidate_count():
     from mlframe.feature_selection.filters._wavelet_basis_fe import (
         generate_wavelet_features,
     )
+
     rng = np.random.default_rng(2)
     x = rng.uniform(0, 1, N)
     # multi-scale structure to trip many candidate legs
-    y = ((x > 0.5).astype(float) + 0.8 * ((x > 0.75) & (x < 0.875))
-         + rng.normal(0, 0.2, N) > 0.5).astype(int)
+    y = ((x > 0.5).astype(float) + 0.8 * ((x > 0.75) & (x < 0.875)) + rng.normal(0, 0.2, N) > 0.5).astype(int)
     X = pd.DataFrame({"a": x})
     eng, meta = generate_wavelet_features(X, y=y, max_legs=6)
     per_src = {}
@@ -270,8 +289,7 @@ def test_bizval_multiscale_beats_fourier():
     Fourier set (Gibbs rings the discontinuities)."""
     rng = np.random.default_rng(4)
     x = rng.uniform(0, 1, N)
-    y = ((x > 0.5).astype(float) + 0.8 * ((x > 0.75) & (x < 0.875))
-         + rng.normal(0, 0.25, N))
+    y = (x > 0.5).astype(float) + 0.8 * ((x > 0.75) & (x < 0.875)) + rng.normal(0, 0.25, N)
     lo, hi = float(x.min()), float(x.max())
     span = hi - lo
     r_haar = _best_set_r2(_haar_set(x, lo, span), x, y)
@@ -298,16 +316,21 @@ def test_bizval_smooth_admits_zero_legs():
     from mlframe.feature_selection.filters._wavelet_basis_fe import (
         hybrid_wavelet_fe_with_recipes,
     )
+
     n_admit = 0
     for seed in range(8):
         rng = np.random.default_rng(200 + seed)
         x = rng.uniform(0, 1, N)
         y = np.sin(2 * np.pi * x) + rng.normal(0, 0.3, N)
         yc = (y > np.median(y)).astype(int)
-        X = pd.DataFrame({
-            "a": x, "b": rng.normal(0, 1, N),
-            "c": rng.uniform(-1, 1, N), "d": rng.normal(0, 1, N),
-        })
+        X = pd.DataFrame(
+            {
+                "a": x,
+                "b": rng.normal(0, 1, N),
+                "c": rng.uniform(-1, 1, N),
+                "d": rng.normal(0, 1, N),
+            }
+        )
         _, keep, _, _ = hybrid_wavelet_fe_with_recipes(X, yc)
         n_admit += len(keep)
     assert n_admit == 0, f"smooth admitted {n_admit} legs over 8 seeds (want 0)"
@@ -319,6 +342,7 @@ def test_bizval_localized_step_admits_legs():
     from mlframe.feature_selection.filters._wavelet_basis_fe import (
         hybrid_wavelet_fe_with_recipes,
     )
+
     admits = 0
     for seed in range(8):
         rng = np.random.default_rng(300 + seed)
@@ -339,6 +363,7 @@ def test_default_on_selects_wavelet_on_localized_step():
     """A plain MRMR() (no opt-in) selects a Haar leg into support on a localized
     step target, and transform() replays it leak-free."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     rng = np.random.default_rng(6)
     x = rng.uniform(0, 1, 3000)
     y = ((x > 0.5).astype(float) + rng.normal(0, 0.3, 3000) > 0.5).astype(int)
@@ -358,10 +383,13 @@ def test_default_on_canonical_recovery_not_perturbed():
     from mlframe.feature_selection.filters._wavelet_basis_fe import (
         hybrid_wavelet_fe_with_recipes,
     )
+
     rng = np.random.default_rng(7)
-    a = rng.uniform(0.5, 2, N); b = rng.uniform(0.5, 2, N)
-    c = rng.uniform(0.5, 2, N); d = rng.uniform(0, 2 * np.pi, N)
-    y = a ** 2 / b + np.log(c) * np.sin(d) + rng.normal(0, 0.05, N)
+    a = rng.uniform(0.5, 2, N)
+    b = rng.uniform(0.5, 2, N)
+    c = rng.uniform(0.5, 2, N)
+    d = rng.uniform(0, 2 * np.pi, N)
+    y = a**2 / b + np.log(c) * np.sin(d) + rng.normal(0, 0.05, N)
     yc = (y > np.median(y)).astype(int)
     X = pd.DataFrame({"a": a, "b": b, "c": c, "d": d})
     _, keep, _, _ = hybrid_wavelet_fe_with_recipes(X, yc)
@@ -383,6 +411,7 @@ def test_cprofile_wavelet_stage_hotspot(capsys):
     from mlframe.feature_selection.filters._wavelet_basis_fe import (
         hybrid_wavelet_fe_with_recipes,
     )
+
     rng = np.random.default_rng(8)
     x = rng.uniform(0, 1, N)
     y = ((x > 0.5).astype(float) + rng.normal(0, 0.3, N) > 0.5).astype(int)
@@ -399,7 +428,7 @@ def test_cprofile_wavelet_stage_hotspot(capsys):
     s = io.StringIO()
     pstats.Stats(pr, stream=s).sort_stats("tottime").print_stats(12)
     with capsys.disabled():
-        print(f"\n[wavelet cProfile] p=8 n={N} wall={elapsed*1000:.1f} ms")
+        print(f"\n[wavelet cProfile] p=8 n={N} wall={elapsed * 1000:.1f} ms")
         print(s.getvalue()[:1400])
     # Generous budget; the stage is a handful of binned-MI passes per column.
     assert elapsed < 5.0, f"wavelet stage took {elapsed:.2f}s (>5s budget)"

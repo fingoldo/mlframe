@@ -4,6 +4,7 @@ The three public ``@njit`` helpers (``arr2str``, ``count_cand_nbins``, ``unpack_
 ``conditional_mi`` and ``screen_predictors``. The invariants tested here back the comments in the source: collision-safety of the cache key, correct
 aggregation of per-factor bin counts, and ordering-independence of the union representation used to canonicalise cache lookups.
 """
+
 from __future__ import annotations
 
 import numpy as np

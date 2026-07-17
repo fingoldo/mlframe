@@ -29,8 +29,7 @@ def test_subset_uncertainty_many_matches_single():
     """Batched subset_uncertainty_many (transpose-once contiguous gather) must equal looping the
     single subset_uncertainty, including the phi_var=None (n_models==1 -> all-zeros) and
     empty/singleton edges. Locks the iter111 layout optimisation."""
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import (
-        subset_uncertainty, subset_uncertainty_many)
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import subset_uncertainty, subset_uncertainty_many
 
     rng = np.random.default_rng(11)
     phi_var = np.abs(rng.normal(size=(600, 18)))  # variances are non-negative
@@ -53,8 +52,7 @@ def test_coalition_margin_T_matches_row_major():
     phi_T = np.ascontiguousarray(phi.T)
     base = rng.normal(size=400)
     for idx in ([0, 2, 4], [7], list(range(15)), [], [3, 9, 14]):
-        np.testing.assert_allclose(
-            coalition_margin_T(phi_T, base, idx), coalition_margin(phi, base, idx), rtol=1e-12, atol=1e-12)
+        np.testing.assert_allclose(coalition_margin_T(phi_T, base, idx), coalition_margin(phi, base, idx), rtol=1e-12, atol=1e-12)
 
 
 def test_score_margin_matches_numpy_references():
@@ -90,7 +88,7 @@ def test_score_margin_parallel_matches_serial(code, n):
 
     rng = np.random.default_rng(code * 7 + n)
     margin = rng.normal(size=n)
-    y = (rng.normal(size=n) if code in (0, 1) else (rng.random(n) > 0.5).astype(float))
+    y = rng.normal(size=n) if code in (0, 1) else (rng.random(n) > 0.5).astype(float)
     serial = score_margin(margin, y, code)
     parallel = score_margin_parallel(margin, y, code)
     np.testing.assert_allclose(parallel, serial, rtol=1e-12, atol=1e-12)

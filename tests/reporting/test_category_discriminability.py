@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.reporting.charts.category_discriminability import (
     category_discriminability_panel,
@@ -57,7 +56,7 @@ def test_level_woe_matches_bruteforce_groupby():
 def test_level_woe_skips_missing_codes():
     y = np.array([1.0, 0.0, 1.0, 0.0])
     codes = np.array([-1, 0, 0, -1], dtype=np.int64)  # two missing rows must not contribute
-    woe, counts = level_woe(codes, y, 1, base_rate=0.5, alpha=0.5)
+    _woe, counts = level_woe(codes, y, 1, base_rate=0.5, alpha=0.5)
     assert counts[0] == 2.0  # only the two non-missing rows counted
 
 
@@ -117,11 +116,13 @@ def test_compose_figure_single_panel():
 def test_high_cardinality_and_numeric_columns_skipped():
     rng = np.random.default_rng(4)
     n = 3000
-    X = pd.DataFrame({
-        "id": [f"u{i}" for i in range(n)],          # 3000 unique -> high cardinality, skipped
-        "num": rng.random(n),                        # numeric, not auto-detected
-        "cat": rng.choice(["p", "q"], size=n),
-    })
+    X = pd.DataFrame(
+        {
+            "id": [f"u{i}" for i in range(n)],  # 3000 unique -> high cardinality, skipped
+            "num": rng.random(n),  # numeric, not auto-detected
+            "cat": rng.choice(["p", "q"], size=n),
+        }
+    )
     y = (rng.random(n) < 0.5).astype(int)
     rows = category_discriminability_table(X, y, top_k=20)
     feats = {feat for feat, *_ in rows}
@@ -151,7 +152,7 @@ def test_biz_val_strong_level_ranks_first():
     measured_A = abs(measured[0])
 
     rows = category_discriminability_table(X, y, top_k=10, min_support=30)
-    top_feat, top_lbl, top_woe, _sup, top_p = rows[0]
+    _top_feat, top_lbl, top_woe, _sup, top_p = rows[0]
     assert top_lbl == "A", rows[0]
     assert abs(top_woe) >= 0.9 * measured_A, (top_woe, measured_A)
     assert top_woe > 0 and top_p > 0.9  # A tilts strongly toward y=1

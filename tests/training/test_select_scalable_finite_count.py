@@ -28,7 +28,7 @@ from mlframe.training.pipeline import _select_scalable_numeric_columns
 def _mixed_frame(n: int = 2000) -> pl.DataFrame:
     rng = np.random.default_rng(7)
     good = rng.normal(size=n)
-    lowvar = rng.normal(size=n) * 1e-9          # tiny but non-zero spread
+    lowvar = rng.normal(size=n) * 1e-9  # tiny but non-zero spread
     inf_col = rng.normal(size=n).copy()
     inf_col[rng.random(n) < 0.02] = np.inf
     inf_col[rng.random(n) < 0.02] = -np.inf
@@ -39,8 +39,8 @@ def _mixed_frame(n: int = 2000) -> pl.DataFrame:
             "good": good,
             "good2": rng.normal(size=n) * 5.0,
             "lowvar": lowvar,
-            "const": np.full(n, 3.5),           # zero-spread
-            "allnan": np.full(n, np.nan),       # all non-finite
+            "const": np.full(n, 3.5),  # zero-spread
+            "allnan": np.full(n, np.nan),  # all non-finite
             "infbearing": inf_col,
             "withnan": nan_col,
             "intcol": rng.integers(0, 100, size=n),
@@ -58,8 +58,14 @@ _EXPECTED = {
     # abs_max only skips columns whose abs().max() == 0; the constant 3.5 /
     # constant 4 columns have a non-zero abs-max so they survive here.
     "abs_max": {
-        "good", "good2", "lowvar", "infbearing", "withnan",
-        "intcol", "const", "intconst",
+        "good",
+        "good2",
+        "lowvar",
+        "infbearing",
+        "withnan",
+        "intcol",
+        "const",
+        "intconst",
     },
 }
 
@@ -101,11 +107,7 @@ def test_finite_count_expr_bit_identical():
     column carrying null + NaN + inf + finite values."""
     vals = [1.0, 2.0, np.nan, np.inf, -np.inf, None, 3.0, None, np.nan, 4.0]
     df = pl.DataFrame({"c": pl.Series("c", vals, dtype=pl.Float64)})
-    old = (
-        pl.col("c").drop_nulls().drop_nans()
-        .filter(pl.col("c").drop_nulls().drop_nans().is_finite())
-        .len()
-    )
+    old = pl.col("c").drop_nulls().drop_nans().filter(pl.col("c").drop_nulls().drop_nans().is_finite()).len()
     new = pl.col("c").is_finite().sum()
     r = df.select(old.alias("o"), new.alias("n"))
     assert r["o"][0] == r["n"][0] == 4
@@ -126,19 +128,15 @@ def test_perf_sentinel_fused_count_faster():
     cols = df.columns
 
     def old():
-        e = [
-            pl.col(c).drop_nulls().drop_nans()
-            .filter(pl.col(c).drop_nulls().drop_nans().is_finite())
-            .len().alias("n" + c)
-            for c in cols
-        ]
+        e = [pl.col(c).drop_nulls().drop_nans().filter(pl.col(c).drop_nulls().drop_nans().is_finite()).len().alias("n" + c) for c in cols]
         return df.lazy().select(e).collect()
 
     def new():
         e = [pl.col(c).is_finite().sum().alias("n" + c) for c in cols]
         return df.lazy().select(e).collect()
 
-    old(); new()  # warm
+    old()
+    new()  # warm
 
     def bench(f, k=7):
         best = float("inf")
@@ -152,4 +150,4 @@ def test_perf_sentinel_fused_count_faster():
     t_new = bench(new)
     # bit-identity on the perf shape too
     assert (old().to_numpy().ravel() == new().to_numpy().ravel()).all()
-    assert t_new < t_old, f"expected fused faster: old={t_old*1e3:.2f}ms new={t_new*1e3:.2f}ms"
+    assert t_new < t_old, f"expected fused faster: old={t_old * 1e3:.2f}ms new={t_new * 1e3:.2f}ms"

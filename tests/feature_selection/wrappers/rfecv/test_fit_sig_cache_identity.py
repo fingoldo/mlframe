@@ -1,6 +1,7 @@
 """Regression: the cached _fit_accepts_sample_weight must return the same verdict as the
 pre-cache per-call inspect.signature(est.fit) introspection, for sw-accepting, sw-rejecting,
 and **kwargs estimators."""
+
 import inspect
 
 import pytest

@@ -53,7 +53,7 @@ def _make_leaky_dataset(n_pairs: int = 40, n_cols: int = 20, seed: int = 0):
 
     all_rows = leak_rows + filler_rows
     n_leak_rows = len(leak_rows)
-    original_order = np.arange(len(all_rows))
+    np.arange(len(all_rows))
     perm = rng.permutation(len(all_rows))
 
     shuffled_rows = [all_rows[i] for i in perm]

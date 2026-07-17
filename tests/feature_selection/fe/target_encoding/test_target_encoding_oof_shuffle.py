@@ -9,10 +9,10 @@ target leak). The fix shuffles fold membership (seeded -> reproducible), mirrori
 encoders. These tests pin: (1) under cell-clustered input the OOF te is NOT the per-row in-fold cell mean
 (no leak), and (2) the shuffle is deterministic given the seed.
 """
+
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 def _call(classes_y, classes_merged, n_uniq, n_oof_folds, seed):
@@ -60,9 +60,9 @@ def test_singleton_cell_oof_falls_back_to_global_not_self():
     n = 200
     rng = np.random.default_rng(1)
     cell = (rng.random(n) * 3).astype(np.int64)  # cells 0..2
-    cell[123] = 7                                  # the lone singleton
+    cell[123] = 7  # the lone singleton
     y = (rng.random(n) < 0.5).astype(np.int64)
-    y[123] = 1                                      # singleton has a definite label
+    y[123] = 1  # singleton has a definite label
     te, _ = _call(y, cell, n_uniq=8, n_oof_folds=5, seed=0)
     # the singleton's OOF value must equal the global mean (its only row is always held out), NOT 1.0
     assert te[123] != 1.0, "singleton cell leaked its own target into its OOF encoding"

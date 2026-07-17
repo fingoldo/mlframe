@@ -16,6 +16,7 @@ statistical contracts the higher-level MRMR fit relies on:
 All synthetics are n<=5000, fixed seeds, numba pre-warmed in a module fixture so a cold compile
 does not blow a budget assertion.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -60,8 +61,7 @@ def _prewarm_numba():
     cx, fx, _ = merge_vars(fd, np.array([0]), None, fnb)
     cy, fy, _ = merge_vars(fd, np.array([1]), None, fnb)
     _ = compute_mi_from_classes(cx, fx, cy, fy)
-    _ = conditional_mi(fd, np.array([0]), np.array([1]), np.array([1]),
-                       np.zeros(2, dtype=np.int32), fnb)
+    _ = conditional_mi(fd, np.array([0]), np.array([1]), np.array([1]), np.zeros(2, dtype=np.int32), fnb)
     _ = entropy(fx)
     _ = entropy_miller_madow(fx, n)
     yield
@@ -77,6 +77,7 @@ def _two_col(a, b, nb_a, nb_b):
 # 1. Miller-Madow bias correction actually REDUCES plug-in MI bias on independent variables.
 # ----------------------------------------------------------------------------------------------------
 
+
 def test_miller_madow_reduces_plugin_mi_bias_on_independent_highcard():
     """On a high-cardinality independent pair (true MI = 0), plug-in MI is positively biased; the
     Miller-Madow estimate is at least 3x closer to zero. Measured: plugin~0.0257, mm~0.0020 (~13x)."""
@@ -90,9 +91,7 @@ def test_miller_madow_reduces_plugin_mi_bias_on_independent_highcard():
     assert mi_plug > 0.01, f"plug-in MI should be visibly biased upward, got {mi_plug}"
     # MM is bias-corrected: well below plug-in, and much closer to the true 0.
     assert mi_mm < mi_plug, f"MM ({mi_mm}) must be below plug-in ({mi_plug})"
-    assert abs(mi_mm) <= abs(mi_plug) / 3.0, (
-        f"MM should cut independent-pair bias >=3x: plugin={mi_plug:.5f} mm={mi_mm:.5f}"
-    )
+    assert abs(mi_mm) <= abs(mi_plug) / 3.0, f"MM should cut independent-pair bias >=3x: plugin={mi_plug:.5f} mm={mi_mm:.5f}"
 
 
 def test_miller_madow_entropy_is_above_plugin_and_bounded():
@@ -100,8 +99,7 @@ def test_miller_madow_entropy_is_above_plugin_and_bounded():
     rng = np.random.default_rng(1)
     n = 500
     x = rng.integers(0, 8, n).astype(np.int32)
-    _, freqs, _ = merge_vars(np.column_stack([x, x]).astype(np.int32),
-                             np.array([0]), None, np.array([8, 8], dtype=np.int64))
+    _, freqs, _ = merge_vars(np.column_stack([x, x]).astype(np.int32), np.array([0]), None, np.array([8, 8], dtype=np.int64))
     h_plug = entropy(freqs)
     h_mm = entropy_miller_madow(freqs, n)
     assert h_mm > h_plug, "MM entropy adds a positive correction for k>1"
@@ -127,6 +125,7 @@ def test_miller_madow_converges_to_plugin_as_n_grows():
 # ----------------------------------------------------------------------------------------------------
 # 2. Symmetric Uncertainty normalization bounds in [0, 1].
 # ----------------------------------------------------------------------------------------------------
+
 
 def test_su_is_one_on_identical_columns():
     """SU(X, X) == 1 exactly (perfect mutual dependence)."""
@@ -177,6 +176,7 @@ def test_su_normalizes_away_cardinality_inflation():
 # 3. Analytic G-test null vs permutation null AGREEMENT on a dense large-n table.
 # ----------------------------------------------------------------------------------------------------
 
+
 def _mi_and_classes(x, y, nbx, nby):
     fd, fnb = _two_col(x, y, nbx, nby)
     cx, fx, _ = merge_vars(fd, np.array([0]), None, fnb)
@@ -222,7 +222,7 @@ def test_analytic_null_p_agrees_with_permutation_decision_on_dense_table():
     _, p_analytic = analytic_mi_null(omi, n, len(fx), len(fy))
     cyp = cy.copy()
     nfail = 0
-    for s in range(400):
+    for _s in range(400):
         rng.shuffle(cyp)
         if compute_mi_from_classes(cx, fx, cyp, fy) >= omi:
             nfail += 1
@@ -234,7 +234,7 @@ def test_analytic_null_p_agrees_with_permutation_decision_on_dense_table():
     xs = rng.integers(0, nbx, n).astype(np.int32)
     ys = (xs % nby).astype(np.int32)
     ys[: n // 20] = rng.integers(0, nby, n // 20).astype(np.int32)  # 5% noise
-    omi_s, cxs, fxs, cys, fys = _mi_and_classes(xs, ys, nbx, nby)
+    omi_s, _cxs, fxs, _cys, fys = _mi_and_classes(xs, ys, nbx, nby)
     _, p_analytic_s = analytic_mi_null(omi_s, n, len(fxs), len(fys))
     assert p_analytic_s < 0.01, f"strong signal must read significant analytically, p={p_analytic_s}"
 
@@ -260,14 +260,15 @@ def test_analytic_batch_gate_keeps_sparse_rejects_dense_noise():
     rng = np.random.default_rng(21)
     n = 60_000
     y = rng.integers(0, 4, n).astype(np.int64)
-    dense_noise = rng.integers(0, 8, n)         # 8 x 4 cells -> avg 1875, valid chi-square
-    sparse_noise = rng.integers(0, 5000, n)     # 5000 x 4 cells -> avg 3, invalid chi-square
+    dense_noise = rng.integers(0, 8, n)  # 8 x 4 cells -> avg 1875, valid chi-square
+    sparse_noise = rng.integers(0, 5000, n)  # 5000 x 4 cells -> avg 3, invalid chi-square
     disc = np.column_stack([dense_noise, sparse_noise]).astype(np.int32)
 
     # observed MI per column (raw nats) from the same kernels.
     def _omi(col, nbx):
         omi, *_ = _mi_and_classes(col.astype(np.int32), y.astype(np.int32), nbx, 4)
         return omi
+
     obs = np.array([_omi(dense_noise, 8), _omi(sparse_noise, 5000)], dtype=np.float64)
 
     gated = analytic_batch_noise_gate(disc, obs, y, n, min_nonzero_confidence=0.99)
@@ -278,6 +279,7 @@ def test_analytic_batch_gate_keeps_sparse_rejects_dense_noise():
 # ----------------------------------------------------------------------------------------------------
 # 4. Conditional-MI redundancy: drops a redundant copy, keeps a private (XOR) interaction.
 # ----------------------------------------------------------------------------------------------------
+
 
 def test_conditional_mi_drops_redundant_keeps_private_interaction():
     """I(X; Y | Z): collapses to ~0 when X is a redundant copy of Z (Z already explains Y), but stays
@@ -308,6 +310,7 @@ def test_conditional_mi_drops_redundant_keeps_private_interaction():
 # ----------------------------------------------------------------------------------------------------
 # 5. Synergy / PID on XOR.
 # ----------------------------------------------------------------------------------------------------
+
 
 def test_pid_decomposition_pure_synergy_on_xor():
     """PID of (X1, X2, Y=X1 xor X2): synergistic ~= ln(2), all of unique/redundant ~= 0."""
@@ -367,6 +370,7 @@ def test_detect_synergy_fires_on_xor_not_on_linear():
 # ----------------------------------------------------------------------------------------------------
 # 6. DCD cluster pruning on a collinear group.
 # ----------------------------------------------------------------------------------------------------
+
 
 def _dcd_state(fd, fnb, tau=0.7):
     st = DCDState(factors_data=fd, factors_nbins=fnb, tau_cluster=tau)

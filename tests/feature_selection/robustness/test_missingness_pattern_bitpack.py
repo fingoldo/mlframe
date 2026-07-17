@@ -17,7 +17,7 @@ from mlframe.feature_selection.filters import _missingness_fe as mf
 
 
 def _numpy_reference_signature(arr: np.ndarray) -> np.ndarray:
-    n, k = arr.shape
+    _n, k = arr.shape
     weights = 1 << np.arange(k, dtype=np.int64)
     return (arr.astype(np.int64) * weights[None, :]).sum(axis=1)
 

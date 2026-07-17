@@ -37,10 +37,8 @@ silently degrade Polars dtypes to numpy.
 """
 
 import logging
-import shutil
 
 import numpy as np
-import pandas as pd
 import polars as pl
 import pytest
 
@@ -77,9 +75,7 @@ def _basic_polars_frame(n: int = 800, seed: int = 0) -> pl.DataFrame:
             "budget_type": pl.Series([BUDGET_CATS[i % 3] for i in range(n)]).cast(pl.Enum(BUDGET_CATS)),
             "contractor_tier": pl.Series([TIER_CATS[i % 3] for i in range(n)]).cast(pl.Enum(TIER_CATS)),
             "workload": pl.Series([WORKLOAD_CATS[i % 3] for i in range(n)]).cast(pl.Enum(WORKLOAD_CATS)),
-            "country": pl.Series([COUNTRY_CATS[i % len(COUNTRY_CATS)] for i in range(n)]).cast(
-                pl.Enum(COUNTRY_CATS)
-            ),
+            "country": pl.Series([COUNTRY_CATS[i % len(COUNTRY_CATS)] for i in range(n)]).cast(pl.Enum(COUNTRY_CATS)),
             "target": rng.integers(0, 2, n),
         }
     )
@@ -113,9 +109,7 @@ def _polars_frame_with_high_card_text(n: int = 800, seed: int = 2) -> pl.DataFra
             "num1": rng.standard_normal(n).astype(np.float32),
             "num2": rng.standard_normal(n).astype(np.float32),
             "budget_type": pl.Series([BUDGET_CATS[i % 3] for i in range(n)]).cast(pl.Enum(BUDGET_CATS)),
-            "skills_text": pl.Series([skills_pool[rng.integers(0, len(skills_pool))] for _ in range(n)]).cast(
-                pl.Categorical
-            ),
+            "skills_text": pl.Series([skills_pool[rng.integers(0, len(skills_pool))] for _ in range(n)]).cast(pl.Categorical),
             "target": rng.integers(0, 2, n),
         }
     )
@@ -151,6 +145,7 @@ def _config_for_model(model_name: str, iterations: int = 5) -> dict:
         # path mid-fit when a sibling worker is still writing).
         import os
         import tempfile
+
         _cb_train_dir = tempfile.mkdtemp(
             prefix=f"catboost_info_{os.getpid()}_",
         )
@@ -210,9 +205,7 @@ def test_single_model_basic_polars_enum(model_name, tmp_path):
     without ValueError 'could not convert string to float'."""
     pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm", "hgb": "sklearn"}[model_name])
     df = _basic_polars_frame(n=600)
-    models, _ = _run_suite(
-        df, mlframe_models=[model_name], tmp_path=tmp_path, run_label=f"basic_{model_name}"
-    )
+    models, _ = _run_suite(df, mlframe_models=[model_name], tmp_path=tmp_path, run_label=f"basic_{model_name}")
     assert models, f"empty models for {model_name}"
 
 
@@ -222,9 +215,7 @@ def test_single_model_polars_with_nulls_in_cats(model_name, tmp_path):
     pre-fit step in mlframe must keep cat columns trainable for each model."""
     pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm"}[model_name])
     df = _polars_frame_with_nulls(n=600)
-    models, _ = _run_suite(
-        df, mlframe_models=[model_name], tmp_path=tmp_path, run_label=f"nulls_{model_name}"
-    )
+    models, _ = _run_suite(df, mlframe_models=[model_name], tmp_path=tmp_path, run_label=f"nulls_{model_name}")
     assert models
 
 
@@ -236,9 +227,7 @@ def test_single_model_polars_with_high_card_text_default(model_name, tmp_path):
     (unrelated upstream CB sparsity issue), so CB is excluded from this test."""
     pytest.importorskip({"xgb": "xgboost", "lgb": "lightgbm"}[model_name])
     df = _polars_frame_with_high_card_text(n=700)
-    models, _ = _run_suite(
-        df, mlframe_models=[model_name], tmp_path=tmp_path, run_label=f"highcard_{model_name}"
-    )
+    models, _ = _run_suite(df, mlframe_models=[model_name], tmp_path=tmp_path, run_label=f"highcard_{model_name}")
     assert models
 
 
@@ -267,9 +256,7 @@ def test_multi_model_suite_polars_enum(model_combo, tmp_path):
         pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm"}[m])
 
     df = _basic_polars_frame(n=600)
-    models, _ = _run_suite(
-        df, mlframe_models=model_combo, tmp_path=tmp_path, run_label="multi_" + "_".join(model_combo)
-    )
+    models, _ = _run_suite(df, mlframe_models=model_combo, tmp_path=tmp_path, run_label="multi_" + "_".join(model_combo))
     assert models
 
 
@@ -286,14 +273,10 @@ def test_multi_target_classification_then_regression(model_name, tmp_path):
     pytest.importorskip({"cb": "catboost", "lgb": "lightgbm"}[model_name])
     df_clf = _basic_polars_frame(n=500)
     rng = np.random.default_rng(42)
-    df_reg = df_clf.with_columns(pl.Series("target_reg", rng.standard_normal(500).astype(np.float32))).drop(
-        "target"
-    )
+    df_reg = df_clf.with_columns(pl.Series("target_reg", rng.standard_normal(500).astype(np.float32))).drop("target")
 
     # Classification first
-    models_clf, _ = _run_suite(
-        df_clf, mlframe_models=[model_name], tmp_path=tmp_path, run_label=f"multitarget_clf_{model_name}"
-    )
+    models_clf, _ = _run_suite(df_clf, mlframe_models=[model_name], tmp_path=tmp_path, run_label=f"multitarget_clf_{model_name}")
     assert models_clf
 
     # Regression on same features
@@ -356,9 +339,7 @@ def test_polars_to_pandas_dtype_preservation(dtype_setup):
 
     out = get_pandas_view_of_polars_df(df)
     for col, exp_dtype in expected.items():
-        assert str(out[col].dtype) == exp_dtype, (
-            f"{dtype_setup}: {col} expected {exp_dtype}, got {out[col].dtype}"
-        )
+        assert str(out[col].dtype) == exp_dtype, f"{dtype_setup}: {col} expected {exp_dtype}, got {out[col].dtype}"
 
 
 # ===========================================================================
@@ -456,9 +437,7 @@ def test_polars_full_combo_with_linear(tmp_path):
     gets skip_preprocessing=False, and its CatBoostEncoder+scaler+imputer
     pipeline actually runs. LogReg receives numeric features instead of raw
     pd.Categorical — no more 'HOURLY' crash."""
-    _run_combo(
-        ["cb", "xgb", "lgb", "linear"], needs_encoder=True, tmp_path=tmp_path, label="tree_plus_linear"
-    )
+    _run_combo(["cb", "xgb", "lgb", "linear"], needs_encoder=True, tmp_path=tmp_path, label="tree_plus_linear")
 
 
 @pytest.mark.parametrize("model_name", fast_subset(["cb", "xgb", "lgb"], representative="lgb"))
@@ -474,7 +453,7 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
 
     # Pass weight schemas via the extractor to activate the weight-schema loop.
     n = 500
-    rng = np.random.default_rng(7)
+    np.random.default_rng(7)
     w_uniform = np.ones(n, dtype=np.float32)
     w_recency = np.linspace(0.1, 1.0, n, dtype=np.float32)
     weight_schemas = {"uniform": w_uniform, "recency": w_recency}
@@ -484,7 +463,7 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
             base = super().build_targets(df_)
             # Attach weights if the base extractor output supports it
             try:
-                base = base + ({"weight_schemas": weight_schemas},) if isinstance(base, tuple) else base
+                base = (*base, {"weight_schemas": weight_schemas}) if isinstance(base, tuple) else base
             except Exception:
                 pass
             return base
@@ -493,9 +472,7 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
         df=df,
         target_name=f"mw_{model_name}",
         model_name=f"mw_{model_name}",
-        features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False
-        ),
+        features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False),
         mlframe_models=[model_name],
         hyperparams_config=_config_for_model(model_name),
         preprocessing_config=PreprocessingConfig(drop_columns=[]),
@@ -559,9 +536,7 @@ def test_polars_multi_target_same_type(model_name, tmp_path):
     pl_df = _basic_polars_frame(n=n, seed=11)
     # Add a second binary target derived from features so it's actually learnable.
     rng = np.random.default_rng(11)
-    pl_df = pl_df.with_columns(
-        pl.Series("target2", ((pl_df["num1"].to_numpy() + rng.normal(0, 0.3, n)) > 0).astype(int))
-    )
+    pl_df = pl_df.with_columns(pl.Series("target2", ((pl_df["num1"].to_numpy() + rng.normal(0, 0.3, n)) > 0).astype(int)))
 
     fte = _MultiTargetExtractor(
         [
@@ -587,9 +562,7 @@ def test_polars_multi_target_same_type(model_name, tmp_path):
     # Must have trained under BINARY_CLASSIFICATION for both target names.
     assert TargetTypes.BINARY_CLASSIFICATION in trained
     clf_targets = trained[TargetTypes.BINARY_CLASSIFICATION]
-    assert "target" in clf_targets and "target2" in clf_targets, (
-        f"Expected both targets trained; got keys={list(clf_targets.keys())}"
-    )
+    assert "target" in clf_targets and "target2" in clf_targets, f"Expected both targets trained; got keys={list(clf_targets.keys())}"
 
 
 @pytest.mark.parametrize("model_name", fast_subset(["cb", "xgb", "lgb"], representative="lgb"))
@@ -671,7 +644,7 @@ def test_polars_enum_with_mrmr_feature_selection(model_name, tmp_path):
                 "min_nonzero_confidence": 0.9,
                 "max_consec_unconfirmed": 3,
                 "full_npermutations": 3,
-            }
+            },
         ),
     )
     assert trained
@@ -734,7 +707,7 @@ def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
                 "min_nonzero_confidence": 0.9,
                 "max_consec_unconfirmed": 3,
                 "full_npermutations": 3,
-            }
+            },
         ),
     )
     assert trained
@@ -757,8 +730,5 @@ def test_diagnostic_pre_fit_log_emitted_for_lgb(tmp_path, caplog):
     with caplog.at_level(logging.INFO, logger="mlframe.training"):
         _run_suite(df, mlframe_models=["lgb"], tmp_path=tmp_path, run_label="diag_lgb")
     pre_fit_lines = [r.message for r in caplog.records if "[pre-fit]" in r.message]
-    assert pre_fit_lines, (
-        f"No [pre-fit] diagnostic log line found — missed regression. "
-        f"Existing log lines: {[r.message for r in caplog.records[-10:]]}"
-    )
+    assert pre_fit_lines, f"No [pre-fit] diagnostic log line found — missed regression. Existing log lines: {[r.message for r in caplog.records[-10:]]}"
     assert any("train_df type=" in m for m in pre_fit_lines)

@@ -18,6 +18,7 @@ replayed instance's ``support_`` is a writeable copy, identical in behaviour to 
 The fit uses ``fe_max_pair_features=0`` to skip the numeric pair-search engine (irrelevant to the cache-isolation
 contract and slow), keeping the test fast; ``fe_provenance_`` is populated on every successful fit regardless.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -96,9 +97,7 @@ def test_d1_replayed_dataframe_mutation_does_not_corrupt_future_replays(_isolate
     assert "__phantom_audit__" not in third.fe_provenance_.columns, (
         "phantom column leaked into a freshly-replayed instance -- the cache source DataFrame was corrupted"
     )
-    assert "__phantom_audit__" not in src.fe_provenance_.columns, (
-        "phantom column leaked back into the cached source DataFrame"
-    )
+    assert "__phantom_audit__" not in src.fe_provenance_.columns, "phantom column leaked back into the cached source DataFrame"
 
 
 def test_d1_cat_fe_state_dataclass_not_shared_when_present(_isolated_cache):
@@ -111,9 +110,7 @@ def test_d1_cat_fe_state_dataclass_not_shared_when_present(_isolated_cache):
     replayed_state = getattr(replayed, "_cat_fe_state_", None)
     if src_state is None:
         pytest.skip("no _cat_fe_state_ produced by this fit; nothing to isolate")
-    assert replayed_state is not src_state, (
-        "_cat_fe_state_ dataclass is shared by reference with the cached source"
-    )
+    assert replayed_state is not src_state, "_cat_fe_state_ dataclass is shared by reference with the cached source"
 
 
 def test_d7_replayed_support_is_writeable_like_cold_fit(_isolated_cache):
@@ -124,9 +121,7 @@ def test_d7_replayed_support_is_writeable_like_cold_fit(_isolated_cache):
     """
     X, y = _make_xy()
     src, replayed = _fit_src_then_replay(X, y)
-    assert replayed.support_.flags.writeable, (
-        "replayed support_ is read-only -- behaves differently from a cold-fit instance's writeable support_"
-    )
+    assert replayed.support_.flags.writeable, "replayed support_ is read-only -- behaves differently from a cold-fit instance's writeable support_"
     # The write must succeed (it raised ValueError pre-fix) and must not reach back into the cached source.
     src_first = int(src.support_[0]) if src.support_.size else None
     if replayed.support_.size:
@@ -142,7 +137,7 @@ def test_d7_cold_and_replayed_support_behave_identically(_isolated_cache):
     cold = _cold_fit(X, y)
     cold_writeable = cold.support_.flags.writeable
     MRMR.clear_fit_cache()
-    src, replayed = _fit_src_then_replay(X, y)
+    _src, replayed = _fit_src_then_replay(X, y)
     assert replayed.support_.flags.writeable is True and cold_writeable is True, (
         "cold-fit and cache-replayed support_ have different writeable flags -- cache-state-dependent behaviour"
     )

@@ -6,6 +6,7 @@ ranked above an overfit competitor that tiny-CV RMSE alone cannot separate. Thes
 map is populated only when the flag is on -- and (b) the discrimination -- a genuinely-generalising transform earns a
 higher WAIC than a deliberately-overfit one on the same screen sample.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -78,6 +79,5 @@ def test_waic_prefers_generalising_over_overfit_transform():
     w_noise = compute_transform_waic(noise, x, n_folds=4, random_state=0)
     assert w_signal.valid and w_noise.valid
     assert w_signal.waic > w_noise.waic, (
-        f"generalising signal target should out-WAIC the memorise-only noise target; "
-        f"signal={w_signal.waic:.3f} noise={w_noise.waic:.3f}"
+        f"generalising signal target should out-WAIC the memorise-only noise target; signal={w_signal.waic:.3f} noise={w_noise.waic:.3f}"
     )

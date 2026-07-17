@@ -13,6 +13,7 @@ test pins the public output against an independent OLD per-row reference that re
 identical neighbor deviations (deterministic RobustScaler + NearestNeighbors) and runs the
 original loop -- so a future revert that breaks the numerics is caught.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,14 +39,14 @@ def _old_reference(X_train: np.ndarray, X_query: np.ndarray, k_neighbors: int) -
     _, idx = nn.kneighbors(Xq_s)
     neighbor_X = Xt_s[idx]
     deviations = neighbor_X - Xq_s[:, None, :]
-    n_q, _, d = deviations.shape
+    n_q, _, _d = deviations.shape
     out = np.zeros((n_q, N_FEATURES), dtype=np.float32)
     for q in range(n_q):
         cov = (deviations[q].T @ deviations[q]) / float(k_eff)
         lambdas = np.linalg.eigvalsh(cov)
         lambdas = np.clip(lambdas, 0.0, None) + 1e-9
         sum_l = float(lambdas.sum())
-        sum_l_sq = float((lambdas ** 2).sum())
+        sum_l_sq = float((lambdas**2).sum())
         out[q, 0] = (sum_l * sum_l) / sum_l_sq
         top1 = float(lambdas[-1])
         top2 = float(lambdas[-2]) if len(lambdas) >= 2 else 1e-9
@@ -66,7 +67,12 @@ def test_batched_spectrum_matches_per_row_loop(n_train, n_query, d):
     y_train = rng.standard_normal(n_train).astype(np.float32)
 
     df = compute_local_intrinsic_dim_features(
-        X_train, y_train, X_query, seed=42, k_neighbors=30, standardize=True,
+        X_train,
+        y_train,
+        X_query,
+        seed=42,
+        k_neighbors=30,
+        standardize=True,
     )
     new = df.to_numpy().astype(np.float32)
     old = _old_reference(X_train, X_query, k_neighbors=30)

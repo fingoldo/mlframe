@@ -24,6 +24,7 @@ Fix at engineered_recipes.py:135 (``__post_init__``):
 - ``__getstate__`` / ``__setstate__`` for pickle round-trip
   (MappingProxyType isn't pickle-friendly directly).
 """
+
 from __future__ import annotations
 
 import copy
@@ -38,8 +39,11 @@ def test_extra_dict_assignment_raises():
     via MappingProxyType.
     """
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     r = EngineeredRecipe(
-        name="x", kind="factorize", src_names=("a",),
+        name="x",
+        kind="factorize",
+        src_names=("a",),
         extra={"lookup": np.array([0.1, 0.5, 0.9])},
     )
     with pytest.raises(TypeError):
@@ -51,8 +55,11 @@ def test_extra_ndarray_inplace_mutation_raises():
     because the ndarray is frozen.
     """
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     r = EngineeredRecipe(
-        name="x", kind="factorize", src_names=("a",),
+        name="x",
+        kind="factorize",
+        src_names=("a",),
         extra={"lookup": np.array([0.1, 0.5, 0.9])},
     )
     with pytest.raises(ValueError, match="read-only"):
@@ -64,9 +71,12 @@ def test_caller_mutating_source_dict_does_not_affect_recipe():
     pops on the source don't propagate.
     """
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     extra_payload = {"lookup": np.array([0.1, 0.5, 0.9])}
     r = EngineeredRecipe(
-        name="x", kind="factorize", src_names=("a",),
+        name="x",
+        kind="factorize",
+        src_names=("a",),
         extra=extra_payload,
     )
     extra_payload.pop("lookup")
@@ -78,8 +88,11 @@ def test_pickle_round_trip_preserves_frozen_state():
     frozen - tests __getstate__/__setstate__ wiring.
     """
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     r = EngineeredRecipe(
-        name="x", kind="factorize", src_names=("a",),
+        name="x",
+        kind="factorize",
+        src_names=("a",),
         extra={"lookup": np.array([0.1, 0.5, 0.9])},
     )
     r2 = pickle.loads(pickle.dumps(r))
@@ -95,8 +108,11 @@ def test_pickle_round_trip_preserves_frozen_state():
 def test_deepcopy_round_trip_preserves_frozen_state():
     """Deepcopy must also re-freeze."""
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     r = EngineeredRecipe(
-        name="x", kind="factorize", src_names=("a",),
+        name="x",
+        kind="factorize",
+        src_names=("a",),
         extra={"lookup": np.array([0.1, 0.5, 0.9])},
     )
     r2 = copy.deepcopy(r)
@@ -110,8 +126,11 @@ def test_clean_construction_still_works():
     must work end-to-end.
     """
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
     r = EngineeredRecipe(
-        name="x", kind="factorize", src_names=("a", "b"),
+        name="x",
+        kind="factorize",
+        src_names=("a", "b"),
         factorize_nbins=(3, 4),
         extra={"chain_lookups": [np.array([0, 1, 2]), np.array([0, 1])]},
     )

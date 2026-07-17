@@ -9,24 +9,20 @@ Each test asserts the concrete supported behaviour (real fit + n_features_
 survivor count, or a specific ``pytest.raises`` for deliberately-rejected
 inputs) so a genuine regression fails loudly.
 """
+
 from __future__ import annotations
 
-import io
 import logging
-import sys
-import warnings
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from sklearn.base import is_classifier, is_regressor
-from sklearn.datasets import make_classification, make_regression, load_iris
+from sklearn.datasets import make_classification, make_regression
 from sklearn.exceptions import NotFittedError
-from sklearn.linear_model import LogisticRegression, Ridge, Lasso
+from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import GroupKFold, StratifiedKFold, KFold, cross_val_score
-from sklearn.multiclass import OneVsRestClassifier
+from sklearn.model_selection import GroupKFold, StratifiedKFold
 from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
@@ -45,10 +41,14 @@ class TestInputTypes:
     def test_sparse_X_csr(self):
         """sklearn test_rfecv: parametrised on CSR/CSC sparse containers."""
         from scipy.sparse import csr_matrix
+
         X, y = make_classification(n_samples=120, n_features=10, n_informative=4, random_state=0)
         X_sp = csr_matrix(X)
         rfecv = RFECV(
-            estimator=LogisticRegression(max_iter=200), cv=3, max_refits=3, random_state=0,
+            estimator=LogisticRegression(max_iter=200),
+            cv=3,
+            max_refits=3,
+            random_state=0,
         )
         # mlframe RFECV now accepts scipy.sparse (CSR) as 1st-class input.
         rfecv.fit(X_sp, y)
@@ -56,6 +56,7 @@ class TestInputTypes:
 
     def test_sparse_X_csc(self):
         from scipy.sparse import csc_matrix
+
         X, y = make_classification(n_samples=120, n_features=10, n_informative=4, random_state=0)
         X_sp = csc_matrix(X)
         rfecv = RFECV(estimator=LogisticRegression(max_iter=200), cv=3, max_refits=3, random_state=0)
@@ -67,8 +68,10 @@ class TestInputTypes:
         clear NotImplementedError rather than silently doubling host memory (project RAM rule). An empty (0-nnz) huge-
         shape matrix exercises the guard without allocating anything."""
         from scipy.sparse import csr_matrix
+
         X_huge = csr_matrix((20000, 20000))  # dense = 20000*20000*8 = 3.2 GB > 2 GB, but 0 nnz so nothing allocated
-        y = np.zeros(20000, dtype=int); y[:50] = 1
+        y = np.zeros(20000, dtype=int)
+        y[:50] = 1
         rfecv = RFECV(estimator=LogisticRegression(max_iter=50), cv=3, max_refits=2, random_state=0)
         with pytest.raises(NotImplementedError, match="2 GB"):
             rfecv.fit(X_huge, y)
@@ -87,6 +90,7 @@ class TestInputTypes:
         / coef_. HistGradientBoosting has neither, so route via permutation importance.
         """
         from sklearn.ensemble import HistGradientBoostingClassifier
+
         rng = np.random.default_rng(0)
         X = rng.normal(size=(150, 6))
         X[5, 0] = np.nan
@@ -95,7 +99,9 @@ class TestInputTypes:
         y[5] = 0
         rfecv = RFECV(
             estimator=HistGradientBoostingClassifier(max_iter=10),
-            cv=3, max_refits=2, random_state=0,
+            cv=3,
+            max_refits=2,
+            random_state=0,
             importance_getter="permutation",
         )
         rfecv.fit(X, y)
@@ -141,7 +147,9 @@ class TestCVEdge:
         groups = np.repeat(np.arange(6), 20)
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200),
-            cv=GroupKFold(n_splits=3), max_refits=2, random_state=0,
+            cv=GroupKFold(n_splits=3),
+            max_refits=2,
+            random_state=0,
         )
         rfecv.fit(X, y, groups=groups)
         assert rfecv.n_features_ >= 1
@@ -153,7 +161,10 @@ class TestCVEdge:
         """
         X, y = make_classification(n_samples=200, n_features=8, n_informative=4, random_state=0)
         common = dict(
-            estimator=LogisticRegression(max_iter=200), cv=3, max_refits=4, random_state=0,
+            estimator=LogisticRegression(max_iter=200),
+            cv=3,
+            max_refits=4,
+            random_state=0,
         )
         r1 = RFECV(**common, n_jobs=1)
         r1.fit(X, y)
@@ -164,6 +175,7 @@ class TestCVEdge:
 
     def test_joblib_threading_backend_smoke(self):
         from joblib import parallel_backend
+
         X, y = make_classification(n_samples=150, n_features=6, n_informative=3, random_state=0)
         with parallel_backend("threading"):
             rfecv = RFECV(estimator=LogisticRegression(max_iter=200), cv=3, max_refits=3, n_jobs=2, random_state=0)
@@ -194,13 +206,15 @@ class TestEstimatorEdge:
     def test_transformed_target_regressor(self):
         """sklearn test_rfe_wrapped_estimator (gh-15312)."""
         from sklearn.compose import TransformedTargetRegressor
+
         X, y = make_regression(n_samples=150, n_features=8, n_informative=4, random_state=0)
         y_pos = np.abs(y) + 1.0
         est = TransformedTargetRegressor(
-            regressor=Ridge(), func=np.log, inverse_func=np.exp,
+            regressor=Ridge(),
+            func=np.log,
+            inverse_func=np.exp,
         )
-        rfecv = RFECV(estimator=est, cv=3, max_refits=2, random_state=0,
-                      importance_getter="regressor_.coef_")
+        rfecv = RFECV(estimator=est, cv=3, max_refits=2, random_state=0, importance_getter="regressor_.coef_")
         rfecv.fit(X, y_pos)
         assert rfecv.n_features_ >= 1
 
@@ -208,8 +222,7 @@ class TestEstimatorEdge:
         """sklearn test_w_pipeline_2d_coef_: ``importance_getter='named_steps.lr.coef_''."""
         X, y = make_classification(n_samples=150, n_features=8, n_informative=4, random_state=0)
         pipe = Pipeline([("scaler", StandardScaler()), ("lr", LogisticRegression(max_iter=200))])
-        rfecv = RFECV(estimator=pipe, cv=3, max_refits=2, random_state=0,
-                      importance_getter="named_steps.lr.coef_")
+        rfecv = RFECV(estimator=pipe, cv=3, max_refits=2, random_state=0, importance_getter="named_steps.lr.coef_")
         rfecv.fit(X, y)
         assert rfecv.n_features_ >= 1
 
@@ -217,8 +230,11 @@ class TestEstimatorEdge:
         """sklearn test_rfe_n_features_to_select_warning: setting max > n_features must not blow up."""
         X, y = make_classification(n_samples=100, n_features=8, n_informative=4, random_state=0)
         rfecv = RFECV(
-            estimator=LogisticRegression(max_iter=200), cv=3, max_refits=2,
-            max_nfeatures=50, random_state=0,
+            estimator=LogisticRegression(max_iter=200),
+            cv=3,
+            max_refits=2,
+            max_nfeatures=50,
+            random_state=0,
         )
         rfecv.fit(X, y)
         # Should silently clamp to n_features_in_ (=8).
@@ -228,8 +244,11 @@ class TestEstimatorEdge:
         """sklearn test_rfe_importance_getter_validation: bogus getter raises clear error."""
         X, y = make_classification(n_samples=100, n_features=6, n_informative=3, random_state=0)
         rfecv = RFECV(
-            estimator=LogisticRegression(max_iter=200), cv=3, max_refits=2,
-            importance_getter="totally_not_a_real_attribute", random_state=0,
+            estimator=LogisticRegression(max_iter=200),
+            cv=3,
+            max_refits=2,
+            importance_getter="totally_not_a_real_attribute",
+            random_state=0,
         )
         with pytest.raises((AttributeError, ValueError)):
             rfecv.fit(X, y)
@@ -251,13 +270,19 @@ class TestTransformerContract:
         With explicit 'one_se_min' (parsimony) the constant-scorer case must pick the smallest N.
         """
         from sklearn.metrics import make_scorer
+
         def const_scorer(y_true, y_pred):
             return 1.0
+
         scorer = make_scorer(const_scorer, greater_is_better=True)
         X, y = make_classification(n_samples=150, n_features=6, n_informative=3, random_state=0)
         rfecv = RFECV(
-            estimator=LogisticRegression(max_iter=200), cv=3, max_refits=5,
-            random_state=0, scoring=scorer, n_features_selection_rule="one_se_min",
+            estimator=LogisticRegression(max_iter=200),
+            cv=3,
+            max_refits=5,
+            random_state=0,
+            scoring=scorer,
+            n_features_selection_rule="one_se_min",
         )
         rfecv.fit(X, y)
         # With one_se_min on a constant-score curve the parsimony bias kicks in.
@@ -274,8 +299,7 @@ class TestTransformerContract:
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv.fit(X, y)
         # At least one INFO line about the iteration progress / scoring.
-        assert any(rec.levelname in ("INFO", "WARNING") for rec in caplog.records), \
-            "verbose=1 must produce at least one log line"
+        assert any(rec.levelname in ("INFO", "WARNING") for rec in caplog.records), "verbose=1 must produce at least one log line"
 
     def test_set_params_refit_changes_behaviour(self):
         """sklearn test_rfe_cv_n_jobs: set_params + refit must take effect."""
@@ -299,8 +323,7 @@ class TestTransformerContract:
         nfeats = rfecv.cv_results_["nfeatures"]
         means = rfecv.cv_results_["cv_mean_perf"]
         stds = rfecv.cv_results_["cv_std_perf"]
-        assert len(nfeats) == len(means) == len(stds), \
-            f"cv_results_ length mismatch: nfeatures={len(nfeats)} means={len(means)} stds={len(stds)}"
+        assert len(nfeats) == len(means) == len(stds), f"cv_results_ length mismatch: nfeatures={len(nfeats)} means={len(means)} stds={len(stds)}"
 
     def test_cv_results_per_split_keys_present(self):
         """sklearn parity: cv_results_ exposes splitK_test_score per fold."""
@@ -342,8 +365,7 @@ class TestOtherContract:
         X, y = make_classification(n_samples=150, n_features=6, n_informative=3, random_state=0)
         rfecv = RFECV(estimator=LogisticRegression(max_iter=200), cv=3, max_refits=2, random_state=0)
         rfecv.fit(X, y)
-        assert isinstance(rfecv.cv_, StratifiedKFold), \
-            f"Expected StratifiedKFold auto-resolved for classifier; got {type(rfecv.cv_).__name__}"
+        assert isinstance(rfecv.cv_, StratifiedKFold), f"Expected StratifiedKFold auto-resolved for classifier; got {type(rfecv.cv_).__name__}"
 
     def test_sample_weight_doubling_equivalent_to_row_duplication(self):
         """sklearn test_rfe_with_sample_weight: sample_weight=2 == row-duplicated fit.
@@ -362,16 +384,14 @@ class TestOtherContract:
         rfecv2.fit(np.vstack([X, X]), np.concatenate([y, y]))
         # Selected support might differ slightly due to fold-stratification randomness,
         # but n_features_ should be within ±2 on this small problem.
-        assert abs(rfecv1.n_features_ - rfecv2.n_features_) <= 2, \
-            f"weighted vs duplicated: n_features {rfecv1.n_features_} vs {rfecv2.n_features_}"
+        assert abs(rfecv1.n_features_ - rfecv2.n_features_) <= 2, f"weighted vs duplicated: n_features {rfecv1.n_features_} vs {rfecv2.n_features_}"
 
     def test_extra_fit_params_passthrough(self):
         """sklearn test_RFE_fit_score_params: arbitrary fit_param flows to estimator.fit."""
         X, y = make_classification(n_samples=200, n_features=6, n_informative=3, random_state=0)
         sw = np.ones(200)
         sw[:50] = 2.0
-        rfecv = RFECV(estimator=RandomForestClassifier(n_estimators=10, random_state=0),
-                      cv=3, max_refits=2, random_state=0)
+        rfecv = RFECV(estimator=RandomForestClassifier(n_estimators=10, random_state=0), cv=3, max_refits=2, random_state=0)
         rfecv.fit(X, y, sample_weight=sw)
         assert rfecv.n_features_ >= 1
 

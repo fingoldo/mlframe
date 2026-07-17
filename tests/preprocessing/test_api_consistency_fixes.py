@@ -8,7 +8,6 @@ Covers:
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 # --------------------------------------------------------------------------- API-P0-2
@@ -56,8 +55,11 @@ def test_api35_clusterize_accepts_ndarray_true_labels(monkeypatch):
     assert isinstance(true_labels, np.ndarray)
 
     labels = cluster.clusterize(
-        X=X, true_labels=true_labels,
-        show_plot=False, show_metrics=True, list_members=False,
+        X=X,
+        true_labels=true_labels,
+        show_plot=False,
+        show_metrics=True,
+        list_members=False,
     )
     assert labels is not None
     assert len(labels) == 30

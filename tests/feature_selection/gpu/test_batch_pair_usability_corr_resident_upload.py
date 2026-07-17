@@ -9,6 +9,7 @@ call and stay raw uploads.
 Only reachable via ``force_backend="cuda"`` (the un-forced dispatcher default is CPU on this dev host --
 see the module docstring), so these tests call ``batch_pair_usability_corr_cuda`` directly / force cuda.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -78,12 +79,18 @@ def test_batch_pair_usability_corr_cuda_uploads_y_and_operand_once_across_calls(
     assert upload_calls["operand"] == 1, f"operand_matrix-shaped cp.asarray called {upload_calls['operand']} times across 2 calls (expected 1)"
 
     ref1 = batch_pair_usability_corr_njit_parallel(
-        np.ascontiguousarray(y, dtype=np.float64), np.ascontiguousarray(operand_matrix, dtype=np.float64),
-        pair_a, pair_b, ALL_PAIR_FORM_IDS,
+        np.ascontiguousarray(y, dtype=np.float64),
+        np.ascontiguousarray(operand_matrix, dtype=np.float64),
+        pair_a,
+        pair_b,
+        ALL_PAIR_FORM_IDS,
     )
     ref2 = batch_pair_usability_corr_njit_parallel(
-        np.ascontiguousarray(y, dtype=np.float64), np.ascontiguousarray(operand_matrix, dtype=np.float64),
-        pair_a, pair_b, ALL_SINGLE_FORM_IDS,
+        np.ascontiguousarray(y, dtype=np.float64),
+        np.ascontiguousarray(operand_matrix, dtype=np.float64),
+        pair_a,
+        pair_b,
+        ALL_SINGLE_FORM_IDS,
     )
     np.testing.assert_allclose(out1, ref1, atol=1e-9, rtol=1e-9)
     np.testing.assert_allclose(out2, ref2, atol=1e-9, rtol=1e-9)
@@ -99,7 +106,9 @@ def test_batch_pair_usability_corr_cuda_bit_identical_to_prefix_raw_path():
 
     # Reconstruct the exact pre-fix body (raw numba.cuda.to_device for both y and operand_matrix).
     from mlframe.feature_selection.filters.batch_pair_usability_corr_gpu import (
-        _EPS_DENOM_FLOOR, _CV2_DEGENERATE_FLOOR, _cuda_kernel_factory,
+        _EPS_DENOM_FLOOR,
+        _CV2_DEGENERATE_FLOOR,
+        _cuda_kernel_factory,
     )
     import mlframe.feature_selection.filters.batch_pair_usability_corr_gpu as mod
 
@@ -141,11 +150,21 @@ def test_rankaware_style_two_dispatcher_calls_share_one_resident_upload():
 
     n_before = len(_FE_RESIDENT_OPERANDS)
     pair_corrs, backend1 = dispatch_batch_pair_usability_corr(
-        y, operand_matrix, pair_a, pair_b, form_ids=ALL_PAIR_FORM_IDS, force_backend="cuda",
+        y,
+        operand_matrix,
+        pair_a,
+        pair_b,
+        form_ids=ALL_PAIR_FORM_IDS,
+        force_backend="cuda",
     )
     n_after_pair = len(_FE_RESIDENT_OPERANDS)
     single_corrs, backend2 = dispatch_batch_pair_usability_corr(
-        y, operand_matrix, pair_a, pair_b, form_ids=ALL_SINGLE_FORM_IDS, force_backend="cuda",
+        y,
+        operand_matrix,
+        pair_a,
+        pair_b,
+        form_ids=ALL_SINGLE_FORM_IDS,
+        force_backend="cuda",
     )
     n_after_single = len(_FE_RESIDENT_OPERANDS)
 

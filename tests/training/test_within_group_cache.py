@@ -22,6 +22,7 @@ Empirical bench on this machine (n=8 integer gids):
 - 1st call in fresh process with the disk cache present: ~60 ms.
 - Speedup: ~100x on cold-start.
 """
+
 from __future__ import annotations
 
 import numpy as np

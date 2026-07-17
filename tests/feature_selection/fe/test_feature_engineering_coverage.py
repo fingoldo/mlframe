@@ -17,7 +17,6 @@ exercise the per-pair / per-binary inner loop without booting full MRMR.
 
 from __future__ import annotations
 
-import math
 from collections import defaultdict
 
 import numpy as np
@@ -52,7 +51,14 @@ class TestUnaryTransformationsPresets:
         # sqr(a)/b or log(c)*sin(d) on default MRMR settings.
         unary = create_unary_transformations(preset="minimal")
         assert set(unary.keys()) == {
-            "identity", "neg", "abs", "sqr", "reciproc", "sqrt", "log", "sin",
+            "identity",
+            "neg",
+            "abs",
+            "sqr",
+            "reciproc",
+            "sqrt",
+            "log",
+            "sin",
         }
         # identity must round-trip a plain array unchanged
         x = np.linspace(-3, 3, 11, dtype=np.float32)
@@ -65,9 +71,22 @@ class TestUnaryTransformationsPresets:
             assert k in medium
         # A handful of well-known names that must come with the "medium" preset:
         for k in (
-            "sign", "neg", "abs", "rint", "sqr", "qubed", "reciproc",
-            "invsquared", "invqubed", "cbrt", "sqrt", "invcbrt", "invsqrt",
-            "log", "exp", "sin",
+            "sign",
+            "neg",
+            "abs",
+            "rint",
+            "sqr",
+            "qubed",
+            "reciproc",
+            "invsquared",
+            "invqubed",
+            "cbrt",
+            "sqrt",
+            "invcbrt",
+            "invsqrt",
+            "log",
+            "exp",
+            "sin",
         ):
             assert k in medium, f"medium preset missing '{k}'"
 
@@ -80,15 +99,30 @@ class TestUnaryTransformationsPresets:
         # GPU-DISABLED(restore): grad1, grad2, dawsn temporarily removed from the catalog for the full-GPU
         # residency build (2026-06-21) -- re-add them here when the catalog lines are uncommented.
         for k in (
-            "sinc", "cos", "tan",
-            "arcsin", "arccos", "arctan",
-            "sinh", "cosh", "tanh",
-            "arcsinh", "arccosh", "arctanh",
-            "erf", "gammaln",
+            "sinc",
+            "cos",
+            "tan",
+            "arcsin",
+            "arccos",
+            "arctan",
+            "sinh",
+            "cosh",
+            "tanh",
+            "arcsinh",
+            "arccosh",
+            "arctanh",
+            "erf",
+            "gammaln",
             # special families
-            "polygamma_0", "polygamma_1", "polygamma_2",
-            "struve0", "struve1", "struve2",
-            "jv0", "jv1", "jv2",
+            "polygamma_0",
+            "polygamma_1",
+            "polygamma_2",
+            "struve0",
+            "struve1",
+            "struve2",
+            "jv0",
+            "jv1",
+            "jv2",
         ):
             assert k in maximal, f"maximal preset missing '{k}'"
 
@@ -110,10 +144,7 @@ class TestUnaryTransformationsPresets:
                 for j in range(i + 1, len(outs)):
                     diff = np.abs(outs[i] - outs[j])
                     # Some entries may agree; require at least one disagreement.
-                    assert np.nanmax(diff) > 1e-12, (
-                        f"{family}{i} and {family}{j} produced identical "
-                        "output -- captured-loop bug?"
-                    )
+                    assert np.nanmax(diff) > 1e-12, f"{family}{i} and {family}{j} produced identical output -- captured-loop bug?"
 
 
 class TestBinaryTransformationsPresets:
@@ -138,10 +169,17 @@ class TestBinaryTransformationsPresets:
         # GPU-DISABLED(restore): agm, logn, binom temporarily removed for the full-GPU residency build
         # (2026-06-21) -- re-add them here when the catalog lines are uncommented.
         for k in (
-            "mul", "add", "max", "min",
-            "hypot", "logaddexp",
-            "pow", "heaviside",
-            "greater", "less", "equal",
+            "mul",
+            "add",
+            "max",
+            "min",
+            "hypot",
+            "logaddexp",
+            "pow",
+            "heaviside",
+            "greater",
+            "less",
+            "equal",
             "beta",
         ):
             assert k in maximal, f"maximal preset missing '{k}'"
@@ -165,8 +203,12 @@ class TestUnaryInputConstraints:
     @pytest.mark.fast
     def test_all_keys_resolve_to_known_tags(self):
         valid_tags = {
-            "-1to1", "-pi/2topi/2", "1toinf",
-            "-0.(9)to0.(9)", "pos", "nonzero",
+            "-1to1",
+            "-pi/2topi/2",
+            "1toinf",
+            "-0.(9)to0.(9)",
+            "pos",
+            "nonzero",
         }
         for name, tag in UNARY_INPUT_CONSTRAINTS.items():
             assert isinstance(name, str) and name
@@ -175,10 +217,18 @@ class TestUnaryInputConstraints:
     def test_critical_keys_present(self):
         """A representative subset that downstream FE relies on."""
         for k in (
-            "arccos", "arcsin", "arctan",
-            "arccosh", "arctanh",
-            "sqrt", "log",
-            "reciproc", "invsquared", "invqubed", "invcbrt", "invsqrt",
+            "arccos",
+            "arcsin",
+            "arctan",
+            "arccosh",
+            "arctanh",
+            "sqrt",
+            "log",
+            "reciproc",
+            "invsquared",
+            "invqubed",
+            "invcbrt",
+            "invsqrt",
         ):
             assert k in UNARY_INPUT_CONSTRAINTS, f"missing '{k}'"
 
@@ -186,10 +236,7 @@ class TestUnaryInputConstraints:
         """Every constraint key must be a real transform name in the maximal preset."""
         maximal = create_unary_transformations(preset="maximal")
         for k in UNARY_INPUT_CONSTRAINTS:
-            assert k in maximal, (
-                f"UNARY_INPUT_CONSTRAINTS lists '{k}' but the maximal "
-                "preset doesn't expose it"
-            )
+            assert k in maximal, f"UNARY_INPUT_CONSTRAINTS lists '{k}' but the maximal preset doesn't expose it"
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +296,7 @@ class TestNjitFunctionsDictExceptions:
         """Entries listed in ``exceptions`` are kept as plain Python (verifiable
         because their __name__ matches the original lambda after we wrap with
         a uniquely-named function)."""
+
         def keep_me(x):
             return x * 2
 
@@ -290,8 +338,11 @@ class TestComputePairsMis:
         target_indices = np.array([3], dtype=np.int64)
 
         classes_y, freqs_y, _ = merge_vars(
-            factors_data=data, vars_indices=target_indices,
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=target_indices,
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         classes_y_safe = classes_y.copy()
 
@@ -301,14 +352,18 @@ class TestComputePairsMis:
 
         result = compute_pairs_mis(
             all_pairs=all_pairs,
-            data=data, target_indices=target_indices, nbins=nbins,
-            classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y,
+            data=data,
+            target_indices=target_indices,
+            nbins=nbins,
+            classes_y=classes_y,
+            classes_y_safe=classes_y_safe,
+            freqs_y=freqs_y,
             fe_min_nonzero_confidence=0.0,
             fe_npermutations=1,
             cached_confident_MIs=cached_confident_MIs,
             cached_MIs=cached_MIs,
-            fe_min_pair_mi=-1.0,             # accept any sum
-            fe_min_pair_mi_prevalence=0.0,   # accept any synergistic pair
+            fe_min_pair_mi=-1.0,  # accept any sum
+            fe_min_pair_mi_prevalence=0.0,  # accept any synergistic pair
         )
         # Returns the same cached_MIs dict it mutated.
         assert result is cached_MIs
@@ -325,21 +380,28 @@ class TestComputePairsMis:
         target_indices = np.array([3], dtype=np.int64)
 
         classes_y, freqs_y, _ = merge_vars(
-            factors_data=data, vars_indices=target_indices,
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=target_indices,
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         classes_y_safe = classes_y.copy()
 
         cached_MIs: dict = {}
         compute_pairs_mis(
             all_pairs=[(0, 1), (0, 2)],
-            data=data, target_indices=target_indices, nbins=nbins,
-            classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y,
+            data=data,
+            target_indices=target_indices,
+            nbins=nbins,
+            classes_y=classes_y,
+            classes_y_safe=classes_y_safe,
+            freqs_y=freqs_y,
             fe_min_nonzero_confidence=0.0,
             fe_npermutations=1,
             cached_confident_MIs={},
             cached_MIs=cached_MIs,
-            fe_min_pair_mi=1e9,             # impossibly high -> skip pair MI
+            fe_min_pair_mi=1e9,  # impossibly high -> skip pair MI
             fe_min_pair_mi_prevalence=0.0,
         )
         # No pair key should be present (only singletons).
@@ -366,8 +428,11 @@ class TestComputePairsMis:
         target_indices = np.array([3], dtype=np.int64)
 
         classes_y, freqs_y, _ = merge_vars(
-            factors_data=data, vars_indices=target_indices,
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=target_indices,
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         classes_y_safe = classes_y.copy()
 
@@ -391,31 +456,36 @@ class TestComputePairsMis:
             # Pass 1: huge prevalence so EVERY pair MI fails the gate.
             compute_pairs_mis(
                 all_pairs=pairs,
-                data=data, target_indices=target_indices, nbins=nbins,
-                classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y,
+                data=data,
+                target_indices=target_indices,
+                nbins=nbins,
+                classes_y=classes_y,
+                classes_y_safe=classes_y_safe,
+                freqs_y=freqs_y,
                 fe_min_nonzero_confidence=0.0,
                 fe_npermutations=1,
                 cached_confident_MIs=cached_confident_MIs,
                 cached_MIs=cached_MIs,
-                fe_min_pair_mi=-1.0,             # admit every pair to MI compute
-                fe_min_pair_mi_prevalence=1e9,   # reject every pair from prevalence
+                fe_min_pair_mi=-1.0,  # admit every pair to MI compute
+                fe_min_pair_mi_prevalence=1e9,  # reject every pair from prevalence
             )
             pair_calls_pass1 = call_counts["pair"]
             # All 3 pair MIs must have been COMPUTED.
             assert pair_calls_pass1 == 3, f"expected 3 pair-MI computes, got {pair_calls_pass1}"
             # Post-fix: every pair MI is cached even though prevalence rejected.
             for p in pairs:
-                assert p in cached_MIs, (
-                    f"pair {p} MI must be cached after compute regardless of prevalence; "
-                    f"got cached_MIs keys: {sorted(cached_MIs.keys())}"
-                )
+                assert p in cached_MIs, f"pair {p} MI must be cached after compute regardless of prevalence; got cached_MIs keys: {sorted(cached_MIs.keys())}"
 
             # Pass 2: relaxed prevalence on same cache. Pre-fix code would recompute;
             # post-fix code hits cache and does NO new pair-MI calls.
             compute_pairs_mis(
                 all_pairs=pairs,
-                data=data, target_indices=target_indices, nbins=nbins,
-                classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y,
+                data=data,
+                target_indices=target_indices,
+                nbins=nbins,
+                classes_y=classes_y,
+                classes_y_safe=classes_y_safe,
+                freqs_y=freqs_y,
                 fe_min_nonzero_confidence=0.0,
                 fe_npermutations=1,
                 cached_confident_MIs=cached_confident_MIs,
@@ -424,10 +494,7 @@ class TestComputePairsMis:
                 fe_min_pair_mi_prevalence=0.0,
             )
             pair_calls_pass2 = call_counts["pair"] - pair_calls_pass1
-            assert pair_calls_pass2 == 0, (
-                f"adaptive retry must reuse cached pair MIs (Pack #5 T3#24); "
-                f"observed {pair_calls_pass2} new pair-MI computes"
-            )
+            assert pair_calls_pass2 == 0, f"adaptive retry must reuse cached pair MIs (Pack #5 T3#24); observed {pair_calls_pass2} new pair-MI computes"
         finally:
             fe_mod.mi_direct = real_mi_direct
 
@@ -446,11 +513,13 @@ class TestCheckProspectiveFePairs:
     def small_pandas_data(self):
         rng = np.random.default_rng(0)
         n = 200
-        df = pd.DataFrame({
-            "a": rng.uniform(0.5, 5.0, n).astype(np.float32),
-            "b": rng.uniform(-2.0, 2.0, n).astype(np.float32),
-            "c": rng.uniform(0.1, 1.0, n).astype(np.float32),
-        })
+        df = pd.DataFrame(
+            {
+                "a": rng.uniform(0.5, 5.0, n).astype(np.float32),
+                "b": rng.uniform(-2.0, 2.0, n).astype(np.float32),
+                "c": rng.uniform(0.1, 1.0, n).astype(np.float32),
+            }
+        )
         return df
 
     @pytest.mark.fast
@@ -462,18 +531,24 @@ class TestCheckProspectiveFePairs:
         # The MI evaluation inside ``check_prospective_fe_pairs`` walks ``classes_y``
         # / ``freqs_y`` which we provide via merge_vars on a fake target.
         from mlframe.feature_selection.filters.discretization import discretize_array
-        data = np.column_stack([
-            discretize_array(df["a"].to_numpy(), n_bins=4, method="quantile", dtype=np.int32),
-            discretize_array(df["b"].to_numpy(), n_bins=4, method="quantile", dtype=np.int32),
-            discretize_array(df["c"].to_numpy(), n_bins=4, method="quantile", dtype=np.int32),
-        ])
+
+        data = np.column_stack(
+            [
+                discretize_array(df["a"].to_numpy(), n_bins=4, method="quantile", dtype=np.int32),
+                discretize_array(df["b"].to_numpy(), n_bins=4, method="quantile", dtype=np.int32),
+                discretize_array(df["c"].to_numpy(), n_bins=4, method="quantile", dtype=np.int32),
+            ]
+        )
         target_col = (df["a"].to_numpy() > df["a"].mean()).astype(np.int32)
         data = np.column_stack([data, target_col])
         nbins = np.array([4, 4, 4, 2], dtype=np.int64)
         target_indices = np.array([3], dtype=np.int64)
         classes_y, freqs_y, _ = merge_vars(
-            factors_data=data, vars_indices=target_indices,
-            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+            factors_data=data,
+            vars_indices=target_indices,
+            var_is_nominal=None,
+            factors_nbins=nbins,
+            dtype=np.int32,
         )
         classes_y_safe = classes_y.copy()
 
@@ -516,5 +591,5 @@ class TestCheckProspectiveFePairs:
         # ``res`` keyed by raw_vars_pair; with our permissive prevalence threshold
         # the pair should appear with at least one recommended feature.
         assert (0, 1) in res
-        this_pair_features, transformed_vals, new_cols, new_nbins, messages = res[(0, 1)]
+        this_pair_features, _transformed_vals, _new_cols, _new_nbins, _messages = res[(0, 1)]
         assert isinstance(this_pair_features, set)

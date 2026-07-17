@@ -9,6 +9,7 @@ is still computed but exposed ONLY under the explicit ``oracle_prior`` name so i
 can never be mistaken for the honest baseline. See the rationale in
 ``_dummy_baseline_classification._compute_classification_baselines``.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,9 +38,18 @@ def test_prior_is_honest_train_floor_under_label_shift():
     test_X = np.zeros((n_ev, 1))
 
     val_probs, test_probs, _ = _compute_classification_baselines(
-        target_name="t", train_X=train_X, val_X=val_X, test_X=test_X,
-        train_y=train_y, val_y=val_y, test_y=test_y, timestamps_train=None,
-        cat_features=None, config=_Cfg(), target_type="binary_classification", n_classes=2,
+        target_name="t",
+        train_X=train_X,
+        val_X=val_X,
+        test_X=test_X,
+        train_y=train_y,
+        val_y=val_y,
+        test_y=test_y,
+        timestamps_train=None,
+        cat_features=None,
+        config=_Cfg(),
+        target_type="binary_classification",
+        n_classes=2,
     )
 
     # The honest "prior" baseline is the TRAIN prevalence (class-1 prob ~0.10) applied
@@ -65,9 +75,17 @@ def test_no_label_shift_prior_unchanged():
     train_y = np.array([0] * 700 + [1] * 300)
     val_y = np.array([0] * 70 + [1] * 30)  # same 0.30 class-1 prevalence
     val_probs, _, _ = _compute_classification_baselines(
-        target_name="t", train_X=np.zeros((1000, 1)), val_X=np.zeros((100, 1)),
-        test_X=np.zeros((100, 1)), train_y=train_y, val_y=val_y, test_y=val_y,
-        timestamps_train=None, cat_features=None, config=_Cfg(),
-        target_type="binary_classification", n_classes=2,
+        target_name="t",
+        train_X=np.zeros((1000, 1)),
+        val_X=np.zeros((100, 1)),
+        test_X=np.zeros((100, 1)),
+        train_y=train_y,
+        val_y=val_y,
+        test_y=val_y,
+        timestamps_train=None,
+        cat_features=None,
+        config=_Cfg(),
+        target_type="binary_classification",
+        n_classes=2,
     )
     assert abs(float(val_probs["prior"][0, 1]) - 0.30) < 1e-9

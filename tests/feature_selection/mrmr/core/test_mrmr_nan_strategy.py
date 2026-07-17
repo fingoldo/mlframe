@@ -54,6 +54,7 @@ def _col_referenced(col: str, out_names: list[str]) -> bool:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def df_with_random_nan():
     """1000 rows x 6 cols, MCAR-style NaN (30% / 50% in 2 of 6 cols) with a
@@ -71,14 +72,16 @@ def df_with_random_nan():
     nan_col_1[rng.random(n) < 0.3] = np.nan
     nan_col_2[rng.random(n) < 0.5] = np.nan
     y = 2.0 * sig_a + 1.5 * sig_b + 0.1 * rng.normal(size=n)
-    return pd.DataFrame({
-        "signal_a": sig_a,
-        "signal_b": sig_b,
-        "noise": noise,
-        "extra_noise": extra,
-        "noise_with_nan_30pct": nan_col_1,
-        "noise_with_nan_50pct": nan_col_2,
-    }), pd.Series(y, name="y")
+    return pd.DataFrame(
+        {
+            "signal_a": sig_a,
+            "signal_b": sig_b,
+            "noise": noise,
+            "extra_noise": extra,
+            "noise_with_nan_30pct": nan_col_1,
+            "noise_with_nan_50pct": nan_col_2,
+        }
+    ), pd.Series(y, name="y")
 
 
 @pytest.fixture
@@ -95,19 +98,21 @@ def df_informative_missingness():
     val[is_missing] = np.nan
     distractor_a = rng.normal(size=n)
     distractor_b = rng.normal(size=n)
-    return pd.DataFrame({
-        "measured_value_with_meaningful_nan": val,
-        "distractor_a": distractor_a,
-        "distractor_b": distractor_b,
-    }), pd.Series(y, name="y")
+    return pd.DataFrame(
+        {
+            "measured_value_with_meaningful_nan": val,
+            "distractor_a": distractor_a,
+            "distractor_b": distractor_b,
+        }
+    ), pd.Series(y, name="y")
 
 
 # ---------------------------------------------------------------------------
 # 1. Every strategy fits + transforms without raising
 # ---------------------------------------------------------------------------
 
-class TestEveryStrategyRunsCleanly:
 
+class TestEveryStrategyRunsCleanly:
     @pytest.mark.parametrize("strategy", ["separate_bin", "ffill_bfill", "fillna_zero"])
     def test_fit_does_not_raise(self, df_with_random_nan, strategy):
         X, y = df_with_random_nan
@@ -132,6 +137,7 @@ class TestEveryStrategyRunsCleanly:
 # 2. separate_bin: signal cols rank above pure-noise-with-NaN cols
 # ---------------------------------------------------------------------------
 
+
 class TestSeparateBinDoesNotPickPureNanNoiseOverSignal:
     """Under MCAR NaN that's uncorrelated with y, MRMR with separate_bin must
     rank the actual signal columns ABOVE the noise-with-NaN columns. The OLD
@@ -153,35 +159,23 @@ class TestSeparateBinDoesNotPickPureNanNoiseOverSignal:
         # inflated MI on the noise-with-NaN columns would surface those columns
         # and drop the signal references.
         out_names = _output_names(m)
-        assert _col_referenced("signal_a", out_names), (
-            f"signal_a not used by any selected feature; out={out_names}"
-        )
-        assert _col_referenced("signal_b", out_names), (
-            f"signal_b not used by any selected feature; out={out_names}"
-        )
+        assert _col_referenced("signal_a", out_names), f"signal_a not used by any selected feature; out={out_names}"
+        assert _col_referenced("signal_b", out_names), f"signal_b not used by any selected feature; out={out_names}"
         # The NaN-handling contract this test guards: noise-with-NaN columns
         # must NOT be selected ahead of the signal. Reframed for dedup -- the
         # first selected output feature that references signal must precede any
         # selected noise-with-NaN raw column (a separate_bin bug would surface
         # the NaN-noise columns first).
-        signal_positions = [
-            i for i, nm in enumerate(out_names)
-            if _col_referenced("signal_a", [nm]) or _col_referenced("signal_b", [nm])
-        ]
-        nan_noise_positions = [
-            i for i, nm in enumerate(out_names)
-            if nm in ("noise_with_nan_30pct", "noise_with_nan_50pct")
-        ]
+        signal_positions = [i for i, nm in enumerate(out_names) if _col_referenced("signal_a", [nm]) or _col_referenced("signal_b", [nm])]
+        nan_noise_positions = [i for i, nm in enumerate(out_names) if nm in ("noise_with_nan_30pct", "noise_with_nan_50pct")]
         if nan_noise_positions and signal_positions:
-            assert min(signal_positions) < min(nan_noise_positions), (
-                f"separate_bin must rank signal above noise-with-NaN; "
-                f"got out={out_names}"
-            )
+            assert min(signal_positions) < min(nan_noise_positions), f"separate_bin must rank signal above noise-with-NaN; got out={out_names}"
 
 
 # ---------------------------------------------------------------------------
 # 3. separate_bin honestly surfaces informative-missingness pattern
 # ---------------------------------------------------------------------------
+
 
 class TestSeparateBinSurfacesInformativeNan:
     """If the missingness pattern carries the signal (y == is_missing), the
@@ -193,17 +187,15 @@ class TestSeparateBinSurfacesInformativeNan:
         m.fit(X, y)
         names = list(m.feature_names_in_)
         order = [names[i] for i in m.support_]
-        assert order[0] == "measured_value_with_meaningful_nan", (
-            f"Informative NaN pattern should be picked first; got order={order}"
-        )
+        assert order[0] == "measured_value_with_meaningful_nan", f"Informative NaN pattern should be picked first; got order={order}"
 
 
 # ---------------------------------------------------------------------------
 # 4. transform() preserves NaN for downstream NaN-aware models
 # ---------------------------------------------------------------------------
 
-class TestTransformPreservesNan:
 
+class TestTransformPreservesNan:
     def test_separate_bin_output_keeps_nan_rows(self, df_with_random_nan):
         X, y = df_with_random_nan
         m = MRMR(quantization_nbins=4, nan_strategy="separate_bin", verbose=0)
@@ -214,9 +206,7 @@ class TestTransformPreservesNan:
         if nan_cols_picked:
             for col in nan_cols_picked:
                 if isinstance(Xt, pd.DataFrame):
-                    assert Xt[col].isna().any(), (
-                        f"col {col} lost its NaN values in transform output"
-                    )
+                    assert Xt[col].isna().any(), f"col {col} lost its NaN values in transform output"
                 else:
                     idx = selected.index(col)
                     assert np.isnan(Xt[:, idx]).any()
@@ -226,8 +216,8 @@ class TestTransformPreservesNan:
 # 5. Default strategy is separate_bin
 # ---------------------------------------------------------------------------
 
-class TestDefaultStrategy:
 
+class TestDefaultStrategy:
     def test_default_is_separate_bin(self):
         m = MRMR()
         assert m.nan_strategy == "separate_bin"
@@ -237,8 +227,8 @@ class TestDefaultStrategy:
 # 6. Invalid strategy at _handle_missing level raises clearly
 # ---------------------------------------------------------------------------
 
-class TestUnknownStrategyRaises:
 
+class TestUnknownStrategyRaises:
     def test_unknown_strategy_raises_value_error(self):
         arr = np.array([[1.0, np.nan], [2.0, 3.0]])
         with pytest.raises(ValueError, match="unknown missing-value strategy"):
@@ -249,24 +239,27 @@ class TestUnknownStrategyRaises:
 # 7. Direct categorize_dataset: NaN gets a dedicated max+1 bin
 # ---------------------------------------------------------------------------
 
-class TestCategorizeDatasetSeparateBinDirect:
 
+class TestCategorizeDatasetSeparateBinDirect:
     def test_nan_rows_get_max_bin_index(self):
-        df = pd.DataFrame({
-            "col_a": [1.0, 2.0, np.nan, 4.0, np.nan, 6.0, np.nan, 8.0],
-            "col_b": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0],
-        })
+        df = pd.DataFrame(
+            {
+                "col_a": [1.0, 2.0, np.nan, 4.0, np.nan, 6.0, np.nan, 8.0],
+                "col_b": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0],
+            }
+        )
         n_bins = 4
         data, cols, nbins = categorize_dataset(
-            df=df, method="quantile", n_bins=n_bins, dtype=np.int32,
+            df=df,
+            method="quantile",
+            n_bins=n_bins,
+            dtype=np.int32,
             missing_strategy="separate_bin",
         )
         col_a_idx = cols.index("col_a")
         nan_positions = [2, 4, 6]
         # All NaN rows in col_a must land in bin == n_bins (the dedicated bin).
-        assert (data[nan_positions, col_a_idx] == n_bins).all(), (
-            f"NaN rows should be at bin={n_bins}; got {data[nan_positions, col_a_idx]}"
-        )
+        assert (data[nan_positions, col_a_idx] == n_bins).all(), f"NaN rows should be at bin={n_bins}; got {data[nan_positions, col_a_idx]}"
         non_nan_positions = [0, 1, 3, 5, 7]
         assert (data[non_nan_positions, col_a_idx] < n_bins).all()
         assert (data[non_nan_positions, col_a_idx] >= 0).all()
@@ -277,22 +270,28 @@ class TestCategorizeDatasetSeparateBinDirect:
         assert nbins[col_b_idx] == n_bins
 
     def test_fillna_zero_mixes_nan_with_zero_into_bin_zero(self):
-        df = pd.DataFrame({
-            "col_a": [0.0, 0.0, np.nan, np.nan, 5.0, 6.0, 7.0, 8.0],
-        })
-        data, cols, nbins = categorize_dataset(
-            df=df, method="uniform", n_bins=4, dtype=np.int32,
+        df = pd.DataFrame(
+            {
+                "col_a": [0.0, 0.0, np.nan, np.nan, 5.0, 6.0, 7.0, 8.0],
+            }
+        )
+        data, _cols, _nbins = categorize_dataset(
+            df=df,
+            method="uniform",
+            n_bins=4,
+            dtype=np.int32,
             missing_strategy="fillna_zero",
         )
         # Rows 0/1 (true zeros) and rows 2/3 (NaN-->0) all end up in same bin.
-        assert (data[:4, 0] == data[0, 0]).all(), (
-            f"fillna_zero mixes NaN with true zeros; got {data[:4, 0]}"
-        )
+        assert (data[:4, 0] == data[0, 0]).all(), f"fillna_zero mixes NaN with true zeros; got {data[:4, 0]}"
 
     def test_propagate_smoke(self):
         df = pd.DataFrame({"col_a": [1.0, 2.0, np.nan, 4.0]})
-        data, cols, nbins = categorize_dataset(
-            df=df, method="quantile", n_bins=4, dtype=np.int32,
+        data, _cols, _nbins = categorize_dataset(
+            df=df,
+            method="quantile",
+            n_bins=4,
+            dtype=np.int32,
             missing_strategy="propagate",
         )
         assert data.shape == (4, 1)
@@ -302,23 +301,29 @@ class TestCategorizeDatasetSeparateBinDirect:
 # 8. Edge case: column that's 100% NaN under separate_bin
 # ---------------------------------------------------------------------------
 
-class TestAllNanColumn:
 
+class TestAllNanColumn:
     def test_all_nan_column_under_separate_bin(self):
         """An all-NaN column has no finite values for percentile edges;
         _handle_missing must fall back to a sentinel so discretize doesn't
         crash, then the dedicated NaN bin captures all rows."""
         import warnings
-        df = pd.DataFrame({
-            "all_nan": [np.nan] * 100,
-            "real": np.linspace(0.0, 1.0, 100),
-        })
+
+        df = pd.DataFrame(
+            {
+                "all_nan": [np.nan] * 100,
+                "real": np.linspace(0.0, 1.0, 100),
+            }
+        )
         with warnings.catch_warnings():
             # nanmedian on all-NaN col emits "All-NaN slice" RuntimeWarning;
             # we handle that case and the warning is expected.
             warnings.simplefilter("ignore", RuntimeWarning)
-            data, cols, nbins = categorize_dataset(
-                df=df, method="quantile", n_bins=4, dtype=np.int32,
+            data, cols, _nbins = categorize_dataset(
+                df=df,
+                method="quantile",
+                n_bins=4,
+                dtype=np.int32,
                 missing_strategy="separate_bin",
             )
         col_idx = cols.index("all_nan")

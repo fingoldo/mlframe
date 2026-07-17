@@ -37,10 +37,10 @@ These tests:
    that the suite-level MLP construction passes ``use_layernorm=False``
    so a silent default flip back to True would trip the gate.
 """
+
 from __future__ import annotations
 
 import logging
-import sys
 import warnings
 
 import numpy as np
@@ -66,20 +66,16 @@ def _ar_group_split_data():
     group_means = rng.uniform(10000, 13000, n_groups).astype(np.float32)
     tvt_prev = (group_means[group_ids] + rng.normal(0, 50, n)).astype(np.float32)
     y = (tvt_prev + rng.normal(0, 11, n)).astype(np.float32)
-    extras = {
-        f"f{i}": rng.normal(size=n).astype(np.float32) for i in range(20)
-    }
+    extras = {f"f{i}": rng.normal(size=n).astype(np.float32) for i in range(20)}
     X_full = np.column_stack(
-        [tvt_prev] + list(extras.values()),
+        [tvt_prev, *list(extras.values())],
     ).astype(np.float32)
-    feat_cols = ["TVT_prev"] + list(extras.keys())
+    feat_cols = ["TVT_prev", *list(extras.keys())]
 
     gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
     trv_idx, te_idx = next(gss.split(X_full, y, groups=group_ids))
     gss2 = GroupShuffleSplit(n_splits=1, test_size=0.5, random_state=42)
-    v_inner, tr_inner = next(
-        gss2.split(X_full[trv_idx], y[trv_idx], groups=group_ids[trv_idx])
-    )
+    v_inner, tr_inner = next(gss2.split(X_full[trv_idx], y[trv_idx], groups=group_ids[trv_idx]))
     tr_idx = trv_idx[tr_inner]
     va_idx = trv_idx[v_inner]
 
@@ -91,7 +87,9 @@ def _ar_group_split_data():
         pd.DataFrame(X_tr, columns=feat_cols),
         pd.DataFrame(X_va, columns=feat_cols),
         pd.DataFrame(X_te, columns=feat_cols),
-        y[tr_idx], y[va_idx], y[te_idx],
+        y[tr_idx],
+        y[va_idx],
+        y[te_idx],
     )
 
 
@@ -123,13 +121,19 @@ def test_mlp_ttr_no_collapse_on_autoregressive_data(_ar_group_split_data):
     raw_mlp = PytorchLightningRegressor(
         model_class=MLPTorchModel,
         model_params=dict(
-            loss_fn=F.mse_loss, learning_rate=3e-3, l1_alpha=0.0,
-            optimizer=torch.optim.Adam, optimizer_kwargs={},
-            lr_scheduler=None, lr_scheduler_kwargs={},
+            loss_fn=F.mse_loss,
+            learning_rate=3e-3,
+            l1_alpha=0.0,
+            optimizer=torch.optim.Adam,
+            optimizer_kwargs={},
+            lr_scheduler=None,
+            lr_scheduler_kwargs={},
         ),
         network_params=dict(
-            nlayers=4, first_layer_num_neurons=128,
-            dropout_prob=0.0, inputs_dropout_prob=0.0,
+            nlayers=4,
+            first_layer_num_neurons=128,
+            dropout_prob=0.0,
+            inputs_dropout_prob=0.0,
             use_layernorm=False,  # the post-2026-05-21 suite-default
             activation_function=torch.nn.LeakyReLU,
             neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
@@ -137,16 +141,23 @@ def test_mlp_ttr_no_collapse_on_autoregressive_data(_ar_group_split_data):
         ),
         datamodule_class=TorchDataModule,
         datamodule_params=dict(
-            read_fcn=None, data_placement_device=None,
-            features_dtype=torch.float32, labels_dtype=torch.float32,
+            read_fcn=None,
+            data_placement_device=None,
+            features_dtype=torch.float32,
+            labels_dtype=torch.float32,
             dataloader_params=dict(
-                num_workers=0, pin_memory=False,
-                batch_size=1024, shuffle=False,
+                num_workers=0,
+                pin_memory=False,
+                batch_size=1024,
+                shuffle=False,
             ),
         ),
         trainer_params=dict(
-            max_epochs=8, enable_progress_bar=True, enable_model_summary=True,
-            logger=False, accelerator="cpu",
+            max_epochs=8,
+            enable_progress_bar=True,
+            enable_model_summary=True,
+            logger=False,
+            accelerator="cpu",
         ),
         early_stopping_rounds=8,
     )
@@ -167,7 +178,7 @@ def test_mlp_ttr_no_collapse_on_autoregressive_data(_ar_group_split_data):
     # regression to the collapse mode.
     assert pred_std >= 0.5 * y_std, (
         f"predictions collapsed: pred_std={pred_std:.1f} "
-        f"({100*pred_std/y_std:.1f}% of y_std={y_std:.1f}). "
+        f"({100 * pred_std / y_std:.1f}% of y_std={y_std:.1f}). "
         f"The MLP is emitting near-constant values -- check use_layernorm "
         f"default + LN_in suitability for this data."
     )
@@ -205,9 +216,7 @@ def test_regression_collapse_sensor_fires(caplog):
             verbose=False,
         )
     msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any("regression-collapse-sensor" in m for m in msgs), (
-        f"Expected `[regression-collapse-sensor] ...` WARNING; got: {msgs}"
-    )
+    assert any("regression-collapse-sensor" in m for m in msgs), f"Expected `[regression-collapse-sensor] ...` WARNING; got: {msgs}"
     # The sensor warning must include an actionable mitigation hint -- the
     # current message lists (a) composite-target discovery, (b) tree booster,
     # (c) group-aware split verification, so accept any of those keywords.
@@ -215,10 +224,9 @@ def test_regression_collapse_sensor_fires(caplog):
     # more comprehensive set rooted in the actual production failure mode
     # (group-aware split + feature distribution shift drives the collapse,
     # NOT a missing layernorm).
-    assert any(
-        ("composite-target" in m) or ("tree booster" in m) or ("group-aware split" in m)
-        for m in msgs
-    ), (f"Sensor warning must hint at a fix; got: {msgs}")
+    assert any(("composite-target" in m) or ("tree booster" in m) or ("group-aware split" in m) for m in msgs), (
+        f"Sensor warning must hint at a fix; got: {msgs}"
+    )
 
 
 def test_regression_collapse_sensor_silent_on_healthy_predictions(caplog):
@@ -246,9 +254,7 @@ def test_regression_collapse_sensor_silent_on_healthy_predictions(caplog):
             verbose=False,
         )
     msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
-    assert not any("regression-collapse-sensor" in m for m in msgs), (
-        f"Sensor should NOT fire on healthy predictions; got noise: {msgs}"
-    )
+    assert not any("regression-collapse-sensor" in m for m in msgs), f"Sensor should NOT fire on healthy predictions; got noise: {msgs}"
 
 
 def test_mlp_suite_default_use_layernorm_is_false():
@@ -263,13 +269,10 @@ def test_mlp_suite_default_use_layernorm_is_false():
     """
     from pathlib import Path
 
-    src = Path(
-        "src/mlframe/training/trainer.py"
-    ).read_text(encoding="utf-8")
+    src = Path("src/mlframe/training/trainer.py").read_text(encoding="utf-8")
     # Find the mlp_network_params block (literal dict near line ~1262).
     assert "mlp_network_params = dict(" in src, (
-        "trainer.py: mlp_network_params dict literal missing -- the "
-        "suite-level MLP construction was refactored. Update the pin."
+        "trainer.py: mlp_network_params dict literal missing -- the suite-level MLP construction was refactored. Update the pin."
     )
     # Extract the dict block (between ``mlp_network_params = dict(`` and
     # the matching closing paren).
@@ -285,7 +288,7 @@ def test_mlp_suite_default_use_layernorm_is_false():
             if depth == 0:
                 end = i
                 break
-    block = src[start:end + 1]
+    block = src[start : end + 1]
     assert "use_layernorm=False" in block, (
         f"trainer.py mlp_network_params block must contain "
         f"``use_layernorm=False`` (post-2026-05-21 fix). Pre-fix default "

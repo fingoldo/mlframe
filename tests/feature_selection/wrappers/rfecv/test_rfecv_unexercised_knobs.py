@@ -13,6 +13,7 @@ All measured numbers were read on store-Python 3.14 CPU-only against the integra
 worktree. Floors are deliberately loose so seed jitter does not trip them while a
 real regression (knob silently ignored) still fails the win.
 """
+
 from __future__ import annotations
 
 import glob
@@ -55,8 +56,7 @@ def _logreg(seed: int = 0):
 
 
 def _base_kwargs(**over):
-    kw = dict(cv=3, random_state=0, leakage_corr_threshold=None,
-              n_features_selection_rule="argmax")
+    kw = dict(cv=3, random_state=0, leakage_corr_threshold=None, n_features_selection_rule="argmax")
     kw.update(over)
     return kw
 
@@ -99,14 +99,12 @@ def test_best_desired_score_early_stops_below_unconstrained_twin():
     twin.fit(Xdf, ys)
     twin_refits = _refit_count(twin)
 
-    es = RFECV(estimator=_logreg(), **_base_kwargs(
-        max_refits=30, max_noimproving_iters=30, best_desired_score=0.10))
+    es = RFECV(estimator=_logreg(), **_base_kwargs(max_refits=30, max_noimproving_iters=30, best_desired_score=0.10))
     es.fit(Xdf, ys)
     es_refits = _refit_count(es)
 
     assert twin_refits >= 6, f"twin too short to demonstrate early-stop (got {twin_refits})"
-    assert es_refits < twin_refits, (
-        f"best_desired_score did not stop early: es={es_refits} twin={twin_refits}")
+    assert es_refits < twin_refits, f"best_desired_score did not stop early: es={es_refits} twin={twin_refits}"
     assert es_refits <= 3
 
 
@@ -128,8 +126,7 @@ def test_min_train_size_above_fold_skips_all_folds_yielding_empty_curve():
 
     # Every explored subset was skipped on every fold -> no usable CV point recorded.
     perf = r.cv_results_["cv_mean_perf"]
-    assert len(perf) == 0 or all(np.isnan(v) for v in perf), (
-        f"min_train_size did not skip folds; got cv_mean_perf={perf}")
+    assert len(perf) == 0 or all(np.isnan(v) for v in perf), f"min_train_size did not skip folds; got cv_mean_perf={perf}"
     assert int(r.get_support().sum()) == 0
 
 
@@ -160,9 +157,16 @@ def _stability_top_k_body(fast: bool = False):
     sizes = {}
     sets = {}
     for tk in ks:
-        r = RFECV(estimator=_logreg(), cv=3, random_state=0, leakage_corr_threshold=None,
-                  stability_selection=True, stability_n_bootstrap=40,
-                  stability_threshold=0.6, stability_top_k=tk)
+        r = RFECV(
+            estimator=_logreg(),
+            cv=3,
+            random_state=0,
+            leakage_corr_threshold=None,
+            stability_selection=True,
+            stability_n_bootstrap=40,
+            stability_threshold=0.6,
+            stability_top_k=tk,
+        )
         r.fit(Xdf, ys)
         sets[tk] = set(_selected_names(r))
         sizes[tk] = len(sets[tk])
@@ -202,8 +206,7 @@ def _prescreen_fdr_body(fast: bool = False):
     Xdf, ys = as_df(X, y)
 
     def _fit(level):
-        r = RFECV(estimator=_logreg(), **_base_kwargs(
-            max_refits=3, prescreen="univariate_ht", prescreen_fdr_level=level))
+        r = RFECV(estimator=_logreg(), **_base_kwargs(max_refits=3, prescreen="univariate_ht", prescreen_fdr_level=level))
         r.fit(Xdf, ys)
         return set(_selected_names(r))
 
@@ -250,9 +253,15 @@ def _cpi_depth_body(fast: bool = False):
 
     def _cpi(depth):
         fi = get_feature_importances(
-            model=rf, current_features=feats, data=Xdf, target=ys.values,
-            train_data=Xdf, importance_getter="conditional_permutation",
-            cpi_max_depth=depth, cpi_min_samples_leaf=10, n_repeats=n_repeats,
+            model=rf,
+            current_features=feats,
+            data=Xdf,
+            target=ys.values,
+            train_data=Xdf,
+            importance_getter="conditional_permutation",
+            cpi_max_depth=depth,
+            cpi_min_samples_leaf=10,
+            n_repeats=n_repeats,
         )
         return np.array([fi[f] for f in feats], dtype=float)
 
@@ -261,8 +270,8 @@ def _cpi_depth_body(fast: bool = False):
 
     max_abs_diff = float(np.max(np.abs(v_stump - v_full)))
     assert max_abs_diff >= 0.015, (
-        f"cpi_max_depth had no effect on the conditional-permutation FI vector "
-        f"(max abs diff {max_abs_diff:.4f}); the aux-tree depth knob is not wired.")
+        f"cpi_max_depth had no effect on the conditional-permutation FI vector (max abs diff {max_abs_diff:.4f}); the aux-tree depth knob is not wired."
+    )
 
 
 def test_cpi_min_samples_leaf_changes_conditional_permutation_fi_vector():
@@ -279,15 +288,20 @@ def test_cpi_min_samples_leaf_changes_conditional_permutation_fi_vector():
 
     def _cpi(leaf):
         fi = get_feature_importances(
-            model=rf, current_features=feats, data=Xdf, target=ys.values,
-            train_data=Xdf, importance_getter="conditional_permutation",
-            cpi_max_depth=None, cpi_min_samples_leaf=leaf, n_repeats=5,
+            model=rf,
+            current_features=feats,
+            data=Xdf,
+            target=ys.values,
+            train_data=Xdf,
+            importance_getter="conditional_permutation",
+            cpi_max_depth=None,
+            cpi_min_samples_leaf=leaf,
+            n_repeats=5,
         )
         return np.array([fi[f] for f in feats], dtype=float)
 
     diff = float(np.max(np.abs(_cpi(2) - _cpi(80))))
-    assert diff >= 0.01, (
-        f"cpi_min_samples_leaf had no effect on the CPI FI vector (max abs diff {diff:.4f}).")
+    assert diff >= 0.01, f"cpi_min_samples_leaf had no effect on the CPI FI vector (max abs diff {diff:.4f})."
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +340,7 @@ def _make_nan_fold_scorer(bad_rows: int):
             return float(roc_auc_score(y, estimator.predict_proba(X)[:, 1]))
         except ValueError:
             return float("nan")
+
     return _score
 
 
@@ -339,7 +354,7 @@ class _UnequalCV:
 
     def split(self, X=None, y=None, groups=None):
         idx = np.arange(self.n)
-        yield idx[: self.bad_train], idx[self.bad_train:]
+        yield idx[: self.bad_train], idx[self.bad_train :]
         half = self.n // 2
         yield idx[:half], idx[half:]
 
@@ -362,10 +377,18 @@ def test_drop_nan_score_fi_excludes_nan_fold_importances_from_voting_pool():
     scorer = _make_nan_fold_scorer(bad)
 
     def _fit(drop):
-        r = RFECV(estimator=_FoldTaggedLR(0, bad), cv=cv, random_state=0,
-                  leakage_corr_threshold=None, max_refits=4, scoring=scorer,
-                  drop_nan_score_fi=drop, importance_getter="coef_",
-                  n_features_selection_rule="argmax", nofeatures_dummy_scoring=False)
+        r = RFECV(
+            estimator=_FoldTaggedLR(0, bad),
+            cv=cv,
+            random_state=0,
+            leakage_corr_threshold=None,
+            max_refits=4,
+            scoring=scorer,
+            drop_nan_score_fi=drop,
+            importance_getter="coef_",
+            n_features_selection_rule="argmax",
+            nofeatures_dummy_scoring=False,
+        )
         r.fit(Xdf, ys)
         return sorted(r.feature_importances_.keys())
 
@@ -373,14 +396,11 @@ def test_drop_nan_score_fi_excludes_nan_fold_importances_from_voting_pool():
     keys_keep = _fit(False)
 
     # Default drops the NaN fold's runs -> strictly fewer FI runs than legacy.
-    assert len(keys_drop) < len(keys_keep), (
-        f"drop_nan_score_fi=True did not drop NaN-fold FI: drop={keys_drop} keep={keys_keep}")
+    assert len(keys_drop) < len(keys_keep), f"drop_nan_score_fi=True did not drop NaN-fold FI: drop={keys_drop} keep={keys_keep}"
     # The default keeps ONLY the healthy fold-1 runs (keys ending in '_1').
-    assert all(k.endswith("_1") for k in keys_drop), (
-        f"default kept a NaN (fold-0) FI run: {keys_drop}")
+    assert all(k.endswith("_1") for k in keys_drop), f"default kept a NaN (fold-0) FI run: {keys_drop}"
     # Legacy keeps the NaN fold-0 runs the default removed.
-    assert any(k.endswith("_0") for k in keys_keep), (
-        f"legacy did not retain the NaN-fold FI runs: {keys_keep}")
+    assert any(k.endswith("_0") for k in keys_keep), f"legacy did not retain the NaN-fold FI runs: {keys_keep}"
 
 
 # ---------------------------------------------------------------------------
@@ -399,15 +419,13 @@ def test_drop_nan_score_fi_excludes_nan_fold_importances_from_voting_pool():
 def test_keep_loser_subset_fi_legacy_branch_fits_and_round_trips(flag):
     X, y, _ = make_signal_plus_noise(n=300, p_signal=3, p_noise=5, seed=9)
     Xdf, ys = as_df(X, y)
-    r = RFECV(estimator=_logreg(), **_base_kwargs(
-        max_refits=12, keep_loser_subset_fi=flag))
+    r = RFECV(estimator=_logreg(), **_base_kwargs(max_refits=12, keep_loser_subset_fi=flag))
     r.fit(Xdf, ys)
     # The flag survives fit (params re-read each fit; never clobbered).
     assert r.keep_loser_subset_fi is flag
     # Legacy and default both produce a valid, non-empty, deterministic selection.
     assert int(r.get_support().sum()) >= 1
-    r2 = RFECV(estimator=_logreg(), **_base_kwargs(
-        max_refits=12, keep_loser_subset_fi=flag))
+    r2 = RFECV(estimator=_logreg(), **_base_kwargs(max_refits=12, keep_loser_subset_fi=flag))
     r2.fit(Xdf, ys)
     assert _selected_names(r) == _selected_names(r2)
 
@@ -416,8 +434,7 @@ def test_keep_loser_subset_fi_legacy_branch_fits_and_round_trips(flag):
 def test_noimprove_counts_revisit_legacy_branch_fits_and_round_trips(flag):
     X, y, _ = make_signal_plus_noise(n=300, p_signal=3, p_noise=5, seed=10)
     Xdf, ys = as_df(X, y)
-    r = RFECV(estimator=_logreg(), **_base_kwargs(
-        max_refits=15, max_noimproving_iters=4, noimprove_counts_revisit=flag))
+    r = RFECV(estimator=_logreg(), **_base_kwargs(max_refits=15, max_noimproving_iters=4, noimprove_counts_revisit=flag))
     r.fit(Xdf, ys)
     assert r.noimprove_counts_revisit is flag
     assert int(r.get_support().sum()) >= 1
@@ -457,8 +474,7 @@ def test_estimators_save_path_writes_dump_files(tmp_path):
     that layout; this test pins both the estimator dumps and the required-features summary."""
     X, y, _ = make_signal_plus_noise(n=300, p_signal=3, p_noise=5, seed=6)
     Xdf, ys = as_df(X, y)
-    r = RFECV(estimator=_logreg(), **_base_kwargs(
-        max_refits=3, keep_estimators=True, estimators_save_path=str(tmp_path)))
+    r = RFECV(estimator=_logreg(), **_base_kwargs(max_refits=3, keep_estimators=True, estimators_save_path=str(tmp_path)))
     r.fit(Xdf, ys)
 
     files = glob.glob(os.path.join(str(tmp_path), "**", "*.dump"), recursive=True)
@@ -474,8 +490,7 @@ def test_estimators_save_path_required_features_dump_is_loadable_and_lists_suppo
     X, y, _ = make_signal_plus_noise(n=300, p_signal=3, p_noise=5, seed=6)
     Xdf, ys = as_df(X, y)
 
-    r = RFECV(estimator=_logreg(), **_base_kwargs(
-        max_refits=3, keep_estimators=True, estimators_save_path=str(tmp_path)))
+    r = RFECV(estimator=_logreg(), **_base_kwargs(max_refits=3, keep_estimators=True, estimators_save_path=str(tmp_path)))
     r.fit(Xdf, ys)
 
     summary_path = os.path.join(str(tmp_path), "required_features.dump")
@@ -522,8 +537,7 @@ def test_special_feature_indices_regression_ridge_forces_subset():
     ys = pd.Series(y, name="y")
 
     forced = ["x0", "x3"]
-    r = RFECV(estimator=Ridge(), cv=3, random_state=0, leakage_corr_threshold=None,
-              n_features_selection_rule="argmax", special_feature_indices=forced)
+    r = RFECV(estimator=Ridge(), cv=3, random_state=0, leakage_corr_threshold=None, n_features_selection_rule="argmax", special_feature_indices=forced)
     r.fit(Xdf, ys)
     assert set(_selected_names(r)) == set(forced)
     assert _refit_count(r) <= 2

@@ -2,10 +2,7 @@
 (polars<->pandas categorical category-list alignment on roundtrip).
 """
 
-import sys
-import os
 
-import numpy as np
 import pandas as pd
 import polars as pl
 import pytest
@@ -29,8 +26,13 @@ def test_tc30_sequential_empty_val_raises():
     ts = pd.Series(pd.date_range("2024-01-01", periods=n, freq="h"))
     with pytest.raises(ValueError, match="0 validation rows"):
         make_train_test_split(
-            df, test_size=0.1, val_size=0.04, timestamps=ts,
-            wholeday_splitting=False, shuffle_val=False, shuffle_test=False,
+            df,
+            test_size=0.1,
+            val_size=0.04,
+            timestamps=ts,
+            wholeday_splitting=False,
+            shuffle_val=False,
+            shuffle_test=False,
         )
 
 
@@ -41,9 +43,14 @@ def test_tc30_sequential_aging_empty_val_raises():
     ts = pd.Series(pd.date_range("2024-01-01", periods=n, freq="h"))
     with pytest.raises(ValueError, match="0 validation rows"):
         make_train_test_split(
-            df, test_size=0.1, val_size=0.04, timestamps=ts,
-            wholeday_splitting=False, trainset_aging_limit=0.5,
-            shuffle_val=False, shuffle_test=False,
+            df,
+            test_size=0.1,
+            val_size=0.04,
+            timestamps=ts,
+            wholeday_splitting=False,
+            trainset_aging_limit=0.5,
+            shuffle_val=False,
+            shuffle_test=False,
         )
 
 
@@ -53,8 +60,13 @@ def test_tc30_empty_test_raises():
     ts = pd.Series(pd.date_range("2024-01-01", periods=n, freq="h"))
     with pytest.raises(ValueError, match="0 test rows"):
         make_train_test_split(
-            df, test_size=0.02, val_size=0.0, timestamps=ts,
-            wholeday_splitting=False, shuffle_val=False, shuffle_test=False,
+            df,
+            test_size=0.02,
+            val_size=0.0,
+            timestamps=ts,
+            wholeday_splitting=False,
+            shuffle_val=False,
+            shuffle_test=False,
         )
 
 
@@ -64,8 +76,13 @@ def test_tc30_healthy_split_does_not_raise():
     df = pd.DataFrame({"a": range(n)})
     ts = pd.Series(pd.date_range("2024-01-01", periods=n, freq="h"))
     tr, va, te, *_ = make_train_test_split(
-        df, test_size=0.1, val_size=0.1, timestamps=ts,
-        wholeday_splitting=False, shuffle_val=False, shuffle_test=False,
+        df,
+        test_size=0.1,
+        val_size=0.1,
+        timestamps=ts,
+        wholeday_splitting=False,
+        shuffle_val=False,
+        shuffle_test=False,
     )
     assert len(va) > 0 and len(te) > 0 and len(tr) > 0
 
@@ -91,12 +108,8 @@ def test_tc29_roundtrip_diverges_without_alignment():
 def test_tc29_alignment_makes_codes_agree():
     """After _align_xgb_cat_categories the train+val category lists are the
     union, so the same string has the same code in train and val."""
-    train = get_pandas_view_of_polars_df(
-        pl.DataFrame({"k": ["a", "b", "c", "a"]}).with_columns(pl.col("k").cast(pl.Categorical))
-    )
-    val = get_pandas_view_of_polars_df(
-        pl.DataFrame({"k": ["b", "c", "d", "b"]}).with_columns(pl.col("k").cast(pl.Categorical))
-    )
+    train = get_pandas_view_of_polars_df(pl.DataFrame({"k": ["a", "b", "c", "a"]}).with_columns(pl.col("k").cast(pl.Categorical)))
+    val = get_pandas_view_of_polars_df(pl.DataFrame({"k": ["b", "c", "d", "b"]}).with_columns(pl.col("k").cast(pl.Categorical)))
     train2, val2, _ = _align_xgb_cat_categories("CatBoostClassifier", train, val_df=val, test_df=None)
     # Category lists now identical (train+val union).
     assert list(train2["k"].cat.categories) == list(val2["k"].cat.categories)

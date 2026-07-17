@@ -1,4 +1,5 @@
 """Unit tests for CompositeRankEstimator (grouped learning-to-rank composite)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,7 +21,7 @@ def _synthetic(n_groups=40, items=12, seed=0):
         resid_feat = rng.normal(size=items)
         # True relevance = dominant base + small within-group residual signal.
         true = 3.0 * base + 1.0 * resid_feat
-        rel = (true - true.min())
+        rel = true - true.min()
         rel = np.round(rel / (rel.max() + 1e-9) * 4).astype(int)  # graded 0..4
         for i in range(items):
             rows.append({"base": base[i], "f1": resid_feat[i], "f2": rng.normal()})
@@ -76,9 +77,7 @@ def test_base_plus_residual_combine():
     X, y, g = _synthetic(seed=3)
     from sklearn.linear_model import LogisticRegression
 
-    est = CompositeRankEstimator(
-        "base", base_estimator=LogisticRegression(max_iter=500), drop_base_feature=True
-    )
+    est = CompositeRankEstimator("base", base_estimator=LogisticRegression(max_iter=500), drop_base_feature=True)
     est.fit(X, y, g)
     assert est.n_features_in_ == X.shape[1] - 1  # base dropped from inner features
     inner = est.inner_score(X)
@@ -86,8 +85,10 @@ def test_base_plus_residual_combine():
     assert inner.shape == combined.shape == (len(y),)
     # With base_weight=0 the combined score is just the (z-scored) inner.
     est0 = CompositeRankEstimator(
-        "base", base_estimator=LogisticRegression(max_iter=500),
-        drop_base_feature=True, base_weight=0.0,
+        "base",
+        base_estimator=LogisticRegression(max_iter=500),
+        drop_base_feature=True,
+        base_weight=0.0,
     )
     est0.fit(X, y, g)
     assert np.isfinite(est0.predict(X, group=g)).all()
@@ -127,9 +128,7 @@ def test_residual_mode_diff():
     X, y, g = _synthetic(seed=6)
     from sklearn.linear_model import LogisticRegression
 
-    est = CompositeRankEstimator(
-        "base", base_estimator=LogisticRegression(max_iter=500), residual_mode="diff"
-    )
+    est = CompositeRankEstimator("base", base_estimator=LogisticRegression(max_iter=500), residual_mode="diff")
     est.fit(X, y, g)
     assert np.isfinite(est.predict(X, group=g)).all()
 

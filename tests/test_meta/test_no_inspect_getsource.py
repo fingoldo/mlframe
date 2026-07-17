@@ -17,6 +17,7 @@ The complementary ``"literal" in read_text_var`` membership shape is covered by
 sensors (``read_text().splitlines()`` length checks from monolith-split tests)
 are NOT source-text proxies and are not flagged.
 """
+
 from __future__ import annotations
 
 import ast
@@ -39,6 +40,7 @@ def _parsed_ast(path: Path) -> ast.Module | None:
         return ast.parse(src, filename=str(path))
     except SyntaxError:
         return None
+
 
 # Files that legitimately use inspect.getsourcefile / inspect.getfile (NOT getsource).
 # Use forward slashes for cross-platform path comparison.

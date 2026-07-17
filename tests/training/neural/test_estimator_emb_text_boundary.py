@@ -4,6 +4,7 @@ fit/predict boundary (`_encode_emb_text_fit` / `_predict_raw`), which the MLP ha
 Embedding case is model-free for the encoder (fast). Text case uses the REAL default HuggingFace model (no mocking),
 skipped only if transformers/model unavailable.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,10 +23,22 @@ def _regressor_params():
         model_params={"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-3},
         network_params={"nlayers": 2, "first_layer_num_neurons": 16, "dropout_prob": 0.0, "activation_function": torch.nn.ReLU},
         datamodule_class=TorchDataModule,
-        datamodule_params={"read_fcn": None, "data_placement_device": None, "features_dtype": torch.float32,
-                            "labels_dtype": torch.float32, "dataloader_params": {"batch_size": 16, "num_workers": 0}},
-        trainer_params={"max_epochs": 1, "enable_model_summary": False, "default_root_dir": None,
-                         "log_every_n_steps": 1, "devices": 1, "logger": False, "accelerator": "cpu"},
+        datamodule_params={
+            "read_fcn": None,
+            "data_placement_device": None,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
+            "dataloader_params": {"batch_size": 16, "num_workers": 0},
+        },
+        trainer_params={
+            "max_epochs": 1,
+            "enable_model_summary": False,
+            "default_root_dir": None,
+            "log_every_n_steps": 1,
+            "devices": 1,
+            "logger": False,
+            "accelerator": "cpu",
+        },
     )
 
 

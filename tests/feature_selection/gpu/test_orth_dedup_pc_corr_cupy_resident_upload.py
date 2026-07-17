@@ -9,6 +9,7 @@ against the SAME underlying source frame) uploads ONCE. LOW-tier, capped, numpy-
 Critically: Q/R must keep their CALLER dtype (f32 under ``MLFRAME_CRIT_DTYPE_RELAXED``) -- resident_operand
 must NOT force float64, since that would change matmul precision, not just cache the upload.
 """
+
 from __future__ import annotations
 
 import numpy as np

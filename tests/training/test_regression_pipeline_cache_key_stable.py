@@ -5,6 +5,7 @@ so every fresh process missed the on-disk verdict 100% of the time -- defeating 
 cache entirely. The key must be a pure function of the JSON content, identical across runs
 with different hash seeds.
 """
+
 from __future__ import annotations
 
 import hashlib

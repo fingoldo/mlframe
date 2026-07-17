@@ -5,6 +5,7 @@ estimator INSTANCE (a first-class input -- ``get_strategy`` / ``_resolve_model_s
 stringifies to ``"catboostclassifier()"``, which is absent from the set, so an instance-passed CatBoost was mis-classed non-CB /
 non-native and the CB native-categorical auto-flip (skip ordinal encoding, keep CB's native cat handling) silently never fired.
 """
+
 import pytest
 
 from mlframe.training.core._phase_helpers_fit_pipeline import _detect_native_cat_models

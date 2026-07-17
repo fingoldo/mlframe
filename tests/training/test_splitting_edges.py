@@ -15,6 +15,7 @@ Proactive probes surfaced five latent issues on 2026-04-19:
 The tests below are sensors for all of those. They will fail again if
 the validation or the NaT guard regresses.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,16 +31,20 @@ from mlframe.training.splitting import make_train_test_split
 # Input validation — negative / out-of-range args must fail loudly
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("kwargs, error_frag", [
-    ({"test_size": -0.1},              "test_size"),
-    ({"test_size": 1.5},               "test_size"),
-    ({"val_size":  -0.1},              "val_size"),
-    ({"val_size":   1.5},              "val_size"),
-    ({"trainset_aging_limit": 0},      "trainset_aging_limit"),
-    ({"trainset_aging_limit": 1.0},    "trainset_aging_limit"),
-    ({"trainset_aging_limit": -0.5},   "trainset_aging_limit"),
-    ({"trainset_aging_limit": 1.5},    "trainset_aging_limit"),
-])
+
+@pytest.mark.parametrize(
+    "kwargs, error_frag",
+    [
+        ({"test_size": -0.1}, "test_size"),
+        ({"test_size": 1.5}, "test_size"),
+        ({"val_size": -0.1}, "val_size"),
+        ({"val_size": 1.5}, "val_size"),
+        ({"trainset_aging_limit": 0}, "trainset_aging_limit"),
+        ({"trainset_aging_limit": 1.0}, "trainset_aging_limit"),
+        ({"trainset_aging_limit": -0.5}, "trainset_aging_limit"),
+        ({"trainset_aging_limit": 1.5}, "trainset_aging_limit"),
+    ],
+)
 def test_invalid_args_raise_with_clear_message(kwargs, error_frag):
     df = pd.DataFrame({"x": range(50)})
     with pytest.raises(ValueError, match=error_frag):
@@ -58,6 +63,7 @@ def test_trainset_aging_limit_none_is_noop():
 # NaT strftime on empty train (formerly crashed)
 # ---------------------------------------------------------------------------
 
+
 def test_test_size_1_with_timestamps_does_not_crash_on_empty_train():
     """Regression sensor: ``test_size=1.0`` with timestamps lands the full
     dataset in the test split. Formatting train_details on the empty
@@ -67,9 +73,7 @@ def test_test_size_1_with_timestamps_does_not_crash_on_empty_train():
     """
     df = pd.DataFrame({"x": range(50)})
     ts = pd.Series(pd.date_range("2024-01-01", periods=50))
-    train_idx, val_idx, test_idx, train_det, val_det, test_det = (
-        make_train_test_split(df, test_size=1.0, val_size=0.0, timestamps=ts)
-    )
+    train_idx, _val_idx, test_idx, train_det, _val_det, _test_det = make_train_test_split(df, test_size=1.0, val_size=0.0, timestamps=ts)
     assert len(train_idx) == 0
     assert len(test_idx) == 50
     assert train_det == "(empty)"
@@ -80,7 +84,11 @@ def test_empty_train_details_also_guarded_for_row_timestamps():
     df = pd.DataFrame({"x": range(50)})
     ts = pd.Series(pd.date_range("2024-01-01", periods=50))
     _, _, _, train_det, _, _ = make_train_test_split(
-        df, test_size=1.0, val_size=0.0, timestamps=ts, wholeday_splitting=False,
+        df,
+        test_size=1.0,
+        val_size=0.0,
+        timestamps=ts,
+        wholeday_splitting=False,
     )
     assert train_det == "(empty)"
 
@@ -88,6 +96,7 @@ def test_empty_train_details_also_guarded_for_row_timestamps():
 # ---------------------------------------------------------------------------
 # Silent-empty-split warning
 # ---------------------------------------------------------------------------
+
 
 def test_single_date_wholeday_warns_on_empty_val(caplog):
     """When all rows share a single date and ``wholeday_splitting=True``,
@@ -102,7 +111,10 @@ def test_single_date_wholeday_warns_on_empty_val(caplog):
     ts = pd.Series([pd.Timestamp("2024-01-01")] * 100)
     with caplog.at_level(logging.WARNING, logger="mlframe.training.splitting"):
         _, val_idx, test_idx, *_ = make_train_test_split(
-            df, test_size=0.1, val_size=0.1, timestamps=ts,
+            df,
+            test_size=0.1,
+            val_size=0.1,
+            timestamps=ts,
         )
     # Row-based fallback fills non-empty val/test instead of silently
     # dropping the user's requested fractions.
@@ -110,11 +122,7 @@ def test_single_date_wholeday_warns_on_empty_val(caplog):
     assert len(test_idx) > 0
     warnings_text = " ".join(r.message for r in caplog.records if r.levelname == "WARNING")
     # WARN must mention either wholeday-fallback or the empty-predicted state.
-    assert (
-        "wholeday_splitting" in warnings_text
-        or "unique day" in warnings_text
-        or "predicted_n_val" in warnings_text
-    ), warnings_text
+    assert "wholeday_splitting" in warnings_text or "unique day" in warnings_text or "predicted_n_val" in warnings_text, warnings_text
 
 
 def test_no_warning_when_split_intentionally_zero(caplog):
@@ -126,14 +134,13 @@ def test_no_warning_when_split_intentionally_zero(caplog):
         _, val_idx, _, *_ = make_train_test_split(df, test_size=0.1, val_size=0)
     assert len(val_idx) == 0
     msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
-    assert not any("val split is empty" in m for m in msgs), (
-        "warning must not fire when val_size=0 is user-intended"
-    )
+    assert not any("val split is empty" in m for m in msgs), "warning must not fire when val_size=0 is user-intended"
 
 
 # ---------------------------------------------------------------------------
 # Pre-existing happy paths still work
 # ---------------------------------------------------------------------------
+
 
 def test_default_happy_path():
     """Sanity: the default call still produces sensible splits."""
@@ -141,7 +148,7 @@ def test_default_happy_path():
     train, val, test, *_ = make_train_test_split(df)
     assert len(train) + len(val) + len(test) == 1000
     assert len(test) == 100  # 10% default
-    assert len(val) == 90    # 10% of remaining 900
+    assert len(val) == 90  # 10% of remaining 900
 
 
 def test_seed_zero_is_deterministic():

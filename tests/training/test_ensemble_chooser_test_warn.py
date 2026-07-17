@@ -7,11 +7,11 @@ did NOT emit that WARN; the contradiction was the bug. This test pins the WARN i
 place: a candidate dict where ONLY test.* metrics resolve must trip the WARN AND
 return the deterministic winner.
 """
+
 from __future__ import annotations
 
 import logging
 
-import pytest
 
 from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
 

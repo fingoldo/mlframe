@@ -42,6 +42,7 @@ biz_value:
   than the legacy full-sample reseed-only gate, because lucky single-sample
   survivors no longer reappear in every run.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,11 +59,15 @@ _INNER_STRIDE = 7919  # _screening_tiny multiseed: base_random_state + s_idx*791
 def _noise_df(n: int = 500, seed: int = 99) -> pd.DataFrame:
     """Pure-noise frame (no feature carries any signal about ``y``) for stability-gate sensors."""
     rng = np.random.default_rng(seed)
-    return pd.DataFrame({
-        "f0": rng.standard_normal(n), "f1": rng.standard_normal(n),
-        "f2": rng.standard_normal(n), "f3": rng.standard_normal(n),
-        "y": rng.standard_normal(n),
-    })
+    return pd.DataFrame(
+        {
+            "f0": rng.standard_normal(n),
+            "f1": rng.standard_normal(n),
+            "f2": rng.standard_normal(n),
+            "f3": rng.standard_normal(n),
+            "y": rng.standard_normal(n),
+        }
+    )
 
 
 def _capture_run_calls(disc: CompositeTargetDiscovery, monkeypatch):
@@ -95,9 +100,13 @@ def test_m3_run_seeds_dont_collide_with_inner_multiseed_stride(monkeypatch):
 
     df = _noise_df()
     disc.fit_with_stability_check(
-        df=df, target_col="y", feature_cols=["f0", "f1", "f2", "f3"],
-        train_idx=np.arange(400), val_idx=np.arange(400, 500),
-        n_bootstrap_runs=5, min_keep_fraction=0.6,
+        df=df,
+        target_col="y",
+        feature_cols=["f0", "f1", "f2", "f3"],
+        train_idx=np.arange(400),
+        val_idx=np.arange(400, 500),
+        n_bootstrap_runs=5,
+        min_keep_fraction=0.6,
     )
     seeds = [s for s, _ in calls]
     assert len(seeds) == 5
@@ -144,9 +153,14 @@ def test_m3_runs_use_distinct_row_subsamples(monkeypatch):
     df = _noise_df()
     full_train = np.arange(400)
     disc.fit_with_stability_check(
-        df=df, target_col="y", feature_cols=["f0", "f1", "f2", "f3"],
-        train_idx=full_train, val_idx=np.arange(400, 500),
-        n_bootstrap_runs=5, min_keep_fraction=0.6, subsample_fraction=0.5,
+        df=df,
+        target_col="y",
+        feature_cols=["f0", "f1", "f2", "f3"],
+        train_idx=full_train,
+        val_idx=np.arange(400, 500),
+        n_bootstrap_runs=5,
+        min_keep_fraction=0.6,
+        subsample_fraction=0.5,
     )
     subsamples = [ti for _, ti in calls]
     assert len(subsamples) == 5
@@ -189,9 +203,14 @@ def test_m3_legacy_full_sample_opt_out(monkeypatch):
     df = _noise_df()
     full_train = np.arange(400)
     disc.fit_with_stability_check(
-        df=df, target_col="y", feature_cols=["f0", "f1", "f2", "f3"],
-        train_idx=full_train, val_idx=np.arange(400, 500),
-        n_bootstrap_runs=4, min_keep_fraction=0.6, subsample_fraction=1.0,
+        df=df,
+        target_col="y",
+        feature_cols=["f0", "f1", "f2", "f3"],
+        train_idx=full_train,
+        val_idx=np.arange(400, 500),
+        n_bootstrap_runs=4,
+        min_keep_fraction=0.6,
+        subsample_fraction=1.0,
     )
     assert holdout_snapshots, "the monkeypatched fit must have run at least once"
     shared_holdout = holdout_snapshots[0]
@@ -199,7 +218,9 @@ def test_m3_legacy_full_sample_opt_out(monkeypatch):
     expected_pool = np.setdiff1d(full_train, shared_holdout)
     for _, ti in calls:
         assert set(ti.tolist()).issubset(set(full_train.tolist())), "opt-out rows must still come from train_idx"
-        assert np.array_equal(np.sort(ti), expected_pool), "frac=1.0 must use the full SCREEN POOL (train_idx minus the shared honest holdout), identically across all runs"
+        assert np.array_equal(np.sort(ti), expected_pool), (
+            "frac=1.0 must use the full SCREEN POOL (train_idx minus the shared honest holdout), identically across all runs"
+        )
     # Seeds are still decorrelated even on the opt-out path.
     seeds = [s for s, _ in calls]
     assert len(set(seeds)) == 4
@@ -214,8 +235,11 @@ def test_m3_n_bootstrap_one_short_circuits(monkeypatch):
     df = _noise_df()
     full_train = np.arange(400)
     disc.fit_with_stability_check(
-        df=df, target_col="y", feature_cols=["f0", "f1", "f2", "f3"],
-        train_idx=full_train, val_idx=np.arange(400, 500),
+        df=df,
+        target_col="y",
+        feature_cols=["f0", "f1", "f2", "f3"],
+        train_idx=full_train,
+        val_idx=np.arange(400, 500),
         n_bootstrap_runs=1,
     )
     assert len(calls) == 1
@@ -250,9 +274,14 @@ def test_biz_val_subsampling_improves_lucky_spec_filtering():
         cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=300, random_state=99)
         disc = CompositeTargetDiscovery(config=cfg)
         disc.fit_with_stability_check(
-            df=df, target_col="y", feature_cols=feats,
-            train_idx=train_idx, val_idx=val_idx,
-            n_bootstrap_runs=5, min_keep_fraction=0.6, subsample_fraction=frac,
+            df=df,
+            target_col="y",
+            feature_cols=feats,
+            train_idx=train_idx,
+            val_idx=val_idx,
+            n_bootstrap_runs=5,
+            min_keep_fraction=0.6,
+            subsample_fraction=frac,
         )
         return len(disc.specs_)
 
@@ -261,7 +290,7 @@ def test_biz_val_subsampling_improves_lucky_spec_filtering():
 
     # The fixed gate never keeps MORE noise specs than the legacy gate.
     assert fixed_kept <= legacy_kept, (
-        f"subsampled gate kept MORE noise specs ({fixed_kept}) than the legacy " f"full-sample gate ({legacy_kept}) -- regression in M-B filtering"
+        f"subsampled gate kept MORE noise specs ({fixed_kept}) than the legacy full-sample gate ({legacy_kept}) -- regression in M-B filtering"
     )
     # And on pure noise it should keep essentially nothing.
-    assert fixed_kept <= 1, f"subsampled stability gate kept {fixed_kept} noise specs -- " "lucky-split survivors not filtered"
+    assert fixed_kept <= 1, f"subsampled stability gate kept {fixed_kept} noise specs -- lucky-split survivors not filtered"

@@ -8,11 +8,11 @@ fell through to the deterministic first-emitted ('arithm') flavour -- silently s
 suboptimal canonical ensemble on every classification suite. These tests pin the metric-driven pick
 on the real classification metric layout (binary metrics nest under class 1).
 """
+
 from __future__ import annotations
 
 import logging
 
-import numpy as np
 import pytest
 
 from mlframe.training.core._ensemble_chooser import (
@@ -48,8 +48,8 @@ def test_chooser_picks_best_ice_flavour_not_arithm_fallback(caplog):
     """The flavour with the lowest ``oof.ice`` wins; the no-metric fallback WARN must NOT fire."""
     ensembles = {
         "arithm": _FakeEns(_binary_metrics("oof", ice=0.30, roc_auc=0.70, pr_auc=0.60, brier=0.22)),
-        "harm":   _FakeEns(_binary_metrics("oof", ice=0.05, roc_auc=0.92, pr_auc=0.88, brier=0.09)),
-        "geo":    _FakeEns(_binary_metrics("oof", ice=0.18, roc_auc=0.81, pr_auc=0.75, brier=0.15)),
+        "harm": _FakeEns(_binary_metrics("oof", ice=0.05, roc_auc=0.92, pr_auc=0.88, brier=0.09)),
+        "geo": _FakeEns(_binary_metrics("oof", ice=0.18, roc_auc=0.81, pr_auc=0.75, brier=0.15)),
     }
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core._phase_train_one_target"):
         winner = _choose_ensemble_flavour(ensembles)
@@ -60,13 +60,14 @@ def test_chooser_picks_best_ice_flavour_not_arithm_fallback(caplog):
 
 def test_chooser_ranks_classification_by_roc_auc_when_calibration_absent():
     """With no ``ice`` / ``brier`` keys, the chooser falls to ``roc_auc`` (higher-is-better)."""
+
     def _auc_only(roc: float) -> dict:
         return {"oof": {1: {"roc_auc": roc, "pr_auc": roc - 0.05}}}
 
     ensembles = {
         "arithm": _FakeEns(_auc_only(0.70)),
-        "harm":   _FakeEns(_auc_only(0.93)),  # best AUC
-        "geo":    _FakeEns(_auc_only(0.82)),
+        "harm": _FakeEns(_auc_only(0.93)),  # best AUC
+        "geo": _FakeEns(_auc_only(0.82)),
     }
     assert _choose_ensemble_flavour(ensembles) == "harm"
 
@@ -91,8 +92,8 @@ def test_chooser_ranks_regression_by_uppercase_rmse():
     """End-to-end on the real regression key casing: lowest ``RMSE`` wins via the case-insensitive lookup."""
     ensembles = {
         "arithm": _FakeEns({"oof": {"RMSE": 0.90, "MAE": 0.7, "R2": 0.1}}),
-        "harm":   _FakeEns({"oof": {"RMSE": 0.10, "MAE": 0.08, "R2": 0.95}}),  # best
-        "geo":    _FakeEns({"oof": {"RMSE": 0.50, "MAE": 0.4, "R2": 0.5}}),
+        "harm": _FakeEns({"oof": {"RMSE": 0.10, "MAE": 0.08, "R2": 0.95}}),  # best
+        "geo": _FakeEns({"oof": {"RMSE": 0.50, "MAE": 0.4, "R2": 0.5}}),
     }
     assert _choose_ensemble_flavour(ensembles) == "harm"
 
@@ -103,7 +104,7 @@ def test_chooser_classification_roc_auc_beats_brier_when_they_disagree():
     bench_ensemble_chooser_rank_metric (AUC-first wins honest held-out test AUC 21/21 cells)."""
     ensembles = {
         "arithm": _FakeEns({"oof": {1: {"brier_loss": 0.25, "roc_auc": 0.92}}}),  # worse brier, best AUC
-        "harm":   _FakeEns({"oof": {1: {"brier_loss": 0.05, "roc_auc": 0.80}}}),  # best brier, worse AUC
+        "harm": _FakeEns({"oof": {1: {"brier_loss": 0.05, "roc_auc": 0.80}}}),  # best brier, worse AUC
     }
     assert _choose_ensemble_flavour(ensembles) == "arithm"
 
@@ -112,7 +113,7 @@ def test_chooser_classification_brier_breaks_genuine_auc_tie():
     """When ``roc_auc`` AND ``pr_auc`` are absent, ``brier_loss`` (lower-is-better) decides."""
     ensembles = {
         "arithm": _FakeEns({"oof": {1: {"brier_loss": 0.25}}}),
-        "harm":   _FakeEns({"oof": {1: {"brier_loss": 0.05}}}),  # best brier, no AUC present
+        "harm": _FakeEns({"oof": {1: {"brier_loss": 0.05}}}),  # best brier, no AUC present
     }
     assert _choose_ensemble_flavour(ensembles) == "harm"
 
@@ -121,6 +122,6 @@ def test_chooser_still_honours_legacy_integral_error_key():
     """Back-compat: callers / fixtures stamping the legacy ``integral_error`` key still rank correctly."""
     ensembles = {
         "arithm": _FakeEns({"oof": {"integral_error": 0.30}}),
-        "harm":   _FakeEns({"oof": {"integral_error": 0.05}}),
+        "harm": _FakeEns({"oof": {"integral_error": 0.05}}),
     }
     assert _choose_ensemble_flavour(ensembles) == "harm"

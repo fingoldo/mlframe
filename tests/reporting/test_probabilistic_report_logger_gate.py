@@ -16,11 +16,8 @@ when no INFO handler will accept the message, no sklearn call should occur.
 from __future__ import annotations
 
 import logging
-from unittest import mock
 
 import numpy as np
-import pandas as pd
-import pytest
 
 
 def test_classification_report_skipped_when_info_filtered(monkeypatch):
@@ -73,8 +70,7 @@ def test_classification_report_skipped_when_info_filtered(monkeypatch):
         pass
 
     assert sklearn_call_count["n"] == 0, (
-        f"classification_report fired {sklearn_call_count['n']} time(s) under "
-        f"WARNING-level logger; the isEnabledFor(INFO) gate is regressed"
+        f"classification_report fired {sklearn_call_count['n']} time(s) under WARNING-level logger; the isEnabledFor(INFO) gate is regressed"
     )
 
     # Restore default level

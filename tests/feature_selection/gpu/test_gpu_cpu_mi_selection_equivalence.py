@@ -26,6 +26,7 @@ Two layers of protection, both auto-skipping on CUDA-unavailable hosts:
 GPU fixtures are kept SMALL (n<=4000, p<=20) so they fit a 4GB consumer GPU; the
 CuPy memory pool is freed between fits.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -38,6 +39,7 @@ cp = pytest.importorskip("cupy")
 def _need_cuda() -> bool:
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+
         return is_cuda_available()
     except Exception:
         return False
@@ -57,13 +59,16 @@ def _free_gpu() -> None:
 # ---------------------------------------------------------------------------
 # Layer 1: CUDA MI-reducer kernel vs CPU njit, across target cardinalities.
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("nbins_x,nbins_y", [
-    (4, 2),    # binary target -- the ONLY case the stride-2 bug happened to match
-    (4, 3),    # 3-class target -- stride-2 bug read wrong cells
-    (6, 5),    # 5-class
-    (10, 10),  # quantile-binned regression target (10 bins) -- worst case
-    (3, 7),    # asymmetric, nbins_y > nbins_x
-])
+@pytest.mark.parametrize(
+    "nbins_x,nbins_y",
+    [
+        (4, 2),  # binary target -- the ONLY case the stride-2 bug happened to match
+        (4, 3),  # 3-class target -- stride-2 bug read wrong cells
+        (6, 5),  # 5-class
+        (10, 10),  # quantile-binned regression target (10 bins) -- worst case
+        (3, 7),  # asymmetric, nbins_y > nbins_x
+    ],
+)
 def test_compute_mi_from_classes_cuda_matches_cpu(nbins_x, nbins_y):
     """The CUDA single-perm MI reducer must equal the CPU njit MI to ~1e-9 for
     EVERY target cardinality, not just nbins_y==2."""
@@ -96,13 +101,14 @@ def test_compute_mi_from_classes_cuda_matches_cpu(nbins_x, nbins_y):
     block = 256
     grid = (n + block - 1) // block
     g.compute_joint_hist_cuda(
-        (grid,), (block,),
+        (grid,),
+        (block,),
         (cx, cy, joint, np.int32(n), np.int32(nbins_y)),
     )
     g.compute_mi_from_classes_cuda(
-        (1,), (1,),
-        (cx, fx, cy, fy, joint, totals,
-         np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
+        (1,),
+        (1,),
+        (cx, fx, cy, fy, joint, totals, np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
     )
     gpu_mi = float(totals.get()[0])
     _free_gpu()
@@ -122,25 +128,31 @@ def test_compute_mi_from_classes_cuda_matches_cpu(nbins_x, nbins_y):
 def _fx_reg_ratio(seed, n):
     rng = np.random.default_rng(seed)
     a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
-    y = 0.30 * (a ** 2) / b + 0.01 * e
+    y = 0.30 * (a**2) / b + 0.01 * e
     return pd.DataFrame({"a": a, "b": b, "e": e}), pd.Series(y, name="y")
 
 
 def _fx_reg_two_pairs(seed, n):
     rng = np.random.default_rng(seed)
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n)
-    c = rng.uniform(1, 5, n); d = rng.uniform(0, 2 * np.pi, n)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    c = rng.uniform(1, 5, n)
+    d = rng.uniform(0, 2 * np.pi, n)
     e = rng.normal(0, 1, n)
-    y = a ** 2 / b + 3.0 * np.log(c) * np.sin(d) + 0.3 * e
+    y = a**2 / b + 3.0 * np.log(c) * np.sin(d) + 0.3 * e
     return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
 
 
 def _fx_reg_mixed(seed, n):
     rng = np.random.default_rng(seed)
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n)
-    c = rng.uniform(0, 1, n); d = rng.uniform(0, 1, n); e = rng.uniform(0, 1, n)
-    g = rng.uniform(0, 1, n); h = rng.uniform(0, 1, n)
-    y = a ** 2 / b + 0.6 * (c - d) + e / 40.0
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    c = rng.uniform(0, 1, n)
+    d = rng.uniform(0, 1, n)
+    e = rng.uniform(0, 1, n)
+    g = rng.uniform(0, 1, n)
+    h = rng.uniform(0, 1, n)
+    y = a**2 / b + 0.6 * (c - d) + e / 40.0
     return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e, "g": g, "h": h}), pd.Series(y, name="y")
 
 
@@ -176,14 +188,12 @@ def test_mrmr_gpu_cpu_selection_identical(name, builder, n):
     df, y = builder(seed, n)
 
     _free_gpu()
-    cpu = MRMR(verbose=0, random_seed=seed, fe_max_steps=1, use_gpu=False,
-               full_npermutations=64, baseline_npermutations=64)
+    cpu = MRMR(verbose=0, random_seed=seed, fe_max_steps=1, use_gpu=False, full_npermutations=64, baseline_npermutations=64)
     cpu.fit(df, y)
     sel_cpu = set(cpu.get_feature_names_out())
 
     _free_gpu()
-    gpu = MRMR(verbose=0, random_seed=seed, fe_max_steps=1, use_gpu=True,
-               full_npermutations=64, baseline_npermutations=64)
+    gpu = MRMR(verbose=0, random_seed=seed, fe_max_steps=1, use_gpu=True, full_npermutations=64, baseline_npermutations=64)
     gpu.fit(df, y)
     sel_gpu = set(gpu.get_feature_names_out())
     _free_gpu()
@@ -221,7 +231,7 @@ def _fx_adv_near_tie(seed, n):
     """Two near-identical informative features (MI within ~1e-4) + a distractor."""
     rng = np.random.default_rng(seed)
     base = rng.uniform(0, 1, n)
-    y = base ** 2
+    y = base**2
     f1 = base + rng.normal(0, 1e-3, n)
     f2 = base + rng.normal(0, 1.0001e-3, n)  # MI within ~1e-4 of f1
     noise = rng.uniform(0, 1, n)
@@ -231,7 +241,8 @@ def _fx_adv_near_tie(seed, n):
 def _fx_adv_gate_epsilon(seed, n):
     """A weak candidate sitting where the permutation noise-gate flips."""
     rng = np.random.default_rng(seed)
-    a = rng.uniform(0, 1, n); b = rng.uniform(0, 1, n)
+    a = rng.uniform(0, 1, n)
+    b = rng.uniform(0, 1, n)
     y = a + 0.5 * b
     weak = (a > 0.5).astype(float) * 0.02 + rng.uniform(0, 1, n)
     pure_noise = rng.uniform(0, 1, n)
@@ -255,8 +266,10 @@ def _fx_adv_wide_p60(seed, n, p=60):
 def _fx_adv_dispatch_edge(seed, n):
     """n at the joint-hist dispatcher crossover (4096)."""
     rng = np.random.default_rng(seed)
-    a = rng.uniform(1, 5, n); b = rng.uniform(1, 5, n); c = rng.uniform(1, 5, n)
-    y = a ** 2 / b + np.log(c) + 0.1 * rng.normal(0, 1, n)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    c = rng.uniform(1, 5, n)
+    y = a**2 / b + np.log(c) + 0.1 * rng.normal(0, 1, n)
     return pd.DataFrame({"a": a, "b": b, "c": c, "nz": rng.uniform(0, 1, n)}), pd.Series(y, name="y")
 
 
@@ -280,14 +293,12 @@ def test_mrmr_gpu_cpu_selection_identical_adversarial(name, builder, n, seed):
     df, y = builder(seed, n)
 
     _free_gpu()
-    cpu = MRMR(verbose=0, random_seed=seed, fe_max_steps=1, use_gpu=False,
-               full_npermutations=128, baseline_npermutations=128)
+    cpu = MRMR(verbose=0, random_seed=seed, fe_max_steps=1, use_gpu=False, full_npermutations=128, baseline_npermutations=128)
     cpu.fit(df, y)
     sel_cpu = set(cpu.get_feature_names_out())
 
     _free_gpu()
-    gpu = MRMR(verbose=0, random_seed=seed, fe_max_steps=1, use_gpu=True,
-               full_npermutations=128, baseline_npermutations=128)
+    gpu = MRMR(verbose=0, random_seed=seed, fe_max_steps=1, use_gpu=True, full_npermutations=128, baseline_npermutations=128)
     gpu.fit(df, y)
     sel_gpu = set(gpu.get_feature_names_out())
     _free_gpu()

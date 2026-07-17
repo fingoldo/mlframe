@@ -8,6 +8,7 @@ folds give a real wall-clock win on multi-core machines.
 N6 design: ``importance_getter='permutation'`` uses sklearn.inspection;
 ``importance_getter='shap'`` uses the optional ``shap`` package.
 """
+
 from __future__ import annotations
 
 import sys
@@ -33,9 +34,15 @@ from mlframe.feature_selection.wrappers._helpers import (
 @pytest.fixture(scope="module")
 def small_clf_data():
     Xdf, y, _ = make_sklearn_classification_df(
-        n_samples=200, n_features=10, n_informative=4,
-        n_redundant=0, n_classes=2, n_clusters_per_class=1,
-        class_sep=2.0, shuffle=False, seed=0,
+        n_samples=200,
+        n_features=10,
+        n_informative=4,
+        n_redundant=0,
+        n_classes=2,
+        n_clusters_per_class=1,
+        class_sep=2.0,
+        shuffle=False,
+        seed=0,
     )
     return Xdf, y
 
@@ -90,8 +97,7 @@ class TestN3_ParallelEquivalence:
         par = RFECV(n_jobs=2, **common).fit(X, y)
         # Same selection on the same problem with the same seed.
         assert set(seq.get_feature_names_out()) == set(par.get_feature_names_out()), (
-            f"Parallel and sequential RFECV diverged on the same input + seed. "
-            f"seq={list(seq.get_feature_names_out())} par={list(par.get_feature_names_out())}"
+            f"Parallel and sequential RFECV diverged on the same input + seed. seq={list(seq.get_feature_names_out())} par={list(par.get_feature_names_out())}"
         )
 
     @pytest.mark.skipif(
@@ -126,6 +132,7 @@ class TestN3_AutoFallback:
         threading, but RFECV doesn't compound it."""
         X, y = small_clf_data
         import logging
+
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.wrappers.rfecv"):
             rfecv = RFECV(
                 estimator=RandomForestClassifier(n_estimators=10, random_state=0, n_jobs=-1),
@@ -146,8 +153,13 @@ class TestN3_AutoFallback:
 class TestN6_PermutationImportance:
     def test_permutation_returns_per_feature_dict(self):
         Xdf, y, cols = make_sklearn_classification_df(
-            n_samples=120, n_features=6, n_informative=3, seed=0,
-            n_redundant=0, shuffle=False, class_sep=2.0,
+            n_samples=120,
+            n_features=6,
+            n_informative=3,
+            seed=0,
+            n_redundant=0,
+            shuffle=False,
+            class_sep=2.0,
         )
         model = LogisticRegression(max_iter=200, random_state=0).fit(Xdf, y)
         result = get_feature_importances(
@@ -164,10 +176,7 @@ class TestN6_PermutationImportance:
         top3 = {k for k, _ in sorted_pairs[:3]}
         # At least 2 of the top-3 must be informative (f0, f1, f2)
         informative_in_top3 = len(top3 & {"f0", "f1", "f2"})
-        assert informative_in_top3 >= 2, (
-            f"permutation importance failed to surface the informative features; "
-            f"top3={top3}"
-        )
+        assert informative_in_top3 >= 2, f"permutation importance failed to surface the informative features; top3={top3}"
 
     def test_permutation_requires_target(self):
         """importance_getter='permutation' without target= must raise."""
@@ -192,6 +201,7 @@ class TestN6_ShapImportance:
         model = RandomForestClassifier(n_estimators=20, random_state=0).fit(X, y)
         try:
             import shap  # noqa: F401
+
             has_shap = True
         except ImportError:
             has_shap = False
@@ -223,32 +233,30 @@ class TestN6_ShapImportance:
 class TestLeaderboard_LazyMajorityGraph:
     def test_borda_skips_majority_graph(self):
         from mlframe.votenrank import Leaderboard
-        df = pd.DataFrame({"r1": [10, 20, 5, 15], "r2": [12, 18, 6, 14]},
-                          index=["f0", "f1", "f2", "f3"])
+
+        df = pd.DataFrame({"r1": [10, 20, 5, 15], "r2": [12, 18, 6, 14]}, index=["f0", "f1", "f2", "f3"])
         lb = Leaderboard(table=df)
         # Before any graph-using method is called: graph not built.
         assert lb.majority_graph is None
         _ = lb.borda_ranking()
         assert lb.majority_graph is None, (
-            "borda_ranking() must not trigger majority_graph construction; "
-            "the graph is the n^2 hot path that was making RFECV slow."
+            "borda_ranking() must not trigger majority_graph construction; the graph is the n^2 hot path that was making RFECV slow."
         )
 
     def test_copeland_builds_majority_graph_on_demand(self):
         from mlframe.votenrank import Leaderboard
-        df = pd.DataFrame({"r1": [10, 20, 5, 15], "r2": [12, 18, 6, 14]},
-                          index=["f0", "f1", "f2", "f3"])
+
+        df = pd.DataFrame({"r1": [10, 20, 5, 15], "r2": [12, 18, 6, 14]}, index=["f0", "f1", "f2", "f3"])
         lb = Leaderboard(table=df)
         assert lb.majority_graph is None
         _ = lb.copeland_ranking()
-        assert lb.majority_graph is not None, (
-            "copeland_ranking() must trigger lazy majority_graph build."
-        )
+        assert lb.majority_graph is not None, "copeland_ranking() must trigger lazy majority_graph build."
 
     def test_idempotent_majority_graph_build(self):
         """Calling _ensure_majority_graph twice should keep the same graph;
         no recomputation."""
         from mlframe.votenrank import Leaderboard
+
         df = pd.DataFrame({"r1": [1, 2], "r2": [3, 4]}, index=["a", "b"])
         lb = Leaderboard(table=df)
         lb._ensure_majority_graph()
@@ -268,8 +276,13 @@ class TestPhase7_ConditionalPermutationImportance:
     def test_cpi_returns_per_feature_dict(self):
         """Basic shape contract: one importance per feature, informative > noise."""
         Xdf, y, cols = make_sklearn_classification_df(
-            n_samples=200, n_features=6, n_informative=3, seed=0,
-            n_redundant=0, shuffle=False, class_sep=2.0,
+            n_samples=200,
+            n_features=6,
+            n_informative=3,
+            seed=0,
+            n_redundant=0,
+            shuffle=False,
+            class_sep=2.0,
         )
         model = RandomForestClassifier(n_estimators=30, random_state=0).fit(Xdf, y)
         result = get_feature_importances(
@@ -283,9 +296,7 @@ class TestPhase7_ConditionalPermutationImportance:
         sorted_pairs = sorted(result.items(), key=lambda kv: kv[1], reverse=True)
         top3 = {k for k, _ in sorted_pairs[:3]}
         informative_in_top3 = len(top3 & {"f0", "f1", "f2"})
-        assert informative_in_top3 >= 2, (
-            f"CPI failed to surface informative features; top3={top3}"
-        )
+        assert informative_in_top3 >= 2, f"CPI failed to surface informative features; top3={top3}"
 
     def test_cpi_requires_target(self):
         """importance_getter='conditional_permutation' without target= must raise."""
@@ -337,9 +348,7 @@ class TestPhase7_ConditionalPermutationImportance:
         assert cpi["x1"] > cpi["x3"] + 0.005, f"CPI: x1 must dominate noise; cpi={cpi}"
         assert cpi["x1"] > cpi["x4"] + 0.005, f"CPI: x1 must dominate noise; cpi={cpi}"
         # x2 (correlated near-copy) should not exceed driver x1.
-        assert cpi["x2"] <= cpi["x1"] + 0.02, (
-            f"CPI must not over-rank correlated copy x2 above driver x1; cpi={cpi}"
-        )
+        assert cpi["x2"] <= cpi["x1"] + 0.02, f"CPI must not over-rank correlated copy x2 above driver x1; cpi={cpi}"
         # Noise features must have small (near-zero) CPI.
         assert abs(cpi["x3"]) < 0.05, f"noise x3 should be ~0; cpi={cpi}"
         assert abs(cpi["x4"]) < 0.05, f"noise x4 should be ~0; cpi={cpi}"
@@ -370,8 +379,11 @@ class TestPhase7_ConditionalPermutationImportance:
         from sklearn.datasets import make_regression
 
         X, y = make_regression(
-            n_samples=200, n_features=5, n_informative=2,
-            random_state=0, shuffle=False,
+            n_samples=200,
+            n_features=5,
+            n_informative=2,
+            random_state=0,
+            shuffle=False,
         )
         cols = [f"f{i}" for i in range(5)]
         Xdf = pd.DataFrame(X, columns=cols)
@@ -387,9 +399,7 @@ class TestPhase7_ConditionalPermutationImportance:
         sorted_pairs = sorted(result.items(), key=lambda kv: kv[1], reverse=True)
         top2 = {k for k, _ in sorted_pairs[:2]}
         # The two informative features (f0, f1) should be in the top-2.
-        assert len(top2 & {"f0", "f1"}) >= 1, (
-            f"CPI failed to surface regression-informative features; top2={top2}, all={result}"
-        )
+        assert len(top2 & {"f0", "f1"}) >= 1, f"CPI failed to surface regression-informative features; top2={top2}, all={result}"
 
     def test_cpi_single_feature_edge_case(self):
         """p=1: no conditioning set X_{-j}, CPI must fall back to vanilla shuffle
@@ -413,10 +423,12 @@ class TestPhase7_ConditionalPermutationImportance:
         """When X_j is constant, conditional tree fit may degenerate; CPI must
         return 0 for that feature without raising."""
         rng = np.random.default_rng(3)
-        Xdf = pd.DataFrame({
-            "const": np.ones(100),
-            "driver": rng.standard_normal(100),
-        })
+        Xdf = pd.DataFrame(
+            {
+                "const": np.ones(100),
+                "driver": rng.standard_normal(100),
+            }
+        )
         y = (Xdf["driver"] > 0).astype(int).values
         model = RandomForestClassifier(n_estimators=20, random_state=0).fit(Xdf, y)
         result = get_feature_importances(
@@ -434,9 +446,15 @@ class TestPhase7_ConditionalPermutationImportance:
         """Smoke-test: RFECV(importance_getter='conditional_permutation') must
         complete without error and select at least one feature."""
         Xdf, y, _ = make_sklearn_classification_df(
-            n_samples=200, n_features=8, n_informative=3,
-            n_redundant=0, n_classes=2, n_clusters_per_class=1,
-            class_sep=2.0, shuffle=False, seed=0,
+            n_samples=200,
+            n_features=8,
+            n_informative=3,
+            n_redundant=0,
+            n_classes=2,
+            n_clusters_per_class=1,
+            class_sep=2.0,
+            shuffle=False,
+            seed=0,
         )
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),

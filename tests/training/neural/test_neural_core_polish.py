@@ -54,8 +54,10 @@ def test_low_s3_generate_mlp_rejects_bad_args_with_valueerror() -> None:
     # first_layer_num_neurons below min_layer_neurons
     with pytest.raises(ValueError, match="first_layer_num_neurons"):
         generate_mlp(
-            num_features=4, num_classes=2,
-            min_layer_neurons=8, first_layer_num_neurons=4,
+            num_features=4,
+            num_classes=2,
+            min_layer_neurons=8,
+            first_layer_num_neurons=4,
         )
 
 
@@ -95,6 +97,7 @@ def test_polish_default_seq_input_size_constant_used_consistently() -> None:
 
     # RecurrentTorchModel's seq_input_size default also tracks the constant.
     import inspect
+
     sig = inspect.signature(rec_mod.RecurrentTorchModel.__init__)
     assert sig.parameters["seq_input_size"].default == rec_mod._DEFAULT_SEQ_INPUT_SIZE
 

@@ -49,10 +49,18 @@ _EXEMPT_PATH_FRAGMENTS = ("__pycache__", "tests", "legacy", "profiling", "explor
 # Constructors known to produce mutable instances. ``frozenset`` and
 # ``tuple`` are intentionally absent — those are immutable.
 _MUTABLE_CONSTRUCTORS = {
-    "list", "dict", "set",
-    "OrderedDict", "defaultdict", "Counter", "ChainMap", "deque",
+    "list",
+    "dict",
+    "set",
+    "OrderedDict",
+    "defaultdict",
+    "Counter",
+    "ChainMap",
+    "deque",
     # NumPy / Pandas: any of these as a default is a code smell.
-    "ndarray", "DataFrame", "Series",
+    "ndarray",
+    "DataFrame",
+    "Series",
 }
 
 
@@ -120,7 +128,7 @@ def test_no_new_mutable_default_arguments():
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
         _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"mutable-defaults baseline refreshed at {_BASELINE_PATH.name} " f"({len(current)} site(s))")
+        pytest.skip(f"mutable-defaults baseline refreshed at {_BASELINE_PATH.name} ({len(current)} site(s))")
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
@@ -129,7 +137,8 @@ def test_no_new_mutable_default_arguments():
     if fixed:
         sys.stderr.write(
             f"\n[test_no_new_mutable_default_arguments] {len(fixed)} site(s) "
-            f"DRAINED:\n  " + "\n  ".join(fixed[:15])
+            f"DRAINED:\n  "
+            + "\n  ".join(fixed[:15])
             + (f"\n  ... and {len(fixed) - 15} more" if len(fixed) > 15 else "")
             + "\n  Refresh: pytest ... --refresh-mutable-defaults-baseline\n"
         )

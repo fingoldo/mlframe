@@ -21,6 +21,7 @@ default-on protection path):
 * D  REPLAY:      transform() reproduces the fit-time adaptive column byte-for-
                   byte (recipe replay is a pure function of X, y-independent).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -41,6 +42,7 @@ SEEDS = (0, 5, 11)
 
 def _make_mrmr(**overrides):
     from mlframe.feature_selection.filters.mrmr import MRMR
+
     kwargs = dict(verbose=0, random_seed=0)
     kwargs.update(overrides)
     return MRMR(**kwargs)
@@ -54,17 +56,16 @@ def _build_multitone(seed: int, n: int = 4000):
     """
     rng = np.random.default_rng(seed)
     x = rng.uniform(-3.0, 3.0, size=n)
-    X = pd.DataFrame({
-        "a": x,
-        "n1": rng.standard_normal(n),
-        "n2": rng.standard_normal(n),
-        "n3": rng.standard_normal(n),
-        "n4": rng.standard_normal(n),
-    })
-    y = (
-        np.sin(3.7 * x) + np.sin(5.3 * x) + np.sin(6.8 * x)
-        + 0.05 * rng.standard_normal(n)
+    X = pd.DataFrame(
+        {
+            "a": x,
+            "n1": rng.standard_normal(n),
+            "n2": rng.standard_normal(n),
+            "n3": rng.standard_normal(n),
+            "n4": rng.standard_normal(n),
+        }
     )
+    y = np.sin(3.7 * x) + np.sin(5.3 * x) + np.sin(6.8 * x) + 0.05 * rng.standard_normal(n)
     return X, pd.Series(y, name="y")
 
 
@@ -74,12 +75,12 @@ def _build_multitone(seed: int, n: int = 4000):
 
 
 class TestDetectorUnit:
-
     @pytest.mark.parametrize("true_w", [3.7, 5.3, 6.8])
     def test_detects_arbitrary_period(self, true_w):
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _detect_fourier_freq_for_col,
         )
+
         rng = np.random.default_rng(0)
         n = 4000
         x = rng.uniform(-3.0, 3.0, size=n)
@@ -87,16 +88,16 @@ class TestDetectorUnit:
         z = (x - x.min()) / span
         y = np.sin(true_w * x)
         f = _detect_fourier_freq_for_col(
-            z, y, f_grid=tuple(0.5 * k for k in range(1, 17)),
-            min_val_corr=0.15, min_rows=800,
+            z,
+            y,
+            f_grid=tuple(0.5 * k for k in range(1, 17)),
+            min_val_corr=0.15,
+            min_rows=800,
         )
         assert f is not None, f"detector returned None for sin({true_w}*x)"
         expected = true_w * span / (2.0 * np.pi)
         # Coarse-sweep + 0.05 refine should land within ~0.3 of the true freq.
-        assert abs(f - expected) < 0.35, (
-            f"detected z-freq {f:.3f} far from expected {expected:.3f} "
-            f"for sin({true_w}*x)"
-        )
+        assert abs(f - expected) < 0.35, f"detected z-freq {f:.3f} far from expected {expected:.3f} for sin({true_w}*x)"
 
     def test_n_gate_below_min_rows_returns_none(self):
         """N-gated: below min_rows the detector must not fire (small-n false
@@ -104,14 +105,18 @@ class TestDetectorUnit:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _detect_fourier_freq_for_col,
         )
+
         rng = np.random.default_rng(1)
         n = 400  # below 800
         x = rng.uniform(-3.0, 3.0, size=n)
         z = (x - x.min()) / float(x.max() - x.min())
         y = np.sin(5.3 * x)
         f = _detect_fourier_freq_for_col(
-            z, y, f_grid=tuple(0.5 * k for k in range(1, 17)),
-            min_val_corr=0.15, min_rows=800,
+            z,
+            y,
+            f_grid=tuple(0.5 * k for k in range(1, 17)),
+            min_val_corr=0.15,
+            min_rows=800,
         )
         assert f is None, "detector fired below min_rows (small-n FP)"
 
@@ -119,14 +124,18 @@ class TestDetectorUnit:
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             _detect_fourier_freq_for_col,
         )
+
         rng = np.random.default_rng(2)
         n = 2000
         x = rng.standard_normal(n)
         z = (x - x.min()) / float(x.max() - x.min())
         y = rng.standard_normal(n)  # independent of x
         f = _detect_fourier_freq_for_col(
-            z, y, f_grid=tuple(0.5 * k for k in range(1, 17)),
-            min_val_corr=0.15, min_rows=800,
+            z,
+            y,
+            f_grid=tuple(0.5 * k for k in range(1, 17)),
+            min_val_corr=0.15,
+            min_rows=800,
         )
         assert f is None, "detector fired on pure noise"
 
@@ -137,14 +146,16 @@ class TestDetectorUnit:
 
 
 class TestGateARecovery:
-
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.timeout(300)
     def test_support_model_recovers_multitone(self, seed):
         X, y = _build_multitone(seed)
         yv = y.to_numpy()
         Xtr, Xte, ytr, yte = train_test_split(
-            X, yv, test_size=0.3, random_state=seed,
+            X,
+            yv,
+            test_size=0.3,
+            random_state=seed,
         )
         sel = _make_mrmr()  # adaptive ON by default
         sel.fit(Xtr, pd.Series(ytr, name="y"))
@@ -170,10 +181,7 @@ class TestGateARecovery:
         adaptive = list(getattr(sel, "_adaptive_fourier_features_", []) or [])
         assert adaptive, "no adaptive Fourier feature detected on a 3-tone signal"
         eng = set(getattr(sel, "_engineered_features_", []) or [])
-        assert any(a in eng for a in adaptive), (
-            f"adaptive feature(s) {adaptive} not protected into the support "
-            f"engineered set {sorted(eng)}"
-        )
+        assert any(a in eng for a in adaptive), f"adaptive feature(s) {adaptive} not protected into the support engineered set {sorted(eng)}"
 
 
 # ---------------------------------------------------------------------------
@@ -182,30 +190,21 @@ class TestGateARecovery:
 
 
 class TestGateCNoiseControl:
-
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.timeout(300)
     def test_pure_noise_adds_no_adaptive_column(self, seed):
         rng = np.random.default_rng(seed)
         n = 2000
-        Xn = pd.DataFrame(
-            {f"c{i}": rng.standard_normal(n) for i in range(6)}
-        )
+        Xn = pd.DataFrame({f"c{i}": rng.standard_normal(n) for i in range(6)})
         yn = pd.Series(rng.standard_normal(n), name="y")
         sel = _make_mrmr()
         sel.fit(Xn, yn)
         adaptive = list(getattr(sel, "_adaptive_fourier_features_", []) or [])
-        assert not adaptive, (
-            f"GATE C: adaptive detector fired on a pure-noise frame: {adaptive}"
-        )
+        assert not adaptive, f"GATE C: adaptive detector fired on a pure-noise frame: {adaptive}"
         # Support stays tiny (no engineered oscillation injected).
         eng = list(getattr(sel, "_engineered_features_", []) or [])
-        fourier_eng = [
-            c for c in eng if ("sin" in c or "cos" in c)
-        ]
-        assert not fourier_eng, (
-            f"GATE C: Fourier engineered column(s) injected on noise: {fourier_eng}"
-        )
+        fourier_eng = [c for c in eng if ("sin" in c or "cos" in c)]
+        assert not fourier_eng, f"GATE C: Fourier engineered column(s) injected on noise: {fourier_eng}"
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +214,6 @@ class TestGateCNoiseControl:
 
 
 class TestGateDReplayByteMatch:
-
     @pytest.mark.parametrize("seed", SEEDS)
     @pytest.mark.timeout(300)
     def test_transform_replays_adaptive_column_byte_for_byte(self, seed):
@@ -229,10 +227,7 @@ class TestGateDReplayByteMatch:
         assert isinstance(out1, pd.DataFrame), "expected a named DataFrame output"
         # At least one re-added adaptive column must survive into transform out.
         present = [a for a in adaptive if a in out1.columns]
-        assert present, (
-            f"no adaptive feature {adaptive} present in transform output "
-            f"columns {list(out1.columns)}"
-        )
+        assert present, f"no adaptive feature {adaptive} present in transform output columns {list(out1.columns)}"
 
         # Replay determinism: transform with a SHUFFLED y must be identical
         # (recipes are pure functions of X), and re-running transform matches.
@@ -244,14 +239,15 @@ class TestGateDReplayByteMatch:
         # And the recomputed adaptive column equals an independent
         # recipe-replay from the stored recipe (fit-time value reproduction).
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
-        recipes = {
-            r.name: r for r in (getattr(sel, "_engineered_recipes_", []) or [])
-        }
+
+        recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", []) or [])}
         for a in present:
             assert a in recipes, f"adaptive feature {a} has no replayable recipe"
             replayed = np.asarray(apply_recipe(recipes[a], X), dtype=np.float64)
             np.testing.assert_allclose(
-                out1[a].to_numpy(dtype=np.float64), replayed,
-                rtol=0.0, atol=0.0,
+                out1[a].to_numpy(dtype=np.float64),
+                replayed,
+                rtol=0.0,
+                atol=0.0,
                 err_msg=f"transform output for {a} != standalone recipe replay",
             )

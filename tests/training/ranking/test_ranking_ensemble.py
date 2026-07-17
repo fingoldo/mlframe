@@ -8,7 +8,6 @@ with wildly different score ranges (CB ~[0,1], XGB ~[-10,+10], LGB
 
 from __future__ import annotations
 
-import logging
 
 import numpy as np
 import pytest
@@ -151,8 +150,10 @@ class TestScoreMean:
     def test_score_mean_with_flag_returns_arithmetic_mean(self, three_aligned_models):
         scores_per_model, gids = three_aligned_models
         out = ensemble_ranker_scores(
-            scores_per_model, gids,
-            method="score_mean", assume_comparable_scales=True,
+            scores_per_model,
+            gids,
+            method="score_mean",
+            assume_comparable_scales=True,
         )
         expected = np.mean(np.asarray(scores_per_model), axis=0)
         np.testing.assert_allclose(out, expected)
