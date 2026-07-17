@@ -58,6 +58,7 @@ _Q = np.array([0.1, 0.25, 0.5, 0.75, 0.9], dtype=np.float64)
 
 
 def _gen(rng, kind, n):
+    """Helper: Gen."""
     if kind == 0:
         return rng.standard_normal(n)
     if kind == 1:  # low-cardinality / many ties (exercises the mode tie-break)
@@ -69,6 +70,7 @@ def _gen(rng, kind, n):
 
 @pytest.mark.parametrize("kind", [0, 1, 2, 3])
 def test_fused_kernel_bit_identical_to_numpy_reference(kind):
+    """Fused kernel bit identical to numpy reference."""
     rng = np.random.default_rng(1234 + kind)
     for _ in range(400):
         n = int(rng.integers(2, 250))
@@ -82,6 +84,7 @@ def test_fused_kernel_bit_identical_to_numpy_reference(kind):
 
 def test_fused_kernel_matches_low_cardinality_multimode():
     # Two values share the global-max count -> modes_min/max span them, modes_qty == 2.
+    """Fused kernel matches low cardinality multimode."""
     arr = np.array([1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 3.0], dtype=np.float64)
     ref = np.asarray(_numpy_reference(arr, _Q, 10), dtype=np.float64)
     got = np.asarray(N._fused_nunique_modes_quantiles(arr, _Q, "median_unbiased", 10), dtype=np.float64)
@@ -89,6 +92,7 @@ def test_fused_kernel_matches_low_cardinality_multimode():
 
 
 def test_fused_kernel_all_distinct_modes_are_nan():
+    """Fused kernel all distinct modes are nan."""
     arr = np.array([0.0, 1.0, 2.0, 3.0, 4.0], dtype=np.float64)
     got = N._fused_nunique_modes_quantiles(arr, _Q, "median_unbiased", 10)
     # nuniques == 5, modes all NaN (max count == 1).

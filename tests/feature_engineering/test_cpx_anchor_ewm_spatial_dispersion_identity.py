@@ -56,6 +56,7 @@ def _ewm_reference(label, is_anchor, half_life):
 
 @pytest.mark.parametrize("half_life", [10.0, 30.0])
 def test_cpx2_anchor_ewm_identity(half_life):
+    """Cpx2 anchor ewm identity."""
     rng = np.random.default_rng(7)
     n = 3000
     is_anchor = rng.random(n) < 0.2
@@ -73,6 +74,7 @@ def test_cpx2_anchor_ewm_identity(half_life):
 
 
 def test_cpx2_anchor_ewm_grouped_identity():
+    """Cpx2 anchor ewm grouped identity."""
     rng = np.random.default_rng(11)
     n = 2500
     is_anchor = rng.random(n) < 0.25
@@ -148,6 +150,7 @@ def _dispersion_reference(q, ref, labels, k, task, n_bins=8):
 
 @pytest.mark.parametrize("task", ["regression", "classification"])
 def test_cpx6_knn_dispersion_identity(task):
+    """Cpx6 knn dispersion identity."""
     rng = np.random.default_rng(3)
     ref = rng.standard_normal((4000, 2))
     q = rng.standard_normal((1500, 2))

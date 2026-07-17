@@ -34,12 +34,14 @@ def _apply_label_substitution(ensemble_name: str, new_label: str) -> str:
 
 
 def test_plain_label_substitutes_correctly():
+    """Plain label substitutes correctly."""
     assert _apply_label_substitution("pre[a+b+c] suffix", "[a+b]") == "pre[a+b] suffix"
 
 
 def test_label_with_literal_backslash_is_preserved_verbatim():
     # Hypothetical model class name with a backslash in it; the callable replacement
     # must pass it through unchanged.
+    """Label with literal backslash is preserved verbatim."""
     out = _apply_label_substitution("pre[x] s", "[a\\b]")
     assert out == "pre[a\\b] s", f"got {out!r}"
     assert "\\" in out  # literal backslash retained, not duplicated
@@ -48,15 +50,18 @@ def test_label_with_literal_backslash_is_preserved_verbatim():
 def test_label_with_backreference_token_does_not_crash():
     # \1 in a string replacement would normally raise "invalid group reference";
     # callable form must pass it through verbatim.
+    """Label with backreference token does not crash."""
     out = _apply_label_substitution("pre[x] s", r"[a+\1+b]")
     assert out == "pre[a+\\1+b] s", f"got {out!r}"
 
 
 def test_label_with_group_name_token_does_not_crash():
+    """Label with group name token does not crash."""
     out = _apply_label_substitution("pre[x] s", "[a+\\g<name>+b]")
     assert out == "pre[a+\\g<name>+b] s"
 
 
 def test_no_match_returns_input_unchanged():
     # When the ensemble_name has no [...] block, re.sub leaves it as-is.
+    """No match returns input unchanged."""
     assert _apply_label_substitution("no brackets here", "[a+b]") == "no brackets here"

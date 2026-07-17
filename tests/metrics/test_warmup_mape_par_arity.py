@@ -8,12 +8,14 @@ and would index out of bounds if it ran. This pins the call arity behaviourally.
 
 
 def test_warmup_calls_mape_par_kernel_with_nthr(monkeypatch):
+    """Warmup calls mape par kernel with nthr."""
     import mlframe.metrics.core as core
     from mlframe.metrics import _core_numba_warmup as warmup
 
     seen = {"nargs": None, "called": False}
 
     def _spy(*args):
+        """Helper: Spy."""
         seen["called"] = True
         seen["nargs"] = len(args)
         return (0.0, 0, 0)

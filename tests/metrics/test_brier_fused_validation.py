@@ -20,6 +20,7 @@ from mlframe.metrics._core_auc_brier import (
 
 
 def _old_kernel(y, p):
+    """Helper: Old kernel."""
     if len(y) >= _PARALLEL_REDUCTION_THRESHOLD:
         return _fast_brier_score_loss_par(y, p)
     return _fast_brier_score_loss_seq(y, p)
@@ -27,6 +28,7 @@ def _old_kernel(y, p):
 
 @pytest.mark.parametrize("n", [1, 100, 5000, 200000, 1_000_000])
 def test_brier_bit_identical_valid(n):
+    """Brier bit identical valid."""
     rng = np.random.default_rng(n)
     y = (rng.random(n) < 0.3).astype(np.float64)
     p = rng.random(n)
@@ -37,12 +39,14 @@ def test_brier_bit_identical_valid(n):
 
 @pytest.mark.parametrize("bad", [1.2, np.nan, np.inf, -0.1, -np.inf])
 def test_brier_nan_on_invalid(bad):
+    """Brier nan on invalid."""
     y = np.array([0.0, 1.0, 0.0])
     p = np.array([0.5, bad, 0.3])
     assert np.isnan(fast_brier_score_loss(y, p))
 
 
 def test_brier_empty_is_nan():
+    """Brier empty is nan."""
     assert np.isnan(fast_brier_score_loss(np.array([]), np.array([])))
 
 

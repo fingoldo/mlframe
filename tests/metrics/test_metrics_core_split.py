@@ -19,6 +19,7 @@ FACADE_LOC_BUDGET = 800
 
 
 def test_metrics_core_facade_loc_budget():
+    """Metrics core facade loc budget."""
     import mlframe.metrics.core as parent
 
     n = len(Path(parent.__file__).read_text(encoding="utf-8").splitlines())
@@ -46,6 +47,7 @@ def test_metrics_core_re_exports_resolve():
 
 
 def test_metrics_core_identity_warmup():
+    """Metrics core identity warmup."""
     import mlframe.metrics.core as parent
     from mlframe.metrics import _core_numba_warmup as sib
 
@@ -56,6 +58,7 @@ def test_metrics_core_identity_warmup():
 
 
 def test_metrics_core_identity_cb_logits():
+    """Metrics core identity cb logits."""
     import mlframe.metrics.core as parent
     from mlframe.metrics import _core_cb_logits as sib
 
@@ -68,6 +71,7 @@ def test_metrics_core_identity_cb_logits():
 
 
 def test_metrics_core_identity_auc_brier():
+    """Metrics core identity auc brier."""
     import mlframe.metrics.core as parent
     from mlframe.metrics import _core_auc_brier as sib
 
@@ -82,6 +86,7 @@ def test_metrics_core_identity_auc_brier():
 
 
 def test_metrics_core_identity_precision_mape():
+    """Metrics core identity precision mape."""
     import mlframe.metrics.core as parent
     from mlframe.metrics import _core_precision_mape as sib
 
@@ -104,6 +109,7 @@ def test_metrics_core_smoke_fast_roc_auc():
 
 
 def test_metrics_core_smoke_cb_logits_binary():
+    """Metrics core smoke cb logits binary."""
     from mlframe.metrics.core import cb_logits_to_probs_binary
 
     logits = np.array([-1.0, 0.0, 1.0], dtype=np.float64)
@@ -113,6 +119,7 @@ def test_metrics_core_smoke_cb_logits_binary():
 
 
 def test_metrics_core_smoke_classification_report():
+    """Metrics core smoke classification report."""
     from mlframe.metrics.core import fast_classification_report
 
     y_true = np.array([0, 1, 0, 1, 0, 1], dtype=np.int64)
@@ -125,6 +132,7 @@ def test_metrics_core_smoke_classification_report():
 
 
 def test_metrics_core_smoke_mape():
+    """Metrics core smoke mape."""
     from mlframe.metrics.core import maximum_absolute_percentage_error
 
     y_true = np.array([1.0, 2.0, 3.0, 4.0])

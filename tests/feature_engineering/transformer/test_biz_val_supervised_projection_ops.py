@@ -59,6 +59,7 @@ def _diff_covariance_binary(n: int = 1200, seed: int = 0) -> tuple[np.ndarray, n
 
 
 def _cv_auc(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: int = 42) -> float:
+    """Helper: Cv auc."""
     from sklearn.metrics import roc_auc_score
 
     splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
@@ -72,6 +73,7 @@ def _cv_auc(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: i
 
 
 def _logreg():
+    """Helper: Logreg."""
     from sklearn.linear_model import LogisticRegression
 
     return LogisticRegression(max_iter=500, solver="lbfgs", C=1.0)
@@ -91,6 +93,7 @@ def _augment_auc(compute_fn, X, y, *, floor: float, name: str, **kwargs) -> None
 
 
 def test_biz_val_aux_mlp_lifts_linear_auc_on_xor_blobs():
+    """Biz val aux mlp lifts linear auc on xor blobs."""
     from mlframe.feature_engineering.transformer.aux_mlp import compute_aux_mlp_features
 
     X, y = _xor_blobs_binary(n=1200, seed=0)
@@ -98,6 +101,7 @@ def test_biz_val_aux_mlp_lifts_linear_auc_on_xor_blobs():
 
 
 def test_biz_val_class_mahalanobis_lifts_linear_auc_on_diff_covariance():
+    """Biz val class mahalanobis lifts linear auc on diff covariance."""
     from mlframe.feature_engineering.transformer.class_mahalanobis import compute_class_mahalanobis_features
 
     X, y = _diff_covariance_binary(n=1200, seed=0)
@@ -105,6 +109,7 @@ def test_biz_val_class_mahalanobis_lifts_linear_auc_on_diff_covariance():
 
 
 def test_biz_val_local_classifier_lifts_linear_auc_on_xor_blobs():
+    """Biz val local classifier lifts linear auc on xor blobs."""
     from mlframe.feature_engineering.transformer.local_classifier import compute_local_classifier_features
 
     X, y = _xor_blobs_binary(n=1200, seed=0)
@@ -112,6 +117,7 @@ def test_biz_val_local_classifier_lifts_linear_auc_on_xor_blobs():
 
 
 def test_biz_val_rf_proximity_lifts_linear_auc_on_xor_blobs():
+    """Biz val rf proximity lifts linear auc on xor blobs."""
     from mlframe.feature_engineering.transformer.rf_proximity import compute_rf_proximity_attention
 
     X, y = _xor_blobs_binary(n=1200, seed=0)

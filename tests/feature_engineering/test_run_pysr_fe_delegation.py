@@ -27,6 +27,7 @@ def test_single_target_delegates_to_bruteforce(monkeypatch):
     calls: dict = {}
 
     def fake_run_pysr_feature_engineering(df, *, target_col, drop_columns, sample_size, pysr_params_override, leakage_free, verbose):
+        """Fake run pysr feature engineering."""
         calls["target_col"] = target_col
         calls["drop_columns"] = list(drop_columns)
         calls["sample_size"] = sample_size
@@ -74,10 +75,13 @@ def test_multi_target_keeps_legacy_path(monkeypatch):
     fake_pysr_mod = ModuleType("pysr")
 
     class _FakeReg:
+        """Groups tests for: FakeReg."""
         def __init__(self, **kw):
+            """Helper: Init  ."""
             self._kw = kw
 
         def fit(self, X, y):
+            """Fit."""
             raise RuntimeError("multi-target legacy path reached")
 
     fake_pysr_mod.PySRRegressor = _FakeReg

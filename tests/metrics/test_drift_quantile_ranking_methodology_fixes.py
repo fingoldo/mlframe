@@ -45,6 +45,7 @@ def test_psi_constant_reference_detects_shifted_target():
 
 
 def test_kl_constant_reference_detects_shifted_target():
+    """Kl constant reference detects shifted target."""
     ref = np.full(2000, 5.0)
     tgt = np.concatenate([np.full(1000, 5.0), np.full(1000, 9.0)])
     kl = kl_divergence(ref, tgt, nbins=10, bias_correction=False)
@@ -53,6 +54,7 @@ def test_kl_constant_reference_detects_shifted_target():
 
 
 def test_js_constant_reference_detects_shifted_target():
+    """Js constant reference detects shifted target."""
     ref = np.full(2000, 5.0)
     tgt = np.concatenate([np.full(1000, 5.0), np.full(1000, 9.0)])
     js = js_divergence(ref, tgt, nbins=10, bias_correction=False)
@@ -71,6 +73,7 @@ def test_psi_truly_constant_both_sides_is_zero_not_spurious():
 
 
 def _crps_grid(y, mu, sigma, alphas):
+    """Helper: Crps grid."""
     from scipy.stats import norm
 
     P = np.stack([norm.ppf(a, loc=mu, scale=sigma) for a in alphas], axis=1)

@@ -30,11 +30,13 @@ _EXPECTED = {
 
 
 def test_available_panels_covers_every_task_type():
+    """Available panels covers every task type."""
     cat = available_panels()
     assert set(cat) == set(_EXPECTED)
 
 
 def test_available_panels_lists_exactly_the_frozenset_tokens():
+    """Available panels lists exactly the frozenset tokens."""
     cat = available_panels()
     for task, frozen in _EXPECTED.items():
         listed = {tok for tok, _desc in cat[task]}
@@ -49,6 +51,7 @@ def test_every_token_has_a_real_description():
 
 
 def test_descriptions_are_ascii():
+    """Descriptions are ascii."""
     cat = available_panels()
     for rows in cat.values():
         for _tok, desc in rows:
@@ -56,6 +59,7 @@ def test_descriptions_are_ascii():
 
 
 def test_describe_prints_and_returns_mapping():
+    """Describe prints and returns mapping."""
     buf = io.StringIO()
     ret = describe_available_panels(file=buf)
     text = buf.getvalue()
@@ -67,12 +71,14 @@ def test_describe_prints_and_returns_mapping():
 
 
 def test_describe_output_is_ascii():
+    """Describe output is ascii."""
     buf = io.StringIO()
     describe_available_panels(file=buf)
     buf.getvalue().encode("ascii")
 
 
 def test_standalone_diagnostics_listed_and_described():
+    """Standalone diagnostics listed and described."""
     from mlframe.reporting.catalog import standalone_diagnostics
 
     rows = standalone_diagnostics()
@@ -85,6 +91,7 @@ def test_standalone_diagnostics_listed_and_described():
 
 
 def test_describe_includes_standalone_section():
+    """Describe includes standalone section."""
     buf = io.StringIO()
     describe_available_panels(file=buf)
     text = buf.getvalue()

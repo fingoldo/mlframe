@@ -47,10 +47,13 @@ def overconfident_5alpha():
 
 
 class TestCoveragePanel:
+    """Groups tests for: TestCoveragePanel."""
     def test_token_registered(self):
+        """Token registered."""
         assert "COVERAGE" in ALLOWED_QUANTILE_PANEL_TOKENS
 
     def test_returns_line_with_diagonal_and_ci_band(self, calibrated_5alpha):
+        """Returns line with diagonal and ci band."""
         y, p, alphas = calibrated_5alpha
         spec = compose_quantile_figure(y, p, alphas, panels_template="COVERAGE")
         panel = spec.panels[0][0]
@@ -62,6 +65,7 @@ class TestCoveragePanel:
 
     def test_symmetric_pairs_two_for_5alpha(self):
         # alphas 0.05/0.25/0.5/0.75/0.95 -> pairs (0.05,0.95)=0.90 and (0.25,0.75)=0.50.
+        """Symmetric pairs two for 5alpha."""
         pairs = _symmetric_interval_pairs((0.05, 0.25, 0.5, 0.75, 0.95))
         assert len(pairs) == 2
         noms = sorted(round(p[2], 4) for p in pairs)
@@ -69,12 +73,14 @@ class TestCoveragePanel:
 
     def test_too_few_alphas_returns_annotation(self):
         # Single alpha -> no straddling pair -> honest annotation.
+        """Too few alphas returns annotation."""
         y = np.zeros(100)
         p = np.zeros((100, 1))
         spec = compose_quantile_figure(y, p, (0.5,), panels_template="COVERAGE")
         assert isinstance(spec.panels[0][0], AnnotationPanelSpec)
 
     def test_wilson_ci_bounds_in_unit_interval(self):
+        """Wilson ci bounds in unit interval."""
         lo, hi = _wilson_ci(0.0, 100)
         assert 0.0 <= lo <= hi <= 1.0
         lo, hi = _wilson_ci(1.0, 100)
@@ -108,7 +114,9 @@ class TestCoveragePanel:
 
 
 class TestIntervalBand:
+    """Groups tests for: TestIntervalBand."""
     def test_y_true_markers_and_band(self, calibrated_5alpha):
+        """Y true markers and band."""
         y, p, alphas = calibrated_5alpha
         panel = compose_quantile_figure(y, p, alphas, panels_template="INTERVAL_BAND").panels[0][0]
         assert isinstance(panel, LinePanelSpec)
@@ -125,7 +133,9 @@ class TestIntervalBand:
 
 
 class TestPITAnnotation:
+    """Groups tests for: TestPITAnnotation."""
     def test_pit_k2_annotation_not_fake_histogram(self, calibrated_5alpha):
+        """Pit k2 annotation not fake histogram."""
         y, p, alphas = calibrated_5alpha
         # Keep only 2 alphas -> PIT must annotate, not draw a [0.0] histogram.
         panel = compose_quantile_figure(
@@ -143,8 +153,10 @@ class TestPITAnnotation:
 
 
 class TestPinballAndTitles:
+    """Groups tests for: TestPinballAndTitles."""
     def test_pinball_lookup_by_index_not_float_key(self):
         # alphas whose float repr is fragile (1/3) must still resolve every loss.
+        """Pinball lookup by index not float key."""
         from scipy.stats import norm
 
         rng = np.random.default_rng(0)
@@ -158,6 +170,7 @@ class TestPinballAndTitles:
         assert np.all(np.isfinite(losses)) and np.all(losses >= 0.0)
 
     def test_width_title_uses_g_format(self, calibrated_5alpha):
+        """Width title uses g format."""
         y, p, alphas = calibrated_5alpha
         panel = compose_quantile_figure(y, p, alphas, panels_template="WIDTH_DIST").panels[0][0]
         # No raw float spew like "0.94999999" in the title; :g gives "0.95".

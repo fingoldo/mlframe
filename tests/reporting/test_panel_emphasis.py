@@ -21,10 +21,12 @@ _DEFAULT = "ROC PR SCORE_DIST KS THRESHOLD GAIN PIT"
 
 
 def _imbalanced_y(n=5000, rate=0.03, seed=0):
+    """Helper: Imbalanced y."""
     return (np.random.default_rng(seed).random(n) < rate).astype(int)
 
 
 def _balanced_y(n=5000, seed=1):
+    """Helper: Balanced y."""
     return (np.random.default_rng(seed).random(n) < 0.5).astype(int)
 
 
@@ -34,12 +36,14 @@ def _balanced_y(n=5000, seed=1):
 
 
 class TestSelectBinaryEmphasisPanels:
+    """Groups tests for: TestSelectBinaryEmphasisPanels."""
     def test_all_mode_is_identity(self):
         """Default emphasis="all" returns the template unchanged (back-compat)."""
         y = _imbalanced_y()
         assert select_binary_emphasis_panels(y, _DEFAULT, emphasis="all") == _DEFAULT
 
     def test_imbalanced_leads_pr_threshold_and_drops_roc(self):
+        """Imbalanced leads pr threshold and drops roc."""
         y = _imbalanced_y()
         out = select_binary_emphasis_panels(y, _DEFAULT, emphasis="data_aware").split()
         assert out[0] == "PR"
@@ -57,22 +61,26 @@ class TestSelectBinaryEmphasisPanels:
         assert "ROC" not in out
 
     def test_balanced_leads_roc(self):
+        """Balanced leads roc."""
         y = _balanced_y()
         out = select_binary_emphasis_panels(y, _DEFAULT, emphasis="data_aware").split()
         assert out[0] == "ROC"
         assert "ROC" in out and "PR" in out
 
     def test_single_class_falls_back(self):
+        """Single class falls back."""
         y = np.ones(5000, dtype=int)
         assert select_binary_emphasis_panels(y, _DEFAULT, emphasis="data_aware") == _DEFAULT
         y0 = np.zeros(5000, dtype=int)
         assert select_binary_emphasis_panels(y0, _DEFAULT, emphasis="data_aware") == _DEFAULT
 
     def test_tiny_n_falls_back(self):
+        """Tiny n falls back."""
         y = _imbalanced_y(n=20)
         assert select_binary_emphasis_panels(y, _DEFAULT, emphasis="data_aware") == _DEFAULT
 
     def test_empty_template_is_returned_as_is(self):
+        """Empty template is returned as is."""
         assert select_binary_emphasis_panels(_imbalanced_y(), "", emphasis="data_aware") == ""
 
     def test_nan_labels_are_ignored_for_base_rate(self):
@@ -105,12 +113,14 @@ class TestSelectBinaryEmphasisPanels:
 
 
 def _binary_inputs(y):
+    """Helper: Binary inputs."""
     rng = np.random.default_rng(7)
     p = np.clip(y * 0.5 + rng.normal(0, 0.3, len(y)) + 0.25, 0.0, 1.0)
     return np.column_stack([1 - p, p])
 
 
 class TestDispatcherEmphasis:
+    """Groups tests for: TestDispatcherEmphasis."""
     def test_default_mode_unchanged(self, tmp_path):
         """panel_emphasis defaults to "all": dispatcher renders the requested set."""
         y = _imbalanced_y()
@@ -136,6 +146,7 @@ class TestDispatcherEmphasis:
         captured = {}
 
         def _spy(yt, ys, *, panels_template, **kw):
+            """Helper: Spy."""
             captured["template"] = panels_template
             raise RuntimeError("stop before render")
 
@@ -187,6 +198,7 @@ class TestReportModelPerfThreading:
     a real suite run (the dispatcher is otherwise never told to emphasize)."""
 
     def _run(self, monkeypatch, tmp_path, reporting_config, binary_panels):
+        """Helper: Run."""
         from mlframe.training.configs import ReportingConfig  # noqa: F401  (ensures model_fields cache primes)
         import mlframe.reporting.charts.binary as bin_mod
         from mlframe.training.reporting import _reporting as rep
@@ -194,6 +206,7 @@ class TestReportModelPerfThreading:
         captured = {}
 
         def _spy(yt, ys, *, panels_template, **kw):
+            """Helper: Spy."""
             captured["template"] = panels_template
             raise RuntimeError("stop before render")
 
@@ -223,6 +236,7 @@ class TestReportModelPerfThreading:
         return captured.get("template")
 
     def test_data_aware_default_template_reorders_pr_led(self, monkeypatch, tmp_path):
+        """Data aware default template reorders pr led."""
         from mlframe.training.configs import ReportingConfig
 
         cfg = ReportingConfig(panel_emphasis="data_aware")
@@ -231,6 +245,7 @@ class TestReportModelPerfThreading:
         assert "ROC" not in tmpl
 
     def test_all_mode_passes_default_through_unchanged(self, monkeypatch, tmp_path):
+        """All mode passes default through unchanged."""
         from mlframe.training.configs import ReportingConfig
 
         cfg = ReportingConfig()  # panel_emphasis defaults to "all"
@@ -239,6 +254,7 @@ class TestReportModelPerfThreading:
         assert tmpl == _DEFAULT
 
     def test_custom_template_not_reordered_even_in_data_aware(self, monkeypatch, tmp_path):
+        """Custom template not reordered even in data aware."""
         from mlframe.training.configs import ReportingConfig
 
         custom = "ROC GAIN"
@@ -248,6 +264,7 @@ class TestReportModelPerfThreading:
         assert tmpl == custom
 
     def test_single_class_falls_back_to_all(self, monkeypatch, tmp_path):
+        """Single class falls back to all."""
         from mlframe.training.configs import ReportingConfig
         import mlframe.reporting.charts.binary as bin_mod
         from mlframe.training.reporting import _reporting as rep
@@ -255,6 +272,7 @@ class TestReportModelPerfThreading:
         captured = {}
 
         def _spy(yt, ys, *, panels_template, **kw):
+            """Helper: Spy."""
             captured["template"] = panels_template
             raise RuntimeError("stop")
 
@@ -290,6 +308,7 @@ class TestReportModelPerfThreading:
 
 
 class TestBizValuePanelEmphasis:
+    """Groups tests for: TestBizValuePanelEmphasis."""
     def test_biz_imbalanced_leads_pr_drops_roc(self):
         """On a 0.03 base-rate synthetic, data_aware leads with PR/THRESHOLD and
         excludes ROC (optimistic under imbalance). all-mode keeps ROC first."""

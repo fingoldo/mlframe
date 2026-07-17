@@ -15,6 +15,7 @@ from mlframe.models.ensembling.base import _pairwise_corr_or_nan
 
 
 def _reference_full_scatter(corr_used, idx_use, original_k, K_use):
+    """Helper: Reference full scatter."""
     out = np.full((original_k, original_k), np.nan, dtype=np.float64)
     for ii in range(K_use):
         for jj in range(K_use):
@@ -24,6 +25,7 @@ def _reference_full_scatter(corr_used, idx_use, original_k, K_use):
 
 @pytest.mark.parametrize("K", [3, 5, 10])
 def test_pairwise_corr_all_finite_matches_corrcoef(K):
+    """Pairwise corr all finite matches corrcoef."""
     rng = np.random.default_rng(K)
     M_stack = rng.normal(size=(K, 200))
     out = _pairwise_corr_or_nan(M_stack)
@@ -36,6 +38,7 @@ def test_pairwise_corr_all_finite_matches_corrcoef(K):
 
 def test_pairwise_corr_nan_padded_skips_constant_member():
     # Member 1 is constant (std==0) -> dropped; its row/col must be NaN-padded, the rest matches.
+    """Pairwise corr nan padded skips constant member."""
     rng = np.random.default_rng(7)
     K = 4
     M_stack = rng.normal(size=(K, 150))

@@ -19,6 +19,7 @@ from mlframe.feature_engineering.panel_sequence_tensor import build_panel_sequen
 
 
 def _make_extreme_scale_trend_data(n_entities: int, seed: int):
+    """Helper: Make extreme scale trend data."""
     rng = np.random.default_rng(seed)
     rows = []
     labels = {}
@@ -36,6 +37,7 @@ def _make_extreme_scale_trend_data(n_entities: int, seed: int):
 
 
 def test_biz_val_normalized_tensor_beats_raw_tensor_for_distance_based_consumer():
+    """Biz val normalized tensor beats raw tensor for distance based consumer."""
     df, y = _make_extreme_scale_trend_data(n_entities=400, seed=5)
 
     tensor_norm = build_panel_sequence_tensor(df, "id", "t", ["x"], max_lags=8, normalize=True).reshape(400, -1)
@@ -83,6 +85,7 @@ def _make_multi_scale_channel_data(n_entities: int, seed: int):
 
 
 def test_biz_val_per_channel_normalize_preserves_small_scale_channel_signal():
+    """Biz val per channel normalize preserves small scale channel signal."""
     df, y = _make_multi_scale_channel_data(n_entities=400, seed=7)
 
     tensor_joint = build_panel_sequence_tensor(df, "id", "t", ["big", "small"], max_lags=8, normalize=True, per_channel_normalize=False).reshape(400, -1)
@@ -115,6 +118,7 @@ def test_biz_val_per_channel_normalize_preserves_small_scale_channel_signal():
 
 
 def test_build_panel_sequence_tensor_shape_and_alignment():
+    """Build panel sequence tensor shape and alignment."""
     df = pd.DataFrame({"id": [1, 1, 1, 2, 2], "t": [0, 1, 2, 0, 1], "x": [10.0, 20.0, 40.0, 5.0, 15.0], "y": [1.0, 2.0, 4.0, 0.5, 1.5]})
     tensor = build_panel_sequence_tensor(df, "id", "t", ["x", "y"], max_lags=3, normalize=True)
 

@@ -19,6 +19,7 @@ import numpy as np
 
 
 def test_fast_classification_report_macro_and_weighted_avgs_match_sklearn():
+    """Fast classification report macro and weighted avgs match sklearn."""
     from sklearn.metrics import balanced_accuracy_score, precision_recall_fscore_support
 
     from mlframe.metrics._core_precision_mape import fast_classification_report
@@ -57,7 +58,9 @@ def test_evaluate_grouped_still_runs_with_widened_report_dict():
     from mlframe.evaluation.reports import evaluate_grouped
 
     class _FixedPredictor:
+        """Groups tests covering FixedPredictor."""
         def predict(self, X):
+            """Helper that predict."""
             return (X["score"].to_numpy() > 0).astype(int)
 
     rng = np.random.default_rng(1)

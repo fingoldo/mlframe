@@ -15,6 +15,7 @@ from mlframe.metrics._fairness_metrics import create_fairness_subgroups, create_
 
 
 def _bruteforce_indices(bins_series: pd.Series, arr: np.ndarray) -> dict:
+    """Helper: Bruteforce indices."""
     bins = bins_series.loc[arr]
     out = {}
     for bin_name in bins.unique():
@@ -34,6 +35,7 @@ def test_subgroup_indices_uses_factorize_not_per_bin_compare(monkeypatch):
     real_factorize = pd.factorize
 
     def spy(*a, **k):
+        """Spy."""
         calls["n"] += 1
         return real_factorize(*a, **k)
 
@@ -44,6 +46,7 @@ def test_subgroup_indices_uses_factorize_not_per_bin_compare(monkeypatch):
 
 
 def test_subgroup_indices_bit_identical_to_per_bin_reference():
+    """Subgroup indices bit identical to per bin reference."""
     n = 5000
     rng = np.random.default_rng(1)
     feat = pd.Series([f"c{v:02d}" for v in rng.integers(0, 30, n)], name="region")
@@ -61,6 +64,7 @@ def test_subgroup_indices_bit_identical_to_per_bin_reference():
 
 
 def test_subgroup_indices_numeric_qcut_bit_identical():
+    """Subgroup indices numeric qcut bit identical."""
     n = 4000
     rng = np.random.default_rng(2)
     df = pd.DataFrame({"age": rng.integers(0, 100, n)})

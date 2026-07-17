@@ -41,6 +41,7 @@ from mlframe.metrics.quantile import (
     ],
 )
 def test_pinball_loss_value_incl_extreme_alpha(alpha, expected):
+    """Pinball loss value incl extreme alpha."""
     y = np.array([1.0, 2.0, 3.0])
     q = np.full(3, 1.5)
     got = pinball_loss(y, q, alpha)
@@ -52,6 +53,7 @@ def test_pinball_loss_value_incl_extreme_alpha(alpha, expected):
 
 
 def test_pinball_loss_empty_returns_zero_and_shape_mismatch_raises():
+    """Pinball loss empty returns zero and shape mismatch raises."""
     assert pinball_loss(np.array([]), np.array([]), 0.5) == 0.0
     with pytest.raises(ValueError, match="shape"):
         pinball_loss(np.array([1.0, 2.0]), np.array([1.0]), 0.5)
@@ -65,6 +67,7 @@ def test_pinball_loss_empty_returns_zero_and_shape_mismatch_raises():
 def test_coverage_inclusive_boundary_integer_dtype():
     # coverage is INCLUSIVE: y == q_lo and y == q_hi both count. Integer inputs must work
     # (the wrapper dropped the unconditional float64 cast in iter610).
+    """Coverage inclusive boundary integer dtype."""
     y = np.array([1, 9, 10], dtype=np.int64)
     lo = np.array([1, 1, 1], dtype=np.int64)
     hi = np.array([9, 9, 9], dtype=np.int64)
@@ -73,6 +76,7 @@ def test_coverage_inclusive_boundary_integer_dtype():
 
 
 def test_coverage_all_inside_and_empty():
+    """Coverage all inside and empty."""
     y = np.array([2.0, 5.0, 8.0])
     assert coverage(y, np.full(3, 1.0), np.full(3, 9.0)) == 1.0
     # Empty input -> the n==0 kernel branch returns 0.0 (documented contract, NOT NaN).
@@ -87,6 +91,7 @@ def test_coverage_all_inside_and_empty():
 def test_winkler_score_known_value():
     # S = width + (2/alpha)*(q_lo - y)*I(y<q_lo) + (2/alpha)*(y - q_hi)*I(y>q_hi).
     # alpha_miscov=0.2 -> 2/alpha=10; width=8 everywhere.
+    """Winkler score known value."""
     y = np.array([0.0, 5.0, 10.0])
     lo = np.full(3, 1.0)
     hi = np.full(3, 9.0)
@@ -97,12 +102,14 @@ def test_winkler_score_known_value():
 
 @pytest.mark.parametrize("bad_alpha", [0.0, 1.0, -0.1, 1.5])
 def test_winkler_score_rejects_out_of_range_alpha(bad_alpha):
+    """Winkler score rejects out of range alpha."""
     y = np.array([1.0, 2.0])
     with pytest.raises(ValueError, match="alpha_miscov"):
         winkler_score(y, np.array([0.0, 0.0]), np.array([3.0, 3.0]), bad_alpha)
 
 
 def test_winkler_score_empty_returns_zero():
+    """Winkler score empty returns zero."""
     assert winkler_score(np.array([]), np.array([]), np.array([]), 0.2) == 0.0
 
 
@@ -112,6 +119,7 @@ def test_winkler_score_empty_returns_zero():
 
 
 def test_mean_interval_width_value_and_shape_mismatch():
+    """Mean interval width value and shape mismatch."""
     assert mean_interval_width(np.array([1.0, 2.0]), np.array([3.0, 5.0])) == pytest.approx(2.5)
     with pytest.raises(ValueError, match="mean_interval_width"):
         mean_interval_width(np.array([1.0, 2.0]), np.array([3.0]))
@@ -138,6 +146,7 @@ def test_crps_from_quantiles_tail_integration_known_value():
 
 
 def test_crps_from_quantiles_empty_is_nan_and_nonincreasing_alphas_raise():
+    """Crps from quantiles empty is nan and nonincreasing alphas raise."""
     assert np.isnan(crps_from_quantiles(np.array([]), np.empty((0, 2)), alphas=[0.25, 0.75]))
     with pytest.raises(ValueError, match="strictly increasing"):
         crps_from_quantiles(np.array([1.0, 2.0]), np.array([[0.0, 1.0], [0.0, 1.0]]), alphas=[0.75, 0.25])
@@ -151,6 +160,7 @@ def test_crps_from_quantiles_empty_is_nan_and_nonincreasing_alphas_raise():
 def test_pit_values_interpolation_and_clamping():
     # alphas=[0.2,0.8], quantile curve q(0.2)=0, q(0.8)=10 for every row.
     # y=-1 clamps to alpha[0]=0.2; y=5 interpolates to 0.5; y=11 clamps to alpha[-1]=0.8.
+    """Pit values interpolation and clamping."""
     alphas = [0.2, 0.8]
     preds = np.array([[0.0, 10.0], [0.0, 10.0], [0.0, 10.0]])
     y = np.array([-1.0, 5.0, 11.0])
@@ -160,6 +170,7 @@ def test_pit_values_interpolation_and_clamping():
 
 
 def test_pit_values_k_much_greater_than_n_runs_and_stays_in_unit_interval():
+    """Pit values k much greater than n runs and stays in unit interval."""
     rng = np.random.default_rng(0)
     n, k = 2, 20
     alphas = np.linspace(0.02, 0.98, k)
@@ -174,6 +185,7 @@ def test_pit_values_k_much_greater_than_n_runs_and_stays_in_unit_interval():
 def test_pit_values_warns_on_quantile_crossing(caplog):
     # Ascending alphas -> predicted quantiles should be non-decreasing across columns.
     # Row 0 decreases (crossing); row 1 is monotone. Exactly 1/2 rows should be flagged.
+    """Pit values warns on quantile crossing."""
     alphas = [0.1, 0.5, 0.9]
     preds = np.array([[3.0, 2.0, 1.0], [1.0, 2.0, 3.0]])
     y = np.array([2.0, 2.0])

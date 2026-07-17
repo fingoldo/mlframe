@@ -18,6 +18,7 @@ from mlframe.models.lgbm_defaults import AUTO_EXTRA_TREES_MIN_N_ESTIMATORS, defa
 
 
 def _make_correlated_noisy_regression(n_train: int, n_test: int, seed: int):
+    """Helper: Make correlated noisy regression."""
     rng = np.random.default_rng(seed)
     n = n_train + n_test
     # 4 informative latent factors, each duplicated into 5 noisy correlated observed columns (20 cols
@@ -35,22 +36,26 @@ def _make_correlated_noisy_regression(n_train: int, n_test: int, seed: int):
 
 
 def test_default_lgbm_params_extra_trees_on_by_default():
+    """Default lgbm params extra trees on by default."""
     params = default_lgbm_params()
     assert params["extra_trees"] is True
 
 
 def test_default_lgbm_params_overrides_win():
+    """Default lgbm params overrides win."""
     params = default_lgbm_params(extra_trees=False, n_estimators=42)
     assert params["extra_trees"] is False
     assert params["n_estimators"] == 42
 
 
 def test_default_lgbm_params_objective_forwarded():
+    """Default lgbm params objective forwarded."""
     params = default_lgbm_params(objective="binary")
     assert params["objective"] == "binary"
 
 
 def test_biz_val_extra_trees_reduces_holdout_rmse_at_large_tree_count():
+    """Biz val extra trees reduces holdout rmse at large tree count."""
     n_seeds = 6
     rmse_extra = []
     rmse_default = []
@@ -99,6 +104,7 @@ def test_biz_val_default_lgbm_params_auto_extra_trees_adapts_to_tree_count():
         X_train, y_train, X_test, y_test = _make_correlated_noisy_regression(1500, 1500, seed=seed)
 
         def _rmse(params: dict) -> float:
+            """Helper: Rmse."""
             model = lgb.LGBMRegressor(**params)
             model.fit(X_train, y_train)  # noqa: B023 -- closure invoked 4x below, same iteration, never stored
             pred = model.predict(X_test)  # noqa: B023 -- closure invoked 4x below, same iteration, never stored

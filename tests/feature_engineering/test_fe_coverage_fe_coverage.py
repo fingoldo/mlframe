@@ -39,6 +39,7 @@ def test_fhc_seed_uses_first_sorted_model_kind(monkeypatch):
     captured = {}
 
     def _fake_apply(*, train_df, val_df, test_df, train_target, fhc, model_kind, **_kw):
+        """Helper: Fake apply."""
         captured["model_kind"] = model_kind
         return SimpleNamespace(
             train_df=train_df,
@@ -103,13 +104,16 @@ def test_custom_handler_falls_back_when_transformer_fit_rejects_y(caplog):
         """Bare ``fit(self, X)`` -- legacy sklearn-ish transformer without y support."""
 
         def __init__(self):
+            """Helper: Init  ."""
             self.x_seen = None
 
         def fit(self, X):
+            """Fit."""
             self.x_seen = np.asarray(X).copy()
             return self
 
         def transform(self, X):
+            """Transform."""
             return np.asarray(X)
 
     transformer = _UnsupervisedOnly()

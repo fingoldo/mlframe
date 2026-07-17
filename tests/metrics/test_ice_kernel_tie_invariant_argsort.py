@@ -24,6 +24,7 @@ _KW = dict(
 
 @pytest.mark.parametrize("round_dec,n,k", [(2, 50_000, 1), (2, 20_000, 3), (1, 30_000, 2)])
 def test_ice_kernel_invariant_to_within_tie_order(round_dec, n, k):
+    """Ice kernel invariant to within tie order."""
     rng = np.random.default_rng(round_dec * 100 + k)
     y_t = rng.integers(0, 2, (n, k)).astype(np.int8)
     # rounding forces heavy ties -- the regime the tie-run walk exists for

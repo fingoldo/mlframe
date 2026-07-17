@@ -17,6 +17,7 @@ from mlframe.feature_engineering.polars_dynamic_window import polars_dynamic_win
 
 
 def test_polars_dynamic_window_aggregate_matches_hand_computed_windows():
+    """Polars dynamic window aggregate matches hand computed windows."""
     df = pd.DataFrame(
         {
             "t": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-08", "2024-01-09"]),
@@ -36,6 +37,7 @@ def test_polars_dynamic_window_aggregate_matches_hand_computed_windows():
 
 
 def test_biz_val_polars_dynamic_window_aggregate_beats_pandas_resample_speed():
+    """Biz val polars dynamic window aggregate beats pandas resample speed."""
     rng = np.random.default_rng(0)
     n_entities = 2000
     n_days = 60
@@ -59,6 +61,7 @@ def test_biz_val_polars_dynamic_window_aggregate_beats_pandas_resample_speed():
 
 
 def test_polars_dynamic_window_aggregate_per_group_independent_windows():
+    """Polars dynamic window aggregate per group independent windows."""
     df = pd.DataFrame(
         {
             "entity": ["a", "a", "b", "b"],
@@ -92,6 +95,7 @@ def test_polars_dynamic_window_aggregate_multi_window_default_unchanged():
 
 
 def test_polars_dynamic_window_aggregate_multi_window_matches_hand_computed():
+    """Polars dynamic window aggregate multi window matches hand computed."""
     df = pd.DataFrame(
         {
             "t": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-08", "2024-01-09"]),

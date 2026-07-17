@@ -31,12 +31,14 @@ from mlframe.metrics.core import fast_roc_curve, fast_roc_auc
 
 
 def test_empty_input():
+    """Empty input."""
     fpr, tpr, thr = fast_roc_curve(np.array([]), np.array([]))
     assert thr[0] == np.inf
     assert np.isnan(fpr).all() and np.isnan(tpr).all()
 
 
 def test_inf_threshold_anchor_and_monotone():
+    """Inf threshold anchor and monotone."""
     y = np.array([0, 0, 1, 1])
     s = np.array([0.1, 0.4, 0.35, 0.8])
     fpr, tpr, thr = fast_roc_curve(y, s)
@@ -50,6 +52,7 @@ def test_inf_threshold_anchor_and_monotone():
 
 
 def test_perfect_separation():
+    """Perfect separation."""
     y = np.array([0, 0, 1, 1])
     s = np.array([0.1, 0.2, 0.8, 0.9])
     fpr, tpr, _thr = fast_roc_curve(y, s)
@@ -59,6 +62,7 @@ def test_perfect_separation():
 
 def test_all_ties_single_threshold():
     # Every score identical -> a single swept threshold; curve is the (0,0)->(1,1) diagonal.
+    """All ties single threshold."""
     y = np.array([0, 1, 0, 1])
     s = np.full(4, 0.5)
     fpr, tpr, thr = fast_roc_curve(y, s)
@@ -68,6 +72,7 @@ def test_all_ties_single_threshold():
 
 
 def test_single_class_all_positive_gives_nan_fpr():
+    """Single class all positive gives nan fpr."""
     y = np.array([1, 1, 1])
     s = np.array([0.2, 0.5, 0.9])
     fpr, tpr, _thr = fast_roc_curve(y, s)
@@ -76,6 +81,7 @@ def test_single_class_all_positive_gives_nan_fpr():
 
 
 def test_single_class_all_negative_gives_nan_tpr():
+    """Single class all negative gives nan tpr."""
     y = np.array([0, 0, 0])
     s = np.array([0.2, 0.5, 0.9])
     fpr, tpr, _thr = fast_roc_curve(y, s)
@@ -84,6 +90,7 @@ def test_single_class_all_negative_gives_nan_tpr():
 
 
 def test_minus_one_plus_one_labels_treated_as_binary():
+    """Minus one plus one labels treated as binary."""
     y = np.array([-1, -1, 1, 1])
     s = np.array([0.1, 0.4, 0.35, 0.8])
     fpr, tpr, _ = fast_roc_curve(y, s)
@@ -92,6 +99,7 @@ def test_minus_one_plus_one_labels_treated_as_binary():
 
 
 def test_sample_weight_shifts_curve():
+    """Sample weight shifts curve."""
     y = np.array([0, 0, 1, 1])
     s = np.array([0.1, 0.4, 0.35, 0.8])
     w = np.array([1.0, 5.0, 1.0, 1.0])
@@ -102,6 +110,7 @@ def test_sample_weight_shifts_curve():
 
 
 def test_2d_score_uses_last_column():
+    """2d score uses last column."""
     y = np.array([0, 0, 1, 1])
     proba = np.array([[0.9, 0.1], [0.6, 0.4], [0.65, 0.35], [0.2, 0.8]])
     fpr, tpr, _ = fast_roc_curve(y, proba)
@@ -117,6 +126,7 @@ def test_2d_score_uses_last_column():
 @pytest.mark.parametrize("tie_heavy", [False, True])
 @pytest.mark.parametrize("seed", [0, 1, 2, 7, 42])
 def test_equivalence_vs_sklearn(tie_heavy, seed):
+    """Equivalence vs sklearn."""
     sk = pytest.importorskip("sklearn.metrics")
     rng = np.random.default_rng(seed)
     n = int(rng.integers(20, 3000))
@@ -139,6 +149,7 @@ def test_equivalence_vs_sklearn(tie_heavy, seed):
 
 @pytest.mark.parametrize("seed", [3, 11, 99])
 def test_equivalence_weighted_vs_sklearn(seed):
+    """Equivalence weighted vs sklearn."""
     sk = pytest.importorskip("sklearn.metrics")
     rng = np.random.default_rng(seed)
     n = int(rng.integers(50, 2000))
@@ -159,6 +170,7 @@ def test_equivalence_weighted_vs_sklearn(seed):
 
 
 def test_fast_roc_curve_large_profile():
+    """Fast roc curve large profile."""
     import cProfile
     import io
     import pstats

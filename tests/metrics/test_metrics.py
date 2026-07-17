@@ -369,6 +369,7 @@ class TestLogLossPerformance:
 
     @pytest.fixture
     def large_data(self):
+        """Large data."""
         np.random.seed(42)
         n = 100000
         y_true = np.random.randint(0, 2, n).astype(np.float64)
@@ -391,6 +392,7 @@ class TestLogLossPerformance:
         # (one scheduler hiccup flips the sign). Take the fastest of several trials so the
         # comparison reflects steady-state cost rather than a transient stall.
         def _best_time(fn) -> float:
+            """Helper: Best time."""
             best = float("inf")
             for _ in range(5):
                 start = time.perf_counter()
@@ -553,6 +555,7 @@ class TestCalibration:
     # ============================================================
 
     def _synthetic_binary_data(self, seed: int = 42, n: int = 5000, p_pos: float = 0.3, noise: float = 0.2):
+        """Helper: Synthetic binary data."""
         rng = np.random.default_rng(seed)
         y_true = (rng.random(n) < p_pos).astype(np.float64)
         y_pred = np.clip(p_pos + 0.4 * (y_true - p_pos) + noise * rng.standard_normal(n), 0.001, 0.999)
@@ -832,6 +835,7 @@ class TestCalibration:
         )
 
     def test_render_token_ice(self):
+        """Render token ice."""
         out = render_title_metric_token(
             "ICE",
             ndigits=3,
@@ -860,6 +864,7 @@ class TestCalibration:
         assert out == "ICE=0.123"
 
     def test_render_token_br_decomp_format(self):
+        """Render token br decomp format."""
         out = render_title_metric_token(
             "BR_DECOMP",
             ndigits=2,
@@ -892,6 +897,7 @@ class TestCalibration:
         assert out == "BR=12.3%(RL5.0%+U21.0%-RS10.0%)"
 
     def test_render_token_ll_skipped_when_none(self):
+        """Render token ll skipped when none."""
         out = render_title_metric_token(
             "LL",
             ndigits=3,
@@ -923,6 +929,7 @@ class TestCalibration:
         # Defence-in-depth: unknown tokens should never reach this function in
         # practice (ReportingConfig validates), but if one slips past, render
         # returns "" so the title just skips it without crashing.
+        """Render token unknown returns empty."""
         out = render_title_metric_token(
             "FOO",
             ndigits=3,
@@ -1336,22 +1343,26 @@ class TestICEPenaltyRamp:
 
     def test_penalty_zero_outside_zone(self):
         # auc=0.60 is above min_roc_auc=0.55 → outside → penalty 0
+        """Penalty zero outside zone."""
         assert self._ice_with_zero_rest(0.60, 0.55, 3.0) == 0.0
         # exactly at threshold → penalty ~0 (deficit rounds to FP noise, not a real penalty)
         np.testing.assert_allclose(self._ice_with_zero_rest(0.55, 0.55, 3.0), 0.0, atol=1e-12)
 
     def test_penalty_max_at_perfect_random(self):
         # At auc=0.5 the deficit equals the full threshold_width → full penalty
+        """Penalty max at perfect random."""
         penalty = self._ice_with_zero_rest(0.5, 0.55, 3.0)
         np.testing.assert_allclose(penalty, 3.0, rtol=1e-10)
 
     def test_penalty_linear_interior(self):
         # Midway between 0.5 and 0.55 → half the penalty
+        """Penalty linear interior."""
         penalty = self._ice_with_zero_rest(0.525, 0.55, 3.0)
         np.testing.assert_allclose(penalty, 1.5, rtol=1e-10)
 
     def test_penalty_symmetric_about_half(self):
         # Inverted rankers (auc<0.5) feel the same ramp as barely-positive ones
+        """Penalty symmetric about half."""
         left = self._ice_with_zero_rest(0.45, 0.55, 2.0)  # deficit=0.0, at boundary
         np.testing.assert_allclose(left, 0.0, atol=1e-12)
         left_inside = self._ice_with_zero_rest(0.47, 0.55, 2.0)  # deficit=0.02
@@ -1364,6 +1375,7 @@ class TestICEPenaltyRamp:
         # The replacement fixes the pre-existing step cliff. Sample a dense
         # grid across the threshold and assert adjacent samples differ by
         # at most the expected linear step — no jumps.
+        """Penalty continuous across threshold."""
         min_roc_auc, penalty = 0.55, 5.0
         aucs = np.linspace(0.49, 0.60, 221)
         vals = np.array([self._ice_with_zero_rest(a, min_roc_auc, penalty) for a in aucs])
@@ -1373,6 +1385,7 @@ class TestICEPenaltyRamp:
 
     def test_penalty_monotonic_below_threshold(self):
         # Penalty grows as we move from threshold toward 0.5
+        """Penalty monotonic below threshold."""
         penalties = [self._ice_with_zero_rest(a, 0.55, 3.0) for a in [0.55, 0.54, 0.53, 0.52, 0.51, 0.50]]
         # Strictly non-decreasing, strictly increasing inside the interior
         assert all(penalties[i] <= penalties[i + 1] + 1e-12 for i in range(len(penalties) - 1))
@@ -1380,17 +1393,20 @@ class TestICEPenaltyRamp:
         assert penalties[-1] > penalties[0]
 
     def test_penalty_zero_when_knob_zero(self):
+        """Penalty zero when knob zero."""
         assert self._ice_with_zero_rest(0.5, 0.55, 0.0) == 0.0
         assert self._ice_with_zero_rest(0.52, 0.55, 0.0) == 0.0
 
     def test_no_penalty_when_min_roc_auc_at_half(self):
         # threshold_width = 0 → guard prevents div-by-zero, penalty disabled
+        """No penalty when min roc auc at half."""
         assert self._ice_with_zero_rest(0.50, 0.50, 5.0) == 0.0
         assert self._ice_with_zero_rest(0.49, 0.50, 5.0) == 0.0
 
     def test_default_args_produce_no_penalty(self):
         # Defaults: roc_auc_penalty=0.0 → pure behaviour unchanged for callers
         # that never opted into the penalty mechanism.
+        """Default args produce no penalty."""
         val = integral_calibration_error_from_metrics(
             calibration_mae=0.01,
             calibration_std=0.01,
@@ -1415,6 +1431,7 @@ class TestICENaNGuards:
     """
 
     def test_nan_roc_auc_does_not_propagate(self):
+        """Nan roc auc does not propagate."""
         val = integral_calibration_error_from_metrics(
             calibration_mae=0.01,
             calibration_std=0.01,
@@ -1431,6 +1448,7 @@ class TestICENaNGuards:
         np.testing.assert_allclose(val, 0.20, rtol=1e-10)
 
     def test_nan_pr_auc_does_not_propagate(self):
+        """Nan pr auc does not propagate."""
         val = integral_calibration_error_from_metrics(
             calibration_mae=0.01,
             calibration_std=0.01,
@@ -1442,6 +1460,7 @@ class TestICENaNGuards:
         assert np.isfinite(val)
 
     def test_both_nan_returns_finite(self):
+        """Both nan returns finite."""
         val = integral_calibration_error_from_metrics(
             calibration_mae=0.01,
             calibration_std=0.01,
@@ -1453,6 +1472,7 @@ class TestICENaNGuards:
         assert np.isfinite(val)
 
     def test_nan_brier_loss_does_not_propagate(self):
+        """Nan brier loss does not propagate."""
         val = integral_calibration_error_from_metrics(
             calibration_mae=0.01,
             calibration_std=0.01,
@@ -1466,6 +1486,7 @@ class TestICENaNGuards:
         np.testing.assert_allclose(val, 0.05 - 0.3 - 0.05, rtol=1e-10)
 
     def test_nan_calibration_mae_does_not_propagate(self):
+        """Nan calibration mae does not propagate."""
         val = integral_calibration_error_from_metrics(
             calibration_mae=float("nan"),
             calibration_std=0.01,
@@ -1477,6 +1498,7 @@ class TestICENaNGuards:
         assert np.isfinite(val), "NaN calibration_mae must not poison ICE"
 
     def test_nan_calibration_std_does_not_propagate(self):
+        """Nan calibration std does not propagate."""
         val = integral_calibration_error_from_metrics(
             calibration_mae=0.01,
             calibration_std=float("nan"),
@@ -1488,6 +1510,7 @@ class TestICENaNGuards:
         assert np.isfinite(val), "NaN calibration_std must not poison ICE"
 
     def test_all_five_inputs_nan_returns_finite(self):
+        """All five inputs nan returns finite."""
         val = integral_calibration_error_from_metrics(
             calibration_mae=float("nan"),
             calibration_std=float("nan"),
@@ -1514,6 +1537,7 @@ class TestPerGroupAUCEdgeCases:
     """
 
     def _build(self, group_ids, y_true, y_score):
+        """Helper: Build."""
         from mlframe.metrics.core import fast_aucs_per_group_optimized
 
         return fast_aucs_per_group_optimized(
@@ -1627,6 +1651,7 @@ class TestFastAucsOverallParity:
         ],
     )
     def test_fast_aucs_matches_per_group_overall(self, y_true, y_score):
+        """Fast aucs matches per group overall."""
         from mlframe.metrics.core import fast_aucs, fast_aucs_per_group_optimized
 
         y_true_arr = np.asarray(y_true, dtype=np.int8)
@@ -1708,6 +1733,7 @@ class TestGpuMetrics:
     """
 
     def test_rmse_matches_numpy_continuous(self):
+        """Rmse matches numpy continuous."""
         from mlframe.metrics.core import gpu_multiple_rmse_scores
         import cupy as cp
 
@@ -1720,6 +1746,7 @@ class TestGpuMetrics:
         np.testing.assert_allclose(gpu, cpu, rtol=0, atol=1e-12)
 
     def test_rmse_accepts_2d_actual(self):
+        """Rmse accepts 2d actual."""
         from mlframe.metrics.core import gpu_multiple_rmse_scores
         import cupy as cp
 
@@ -1732,6 +1759,7 @@ class TestGpuMetrics:
         np.testing.assert_allclose(gpu, cpu, rtol=0, atol=1e-12)
 
     def test_roc_auc_matches_sklearn_continuous(self):
+        """Roc auc matches sklearn continuous."""
         from mlframe.metrics.core import gpu_multiple_roc_auc_scores
         import cupy as cp
 
@@ -1760,6 +1788,7 @@ class TestGpuMetrics:
         np.testing.assert_allclose(gpu, ref, rtol=0, atol=1e-12)
 
     def test_pr_auc_matches_sklearn_continuous(self):
+        """Pr auc matches sklearn continuous."""
         from mlframe.metrics.core import gpu_multiple_pr_auc_scores
         from sklearn.metrics import average_precision_score
         import cupy as cp
@@ -1773,6 +1802,7 @@ class TestGpuMetrics:
         np.testing.assert_allclose(gpu, ref, rtol=0, atol=1e-12)
 
     def test_pr_auc_matches_sklearn_with_ties(self):
+        """Pr auc matches sklearn with ties."""
         from mlframe.metrics.core import gpu_multiple_pr_auc_scores
         from sklearn.metrics import average_precision_score
         import cupy as cp
@@ -1786,6 +1816,7 @@ class TestGpuMetrics:
         np.testing.assert_allclose(gpu, ref, rtol=0, atol=1e-12)
 
     def test_pr_auc_returns_nan_on_single_class(self):
+        """Pr auc returns nan on single class."""
         from mlframe.metrics.core import gpu_multiple_pr_auc_scores
         import cupy as cp
 
@@ -1797,6 +1828,7 @@ class TestGpuMetrics:
         assert np.all(np.isnan(gpu)), gpu
 
     def test_aucs_accept_1d_predicted(self):
+        """Aucs accept 1d predicted."""
         from mlframe.metrics.core import (
             gpu_multiple_pr_auc_scores,
             gpu_multiple_roc_auc_scores,
@@ -1821,6 +1853,7 @@ class TestGpuDispatchers:
     """``compute_batch_aucs`` / ``compute_batch_rmse`` / threshold knobs."""
 
     def test_compute_batch_rmse_auto_below_threshold_uses_cpu(self):
+        """Compute batch rmse auto below threshold uses cpu."""
         from mlframe.metrics.core import compute_batch_rmse, _GPU_BATCH_THRESHOLD_N
 
         rng = np.random.default_rng(0)
@@ -1834,6 +1867,7 @@ class TestGpuDispatchers:
         assert isinstance(out, np.ndarray)
 
     def test_compute_batch_aucs_force_cpu_matches_loop(self):
+        """Compute batch aucs force cpu matches loop."""
         from mlframe.metrics.core import compute_batch_aucs, fast_aucs
 
         rng = np.random.default_rng(7)
@@ -1849,6 +1883,7 @@ class TestGpuDispatchers:
         np.testing.assert_allclose(pr, ref_pr, rtol=0, atol=1e-12)
 
     def test_compute_batch_aucs_force_gpu_matches_sklearn(self):
+        """Compute batch aucs force gpu matches sklearn."""
         from mlframe.metrics.core import compute_batch_aucs
         from sklearn.metrics import average_precision_score
 
@@ -1863,6 +1898,7 @@ class TestGpuDispatchers:
         np.testing.assert_allclose(pr, ref_pr, rtol=0, atol=1e-12)
 
     def test_set_gpu_thresholds_changes_dispatch(self):
+        """Set gpu thresholds changes dispatch."""
         from mlframe.metrics.core import (
             compute_batch_aucs,
             set_gpu_thresholds,
@@ -1887,6 +1923,7 @@ class TestGpuDispatchers:
             set_gpu_thresholds(n=original)
 
     def test_force_backend_invalid_raises(self):
+        """Force backend invalid raises."""
         from mlframe.metrics.core import compute_batch_aucs
 
         rng = np.random.default_rng(10)
@@ -1906,6 +1943,7 @@ class TestGpuMetricsImportFailure:
     """
 
     def test_rmse_raises_clear_message_without_cupy(self):
+        """Rmse raises clear message without cupy."""
         from mlframe.metrics.core import gpu_multiple_rmse_scores
 
         with pytest.raises(ImportError, match="cupy"):
@@ -1931,14 +1969,17 @@ class TestFastRegressionMetrics:
 
     @pytest.fixture
     def rng(self):
+        """Rng."""
         return np.random.default_rng(0)
 
     def _data(self, rng, shape):
+        """Helper: Data."""
         y = rng.standard_normal(shape)
         p = y + 0.1 * rng.standard_normal(shape)
         return y, p
 
     def test_mae_1d_unweighted(self, rng):
+        """Mae 1d unweighted."""
         from sklearn.metrics import mean_absolute_error as sk
         from mlframe.metrics.core import fast_mean_absolute_error
 
@@ -1946,6 +1987,7 @@ class TestFastRegressionMetrics:
         assert abs(fast_mean_absolute_error(y, p) - sk(y, p)) < 1e-12
 
     def test_mae_1d_weighted(self, rng):
+        """Mae 1d weighted."""
         from sklearn.metrics import mean_absolute_error as sk
         from mlframe.metrics.core import fast_mean_absolute_error
 
@@ -1954,6 +1996,7 @@ class TestFastRegressionMetrics:
         assert abs(fast_mean_absolute_error(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
 
     def test_mae_2d_uniform_average(self, rng):
+        """Mae 2d uniform average."""
         from sklearn.metrics import mean_absolute_error as sk
         from mlframe.metrics.core import fast_mean_absolute_error
 
@@ -1961,6 +2004,7 @@ class TestFastRegressionMetrics:
         assert abs(fast_mean_absolute_error(y, p) - sk(y, p)) < 1e-12
 
     def test_mae_2d_raw_values(self, rng):
+        """Mae 2d raw values."""
         from sklearn.metrics import mean_absolute_error as sk
         from mlframe.metrics.core import fast_mean_absolute_error
 
@@ -1970,6 +2014,7 @@ class TestFastRegressionMetrics:
         np.testing.assert_allclose(out, ref, rtol=0, atol=1e-12)
 
     def test_mae_2d_weighted_array_multioutput(self, rng):
+        """Mae 2d weighted array multioutput."""
         from sklearn.metrics import mean_absolute_error as sk
         from mlframe.metrics.core import fast_mean_absolute_error
 
@@ -1981,6 +2026,7 @@ class TestFastRegressionMetrics:
         assert abs(out - ref) < 1e-12
 
     def test_mse_1d_weighted(self, rng):
+        """Mse 1d weighted."""
         from sklearn.metrics import mean_squared_error as sk
         from mlframe.metrics.core import fast_mean_squared_error
 
@@ -1989,6 +2035,7 @@ class TestFastRegressionMetrics:
         assert abs(fast_mean_squared_error(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
 
     def test_rmse_2d_raw_values(self, rng):
+        """Rmse 2d raw values."""
         from mlframe.metrics.core import fast_root_mean_squared_error, fast_mean_squared_error
 
         y, p = self._data(rng, (5_000, 3))
@@ -1998,6 +2045,7 @@ class TestFastRegressionMetrics:
         np.testing.assert_allclose(out, ref, rtol=0, atol=1e-12)
 
     def test_rmse_matches_sklearn_2d_weighted(self, rng):
+        """Rmse matches sklearn 2d weighted."""
         try:
             from sklearn.metrics import root_mean_squared_error as sk
         except ImportError:
@@ -2009,6 +2057,7 @@ class TestFastRegressionMetrics:
         assert abs(fast_root_mean_squared_error(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
 
     def test_max_residual_1d_matches_sklearn(self, rng):
+        """Max residual 1d matches sklearn."""
         from sklearn.metrics import max_error as sk
         from mlframe.metrics.core import fast_max_error
 
@@ -2016,6 +2065,7 @@ class TestFastRegressionMetrics:
         assert abs(fast_max_error(y, p) - sk(y, p)) < 1e-12
 
     def test_max_residual_2d_per_output(self, rng):
+        """Max residual 2d per output."""
         from mlframe.metrics.core import fast_max_error
 
         y, p = self._data(rng, (5_000, 3))
@@ -2025,6 +2075,7 @@ class TestFastRegressionMetrics:
         np.testing.assert_allclose(out, ref, rtol=0, atol=1e-12)
 
     def test_r2_1d_weighted(self, rng):
+        """R2 1d weighted."""
         from sklearn.metrics import r2_score as sk
         from mlframe.metrics.core import fast_r2_score
 
@@ -2033,6 +2084,7 @@ class TestFastRegressionMetrics:
         assert abs(fast_r2_score(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
 
     def test_r2_2d_raw_values(self, rng):
+        """R2 2d raw values."""
         from sklearn.metrics import r2_score as sk
         from mlframe.metrics.core import fast_r2_score
 
@@ -2042,6 +2094,7 @@ class TestFastRegressionMetrics:
         np.testing.assert_allclose(out, ref, rtol=0, atol=1e-12)
 
     def test_r2_2d_variance_weighted(self, rng):
+        """R2 2d variance weighted."""
         from sklearn.metrics import r2_score as sk
         from mlframe.metrics.core import fast_r2_score
 
@@ -2051,6 +2104,7 @@ class TestFastRegressionMetrics:
         assert abs(out - ref) < 1e-12
 
     def test_r2_2d_variance_weighted_with_sample_weight(self, rng):
+        """R2 2d variance weighted with sample weight."""
         from sklearn.metrics import r2_score as sk
         from mlframe.metrics.core import fast_r2_score
 
@@ -2061,6 +2115,7 @@ class TestFastRegressionMetrics:
         assert abs(out - ref) < 1e-12
 
     def test_unknown_multioutput_raises(self, rng):
+        """Unknown multioutput raises."""
         from mlframe.metrics.core import fast_mean_absolute_error
 
         y, p = self._data(rng, (5_000, 3))

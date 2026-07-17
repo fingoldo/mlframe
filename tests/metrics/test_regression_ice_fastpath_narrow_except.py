@@ -12,6 +12,7 @@ import mlframe.metrics._ice_metric as ice
 
 
 def _binary_inputs():
+    """Helper: Binary inputs."""
     rng = np.random.default_rng(1)
     n = 200
     y_true = (rng.random(n) > 0.5).astype(np.int64)
@@ -20,9 +21,11 @@ def _binary_inputs():
 
 
 def test_unexpected_error_type_propagates(monkeypatch):
+    """Unexpected error type propagates."""
     y_true, y_score = _binary_inputs()
 
     def _boom(*args, **kwargs):
+        """Helper: Boom."""
         raise RuntimeError("synthetic kernel failure")
 
     monkeypatch.setattr(ice, "_batch_per_class_ice_kernel", _boom)
@@ -31,9 +34,11 @@ def test_unexpected_error_type_propagates(monkeypatch):
 
 
 def test_value_error_still_falls_back(monkeypatch):
+    """Value error still falls back."""
     y_true, y_score = _binary_inputs()
 
     def _value_err(*args, **kwargs):
+        """Helper: Value err."""
         raise ValueError("recoverable shape/dtype issue")
 
     monkeypatch.setattr(ice, "_batch_per_class_ice_kernel", _value_err)

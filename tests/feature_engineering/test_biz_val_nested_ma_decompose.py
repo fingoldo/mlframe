@@ -18,6 +18,7 @@ from mlframe.feature_engineering.nested_ma_decompose import nested_ma_decompose,
 
 
 def test_biz_val_nested_ma_decompose_matches_direct_exclusive_window_average():
+    """Biz val nested ma decompose matches direct exclusive window average."""
     rng = np.random.default_rng(0)
     n = 200
     x = rng.normal(size=n).cumsum() + 100
@@ -38,6 +39,7 @@ def test_biz_val_nested_ma_decompose_matches_direct_exclusive_window_average():
 
 
 def test_nested_ma_decompose_rejects_non_nested_windows():
+    """Nested ma decompose rejects non nested windows."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -46,11 +48,13 @@ def test_nested_ma_decompose_rejects_non_nested_windows():
 
 def test_nested_ma_decompose_simple_hand_computed_case():
     # MA(10)=5.0 (sum=50), MA(3)=6.0 (sum=18) -> exclusive 7-day sum = 50-18=32, avg = 32/7.
+    """Nested ma decompose simple hand computed case."""
     result = nested_ma_decompose(np.array([6.0]), np.array([5.0]), window_short=3, window_long=10)
     np.testing.assert_allclose(result, [32.0 / 7.0])
 
 
 def _windowed_mas(x: np.ndarray, windows: list) -> list:
+    """Helper: Windowed mas."""
     s = pd.Series(x)
     return [s.rolling(w).mean().to_numpy() for w in windows]
 
@@ -73,6 +77,7 @@ def test_nested_ma_decompose_chain_bit_identical_to_pairwise_calls():
 
 
 def test_nested_ma_decompose_chain_rejects_non_increasing_windows():
+    """Nested ma decompose chain rejects non increasing windows."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -80,6 +85,7 @@ def test_nested_ma_decompose_chain_rejects_non_increasing_windows():
 
 
 def test_nested_ma_decompose_chain_rejects_mismatched_lengths():
+    """Nested ma decompose chain rejects mismatched lengths."""
     import pytest
 
     with pytest.raises(ValueError):
@@ -105,11 +111,13 @@ def test_biz_val_nested_ma_decompose_chain_speedup_over_pairwise_calls():
     inner_reps = 300  # amortize Windows' ~15.6ms process_time() tick resolution over many calls per trial
 
     def run_pairwise() -> None:
+        """Run pairwise."""
         for _ in range(inner_reps):
             for (ma_short, ma_long), (w_short, w_long) in zip(mas_pairs, pairs):
                 nested_ma_decompose(ma_short, ma_long, w_short, w_long)
 
     def run_chain() -> None:
+        """Run chain."""
         for _ in range(inner_reps):
             nested_ma_decompose_chain(mas, windows)
 

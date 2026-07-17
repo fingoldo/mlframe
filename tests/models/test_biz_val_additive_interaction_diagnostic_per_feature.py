@@ -17,6 +17,7 @@ from mlframe.models.additive_interaction_diagnostic import additive_interaction_
 
 
 def test_biz_val_additive_interaction_diagnostic_per_feature_isolates_interacting_pair():
+    """Biz val additive interaction diagnostic per feature isolates interacting pair."""
     rng = np.random.default_rng(0)
     n = 1500
 

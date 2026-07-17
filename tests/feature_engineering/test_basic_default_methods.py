@@ -21,12 +21,14 @@ from mlframe.feature_engineering.basic import _DEFAULT_DATE_METHODS, create_date
 
 
 def _frame() -> pd.DataFrame:
+    """Helper: Frame."""
     return pd.DataFrame({"d": pd.to_datetime(["2024-01-01", "2024-06-15", "2024-12-31"])})
 
 
 def test_default_methods_singleton_keys_pinned():
     # Extended (2026-05-26) to the Kaggle-style default set; sensor still pins the exact key set so
     # an accidental future regression to fewer / different defaults is caught.
+    """Default methods singleton keys pinned."""
     assert set(_DEFAULT_DATE_METHODS.keys()) == {
         "year",
         "quarter",
@@ -42,6 +44,7 @@ def test_default_methods_singleton_keys_pinned():
 def test_call_does_not_share_singleton_with_caller():
     # Provoke any internal mutation by passing methods=None, then mutate the singleton
     # snapshot ourselves -- the singleton must remain intact.
+    """Call does not share singleton with caller."""
     before = dict(_DEFAULT_DATE_METHODS)
     out = create_date_features(_frame(), cols=["d"], delete_original_cols=False)
     assert out is not None
@@ -50,6 +53,7 @@ def test_call_does_not_share_singleton_with_caller():
 
 
 def test_caller_supplied_methods_dict_independent_across_calls():
+    """Caller supplied methods dict independent across calls."""
     user_methods = {"day": np.int8, "month": np.int8}
     out1 = create_date_features(_frame(), cols=["d"], delete_original_cols=False, methods=user_methods)
     # Mutate caller dict between calls; the second call sees a fresh default copy.

@@ -51,6 +51,7 @@ def _miscalibrated(n: int, rng: np.random.Generator, p: float = 0.85):
 
 
 def test_returns_one_ece_per_window_equal_population():
+    """Returns one ece per window equal population."""
     rng = np.random.default_rng(0)
     n = 10_000
     yt, score = _well_calibrated(n, rng)
@@ -65,6 +66,7 @@ def test_returns_one_ece_per_window_equal_population():
 
 
 def test_sparse_window_yields_nan_ece():
+    """Sparse window yields nan ece."""
     rng = np.random.default_rng(1)
     # Far fewer samples than windows*MIN_WINDOW_SAMPLES -> some windows under-populated.
     n = MIN_WINDOW_SAMPLES * 2  # 60
@@ -91,6 +93,7 @@ def test_sparse_windows_report_n_excluded_windows():
 
 
 def test_fully_populated_windows_report_zero_excluded():
+    """Fully populated windows report zero excluded."""
     rng = np.random.default_rng(0)
     n = 6_000
     yt, score = _well_calibrated(n, rng)
@@ -101,6 +104,7 @@ def test_fully_populated_windows_report_zero_excluded():
 
 
 def test_unsorted_timestamps_are_ordered_before_windowing():
+    """Unsorted timestamps are ordered before windowing."""
     rng = np.random.default_rng(2)
     n = 6_000
     yt, score = _well_calibrated(n, rng)
@@ -113,6 +117,7 @@ def test_unsorted_timestamps_are_ordered_before_windowing():
 
 
 def test_datetime_timestamps_set_x_is_time():
+    """Datetime timestamps set x is time."""
     pd = pytest.importorskip("pandas")
     rng = np.random.default_rng(3)
     n = 8_000
@@ -125,6 +130,7 @@ def test_datetime_timestamps_set_x_is_time():
 
 
 def test_numeric_timestamps_not_x_is_time():
+    """Numeric timestamps not x is time."""
     rng = np.random.default_rng(4)
     n = 8_000
     yt, score = _well_calibrated(n, rng)
@@ -134,6 +140,7 @@ def test_numeric_timestamps_not_x_is_time():
 
 
 def test_empty_input_safe():
+    """Empty input safe."""
     res = calibration_drift(
         np.array([], dtype=np.int8),
         np.array([], dtype=np.float64),
@@ -147,11 +154,13 @@ def test_empty_input_safe():
 
 
 def test_length_mismatch_raises():
+    """Length mismatch raises."""
     with pytest.raises(ValueError, match="equal length"):
         calibration_drift(np.zeros(10), np.zeros(9), np.arange(10), n_windows=3)
 
 
 def test_invalid_params_raise():
+    """Invalid params raise."""
     yt, score = _well_calibrated(100, np.random.default_rng(0))
     ts = np.arange(100)
     with pytest.raises(ValueError, match="n_windows"):
@@ -161,6 +170,7 @@ def test_invalid_params_raise():
 
 
 def test_spec_has_worst_window_vline():
+    """Spec has worst window vline."""
     rng = np.random.default_rng(5)
     cut = 5_000
     yt = np.empty(10_000, dtype=np.int8)
@@ -175,6 +185,7 @@ def test_spec_has_worst_window_vline():
 
 
 def test_curve_panel_decimated_to_max():
+    """Curve panel decimated to max."""
     rng = np.random.default_rng(6)
     n = 50_000
     yt, score = _miscalibrated(n, rng)
@@ -189,6 +200,7 @@ def test_curve_panel_decimated_to_max():
 
 
 def test_no_curves_single_panel():
+    """No curves single panel."""
     rng = np.random.default_rng(7)
     n = 20_000
     yt, score = _well_calibrated(n, rng)

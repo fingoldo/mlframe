@@ -49,6 +49,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 @pytest.fixture
 def small_regression_data():
+    """Helper that small regression data."""
     rng = np.random.default_rng(0)
     X = pd.DataFrame(
         {
@@ -63,6 +64,7 @@ def small_regression_data():
 
 @pytest.fixture
 def small_classification_data():
+    """Helper that small classification data."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(40, 3))
     y = (X[:, 0] > 0).astype(int)
@@ -105,6 +107,7 @@ class TestCompositeTargetEstimatorCompliance:
     """
 
     def _make(self):
+        """Helper that make."""
         from mlframe.training.composite import CompositeTargetEstimator
 
         return CompositeTargetEstimator(
@@ -114,6 +117,7 @@ class TestCompositeTargetEstimatorCompliance:
         )
 
     def test_get_set_params_roundtrip(self):
+        """Get set params roundtrip."""
         est = self._make()
         params = est.get_params(deep=False)
         # Round-trip MUST be lossless.
@@ -122,9 +126,11 @@ class TestCompositeTargetEstimatorCompliance:
         assert est2.get_params(deep=False) == params
 
     def test_clone_of_unfitted_wrapper(self):
+        """Clone of unfitted wrapper."""
         _assert_clone_returns_unfitted_shell(self._make())
 
     def test_fit_then_predict_happy_path(self, small_regression_data):
+        """Fit then predict happy path."""
         X, y = small_regression_data
         est = self._make()
         est.fit(X, y)
@@ -133,6 +139,7 @@ class TestCompositeTargetEstimatorCompliance:
         assert np.all(np.isfinite(preds))
 
     def test_fitted_state_attrs_populated(self, small_regression_data):
+        """Fitted state attrs populated."""
         X, y = small_regression_data
         est = self._make()
         est.fit(X, y)
@@ -152,11 +159,13 @@ class TestLagPredictDeployableModelCompliance:
     """
 
     def _make(self):
+        """Helper that make."""
         from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
 
         return _LagPredictDeployableModel(lag_column="base")
 
     def test_get_set_params_roundtrip(self):
+        """Get set params roundtrip."""
         est = self._make()
         params = est.get_params()
         est2 = self._make()
@@ -164,12 +173,14 @@ class TestLagPredictDeployableModelCompliance:
         assert est2.get_params() == params
 
     def test_clone_returns_fresh_instance(self):
+        """Clone returns fresh instance."""
         est = self._make()
         cloned = clone(est)
         assert cloned is not est
         assert cloned.lag_column == est.lag_column
 
     def test_fit_predict_happy_path(self, small_regression_data):
+        """Fit predict happy path."""
         X, y = small_regression_data
         est = self._make()
         est.fit(X, y)
@@ -183,7 +194,9 @@ class TestLagPredictDeployableModelCompliance:
 
 
 class TestESTransformedTargetRegressorCompliance:
+    """Groups tests covering TestESTransformedTargetRegressorCompliance."""
     def _make(self):
+        """Helper that make."""
         from mlframe.estimators.custom import ESTransformedTargetRegressor
 
         # log1p / expm1 round-trip; both are vector-safe, finite-preserving.
@@ -195,6 +208,7 @@ class TestESTransformedTargetRegressorCompliance:
         )
 
     def test_get_set_params_roundtrip(self):
+        """Get set params roundtrip."""
         est = self._make()
         params = est.get_params(deep=False)
         est2 = self._make()
@@ -202,9 +216,11 @@ class TestESTransformedTargetRegressorCompliance:
         assert est2.get_params(deep=False) == params
 
     def test_clone_of_unfitted_wrapper(self):
+        """Clone of unfitted wrapper."""
         _assert_clone_returns_unfitted_shell(self._make())
 
     def test_fit_then_predict_happy_path(self):
+        """Fit then predict happy path."""
         rng = np.random.default_rng(0)
         X = rng.uniform(0.5, 5.0, size=(40, 3))
         y = np.abs(rng.normal(loc=5.0, scale=0.3, size=40))
@@ -227,11 +243,13 @@ class TestEstimatorWithEarlyStoppingCompliance:
     """
 
     def _make(self):
+        """Helper that make."""
         from mlframe.estimators.base import EstimatorWithEarlyStopping
 
         return EstimatorWithEarlyStopping(base_estimator=LogisticRegression(max_iter=200))
 
     def test_get_set_params_roundtrip(self):
+        """Get set params roundtrip."""
         est = self._make()
         params = est.get_params(deep=False)
         est2 = self._make()
@@ -239,9 +257,11 @@ class TestEstimatorWithEarlyStoppingCompliance:
         assert est2.get_params(deep=False) == params
 
     def test_clone_of_unfitted_wrapper(self):
+        """Clone of unfitted wrapper."""
         _assert_clone_returns_unfitted_shell(self._make())
 
     def test_fit_then_predict_happy_path(self, small_classification_data):
+        """Fit then predict happy path."""
         X, y = small_classification_data
         est = self._make()
         est.fit(X, y)
@@ -250,12 +270,15 @@ class TestEstimatorWithEarlyStoppingCompliance:
 
 
 class TestRegressorWithEarlyStoppingCompliance:
+    """Groups tests covering TestRegressorWithEarlyStoppingCompliance."""
     def _make(self):
+        """Helper that make."""
         from mlframe.estimators.base import RegressorWithEarlyStopping
 
         return RegressorWithEarlyStopping(base_estimator=LinearRegression())
 
     def test_get_set_params_roundtrip(self):
+        """Get set params roundtrip."""
         est = self._make()
         params = est.get_params(deep=False)
         est2 = self._make()
@@ -263,9 +286,11 @@ class TestRegressorWithEarlyStoppingCompliance:
         assert est2.get_params(deep=False) == params
 
     def test_clone_of_unfitted_wrapper(self):
+        """Clone of unfitted wrapper."""
         _assert_clone_returns_unfitted_shell(self._make())
 
     def test_fit_then_predict_happy_path(self, small_regression_data):
+        """Fit then predict happy path."""
         X, y = small_regression_data
         # Drop the pandas frame -> ndarray since check_array does not accept
         # mixed-dtype frames with string column names by default at older
@@ -284,12 +309,15 @@ class TestRegressorWithEarlyStoppingCompliance:
 
 
 class TestPdOrdinalEncoderCompliance:
+    """Groups tests covering TestPdOrdinalEncoderCompliance."""
     def _make(self):
+        """Helper that make."""
         from mlframe.estimators.custom import PdOrdinalEncoder
 
         return PdOrdinalEncoder()
 
     def test_get_set_params_roundtrip(self):
+        """Get set params roundtrip."""
         est = self._make()
         params = est.get_params(deep=False)
         est2 = self._make()
@@ -297,9 +325,11 @@ class TestPdOrdinalEncoderCompliance:
         assert est2.get_params(deep=False) == params
 
     def test_clone_of_unfitted_wrapper(self):
+        """Clone of unfitted wrapper."""
         _assert_clone_returns_unfitted_shell(self._make())
 
     def test_fit_transform_happy_path(self):
+        """Fit transform happy path."""
         df = pd.DataFrame({"a": ["x", "y", "x", "z"], "b": ["p", "q", "p", "p"]})
         enc = self._make()
         enc.fit(df)
@@ -315,13 +345,16 @@ class TestPdOrdinalEncoderCompliance:
 
 
 class TestPdKBinsDiscretizerCompliance:
+    """Groups tests covering TestPdKBinsDiscretizerCompliance."""
     def _make(self):
+        """Helper that make."""
         from mlframe.estimators.custom import PdKBinsDiscretizer
 
         # encode='ordinal' to avoid the sparse densify path; the wrapper handles both but ordinal is the happy path for narrow asserts. subsample=None overrides the stale 'warn' default that sklearn>=1.5 rejects via _param_validation.
         return PdKBinsDiscretizer(n_bins=3, encode="ordinal", strategy="uniform", subsample=None)
 
     def test_get_set_params_roundtrip(self):
+        """Get set params roundtrip."""
         est = self._make()
         params = est.get_params(deep=False)
         est2 = self._make()
@@ -329,9 +362,11 @@ class TestPdKBinsDiscretizerCompliance:
         assert est2.get_params(deep=False) == params
 
     def test_clone_of_unfitted_wrapper(self):
+        """Clone of unfitted wrapper."""
         _assert_clone_returns_unfitted_shell(self._make())
 
     def test_fit_transform_happy_path(self):
+        """Fit transform happy path."""
         df = pd.DataFrame({"a": np.linspace(0, 10, 30), "b": np.linspace(-5, 5, 30)})
         enc = self._make()
         enc.fit(df)
@@ -356,6 +391,7 @@ class TestRFECVCompliance:
     """
 
     def _make(self):
+        """Helper that make."""
         from mlframe.feature_selection.wrappers.rfecv import RFECV
 
         # Quiet defaults to avoid swamping the test log; small budgets so the
@@ -371,6 +407,7 @@ class TestRFECVCompliance:
         )
 
     def test_get_set_params_roundtrip(self):
+        """Get set params roundtrip."""
         est = self._make()
         params = est.get_params(deep=False)
         est2 = self._make()
@@ -386,6 +423,7 @@ class TestRFECVCompliance:
                 assert sv == nv, f"param {k!r}: src={sv!r} new={nv!r}"
 
     def test_clone_of_unfitted_wrapper(self):
+        """Clone of unfitted wrapper."""
         est = self._make()
         cloned = clone(est)
         assert cloned is not est

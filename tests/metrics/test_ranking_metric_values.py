@@ -31,6 +31,7 @@ from mlframe.metrics.ranking import (
 def test_ndcg_binary_known_value_matches_sklearn():
     # Single query, binary relevance. Predicted order = score-descending = [0,1,2,3].
     # DCG@4 = 1/log2(2) + 1/log2(4) = 1.5 ; IDCG@4 = 1/log2(2) + 1/log2(3).
+    """Ndcg binary known value matches sklearn."""
     y = np.array([1.0, 0.0, 1.0, 0.0])
     s = np.array([0.4, 0.3, 0.2, 0.1])
     dcg = 1.0 / math.log2(2) + 1.0 / math.log2(4)
@@ -47,6 +48,7 @@ def test_ndcg_binary_known_value_matches_sklearn():
 def test_ndcg_uses_exponential_gain_not_linear():
     # Graded relevance where exponential (2^rel-1) and linear (rel) gains DIVERGE.
     # y=[2,1], scores=[0.1,0.9] -> predicted order puts rel=1 first, rel=2 second.
+    """Ndcg uses exponential gain not linear."""
     y = np.array([2.0, 1.0])
     s = np.array([0.1, 0.9])
     # Exponential gain: DCG = (2^1-1)/log2(2) + (2^2-1)/log2(3); IDCG = 3/log2(2) + 1/log2(3).
@@ -63,6 +65,7 @@ def test_ndcg_uses_exponential_gain_not_linear():
 
 
 def test_ndcg_k_greater_than_n_clamps_to_n():
+    """Ndcg k greater than n clamps to n."""
     y = np.array([1.0, 0.0, 1.0])
     s = np.array([0.9, 0.5, 0.1])
     # k far beyond the 3-item group must clamp to n -> identical to k=n.
@@ -72,6 +75,7 @@ def test_ndcg_k_greater_than_n_clamps_to_n():
 def test_ndcg_tied_scores_deterministic_stable_order():
     # All scores tied: stable mergesort keeps original row order, so the rel=1 item (row 0)
     # ranks first -> perfect NDCG=1.0, reproducibly.
+    """Ndcg tied scores deterministic stable order."""
     y = np.array([1.0, 0.0])
     s = np.array([0.5, 0.5])
     first = ndcg_at_k(y, s, None, k=10)
@@ -96,6 +100,7 @@ def test_ndcg_tied_scores_deterministic_stable_order():
     ],
 )
 def test_map_at_k_known_value(k, expected):
+    """Map at k known value."""
     y = np.array([1.0, 0.0, 1.0, 1.0])
     s = np.array([0.9, 0.8, 0.7, 0.6])
     assert map_at_k(y, s, None, k=k) == pytest.approx(expected, abs=1e-12)
@@ -103,6 +108,7 @@ def test_map_at_k_known_value(k, expected):
 
 def test_mrr_reciprocal_of_first_relevant_rank():
     # First relevant item is at rank 3 (0-indexed position 2) -> RR = 1/3.
+    """Mrr reciprocal of first relevant rank."""
     y = np.array([0.0, 0.0, 1.0, 0.0])
     s = np.array([0.9, 0.8, 0.7, 0.6])
     assert mrr(y, s, None) == pytest.approx(1.0 / 3.0, abs=1e-12)
@@ -114,6 +120,7 @@ def test_mrr_reciprocal_of_first_relevant_rank():
 
 
 def test_all_metrics_nan_when_no_relevant_items():
+    """All metrics nan when no relevant items."""
     y = np.zeros(5)  # no positives anywhere -> every query degenerate
     s = np.array([0.5, 0.4, 0.3, 0.2, 0.1])
     assert np.isnan(ndcg_at_k(y, s, None, k=10))
@@ -127,6 +134,7 @@ def test_all_metrics_nan_when_no_relevant_items():
 
 
 def test_group_ids_none_equals_single_explicit_group():
+    """Group ids none equals single explicit group."""
     y = np.array([1.0, 0.0, 1.0, 0.0])
     s = np.array([0.4, 0.3, 0.2, 0.1])
     assert ndcg_at_k(y, s, None, k=5) == pytest.approx(ndcg_at_k(y, s, np.zeros(4), k=5), abs=1e-12)
@@ -135,6 +143,7 @@ def test_group_ids_none_equals_single_explicit_group():
 def test_noncontiguous_and_shuffled_group_ids_group_by_value():
     # Group A rows (id 50): y=[1,0], s=[0.9,0.1] -> NDCG 1.0.
     # Group B rows (id 20): y=[1,0,1], s=[0.1,0.9,0.5] -> NDCG ~0.693419.
+    """Noncontiguous and shuffled group ids group by value."""
     yt = np.array([1.0, 0.0, 1.0, 0.0, 1.0])
     ys = np.array([0.9, 0.1, 0.1, 0.9, 0.5])
     gids = np.array([50, 50, 20, 20, 20])
@@ -156,6 +165,7 @@ def test_noncontiguous_and_shuffled_group_ids_group_by_value():
 
 def test_compute_ranking_summary_values_and_cross_path_identity():
     # Two groups (A id0: y=[1,0] s=[0.9,0.1]; B id1: y=[1,0,1] s=[0.1,0.9,0.5]).
+    """Compute ranking summary values and cross path identity."""
     yt = np.array([1.0, 0.0, 1.0, 0.0, 1.0])
     ys = np.array([0.9, 0.1, 0.1, 0.9, 0.5])
     gids = np.array([0, 0, 1, 1, 1])

@@ -17,6 +17,7 @@ from mlframe.core.recency_step_weight import recency_step_weight
 
 
 def _make_regime_shift_data(n: int, shift_day: int, seed: int):
+    """Helper that make regime shift data."""
     rng = np.random.default_rng(seed)
     days = np.arange(n)
     X = rng.normal(size=(n, 10))
@@ -26,6 +27,7 @@ def _make_regime_shift_data(n: int, shift_day: int, seed: int):
 
 
 def test_biz_val_recency_step_weight_improves_held_out_accuracy_after_regime_shift():
+    """Recency step weight improves held out accuracy after regime shift."""
     shift_day = 2500
     X, y, days = _make_regime_shift_data(n=3000, shift_day=shift_day, seed=0)
     Xtr, ytr, days_tr = X[:2800], y[:2800], days[:2800]
@@ -46,12 +48,14 @@ def test_biz_val_recency_step_weight_improves_held_out_accuracy_after_regime_shi
 
 
 def test_recency_step_weight_assigns_correct_levels():
+    """Recency step weight assigns correct levels."""
     dates = np.array([1, 2, 3, 4, 5])
     w = recency_step_weight(dates, cutoff_date=3, boost=2.0, base=0.5)
     np.testing.assert_array_equal(w, [0.5, 0.5, 2.0, 2.0, 2.0])
 
 
 def test_recency_step_weight_default_base_and_boost():
+    """Recency step weight default base and boost."""
     dates = np.array([10, 20, 30])
     w = recency_step_weight(dates, cutoff_date=20)
     np.testing.assert_array_equal(w, [1.0, 1.5, 1.5])
@@ -70,6 +74,7 @@ def _make_gradual_drift_data(n: int, drift_start: int, drift_end: int, seed: int
 
 
 def test_biz_val_recency_step_weight_smooth_beats_hard_cutoff_on_gradual_drift():
+    """Recency step weight smooth beats hard cutoff on gradual drift."""
     n, drift_start, drift_end = 4000, 1000, 3600
     X, y, days = _make_gradual_drift_data(n=n, drift_start=drift_start, drift_end=drift_end, seed=0)
     Xtr, ytr, days_tr = X[:3800], y[:3800], days[:3800]
@@ -97,18 +102,21 @@ def test_biz_val_recency_step_weight_smooth_beats_hard_cutoff_on_gradual_drift()
 
 
 def test_recency_step_weight_tiers_assigns_ladder_levels():
+    """Recency step weight tiers assigns ladder levels."""
     dates = np.array([1, 2, 3, 4, 5, 6])
     w = recency_step_weight(dates, cutoff_date=0, tiers=[(2, 1.5), (4, 2.0), (6, 3.0)], base=1.0)
     np.testing.assert_array_equal(w, [1.0, 1.5, 1.5, 2.0, 2.0, 3.0])
 
 
 def test_recency_step_weight_smooth_window_ramps_linearly():
+    """Recency step weight smooth window ramps linearly."""
     dates = np.array([0.0, 5.0, 10.0])
     w = recency_step_weight(dates, cutoff_date=10.0, boost=2.0, base=1.0, smooth_window=10.0)
     np.testing.assert_allclose(w, [1.0, 1.5, 2.0])
 
 
 def test_recency_step_weight_omitting_new_params_is_bit_identical_to_baseline():
+    """Recency step weight omitting new params is bit identical to baseline."""
     dates = np.linspace(0, 1000, 5000)
     baseline = recency_step_weight(dates, cutoff_date=500.0, boost=2.5, base=1.0)
     extended = recency_step_weight(dates, cutoff_date=500.0, boost=2.5, base=1.0, tiers=None, smooth_window=None)
@@ -116,6 +124,7 @@ def test_recency_step_weight_omitting_new_params_is_bit_identical_to_baseline():
 
 
 def test_recency_step_weight_tiers_and_smooth_window_together_raises():
+    """Recency step weight tiers and smooth window together raises."""
     dates = np.array([1, 2, 3])
     try:
         recency_step_weight(dates, cutoff_date=0, tiers=[(1, 2.0)], smooth_window=1.0)

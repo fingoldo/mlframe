@@ -34,6 +34,7 @@ from mlframe.feature_selection.importance import (
 
 
 class TestTopNTextLog:
+    """Groups tests covering TestTopNTextLog."""
     def test_format_top_fi_includes_names_and_values(self) -> None:
         """The formatter emits `feature_name=value` pairs in descending
         order."""
@@ -157,6 +158,7 @@ class TestInlineDisplayDoesNotLeakFigures:
     """
 
     def test_jupyter_inline_does_not_leak_figs_into_registry(self) -> None:
+        """Jupyter inline does not leak figs into registry."""
         import builtins
         import matplotlib.pyplot as plt
 
@@ -211,6 +213,7 @@ class TestInlineDisplayDoesNotLeakFigures:
 
 
 class TestInlineDisplayPath:
+    """Groups tests covering TestInlineDisplayPath."""
     def test_no_jupyter_falls_through_to_plt_show(self, monkeypatch) -> None:
         """Outside a Jupyter / IPython kernel, the function falls
         through to ``plt.show()`` (the legacy behaviour). The test
@@ -261,6 +264,7 @@ class TestRendererDoesNotMutateBackend:
     def test_renderer_source_does_not_call_matplotlib_use(self) -> None:
         # Resolve the prod renderer file via the package import (robust to test layout).
         # Skipping on missing-path was masking a real wiring bug; assert the file exists.
+        """Renderer source does not call matplotlib use."""
         from pathlib import Path
         import mlframe.reporting.renderers.matplotlib as _renderer_mod
 

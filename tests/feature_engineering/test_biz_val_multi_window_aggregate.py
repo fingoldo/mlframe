@@ -16,6 +16,7 @@ from mlframe.feature_engineering.multi_window_aggregate import multi_window_aggr
 
 
 def _make_data(seed: int):
+    """Helper: Make data."""
     rng = np.random.default_rng(seed)
     n_entities = 400
     # a long history (~4 years) so a small recent-90-day shift is heavily diluted in the all-history mean,
@@ -43,6 +44,7 @@ def _make_data(seed: int):
 
 
 def test_biz_val_multi_window_aggregate_recent_window_beats_all_history_aggregate():
+    """Biz val multi window aggregate recent window beats all history aggregate."""
     history_df, query_df, y = _make_data(seed=0)
 
     result = multi_window_aggregate(
@@ -68,6 +70,7 @@ def test_biz_val_multi_window_aggregate_recent_window_beats_all_history_aggregat
 
 
 def test_multi_window_aggregate_matches_manual_windowed_sum():
+    """Multi window aggregate matches manual windowed sum."""
     history_df = pd.DataFrame({"entity": ["a"] * 5, "t": [1, 5, 10, 15, 20], "amount": [10.0, 20.0, 30.0, 40.0, 50.0]})
     query_df = pd.DataFrame({"entity": ["a"], "as_of": [21]})
 
@@ -82,6 +85,7 @@ def test_multi_window_aggregate_matches_manual_windowed_sum():
 
 
 def test_multi_window_aggregate_empty_horizons_raises():
+    """Multi window aggregate empty horizons raises."""
     import pytest
 
     history_df = pd.DataFrame({"entity": ["a"], "t": [1.0], "amount": [1.0]})

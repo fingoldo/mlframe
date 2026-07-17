@@ -20,6 +20,7 @@ from mlframe.reporting.spec import FigureSpec, HeatmapPanelSpec
 
 
 def _flat(fig: FigureSpec):
+    """Helper: Flat."""
     return [p for row in fig.panels for p in row if p is not None]
 
 
@@ -29,6 +30,7 @@ def _flat(fig: FigureSpec):
 
 
 def test_matrix_matches_bincount_reference():
+    """Matrix matches bincount reference."""
     rng = np.random.default_rng(0)
     n = 10_000
     n_groups, n_time = 5, 7
@@ -75,6 +77,7 @@ def test_matrix_rejects_out_of_range_codes_instead_of_crashing():
 
 def test_empty_cell_is_nan():
     # Group 1 never co-occurs with time 0 -> that cell must be nan, not 0.
+    """Empty cell is nan."""
     gc = np.array([0, 0, 1, 1], dtype=np.int64)
     tc = np.array([0, 1, 1, 1], dtype=np.int64)
     y = np.array([1.0, 0.0, 1.0, 1.0])
@@ -85,6 +88,7 @@ def test_empty_cell_is_nan():
 
 
 def test_equal_population_time_bins():
+    """Equal population time bins."""
     n = 1000
     df = pd.DataFrame({"g": np.zeros(n, dtype=int)})
     y = np.zeros(n)
@@ -94,6 +98,7 @@ def test_equal_population_time_bins():
 
 
 def test_max_groups_folds_into_other():
+    """Max groups folds into other."""
     n = 5000
     rng = np.random.default_rng(1)
     g = rng.integers(0, 50, size=n)
@@ -105,6 +110,7 @@ def test_max_groups_folds_into_other():
 
 
 def test_spec_shape():
+    """Spec shape."""
     n = 2000
     rng = np.random.default_rng(2)
     df = pd.DataFrame({"g": rng.integers(0, 4, size=n)})
@@ -122,6 +128,7 @@ def test_spec_shape():
 
 
 def _row_mean_spread(panel: HeatmapPanelSpec) -> float:
+    """Helper: Row mean spread."""
     row_means = np.nanmean(panel.matrix, axis=1)
     return float(np.nanmax(row_means) - np.nanmin(row_means))
 

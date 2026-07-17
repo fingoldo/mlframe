@@ -16,16 +16,19 @@ from mlframe.signal.hull_moving_average import hull_ma_deviation, hull_moving_av
 
 
 def _sma(x: np.ndarray, window: int) -> np.ndarray:
+    """Helper that sma."""
     return np.asarray(pd.Series(x).rolling(window=window, min_periods=window).mean().to_numpy())
 
 
 def _make_step_change_series(n: int, change_point: int, seed: int):
+    """Helper that make step change series."""
     rng = np.random.default_rng(seed)
     base = np.concatenate([np.full(change_point, 100.0), np.full(n - change_point, 130.0)])
     return base + rng.normal(scale=0.5, size=n)
 
 
 def test_biz_val_hull_ma_tracks_step_change_with_lower_lag_than_sma():
+    """Hull ma tracks step change with lower lag than sma."""
     window = 20
     n, change_point = 200, 100
     series = _make_step_change_series(n, change_point, seed=0)
@@ -45,6 +48,7 @@ def test_biz_val_hull_ma_tracks_step_change_with_lower_lag_than_sma():
 
 
 def test_hull_ma_deviation_spikes_at_regime_shift():
+    """Hull ma deviation spikes at regime shift."""
     window = 20
     n, change_point = 200, 100
     series = _make_step_change_series(n, change_point, seed=1)
@@ -65,6 +69,7 @@ def test_hull_ma_deviation_spikes_at_regime_shift():
 
 
 def test_hull_moving_average_nan_prefix_length():
+    """Hull moving average nan prefix length."""
     x = np.arange(50, dtype=np.float64)
     hma = hull_moving_average(x, window=10)
     assert np.isnan(hma[0])
@@ -87,6 +92,7 @@ def test_hull_moving_average_multi_matches_single_window_calls_bit_identical():
 
 
 def _sign_flip_count(signal: np.ndarray, region: np.ndarray, valid: np.ndarray) -> int:
+    """Helper that sign flip count."""
     idx = np.where(region & valid)[0]
     return int(np.sum(np.diff(signal[idx]) != 0))
 

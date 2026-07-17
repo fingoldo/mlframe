@@ -70,6 +70,7 @@ def _golden(q_proj, k_proj, y_train, topk_ids, softmax_temp, aggregates):
 
 
 def _make(seed, n_queries=400, n_train=600, head_dim=16, k=32):
+    """Helper: Make."""
     rng = np.random.default_rng(seed)
     q_proj = rng.standard_normal((n_queries, head_dim)).astype(np.float32)
     k_proj = rng.standard_normal((n_train, head_dim)).astype(np.float32)
@@ -83,6 +84,7 @@ AGGS = ("y_iqr", "y_skew", "x_centroid_dist")
 
 @pytest.mark.parametrize("seed", [0, 1, 7])
 def test_extra_aggregates_match_golden_within_ulp(seed):
+    """Extra aggregates match golden within ulp."""
     q_proj, k_proj, y_train, topk_ids = _make(seed)
     new = compute_extra_aggregates(q_proj, k_proj, y_train, topk_ids, softmax_temp=1.0, aggregates=AGGS)
     gold = _golden(q_proj, k_proj, y_train, topk_ids, softmax_temp=1.0, aggregates=AGGS)

@@ -32,10 +32,12 @@ _BASELINE_PATH = Path(__file__).resolve().parent / "_source_proxy_baseline.json"
 
 
 def _refresh_requested() -> bool:
+    """Helper that refresh requested."""
     return "--refresh-source-proxy-baseline" in sys.argv
 
 
 def _build_current() -> set[str]:
+    """Helper that build current."""
     keys: set[str] = set()
     for p in _REPO_TESTS.rglob("*.py"):
         if "__pycache__" in p.parts:
@@ -47,6 +49,7 @@ def _build_current() -> set[str]:
 
 
 def test_no_new_source_text_proxy_assertions() -> None:
+    """No new source text proxy assertions."""
     current = _build_current()
 
     if _refresh_requested() or not _BASELINE_PATH.exists():

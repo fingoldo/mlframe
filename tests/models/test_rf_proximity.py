@@ -15,6 +15,7 @@ from mlframe.models.rf_proximity import (
 # ---------------------------------------------------------------- unit
 def test_proximity_from_leaf_matrix():
     # 3 rows, 4 trees; rows 0 and 1 share all leaves, row 2 shares none
+    """Proximity from leaf matrix."""
     leaves = np.array([[1, 2, 3, 4], [1, 2, 3, 4], [9, 8, 7, 6]])
     P = rf_proximity_matrix(leaves)
     assert P.shape == (3, 3)
@@ -25,12 +26,14 @@ def test_proximity_from_leaf_matrix():
 
 
 def test_partial_proximity():
+    """Partial proximity."""
     leaves = np.array([[1, 1, 1, 1], [1, 1, 0, 0]])  # share 2 of 4 trees
     P = rf_proximity_matrix(leaves)
     assert P[0, 1] == 0.5
 
 
 def test_proximity_to_distance():
+    """Proximity to distance."""
     P = np.array([[1.0, 0.75], [0.75, 1.0]])
     D = proximity_to_distance(P)
     assert np.allclose(np.diag(D), 0.0)
@@ -38,12 +41,14 @@ def test_proximity_to_distance():
 
 
 def test_max_n_guard():
+    """Max n guard."""
     leaves = np.zeros((50, 3), dtype=int)
     with pytest.raises(ValueError):
         rf_proximity_matrix(leaves, max_n=10)
 
 
 def test_outlier_shape_and_mismatch():
+    """Outlier shape and mismatch."""
     P = np.eye(5) + 0.1
     np.fill_diagonal(P, 1.0)
     scores = rf_outlier_measure(P)
@@ -53,6 +58,7 @@ def test_outlier_shape_and_mismatch():
 
 
 def test_accepts_fitted_forest():
+    """Accepts fitted forest."""
     from sklearn.ensemble import RandomForestClassifier
 
     rng = np.random.default_rng(0)

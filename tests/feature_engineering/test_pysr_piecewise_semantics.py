@@ -16,12 +16,14 @@ import math
 
 
 def _mappings():
+    """Helper: Mappings."""
     from mlframe.feature_engineering.pysr_operators import _make_extra_sympy_mappings
 
     return _make_extra_sympy_mappings()
 
 
 def test_safe_log_returns_nan_on_nonpositive():
+    """Safe log returns nan on nonpositive."""
     import sympy as sp
 
     m = _mappings()
@@ -36,6 +38,7 @@ def test_safe_log_returns_nan_on_nonpositive():
 
 
 def test_xlogy_returns_nan_on_nonpositive_y():
+    """Xlogy returns nan on nonpositive y."""
     import sympy as sp
 
     m = _mappings()
@@ -47,6 +50,7 @@ def test_xlogy_returns_nan_on_nonpositive_y():
 
 
 def test_harmonic_mean_returns_nan_on_nonpositive_sum():
+    """Harmonic mean returns nan on nonpositive sum."""
     import sympy as sp
 
     m = _mappings()
@@ -62,6 +66,7 @@ def test_harmonic_mean_returns_nan_on_nonpositive_sum():
 
 
 def test_safe_sqrt_uses_abs_for_negative():
+    """Safe sqrt uses abs for negative."""
     import sympy as sp
 
     m = _mappings()

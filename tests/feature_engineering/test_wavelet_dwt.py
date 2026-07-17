@@ -11,6 +11,7 @@ pywt = pytest.importorskip("pywt")
 
 @pytest.fixture(scope="module")
 def signal_set():
+    """Signal set."""
     rng = np.random.default_rng(0)
     return {
         "len32": rng.normal(0, 1, 32),
@@ -24,9 +25,11 @@ WAVELETS = ["haar", "db4", "db6", "coif3", "sym4"]
 
 
 class TestWavedecMatchesPywt:
+    """Groups tests for: TestWavedecMatchesPywt."""
     @pytest.mark.parametrize("wavelet", WAVELETS)
     @pytest.mark.parametrize("sig_key", ["len32", "len64", "len100", "len256"])
     def test_wavedec_matches_pywt(self, signal_set, wavelet, sig_key):
+        """Wavedec matches pywt."""
         from mlframe.feature_engineering.wavelet_dwt import wavedec
 
         sig = signal_set[sig_key]
@@ -40,7 +43,9 @@ class TestWavedecMatchesPywt:
 
 
 class TestWavedecBatched:
+    """Groups tests for: TestWavedecBatched."""
     def test_batched_matches_single_loop(self, signal_set):
+        """Batched matches single loop."""
         pytest.importorskip("numba")
         from mlframe.feature_engineering.wavelet_dwt import (
             wavedec,
@@ -86,8 +91,10 @@ class TestWavedecBatched:
 
 
 class TestWaverecRoundTrip:
+    """Groups tests for: TestWaverecRoundTrip."""
     @pytest.mark.parametrize("wavelet", ["haar", "db4", "sym4"])
     def test_wavedec_then_waverec_recovers_signal(self, wavelet):
+        """Wavedec then waverec recovers signal."""
         from mlframe.feature_engineering.wavelet_dwt import wavedec, waverec
 
         rng = np.random.default_rng(11)
@@ -101,6 +108,7 @@ class TestWaverecRoundTrip:
 
     @pytest.mark.parametrize("wavelet", ["db4", "sym4"])
     def test_waverec_matches_pywt(self, wavelet):
+        """Waverec matches pywt."""
         from mlframe.feature_engineering.wavelet_dwt import wavedec, waverec
 
         rng = np.random.default_rng(13)
@@ -113,7 +121,9 @@ class TestWaverecRoundTrip:
 
 
 class TestWaveletDenoise:
+    """Groups tests for: TestWaveletDenoise."""
     def test_denoise_reduces_noise_variance(self):
+        """Denoise reduces noise variance."""
         from mlframe.feature_engineering.wavelet_dwt import wavelet_denoise
 
         rng = np.random.default_rng(17)
@@ -143,7 +153,9 @@ class TestWaveletDenoise:
 
 
 class TestFilterCache:
+    """Groups tests for: TestFilterCache."""
     def test_filters_cached_on_repeat_call(self):
+        """Filters cached on repeat call."""
         from mlframe.feature_engineering.wavelet_dwt import (
             get_wavelet_filters,
             _FILTER_CACHE,

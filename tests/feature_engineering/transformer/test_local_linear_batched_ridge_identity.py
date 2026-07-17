@@ -32,16 +32,19 @@ class _ExactKNN:
     """Deterministic exact cosine-kNN stub matching build_hnsw_index/query_topk contract."""
 
     def __init__(self, pool: np.ndarray):
+        """Helper: Init  ."""
         self.pool = np.asarray(pool, dtype=np.float64)
         norms = np.linalg.norm(self.pool, axis=1, keepdims=True)
         self.unit = self.pool / np.maximum(norms, 1e-12)
 
 
 def _fake_build(pool, **kwargs):
+    """Helper: Fake build."""
     return _ExactKNN(pool)
 
 
 def _fake_query(index: _ExactKNN, anchor: np.ndarray, k: int):
+    """Helper: Fake query."""
     a = np.asarray(anchor, dtype=np.float64)
     an = a / np.maximum(np.linalg.norm(a, axis=1, keepdims=True), 1e-12)
     sims = an @ index.unit.T  # (n_anchor, n_pool), cosine similarity
@@ -82,6 +85,7 @@ def _old_reference(X_neighbour_pool, y_neighbour_pool, topk_ids, d, return_r2, r
     ],
 )
 def test_local_linear_batched_matches_per_row_ridge(monkeypatch, seed, n_train, d, k, return_r2):
+    """Local linear batched matches per row ridge."""
     monkeypatch.setattr(ll_mod, "build_hnsw_index", _fake_build)
     monkeypatch.setattr(ll_mod, "query_topk", _fake_query)
 

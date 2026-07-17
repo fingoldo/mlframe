@@ -14,6 +14,7 @@ from mlframe.signal.changepoint_detection import detect_regime_changepoints
 
 
 def test_biz_val_detect_regime_changepoints_recovers_true_breaks_and_improves_baseline_rmse():
+    """Detect regime changepoints recovers true breaks and improves baseline rmse."""
     rng = np.random.default_rng(0)
     y = np.concatenate([rng.normal(0, 1, 100), rng.normal(10, 1, 100), rng.normal(3, 1, 100)])
 
@@ -38,6 +39,7 @@ def test_biz_val_detect_regime_changepoints_recovers_true_breaks_and_improves_ba
 
 
 def test_detect_regime_changepoints_filters_negligible_effect_size():
+    """Detect regime changepoints filters negligible effect size."""
     rng = np.random.default_rng(1)
     # a tiny, practically-negligible mean shift (0.1) buried in noise (std=1) should NOT be flagged.
     y = np.concatenate([rng.normal(0, 1, 100), rng.normal(0.1, 1, 100)])
@@ -47,6 +49,7 @@ def test_detect_regime_changepoints_filters_negligible_effect_size():
 
 
 def test_detect_regime_changepoints_short_series_returns_single_regime():
+    """Detect regime changepoints short series returns single regime."""
     y = np.array([1.0, 2.0, 3.0])
     result = detect_regime_changepoints(y, min_segment_length=10)
     assert result["n_regimes"] == 1
@@ -54,6 +57,7 @@ def test_detect_regime_changepoints_short_series_returns_single_regime():
 
 
 def test_detect_regime_changepoints_njit_backend_matches_ruptures_backend():
+    """Detect regime changepoints njit backend matches ruptures backend."""
     rng = np.random.default_rng(0)
     y = np.concatenate([rng.normal(0, 1, 100), rng.normal(10, 1, 100), rng.normal(3, 1, 100)])
 
@@ -66,6 +70,7 @@ def test_detect_regime_changepoints_njit_backend_matches_ruptures_backend():
 
 
 def test_detect_regime_changepoints_unknown_backend_raises():
+    """Detect regime changepoints unknown backend raises."""
     y = np.arange(100, dtype=np.float64)
     try:
         detect_regime_changepoints(y, min_segment_length=10, backend="bogus")
@@ -76,6 +81,7 @@ def test_detect_regime_changepoints_unknown_backend_raises():
 
 def test_detect_regime_changepoints_segment_stats_opt_in_default_unchanged():
     # regression: return_segment_stats defaults to False and must not alter any prior key, bit-identical.
+    """Detect regime changepoints segment stats opt in default unchanged."""
     rng = np.random.default_rng(0)
     y = np.concatenate([rng.normal(0, 1, 100), rng.normal(10, 1, 100), rng.normal(3, 1, 100)])
 
@@ -91,6 +97,7 @@ def test_detect_regime_changepoints_segment_stats_opt_in_default_unchanged():
 
 
 def test_detect_regime_changepoints_segment_stats_short_series():
+    """Detect regime changepoints segment stats short series."""
     y = np.array([1.0, 2.0, 3.0])
     result = detect_regime_changepoints(y, min_segment_length=10, return_segment_stats=True)
     assert result["n_regimes"] == 1

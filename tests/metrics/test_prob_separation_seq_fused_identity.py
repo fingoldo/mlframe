@@ -33,6 +33,7 @@ def _reference_old(y_true, y_prob, class_label=1, std_weight=0.5):
 @pytest.mark.parametrize("class_label", [0, 1])
 @pytest.mark.parametrize("std_weight", [0.0, 0.5, 1.0])
 def test_seq_fused_matches_reference(n, class_label, std_weight):
+    """Seq fused matches reference."""
     rng = np.random.default_rng(n + class_label)
     yt = rng.integers(0, 2, size=n).astype(np.float64)
     yp = rng.random(n)
@@ -46,12 +47,14 @@ def test_seq_fused_matches_reference(n, class_label, std_weight):
 
 
 def test_seq_empty_in_class_returns_nan():
+    """Seq empty in class returns nan."""
     yt = np.zeros(50, dtype=np.float64)  # no class_label==1 present
     yp = np.random.default_rng(1).random(50)
     assert np.isnan(_probability_separation_score_seq(yt, yp, 1, 0.5))
 
 
 def test_seq_agrees_with_par():
+    """Seq agrees with par."""
     rng = np.random.default_rng(7)
     n = 60_000
     yt = rng.integers(0, 2, size=n).astype(np.float64)
@@ -64,6 +67,7 @@ def test_seq_agrees_with_par():
 
 
 def test_public_dispatch_smoke():
+    """Public dispatch smoke."""
     rng = np.random.default_rng(3)
     yt = rng.integers(0, 2, size=5_000).astype(np.float64)
     yp = rng.random(5_000)

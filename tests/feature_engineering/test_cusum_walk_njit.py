@@ -36,6 +36,7 @@ def _old_cusum(values, threshold=None, *, group_ids=None, drift=0.0):
     out_count = np.zeros(n)
 
     def _walk(idx_seg):
+        """Helper: Walk."""
         m = idx_seg.size
         if m == 0:
             return
@@ -76,18 +77,21 @@ def _old_cusum(values, threshold=None, *, group_ids=None, drift=0.0):
 
 
 def _assert_identical(new, old):
+    """Helper: Assert identical."""
     for k in KEYS:
         assert np.array_equal(new[k], old[k], equal_nan=True), k
 
 
 @pytest.mark.parametrize("n", [1, 3, 100, 5000])
 def test_cusum_scalar_bit_identical(n):
+    """Cusum scalar bit identical."""
     rng = np.random.default_rng(n)
     x = rng.standard_normal(n).cumsum()
     _assert_identical(cusum_features(x), _old_cusum(x))
 
 
 def test_cusum_with_nans_bit_identical():
+    """Cusum with nans bit identical."""
     rng = np.random.default_rng(2)
     x = rng.standard_normal(800).cumsum()
     x[::13] = np.nan
@@ -95,6 +99,7 @@ def test_cusum_with_nans_bit_identical():
 
 
 def test_cusum_explicit_threshold_and_drift_bit_identical():
+    """Cusum explicit threshold and drift bit identical."""
     rng = np.random.default_rng(7)
     x = rng.standard_normal(1500).cumsum()
     _assert_identical(
@@ -104,11 +109,13 @@ def test_cusum_explicit_threshold_and_drift_bit_identical():
 
 
 def test_cusum_all_nan_segment_bit_identical():
+    """Cusum all nan segment bit identical."""
     x = np.full(50, np.nan)
     _assert_identical(cusum_features(x), _old_cusum(x))
 
 
 def test_cusum_grouped_bit_identical():
+    """Cusum grouped bit identical."""
     rng = np.random.default_rng(4)
     n = 900
     x = rng.standard_normal(n).cumsum()

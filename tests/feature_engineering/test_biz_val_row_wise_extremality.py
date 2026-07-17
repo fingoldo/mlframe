@@ -17,6 +17,7 @@ from mlframe.feature_engineering.row_wise_extremality import row_wise_extremalit
 
 
 def _make_mixed_scale_anomaly_data(n: int, n_features: int, seed: int):
+    """Helper: Make mixed scale anomaly data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, n_features))
     X[:, 0] *= 1000  # huge-scale noise feature -- dominates a naive row mean but carries no signal.
@@ -30,6 +31,7 @@ def _make_mixed_scale_anomaly_data(n: int, n_features: int, seed: int):
 
 
 def test_biz_val_extremality_index_beats_naive_row_mean_under_mixed_scales():
+    """Biz val extremality index beats naive row mean under mixed scales."""
     df, is_anomaly = _make_mixed_scale_anomaly_data(n=2000, n_features=10, seed=0)
 
     extremality = row_wise_extremality_index(df)
@@ -45,6 +47,7 @@ def test_biz_val_extremality_index_beats_naive_row_mean_under_mixed_scales():
 
 
 def test_row_wise_extremality_index_symmetric_around_median():
+    """Row wise extremality index symmetric around median."""
     df = pd.DataFrame({"a": [1, 2, 3, 4, 5], "b": [100, 102, 104, 106, 108]})
     result = row_wise_extremality_index(df)
 
@@ -54,6 +57,7 @@ def test_row_wise_extremality_index_symmetric_around_median():
 
 
 def test_row_wise_extremality_index_handles_nan():
+    """Row wise extremality index handles nan."""
     df = pd.DataFrame({"a": [1.0, 2.0, np.nan, 4.0, 5.0], "b": [10.0, 20.0, 30.0, 40.0, 50.0]})
     result = row_wise_extremality_index(df)
     assert not result.isna().any()  # every row still gets a value from its non-NaN columns.
@@ -78,6 +82,7 @@ def _make_localized_anomaly_data(n: int, n_features: int, n_culprit_cols: int, s
 
 
 def test_biz_val_top_k_extreme_columns_recovers_the_true_culprit_columns():
+    """Biz val top k extreme columns recovers the true culprit columns."""
     n_culprit_cols = 3
     df, is_anomaly, culprit_cols = _make_localized_anomaly_data(n=2000, n_features=15, n_culprit_cols=n_culprit_cols, seed=1)
 
@@ -94,6 +99,7 @@ def test_biz_val_top_k_extreme_columns_recovers_the_true_culprit_columns():
 
 
 def test_row_wise_top_k_extreme_columns_scores_match_extremality_index_inputs():
+    """Row wise top k extreme columns scores match extremality index inputs."""
     df = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0, 100.0], "b": [10.0, 20.0, 30.0, 40.0, 50.0], "c": [5.0, 4.0, 3.0, 2.0, 1.0]})
     top_k = row_wise_top_k_extreme_columns(df, k=2)
 
@@ -104,6 +110,7 @@ def test_row_wise_top_k_extreme_columns_scores_match_extremality_index_inputs():
 
 
 def test_row_wise_top_k_extreme_columns_handles_nan_padding():
+    """Row wise top k extreme columns handles nan padding."""
     df = pd.DataFrame({"a": [1.0, np.nan], "b": [10.0, np.nan]})
     top_k = row_wise_top_k_extreme_columns(df, k=2)
     # row 1 has zero valid values -- both slots must be padded, not silently point at a NaN-derived score.
@@ -169,6 +176,7 @@ def test_column_summary_over_all_rows_stays_near_chance_floor_by_construction():
 
 
 def test_row_wise_top_k_extreme_columns_column_summary_default_off_matches_prior_return_contract():
+    """Row wise top k extreme columns column summary default off matches prior return contract."""
     df = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0, 100.0], "b": [10.0, 20.0, 30.0, 40.0, 50.0], "c": [5.0, 4.0, 3.0, 2.0, 1.0]})
 
     default_result = row_wise_top_k_extreme_columns(df, k=2)

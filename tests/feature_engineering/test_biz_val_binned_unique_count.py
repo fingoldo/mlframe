@@ -20,6 +20,7 @@ from mlframe.feature_engineering.binned_unique_count import binned_unique_count
 
 
 def _make_multi_regime_dataset(n_entities: int, seed: int):
+    """Helper: Make multi regime dataset."""
     rng = np.random.default_rng(seed)
     rows = []
     labels = np.zeros(n_entities, dtype=int)
@@ -40,6 +41,7 @@ def _make_multi_regime_dataset(n_entities: int, seed: int):
 
 
 def test_biz_val_binned_unique_count_recovers_multi_regime_signal():
+    """Biz val binned unique count recovers multi regime signal."""
     df, labels = _make_multi_regime_dataset(n_entities=300, seed=0)
     entities = pd.unique(df["entity"])
     y = labels[entities]
@@ -95,6 +97,7 @@ def _make_skewed_scale_multiregime_dataset(n_entities: int, seed: int, high_scal
 
 
 def test_biz_val_binned_unique_count_per_entity_bins_beats_global_on_skewed_scale():
+    """Biz val binned unique count per entity bins beats global on skewed scale."""
     df, labels, is_high_scale = _make_skewed_scale_multiregime_dataset(n_entities=400, seed=1)
     entities = pd.unique(df["entity"])
     y_high_scale = labels[is_high_scale]
@@ -126,6 +129,7 @@ def test_binned_unique_count_per_entity_bins_default_matches_prior_behavior():
 
 
 def test_binned_unique_count_per_entity_bins_rejects_explicit_edges():
+    """Binned unique count per entity bins rejects explicit edges."""
     df = pd.DataFrame({"entity": [1, 1, 2, 2], "value": [0.0, 1.0, 5.0, 5.1]})
     try:
         binned_unique_count(df, entity_col="entity", value_col="value", bin_edges=np.array([0.0, 5.0]), per_entity_bins=True)
@@ -135,6 +139,7 @@ def test_binned_unique_count_per_entity_bins_rejects_explicit_edges():
 
 
 def test_binned_unique_count_exact_values():
+    """Binned unique count exact values."""
     df = pd.DataFrame({"entity": [1, 1, 1, 1, 2, 2], "value": [0.0, 1.0, 9.0, 9.5, 5.0, 5.1]})
     # explicit edges (not quantile-fitted -- deterministic for this small hand-picked example): entity 1's
     # values span bins [0,2.5), [7.5,10] (2 distinct bins); entity 2's values both land in [2.5,7.5) (1 bin).

@@ -19,6 +19,7 @@ _BIN_CAP = 64  # generous ceiling: every pre-binned panel here uses <= 30 bins
 
 
 def _assert_prebinned(panel, n):
+    """Helper: Assert prebinned."""
     assert isinstance(panel, HistogramPanelSpec)
     assert panel.bin_centers is not None, "spec carries no bin_centers -> still raw"
     assert panel.bin_width is not None and panel.bin_width > 0.0
@@ -29,6 +30,7 @@ def _assert_prebinned(panel, n):
 
 
 def test_multilabel_jaccard_hamming_prebinned_at_1e6():
+    """Multilabel jaccard hamming prebinned at 1e6."""
     rng = np.random.default_rng(0)
     K = 4
     y_true = rng.integers(0, 2, (_N, K)).astype(np.int8)
@@ -39,6 +41,7 @@ def test_multilabel_jaccard_hamming_prebinned_at_1e6():
 
 
 def test_quantile_width_pit_prebinned_at_1e6():
+    """Quantile width pit prebinned at 1e6."""
     from scipy.stats import norm
 
     rng = np.random.default_rng(0)
@@ -63,6 +66,7 @@ def test_sensor_rejects_pre_fix_raw_spec():
 
 def test_ltr_mrr_prebinned_at_1e6():
     # 1e6 rows across ~100k queries (avg 10 docs/query).
+    """Ltr mrr prebinned at 1e6."""
     rng = np.random.default_rng(0)
     n_queries = 100_000
     sizes = rng.integers(2, 19, n_queries)

@@ -24,6 +24,7 @@ from mlframe.reporting.spec import (
 
 @pytest.fixture
 def synth_3class():
+    """Synth 3class."""
     rng = np.random.default_rng(42)
     n, K = 600, 3
     classes = ["cat", "dog", "bird"]
@@ -42,10 +43,13 @@ def synth_3class():
 
 
 class TestConfusedPairs:
+    """Groups tests for: TestConfusedPairs."""
     def test_token_registered(self):
+        """Token registered."""
         assert "CONFUSED_PAIRS" in ALLOWED_MULTICLASS_PANEL_TOKENS
 
     def test_returns_bar(self, synth_3class):
+        """Returns bar."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSED_PAIRS")
         panel = spec.panels[0][0]
@@ -57,6 +61,7 @@ class TestConfusedPairs:
 
     def test_top_n_respected(self):
         # 5 classes -> up to 20 off-diagonal pairs; top_n=3 must keep exactly 3.
+        """Top n respected."""
         K = 5
         y_pred = np.arange(K * 40) % K
         y_true = (y_pred + 1) % K  # every prediction off by one
@@ -67,6 +72,7 @@ class TestConfusedPairs:
 
     def test_empty_confusion_returns_annotation(self):
         # Perfect prediction -> no off-diagonal -> honest annotation, not a fake bar.
+        """Empty confusion returns annotation."""
         K = 3
         y = np.arange(K * 10) % K
         proba = np.eye(K)[y]
@@ -100,7 +106,9 @@ class TestConfusedPairs:
 
 
 class TestConfusionOptions:
+    """Groups tests for: TestConfusionOptions."""
     def test_normalize_default_rows_sum_to_one(self, synth_3class):
+        """Normalize default rows sum to one."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION")
         panel = spec.panels[0][0]
@@ -110,6 +118,7 @@ class TestConfusionOptions:
         assert panel.cell_text is not None  # K=3 <= cap -> text shown
 
     def test_normalize_false_gives_raw_counts(self):
+        """Normalize false gives raw counts."""
         K = 3
         y = np.arange(K * 50) % K
         proba = np.eye(K)[y]
@@ -118,6 +127,7 @@ class TestConfusionOptions:
         assert int(panel.matrix.sum()) == len(y)
 
     def test_cell_text_suppressed_above_K15(self):
+        """Cell text suppressed above K15."""
         K = 20
         y = np.arange(K * 5) % K
         proba = np.eye(K)[y]
@@ -131,7 +141,9 @@ class TestConfusionOptions:
 
 
 class TestReferenceLines:
+    """Groups tests for: TestReferenceLines."""
     def test_roc_chance_diagonal(self, synth_3class):
+        """Roc chance diagonal."""
         y, p, c = synth_3class
         panel = compose_multiclass_figure(y, p, c, panels_template="ROC").panels[0][0]
         assert panel.series_labels[0] == "chance"
@@ -139,6 +151,7 @@ class TestReferenceLines:
         assert panel.line_styles[0] == ":"
 
     def test_pr_curves_prevalence_baselines(self, synth_3class):
+        """Pr curves prevalence baselines."""
         y, p, c = synth_3class
         panel = compose_multiclass_figure(y, p, c, panels_template="PR_CURVES").panels[0][0]
         K = len(c)
@@ -155,11 +168,14 @@ class TestReferenceLines:
 
 
 class TestPalette:
+    """Groups tests for: TestPalette."""
     def test_tab20_no_collision_below_20(self):
+        """Tab20 no collision below 20."""
         colors = [_class_color(i) for i in range(20)]
         assert len(set(colors)) == 20, "two classes share a color within K<=20"
 
     def test_roc_12_classes_distinct(self):
+        """Roc 12 classes distinct."""
         rng = np.random.default_rng(1)
         n, K = 1200, 12
         classes = list(range(K))
@@ -177,8 +193,10 @@ class TestPalette:
 
 
 class TestProbDistEmptyClass:
+    """Groups tests for: TestProbDistEmptyClass."""
     def test_all_empty_returns_annotation(self):
         # y_true holds positional ints while classes are strings -> every row excluded.
+        """All empty returns annotation."""
         K = 3
         y_true = np.zeros(30, dtype=int)
         proba = np.full((30, K), 1.0 / K)
@@ -196,6 +214,7 @@ class TestProbDistEmptyClass:
 
     def test_empty_class_dropped_not_faked(self):
         # 3 classes but only class 0 present -> 1 violin group, no fake [0.0] groups.
+        """Empty class dropped not faked."""
         K = 3
         n = 90
         np.zeros(n, dtype=int)  # all class 0 (positional)
@@ -217,12 +236,15 @@ class TestProbDistEmptyClass:
 
 
 class TestStratifiedSubsample:
+    """Groups tests for: TestStratifiedSubsample."""
     def test_returns_all_when_under_cap(self):
+        """Returns all when under cap."""
         y = np.array([0, 1, 0, 1, 1])
         idx = _stratified_subsample(y, cap=100)
         np.testing.assert_array_equal(idx, np.arange(5))
 
     def test_caps_and_keeps_both_classes(self):
+        """Caps and keeps both classes."""
         y = np.concatenate([np.zeros(9000, dtype=int), np.ones(1000, dtype=int)])
         idx = _stratified_subsample(y, cap=2000, seed=1)
         assert len(idx) <= 2000 + 2  # rounding slack
@@ -238,8 +260,10 @@ class TestStratifiedSubsample:
 
 
 class TestRemapFallback:
+    """Groups tests for: TestRemapFallback."""
     def test_unorderable_classes_remap_matches_dict(self):
         # Mixed-dtype classes make argsort raise -> exercises the np.unique fallback.
+        """Unorderable classes remap matches dict."""
         classes = [1, "two", 3.0]
         labels = [1, "two", 3.0, "two", 1, 3.0]
         y_true = np.array(labels, dtype=object)

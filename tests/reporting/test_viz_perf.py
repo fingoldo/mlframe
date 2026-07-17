@@ -46,6 +46,7 @@ from mlframe.training.targets import coerce_timestamps_for_audit as _coerce_ts
 
 
 def test_qq_decimation_keeps_tails_and_caps_points():
+    """Qq decimation keeps tails and caps points."""
     n = 1_000_000
     idx = _qq_decimation_indices(n, max_points=2000, tail_keep=20)
     # both extreme order statistics survive (tail behaviour is the point of a QQ plot)
@@ -60,6 +61,7 @@ def test_qq_decimation_keeps_tails_and_caps_points():
 
 
 def test_qq_no_decimation_below_cap_returns_all_ranks():
+    """Qq no decimation below cap returns all ranks."""
     n = 500
     idx = _qq_decimation_indices(n, max_points=2000)
     assert np.array_equal(idx, np.arange(n))
@@ -68,6 +70,7 @@ def test_qq_no_decimation_below_cap_returns_all_ranks():
 def test_qq_small_n_matches_probplot_positions():
     # On a small input (no decimation) the plotted scatter must equal scipy.stats.probplot's
     # order-statistic medians + ordered values exactly -- probplot is what plot_qq replaced.
+    """Qq small n matches probplot positions."""
     from scipy.stats import probplot
 
     rng = np.random.default_rng(0)
@@ -89,6 +92,7 @@ def test_qq_small_n_matches_probplot_positions():
 
 
 def test_qq_large_n_caps_plotted_points_but_keeps_extremes():
+    """Qq large n caps plotted points but keeps extremes."""
     rng = np.random.default_rng(1)
     t = rng.normal(size=200_000)
     fig = plot_qq(t)
@@ -107,6 +111,7 @@ def test_qq_large_n_caps_plotted_points_but_keeps_extremes():
 
 
 def test_target_distribution_bar_heights_match_np_histogram():
+    """Target distribution bar heights match np histogram."""
     rng = np.random.default_rng(2)
     y = rng.normal(loc=10, scale=3, size=20_000)
     t = y - 9.5
@@ -131,6 +136,7 @@ def test_target_distribution_bar_heights_match_np_histogram():
 
 
 def test_target_distribution_annotates_subsample_above_cap():
+    """Target distribution annotates subsample above cap."""
     rng = np.random.default_rng(3)
     y = rng.normal(size=250_000)
     t = rng.normal(size=250_000)
@@ -142,6 +148,7 @@ def test_target_distribution_annotates_subsample_above_cap():
 
 
 def test_target_distribution_no_subsample_note_below_cap():
+    """Target distribution no subsample note below cap."""
     rng = np.random.default_rng(4)
     y = rng.normal(size=5_000)
     t = rng.normal(size=5_000)
@@ -158,6 +165,7 @@ def test_target_distribution_no_subsample_note_below_cap():
 
 
 def test_decimate_curve_vertices_caps_and_keeps_endpoints():
+    """Decimate curve vertices caps and keeps endpoints."""
     n = 50_000
     a = np.linspace(0.0, 1.0, n)
     b = np.linspace(5.0, 9.0, n)
@@ -169,12 +177,14 @@ def test_decimate_curve_vertices_caps_and_keeps_endpoints():
 
 
 def test_decimate_curve_vertices_passthrough_below_cap():
+    """Decimate curve vertices passthrough below cap."""
     a = np.linspace(0, 1, 1500)
     (da,) = _decimate_curve_vertices((a,), max_points=2000)
     assert np.array_equal(da, a)
 
 
 def _make_binary(n, seed=1):
+    """Helper: Make binary."""
     rng = np.random.default_rng(seed)
     score = rng.normal(size=n)
     p = 1.0 / (1.0 + np.exp(-(score - 0.5)))
@@ -183,6 +193,7 @@ def _make_binary(n, seed=1):
 
 
 def test_pr_curve_decimates_but_metrics_on_full_n():
+    """Pr curve decimates but metrics on full n."""
     from sklearn.metrics import average_precision_score, roc_auc_score
 
     n = 100_000
@@ -205,6 +216,7 @@ def test_pr_curve_decimates_but_metrics_on_full_n():
 def test_pr_curve_dummy_baseline_is_analytic_prevalence():
     # The constant-prediction PR baseline AP equals the positive-class prevalence; the legend
     # reports it as the second '/' term in 'PR AUC=%.2f/%.2fR'.
+    """Pr curve dummy baseline is analytic prevalence."""
     n = 40_000
     rng = np.random.default_rng(9)
     y = (rng.random(n) < 0.3).astype(np.int64)
@@ -219,6 +231,7 @@ def test_pr_curve_dummy_baseline_is_analytic_prevalence():
 
 
 def test_roc_curve_decimates_but_auc_on_full_n():
+    """Roc curve decimates but auc on full n."""
     from sklearn.metrics import roc_auc_score
 
     n = 100_000
@@ -240,6 +253,7 @@ def test_roc_curve_decimates_but_auc_on_full_n():
 
 
 def test_compare_cv_metrics_closes_figure_under_agg():
+    """Compare cv metrics closes figure under agg."""
     from mlframe.estimators.pipelines import compare_cv_metrics
 
     plt.close("all")
@@ -258,6 +272,7 @@ def test_compare_cv_metrics_closes_figure_under_agg():
 
 
 def test_visualize_prediction_vs_truth_closes_figure_under_agg():
+    """Visualize prediction vs truth closes figure under agg."""
     from mlframe.estimators.pipelines import visualize_prediction_vs_truth
 
     plt.close("all")
@@ -270,6 +285,7 @@ def test_visualize_prediction_vs_truth_closes_figure_under_agg():
 
 
 def test_pipelines_repeated_calls_do_not_leak_figures():
+    """Pipelines repeated calls do not leak figures."""
     from mlframe.estimators.pipelines import compare_cv_metrics
 
     plt.close("all")
@@ -321,6 +337,7 @@ def _old_compute_ml_perf_by_time(y_true, y_pred, timestamps, freq="D", metric="r
 @pytest.mark.parametrize("freq", ["D", "h", "12h", "7D", "W", "ME", "QE"])
 @pytest.mark.parametrize("metric,min_samples", [("roc_auc", 1), ("roc_auc", 200), ("mse", 1), ("brier", 50)])
 def test_compute_ml_perf_by_time_parity(freq, metric, min_samples):
+    """Compute ml perf by time parity."""
     rng = np.random.default_rng(123)
     base = 1_700_000_000  # epoch-seconds -> coercer reads as 2023-11
     n = 30_000
@@ -336,12 +353,14 @@ def test_compute_ml_perf_by_time_parity(freq, metric, min_samples):
 
 def test_compute_ml_perf_by_time_fast_path_used_for_day_divisor_freq():
     # D / h / sub-daily-divisor freqs route through the floorable numpy path; 7D / W do not.
+    """Compute ml perf by time fast path used for day divisor freq."""
     from pandas.tseries.frequencies import to_offset
     from pandas.tseries.offsets import Tick
 
     DAY_NS = 86_400_000_000_000
 
     def floorable(freq):
+        """Floorable."""
         off = to_offset(_normalize_pandas_offset_alias(freq))
         return isinstance(off, Tick) and off.nanos <= DAY_NS and DAY_NS % off.nanos == 0
 
@@ -350,11 +369,13 @@ def test_compute_ml_perf_by_time_fast_path_used_for_day_divisor_freq():
 
 
 def test_fixed_freq_bin_slices_empty_input():
+    """Fixed freq bin slices empty input."""
     order, labels, starts, ends = _fixed_freq_bin_slices(np.array([], dtype="datetime64[ns]"), 86_400_000_000_000)
     assert order.size == 0 and labels.size == 0 and starts.size == 0 and ends.size == 0
 
 
 def test_compute_ml_perf_by_time_empty_returns_empty_frame():
+    """Compute ml perf by time empty returns empty frame."""
     out = compute_ml_perf_by_time(np.array([]), np.array([]), np.array([], dtype="int64"), freq="D", metric="roc_auc", min_samples=1)
     assert list(out.columns) == ["roc_auc", "n_samples"]
     assert len(out) == 0

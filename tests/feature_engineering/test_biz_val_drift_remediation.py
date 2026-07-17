@@ -26,6 +26,7 @@ from mlframe.reporting.charts.drift import adversarial_auc
 
 
 def _make_drift_data(n_time_ids: int, n_entities: int, seed: int):
+    """Helper: Make drift data."""
     rng = np.random.default_rng(seed)
     time_ids = np.repeat(np.arange(n_time_ids), n_entities)
     n = time_ids.shape[0]
@@ -107,6 +108,7 @@ def _make_downstream_quality_data(n_time_ids: int, n_entities: int, n_severe: in
 
 
 def test_remediate_drifting_features_flags_the_drifting_column_not_the_clean_one():
+    """Remediate drifting features flags the drifting column not the clean one."""
     train_df, test_df = _make_drift_data(n_time_ids=60, n_entities=40, seed=0)
     _, _, report = remediate_drifting_features(train_df, test_df, group_col="time_id", n_std=0.5, n_splits=2)
 
@@ -118,6 +120,7 @@ def test_remediate_drifting_features_flags_the_drifting_column_not_the_clean_one
 
 
 def test_remediate_drifting_features_replaces_flagged_column_with_bounded_rank():
+    """Remediate drifting features replaces flagged column with bounded rank."""
     train_df, test_df = _make_drift_data(n_time_ids=60, n_entities=40, seed=1)
     train_out, test_out, report = remediate_drifting_features(train_df, test_df, group_col="time_id", n_std=0.5, n_splits=2, rank_pct=True)
 
@@ -130,12 +133,14 @@ def test_remediate_drifting_features_replaces_flagged_column_with_bounded_rank()
 
 
 def test_remediate_drifting_features_missing_group_col_raises():
+    """Remediate drifting features missing group col raises."""
     train_df, test_df = _make_drift_data(n_time_ids=10, n_entities=5, seed=2)
     with pytest.raises(ValueError):
         remediate_drifting_features(train_df, test_df, group_col="not_a_real_column")
 
 
 def test_biz_val_remediation_reduces_adversarial_separability():
+    """Biz val remediation reduces adversarial separability."""
     train_df, test_df = _make_drift_data(n_time_ids=80, n_entities=50, seed=42)
     feature_cols = ["drift_feature", "clean_feature"]
 
@@ -155,6 +160,7 @@ def test_biz_val_remediation_reduces_adversarial_separability():
 
 
 def test_remediate_drifting_features_drop_n_std_requires_higher_than_n_std():
+    """Remediate drifting features drop n std requires higher than n std."""
     train_df, test_df = _make_tiered_drift_data(n_time_ids=40, n_entities=12, seed=1)
     with pytest.raises(ValueError):
         remediate_drifting_features(train_df, test_df, group_col="time_id", n_std=1.0, drop_n_std=0.5, n_splits=2)

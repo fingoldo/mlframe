@@ -15,12 +15,14 @@ from mlframe.metrics.scoring import ProbaScoreProxy, fast_rmse, rmse_loss
 
 def test_fast_rmse_single_element():
     # n=1: RMSE = |y - p|.
+    """Fast rmse single element."""
     assert fast_rmse(np.array([5.0]), np.array([8.0])) == pytest.approx(3.0, abs=1e-12)
 
 
 def test_fast_rmse_large_magnitude_matches_reference():
     # Large magnitude squares (up to ~1e300) stay within float64 range; fastmath must not diverge
     # from the numpy reference beyond float64 reduction-order noise.
+    """Fast rmse large magnitude matches reference."""
     y = np.array([0.0, 0.0, 0.0])
     p = np.array([1e150, 0.0, 0.0])
     got = fast_rmse(y, p)
@@ -32,6 +34,7 @@ def test_fast_rmse_large_magnitude_matches_reference():
 @pytest.mark.parametrize("bad_idx", [-1, 2, 3])
 def test_proba_score_proxy_rejects_out_of_range_index(bad_idx):
     # 2-class matrix -> valid indices are {0, 1}; negative and idx>=n_classes must raise.
+    """Proba score proxy rejects out of range index."""
     y_true = np.array([0, 1, 0])
     y_probs = np.array([[0.8, 0.2], [0.3, 0.7], [0.6, 0.4]])
     with pytest.raises(ValueError, match="class_idx"):
@@ -40,6 +43,7 @@ def test_proba_score_proxy_rejects_out_of_range_index(bad_idx):
 
 def test_proba_score_proxy_selects_low_index_column():
     # class_idx=0 must forward column 0 to the proxied scorer.
+    """Proba score proxy selects low index column."""
     y_true = np.array([0, 1])
     y_probs = np.array([[0.8, 0.2], [0.3, 0.7]])
     got = ProbaScoreProxy(y_true, y_probs, class_idx=0, proxied_func=lambda yt, ys: float(np.mean(ys)))

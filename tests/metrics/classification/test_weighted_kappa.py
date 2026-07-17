@@ -13,11 +13,13 @@ from mlframe.metrics.classification._weighted_kappa import (
 
 # ---------------------------------------------------------------- unit
 def test_perfect_agreement_is_one():
+    """Perfect agreement is one."""
     y = np.array([0, 1, 2, 3, 0, 1, 2, 3])
     assert abs(quadratic_weighted_kappa(y, y.copy()) - 1.0) < 1e-12
 
 
 def test_matches_sklearn_quadratic():
+    """Matches sklearn quadratic."""
     sk = pytest.importorskip("sklearn.metrics")
     rng = np.random.default_rng(0)
     y = rng.integers(0, 5, size=300)
@@ -28,6 +30,7 @@ def test_matches_sklearn_quadratic():
 
 
 def test_matches_sklearn_linear():
+    """Matches sklearn linear."""
     sk = pytest.importorskip("sklearn.metrics")
     rng = np.random.default_rng(1)
     y = rng.integers(0, 4, size=250)
@@ -38,6 +41,7 @@ def test_matches_sklearn_linear():
 
 
 def test_invalid_weights_and_mismatch():
+    """Invalid weights and mismatch."""
     with pytest.raises(ValueError):
         weighted_kappa(np.zeros(3, int), np.zeros(3, int), weights="cubic")
     with pytest.raises(ValueError):
@@ -45,6 +49,7 @@ def test_invalid_weights_and_mismatch():
 
 
 def test_empty_and_single_class():
+    """Empty and single class."""
     assert np.isnan(quadratic_weighted_kappa(np.array([], int), np.array([], int)))
     assert quadratic_weighted_kappa(np.zeros(5, int), np.zeros(5, int)) == 1.0
 

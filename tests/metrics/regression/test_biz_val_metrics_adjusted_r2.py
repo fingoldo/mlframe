@@ -20,6 +20,7 @@ TRUE_R2 = 0.5  # y = x0 + noise, both N(0,1) -> Var(signal)/Var(y) = 1/2
 
 
 def _fit(n: int, p: int, seed: int):
+    """Helper: Fit."""
     rng = np.random.default_rng(seed)
     x0 = rng.normal(0, 1, n)
     y = x0 + rng.normal(0, 1, n)

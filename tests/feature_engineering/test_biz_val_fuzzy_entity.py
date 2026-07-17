@@ -17,6 +17,7 @@ from mlframe.feature_engineering.fuzzy_entity import _cluster_fuzzy_keys, fuzzy_
 
 
 def _make_fraud_style_data(n_entities: int, events_per_entity: int, seed: int, deviation_rate: float = 0.15):
+    """Helper: Make fraud style data."""
     rng = np.random.default_rng(seed)
     entity_ids = np.repeat(np.arange(n_entities), events_per_entity)
     n = entity_ids.shape[0]
@@ -41,6 +42,7 @@ def _make_fraud_style_data(n_entities: int, events_per_entity: int, seed: int, d
 
 
 def test_fuzzy_entity_group_features_returns_expected_keys_and_shapes():
+    """Fuzzy entity group features returns expected keys and shapes."""
     entity_ids, values, order, _ = _make_fraud_style_data(5, 6, seed=0)
     out = fuzzy_entity_group_features(entity_ids, values, time_order=order)
     for key in ("group_mode_match", "value_occurrence_count_in_group", "days_since_value_last_seen_in_group"):
@@ -49,6 +51,7 @@ def test_fuzzy_entity_group_features_returns_expected_keys_and_shapes():
 
 
 def test_fuzzy_entity_group_features_mode_match_correctness_small_case():
+    """Fuzzy entity group features mode match correctness small case."""
     entity_ids = np.array([1, 1, 1, 2, 2])
     values = np.array(["A", "A", "B", "X", "Y"])
     out = fuzzy_entity_group_features(entity_ids, values)
@@ -57,6 +60,7 @@ def test_fuzzy_entity_group_features_mode_match_correctness_small_case():
 
 
 def test_fuzzy_entity_group_features_occurrence_count_is_causal():
+    """Fuzzy entity group features occurrence count is causal."""
     entity_ids = np.array([1, 1, 1])
     values = np.array(["A", "A", "A"])
     order = np.array([0.0, 1.0, 2.0])
@@ -67,6 +71,7 @@ def test_fuzzy_entity_group_features_occurrence_count_is_causal():
 
 
 def test_fuzzy_entity_group_features_days_since_last_seen_nan_on_first_occurrence():
+    """Fuzzy entity group features days since last seen nan on first occurrence."""
     entity_ids = np.array([1, 1, 1])
     values = np.array(["A", "B", "A"])
     order = np.array([0.0, 5.0, 12.0])
@@ -77,6 +82,7 @@ def test_fuzzy_entity_group_features_days_since_last_seen_nan_on_first_occurrenc
 
 
 def test_biz_val_fuzzy_entity_features_predict_deviation_while_raw_value_does_not():
+    """Biz val fuzzy entity features predict deviation while raw value does not."""
     entity_ids, values, order, y = _make_fraud_style_data(n_entities=300, events_per_entity=15, seed=42)
     out = fuzzy_entity_group_features(entity_ids, values, time_order=order)
 
@@ -134,6 +140,7 @@ def _make_noisy_key_fraud_data(n_entities: int, events_per_entity: int, seed: in
 
 
 def test_biz_val_fuzzy_entity_group_features_fuzzy_key_matching_recovers_split_groups():
+    """Biz val fuzzy entity group features fuzzy key matching recovers split groups."""
     keys, values, y = _make_noisy_key_fraud_data(n_entities=150, events_per_entity=12, seed=7)
     order = np.arange(len(keys), dtype=np.float64)
 
@@ -161,6 +168,7 @@ def test_biz_val_fuzzy_entity_group_features_fuzzy_key_matching_recovers_split_g
 
 
 def test_fuzzy_entity_group_features_fuzzy_key_matching_default_off_is_bit_identical():
+    """Fuzzy entity group features fuzzy key matching default off is bit identical."""
     entity_ids, values, order, _ = _make_fraud_style_data(20, 8, seed=3)
     out_default = fuzzy_entity_group_features(entity_ids, values, time_order=order)
     out_explicit_off = fuzzy_entity_group_features(entity_ids, values, time_order=order, fuzzy_key_matching=False)

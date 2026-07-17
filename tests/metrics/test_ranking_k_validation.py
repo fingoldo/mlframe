@@ -25,24 +25,28 @@ _G = np.zeros(4)
 
 @pytest.mark.parametrize("bad_k", [0, -1, -10])
 def test_ndcg_at_k_rejects_nonpositive_k(bad_k):
+    """Ndcg at k rejects nonpositive k."""
     with pytest.raises(ValueError, match="k must be >= 1"):
         ndcg_at_k(_YT, _YS, _G, k=bad_k)
 
 
 @pytest.mark.parametrize("bad_k", [0, -1, -10])
 def test_map_at_k_rejects_nonpositive_k(bad_k):
+    """Map at k rejects nonpositive k."""
     with pytest.raises(ValueError, match="k must be >= 1"):
         map_at_k(_YT, _YS, _G, k=bad_k)
 
 
 @pytest.mark.parametrize("eval_at", [(0,), (0, 5), (5, -1), (1, 0, 10)])
 def test_ranking_summary_rejects_nonpositive_k(eval_at):
+    """Ranking summary rejects nonpositive k."""
     with pytest.raises(ValueError, match="must be >= 1"):
         compute_ranking_summary(_YT, _YS, _G, eval_at=eval_at)
 
 
 def test_valid_k_still_works():
     # Sanity: a valid config is unchanged (do NOT reject currently-valid configs).
+    """Valid k still works."""
     assert ndcg_at_k(_YT, _YS, _G, k=2) == pytest.approx(1.0)
     assert map_at_k(_YT, _YS, _G, k=2) == pytest.approx(1.0)
     s = compute_ranking_summary(_YT, _YS, _G, eval_at=(1, 5))

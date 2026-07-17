@@ -32,6 +32,7 @@ from mlframe.estimators.custom import (
 
 
 def test_arithm_clips_out_of_range_to_valid_probs():
+    """Arithm clips out of range to valid probs."""
     clf = ArithmAvgClassifier(nprobs=2)
     X_fit = np.array([[0.2, 0.3], [0.6, 0.7], [0.1, 0.9]])
     clf.fit(X_fit, np.array([0, 1, 0]))
@@ -48,12 +49,14 @@ def test_arithm_clips_out_of_range_to_valid_probs():
 
 
 def test_arithm_fit_raises_on_nprobs_exceeding_features():
+    """Arithm fit raises on nprobs exceeding features."""
     clf = ArithmAvgClassifier(nprobs=5)
     with pytest.raises(ValueError):
         clf.fit(np.array([[0.2, 0.3], [0.6, 0.7]]), np.array([0, 1]))
 
 
 def test_geom_fit_raises_on_nprobs_exceeding_features():
+    """Geom fit raises on nprobs exceeding features."""
     clf = GeomAvgClassifier(nprobs=5)
     with pytest.raises(ValueError):
         clf.fit(np.array([[0.2, 0.3], [0.6, 0.7]]), np.array([0, 1]))
@@ -65,6 +68,7 @@ def test_geom_fit_raises_on_nprobs_exceeding_features():
 
 
 def test_identity_classifier_multiclass_probs_normalised_and_aligned():
+    """Identity classifier multiclass probs normalised and aligned."""
     clf = IdentityClassifier(feature_indices=[0, 1, 2])
     # 3 classes; feature block carries raw (unnormalised, partly out-of-range) per-class scores.
     y = np.array([0, 1, 2, 0])
@@ -84,6 +88,7 @@ def test_identity_classifier_multiclass_probs_normalised_and_aligned():
 
 
 def test_decorrelator_ndarray_in_ndarray_out():
+    """Decorrelator ndarray in ndarray out."""
     rng = np.random.RandomState(0)
     base = rng.normal(size=(50, 1))
     # col1 ~ col0 (correlated), col2 independent.
@@ -96,6 +101,7 @@ def test_decorrelator_ndarray_in_ndarray_out():
 
 
 def test_decorrelator_dataframe_in_dataframe_out():
+    """Decorrelator dataframe in dataframe out."""
     rng = np.random.RandomState(0)
     base = rng.normal(size=50)
     df = pd.DataFrame({"a": base, "b": base + 1e-3 * rng.normal(size=50), "c": rng.normal(size=50)})
@@ -111,6 +117,7 @@ def test_decorrelator_dataframe_in_dataframe_out():
 
 
 def test_early_stopping_split_not_single_class_on_sorted_data():
+    """Early stopping split not single class on sorted data."""
     from sklearn.linear_model import SGDClassifier
 
     from mlframe.estimators.early_stopping import EarlyStoppingWrapper

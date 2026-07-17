@@ -163,12 +163,14 @@ LOC_BUDGET_EXEMPT: set[str] = {
 
 
 def _src_root() -> Path:
+    """Helper that src root."""
     here = Path(__file__).resolve()
     # tests/test_meta/test_no_file_over_1k_loc.py -> repo root -> src/mlframe
     return here.parents[2] / "src" / "mlframe"
 
 
 def _scan_src_for_oversize() -> list[tuple[str, int]]:
+    """Helper that scan src for oversize."""
     root = _src_root()
     if not root.is_dir():
         pytest.skip(f"src tree not found at {root}; running from installed wheel?")
@@ -187,6 +189,7 @@ def _scan_src_for_oversize() -> list[tuple[str, int]]:
 
 
 def test_no_mlframe_file_exceeds_1k_loc():
+    """No mlframe file exceeds 1k loc."""
     over = _scan_src_for_oversize()
     if over:
         lines = [f"  {n:5d} LOC  {p}" for p, n in over]

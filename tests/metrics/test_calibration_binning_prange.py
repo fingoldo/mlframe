@@ -23,6 +23,7 @@ from mlframe.metrics.calibration._calibration_plot import (
 @pytest.mark.parametrize("n", [50_000, 250_000, 1_500_000])
 @pytest.mark.parametrize("nbins", [10, 100])
 def test_prange_matches_serial(n, nbins):
+    """Prange matches serial."""
     rng = np.random.default_rng(123)
     y_pred = rng.random(n).astype(np.float64)
     y_true = (rng.random(n) < y_pred).astype(np.int64)
@@ -37,6 +38,7 @@ def test_prange_matches_serial(n, nbins):
 
 
 def test_dispatcher_routes_by_size(monkeypatch):
+    """Dispatcher routes by size."""
     import mlframe.metrics.calibration._calibration_plot as cp
 
     calls = {"serial": 0, "prange": 0}
@@ -44,10 +46,12 @@ def test_dispatcher_routes_by_size(monkeypatch):
     real_prange = cp._fast_calibration_binning_prange
 
     def spy_serial(*a, **k):
+        """Spy serial."""
         calls["serial"] += 1
         return real_serial(*a, **k)
 
     def spy_prange(*a, **k):
+        """Spy prange."""
         calls["prange"] += 1
         return real_prange(*a, **k)
 

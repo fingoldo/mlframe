@@ -16,12 +16,14 @@ from mlframe.metrics.core import fast_classification_report
 
 
 def _sklearn_macro(yt, yp):
+    """Helper: Sklearn macro."""
     labels = np.unique(np.concatenate([yt, yp]))
     p, r, f, _ = precision_recall_fscore_support(yt, yp, labels=labels, average="macro", zero_division=0)
     return np.array([p, r, f])
 
 
 def test_macro_over_present_matches_sklearn_with_absent_class():
+    """Macro over present matches sklearn with absent class."""
     yt = np.array([0, 0, 1, 1, 2, 2, 0, 1], dtype=np.int64)
     yp = np.array([0, 1, 1, 1, 2, 2, 0, 2], dtype=np.int64)
     # nclasses=4 declares a class (3) that appears in neither array.
@@ -30,6 +32,7 @@ def test_macro_over_present_matches_sklearn_with_absent_class():
 
 
 def test_legacy_macro_over_all_deflates_and_is_opt_in():
+    """Legacy macro over all deflates and is opt in."""
     yt = np.array([0, 0, 1, 1, 2, 2, 0, 1], dtype=np.int64)
     yp = np.array([0, 1, 1, 1, 2, 2, 0, 2], dtype=np.int64)
     legacy = np.array(fast_classification_report(yt, yp, nclasses=4, macro_over_present=False)[8])
@@ -41,6 +44,7 @@ def test_legacy_macro_over_all_deflates_and_is_opt_in():
 
 def test_no_absent_class_default_equals_legacy():
     # When every declared class is present, present-mask is all-True so both policies coincide.
+    """No absent class default equals legacy."""
     yt = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
     yp = np.array([0, 1, 1, 1, 2, 2], dtype=np.int64)
     new = np.array(fast_classification_report(yt, yp, nclasses=3)[8])

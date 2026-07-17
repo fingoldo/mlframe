@@ -20,6 +20,7 @@ pytestmark = pytest.mark.fast
 
 
 def test_cupy_stage4_softmax_temp_zero_no_inf():
+    """Cupy stage4 softmax temp zero no inf."""
     if not is_gpu_available():
         pytest.skip("GPU not available")
     rng = np.random.default_rng(0)

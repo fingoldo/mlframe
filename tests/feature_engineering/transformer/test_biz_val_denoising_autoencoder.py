@@ -25,6 +25,7 @@ from mlframe.feature_engineering.transformer.swap_noise import swap_noise_augmen
 
 
 def _make_latent_structured_dataset(n: int, d: int, seed: int):
+    """Helper: Make latent structured dataset."""
     rng = np.random.default_rng(seed)
     latent = rng.normal(size=(n, 3))
     W = rng.normal(size=(3, d))
@@ -33,6 +34,7 @@ def _make_latent_structured_dataset(n: int, d: int, seed: int):
 
 
 def test_biz_val_denoising_autoencoder_bottleneck_more_robust_to_perturbation_than_plain_autoencoder():
+    """Biz val denoising autoencoder bottleneck more robust to perturbation than plain autoencoder."""
     seed = 2
     X = _make_latent_structured_dataset(n=3000, d=12, seed=seed)
 
@@ -55,6 +57,7 @@ def test_biz_val_denoising_autoencoder_bottleneck_more_robust_to_perturbation_th
 
 
 def test_swap_noise_augment_preserves_column_marginals():
+    """Swap noise augment preserves column marginals."""
     rng = np.random.default_rng(0)
     X = rng.normal(loc=[0, 100, -5], scale=[1, 20, 0.5], size=(5000, 3))
     X_corrupted = swap_noise_augment(X, swap_prob=0.3, rng=np.random.default_rng(1))
@@ -70,6 +73,7 @@ def test_swap_noise_augment_preserves_column_marginals():
 
 
 def test_swap_noise_augment_swap_rate_matches_swap_prob():
+    """Swap noise augment swap rate matches swap prob."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(20000, 4))
     X_corrupted = swap_noise_augment(X, swap_prob=0.15, rng=np.random.default_rng(1))
@@ -78,6 +82,7 @@ def test_swap_noise_augment_swap_rate_matches_swap_prob():
 
 
 def test_swap_noise_augment_zero_prob_is_identity():
+    """Swap noise augment zero prob is identity."""
     X = np.random.default_rng(0).normal(size=(50, 3))
     assert np.array_equal(swap_noise_augment(X, swap_prob=0.0), X)
 

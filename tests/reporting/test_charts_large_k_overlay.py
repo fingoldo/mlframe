@@ -16,10 +16,12 @@ from mlframe.reporting.spec import LinePanelSpec
 
 
 def _flatten(grid):
+    """Helper: Flatten."""
     return [p for row in grid for p in row]
 
 
 def _find_line_panel(fig, title_contains):
+    """Helper: Find line panel."""
     for p in _flatten(fig.panels):
         if isinstance(p, LinePanelSpec) and title_contains in p.title:
             return p
@@ -46,6 +48,7 @@ def _multiclass_with_hard_classes(n=60_000, K=40, hard=(3, 11, 27, 38), seed=0):
 
 
 def _multilabel_with_hard_labels(n=60_000, K=40, hard=(2, 14, 33), seed=1):
+    """Helper: Multilabel with hard labels."""
     rng = np.random.default_rng(seed)
     yt = (rng.random((n, K)) < 0.3).astype(np.int8)
     proba = np.clip(0.15 + 0.7 * yt + rng.normal(0.0, 0.18, size=(n, K)), 0.0, 1.0)
@@ -77,6 +80,7 @@ def test_multiclass_smallK_renders_all_classes_unchanged():
 
 
 def test_multiclass_largeK_switches_to_topN_plus_macro():
+    """Multiclass largeK switches to topN plus macro."""
     y, proba, classes = _multiclass_with_hard_classes()
     fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC CALIB_GRID PR_CURVES", overlay_max_classes=12, overlay_top_n=8)
     roc = _find_line_panel(fig, "Per-class ROC")
@@ -99,6 +103,7 @@ def test_multiclass_largeK_selects_genuinely_worst_classes():
 
 
 def test_multiclass_macro_present_on_all_overlay_panels():
+    """Multiclass macro present on all overlay panels."""
     y, proba, classes = _multiclass_with_hard_classes()
     fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC PR_CURVES CALIB_GRID", overlay_max_classes=12, overlay_top_n=8)
     for title in ("Per-class ROC", "Per-class PR", "Per-class reliability"):
@@ -112,6 +117,7 @@ def test_multiclass_macro_present_on_all_overlay_panels():
 
 
 def test_multilabel_smallK_renders_all_labels_unchanged():
+    """Multilabel smallK renders all labels unchanged."""
     rng = np.random.default_rng(7)
     n, K = 4000, 6
     yt = (rng.random((n, K)) < 0.3).astype(np.int8)
@@ -124,6 +130,7 @@ def test_multilabel_smallK_renders_all_labels_unchanged():
 
 
 def test_multilabel_largeK_switches_to_topN_plus_macro_and_picks_worst():
+    """Multilabel largeK switches to topN plus macro and picks worst."""
     hard = (2, 14, 33)
     yt, proba, labels = _multilabel_with_hard_labels(hard=hard)
     fig = compose_multilabel_figure(yt, proba, labels, panels_template="ROC CALIB_GRID", overlay_max_labels=12, overlay_top_n=8)
@@ -138,6 +145,7 @@ def test_multilabel_largeK_switches_to_topN_plus_macro_and_picks_worst():
 
 
 def test_overlay_top_n_param_controls_curve_count():
+    """Overlay top n param controls curve count."""
     y, proba, classes = _multiclass_with_hard_classes()
     fig = compose_multiclass_figure(y, proba, classes, panels_template="ROC", overlay_max_classes=12, overlay_top_n=5)
     roc = _find_line_panel(fig, "Per-class ROC")

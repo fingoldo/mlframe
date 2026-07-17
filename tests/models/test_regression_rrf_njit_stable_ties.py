@@ -15,6 +15,7 @@ from mlframe.models.ensembling import base as _base
 
 @pytest.mark.skipif(_base._rrf_aggregate_probs_njit is None, reason="numba per-member kernel unavailable")
 def test_rrf_njit_matches_numpy_fallback_on_tied_probabilities():
+    """Rrf njit matches numpy fallback on tied probabilities."""
     rng = np.random.default_rng(0)
     M, N, K = 4, 40, 3
     preds = rng.random((M, N, K))

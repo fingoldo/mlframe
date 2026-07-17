@@ -21,6 +21,7 @@ from mlframe.feature_engineering import leakage_safe_aggregate, randomize_as_of_
 
 
 def _make_entity_history(n_entities: int, n_history: int, seed: int):
+    """Helper: Make entity history."""
     rng = np.random.default_rng(seed)
     entity_level = rng.normal(scale=2.0, size=n_entities)
     slopes = rng.normal(scale=0.6, size=n_entities)
@@ -38,6 +39,7 @@ def _make_entity_history(n_entities: int, n_history: int, seed: int):
 
 
 def test_biz_val_randomize_as_of_lag_beats_freshest_only_training_under_serve_staleness():
+    """Biz val randomize as of lag beats freshest only training under serve staleness."""
     n_entities, n_history = 600, 40
     history_df, y, label_t = _make_entity_history(n_entities, n_history, seed=1)
     train_entities = np.arange(0, 400)
@@ -119,6 +121,7 @@ def test_biz_val_randomize_as_of_lag_histogram_beats_uniform_under_skewed_servin
 
 
 def test_randomize_as_of_lag_histogram_requires_both_edges_and_counts():
+    """Randomize as of lag histogram requires both edges and counts."""
     as_of = pd.DataFrame({"entity": range(10), "as_of": 100.0})
     try:
         randomize_as_of_lag(as_of, "as_of", max_lag=10.0, lag_histogram_edges=[0.0, 5.0, 10.0])
@@ -133,6 +136,7 @@ def test_randomize_as_of_lag_histogram_requires_both_edges_and_counts():
 
 
 def test_randomize_as_of_lag_histogram_shifts_within_bin_bounds():
+    """Randomize as of lag histogram shifts within bin bounds."""
     as_of = pd.DataFrame({"entity": range(2000), "as_of": 100.0})
     shifted = randomize_as_of_lag(
         as_of, "as_of", max_lag=15.0, lag_histogram_edges=[0.0, 1.0, 2.0, 5.0, 15.0], lag_histogram_counts=[70.0, 15.0, 10.0, 5.0], random_state=0
@@ -144,6 +148,7 @@ def test_randomize_as_of_lag_histogram_shifts_within_bin_bounds():
 
 
 def test_randomize_as_of_lag_datetime_cutoff_matches_default_when_histogram_omitted():
+    """Randomize as of lag datetime cutoff matches default when histogram omitted."""
     as_of = pd.DataFrame({"entity": [1, 2, 3], "as_of": 100.0})
     default = randomize_as_of_lag(as_of, "as_of", max_lag=15.0, min_lag=0.0, random_state=0)
     explicit_none = randomize_as_of_lag(as_of, "as_of", max_lag=15.0, min_lag=0.0, random_state=0, lag_histogram_edges=None, lag_histogram_counts=None)
@@ -151,6 +156,7 @@ def test_randomize_as_of_lag_datetime_cutoff_matches_default_when_histogram_omit
 
 
 def test_randomize_as_of_lag_shifts_cutoff_within_bounds():
+    """Randomize as of lag shifts cutoff within bounds."""
     as_of = pd.DataFrame({"entity": range(500), "as_of": 100.0})
     shifted = randomize_as_of_lag(as_of, "as_of", max_lag=10.0, min_lag=2.0, random_state=0)
     offsets = 100.0 - shifted["as_of"].to_numpy()
@@ -159,6 +165,7 @@ def test_randomize_as_of_lag_shifts_cutoff_within_bounds():
 
 
 def test_randomize_as_of_lag_does_not_mutate_input():
+    """Randomize as of lag does not mutate input."""
     as_of = pd.DataFrame({"entity": [1, 2, 3], "as_of": [10.0, 20.0, 30.0]})
     original = as_of.copy()
     randomize_as_of_lag(as_of, "as_of", max_lag=5.0, random_state=0)
@@ -166,6 +173,7 @@ def test_randomize_as_of_lag_does_not_mutate_input():
 
 
 def test_randomize_as_of_lag_datetime_cutoff():
+    """Randomize as of lag datetime cutoff."""
     as_of = pd.DataFrame({"entity": [1, 2], "as_of": pd.to_datetime(["2024-01-10", "2024-01-10"])})
     shifted = randomize_as_of_lag(as_of, "as_of", max_lag=pd.Timedelta(days=5), min_lag=pd.Timedelta(days=1), random_state=0)
     deltas = as_of["as_of"] - shifted["as_of"]

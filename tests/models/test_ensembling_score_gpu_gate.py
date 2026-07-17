@@ -18,6 +18,7 @@ from mlframe.models.ensembling.score import score_ensemble
 
 
 def _reg_member(seed: int, n: int = 50):
+    """Helper: Reg member."""
     rng = np.random.default_rng(seed)
     # Positive-only preds: harmonic-mean ("harm") is a sign-sensitive flavour and gets filtered out of
     # ensembling_methods for members with any non-positive prediction, which would collapse the fan-out to a
@@ -35,6 +36,7 @@ def _reg_member(seed: int, n: int = 50):
 
 
 def _stub_process_single_ensemble_method(ensemble_method, **kwargs):
+    """Helper: Stub process single ensemble method."""
     return ensemble_method, np.zeros(2), None
 
 
@@ -42,13 +44,16 @@ def _stub_process_single_ensemble_method(ensemble_method, **kwargs):
 def _stub_member_processing(monkeypatch):
     # score_ensemble's per-flavour work is orthogonal to the concurrency gate under test; stub it so the
     # test exercises only the parallel-vs-serial dispatch decision, not real ensembling math.
+    """Helper: Stub member processing."""
     monkeypatch.setattr(score_mod, "_process_single_ensemble_method", _stub_process_single_ensemble_method)
 
 
 def _spy_parallel_run(monkeypatch):
+    """Helper: Spy parallel run."""
     calls = {"n": 0}
 
     def _fake(tasks, **kw):
+        """Helper: Fake."""
         calls["n"] += 1
         return [fn(*args, **kwargs) for fn, args, kwargs in tasks]
 
@@ -59,14 +64,17 @@ def _spy_parallel_run(monkeypatch):
 def _gpu_bound_metric(a, b):
     # Never actually invoked (member processing is stubbed); referencing torch by name is enough for the
     # static co_names heuristic to flag this callable as GPU-bound.
+    """Helper: Gpu bound metric."""
     return torch.abs(a - b).mean()  # noqa: F821 - intentionally unresolved, exercises the static heuristic only
 
 
 def _cpu_metric(a, b):
+    """Helper: Cpu metric."""
     return abs(a - b).mean()
 
 
 def test_gpu_bound_custom_metric_forces_serial(monkeypatch, caplog):
+    """Gpu bound custom metric forces serial."""
     calls = _spy_parallel_run(monkeypatch)
     members = [_reg_member(0), _reg_member(1)]
     with caplog.at_level(logging.WARNING, logger="mlframe.models.ensembling"):
@@ -84,6 +92,7 @@ def test_gpu_bound_custom_metric_forces_serial(monkeypatch, caplog):
 
 
 def test_cpu_only_custom_metric_still_uses_parallel_pool(monkeypatch):
+    """Cpu only custom metric still uses parallel pool."""
     calls = _spy_parallel_run(monkeypatch)
     members = [_reg_member(0), _reg_member(1)]
     score_ensemble(
@@ -99,6 +108,7 @@ def test_cpu_only_custom_metric_still_uses_parallel_pool(monkeypatch):
 
 
 def test_no_custom_metric_still_uses_parallel_pool(monkeypatch):
+    """No custom metric still uses parallel pool."""
     calls = _spy_parallel_run(monkeypatch)
     members = [_reg_member(0), _reg_member(1)]
     score_ensemble(

@@ -21,12 +21,14 @@ from mlframe.utils.disk_cache import (
 
 
 def test_hash_array_summary_deterministic_same_input():
+    """Hash array summary deterministic same input."""
     rng = np.random.default_rng(0)
     arr = rng.standard_normal((100, 8))
     assert hash_array_summary(arr) == hash_array_summary(arr.copy())
 
 
 def test_hash_array_summary_changes_on_value_perturbation():
+    """Hash array summary changes on value perturbation."""
     rng = np.random.default_rng(0)
     arr = rng.standard_normal((100, 8))
     arr_b = arr.copy()
@@ -35,16 +37,19 @@ def test_hash_array_summary_changes_on_value_perturbation():
 
 
 def test_hash_array_summary_changes_on_shape_change():
+    """Hash array summary changes on shape change."""
     arr = np.zeros((10, 5))
     assert hash_array_summary(arr) != hash_array_summary(arr.reshape(5, 10))
 
 
 def test_hash_array_summary_changes_on_dtype_change():
+    """Hash array summary changes on dtype change."""
     arr = np.zeros((10, 5), dtype=np.float32)
     assert hash_array_summary(arr) != hash_array_summary(arr.astype(np.float64))
 
 
 def test_hash_array_summary_catches_middle_row_change_via_col_sum():
+    """Hash array summary catches middle row change via col sum."""
     rng = np.random.default_rng(1)
     arr = rng.standard_normal((1000, 4))  # rows past summary head/tail
     arr_b = arr.copy()
@@ -53,6 +58,7 @@ def test_hash_array_summary_catches_middle_row_change_via_col_sum():
 
 
 def test_hash_array_summary_empty_array():
+    """Hash array summary empty array."""
     a = np.zeros((0, 5))
     b = np.zeros((0, 5))
     assert hash_array_summary(a) == hash_array_summary(b)
@@ -61,18 +67,21 @@ def test_hash_array_summary_empty_array():
 
 
 def test_hash_array_summary_1d():
+    """Hash array summary 1d."""
     a = np.array([1.0, 2.0, 3.0])
     b = np.array([1.0, 2.0, 4.0])
     assert hash_array_summary(a) != hash_array_summary(b)
 
 
 def test_hash_object_dict_order_invariant():
+    """Hash object dict order invariant."""
     d1 = {"a": 1, "b": 2, "c": 3}
     d2 = {"c": 3, "a": 1, "b": 2}
     assert hash_object(d1) == hash_object(d2)
 
 
 def test_hash_object_distinguishes_values():
+    """Hash object distinguishes values."""
     assert hash_object({"a": 1}) != hash_object({"a": 2})
     assert hash_object([1, 2, 3]) != hash_object([1, 3, 2])
     assert hash_object(None) != hash_object(0)
@@ -80,6 +89,7 @@ def test_hash_object_distinguishes_values():
 
 
 def test_hash_object_handles_numpy_scalar():
+    """Hash object handles numpy scalar."""
     assert hash_object(np.int64(5)) == hash_object(5)
 
 
@@ -92,6 +102,7 @@ def test_hash_object_with_nested_array_uses_summary():
 
 
 def test_compose_key_stable():
+    """Compose key stable."""
     k1 = compose_key("abc", "def", "ghi")
     k2 = compose_key("abc", "def", "ghi")
     assert k1 == k2
@@ -101,6 +112,7 @@ def test_compose_key_stable():
 
 
 def test_compose_key_rejects_empty():
+    """Compose key rejects empty."""
     with pytest.raises(ValueError):
         compose_key()
 
@@ -115,6 +127,7 @@ def test_compose_key_separator_safe():
 
 
 def test_disk_cache_put_get_roundtrip(tmp_path: Path):
+    """Disk cache put get roundtrip."""
     cache = DiskCache(tmp_path)
     arr = np.arange(1000).reshape(100, 10)
     cache.put("k1", arr)
@@ -126,6 +139,7 @@ def test_disk_cache_put_get_roundtrip(tmp_path: Path):
 
 
 def test_disk_cache_miss_returns_none(tmp_path: Path):
+    """Disk cache miss returns none."""
     cache = DiskCache(tmp_path)
     assert cache.get("absent") is None
     assert cache.misses == 1
@@ -133,6 +147,7 @@ def test_disk_cache_miss_returns_none(tmp_path: Path):
 
 
 def test_disk_cache_pickle_complex_payload(tmp_path: Path):
+    """Disk cache pickle complex payload."""
     cache = DiskCache(tmp_path)
     payload = {
         "phi": np.random.default_rng(0).standard_normal((50, 4)),
@@ -162,6 +177,7 @@ def test_disk_cache_eviction_under_cap(tmp_path: Path):
 
 
 def test_disk_cache_corrupt_entry_treated_as_miss(tmp_path: Path):
+    """Disk cache corrupt entry treated as miss."""
     cache = DiskCache(tmp_path)
     cache.put("k1", np.arange(10))
     # Corrupt the on-disk file.
@@ -196,6 +212,7 @@ def test_disk_cache_concurrent_same_key(tmp_path: Path):
     errors = []
 
     def worker():
+        """Helper that worker."""
         try:
             for _ in range(5):
                 cache.put("shared", payload)
@@ -231,6 +248,7 @@ def test_disk_cache_concurrent_same_key_distinct_payloads_never_corrupt(tmp_path
     errors = []
 
     def worker(i):
+        """Helper that worker."""
         try:
             for _ in range(8):
                 cache.put("shared", payloads[i])
@@ -253,6 +271,7 @@ def test_disk_cache_concurrent_same_key_distinct_payloads_never_corrupt(tmp_path
 
 
 def test_disk_cache_clear(tmp_path: Path):
+    """Disk cache clear."""
     cache = DiskCache(tmp_path)
     cache.put("a", np.array([1]))
     cache.put("b", np.array([2]))

@@ -51,6 +51,7 @@ def _ref_per_group(per_query, syt, sys_, group_starts, k, takes_k):
 
 @pytest.mark.parametrize("fname,kernel_name,_pq,_tk", _METRICS)
 def test_public_metric_dispatches_whole_batch_kernel_once(fname, kernel_name, _pq, _tk, monkeypatch):
+    """Public metric dispatches whole batch kernel once."""
     yt = np.array([3, 0, 1, 2, 0, 4, 1, 1, 0, 2], dtype=np.float64)
     ys = np.array([0.5, 0.1, 0.9, 0.3, 0.2, 0.8, 0.4, 0.4, 0.1, 0.7])
     gids = np.array([0, 0, 0, 1, 2, 2, 3, 3, 3, 3], dtype=np.int64)
@@ -59,6 +60,7 @@ def test_public_metric_dispatches_whole_batch_kernel_once(fname, kernel_name, _p
     calls = {"n": 0}
 
     def spy(*args, **kwargs):
+        """Spy."""
         calls["n"] += 1
         return orig(*args, **kwargs)
 
@@ -73,6 +75,7 @@ def test_public_metric_dispatches_whole_batch_kernel_once(fname, kernel_name, _p
 @pytest.mark.parametrize("fname,_kn,per_query,takes_k", _METRICS)
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_batch_kernel_bit_identical_to_per_group_reference(fname, _kn, per_query, takes_k, seed):
+    """Batch kernel bit identical to per group reference."""
     rng = np.random.default_rng(seed)
     n, gp = 4000, 7
     ng = n // gp

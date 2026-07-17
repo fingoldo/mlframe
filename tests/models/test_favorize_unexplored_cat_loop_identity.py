@@ -13,6 +13,7 @@ from mlframe.models.tuning import favorize_unexplored
 
 
 def _normalize_probs(probs):
+    """Helper: Normalize probs."""
     total = probs.sum()
     if total <= 0 or not np.isfinite(total):
         probs[:] = 1.0 / len(probs)
@@ -43,6 +44,7 @@ def _old_favorize(candidates, probs, trials, cat_features, order: int = 1) -> No
 
 
 def _make_workload(ncand: int, seed: int):
+    """Helper: Make workload."""
     rng = np.random.default_rng(seed)
     cat_features = ["grow_policy", "bootstrap_type", "model_shrink_mode", "score_function"]
     choices = {c: [f"{c}_{i}" for i in range(6)] for c in cat_features}
@@ -58,6 +60,7 @@ def _make_workload(ncand: int, seed: int):
 
 
 def test_favorize_unexplored_bit_identical_to_legacy_body():
+    """Favorize unexplored bit identical to legacy body."""
     for seed in (0, 1, 7, 42):
         cands, trials, cat_features = _make_workload(ncand=400, seed=seed)
         p_old = np.ones(len(cands)) / len(cands)
@@ -82,6 +85,7 @@ def test_favorize_unexplored_handles_missing_cat_key():
 
 
 def test_favorize_unexplored_noop_on_empty_trials():
+    """Favorize unexplored noop on empty trials."""
     cat_features = ["a"]
     cands = [{"a": "x"}]
     probs = np.array([1.0])

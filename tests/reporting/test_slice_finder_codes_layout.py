@@ -13,6 +13,7 @@ from mlframe.reporting.charts.slice_finder import _aggregate_combo, _bin_matrix,
 
 
 def test_bin_matrix_codes_are_fortran_order_with_contiguous_columns():
+    """Bin matrix codes are fortran order with contiguous columns."""
     rng = np.random.default_rng(0)
     mat = rng.standard_normal((2000, 12))
     codes, _edges = _bin_matrix(mat, 4)
@@ -23,6 +24,7 @@ def test_bin_matrix_codes_are_fortran_order_with_contiguous_columns():
 
 
 def test_aggregate_combo_bit_identical_across_codes_layout():
+    """Aggregate combo bit identical across codes layout."""
     rng = np.random.default_rng(1)
     mat = rng.standard_normal((5000, 10))
     err = np.ascontiguousarray(rng.standard_normal(5000))
@@ -41,6 +43,7 @@ def test_aggregate_combo_bit_identical_across_codes_layout():
 
 
 def test_find_weak_slices_output_unchanged_by_layout():
+    """Find weak slices output unchanged by layout."""
     rng = np.random.default_rng(7)
     n, p = 4000, 6
     X = rng.standard_normal((n, p))

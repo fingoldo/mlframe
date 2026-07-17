@@ -24,6 +24,7 @@ import pytest
 
 
 def test_iter_group_segments_basic() -> None:
+    """Iter group segments basic."""
     from mlframe.feature_engineering import iter_group_segments
 
     groups = np.array([1, 1, 2, 2, 2, 1, 3])
@@ -35,12 +36,14 @@ def test_iter_group_segments_basic() -> None:
 
 
 def test_per_group_apply_returns_per_row_results_in_orig_order() -> None:
+    """Per group apply returns per row results in orig order."""
     from mlframe.feature_engineering import per_group_apply
 
     values = np.array([10.0, 20.0, 100.0, 200.0, 300.0])
     groups = np.array([1, 1, 2, 2, 2])
 
     def normalize(seg: np.ndarray) -> np.ndarray:
+        """Normalize."""
         return seg / seg.max()
 
     out = per_group_apply(values, groups, normalize)
@@ -49,6 +52,7 @@ def test_per_group_apply_returns_per_row_results_in_orig_order() -> None:
 
 
 def test_per_group_sliding_window_basic() -> None:
+    """Per group sliding window basic."""
     from mlframe.feature_engineering import per_group_sliding_window
 
     values = np.arange(10, dtype=np.float64)
@@ -88,6 +92,7 @@ def test_rolling_mean_abs_d2_zero_on_linear_signal() -> None:
 
 
 def test_rolling_n_peaks_and_troughs_on_sinusoid() -> None:
+    """Rolling n peaks and troughs on sinusoid."""
     from mlframe.feature_engineering import rolling_n_peaks, rolling_n_troughs
 
     t = np.arange(200, dtype=np.float64)
@@ -104,6 +109,7 @@ def test_rolling_n_peaks_and_troughs_on_sinusoid() -> None:
 
 
 def test_rolling_integral_above_baseline_positive_on_positive_signal() -> None:
+    """Rolling integral above baseline positive on positive signal."""
     from mlframe.feature_engineering import rolling_integral_above_baseline
 
     values = np.array([1.0] * 100)  # all 1.0
@@ -131,6 +137,7 @@ def test_rolling_integral_above_baseline_positive_on_positive_signal() -> None:
 
 
 def test_rolling_spectral_band_energies_three_bands() -> None:
+    """Rolling spectral band energies three bands."""
     from mlframe.feature_engineering import rolling_spectral_band_energies
 
     rng = np.random.default_rng(0)
@@ -160,6 +167,7 @@ def test_rolling_spectral_entropy_higher_for_noise_than_sin() -> None:
 
 
 def test_rolling_hf_lf_ratio_higher_on_high_freq_signal() -> None:
+    """Rolling hf lf ratio higher on high freq signal."""
     from mlframe.feature_engineering import rolling_hf_lf_ratio
 
     t = np.arange(500, dtype=np.float64)
@@ -177,6 +185,7 @@ def test_rolling_hf_lf_ratio_higher_on_high_freq_signal() -> None:
 
 
 def test_predictor_disagreement_iqr_zero_on_identical_predictors() -> None:
+    """Predictor disagreement iqr zero on identical predictors."""
     from mlframe.feature_engineering import predictor_disagreement_iqr
 
     preds = np.tile(np.array([[1.0, 2.0, 3.0]]).T, (1, 4))  # all 4 preds identical per row
@@ -185,6 +194,7 @@ def test_predictor_disagreement_iqr_zero_on_identical_predictors() -> None:
 
 
 def test_predictor_disagreement_features_emits_all_keys() -> None:
+    """Predictor disagreement features emits all keys."""
     from mlframe.feature_engineering import predictor_disagreement_features
 
     rng = np.random.default_rng(0)
@@ -218,6 +228,7 @@ def test_predictor_disagreement_handles_nan() -> None:
 
 
 def test_knn_aggregate_basic() -> None:
+    """Knn aggregate basic."""
     from mlframe.feature_engineering import knn_aggregate
 
     rng = np.random.default_rng(0)
@@ -230,6 +241,7 @@ def test_knn_aggregate_basic() -> None:
 
 
 def test_knn_within_bucket_aggregate_respects_bucket() -> None:
+    """Knn within bucket aggregate respects bucket."""
     from mlframe.feature_engineering import knn_within_bucket_aggregate
 
     rng = np.random.default_rng(0)
@@ -265,6 +277,7 @@ def test_frac_diff_weights_decay() -> None:
 
 
 def test_frac_diff_d_eq_1_is_first_difference() -> None:
+    """Frac diff d eq 1 is first difference."""
     from mlframe.feature_engineering import frac_diff
 
     x = np.linspace(0, 100, 50)
@@ -297,6 +310,7 @@ def test_frac_diff_per_group_no_bleed() -> None:
 
 
 def test_add_anchor_extrapolation_features_basic() -> None:
+    """Add anchor extrapolation features basic."""
     from mlframe.feature_engineering import add_anchor_extrapolation_features
 
     # 10 rows, anchors at rows 0, 3, 7. Label = row index * 2 on anchors.
@@ -319,6 +333,7 @@ def test_add_anchor_extrapolation_features_basic() -> None:
 
 
 def test_anchor_features_per_group_no_bleed() -> None:
+    """Anchor features per group no bleed."""
     from mlframe.feature_engineering import add_anchor_extrapolation_features
 
     label = np.array([10.0, np.nan, np.nan, 100.0, np.nan])
@@ -363,6 +378,7 @@ def test_particle_filter_posterior_tracks_constant() -> None:
 
 
 def test_rolling_hurst_finite_on_random_walk() -> None:
+    """Rolling hurst finite on random walk."""
     from mlframe.feature_engineering import rolling_hurst
 
     rng = np.random.default_rng(0)
@@ -406,6 +422,7 @@ def test_higuchi_fd_distinguishes_smooth_vs_noise() -> None:
 
 
 def _grouped_recursion_inputs(n_groups: int, rows_per_group: int, seed: int = 0):
+    """Helper: Grouped recursion inputs."""
     rng = np.random.default_rng(seed)
     N = n_groups * rows_per_group
     well = np.repeat(np.arange(n_groups), rows_per_group)
@@ -446,6 +463,7 @@ def test_bocpd_serial_parallel_backends_match() -> None:
 
 
 def test_oblr_serial_parallel_backends_match() -> None:
+    """Oblr serial parallel backends match."""
     import os
 
     pytest.importorskip("numba")
@@ -504,6 +522,7 @@ def test_recursion_dispatch_routes_by_kernel_and_size() -> None:
 
 
 def _anchor_test_frame(n_wells: int = 10, rows_per_well: int = 250, seed: int = 0):
+    """Helper: Anchor test frame."""
     rng = np.random.default_rng(seed)
     N = n_wells * rows_per_well
     well = np.repeat(np.arange(n_wells), rows_per_well)
@@ -594,6 +613,7 @@ def test_per_group_rank_njit_matches_scipy_all_methods() -> None:
     from mlframe.feature_engineering.grouped import iter_group_segments
 
     def _reference(vals, gids, *, method, pct, ascending):
+        """Helper: Reference."""
         v = np.ascontiguousarray(vals, dtype=np.float64)
         out = np.full(v.size, np.nan)
         sort_idx, starts, ends = iter_group_segments(gids)

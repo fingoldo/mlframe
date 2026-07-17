@@ -16,6 +16,7 @@ from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
 
 def _is_fitted(est) -> bool:
+    """Helper that is fitted."""
     try:
         check_is_fitted(est)
         return True
@@ -24,6 +25,7 @@ def _is_fitted(est) -> bool:
 
 
 def _data(regression: bool):
+    """Helper that data."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((80, 4))
     if regression:
@@ -42,6 +44,7 @@ def _data(regression: bool):
     ids=["classifier", "regressor"],
 )
 def test_fit_does_not_mutate_base_model_and_clones_are_independent(base_factory, regression):
+    """Fit does not mutate base model and clones are independent."""
     base = base_factory()
     X, y = _data(regression)
 
@@ -80,6 +83,7 @@ def test_fit_does_not_mutate_base_model_and_clones_are_independent(base_factory,
     ids=["classifier", "regressor"],
 )
 def test_get_params_and_clone_roundtrip(base_factory, regression):
+    """Get params and clone roundtrip."""
     base = base_factory()
     wrapper = EarlyStoppingWrapper(base, patience=4, max_iter=15)
     params = wrapper.get_params(deep=False)

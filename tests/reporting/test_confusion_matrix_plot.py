@@ -22,6 +22,7 @@ from mlframe.reporting.charts import plot_confusion_matrix, confusion_matrix_cou
 
 
 def test_counts_hand_case():
+    """Counts hand case."""
     yt = np.array([0, 0, 1, 1, 2, 2])
     yp = np.array([0, 1, 1, 1, 2, 0])
     mat, labels = confusion_matrix_counts(yt, yp)
@@ -31,6 +32,7 @@ def test_counts_hand_case():
 
 
 def test_string_labels_sorted():
+    """String labels sorted."""
     yt = np.array(["cat", "dog", "cat", "bird"])
     yp = np.array(["cat", "cat", "cat", "bird"])
     mat, labels = confusion_matrix_counts(yt, yp)
@@ -40,6 +42,7 @@ def test_string_labels_sorted():
 
 
 def test_labels_subset_and_order():
+    """Labels subset and order."""
     yt = np.array([0, 1, 2, 2])
     yp = np.array([0, 1, 2, 1])
     mat, labels = confusion_matrix_counts(yt, yp, labels=[2, 1, 0])
@@ -50,6 +53,7 @@ def test_labels_subset_and_order():
 
 @pytest.mark.parametrize("normalize", [None, "true", "pred", "all"])
 def test_normalize_modes_build_figure(normalize):
+    """Normalize modes build figure."""
     yt = np.array([0, 0, 1, 1, 1])
     yp = np.array([0, 1, 1, 1, 0])
     fig, ax = plot_confusion_matrix(yt, yp, normalize=normalize)
@@ -66,6 +70,7 @@ def test_normalize_modes_build_figure(normalize):
 
 
 def test_draw_onto_supplied_ax():
+    """Draw onto supplied ax."""
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
 
@@ -77,11 +82,13 @@ def test_draw_onto_supplied_ax():
 
 
 def test_invalid_normalize_raises():
+    """Invalid normalize raises."""
     with pytest.raises(ValueError):
         plot_confusion_matrix(np.array([0, 1]), np.array([0, 1]), normalize="rows")
 
 
 def test_headless_savefig(tmp_path):
+    """Headless savefig."""
     fig, _ = plot_confusion_matrix(np.array([0, 0, 1, 1]), np.array([0, 1, 1, 1]), title="cm")
     out = tmp_path / "cm.png"
     fig.savefig(str(out))
@@ -95,6 +102,7 @@ def test_headless_savefig(tmp_path):
 
 @pytest.mark.parametrize("seed", [0, 1, 5, 13])
 def test_matrix_equivalence_vs_sklearn(seed):
+    """Matrix equivalence vs sklearn."""
     sk = pytest.importorskip("sklearn.metrics")
     rng = np.random.default_rng(seed)
     K = int(rng.integers(2, 8))
@@ -107,6 +115,7 @@ def test_matrix_equivalence_vs_sklearn(seed):
 
 
 def test_matrix_equivalence_string_labels_vs_sklearn():
+    """Matrix equivalence string labels vs sklearn."""
     sk = pytest.importorskip("sklearn.metrics")
     yt = np.array(["a", "b", "c", "a", "b", "c", "a"])
     yp = np.array(["a", "a", "c", "b", "b", "c", "a"])
@@ -122,6 +131,7 @@ def test_matrix_equivalence_string_labels_vs_sklearn():
 
 
 def test_include_values_false_omits_cell_text():
+    """Include values false omits cell text."""
     yt = np.array([0, 0, 1, 1])
     yp = np.array([0, 1, 1, 1])
     _fig, ax = plot_confusion_matrix(yt, yp, include_values=False)
@@ -135,6 +145,7 @@ def test_include_values_false_omits_cell_text():
     [("horizontal", 0), ("vertical", 90), (30, 30)],
 )
 def test_xticks_rotation_applied(rotation, expected_degrees):
+    """Xticks rotation applied."""
     yt = np.array([0, 0, 1, 1])
     yp = np.array([0, 1, 1, 1])
     _fig, ax = plot_confusion_matrix(yt, yp, xticks_rotation=rotation)

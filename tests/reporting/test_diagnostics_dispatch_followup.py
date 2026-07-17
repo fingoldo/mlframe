@@ -31,11 +31,13 @@ PNG = "matplotlib[png]"
 
 
 def _png_exists(base: str) -> bool:
+    """Helper: Png exists."""
     return os.path.exists(base + ".png") or os.path.exists(base + ".matplotlib.png")
 
 
 @pytest.fixture
 def binary_frame():
+    """Binary frame."""
     rng = np.random.default_rng(0)
     n = 800
     f0 = rng.uniform(0, 1, n)
@@ -50,6 +52,7 @@ def binary_frame():
 
 
 def _fit_tree(df, y):
+    """Helper: Fit tree."""
     from sklearn.ensemble import RandomForestClassifier
 
     m = RandomForestClassifier(n_estimators=12, random_state=0)
@@ -58,6 +61,7 @@ def _fit_tree(df, y):
 
 
 def test_pdp_ice_renders_default_on(tmp_path, binary_frame):
+    """Pdp ice renders default on."""
     df, y, _score, _ts = binary_frame
     model = _fit_tree(df, y)
     base = str(tmp_path / "m")
@@ -78,6 +82,7 @@ def test_pdp_ice_renders_default_on(tmp_path, binary_frame):
 
 
 def test_pdp_ice_skips_without_model(tmp_path, binary_frame):
+    """Pdp ice skips without model."""
     df, _y, _s, _ts = binary_frame
     md = {}
     assert (
@@ -95,6 +100,7 @@ def test_pdp_ice_skips_without_model(tmp_path, binary_frame):
 
 
 def test_slice_finder_renders_default_on(tmp_path, binary_frame):
+    """Slice finder renders default on."""
     df, y, score, _ts = binary_frame
     base = str(tmp_path / "m")
     md = {}
@@ -114,6 +120,7 @@ def test_slice_finder_renders_default_on(tmp_path, binary_frame):
 
 
 def test_decision_curve_renders_default_on(tmp_path, binary_frame):
+    """Decision curve renders default on."""
     _df, y, score, _ts = binary_frame
     base = str(tmp_path / "m")
     md = {}
@@ -130,6 +137,7 @@ def test_decision_curve_renders_default_on(tmp_path, binary_frame):
 
 
 def test_calibration_drift_renders_default_on(tmp_path, binary_frame):
+    """Calibration drift renders default on."""
     _df, y, score, ts = binary_frame
     base = str(tmp_path / "m")
     md = {}
@@ -146,6 +154,7 @@ def test_calibration_drift_renders_default_on(tmp_path, binary_frame):
 
 
 def test_calibration_drift_skips_without_timestamps(tmp_path, binary_frame):
+    """Calibration drift skips without timestamps."""
     _df, y, score, _ts = binary_frame
     md = {}
     assert (
@@ -162,6 +171,7 @@ def test_calibration_drift_skips_without_timestamps(tmp_path, binary_frame):
 
 
 def test_target_acf_renders_default_on(tmp_path, binary_frame):
+    """Target acf renders default on."""
     _df, y, _score, ts = binary_frame
     base = str(tmp_path / "m")
     md = {}
@@ -177,6 +187,7 @@ def test_target_acf_renders_default_on(tmp_path, binary_frame):
 
 
 def test_shap_default_on_for_tree(tmp_path, binary_frame):
+    """Shap default on for tree."""
     pytest.importorskip("shap")
     df, y, _score, _ts = binary_frame
     model = _fit_tree(df, y)
@@ -198,6 +209,7 @@ def test_shap_default_on_for_tree(tmp_path, binary_frame):
 
 
 def test_shap_opt_in_for_non_tree(tmp_path, binary_frame):
+    """Shap opt in for non tree."""
     pytest.importorskip("shap")
     from sklearn.linear_model import LogisticRegression
 
@@ -221,6 +233,7 @@ def test_shap_opt_in_for_non_tree(tmp_path, binary_frame):
 
 
 def test_model_comparison_default_on_with_two_models(tmp_path, binary_frame):
+    """Model comparison default on with two models."""
     _df, y, score, _ts = binary_frame
     rng = np.random.default_rng(1)
     weak = np.clip(score + rng.normal(0, 0.3, len(score)), 0, 1)
@@ -242,6 +255,7 @@ def test_model_comparison_default_on_with_two_models(tmp_path, binary_frame):
 
 
 def test_model_comparison_skips_single_model(tmp_path, binary_frame):
+    """Model comparison skips single model."""
     _df, y, score, _ts = binary_frame
     md = {}
     assert (
@@ -269,6 +283,7 @@ def _suite_entry(y, score, auc):
 
 
 def test_model_comparison_from_suite_renders_for_two_models(tmp_path, binary_frame):
+    """Model comparison from suite renders for two models."""
     _df, y, score, _ts = binary_frame
     rng = np.random.default_rng(2)
     weak = np.clip(score + rng.normal(0, 0.3, len(score)), 0, 1)
@@ -290,6 +305,7 @@ def test_model_comparison_from_suite_renders_for_two_models(tmp_path, binary_fra
 
 
 def test_model_comparison_from_suite_skips_single_model(tmp_path, binary_frame):
+    """Model comparison from suite skips single model."""
     _df, y, score, _ts = binary_frame
     md = {}
     assert (
@@ -305,6 +321,7 @@ def test_model_comparison_from_suite_skips_single_model(tmp_path, binary_frame):
 
 
 def test_combined_html_stitches_rendered_charts(tmp_path, binary_frame):
+    """Combined html stitches rendered charts."""
     _df, y, score, ts = binary_frame
     base = str(tmp_path / "m")
     md = {}
@@ -325,6 +342,7 @@ def test_combined_html_stitches_rendered_charts(tmp_path, binary_frame):
 
 
 def test_combined_html_orders_weak_slices_before_weak_segments(tmp_path):
+    """Combined html orders weak slices before weak segments."""
     base = str(tmp_path / "m")
     # Recorded order puts the per-split weak-segment heatmap first (it renders in the metrics phase, before the
     # once-on-test worst-slices chart). The combined report must reorder so worst-slices leads.
