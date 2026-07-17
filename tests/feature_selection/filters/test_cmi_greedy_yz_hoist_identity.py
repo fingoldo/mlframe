@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
 
 @pytest.mark.parametrize("seed", range(8))
 def test_fixed_yz_bit_identical_to_cmi_from_binned(seed, monkeypatch):
+    """cmi_from_binned_fixed_yz (hoisted y/z terms) is bit-identical to _cmi_from_binned across random cardinalities/sizes, CPU-forced."""
     # CPU-vs-CPU bit-identity contract: ``_cmi_gpu_enabled()`` reroutes BOTH helpers to the GPU twin under
     # EITHER MLFRAME_CMI_GPU==1 OR MLFRAME_FE_GPU_STRICT, and the GPU fp-reduction order then breaks the ``==``
     # by ~1e-15 (not a refactor bug). Force the CPU path for the duration so a suite-global GPU env cannot

@@ -15,6 +15,7 @@ from mlframe.training.core._phase_config_setup import setup_configuration
 
 
 def _setup(output_config, verbose):
+    """Runs setup_configuration with the given output_config and verbose flag, defaults otherwise."""
     return setup_configuration(
         preprocessing_config=None,
         pipeline_config=None,

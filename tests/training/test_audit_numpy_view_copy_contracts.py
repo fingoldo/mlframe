@@ -37,6 +37,7 @@ MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
 def _read(rel: str) -> str:
+    """Reads an mlframe source file's text for source-level mutation-safety assertions."""
     return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
 
 

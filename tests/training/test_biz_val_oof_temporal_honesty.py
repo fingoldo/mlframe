@@ -28,6 +28,7 @@ def _make_drifting_regression(n: int = 600, seed: int = 0):
 
 
 def _oof_rmse(model, X, y, *, has_time, seed):
+    """Computes RMSE of out-of-fold predictions, optionally honoring temporal ordering."""
     from mlframe.training.trainer import _compute_oof_preds
 
     preds, _ = _compute_oof_preds(

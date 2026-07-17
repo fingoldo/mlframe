@@ -13,6 +13,7 @@ from mlframe.feature_selection.filters._mrmr_validate_transform import _append_e
 
 
 def test_name_mismatch_warns_not_silent(caplog):
+    """When predict-time X can't be wrapped in feature_names_in_ (width mismatch), _append_engineered logs a WARNING instead of silently resolving recipes against an unnamed frame."""
     # feature_names_in_ has 3 names but the predict ndarray has 2 columns -> pd.DataFrame
     # wrap raises -> pre-fix swallowed it silently; post-fix logs a WARNING naming the risk.
     self = SimpleNamespace(feature_names_in_=["a", "b", "c"])
