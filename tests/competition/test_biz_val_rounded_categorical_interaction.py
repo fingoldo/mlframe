@@ -63,12 +63,14 @@ def test_rounded_numeric_categorical_interaction_basic_transform() -> None:
 
 
 def test_rounded_numeric_categorical_interaction_rejects_length_mismatch() -> None:
+    """Numeric and categorical inputs of differing lengths raise ValueError instead of silently truncating."""
     interaction = RoundedNumericCategoricalInteraction()
     with pytest.raises(ValueError):
         interaction.transform(np.array([1.0, 2.0]), np.array(["a", "b", "c"]))
 
 
 def test_rounded_numeric_categorical_interaction_rejects_bad_params() -> None:
+    """Negative decimals or an empty separator both raise ValueError at construction time."""
     with pytest.raises(ValueError):
         RoundedNumericCategoricalInteraction(decimals=-1)
     with pytest.raises(ValueError):
