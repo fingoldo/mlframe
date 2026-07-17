@@ -17,6 +17,7 @@ from mlframe.feature_selection.filters.hermite_fe import _DEFAULT_BIN_FUNCS
 
 @pytest.mark.parametrize("bf_name", sorted(_BF_NAME_TO_ID))
 def test_bf_dispatch_matches_reference_callable(bf_name):
+    """The numba-dispatched bin-func kernel is bit-identical to its reference callable in _DEFAULT_BIN_FUNCS across adversarial zero/tiny/negative/large inputs, for every registered bf_name."""
     rng = np.random.default_rng(0)
     a = rng.standard_normal(4096)
     b = rng.standard_normal(4096)
