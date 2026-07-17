@@ -48,7 +48,6 @@ from mlframe.training.composite.transforms.unary import (
     _yj_inverse_numpy,
 )
 
-
 LAMS = [-1.5, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.5]
 
 

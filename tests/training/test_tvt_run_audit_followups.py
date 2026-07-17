@@ -48,9 +48,9 @@ class TestMLPBatchSizeProbeCache:
         # The cache is now populated; a second probe must return the SAME
         # value even if real free memory has fluctuated.
         cached = mrd._probe_available_memory_bytes(cuda_available=False)
-        assert first is None or first == cached, (
-            f"probe cache broken: first={first}, cached={cached}; should be identical to avoid 64x batch-size variance across MLPs"
-        )
+        assert (
+            first is None or first == cached
+        ), f"probe cache broken: first={first}, cached={cached}; should be identical to avoid 64x batch-size variance across MLPs"
 
     def test_probe_reprobe_via_env(self, monkeypatch) -> None:
         from mlframe.training import mlp_runtime_defaults as mrd
@@ -120,9 +120,9 @@ class TestCompositeResidualStdDegeneracyFilter:
         _sib = Path(mod.__file__).parent / "_eval.py"
         if _sib.exists():
             src += "\n" + _sib.read_text(encoding="utf-8")
-        assert "_residual_ratio < 0.001" in src, (
-            "residual-std degeneracy check missing from _composite_discovery_fit.py -- the 0.001 threshold below which composites get rejected at fit time"
-        )
+        assert (
+            "_residual_ratio < 0.001" in src
+        ), "residual-std degeneracy check missing from _composite_discovery_fit.py -- the 0.001 threshold below which composites get rejected at fit time"
         assert "below noise floor" in src, "rejection reason string missing -- audit trail for the degeneracy filter"
 
     def test_compute_residual_ratio_logic(self) -> None:

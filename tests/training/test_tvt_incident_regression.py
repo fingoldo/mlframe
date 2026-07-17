@@ -107,9 +107,9 @@ def test_tvt_2026_05_21_incident_protective_layers_compose(tmp_path):
 
     # --- Layer 1 + 2 + 3: target_distribution_report stamped, AR signal detected ---
     rep = meta.get("target_distribution_report")
-    assert rep is not None, (
-        "Layer 1 broken: target_distribution_analyzer didn't stamp a report into metadata; the analyzer flag default may have been flipped off."
-    )
+    assert (
+        rep is not None
+    ), "Layer 1 broken: target_distribution_analyzer didn't stamp a report into metadata; the analyzer flag default may have been flipped off."
     pathologies = rep["pathologies"]
     diag = rep["diagnostics"]
     # AR detector fires via the E5.3 auto-detect-MD path. The split phase may
@@ -117,9 +117,9 @@ def test_tvt_2026_05_21_incident_protective_layers_compose(tmp_path):
     # even if the original data was AR(1). Either the strong_AR pathology
     # fires, OR (after split shuffling) the autocorr diagnostic is at least
     # stamped. Both signal Layer-2 worked; absence of both means it broke.
-    assert any("strong_AR_target" in p for p in pathologies) or "max_abs_autocorr" in diag or "lag1_autocorr" in diag, (
-        f"Layer 2 broken: no AR diagnostic stamped on MD-sorted AR-target data. Pathologies: {pathologies}. Diagnostics keys: {sorted(diag.keys())}."
-    )
+    assert (
+        any("strong_AR_target" in p for p in pathologies) or "max_abs_autocorr" in diag or "lag1_autocorr" in diag
+    ), f"Layer 2 broken: no AR diagnostic stamped on MD-sorted AR-target data. Pathologies: {pathologies}. Diagnostics keys: {sorted(diag.keys())}."
 
     # --- Layer 3 + E5.2: use_layernorm=False recommendation lands when strong_AR fires ---
     # We only assert the recommendation when strong_AR ACTUALLY fired (the split-
@@ -136,9 +136,9 @@ def test_tvt_2026_05_21_incident_protective_layers_compose(tmp_path):
 
     # --- Layer 5: feature_distribution_report stamped ---
     fdr = meta.get("feature_distribution_report")
-    assert fdr is not None, (
-        "Layer 5 broken: feature_distribution_analyzer didn't stamp a report. Polars-frame handling or analyzer-flag default may have regressed."
-    )
+    assert (
+        fdr is not None
+    ), "Layer 5 broken: feature_distribution_analyzer didn't stamp a report. Polars-frame handling or analyzer-flag default may have regressed."
     # Numeric features (MD, GR, TVT_prev, f0, f1) must NOT be misclassified as categorical.
     # Allow for FTE engineering adding/removing columns; the floor is 4 numeric features
     # surviving the suite's feature_types pipeline.
@@ -157,6 +157,6 @@ def test_tvt_2026_05_21_incident_protective_layers_compose(tmp_path):
     # Just sanity-check that the diagnostics block carries the per-group stats
     # OR the global lag-1 stat -- one of them must be present.
     diag = rep["diagnostics"]
-    assert "lag1_autocorr" in diag or "max_abs_autocorr" in diag or "lag1_autocorr_per_group" in diag, (
-        f"AR detector didn't produce ANY autocorr diagnostic on TVT-shape data. Got: {diag}"
-    )
+    assert (
+        "lag1_autocorr" in diag or "max_abs_autocorr" in diag or "lag1_autocorr_per_group" in diag
+    ), f"AR detector didn't produce ANY autocorr diagnostic on TVT-shape data. Got: {diag}"

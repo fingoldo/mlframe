@@ -59,12 +59,12 @@ def test_biz_val_adversarial_stochastic_blend_beats_naive_full_train_fit_under_d
     adv_test_rmse = _rmse(y_test, adv_test_pred)
 
     improvement = (naive_test_rmse - adv_test_rmse) / naive_test_rmse
-    assert improvement > 0.2, (
-        f"expected adversarial stochastic blend to beat naive full-train fit by >20% RMSE on the drifted test set, got naive={naive_test_rmse:.4f} adv={adv_test_rmse:.4f} (improvement={improvement:.4f})"
-    )
-    assert adv_result["weights"][1] > naive_result["weights"][1], (
-        f"expected the adversarial blend to shift weight toward model_2 (good in the test-like region), got adv={adv_result['weights']} naive={naive_result['weights']}"
-    )
+    assert (
+        improvement > 0.2
+    ), f"expected adversarial stochastic blend to beat naive full-train fit by >20% RMSE on the drifted test set, got naive={naive_test_rmse:.4f} adv={adv_test_rmse:.4f} (improvement={improvement:.4f})"
+    assert (
+        adv_result["weights"][1] > naive_result["weights"][1]
+    ), f"expected the adversarial blend to shift weight toward model_2 (good in the test-like region), got adv={adv_result['weights']} naive={naive_result['weights']}"
 
 
 def test_compute_test_likeness_flags_drifted_region_correctly():
@@ -74,9 +74,9 @@ def test_compute_test_likeness_flags_drifted_region_correctly():
     is_region_a = x_train < 1.5
     mean_likeness_a = test_likeness[is_region_a].mean()
     mean_likeness_b = test_likeness[~is_region_a].mean()
-    assert mean_likeness_b > mean_likeness_a, (
-        f"expected region B (test-like) rows to score higher test-likeness, got a={mean_likeness_a:.4f} b={mean_likeness_b:.4f}"
-    )
+    assert (
+        mean_likeness_b > mean_likeness_a
+    ), f"expected region B (test-like) rows to score higher test-likeness, got a={mean_likeness_a:.4f} b={mean_likeness_b:.4f}"
 
 
 def test_adversarial_stochastic_blend_weights_sum_to_one():

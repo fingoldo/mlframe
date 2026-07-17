@@ -49,9 +49,9 @@ def test_biz_val_rank_splice_beats_raw_substitution_under_scale_mismatch():
     spliced_scores = segment_rank_splice(main_scores, specialist_scores, segment_mask)
     auc_spliced = roc_auc_score(y, spliced_scores)
 
-    assert auc_spliced > auc_naive + 0.1, (
-        f"expected rank-splicing to materially beat naive raw-score substitution under scale mismatch, got spliced={auc_spliced:.4f} naive={auc_naive:.4f}"
-    )
+    assert (
+        auc_spliced > auc_naive + 0.1
+    ), f"expected rank-splicing to materially beat naive raw-score substitution under scale mismatch, got spliced={auc_spliced:.4f} naive={auc_naive:.4f}"
     assert auc_spliced > 0.7, f"expected rank-splicing to recover strong global AUC despite the specialist's miscalibrated scale, got {auc_spliced:.4f}"
 
 
@@ -99,9 +99,9 @@ def test_biz_val_rank_splice_soft_blend_beats_hard_cutover_under_noisy_specialis
     soft_blend = segment_rank_splice(main_scores, specialist_scores, segment_mask, blend_weight=0.5)
     auc_blend = roc_auc_score(y, soft_blend)
 
-    assert auc_blend > auc_hard + 0.02, (
-        f"expected soft-blend to reduce rank noise vs hard specialist-only cutover, got blend={auc_blend:.4f} hard={auc_hard:.4f}"
-    )
+    assert (
+        auc_blend > auc_hard + 0.02
+    ), f"expected soft-blend to reduce rank noise vs hard specialist-only cutover, got blend={auc_blend:.4f} hard={auc_hard:.4f}"
     assert auc_blend > 0.63, f"expected soft-blend to reach a materially better AUC than either noisy single source, got {auc_blend:.4f}"
 
 

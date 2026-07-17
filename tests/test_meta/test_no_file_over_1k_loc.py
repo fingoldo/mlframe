@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-
 LOC_LIMIT = 1000
 
 # Carving budget exempts. Each entry carries a FIXME tag for the next carve
@@ -163,12 +162,14 @@ LOC_BUDGET_EXEMPT: set[str] = {
 
 
 def _src_root() -> Path:
+    """Path to src/mlframe, resolved relative to this test file."""
     here = Path(__file__).resolve()
     # tests/test_meta/test_no_file_over_1k_loc.py -> repo root -> src/mlframe
     return here.parents[2] / "src" / "mlframe"
 
 
 def _scan_src_for_oversize() -> list[tuple[str, int]]:
+    """(relpath, line-count) for every non-exempt src/mlframe file exceeding LOC_LIMIT, largest first."""
     root = _src_root()
     if not root.is_dir():
         pytest.skip(f"src tree not found at {root}; running from installed wheel?")
@@ -187,6 +188,7 @@ def _scan_src_for_oversize() -> list[tuple[str, int]]:
 
 
 def test_no_mlframe_file_exceeds_1k_loc():
+    """No non-exempt src/mlframe file exceeds the LOC_LIMIT line-count budget."""
     over = _scan_src_for_oversize()
     if over:
         lines = [f"  {n:5d} LOC  {p}" for p, n in over]
