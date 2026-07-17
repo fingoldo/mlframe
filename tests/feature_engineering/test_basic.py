@@ -140,6 +140,7 @@ def test_create_date_features_dtypes(df_lib):
 
 
 def test_create_date_features_warns_on_column_clash_pandas(caplog):
+    """A pre-existing user column colliding with a generated pandas date field must emit an OVERWRITTEN warning."""
     import logging
     from datetime import datetime
 
@@ -159,6 +160,7 @@ def test_create_date_features_warns_on_column_clash_pandas(caplog):
 
 
 def test_create_date_features_warns_on_column_clash_polars(caplog):
+    """Same column-clash warning contract as the pandas test, exercised on the polars input path."""
     import logging
     from datetime import datetime
 
@@ -194,6 +196,7 @@ class TestResolvePandasMethod:
     field once instead of hasattr-then-getattr extracting it twice)."""
 
     def _dt(self):
+        """Build a 300-point hourly-stride pandas datetime accessor shared by the resolver tests."""
         return pd.Series(pd.date_range("2021-03-01", periods=300, freq="7h")).dt
 
     @pytest.mark.parametrize(

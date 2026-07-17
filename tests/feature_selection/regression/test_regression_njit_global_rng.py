@@ -24,6 +24,7 @@ from mlframe.feature_selection.filters.permutation import parallel_mi
 
 
 def _tiny_classes_freqs():
+    """Build tiny x/y class labels and their empirical frequency arrays for parallel_mi inputs."""
     rng = np.random.default_rng(0)
     n = 500
     classes_x = rng.integers(0, 4, size=n).astype(np.int32)
@@ -34,6 +35,7 @@ def _tiny_classes_freqs():
 
 
 def test_parallel_mi_same_seed_reproducible():
+    """Same base_seed given to two parallel_mi calls must produce bit-identical (nfailed, nchecked)."""
     classes_x, freqs_x, classes_y, freqs_y = _tiny_classes_freqs()
     nperms = 50
     out_a = parallel_mi(
@@ -95,6 +97,7 @@ def test_parallel_mi_different_seed_different_stream():
 
 
 def test_fleuret_shuffle_col_lcg_reproducible():
+    """Same starting LCG state must produce the identical in-place permutation and final state."""
     col_a = np.arange(40, dtype=np.int32)
     col_b = col_a.copy()
     state = np.uint64(42)
@@ -105,6 +108,7 @@ def test_fleuret_shuffle_col_lcg_reproducible():
 
 
 def test_fleuret_shuffle_col_lcg_different_seed_diff_permutation():
+    """Distinct LCG seed states must produce at least 3 distinct permutations out of 4 tried."""
     col = np.arange(40, dtype=np.int32)
     states = [np.uint64(s) for s in (1, 17, 99, 100003)]
     perms = []

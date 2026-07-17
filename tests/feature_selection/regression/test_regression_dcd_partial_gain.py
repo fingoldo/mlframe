@@ -35,6 +35,7 @@ class _StubDCDState:
 
 
 def _setup():
+    """Build 3 single-feature candidates where the highest-gain one (col 1) is the one DCD later prunes."""
     # candidates: single-feature tuples, position == column index.
     #   idx 0 -> col 0 (a low-gain unpruned candidate)
     #   idx 1 -> col 1 (the HIGH-gain candidate that gets DCD-pruned)
