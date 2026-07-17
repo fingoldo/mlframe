@@ -38,6 +38,7 @@ import pytest
 
 
 def _build_factors(seed: int = 12345, n: int = 600):
+    """Build factors."""
     rng = np.random.default_rng(int(seed))
     x = rng.integers(0, 4, n).astype(np.int32)
     y = np.where(rng.random(n) < 0.03, x % 2, rng.integers(0, 2, n)).astype(np.int32)

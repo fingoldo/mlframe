@@ -17,10 +17,12 @@ from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
 
 
 def _two_step_ref(joint, c64, mult):
+    """Two step ref."""
     return _factorize_dense_njit(joint + c64 * mult)
 
 
 def test_combine_factorize_matches_two_step_numpy():
+    """Combine factorize matches two step numpy."""
     rng = np.random.default_rng(0)
     for _ in range(500):
         n = int(rng.integers(1, 400))
@@ -52,6 +54,7 @@ def test_renumber_joint_three_col_bit_identical_to_legacy():
     all-numpy-multiply-add reference."""
 
     def legacy(*cols):
+        """Helper that legacy."""
         j = np.ascontiguousarray(cols[0], dtype=np.int64).ravel()
         j, m = _factorize_dense_njit(j)
         for c in cols[1:]:

@@ -29,6 +29,7 @@ _HAS_CUPY = bg._CUPY_AVAIL
 
 @pytest.fixture(autouse=True)
 def _clear_caches():
+    """Clear caches."""
     bg._DY_DEVICE_CACHE.clear()
     bg._DY_DEVICE_CACHE_CUPY.clear()
     clear_fe_resident_operands()
@@ -64,6 +65,7 @@ def _make_frame(n, K, nbins, n_classes_y, seed):
 
 
 def _cpu_ref(disc_2d, factors_nbins, classes_y, freqs_y, npermutations, use_su):
+    """Cpu ref."""
     return batch_mi_with_noise_gate(
         disc_2d=disc_2d,
         factors_nbins=factors_nbins,
@@ -105,6 +107,7 @@ def test_su_branch_reuses_resident_y_matrix(monkeypatch):
     upload_calls = {"n": 0}
 
     def _counting_to_device(arr, *a, **kw):
+        """Counting to device."""
         if getattr(arr, "shape", None) == (P, n):
             upload_calls["n"] += 1
         return orig_to_device(arr, *a, **kw)
@@ -151,6 +154,7 @@ def test_histgate_off_nb_freq_dedup_via_resident_operand(monkeypatch):
     upload_calls = {"off": 0, "nb": 0, "freq": 0}
 
     def _counting_asarray(arr, *a, **kw):
+        """Counting asarray."""
         shp = getattr(arr, "shape", None)
         dt = str(getattr(arr, "dtype", ""))
         if shp == (K,) and dt == "int64":
@@ -212,6 +216,7 @@ def test_cupy_y_all_matrix_resident_reuse(monkeypatch):
     upload_calls = {"n": 0}
 
     def _counting(arr, *a, **kw):
+        """Helper that counting."""
         if getattr(arr, "shape", None) == (P, n):
             upload_calls["n"] += 1
         return orig_upload(arr, *a, **kw)
@@ -256,6 +261,7 @@ def test_cuda_resident_and_cupy_share_one_resident_y_upload(monkeypatch):
     upload_calls = {"n": 0}
 
     def _counting_to_device(arr, *a, **kw):
+        """Counting to device."""
         if getattr(arr, "shape", None) == (P, n):
             upload_calls["n"] += 1
         return orig_to_device(arr, *a, **kw)

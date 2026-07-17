@@ -24,6 +24,7 @@ from mlframe.feature_selection.filters.info_theory._entropy_kernels import (
 
 
 def _make(n, nbins, ncols, seed):
+    """Helper that make."""
     rng = np.random.default_rng(seed)
     data = np.empty((n, ncols), dtype=np.int32)
     for c in range(ncols):
@@ -40,6 +41,7 @@ def _make(n, nbins, ncols, seed):
 @pytest.mark.parametrize("nbins", [4, 10, 16])
 @pytest.mark.parametrize("z_ncols", [1, 2, 3])
 def test_entropy_xz_fused_bit_identical(n, nbins, z_ncols):
+    """Entropy xz fused bit identical."""
     ncols = 2 + z_ncols
     data, factors_nbins = _make(n, nbins, ncols, seed=n + nbins + z_ncols)
     x = np.array([0], dtype=np.int64)
@@ -56,6 +58,7 @@ def test_entropy_xz_fused_bit_identical(n, nbins, z_ncols):
 @pytest.mark.parametrize("nbins", [4, 10, 16])
 @pytest.mark.parametrize("z_ncols", [1, 2])
 def test_entropy_x_onto_classes_bit_identical(n, nbins, z_ncols):
+    """Entropy x onto classes bit identical."""
     ncols = 2 + z_ncols
     data, factors_nbins = _make(n, nbins, ncols, seed=n * 3 + nbins + z_ncols)
     x = np.array([0], dtype=np.int64)

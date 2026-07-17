@@ -51,6 +51,7 @@ def test_batch_dispatch_default_matches_forced_njit(monkeypatch):
 
 
 def test_single_dispatch_default_matches_forced_njit(monkeypatch):
+    """Single dispatch default matches forced njit."""
     import mlframe.feature_selection.filters.hermite_fe  # noqa: F401 -- full-init parent first (the direct
 
     # ``import _hermite_fe_mi`` cycle: hermite_fe/__init__ imports _ensure_cuda_kernels back from it).

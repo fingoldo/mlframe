@@ -22,6 +22,7 @@ from mlframe.feature_selection.filters.fleuret import (
 
 
 def _make_xor_data(n: int = 200, seed: int = 0):
+    """Make xor data."""
     rng = np.random.default_rng(seed)
     x0 = rng.integers(0, 2, n).astype(np.int32)
     x1 = rng.integers(0, 2, n).astype(np.int32)
@@ -32,6 +33,7 @@ def _make_xor_data(n: int = 200, seed: int = 0):
 
 
 def _empty_dicts():
+    """Empty dicts."""
     entropy_cache = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)
     cached_cond_MIs = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)
     return entropy_cache, cached_cond_MIs

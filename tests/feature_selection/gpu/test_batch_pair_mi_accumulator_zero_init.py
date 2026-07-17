@@ -31,6 +31,7 @@ import mlframe.feature_selection.filters.batch_pair_mi_gpu as bpmg
 
 
 def _build_pair_inputs(n_samples, n_cols, nbins_val, n_classes_y, seed=0):
+    """Build pair inputs."""
     rng = np.random.default_rng(seed)
     cols = [rng.integers(0, nbins_val, size=n_samples) for _ in range(n_cols)]
     data = np.column_stack(cols).astype(np.int32)
@@ -45,6 +46,7 @@ def _build_pair_inputs(n_samples, n_cols, nbins_val, n_classes_y, seed=0):
 
 @pytest.mark.skipif(not bpmg._CUDA_AVAIL, reason="numba.cuda not available on this host")
 def test_new_zeroed_device_array_via_cupy_is_actually_zero():
+    """New zeroed device array via cupy is actually zero."""
     if not bpmg._CUPY_AVAIL:
         pytest.skip("cupy not available on this host")
     arr = bpmg._new_zeroed_device_array((37, 11, 5), np.int64)
@@ -67,6 +69,7 @@ def test_new_zeroed_device_array_numba_fallback_is_actually_zero(monkeypatch):
 
 @pytest.mark.skipif(not bpmg._CUDA_AVAIL, reason="numba.cuda not available on this host")
 def test_row_chunked_matches_reference_with_cupy_zero_init():
+    """Row chunked matches reference with cupy zero init."""
     if not bpmg._CUPY_AVAIL:
         pytest.skip("cupy not available on this host")
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
@@ -90,6 +93,7 @@ def test_row_chunked_matches_reference_with_cupy_zero_init():
 
 @pytest.mark.skipif(not bpmg._CUDA_AVAIL, reason="numba.cuda not available on this host")
 def test_row_chunked_matches_reference_with_numba_fallback_zero_init(monkeypatch):
+    """Row chunked matches reference with numba fallback zero init."""
     monkeypatch.setattr(bpmg, "_CUPY_AVAIL", False)
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
         n_samples=3000,

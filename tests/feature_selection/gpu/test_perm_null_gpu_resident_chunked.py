@@ -22,6 +22,7 @@ from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu
 
 
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -37,6 +38,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 
 
 def _make_codes(seed=0, n=4000, nperm=12, Kx=6, Ky=3, Kz=60):
+    """Make codes."""
     rng = np.random.default_rng(seed)
     Xp = cp.asarray(rng.integers(0, Kx, size=(n, nperm)).astype(np.int64))
     y = np.ascontiguousarray(rng.integers(0, Ky, size=n).astype(np.int64))
@@ -45,6 +47,7 @@ def _make_codes(seed=0, n=4000, nperm=12, Kx=6, Ky=3, Kz=60):
 
 
 def test_chunked_equals_single_batched():
+    """Chunked equals single batched."""
     Xp, y, z = _make_codes()
     single = np.asarray(batched_cmi_gpu(Xp, y, z), dtype=np.float64)
     chunked = PNG._batched_cmi_resident_chunked(Xp, y, z)
@@ -56,6 +59,7 @@ def test_chunked_equals_single_batched():
 def test_chunk_one_forced_matches(monkeypatch):
     # Report 1 KB free VRAM so the helper sizes chunk == 1 -> exercises the multi-iteration chunk loop and the
     # adaptive lower bound; the per-perm result must still equal the single batched call.
+    """Chunk one forced matches."""
     monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", lambda: (1024, 4 << 30), raising=True)
     Xp, y, z = _make_codes(seed=7)
     single = np.asarray(batched_cmi_gpu(Xp, y, z), dtype=np.float64)
@@ -65,6 +69,7 @@ def test_chunk_one_forced_matches(monkeypatch):
 
 def test_conditional_perm_null_gpu_reproducible_and_finite():
     # End-to-end: same (seed, salt) -> reproducible (floor, mean), both finite and non-negative (CMI >= 0).
+    """Conditional perm null gpu reproducible and finite."""
     rng = np.random.default_rng(3)
     n, Kx, Kz = 5000, 5, 40
     x = rng.integers(0, Kx, size=n).astype(np.int64)

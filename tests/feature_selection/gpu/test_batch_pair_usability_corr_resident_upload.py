@@ -30,12 +30,14 @@ _gpu_only = pytest.mark.skipif(not _CUDA_AVAIL, reason="numba.cuda not available
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
+    """Clear cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
 
 
 def _inputs(n_pairs=40, n=500, n_operands=None, seed=0):
+    """Helper that inputs."""
     rng = np.random.default_rng(seed)
     if n_operands is None:
         n_operands = n_pairs + 2
@@ -61,6 +63,7 @@ def test_batch_pair_usability_corr_cuda_uploads_y_and_operand_once_across_calls(
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
+        """Counting asarray."""
         shp = getattr(arr, "shape", None)
         if shp == y.shape:
             upload_calls["y"] += 1

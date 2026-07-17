@@ -13,6 +13,7 @@ import pytest
 
 
 def test_polyeval_sweep_disables_cuda_when_it_never_wins(monkeypatch):
+    """Polyeval sweep disables cuda when it never wins."""
     pytest.importorskip("numba")
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import _auto_tune_sweeps_a as mod
 
@@ -34,6 +35,7 @@ def test_polyeval_sweep_disables_cuda_when_it_never_wins(monkeypatch):
     import time
 
     def slow_cuda(basis, x, c):
+        """Slow cuda."""
         time.sleep(0.002)
         return np.zeros_like(x)
 

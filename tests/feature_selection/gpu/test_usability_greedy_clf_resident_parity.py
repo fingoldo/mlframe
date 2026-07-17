@@ -29,6 +29,7 @@ cp = pytest.importorskip("cupy")
 
 
 def _need_cuda() -> bool:
+    """Need cuda."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
 
@@ -41,6 +42,7 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 
 
 def _make_pool(n, seed, strong, n_classes=2):
+    """Make pool."""
     from mlframe.feature_selection.filters._usability_aware_selection import UsableCandidate
 
     rng = np.random.default_rng(seed)
@@ -78,6 +80,7 @@ def _cpu_ref(pool, y, **kw):
 
 
 def test_binary_clf_resident_selection_equivalent_to_cpu():
+    """Binary clf resident selection equivalent to cpu."""
     from mlframe.feature_selection.filters._usability_greedy_clf_gpu_resident import (
         usability_greedy_clf_gpu_resident,
     )
@@ -148,6 +151,7 @@ def test_residency_one_matrix_h2d_no_per_candidate_d2h():
     from mlframe.feature_selection.filters._gpu_strict_fe import residency_audit
 
     def _audit(P):
+        """Helper that audit."""
         rng = np.random.default_rng(0)
         n = 3000
         cols = {f"x{i}": rng.random(n) for i in range(P)}

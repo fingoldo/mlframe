@@ -22,6 +22,7 @@ from mlframe.feature_selection.filters._gpu_pairs import mi_direct_gpu_batched_p
 
 
 def _gpu_available() -> bool:
+    """Gpu available."""
     try:
         return cp.cuda.runtime.getDeviceCount() >= 1
     except Exception:  # pragma: no cover - no driver / no GPU
@@ -35,12 +36,14 @@ if not _GPU_AVAILABLE:  # pragma: no cover - guarded at collection time
 
 @pytest.fixture(autouse=True)
 def _clear_resident_cache():
+    """Clear resident cache."""
     clear_fe_resident_operands()
     yield
     clear_fe_resident_operands()
 
 
 def _build_inputs(n=1500, seed=1):
+    """Build inputs."""
     rng = np.random.default_rng(seed)
     nbins_list = [4, 4, 3, 4, 3, 4]
     cols = [rng.integers(0, nb, size=n) for nb in nbins_list]
@@ -56,11 +59,13 @@ def _build_inputs(n=1500, seed=1):
 
 
 def _count_asarray_calls_matching(monkeypatch, target_values):
+    """Count asarray calls matching."""
     calls = {"n": 0}
     orig = cp.asarray
     target = np.ascontiguousarray(target_values)
 
     def spy(a, *args, **kw):
+        """Helper that spy."""
         if isinstance(a, np.ndarray) and a.shape == target.shape and a.dtype == target.dtype and np.array_equal(a, target):
             calls["n"] += 1
         return orig(a, *args, **kw)

@@ -123,6 +123,7 @@ def test_sa11_cat_ii_mm_telescopes_no_false_synergy_keeps_real_synergy():
     K = 8
 
     def _setup(x1, x2, yv, n, dtype=np.int32):
+        """Helper that setup."""
         fd = np.column_stack([x1, x2, yv]).astype(dtype)
         nbins = np.array([K, K, K], dtype=np.int64)
         ti = np.array([2], dtype=np.int64)
@@ -136,6 +137,7 @@ def test_sa11_cat_ii_mm_telescopes_no_false_synergy_keeps_real_synergy():
         return fd, nbins, ti, freqs_y
 
     def _ii_post(x1, x2, yv, n):
+        """Ii post."""
         fd, nbins, ti, freqs_y = _setup(x1, x2, yv, n)
         h_y = _entropy(freqs=freqs_y)
         return _compute_pair_ii_mm(
@@ -152,6 +154,7 @@ def test_sa11_cat_ii_mm_telescopes_no_false_synergy_keeps_real_synergy():
         )
 
     def _ii_prefix_per_term(x1, x2, yv, n):
+        """Ii prefix per term."""
         fd, nbins, _ti, _ = _setup(x1, x2, yv, n)
         H = lambda idx: _entropy_mm(
             merge_vars(
@@ -292,6 +295,7 @@ def test_sa15_conditional_su_mm_normalizer_near_zero_on_independent_given_z():
 
     # Pre-fix value: plug-in entropies on the SAME merges.
     def _h(idx):
+        """Pre-fix reference: plug-in entropy of the merged variables at idx, for comparison against the SU Miller-Madow normalizer."""
         _, f, _ = merge_vars(
             factors_data=fd,
             vars_indices=np.unique(np.array(idx, dtype=np.int64)),

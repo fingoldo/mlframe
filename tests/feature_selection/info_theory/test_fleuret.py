@@ -30,10 +30,12 @@ from typing import Optional
 
 
 def _new_entropy_cache() -> NumbaDict:
+    """New entropy cache."""
     return NumbaDict.empty(key_type=types.unicode_type, value_type=types.float64)
 
 
 def _new_cond_mi_cache() -> NumbaDict:
+    """New cond mi cache."""
     return NumbaDict.empty(key_type=types.unicode_type, value_type=types.float64)
 
 
@@ -107,11 +109,13 @@ def _confidence_from_core(nfailed: int, nchecked: int) -> float:
 
 @pytest.fixture
 def xor_factors():
+    """Xor factors."""
     return _build_xor_factors()
 
 
 @pytest.fixture
 def noise_factors():
+    """Noise factors."""
     return _build_uncorrelated_factors()
 
 
@@ -131,6 +135,7 @@ def test_confidence_in_unit_interval_xor(xor_factors):
 
 
 def test_confidence_in_unit_interval_noise(noise_factors):
+    """Confidence in unit interval noise."""
     factors_data, factors_nbins = noise_factors
     nfailed, nchecked = _call_core(factors_data, factors_nbins, npermutations=50)
     assert nchecked > 0
