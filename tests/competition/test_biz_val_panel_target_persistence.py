@@ -127,6 +127,7 @@ def test_check_target_persistence_no_pairs_returns_nan_and_not_persistent():
 
 
 def test_lag_lead_target_within_group_shapes_and_edges():
+    """lag/lead correctly follow the per-group order-sorted sequence, with NaN at the group's first/last position."""
     group_ids = np.array([1, 1, 1, 2, 2])
     order = np.array([2, 0, 1, 5, 4])
     y = np.array([10.0, 20.0, 30.0, 40.0, 50.0])
