@@ -72,7 +72,9 @@ def synth_ltr_large():
 
 
 class TestAllowedTokens:
+    """Groups tests for: TestAllowedTokens."""
     def test_allowed_set_matches_documented(self):
+        """Allowed set matches documented."""
         assert ALLOWED_LTR_PANEL_TOKENS == frozenset(
             {
                 "NDCG_K",
@@ -92,7 +94,9 @@ class TestAllowedTokens:
 
 
 class TestPanelTypes:
+    """Groups tests for: TestPanelTypes."""
     def test_ndcg_k_returns_line(self, synth_ltr):
+        """Ndcg k returns line."""
         y, s, g = synth_ltr
         spec = compose_ltr_figure(y, s, g, panels_template="NDCG_K")
         panel = spec.panels[0][0]
@@ -103,6 +107,7 @@ class TestPanelTypes:
         assert np.all((y_arr >= 0.0) & (y_arr <= 1.0))
 
     def test_ndcg_dist_returns_violin(self, synth_ltr):
+        """Ndcg dist returns violin."""
         y, s, g = synth_ltr
         spec = compose_ltr_figure(y, s, g, panels_template="NDCG_DIST")
         panel = spec.panels[0][0]
@@ -112,6 +117,7 @@ class TestPanelTypes:
         assert panel.groups[0].max() <= 1.0
 
     def test_lift_returns_line(self, synth_ltr):
+        """Lift returns line."""
         y, s, g = synth_ltr
         spec = compose_ltr_figure(y, s, g, panels_template="LIFT")
         panel = spec.panels[0][0]
@@ -121,6 +127,7 @@ class TestPanelTypes:
         assert np.all((y_arr >= 0.0) & (y_arr <= 1.0 + 1e-9))
 
     def test_mrr_dist_returns_prebinned_histogram(self, synth_ltr):
+        """Mrr dist returns prebinned histogram."""
         y, s, g = synth_ltr
         spec = compose_ltr_figure(y, s, g, panels_template="MRR_DIST")
         panel = spec.panels[0][0]
@@ -136,6 +143,7 @@ class TestPanelTypes:
         assert "MRR=" in panel.title
 
     def test_score_by_rel_returns_violin(self, synth_ltr):
+        """Score by rel returns violin."""
         y, s, g = synth_ltr
         spec = compose_ltr_figure(y, s, g, panels_template="SCORE_BY_REL")
         panel = spec.panels[0][0]
@@ -146,6 +154,7 @@ class TestPanelTypes:
         assert all("(n=" in lbl for lbl in panel.group_labels)
 
     def test_top1_by_qsize_returns_line(self, synth_ltr_large):
+        """Top1 by qsize returns line."""
         y, s, g = synth_ltr_large
         spec = compose_ltr_figure(y, s, g, panels_template="TOP1_BY_QSIZE")
         panel = spec.panels[0][0]
@@ -164,7 +173,9 @@ class TestPanelTypes:
 
 
 class TestComposer:
+    """Groups tests for: TestComposer."""
     def test_default_template_returns_5_panels(self, synth_ltr):
+        """Default template returns 5 panels."""
         y, s, g = synth_ltr
         spec = compose_ltr_figure(y, s, g)  # default template
         # default = 5 tokens -> 3 rows × 2 cols
@@ -172,6 +183,7 @@ class TestComposer:
         assert len(spec.panels[0]) == 2
 
     def test_subset_template_returns_fewer_panels(self, synth_ltr):
+        """Subset template returns fewer panels."""
         y, s, g = synth_ltr
         spec = compose_ltr_figure(y, s, g, panels_template="NDCG_K LIFT")
         assert len(spec.panels) == 1
@@ -179,27 +191,32 @@ class TestComposer:
         assert spec.panels[0][1] is not None
 
     def test_unknown_token_raises(self, synth_ltr):
+        """Unknown token raises."""
         y, s, g = synth_ltr
         with pytest.raises(ValueError, match="Unknown LTR"):
             compose_ltr_figure(y, s, g, panels_template="NDCG_K NOPE")
 
     def test_suptitle_propagated(self, synth_ltr):
+        """Suptitle propagated."""
         y, s, g = synth_ltr
         spec = compose_ltr_figure(y, s, g, panels_template="NDCG_K", suptitle="ranker baseline")
         assert spec.suptitle == "ranker baseline"
 
     def test_max_cols_controls_grid_width(self, synth_ltr):
+        """Max cols controls grid width."""
         y, s, g = synth_ltr
         spec = compose_ltr_figure(y, s, g, panels_template="NDCG_K NDCG_DIST LIFT MRR_DIST", max_cols=4)
         assert len(spec.panels) == 1
         assert len(spec.panels[0]) == 4
 
     def test_length_mismatch_raises(self, synth_ltr):
+        """Length mismatch raises."""
         y, s, g = synth_ltr
         with pytest.raises(ValueError, match="length mismatch"):
             compose_ltr_figure(y[:-1], s, g, panels_template="NDCG_K")
 
     def test_2d_input_raises(self, synth_ltr):
+        """2d input raises."""
         y, s, g = synth_ltr
         y2d = y.reshape(-1, 1)
         with pytest.raises(ValueError, match="1-D"):
@@ -212,7 +229,9 @@ class TestComposer:
 
 
 class TestRender:
+    """Groups tests for: TestRender."""
     def test_render_via_matplotlib(self, synth_ltr, tmp_path):
+        """Render via matplotlib."""
         y, s, g = synth_ltr
         spec = compose_ltr_figure(y, s, g)
         with warnings.catch_warnings():
@@ -222,6 +241,7 @@ class TestRender:
         assert os.path.getsize(tmp_path / "ltr.png") > 5000
 
     def test_render_via_plotly(self, synth_ltr, tmp_path):
+        """Render via plotly."""
         y, s, g = synth_ltr
         spec = compose_ltr_figure(y, s, g)
         with warnings.catch_warnings():

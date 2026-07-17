@@ -25,6 +25,7 @@ from mlframe.feature_engineering.transformer.anchor_attention import _squared_di
 
 
 def _make(n: int, d: int, k: int, seed: int = 0):
+    """Helper: Make."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, d)).astype(np.float32)
     anchors = rng.standard_normal((k, d)).astype(np.float32)
@@ -33,6 +34,7 @@ def _make(n: int, d: int, k: int, seed: int = 0):
 
 @pytest.mark.parametrize("n,d,k", [(4000, 30, 32), (8000, 50, 32), (16000, 50, 64), (4000, 100, 32)])
 def test_squared_dists_close_to_fp64_truth(n, d, k):
+    """Squared dists close to fp64 truth."""
     X, anchors = _make(n, d, k)
     got = _squared_dists(X, anchors).astype(np.float64)
     truth = np.sum((X[:, None, :].astype(np.float64) - anchors[None, :, :].astype(np.float64)) ** 2, axis=2)
@@ -42,10 +44,12 @@ def test_squared_dists_close_to_fp64_truth(n, d, k):
 
 @pytest.mark.parametrize("n,d,k", [(4000, 30, 32), (8000, 50, 32), (16000, 50, 64), (4000, 100, 32)])
 def test_softmax_selection_equivalent_to_broadcast(n, d, k):
+    """Softmax selection equivalent to broadcast."""
     X, anchors = _make(n, d, k, seed=1)
     temp = 1.0
 
     def _softmax(dists):
+        """Helper: Softmax."""
         logits = -dists / (temp + 1e-9)
         logits -= logits.max(axis=1, keepdims=True)
         e = np.exp(logits)
@@ -58,6 +62,7 @@ def test_softmax_selection_equivalent_to_broadcast(n, d, k):
 
 @pytest.mark.parametrize("n,d,k", [(4000, 30, 32), (8000, 50, 32), (16000, 50, 64), (4000, 100, 32)])
 def test_argmin_hard_assignment_identical_to_broadcast(n, d, k):
+    """Argmin hard assignment identical to broadcast."""
     X, anchors = _make(n, d, k, seed=2)
     gemm_assign = np.argmin(_squared_dists(X, anchors), axis=1)
     bcast_assign = np.argmin(np.sum((X[:, None, :] - anchors[None, :, :]) ** 2, axis=2), axis=1)

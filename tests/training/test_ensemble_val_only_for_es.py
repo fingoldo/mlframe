@@ -84,6 +84,7 @@ def test_member_quality_gate_routes_to_oof_not_val():
     real_gate = ens_gate_mod.compute_member_quality_gate
 
     def _spy_gate(preds_list, **kw):
+        """Wraps compute_member_quality_gate to record the arrays it actually received."""
         # Compare against oof_c (outlier marker) to confirm we got the OOF arrays, not val.
         recorded["arrays"] = [np.asarray(p).copy() for p in preds_list]
         return real_gate(preds_list, **kw)

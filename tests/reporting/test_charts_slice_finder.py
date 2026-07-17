@@ -20,6 +20,7 @@ from mlframe.reporting.spec import BarPanelSpec, FigureSpec
 
 
 def _flat(fig: FigureSpec):
+    """Helper: Flat."""
     return [p for row in fig.panels for p in row if p is not None]
 
 
@@ -29,6 +30,7 @@ def _flat(fig: FigureSpec):
 
 
 def test_bin_matrix_constant_column_collapses_to_one_bin():
+    """Bin matrix constant column collapses to one bin."""
     mat = np.column_stack([np.arange(100.0), np.full(100, 5.0)])
     codes, _edges = _bin_matrix(mat, nbins=4)
     assert set(np.unique(codes[:, 1])) == {0}  # constant col -> single bin
@@ -36,6 +38,7 @@ def test_bin_matrix_constant_column_collapses_to_one_bin():
 
 
 def test_single_feature_slice_mean_matches_groupby():
+    """Single feature slice mean matches groupby."""
     rng = np.random.default_rng(0)
     n = 5000
     f0 = rng.random(n)
@@ -53,6 +56,7 @@ def test_single_feature_slice_mean_matches_groupby():
 
 
 def test_support_floor_drops_tiny_slices():
+    """Support floor drops tiny slices."""
     rng = np.random.default_rng(1)
     n = 2000
     X = pd.DataFrame({"f0": rng.random(n), "f1": rng.random(n)})
@@ -64,6 +68,7 @@ def test_support_floor_drops_tiny_slices():
 
 
 def test_spec_shape_and_orientation():
+    """Spec shape and orientation."""
     rng = np.random.default_rng(2)
     n = 3000
     f0, f1 = rng.random(n), rng.random(n)
@@ -93,6 +98,7 @@ def test_bar_categories_are_worst_first_to_match_title():
 
 
 def test_three_way_cap_is_logged(caplog):
+    """Three way cap is logged."""
     rng = np.random.default_rng(3)
     n = 4000
     cols = {f"f{i}": rng.random(n) for i in range(10)}
@@ -206,6 +212,7 @@ def test_slice_decode_vectorized_bit_identical_to_per_cell_loop():
     import numpy as np
 
     def decode_old(cell_ids, strides):
+        """Decode old."""
         m = len(strides)
         rows = []
         for cid in cell_ids:
@@ -218,6 +225,7 @@ def test_slice_decode_vectorized_bit_identical_to_per_cell_loop():
         return np.asarray(rows, dtype=np.int64).reshape(len(cell_ids), m)
 
     def decode_new(cell_ids, strides):
+        """Decode new."""
         m = len(strides)
         rem = cell_ids.astype(np.int64, copy=True)
         decoded = np.empty((cell_ids.size, m), dtype=np.int64)

@@ -28,6 +28,7 @@ pytestmark = pytest.mark.fast
 
 
 def test_rff_shape_and_dtype():
+    """Rff shape and dtype."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((100, 8)).astype(np.float32)
     df = compute_rff_features(X, seed=42, n_features=64, use_gpu=False)
@@ -40,6 +41,7 @@ def test_rff_shape_and_dtype():
 
 
 def test_rff_deterministic_same_seed():
+    """Rff deterministic same seed."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((50, 8)).astype(np.float32)
     df1 = compute_rff_features(X, seed=7, n_features=32, use_gpu=False)
@@ -58,6 +60,7 @@ def test_rff_output_buffer_is_fortran_order_no_per_column_copy(monkeypatch):
     copies = {"n": 0}
 
     def _spy(a, *args, **kwargs):
+        """Helper: Spy."""
         r = orig(a, *args, **kwargs)
         if isinstance(a, np.ndarray) and a.ndim == 1 and a.size >= 100_000:
             if r is not a and not np.shares_memory(r, a):
@@ -74,6 +77,7 @@ def test_rff_output_buffer_is_fortran_order_no_per_column_copy(monkeypatch):
 
 
 def test_rff_different_seed_changes_output():
+    """Rff different seed changes output."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((50, 8)).astype(np.float32)
     df1 = compute_rff_features(X, seed=7, n_features=32, use_gpu=False)
@@ -82,6 +86,7 @@ def test_rff_different_seed_changes_output():
 
 
 def test_rff_polars_input_accepted():
+    """Rff polars input accepted."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((30, 5)).astype(np.float32)
     df_in = pl.DataFrame({f"f{i}": X[:, i] for i in range(5)})
@@ -90,30 +95,35 @@ def test_rff_polars_input_accepted():
 
 
 def test_rff_raises_on_nan():
+    """Rff raises on nan."""
     X = np.array([[1.0, 2.0], [np.nan, 3.0]], dtype=np.float32)
     with pytest.raises(ValueError, match="non-finite"):
         compute_rff_features(X, seed=0, n_features=8, use_gpu=False)
 
 
 def test_rff_raises_on_1d_input():
+    """Rff raises on 1d input."""
     X = np.zeros(50, dtype=np.float32)
     with pytest.raises(ValueError, match="2-D"):
         compute_rff_features(X, seed=0, n_features=8, use_gpu=False)
 
 
 def test_rff_raises_on_non_numeric():
+    """Rff raises on non numeric."""
     X = np.array([["a", "b"], ["c", "d"]])
     with pytest.raises(TypeError, match="numeric"):
         compute_rff_features(X, seed=0, n_features=8, use_gpu=False)
 
 
 def test_rff_raises_on_odd_n_features():
+    """Rff raises on odd n features."""
     X = np.zeros((10, 4), dtype=np.float32)
     with pytest.raises(ValueError, match="even"):
         compute_rff_features(X, seed=0, n_features=15, use_gpu=False)
 
 
 def test_rff_raises_on_missing_seed():
+    """Rff raises on missing seed."""
     X = np.zeros((10, 4), dtype=np.float32)
     # Python's "missing 1 required keyword-only argument: 'seed'" fires before our require_seed; both messages contain "seed".
     with pytest.raises(TypeError, match="seed"):
@@ -121,6 +131,7 @@ def test_rff_raises_on_missing_seed():
 
 
 def test_rff_explicit_sigma_float():
+    """Rff explicit sigma float."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((50, 4)).astype(np.float32)
     df_med = compute_rff_features(X, seed=0, n_features=16, sigma="median", use_gpu=False)
@@ -130,6 +141,7 @@ def test_rff_explicit_sigma_float():
 
 
 def test_rff_no_standardize_path():
+    """Rff no standardize path."""
     rng = np.random.default_rng(0)
     X = (rng.standard_normal((50, 4)) * 100.0).astype(np.float32)  # large-scale input
     df1 = compute_rff_features(X, seed=0, n_features=16, standardize=False, use_gpu=False)
@@ -142,6 +154,7 @@ def test_rff_no_standardize_path():
 def test_rff_outputs_unit_kernel_features():
     # The RFF approximation: |phi(x_i) . phi(x_j)|^2 estimates the RBF kernel between x_i and x_j with variance dropping in 1/n_features.
     # Sanity check: for two close points, output rows should have higher dot product than for two distant points.
+    """Rff outputs unit kernel features."""
     X = np.array(
         [
             [0.0, 0.0],
@@ -161,6 +174,7 @@ def test_rff_outputs_unit_kernel_features():
 
 
 def test_pe_shape_and_dtype():
+    """Pe shape and dtype."""
     pos = np.arange(50)
     df = compute_positional_encoding(pos, d_model=16)
     assert df.shape == (50, 16)
@@ -170,6 +184,7 @@ def test_pe_shape_and_dtype():
 
 
 def test_pe_deterministic():
+    """Pe deterministic."""
     pos = np.arange(20)
     df1 = compute_positional_encoding(pos, d_model=8)
     df2 = compute_positional_encoding(pos, d_model=8)
@@ -178,6 +193,7 @@ def test_pe_deterministic():
 
 def test_pe_first_pair_is_sin_cos():
     # PE(pos, 0) = sin(pos / base^0) = sin(pos); PE(pos, 1) = cos(pos / base^0) = cos(pos).
+    """Pe first pair is sin cos."""
     pos = np.array([0, 1, 2, 3], dtype=np.int64)
     df = compute_positional_encoding(pos, d_model=4, base=10_000.0)
     arr = df.to_numpy()
@@ -189,6 +205,7 @@ def test_pe_fused_kernel_matches_numpy_reference():
     # Fused positional_encoding_njit must match the original three-array numpy path (angles temporary + separate sin/cos into strided views) within a single
     # float32 ULP, and preserve the interleaved [sin_j @ col 2j, cos_j @ col 2j+1] layout, across several d_model. A regression that bypasses the kernel or
     # transposes the sin/cos columns trips this.
+    """Pe fused kernel matches numpy reference."""
     rng = np.random.default_rng(0)
     pos = rng.integers(0, 500_000, size=5000).astype(np.int64)
     base = 10_000.0
@@ -206,16 +223,19 @@ def test_pe_fused_kernel_matches_numpy_reference():
 
 
 def test_pe_raises_on_odd_d_model():
+    """Pe raises on odd d model."""
     with pytest.raises(ValueError, match="even"):
         compute_positional_encoding(np.arange(10), d_model=7)
 
 
 def test_pe_raises_on_bad_base():
+    """Pe raises on bad base."""
     with pytest.raises(ValueError, match="base"):
         compute_positional_encoding(np.arange(10), d_model=4, base=1.0)
 
 
 def test_pe_accepts_polars_series():
+    """Pe accepts polars series."""
     s = pl.Series("pos", list(range(20)))
     df = compute_positional_encoding(s, d_model=8)
     assert df.shape == (20, 8)
@@ -223,6 +243,7 @@ def test_pe_accepts_polars_series():
 
 def test_pe_clamps_huge_positions():
     # 2e6 % 1e6 = 0; PE at clamped 0 is all-zero sins, all-one cosines.
+    """Pe clamps huge positions."""
     pos = np.array([2_000_000, 3_000_000], dtype=np.int64)
     df = compute_positional_encoding(pos, d_model=4, base=10_000.0)
     arr = df.to_numpy()
@@ -235,6 +256,7 @@ def test_pe_clamps_huge_positions():
 
 
 def test_positions_within_group_simple_unsorted():
+    """Positions within group simple unsorted."""
     df = pl.DataFrame({"g": ["a", "a", "b", "a", "b"], "ts": [3, 1, 2, 2, 1]})
     pos = positions_within_group(df, group_col="g")
     # Without sort_col: ordinal in arrival order within each group.
@@ -243,6 +265,7 @@ def test_positions_within_group_simple_unsorted():
 
 
 def test_positions_within_group_with_sort_col():
+    """Positions within group with sort col."""
     df = pl.DataFrame({"g": ["a", "a", "b", "a", "b"], "ts": [3, 1, 2, 2, 1]})
     pos = positions_within_group(df, group_col="g", sort_col="ts")
     # Sorted within g by ts: g='a' ts=[1,2,3] at original indices [1,3,0] -> ordinals [2,0,1] respectively at original rows;
@@ -251,12 +274,14 @@ def test_positions_within_group_with_sort_col():
 
 
 def test_positions_within_group_raises_on_missing_group_col():
+    """Positions within group raises on missing group col."""
     df = pl.DataFrame({"x": [1, 2, 3]})
     with pytest.raises(KeyError, match="group_col"):
         positions_within_group(df, group_col="missing")
 
 
 def test_positions_within_group_raises_on_missing_sort_col():
+    """Positions within group raises on missing sort col."""
     df = pl.DataFrame({"g": ["a", "b"], "x": [1, 2]})
     with pytest.raises(KeyError, match="sort_col"):
         positions_within_group(df, group_col="g", sort_col="missing")

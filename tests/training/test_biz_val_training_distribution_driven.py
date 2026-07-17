@@ -13,6 +13,7 @@ import pandas as pd
 
 
 def test_biz_val_tail_composite_extreme_quantile_beats_gaussian():
+    """Composite tail-quantile estimator beats a plain Gaussian fit on heavy-tailed extreme-quantile targets."""
     from scipy.stats import norm
     from sklearn.linear_model import LinearRegression
 

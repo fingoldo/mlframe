@@ -223,6 +223,7 @@ def _build_iter77(X_tr, X_te, y_tr, task, seed):
 
 # Local seeded versions of the FE primitives.
 def _features_rff_seeded(X_tr, X_te, y_tr, task, seed):
+    """Helper: Features rff seeded."""
     import polars as pl
 
     rff_tr = compute_rff_features(pl.DataFrame(X_tr), n_features=256, seed=seed, sigma="median").to_numpy()
@@ -232,10 +233,12 @@ def _features_rff_seeded(X_tr, X_te, y_tr, task, seed):
 
 def _features_cdist_seeded(X_tr, X_te, y_tr, task, seed):
     # Reuse the existing cdist builder verbatim (it is already deterministic given X).
+    """Helper: Features cdist seeded."""
     return _features_cdist(X_tr, X_te, y_tr, task)
 
 
 def _strip(full, n):
+    """Helper: Strip."""
     return full[:, n:]
 
 
@@ -307,6 +310,7 @@ def _measure_lift_seeded(X_full, y_full, task, builder, seed: int, target_model:
 
 
 def _score(y_true, y_pred, task, metric):
+    """Helper: Score."""
     if metric == "R²" or metric == "R2":
         return r2_score(y_true, y_pred)
     if metric == "AUC":
@@ -350,24 +354,30 @@ def _validate(loader_fn, builder, target_model, target_metric, claimed_lift, lab
 
 
 def test_validate_iter61_abalone_xgb_r2():
+    """Validate iter61 abalone xgb r2."""
     _validate(_load_abalone, _build_iter61, "xgb", "R2", 0.0405, "iter61_mtrbattn+cdist")
 
 
 def test_validate_iter66_mammography_lgb_auc():
+    """Validate iter66 mammography lgb auc."""
     _validate(_load_mammography, _build_iter66, "lgb", "AUC", 0.1446, "iter66_cbhrattn+rff")
 
 
 def test_validate_iter68_kin8nm_lgb_r2():
+    """Validate iter68 kin8nm lgb r2."""
     _validate(_load_kin8nm, _build_iter68, "lgb", "R2", 0.1191, "iter68_mbhrattn+rff")
 
 
 def test_validate_iter69_abalone_cb_r2():
+    """Validate iter69 abalone cb r2."""
     _validate(_load_abalone, _build_iter69, "cb", "R2", 0.0384, "iter69_blagreement+cdist")
 
 
 def test_validate_iter72_abalone_lgb_r2():
+    """Validate iter72 abalone lgb r2."""
     _validate(_load_abalone, _build_iter72, "lgb", "R2", 0.0319, "iter72_ldgrad_alone")
 
 
 def test_validate_iter77_diabetes_cb_pr_auc():
+    """Validate iter77 diabetes cb pr auc."""
     _validate(_load_diabetes_classification, _build_iter77, "cb", "PR_AUC", 0.0675, "iter77_curv_alone")

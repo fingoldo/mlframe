@@ -40,4 +40,5 @@ def test_line_color_does_not_collide_until_palette_exhausted():
 
 
 def test_line_color_cycles_after_palette():
+    """Line color cycles after palette."""
     assert line_color(len(LINE_PALETTE)) == line_color(0)

@@ -17,6 +17,7 @@ from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
 
 def _fit():
+    """Helper that fit."""
     rng = np.random.RandomState(1)
     X = rng.randn(120, 6)
     y = (X[:, 0] + 0.3 * rng.randn(120) > 0).astype(int)
@@ -33,6 +34,7 @@ def _fit():
 
 
 def test_best_model_is_a_snapshot_not_a_live_reference():
+    """Best model is a snapshot not a live reference."""
     m, _, _ = _fit()
     # ``fit`` trains a clone (``estimator_``), never the caller's ``base_model`` (sklearn no-mutate
     # contract), and ``best_model_`` is a deep copy taken at the best iteration -- so it is a distinct
@@ -42,6 +44,7 @@ def test_best_model_is_a_snapshot_not_a_live_reference():
 
 
 def test_best_model_val_score_matches_recorded_best_score():
+    """Best model val score matches recorded best score."""
     m, Xv, yv = _fit()
     realized = accuracy_score(yv, m.best_model_.predict(Xv))
     # Pre-fix best_model_ pointed at the degraded final model: realized (0.833)

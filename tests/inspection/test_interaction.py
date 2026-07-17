@@ -12,6 +12,7 @@ class _AdditiveModel:
     """f(x) = 3*x0 + 2*x1 (no interaction) -> H(0,1) must be ~0."""
 
     def predict(self, X):
+        """Helper that predict."""
         X = np.asarray(X, dtype=np.float64)
         return 3.0 * X[:, 0] + 2.0 * X[:, 1]
 
@@ -20,22 +21,26 @@ class _ProductModel:
     """f(x) = x0 * x1 (pure interaction, no main effect at mean 0) -> H(0,1) must be high."""
 
     def predict(self, X):
+        """Helper that predict."""
         X = np.asarray(X, dtype=np.float64)
         return X[:, 0] * X[:, 1]
 
 
 def _data(seed=0, n=1500, d=4):
+    """Helper that data."""
     return np.random.default_rng(seed).normal(size=(n, d))
 
 
 # ---------------------------------------------------------------- unit
 def test_additive_model_has_near_zero_interaction():
+    """Additive model has near zero interaction."""
     X = _data()
     h = friedman_h_statistic(_AdditiveModel(), X, (0, 1))
     assert h < 0.1, f"purely additive model should have H~0, got {h:.3f}"
 
 
 def test_product_model_has_strong_interaction():
+    """Product model has strong interaction."""
     X = _data()
     h = friedman_h_statistic(_ProductModel(), X, (0, 1))
     assert h > 0.5, f"pure product interaction should have high H, got {h:.3f}"
@@ -43,12 +48,14 @@ def test_product_model_has_strong_interaction():
 
 def test_irrelevant_feature_pair_low():
     # x2 does not enter the product model -> H(0,2) low even though x0 interacts with x1
+    """Irrelevant feature pair low."""
     X = _data()
     h02 = friedman_h_statistic(_ProductModel(), X, (0, 2))
     assert h02 < 0.15, f"a feature the model ignores should have low interaction, got {h02:.3f}"
 
 
 def test_symmetry():
+    """Symmetry."""
     X = _data()
     h01 = friedman_h_statistic(_ProductModel(), X, (0, 1))
     h10 = friedman_h_statistic(_ProductModel(), X, (1, 0))
@@ -56,11 +63,13 @@ def test_symmetry():
 
 
 def test_same_feature_raises():
+    """Same feature raises."""
     with pytest.raises(ValueError):
         friedman_h_statistic(_AdditiveModel(), _data(), (1, 1))
 
 
 def test_constant_feature_zero():
+    """Constant feature zero."""
     X = _data()
     X[:, 2] = 5.0  # constant column
     h = friedman_h_statistic(_ProductModel(), X, (0, 2))
@@ -68,6 +77,7 @@ def test_constant_feature_zero():
 
 
 def test_matrix_shape_and_symmetry():
+    """Matrix shape and symmetry."""
     X = _data()
     M = pairwise_interaction_strength(_ProductModel(), X, [0, 1, 2])
     assert M.shape == (3, 3)

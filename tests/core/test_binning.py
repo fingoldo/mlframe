@@ -15,6 +15,7 @@ from mlframe.core.binning import (
 # ---------------------------------------------------------------- unit
 def test_bin_means_han_kamber_example():
     # Han & Kamber classic: 4,8,15,21,21,24,25,28,34 into 3 equal-depth bins -> bin means
+    """Bin means han kamber example."""
     x = np.array([4, 8, 15, 21, 21, 24, 25, 28, 34], dtype=float)
     out = bin_smooth(x, n_bins=3, strategy="mean", binning="quantile")
     # bin1 {4,8,15}->9, bin2 {21,21,24}->22, bin3 {25,28,34}->29
@@ -22,6 +23,7 @@ def test_bin_means_han_kamber_example():
 
 
 def test_boundary_strategy_snaps_to_nearer_edge():
+    """Boundary strategy snaps to nearer edge."""
     x = np.array([4, 8, 15, 21, 21, 24, 25, 28, 34], dtype=float)
     sm = fit_bin_smoother(x, n_bins=3, binning="quantile")
     out = apply_bin_smoother(x, sm, strategy="boundary")
@@ -32,6 +34,7 @@ def test_boundary_strategy_snaps_to_nearer_edge():
 
 
 def test_median_strategy():
+    """Median strategy."""
     x = np.array([1, 2, 100, 3, 4, 200], dtype=float)  # median robust to the big values within a bin
     sm = fit_bin_smoother(x, n_bins=2, binning="quantile")
     out = apply_bin_smoother(x, sm, strategy="median")
@@ -39,6 +42,7 @@ def test_median_strategy():
 
 
 def test_nan_passthrough():
+    """Nan passthrough."""
     x = np.array([1.0, np.nan, 3.0, 4.0])
     out = bin_smooth(x, n_bins=2, strategy="mean")
     assert np.isnan(out[1])
@@ -46,6 +50,7 @@ def test_nan_passthrough():
 
 
 def test_fit_apply_on_heldout():
+    """Fit apply on heldout."""
     rng = np.random.default_rng(0)
     train = rng.normal(0, 1, size=500)
     test = rng.normal(0, 1, size=100)
@@ -57,6 +62,7 @@ def test_fit_apply_on_heldout():
 
 
 def test_invalid_args():
+    """Invalid args."""
     with pytest.raises(ValueError):
         fit_bin_smoother(np.arange(10.0), binning="nope")
     with pytest.raises(ValueError):

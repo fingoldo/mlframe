@@ -12,6 +12,7 @@ import numpy as np
 
 
 def _numpy_reference(y_neighbors: np.ndarray, weights: np.ndarray, qs: np.ndarray) -> np.ndarray:
+    """Helper: Numpy reference."""
     n_rows, _k = y_neighbors.shape
     sort_idx = np.argsort(y_neighbors, axis=1)
     rows_arange = np.arange(n_rows)[:, None]
@@ -28,12 +29,14 @@ def _numpy_reference(y_neighbors: np.ndarray, weights: np.ndarray, qs: np.ndarra
 
 def test_weighted_quantiles_njit_symbol_exists():
     # Fails on pre-fix code: the fused njit kernel did not exist (ImportError), proving this sensor catches a missing optimization.
+    """Weighted quantiles njit symbol exists."""
     from mlframe.feature_engineering.transformer.quantile_neighbours import _weighted_quantiles_njit
 
     assert callable(_weighted_quantiles_njit)
 
 
 def test_weighted_quantiles_njit_bit_identical_continuous():
+    """Weighted quantiles njit bit identical continuous."""
     from mlframe.feature_engineering.transformer.quantile_neighbours import _weighted_quantiles
 
     rng = np.random.default_rng(7)
@@ -46,6 +49,7 @@ def test_weighted_quantiles_njit_bit_identical_continuous():
 
 
 def test_weighted_quantiles_njit_bit_identical_tied_y_and_tied_cdf():
+    """Weighted quantiles njit bit identical tied y and tied cdf."""
     from mlframe.feature_engineering.transformer.quantile_neighbours import _weighted_quantiles
 
     rng = np.random.default_rng(1)

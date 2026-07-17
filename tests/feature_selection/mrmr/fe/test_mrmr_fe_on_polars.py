@@ -19,6 +19,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def _canonical(n=4000, seed=0):
+    """Build the shared a/b/c/d/e frame and its a**2/b + log(c)*sin(d) target used to compare polars vs pandas FE."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(1.0, 5.0, n)
     b = rng.uniform(1.0, 5.0, n)
@@ -31,6 +32,7 @@ def _canonical(n=4000, seed=0):
 
 
 def _eng_names(m, raw_cols):
+    """Return the fitted selector's engineered (non-raw) output column names."""
     return [nm for nm in m.get_feature_names_out() if nm not in set(raw_cols)]
 
 

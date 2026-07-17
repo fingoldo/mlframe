@@ -68,6 +68,7 @@ def _build_factor_data(n_samples: int, nbins_per_col: list[int], seed: int):
     ],
 )
 def test_batch_pair_mi_prange_matches_legacy(n_samples, nbins_per_col, n_classes_y, seed):
+    """The njit-prange batch kernel's per-pair MI matches the legacy merge_vars+compute_mi_from_classes joblib loop to 1e-9, across heterogeneous nbins/class-count shapes."""
     from mlframe.feature_selection.filters.info_theory import batch_pair_mi_prange
 
     data, nbins = _build_factor_data(n_samples, nbins_per_col, seed)

@@ -14,6 +14,7 @@ from mlframe.feature_engineering.acf_lag_selection import select_significant_lag
 
 
 def test_biz_val_select_significant_lags_recovers_true_generating_lags():
+    """Biz val select significant lags recovers true generating lags."""
     rng = np.random.default_rng(0)
     n = 5000
     y = np.zeros(n)
@@ -27,6 +28,7 @@ def test_biz_val_select_significant_lags_recovers_true_generating_lags():
 
 
 def test_select_significant_lags_white_noise_low_false_positive_rate():
+    """Select significant lags white noise low false positive rate."""
     rng = np.random.default_rng(1)
     n = 5000
     white_noise = rng.normal(0, 1, n)
@@ -36,6 +38,7 @@ def test_select_significant_lags_white_noise_low_false_positive_rate():
 
 
 def test_select_significant_lags_invalid_alpha_raises():
+    """Select significant lags invalid alpha raises."""
     import pytest
 
     with pytest.raises(ValueError):

@@ -59,6 +59,7 @@ def _kf_reference(observations, prior_traj, *, transition_sigma, observation_sig
 
 
 def _make(n, seed, nan_frac):
+    """Helper: Make."""
     rng = np.random.default_rng(seed)
     obs = np.cumsum(rng.normal(0, 1, max(n, 1))).astype(np.float64)
     obs[rng.random(obs.size) < nan_frac] = np.nan
@@ -70,6 +71,7 @@ def _make(n, seed, nan_frac):
 @pytest.mark.parametrize("n", [0, 1, 2, 3, 37, 1000])
 @pytest.mark.parametrize("nan_frac", [0.0, 0.05, 1.0])
 def test_kf_single_segment_bit_identical_to_python(n, nan_frac):
+    """Kf single segment bit identical to python."""
     if not B._NUMBA_AVAILABLE:
         pytest.skip("numba unavailable -> _kf_single_segment uses the Python path it is pinned against")
     obs, prior = _make(n, seed=n + int(nan_frac * 100), nan_frac=nan_frac)

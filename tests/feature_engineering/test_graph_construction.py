@@ -17,6 +17,7 @@ from mlframe.feature_engineering.graph_features import (
 
 # ---------------------------------------------------------------- unit
 def test_knn_edges_shape_and_no_self():
+    """Knn edges shape and no self."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(50, 4))
     edges = knn_graph_edges(X, k=3)
@@ -26,6 +27,7 @@ def test_knn_edges_shape_and_no_self():
 
 
 def test_knn_timestamp_is_past_only():
+    """Knn timestamp is past only."""
     X = np.arange(6, dtype=float).reshape(-1, 1)  # 1-D, neighbours are adjacent
     ts = np.arange(6, dtype=float)  # row i has time i
     edges = knn_graph_edges(X, k=3, timestamp=ts)
@@ -33,6 +35,7 @@ def test_knn_timestamp_is_past_only():
 
 
 def test_shared_attribute_clique():
+    """Shared attribute clique."""
     codes = np.array([0, 0, 0, 1, 1])  # group 0 has rows {0,1,2}, group 1 {3,4}
     edges = shared_attribute_edges(codes, max_neighbours=None)
     deg = graph_structural_features(5, edges)["degree"]
@@ -41,6 +44,7 @@ def test_shared_attribute_clique():
 
 
 def test_shared_attribute_timestamp_past_only():
+    """Shared attribute timestamp past only."""
     codes = np.array([0, 0, 0])
     ts = np.array([0.0, 1.0, 2.0])
     edges = shared_attribute_edges(codes, timestamp=ts, max_neighbours=None)
@@ -51,12 +55,14 @@ def test_shared_attribute_timestamp_past_only():
 
 
 def test_max_group_size_skips_and_warns(caplog):
+    """Max group size skips and warns."""
     codes = np.zeros(10, dtype=int)  # one big group
     edges = shared_attribute_edges(codes, max_group_size=5)
     assert edges.shape[0] == 0  # the only group exceeds the cap -> skipped
 
 
 def test_knn_guard():
+    """Knn guard."""
     with pytest.raises(ValueError):
         knn_graph_edges(np.zeros((5, 2)), k=0)
 

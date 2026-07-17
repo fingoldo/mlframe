@@ -49,6 +49,7 @@ def test_kaleido_persistent_failure_falls_back_to_oneshot(tmp_path):
     orig = kaleido.write_fig_sync
 
     def _raise(*args, **kwargs):
+        """Helper: Raise."""
         raise RuntimeError("synthetic kaleido failure for test")
 
     kaleido.write_fig_sync = _raise
@@ -110,6 +111,7 @@ def test_kaleido_recovery_restores_persistent_path(tmp_path):
     orig = kaleido.write_fig_sync
 
     def _raise(*a, **kw):
+        """Helper: Raise."""
         raise RuntimeError("synthetic")
 
     kaleido.write_fig_sync = _raise

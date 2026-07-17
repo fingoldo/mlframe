@@ -48,7 +48,9 @@ def _make_frames(*, drift_z: float, n: int = 1000, seed: int = 0):
 
 
 class TestFeatureDriftSensor:
+    """Groups tests for: TestFeatureDriftSensor."""
     def test_no_drift_clean_iid_splits(self):
+        """No drift clean iid splits."""
         train, val, test = _make_frames(drift_z=0.0)
         rep = compute_feature_distribution_drift(train, val, test)
         assert rep["n_numeric_features"] == 2
@@ -223,6 +225,7 @@ class TestFeatureDriftSensor:
         )
 
     def test_threshold_respected(self):
+        """Threshold respected."""
         train, val, test = _make_frames(drift_z=2.5)
         # Default threshold is 3.0; 2.5-sigma drift must NOT fire.
         rep_default = compute_feature_distribution_drift(train, val, test)
@@ -253,6 +256,7 @@ class TestFeatureDriftSensor:
         assert not any(c == "const" for c, _z in rep["drift_candidates"])
 
     def test_polars_input_handled(self):
+        """Polars input handled."""
         pl = pytest.importorskip("polars")
         n = 500
         rng = np.random.default_rng(2)
@@ -263,6 +267,7 @@ class TestFeatureDriftSensor:
         assert any(c == "f" for c, _z in rep["drift_candidates"]), f"Polars frame with clear drift not flagged: {rep}"
 
     def test_no_val_frame_falls_back_to_test_only(self):
+        """No val frame falls back to test only."""
         train, _, test = _make_frames(drift_z=6.0)
         rep = compute_feature_distribution_drift(train, val_df=None, test_df=test)
         # val_z is NaN, test_z is high; f_shift still in candidates.
@@ -282,9 +287,11 @@ class TestSklearnToMlframeMlpKwargsTranslator:
     wire-in in ``_phase_train_one_target`` can deep-merge it."""
 
     def test_empty_input_returns_empty(self):
+        """Empty input returns empty."""
         assert translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({}) == {}
 
     def test_alpha_routes_to_adamw_weight_decay(self):
+        """Alpha routes to adamw weight decay."""
         out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({"alpha": 0.5})
         assert "model_params" in out
         # AdamW is the optimizer that natively decouples weight_decay from
@@ -295,6 +302,7 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         assert mp["optimizer_kwargs"] == {"weight_decay": 0.5}
 
     def test_hidden_layer_sizes_single_layer(self):
+        """Hidden layer sizes single layer."""
         out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
             {
                 "hidden_layer_sizes": (16,),
@@ -307,6 +315,7 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         assert np_["consec_layers_neurons_ratio"] == 1.0
 
     def test_hidden_layer_sizes_two_layers_decode_ratio(self):
+        """Hidden layer sizes two layers decode ratio."""
         out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
             {
                 "hidden_layer_sizes": (32, 16),
@@ -319,6 +328,7 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         assert np_["consec_layers_neurons_ratio"] == 2.0
 
     def test_activation_relu_maps_to_torch_relu(self):
+        """Activation relu maps to torch relu."""
         import torch
 
         out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
@@ -329,6 +339,7 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         assert out["network_params"]["activation_function"] is torch.nn.ReLU
 
     def test_activation_tanh_maps_to_torch_tanh(self):
+        """Activation tanh maps to torch tanh."""
         import torch
 
         out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
@@ -357,6 +368,7 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         assert out["network_params"]["inputs_dropout_prob"] == 0.0
 
     def test_unknown_activation_recorded_as_untranslated(self):
+        """Unknown activation recorded as untranslated."""
         out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
             {
                 "activation": "gelu",
@@ -568,6 +580,7 @@ class TestColValueCounts:
     arithmetic stays correct and the dict-build optimisation can't regress."""
 
     def test_pandas_counts_exact_and_python_int(self):
+        """Pandas counts exact and python int."""
         from mlframe.training.feature_drift_report import _col_value_counts
 
         df = pd.DataFrame({"c": ["a", "a", "b", "c", "c", "c"]})
@@ -587,6 +600,7 @@ class TestColValueCounts:
         assert nan_counts == [2], "NaN bucket count must be preserved"
 
     def test_polars_counts_exact_and_python_int(self):
+        """Polars counts exact and python int."""
         pl = pytest.importorskip("polars")
         from mlframe.training.feature_drift_report import _col_value_counts
 

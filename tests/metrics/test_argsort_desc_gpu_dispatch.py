@@ -14,6 +14,7 @@ import mlframe.metrics._core_auc_brier as ab
 
 
 def test_argsort_desc_returns_valid_descending_order():
+    """Argsort desc returns valid descending order."""
     rng = np.random.default_rng(0)
     for n in (1000, 60_000):  # CPU path + (if GPU) GPU path
         x = rng.random(n)
@@ -23,6 +24,7 @@ def test_argsort_desc_returns_valid_descending_order():
 
 @pytest.mark.parametrize("scores_kind", ["continuous", "tied"])
 def test_gpu_argsort_auc_matches_cpu(monkeypatch, scores_kind):
+    """Gpu argsort auc matches cpu."""
     if not ab._gpu_argsort_available():
         pytest.skip("no CUDA / cupy")
     rng = np.random.default_rng(1)
@@ -41,6 +43,7 @@ def test_gpu_argsort_auc_matches_cpu(monkeypatch, scores_kind):
 
 def test_stable_sort_env_stays_on_cpu(monkeypatch):
     # MLFRAME_METRICS_STABLE_SORT=1 must bypass the GPU path entirely (deterministic byte-identity contract).
+    """Stable sort env stays on cpu."""
     monkeypatch.setenv("MLFRAME_METRICS_STABLE_SORT", "1")
     monkeypatch.setattr(ab, "_GPU_ARGSORT_MIN_N", 1)
     rng = np.random.default_rng(2)

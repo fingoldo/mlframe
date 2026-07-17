@@ -40,6 +40,7 @@ def _seed_global_numpy_rng():
 )
 @settings(max_examples=30, deadline=None)
 def test_arithm_avg_proba_sum_to_one(X):
+    """Arithm avg proba sum to one."""
     y = np.zeros(len(X), dtype=int)
     y[:: max(1, len(X) // 2)] = 1  # ensure at least 2 classes
     clf = ArithmAvgClassifier(nprobs=X.shape[1]).fit(X, y)
@@ -56,6 +57,7 @@ def test_arithm_avg_proba_sum_to_one(X):
 )
 @settings(max_examples=30, deadline=None)
 def test_geom_avg_proba_sum_to_one(X):
+    """Geom avg proba sum to one."""
     y = np.zeros(len(X), dtype=int)
     y[:: max(1, len(X) // 2)] = 1
     clf = GeomAvgClassifier(nprobs=X.shape[1]).fit(X, y)
@@ -71,6 +73,7 @@ def test_geom_avg_proba_sum_to_one(X):
 @pytest.mark.parametrize("n_samples,n_cols", [(5, 2), (10, 3), (50, 5), (1, 2)])
 @pytest.mark.parametrize("clf_cls", [ArithmAvgClassifier, GeomAvgClassifier])
 def test_averager_fit_predict_smoke(n_samples, n_cols, clf_cls):
+    """Averager fit predict smoke."""
     rng = np.random.default_rng(0)
     X = rng.uniform(1e-3, 1.0, size=(n_samples, n_cols))
     y = (rng.random(n_samples) > 0.5).astype(int)
@@ -89,6 +92,7 @@ def test_averager_fit_predict_smoke(n_samples, n_cols, clf_cls):
 @pytest.mark.parametrize("n_classes", [2, 3, 5])
 def test_pure_random_classifier_smoke(n_samples_mult, n_classes):
     # ensure every class label is present so classes_ has size n_classes
+    """Pure random classifier smoke."""
     rng = np.random.default_rng(0)
     n_samples = n_samples_mult * n_classes
     X = rng.random((n_samples, 4))
@@ -103,6 +107,7 @@ def test_pure_random_classifier_smoke(n_samples_mult, n_classes):
 
 
 def test_pure_random_classifier_respects_random_state():
+    """Pure random classifier respects random state."""
     X = np.random.rand(20, 3)
     y = np.array([0, 1] * 10)
     a = PureRandomClassifier(random_state=123).fit(X, y).predict_proba(X)
@@ -130,6 +135,7 @@ def test_pure_random_classifier_respects_random_state():
 )
 @pytest.mark.parametrize("clf_cls", [ArithmAvgClassifier, GeomAvgClassifier, PureRandomClassifier])
 def test_check_estimator_averagers(clf_cls):
+    """Check estimator averagers."""
     from sklearn.utils.estimator_checks import check_estimator
 
     if clf_cls is PureRandomClassifier:
@@ -152,6 +158,7 @@ def test_check_estimator_averagers(clf_cls):
     ],
 )
 def test_pickle_roundtrip_averagers(clf):
+    """Pickle roundtrip averagers."""
     X = np.random.rand(10, 2)
     y = np.array([0, 1] * 5)
     clf.fit(X, y)
@@ -165,6 +172,7 @@ def test_pickle_roundtrip_averagers(clf):
 
 
 def test_my_decorrelator_uses_correlated_features_consistently():
+    """My decorrelator uses correlated features consistently."""
     import pandas as pd
 
     rng = np.random.default_rng(0)

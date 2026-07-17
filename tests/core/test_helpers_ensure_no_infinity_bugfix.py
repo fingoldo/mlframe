@@ -9,12 +9,14 @@ from mlframe.core.helpers import ensure_no_infinity
 
 
 def test_ensure_no_infinity_pd_returns_frame():
+    """Ensure no infinity pd returns frame."""
     df = pd.DataFrame({"a": [1.0, np.inf, 3.0]})
     out = ensure_no_infinity(df)
     assert isinstance(out, pd.DataFrame)
 
 
 def test_ensure_no_infinity_pl_returns_frame():
+    """Ensure no infinity pl returns frame."""
     df = pl.DataFrame({"a": [1.0, float("inf"), 3.0]})
     out = ensure_no_infinity(df)
     assert isinstance(out, pl.DataFrame)
@@ -22,6 +24,7 @@ def test_ensure_no_infinity_pl_returns_frame():
 
 def test_ensure_no_infinity_unknown_type_raises():
     # Previously the implicit-None branch silently returned None on an unknown type.
+    """Ensure no infinity unknown type raises."""
     with pytest.raises(TypeError):
         ensure_no_infinity([1.0, 2.0, 3.0])
 
@@ -40,6 +43,7 @@ def test_ensure_no_infinity_ndarray_replaces_inf_in_place():
 
 
 def test_ensure_no_infinity_int_ndarray_is_noop():
+    """Ensure no infinity int ndarray is noop."""
     arr = np.array([[1, 2], [3, 4]], dtype=np.int64)
     out = ensure_no_infinity(arr)
     assert out is arr

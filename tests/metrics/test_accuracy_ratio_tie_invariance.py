@@ -14,6 +14,7 @@ from mlframe.metrics.core import accuracy_ratio, fast_roc_auc
 
 
 def _tie_heavy_data(seed: int, n: int = 200):
+    """Helper: Tie heavy data."""
     rng = np.random.default_rng(seed)
     y_true = rng.integers(0, 2, size=n)
     # Few distinct score levels -> many ties.
@@ -23,6 +24,7 @@ def _tie_heavy_data(seed: int, n: int = 200):
 
 @pytest.mark.parametrize("seed", [0, 1, 2, 7, 13, 42])
 def test_accuracy_ratio_invariant_under_row_permutation_on_ties(seed):
+    """Accuracy ratio invariant under row permutation on ties."""
     y_true, y_score = _tie_heavy_data(seed)
     base = accuracy_ratio(y_true, y_score)
     vals = set()
@@ -36,6 +38,7 @@ def test_accuracy_ratio_invariant_under_row_permutation_on_ties(seed):
 
 @pytest.mark.parametrize("seed", [0, 1, 2, 7, 13, 42])
 def test_accuracy_ratio_equals_2auc_minus_1_on_ties(seed):
+    """Accuracy ratio equals 2auc minus 1 on ties."""
     y_true, y_score = _tie_heavy_data(seed)
     ar = accuracy_ratio(y_true, y_score)
     auc = fast_roc_auc(y_true, y_score)
@@ -44,6 +47,7 @@ def test_accuracy_ratio_equals_2auc_minus_1_on_ties(seed):
 
 @pytest.mark.parametrize("seed", [0, 1, 2, 7, 13, 42])
 def test_accuracy_ratio_equals_2auc_minus_1_on_distinct(seed):
+    """Accuracy ratio equals 2auc minus 1 on distinct."""
     rng = np.random.default_rng(seed)
     n = 200
     y_true = rng.integers(0, 2, size=n)
@@ -60,6 +64,7 @@ def test_accuracy_ratio_vectorised_tiefold_matches_reference_loop():
     still hold to fp tolerance."""
 
     def _ref_ar(yt, ys):
+        """Helper: Ref ar."""
         yt = np.asarray(yt).astype(np.int64)
         ys = np.asarray(ys, dtype=np.float64)
         n = yt.shape[0]

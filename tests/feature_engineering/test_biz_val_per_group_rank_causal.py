@@ -45,6 +45,7 @@ def _make_drifting_panel(n_groups: int, group_size: int, seed: int):
 
 
 def test_biz_val_per_group_rank_causal_avoids_future_leakage():
+    """Biz val per group rank causal avoids future leakage."""
     groups, values, label = _make_drifting_panel(n_groups=150, group_size=40, seed=11)
 
     rank_plain = per_group_rank(values, groups, method="average", pct=True)
@@ -64,6 +65,7 @@ def test_biz_val_per_group_rank_causal_avoids_future_leakage():
 
 
 def test_biz_val_per_group_rank_causal_first_row_semantics():
+    """Biz val per group rank causal first row semantics."""
     groups = np.array([0, 0, 0, 1, 1], dtype=np.int64)
     values = np.array([5.0, 1.0, 3.0, 10.0, 10.0], dtype=np.float64)
 
@@ -83,6 +85,7 @@ def test_biz_val_per_group_rank_causal_first_row_semantics():
 
 
 def test_biz_val_per_group_rank_causal_omitted_is_bit_identical_to_baseline():
+    """Biz val per group rank causal omitted is bit identical to baseline."""
     groups, values, _label = _make_drifting_panel(n_groups=30, group_size=15, seed=3)
 
     baseline = per_group_rank(values, groups, method="average")
@@ -92,6 +95,7 @@ def test_biz_val_per_group_rank_causal_omitted_is_bit_identical_to_baseline():
 
 
 def test_biz_val_per_group_rank_causal_rejects_non_average_method():
+    """Biz val per group rank causal rejects non average method."""
     groups, values, _label = _make_drifting_panel(n_groups=10, group_size=8, seed=5)
     for method in ("min", "max", "dense", "ordinal"):
         try:

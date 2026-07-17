@@ -25,6 +25,7 @@ from mlframe.training.pipeline import create_polarsds_pipeline
 
 
 def _robust_scaled_max_abs(x: np.ndarray, q_low: float, q_high: float) -> float:
+    """Applies the robust-scaler preprocessing backend and returns the max absolute scaled value."""
     df = pl.DataFrame({"a": x.astype("float32")})
     cfg = PreprocessingBackendConfig(
         scaler_name="robust",

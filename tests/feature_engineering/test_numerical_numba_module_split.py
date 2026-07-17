@@ -15,6 +15,7 @@ from pathlib import Path
 
 
 def test_moved_symbols_still_importable() -> None:
+    """Moved symbols still importable."""
     from mlframe.feature_engineering.numerical import (
         compute_numerical_aggregates_numba,
         _make_compute_moments_slope_mi,
@@ -30,6 +31,7 @@ def test_moved_symbols_still_importable() -> None:
 
 
 def test_other_numerical_api_still_importable() -> None:
+    """Other numerical api still importable."""
     from mlframe.feature_engineering.numerical import (
         compute_numaggs,
         get_numaggs_names,
@@ -57,6 +59,7 @@ def test_other_numerical_api_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """Facade below 1k line threshold."""
     root = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "feature_engineering"
     facade = root / "numerical.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())
@@ -64,6 +67,7 @@ def test_facade_below_1k_line_threshold() -> None:
 
 
 def test_sibling_module_identity() -> None:
+    """Sibling module identity."""
     from mlframe.feature_engineering import numerical, _numerical_numba
 
     assert numerical.compute_numerical_aggregates_numba is _numerical_numba.compute_numerical_aggregates_numba

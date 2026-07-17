@@ -16,12 +16,14 @@ from mlframe.feature_engineering.control_difference_augment import control_diffe
 
 
 def _make_treated(n: int, label: int, seed: int, n_features: int) -> np.ndarray:
+    """Helper: Make treated."""
     rng = np.random.default_rng(seed)
     signal = 1.0 if label == 1 else 0.0
     return signal + rng.normal(0, 3.0, (n, n_features))
 
 
 def test_biz_val_control_difference_augment_improves_small_sample_generalization():
+    """Biz val control difference augment improves small sample generalization."""
     n_features = 50
     cols = [f"f{i}" for i in range(n_features)]
     n_train_per_class = 10
@@ -55,6 +57,7 @@ def test_biz_val_control_difference_augment_improves_small_sample_generalization
 
 
 def test_biz_val_control_difference_augment_multi_control_pairs_reduces_noise_variance():
+    """Biz val control difference augment multi control pairs reduces noise variance."""
     n_features = 30
     cols = [f"f{i}" for i in range(n_features)]
     n_treated = 200
@@ -77,6 +80,7 @@ def test_biz_val_control_difference_augment_multi_control_pairs_reduces_noise_va
 
 
 def test_control_difference_augment_multi_control_pairs_default_is_bit_identical():
+    """Control difference augment multi control pairs default is bit identical."""
     n_features = 10
     cols = [f"f{i}" for i in range(n_features)]
     rng = np.random.default_rng(3)
@@ -89,6 +93,7 @@ def test_control_difference_augment_multi_control_pairs_default_is_bit_identical
 
 
 def test_control_difference_augment_requires_at_least_two_control_rows():
+    """Control difference augment requires at least two control rows."""
     import pytest
 
     treated_df = pd.DataFrame({"f0": [1.0], "y": [1]})

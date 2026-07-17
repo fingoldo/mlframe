@@ -33,6 +33,7 @@ import pytest
 
 @pytest.fixture
 def calib_inputs():
+    """Calib inputs."""
     rng = np.random.default_rng(0)
     n_bins = 10
     freqs_pred = np.linspace(0.05, 0.95, n_bins)
@@ -42,7 +43,9 @@ def calib_inputs():
 
 
 class TestShowCalibrationPlot:
+    """Groups tests for: TestShowCalibrationPlot."""
     def test_legacy_path_unchanged(self, calib_inputs, tmp_path):
+        """Legacy path unchanged."""
         from mlframe.metrics.core import show_calibration_plot
 
         fp, ft, h = calib_inputs
@@ -60,6 +63,7 @@ class TestShowCalibrationPlot:
         assert os.path.exists(tmp_path / "legacy.png")
 
     def test_dsl_optin_matplotlib(self, calib_inputs, tmp_path):
+        """Dsl optin matplotlib."""
         from mlframe.metrics.core import show_calibration_plot
 
         fp, ft, h = calib_inputs
@@ -79,6 +83,7 @@ class TestShowCalibrationPlot:
         assert os.path.getsize(tmp_path / "dsl.png") > 5000
 
     def test_dsl_optin_plotly(self, calib_inputs, tmp_path):
+        """Dsl optin plotly."""
         from mlframe.metrics.core import show_calibration_plot
 
         fp, ft, h = calib_inputs
@@ -95,6 +100,7 @@ class TestShowCalibrationPlot:
         assert os.path.exists(tmp_path / "dsl.html")
 
     def test_dsl_dual_backend(self, calib_inputs, tmp_path):
+        """Dsl dual backend."""
         from mlframe.metrics.core import show_calibration_plot
 
         fp, ft, h = calib_inputs
@@ -119,6 +125,7 @@ class TestShowCalibrationPlot:
 
 @pytest.fixture
 def reg_inputs():
+    """Reg inputs."""
     rng = np.random.default_rng(0)
     n = 500
     y_true = rng.standard_normal(n) * 2.0
@@ -127,6 +134,7 @@ def reg_inputs():
 
 
 class TestPlotResidualDiagnostics:
+    """Groups tests for: TestPlotResidualDiagnostics."""
     def test_legacy_path_unchanged(self, reg_inputs):
         """Axes-based legacy path still works -- caller supplies axes."""
         import matplotlib
@@ -149,6 +157,7 @@ class TestPlotResidualDiagnostics:
         plt.close(fig)
 
     def test_dsl_optin_matplotlib(self, reg_inputs, tmp_path):
+        """Dsl optin matplotlib."""
         from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
 
         y, yp = reg_inputs
@@ -168,6 +177,7 @@ class TestPlotResidualDiagnostics:
         assert os.path.getsize(tmp_path / "resid.png") > 5000
 
     def test_dsl_optin_plotly(self, reg_inputs, tmp_path):
+        """Dsl optin plotly."""
         from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
 
         y, yp = reg_inputs
@@ -182,6 +192,7 @@ class TestPlotResidualDiagnostics:
         assert os.path.exists(tmp_path / "resid.html")
 
     def test_degenerate_input_returns_audit_no_crash(self, tmp_path):
+        """Degenerate input returns audit no crash."""
         from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
 
         # < 5 finite points -> legacy path returns audit (None); opt-in too.
@@ -224,7 +235,9 @@ def temporal_audit_result():
 
 
 class TestPlotTargetOverTime:
+    """Groups tests for: TestPlotTargetOverTime."""
     def test_legacy_path_unchanged(self, temporal_audit_result, tmp_path):
+        """Legacy path unchanged."""
         from mlframe.training.targets.target_temporal_audit import plot_target_over_time
 
         with warnings.catch_warnings():
@@ -237,6 +250,7 @@ class TestPlotTargetOverTime:
         assert os.path.exists(tmp_path / "legacy.png")
 
     def test_dsl_optin_matplotlib(self, temporal_audit_result, tmp_path):
+        """Dsl optin matplotlib."""
         from mlframe.training.targets.target_temporal_audit import plot_target_over_time
 
         with warnings.catch_warnings():
@@ -250,6 +264,7 @@ class TestPlotTargetOverTime:
         assert os.path.exists(tmp_path / "dsl.png")
 
     def test_dsl_optin_plotly(self, temporal_audit_result, tmp_path):
+        """Dsl optin plotly."""
         from mlframe.training.targets.target_temporal_audit import plot_target_over_time
 
         with warnings.catch_warnings():

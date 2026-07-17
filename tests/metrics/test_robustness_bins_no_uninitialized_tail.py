@@ -15,6 +15,7 @@ from mlframe.metrics._fairness_metrics import create_robustness_standard_bins
 
 @pytest.mark.parametrize("npoints,cont_nbins", [(103, 4), (1000, 7), (10, 3), (5, 8)])
 def test_order_bins_deterministic_and_valid(npoints, cont_nbins):
+    """Order bins deterministic and valid."""
     b1, uniq = create_robustness_standard_bins("**ORDER**", npoints, cont_nbins)
     b2, _ = create_robustness_standard_bins("**ORDER**", npoints, cont_nbins)
 
@@ -26,6 +27,7 @@ def test_order_bins_deterministic_and_valid(npoints, cont_nbins):
 
 @pytest.mark.parametrize("npoints,cont_nbins", [(103, 4), (1000, 7), (10, 3)])
 def test_random_bins_reproducible_for_same_seed(npoints, cont_nbins):
+    """Random bins reproducible for same seed."""
     r1, _ = create_robustness_standard_bins("**RANDOM**", npoints, cont_nbins, seed=0)
     r2, _ = create_robustness_standard_bins("**RANDOM**", npoints, cont_nbins, seed=0)
 
@@ -34,6 +36,7 @@ def test_random_bins_reproducible_for_same_seed(npoints, cont_nbins):
 
 
 def test_remainder_rows_fall_into_last_bin():
+    """Remainder rows fall into last bin."""
     npoints, cont_nbins = 103, 4
     bins, _ = create_robustness_standard_bins("**ORDER**", npoints, cont_nbins)
     step_size = npoints // cont_nbins

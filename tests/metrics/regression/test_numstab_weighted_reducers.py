@@ -34,6 +34,7 @@ from mlframe.metrics.regression._regression_metrics import (
     ],
 )
 def test_weighted_reducer_zero_weights_returns_nan_not_inf(fn):
+    """Weighted reducer zero weights returns nan not inf."""
     y_true = np.array([1.0, 2.0, 3.0, 4.0])
     y_pred = np.array([1.1, 1.9, 3.2, 3.8])
     w = np.zeros(4)
@@ -50,6 +51,7 @@ def test_weighted_reducer_zero_weights_returns_nan_not_inf(fn):
 )
 def test_weighted_reducer_normal_weights_unchanged(fn):
     # Guard must not perturb the normal (positive-weight) result.
+    """Weighted reducer normal weights unchanged."""
     y_true = np.array([1.0, 2.0, 3.0, 4.0])
     y_pred = np.array([1.1, 1.9, 3.2, 3.8])
     w = np.array([1.0, 2.0, 1.0, 1.0])

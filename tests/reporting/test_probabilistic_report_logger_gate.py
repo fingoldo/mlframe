@@ -40,6 +40,7 @@ def test_classification_report_skipped_when_info_filtered(monkeypatch):
     sklearn_call_count = {"n": 0}
 
     def _fake_classification_report(*args, **kwargs):
+        """Helper: Fake classification report."""
         sklearn_call_count["n"] += 1
         return "fake-report"
 

@@ -20,12 +20,14 @@ from mlframe.feature_engineering.transformer._utils import (
 
 
 def _ref(X: np.ndarray) -> int:
+    """Helper: Ref."""
     return int(np.count_nonzero(~np.isfinite(X)))
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("shape", [(1, 1), (10, 10), (50_000, 7), (2003, 5)])
 def test_count_matches_numpy_reference_clean(dtype, shape):
+    """Count matches numpy reference clean."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal(shape).astype(dtype)
     assert _count_nonfinite_cells(X) == _ref(X) == 0
@@ -33,6 +35,7 @@ def test_count_matches_numpy_reference_clean(dtype, shape):
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_count_matches_numpy_reference_mixed(dtype):
+    """Count matches numpy reference mixed."""
     rng = np.random.default_rng(1)
     X = rng.standard_normal((500, 8)).astype(dtype)
     X[3, 4] = np.nan
@@ -44,6 +47,7 @@ def test_count_matches_numpy_reference_mixed(dtype):
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def test_count_all_nan_and_all_inf(dtype):
+    """Count all nan and all inf."""
     nan_arr = np.full((4, 5), np.nan, dtype=dtype)
     inf_arr = np.full((4, 5), np.inf, dtype=dtype)
     neg_inf_arr = np.full((4, 5), -np.inf, dtype=dtype)
@@ -54,6 +58,7 @@ def test_count_all_nan_and_all_inf(dtype):
 
 def test_count_across_dispatch_boundary():
     # Just over the parallel threshold: exercises the prange path; result must match serial/numpy.
+    """Count across dispatch boundary."""
     n = (_NONFINITE_PAR_THRESHOLD // 2) + 10
     X = np.ones((n, 2), dtype=np.float32)
     X[5, 0] = np.nan
@@ -63,6 +68,7 @@ def test_count_across_dispatch_boundary():
 
 
 def test_validate_numeric_input_still_rejects_nonfinite():
+    """Validate numeric input still rejects nonfinite."""
     X = np.ones((10, 3), dtype=np.float32)
     X[2, 1] = np.nan
     with pytest.raises(ValueError, match="non-finite"):

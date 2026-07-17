@@ -14,6 +14,7 @@ from mlframe.reporting.charts.quantile import _width_dist_panel
 
 
 def test_width_dist_panel_handles_crossed_quantiles():
+    """Width dist panel handles crossed quantiles."""
     rng = np.random.default_rng(0)
     n = 100
     # Three alphas; deliberately CROSS them so the last column sits BELOW the first column for every row.
@@ -36,6 +37,7 @@ def test_width_dist_panel_handles_crossed_quantiles():
 
 
 def test_width_dist_panel_nan_safe_stats():
+    """Width dist panel nan safe stats."""
     rng = np.random.default_rng(1)
     n = 20
     alphas = [0.1, 0.9]

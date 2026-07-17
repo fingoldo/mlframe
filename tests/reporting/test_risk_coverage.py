@@ -38,6 +38,7 @@ def _random_confidence_binary(n=4000, seed=1):
 
 
 def test_compute_returns_curve_and_aurc():
+    """Compute returns curve and aurc."""
     y, score = _well_ranked_binary()
     cov, acc, risk, aurc, full_risk, sig = compute_risk_coverage(y, score, task="binary")
     assert cov.shape == acc.shape == risk.shape
@@ -51,6 +52,7 @@ def test_compute_returns_curve_and_aurc():
 
 
 def test_accuracy_rises_as_coverage_drops_when_well_ranked():
+    """Accuracy rises as coverage drops when well ranked."""
     y, score = _well_ranked_binary()
     cov, acc, _risk, aurc, full_risk, _sig = compute_risk_coverage(y, score, task="binary")
     # Accuracy on the most-confident 20% exceeds accuracy at full coverage.
@@ -61,6 +63,7 @@ def test_accuracy_rises_as_coverage_drops_when_well_ranked():
 
 
 def test_random_confidence_curve_is_flat():
+    """Random confidence curve is flat."""
     y, score = _random_confidence_binary()
     cov, acc, _risk, aurc, full_risk, _sig = compute_risk_coverage(y, score, task="binary")
     a20 = float(np.interp(0.2, cov, acc))
@@ -70,6 +73,7 @@ def test_random_confidence_curve_is_flat():
 
 
 def test_multiclass_top_prob_confidence():
+    """Multiclass top prob confidence."""
     rng = np.random.default_rng(3)
     n, k = 3000, 4
     y = rng.integers(0, k, n)
@@ -85,6 +89,7 @@ def test_multiclass_top_prob_confidence():
 
 
 def test_regression_error_drops_as_coverage_drops():
+    """Regression error drops as coverage drops."""
     rng = np.random.default_rng(5)
     n = 4000
     yt = rng.normal(0, 1, n)
@@ -98,6 +103,7 @@ def test_regression_error_drops_as_coverage_drops():
 
 
 def test_constant_confidence_flat_no_signal():
+    """Constant confidence flat no signal."""
     rng = np.random.default_rng(7)
     n = 1000
     y = rng.integers(0, 2, n)
@@ -111,6 +117,7 @@ def test_constant_confidence_flat_no_signal():
 
 
 def test_nan_rows_dropped():
+    """Nan rows dropped."""
     y = np.array([0, 1, 1, 0, 1])
     score = np.array([0.1, np.nan, 0.9, 0.2, 0.8])
     cov, _acc, _risk, _aurc, _full_risk, _sig = compute_risk_coverage(y, score, task="binary")
@@ -119,6 +126,7 @@ def test_nan_rows_dropped():
 
 
 def test_empty_after_drop():
+    """Empty after drop."""
     y = np.array([0, 1])
     score = np.array([np.nan, np.nan])
     _cov, _acc, risk, _aurc, _full_risk, sig = compute_risk_coverage(y, score, task="binary")
@@ -127,6 +135,7 @@ def test_empty_after_drop():
 
 
 def test_tiny_n():
+    """Tiny n."""
     y = np.array([0, 1, 1])
     score = np.array([0.2, 0.6, 0.9])
     cov, _acc, _risk, _aurc, _full_risk, _sig = compute_risk_coverage(y, score, task="binary")
@@ -134,6 +143,7 @@ def test_tiny_n():
 
 
 def test_spec_has_random_reference_line():
+    """Spec has random reference line."""
     y, score = _well_ranked_binary()
     res = build_risk_coverage_spec(y, score, task="binary", model_label="m")
     assert isinstance(res.figure, FigureSpec)
@@ -147,6 +157,7 @@ def test_spec_has_random_reference_line():
 
 
 def test_decimation_caps_plotted_points():
+    """Decimation caps plotted points."""
     rng = np.random.default_rng(9)
     n = 50_000
     y = rng.integers(0, 2, n)
@@ -159,5 +170,6 @@ def test_decimation_caps_plotted_points():
 
 
 def test_regression_requires_confidence():
+    """Regression requires confidence."""
     with pytest.raises(ValueError):
         compute_risk_coverage(np.zeros(5), np.zeros(5), task="regression")

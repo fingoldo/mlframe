@@ -40,11 +40,13 @@ from mlframe.training.targets import audit_residuals
 
 
 def _flat(fig):
+    """Helper: Flat."""
     return [p for row in fig.panels for p in row if p is not None]
 
 
 @pytest.fixture
 def synth_reg():
+    """Synth reg."""
     rng = np.random.default_rng(0)
     n = 2000
     yt = rng.normal(0.0, 1.0, n)
@@ -53,12 +55,14 @@ def synth_reg():
 
 
 def test_allowed_tokens_include_core_and_diagnostics():
+    """Allowed tokens include core and diagnostics."""
     assert ALLOWED_REGRESSION_PANEL_TOKENS == frozenset({"SCATTER", "RESID_HIST", "RESID_VS_PRED", "ERR_BY_DECILE", "WORM", "RESID_ACF"})
     # Default template is the integrator's concern; WORM / RESID_ACF are opt-in via the template until wired.
     assert DEFAULT_REGRESSION_PANELS == "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE"
 
 
 def test_default_template_packs_four_panels(synth_reg):
+    """Default template packs four panels."""
     yt, yp = synth_reg
     fig = compose_regression_figure(yt, yp, audit=audit_residuals(yt, yp))
     panels = _flat(fig)
@@ -68,12 +72,14 @@ def test_default_template_packs_four_panels(synth_reg):
 
 
 def test_unknown_token_raises(synth_reg):
+    """Unknown token raises."""
     yt, yp = synth_reg
     with pytest.raises(ValueError, match="Unknown regression panel tokens"):
         compose_regression_figure(yt, yp, panels_template="SCATTER BOGUS")
 
 
 def test_scatter_has_perfect_fit_diagonal(synth_reg):
+    """Scatter has perfect fit diagonal."""
     yt, yp = synth_reg
     fig = compose_regression_figure(yt, yp, panels_template="SCATTER")
     sc = _flat(fig)[0]
@@ -82,6 +88,7 @@ def test_scatter_has_perfect_fit_diagonal(synth_reg):
 
 
 def test_scatter_subsample_keeps_max_error_and_shows_count():
+    """Scatter subsample keeps max error and shows count."""
     rng = np.random.default_rng(1)
     n = 12_000
     yt = rng.normal(0.0, 1.0, n)
@@ -95,6 +102,7 @@ def test_scatter_subsample_keeps_max_error_and_shows_count():
 
 
 def test_scatter_density_heatmap_above_threshold():
+    """Scatter density heatmap above threshold."""
     rng = np.random.default_rng(2)
     n = DEFAULT_HEXBIN_THRESHOLD + 5_000
     yt = rng.normal(0.0, 1.0, n)
@@ -107,6 +115,7 @@ def test_scatter_density_heatmap_above_threshold():
 
 
 def test_resid_vs_pred_has_iqr_band(synth_reg):
+    """Resid vs pred has iqr band."""
     yt, yp = synth_reg
     fig = compose_regression_figure(yt, yp, audit=audit_residuals(yt, yp), panels_template="RESID_VS_PRED")
     line = _flat(fig)[0]
@@ -117,6 +126,7 @@ def test_resid_vs_pred_has_iqr_band(synth_reg):
 
 
 def test_legacy_adapter_two_panel_keeps_figsize(synth_reg):
+    """Legacy adapter two panel keeps figsize."""
     yt, yp = synth_reg
     fig = build_regression_panel_spec(
         yt,
@@ -133,6 +143,7 @@ def test_legacy_adapter_two_panel_keeps_figsize(synth_reg):
 
 
 def test_audit_none_does_not_crash(synth_reg):
+    """Audit none does not crash."""
     yt, yp = synth_reg
     fig = compose_regression_figure(yt, yp, audit=None)
     assert len(_flat(fig)) == 4
@@ -140,6 +151,7 @@ def test_audit_none_does_not_crash(synth_reg):
 
 @pytest.mark.parametrize("backend", ["matplotlib[png]", "plotly[html]"])
 def test_render_smoke(synth_reg, tmp_path, backend):
+    """Render smoke."""
     yt, yp = synth_reg
     fig = compose_regression_figure(yt, yp, audit=audit_residuals(yt, yp), suptitle="S")
     base = os.path.join(str(tmp_path), "reg")

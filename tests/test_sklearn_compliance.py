@@ -16,6 +16,7 @@ from mlframe.estimators.base import ClassifierWithEarlyStopping
 
 @pytest.fixture
 def xy():
+    """Helper that xy."""
     rng = np.random.default_rng(0)
     X = rng.uniform(0.01, 0.99, size=(50, 3))
     y = rng.integers(0, 2, size=50)
@@ -27,6 +28,7 @@ def xy():
 
 @pytest.mark.parametrize("cls", [ArithmAvgClassifier, GeomAvgClassifier])
 def test_avg_classifier_sklearn_compliance(cls, xy):
+    """Avg classifier sklearn compliance."""
     X, y = xy
     clf = cls(nprobs=2)
     clf.fit(X, y)
@@ -46,12 +48,14 @@ def test_avg_classifier_sklearn_compliance(cls, xy):
 
 
 def test_avg_classifier_predict_requires_fit():
+    """Avg classifier predict requires fit."""
     clf = ArithmAvgClassifier(nprobs=2)
     with pytest.raises(NotFittedError):
         clf.predict(np.ones((3, 3)))
 
 
 def test_classifier_with_early_stopping_proxies_predict_proba():
+    """Classifier with early stopping proxies predict proba."""
     rng = np.random.default_rng(1)
     X = rng.normal(size=(60, 4))
     y = (X[:, 0] > 0).astype(int)
@@ -70,6 +74,7 @@ def test_classifier_with_early_stopping_proxies_predict_proba():
 
 def test_cluster_module_imports_cleanly():
     # regression guard for DBSCAN NameError at cluster.py:26
+    """Cluster module imports cleanly."""
     import mlframe.preprocessing.cluster as cluster
 
     assert hasattr(cluster, "DBSCAN")
@@ -77,6 +82,7 @@ def test_cluster_module_imports_cleanly():
 
 
 def test_get_model_best_iter_with_pipeline():
+    """Get model best iter with pipeline."""
     lgbm = pytest.importorskip("lightgbm")
     from mlframe.core.helpers import get_model_best_iter
 
@@ -100,6 +106,7 @@ def test_get_model_best_iter_with_pipeline():
 def test_feature_importance_sign_check_uses_sorted_order():
     # Regression: sign check must index via sorted_idx[0], not raw [0].
     # Simulate: feature_importances with a negative min NOT at index 0 => previous logic missed the branch.
+    """Feature importance sign check uses sorted order."""
     import numpy as np
 
     feature_importances = np.array([0.5, -0.3, 0.1])

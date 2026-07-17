@@ -80,6 +80,7 @@ def _parse_docstring_params(docstring: str | None) -> list[str]:
 
 
 def _config_classes() -> list[type[BaseModel]]:
+    """Helper that config classes."""
     out = []
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
         if not (issubclass(obj, BaseModel) and obj is not BaseModel):

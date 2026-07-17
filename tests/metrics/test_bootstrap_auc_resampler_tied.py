@@ -22,12 +22,14 @@ from mlframe.metrics._core_auc_brier import (
 
 
 def _exact(y, s, idx):
+    """Helper: Exact."""
     return fast_roc_auc_unstable(y[idx], s[idx])
 
 
 @pytest.mark.parametrize("ndistinct", [2, 5, 20, 200])
 @pytest.mark.parametrize("n", [500, 5000, 50000])
 def test_tied_resampler_bit_identical(n, ndistinct):
+    """Tied resampler bit identical."""
     rng = np.random.default_rng(ndistinct * 1000 + n)
     raw = rng.random(n)
     score = np.round(raw * (ndistinct - 1)) / (ndistinct - 1)  # tied / low-cardinality

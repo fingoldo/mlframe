@@ -33,7 +33,9 @@ def _scipy_per_row(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
 
 
 class TestSpearmanrBatchedNumpy:
+    """Groups tests for: TestSpearmanrBatchedNumpy."""
     def test_random_pairs_match_scipy(self) -> None:
+        """Random pairs match scipy."""
         from mlframe.metrics.rank_correlation import spearmanr_batched
 
         rng = np.random.default_rng(0)
@@ -44,6 +46,7 @@ class TestSpearmanrBatchedNumpy:
         np.testing.assert_allclose(got, ref, atol=1e-10, equal_nan=True)
 
     def test_correlated_pairs_close_to_1(self) -> None:
+        """Correlated pairs close to 1."""
         from mlframe.metrics.rank_correlation import spearmanr_batched
 
         rng = np.random.default_rng(1)
@@ -53,6 +56,7 @@ class TestSpearmanrBatchedNumpy:
         assert (got > 0.95).all(), got
 
     def test_anti_correlated_close_to_neg1(self) -> None:
+        """Anti correlated close to neg1."""
         from mlframe.metrics.rank_correlation import spearmanr_batched
 
         rng = np.random.default_rng(2)
@@ -83,6 +87,7 @@ class TestSpearmanrBatchedNumpy:
         np.testing.assert_allclose(got, ref, atol=1e-10, equal_nan=True)
 
     def test_nan_row_yields_nan(self) -> None:
+        """Nan row yields nan."""
         from mlframe.metrics.rank_correlation import spearmanr_batched
 
         X = np.array([[1.0, 2.0, 3.0, np.nan], [1.0, 2.0, 3.0, 4.0]])
@@ -92,6 +97,7 @@ class TestSpearmanrBatchedNumpy:
         assert got[1] == pytest.approx(1.0)
 
     def test_constant_row_yields_nan(self) -> None:
+        """Constant row yields nan."""
         from mlframe.metrics.rank_correlation import spearmanr_batched
 
         X = np.array([[1.0, 1.0, 1.0, 1.0]])
@@ -100,6 +106,7 @@ class TestSpearmanrBatchedNumpy:
         assert np.isnan(got[0])
 
     def test_shape_mismatch_raises(self) -> None:
+        """Shape mismatch raises."""
         from mlframe.metrics.rank_correlation import spearmanr_batched
 
         X = np.ones((5, 10))
@@ -108,6 +115,7 @@ class TestSpearmanrBatchedNumpy:
             spearmanr_batched(X, Y)
 
     def test_1d_input_raises(self) -> None:
+        """1d input raises."""
         from mlframe.metrics.rank_correlation import spearmanr_batched
 
         X = np.arange(10.0)
@@ -117,7 +125,9 @@ class TestSpearmanrBatchedNumpy:
 
 
 class TestSpearmanrBatchedNumba:
+    """Groups tests for: TestSpearmanrBatchedNumba."""
     def test_numpy_and_numba_agree(self) -> None:
+        """Numpy and numba agree."""
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import (
             spearmanr_batched,
@@ -132,6 +142,7 @@ class TestSpearmanrBatchedNumba:
         np.testing.assert_allclose(got_np, got_nb, atol=1e-10, equal_nan=True)
 
     def test_numba_handles_ties_like_scipy(self) -> None:
+        """Numba handles ties like scipy."""
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import spearmanr_batched_numba
 
@@ -152,6 +163,7 @@ class TestSpearmanrBatchedNumba:
         np.testing.assert_allclose(got, ref, atol=1e-10, equal_nan=True)
 
     def test_numba_nan_propagation(self) -> None:
+        """Numba nan propagation."""
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import spearmanr_batched_numba
 
@@ -163,6 +175,7 @@ class TestSpearmanrBatchedNumba:
 
 
 class TestDispatcher:
+    """Groups tests for: TestDispatcher."""
     def test_small_n_uses_numpy(self) -> None:
         """Below the threshold dispatch returns the numpy path -- check
         by running on tiny input and comparing to numpy."""
@@ -181,6 +194,7 @@ class TestDispatcher:
         np.testing.assert_allclose(got_disp, got_np, atol=1e-12, equal_nan=True)
 
     def test_large_n_uses_numba_when_available(self) -> None:
+        """Large n uses numba when available."""
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import (
             spearmanr_batched,
@@ -202,6 +216,7 @@ class TestSpearmanScalarKernel:
     """Single-series Spearman routes through the within-series parallel njit kernel and stays bit-identical to the scipy ``rankdata`` path."""
 
     def test_scalar_dispatch_matches_numpy_continuous(self) -> None:
+        """Scalar dispatch matches numpy continuous."""
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import (
             spearmanr_scalar_dispatch,
@@ -216,6 +231,7 @@ class TestSpearmanScalarKernel:
         assert abs(got - ref) < 1e-9
 
     def test_scalar_dispatch_matches_numpy_tied(self) -> None:
+        """Scalar dispatch matches numpy tied."""
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import (
             spearmanr_scalar_dispatch,
@@ -242,6 +258,7 @@ class TestSpearmanScalarKernel:
         orig = rc._spearmanr_scalar_njit
 
         def spy(x, y):
+            """Spy."""
             calls["n"] += 1
             return orig(x, y)
 
@@ -256,6 +273,7 @@ class TestSpearmanScalarKernel:
         assert 0.9 < rho <= 1.0
 
     def test_scalar_edge_cases(self) -> None:
+        """Scalar edge cases."""
         pytest.importorskip("numba")
         from mlframe.metrics.rank_correlation import spearmanr_scalar_dispatch
 

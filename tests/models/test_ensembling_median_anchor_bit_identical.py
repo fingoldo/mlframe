@@ -11,6 +11,7 @@ from mlframe.models.ensembling.predict import ensemble_probabilistic_predictions
 
 
 def test_median_anchor_matches_quantile_q05_bit_identical():
+    """Median anchor matches quantile q05 bit identical."""
     rng = np.random.default_rng(7)
     preds = [np.clip(rng.beta(2, 2, (40000, 2)), 0.01, 0.99) for _ in range(5)]
     preds.append(np.clip(rng.beta(8, 2, (40000, 2)), 0.01, 0.99))  # an outlier member, so the >2-member gate path runs

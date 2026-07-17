@@ -16,6 +16,7 @@ from mlframe.feature_engineering.entity_inter_event import entity_inter_event_fe
 
 
 def _make_entity_tempo_data(n_entities: int, events_per_entity: int, seed: int):
+    """Helper: Make entity tempo data."""
     rng = np.random.default_rng(seed)
     entity_ids = np.repeat(np.arange(n_entities), events_per_entity)
     # half the entities are "bursty" (small inter-event gaps, fraud-like), half "steady" (large gaps).
@@ -37,6 +38,7 @@ def _make_entity_tempo_data(n_entities: int, events_per_entity: int, seed: int):
 
 
 def test_entity_inter_event_features_returns_expected_keys_and_shapes():
+    """Entity inter event features returns expected keys and shapes."""
     entity_ids, timestamps, _ = _make_entity_tempo_data(5, 4, seed=0)
     out = entity_inter_event_features(entity_ids, timestamps)
     for key in ("time_since_prev_event", "time_to_next_event", "group_mean_time_delta", "group_std_time_delta", "group_median_time_delta"):
@@ -45,6 +47,7 @@ def test_entity_inter_event_features_returns_expected_keys_and_shapes():
 
 
 def test_entity_inter_event_features_first_and_last_row_of_group_are_nan():
+    """Entity inter event features first and last row of group are nan."""
     entity_ids = np.array([1, 1, 1, 2, 2])
     timestamps = np.array([0.0, 5.0, 12.0, 100.0, 108.0])
     out = entity_inter_event_features(entity_ids, timestamps)
@@ -57,6 +60,7 @@ def test_entity_inter_event_features_first_and_last_row_of_group_are_nan():
 
 
 def test_entity_inter_event_features_value_col_adds_value_stats():
+    """Entity inter event features value col adds value stats."""
     entity_ids = np.array([1, 1, 2, 2])
     timestamps = np.array([0.0, 1.0, 0.0, 1.0])
     values = np.array([10.0, 20.0, 100.0, 300.0])
@@ -66,6 +70,7 @@ def test_entity_inter_event_features_value_col_adds_value_stats():
 
 
 def test_entity_inter_event_features_group_stat_constant_within_entity():
+    """Entity inter event features group stat constant within entity."""
     entity_ids, timestamps, _ = _make_entity_tempo_data(6, 8, seed=1)
     out = entity_inter_event_features(entity_ids, timestamps)
     for e in np.unique(entity_ids):
@@ -104,6 +109,7 @@ def _make_entity_tempo_shift_data(n_entities: int, events_per_entity: int, switc
 
 
 def test_biz_val_entity_windowed_time_delta_tracks_recent_tempo_shift_vs_whole_history():
+    """Biz val entity windowed time delta tracks recent tempo shift vs whole history."""
     entity_ids, timestamps, recent_gap_row, eval_mask = _make_entity_tempo_shift_data(n_entities=200, events_per_entity=60, switch_idx=50, seed=42)
     out = entity_inter_event_features(entity_ids, timestamps, window_size=5)
 
@@ -120,6 +126,7 @@ def test_biz_val_entity_windowed_time_delta_tracks_recent_tempo_shift_vs_whole_h
 
 
 def test_biz_val_entity_windowed_time_delta_default_omitted_matches_whole_history_only():
+    """Biz val entity windowed time delta default omitted matches whole history only."""
     entity_ids, timestamps, _, _ = _make_entity_tempo_shift_data(n_entities=20, events_per_entity=20, switch_idx=15, seed=7)
     out_default = entity_inter_event_features(entity_ids, timestamps)
     out_windowed = entity_inter_event_features(entity_ids, timestamps, window_size=4)
@@ -131,6 +138,7 @@ def test_biz_val_entity_windowed_time_delta_default_omitted_matches_whole_histor
 
 
 def test_entity_inter_event_features_window_size_matches_hand_computed_trailing_mean():
+    """Entity inter event features window size matches hand computed trailing mean."""
     entity_ids = np.array([1, 1, 1, 1, 1])
     timestamps = np.array([0.0, 10.0, 22.0, 27.0, 47.0])  # gaps: nan, 10, 12, 5, 20
     out = entity_inter_event_features(entity_ids, timestamps, window_size=2)
@@ -143,6 +151,7 @@ def test_entity_inter_event_features_window_size_matches_hand_computed_trailing_
 
 
 def test_entity_inter_event_features_window_time_excludes_future_events():
+    """Entity inter event features window time excludes future events."""
     entity_ids = np.array([1, 1, 1, 1])
     timestamps = np.array([0.0, 5.0, 6.0, 20.0])  # gaps: nan, 5, 1, 14
     out = entity_inter_event_features(entity_ids, timestamps, window_time=3.0)
@@ -154,6 +163,7 @@ def test_entity_inter_event_features_window_time_excludes_future_events():
 
 
 def test_entity_inter_event_features_window_size_and_window_time_mutually_exclusive():
+    """Entity inter event features window size and window time mutually exclusive."""
     entity_ids = np.array([1, 1])
     timestamps = np.array([0.0, 1.0])
     try:
@@ -164,6 +174,7 @@ def test_entity_inter_event_features_window_size_and_window_time_mutually_exclus
 
 
 def test_biz_val_entity_group_mean_gap_predicts_target_while_raw_timestamp_does_not():
+    """Biz val entity group mean gap predicts target while raw timestamp does not."""
     entity_ids, timestamps, y = _make_entity_tempo_data(n_entities=200, events_per_entity=10, seed=42)
     out = entity_inter_event_features(entity_ids, timestamps)
 

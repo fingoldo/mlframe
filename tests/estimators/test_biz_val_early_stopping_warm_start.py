@@ -38,10 +38,12 @@ from mlframe.estimators.early_stopping import EarlyStoppingWrapper
 
 
 def _rmse(y_true, y_pred):
+    """Helper that rmse."""
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
 def _clf_data(seed=1, n=400, d=8):
+    """Helper that clf data."""
     rng = np.random.RandomState(seed)
     X = rng.randn(n, d).astype(np.float64)
     w = np.array([1.6, -1.3, 0.9, -0.5] + [0.0] * (d - 4))
@@ -50,6 +52,7 @@ def _clf_data(seed=1, n=400, d=8):
 
 
 def _reg_data(seed=1, n=400, d=8):
+    """Helper that reg data."""
     rng = np.random.RandomState(seed)
     X = rng.randn(n, d).astype(np.float64)
     w = np.array([2.0, -1.5, 1.0, -0.7] + [0.0] * (d - 4))
@@ -72,6 +75,7 @@ _REG_FACTORIES = {
 
 
 def _fit_es(factory, X, y, **kw):
+    """Helper that fit es."""
     kw.setdefault("patience", 6)
     es = EarlyStoppingWrapper(factory(), max_iter=_MAX_N, validation_fraction=0.15, **kw)
     with warnings.catch_warnings():
@@ -87,6 +91,7 @@ def _fit_es(factory, X, y, **kw):
 
 @pytest.mark.parametrize("name", sorted(_CLF_FACTORIES))
 def test_biz_val_warm_classifier_no_accuracy_loss(name):
+    """Warm classifier no accuracy loss."""
     X, y = _clf_data()
     # patience >= max count so ES evaluates the WHOLE count curve; its val-argmax snapshot is then provably
     # >= the full-grown model on that same val fold (bagging ensembles like RF/ET don't overfit with more
@@ -112,6 +117,7 @@ def test_biz_val_warm_classifier_no_accuracy_loss(name):
 
 @pytest.mark.parametrize("name", sorted(_REG_FACTORIES))
 def test_biz_val_warm_regressor_no_rmse_loss(name):
+    """Warm regressor no rmse loss."""
     X, y = _reg_data()
     # monotonic_decline_patience=None: full-curve no-loss comparison (see classifier test) -- disable BOTH
     # stop signals so the noisy bagging val curve isn't truncated by a spurious strict-decline run.
@@ -138,6 +144,7 @@ def test_biz_val_warm_regressor_no_rmse_loss(name):
 def test_biz_val_warm_gb_classifier_stops_early_on_noise():
     # Pure-noise target: extra boosting stages only overfit train, so the best val stage is early and
     # patience trips well before the max count -- the work-saving win.
+    """Warm gb classifier stops early on noise."""
     rng = np.random.RandomState(7)
     X = rng.randn(500, 10)
     y = rng.randint(0, 2, size=500)
@@ -148,6 +155,7 @@ def test_biz_val_warm_gb_classifier_stops_early_on_noise():
 
 
 def test_biz_val_warm_rf_regressor_stops_early_on_noise():
+    """Warm rf regressor stops early on noise."""
     rng = np.random.RandomState(11)
     X = rng.randn(400, 8)
     y = rng.randn(400)  # noise target: more trees don't help held-out val.
@@ -162,6 +170,7 @@ def test_biz_val_warm_rf_regressor_stops_early_on_noise():
 
 def test_start_iter_defers_patience_counting():
     # With start_iter past the point patience would otherwise trip, ES must run to the max count.
+    """Start iter defers patience counting."""
     rng = np.random.RandomState(7)
     X = rng.randn(400, 10)
     y = rng.randint(0, 2, size=400)
@@ -173,6 +182,7 @@ def test_start_iter_defers_patience_counting():
 
 
 def test_max_runtime_mins_stops_quickly():
+    """Max runtime mins stops quickly."""
     X, y = _reg_data()
     # Near-zero budget: the wall-clock guard must break after the first growth step, not run to max_iter.
     es = EarlyStoppingWrapper(
@@ -195,6 +205,7 @@ def test_max_runtime_mins_stops_quickly():
 
 
 def test_non_early_stoppable_estimator_raises_clear_error():
+    """Non early stoppable estimator raises clear error."""
     from sklearn.neighbors import KNeighborsClassifier  # no partial_fit / staged / warm_start.
 
     es = EarlyStoppingWrapper(KNeighborsClassifier(), max_iter=10)
@@ -205,6 +216,7 @@ def test_non_early_stoppable_estimator_raises_clear_error():
 
 def test_warm_start_estimators_were_discovered():
     # Dynamic discovery of warm-start-capable, non-partial_fit estimators so new ones are auto-covered.
+    """Warm start estimators were discovered."""
     found = []
     for name, Est in all_estimators(type_filter=["classifier", "regressor"]):
         if "partial_fit" in dir(Est) or "staged_predict" in dir(Est):

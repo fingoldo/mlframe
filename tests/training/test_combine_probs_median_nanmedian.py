@@ -22,6 +22,7 @@ from mlframe.models.ensembling import combine_probs
 
 
 def test_combine_probs_median_matches_np_quantile_legacy_oracle():
+    """combine_probs median mode matches the legacy np.quantile(..., 0.5) oracle bit-for-bit."""
     rng = np.random.default_rng(0)
     # (K, N, C) shape: 3 members, 1000 samples, 4 classes.
     stacked = rng.random((3, 1_000, 4))

@@ -19,12 +19,14 @@ _FUNCS = [fast_r2_score, fast_mean_absolute_error, fast_mean_squared_error, fast
 
 @pytest.mark.parametrize("fn", _FUNCS, ids=[f.__name__ for f in _FUNCS])
 def test_empty_input_raises_valueerror_not_silent_nan(fn):
+    """Empty input raises valueerror not silent nan."""
     with pytest.raises(ValueError, match="0 sample"):
         fn(np.array([], dtype=float), np.array([], dtype=float))
 
 
 @pytest.mark.parametrize("fn", _FUNCS, ids=[f.__name__ for f in _FUNCS])
 def test_nonempty_input_still_computes(fn):
+    """Nonempty input still computes."""
     yt = np.array([1.0, 2.0, 3.0, 4.0])
     yp = np.array([1.1, 1.9, 3.2, 3.7])
     val = np.asarray(fn(yt, yp), dtype=float)

@@ -52,6 +52,7 @@ _SCALE_SEEDS = (0, 17, 42)
 
 
 def _validate_scale(loader_fn, builder, target_model, target_metric, claimed_lift, label):
+    """Helper: Validate scale."""
     X_full, y_full, task = loader_fn()
     print(f"\n  Dataset shape: {X_full.shape}  task: {task}")
     lifts = []
@@ -614,15 +615,18 @@ class _StratifiedKFoldYBound:
     """
 
     def __init__(self, n_splits, shuffle, random_state, y):
+        """Helper: Init  ."""
         from sklearn.model_selection import StratifiedKFold
 
         self._inner = StratifiedKFold(n_splits=n_splits, shuffle=shuffle, random_state=random_state)
         self._y = y
 
     def split(self, X, y=None, groups=None):
+        """Split."""
         return self._inner.split(X, self._y if y is None else y)
 
     def get_n_splits(self, X=None, y=None, groups=None):
+        """Get n splits."""
         return self._inner.get_n_splits(X, y, groups)
 
 

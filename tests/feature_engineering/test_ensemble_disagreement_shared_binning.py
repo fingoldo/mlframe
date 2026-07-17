@@ -15,6 +15,7 @@ from mlframe.feature_engineering import ensemble_features as ef
 
 @pytest.mark.parametrize("n,k,n_bins", [(2000, 8, 5), (1500, 20, 7), (500, 3, 4)])
 def test_builder_entropy_top2_bit_identical_to_standalone(n: int, k: int, n_bins: int) -> None:
+    """Builder entropy top2 bit identical to standalone."""
     rng = np.random.default_rng(n + k + n_bins)
     preds = rng.standard_normal((n, k)).astype(np.float64)
 
@@ -39,6 +40,7 @@ def test_shared_counts_helpers_match_full_pipeline() -> None:
 
 
 def test_nan_rows_still_handled_in_shared_path() -> None:
+    """Nan rows still handled in shared path."""
     rng = np.random.default_rng(99)
     preds = rng.standard_normal((400, 8)).astype(np.float64)
     preds[3, :] = np.nan  # all-non-finite row -> coerced to 0.0

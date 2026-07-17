@@ -23,6 +23,7 @@ from mlframe.models.masked_multilabel_objective import (
 
 
 def _make_recommendation_data(n_rows: int, n_labels: int, n_features: int, seed: int):
+    """Helper: Make recommendation data."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n_rows, n_features))
     true_logit = X[:, :n_labels] * 1.5
@@ -40,6 +41,7 @@ def _make_recommendation_data(n_rows: int, n_labels: int, n_features: int, seed:
 
 
 def test_biz_val_masked_objective_beats_naive_negative_coding():
+    """Biz val masked objective beats naive negative coding."""
     n_rows, n_labels, n_features = 3000, 5, 8
     X_flat, y_new_acquire, already_owned = _make_recommendation_data(n_rows, n_labels, n_features, seed=1)
 
@@ -74,6 +76,7 @@ def test_biz_val_masked_objective_beats_naive_negative_coding():
 
 
 def test_flatten_masked_multilabel_sentinel_marks_dont_care_cells():
+    """Flatten masked multilabel sentinel marks dont care cells."""
     y = np.array([[1.0, 0.0], [0.0, 1.0]])
     mask = np.array([[True, False], [False, False]])
     flat = flatten_masked_multilabel(y, mask, sentinel=2.0)
@@ -81,6 +84,7 @@ def test_flatten_masked_multilabel_sentinel_marks_dont_care_cells():
 
 
 def test_flatten_masked_multilabel_rejects_invalid_sentinel():
+    """Flatten masked multilabel rejects invalid sentinel."""
     import pytest
 
     y = np.array([[1.0, 0.0]])
@@ -90,11 +94,15 @@ def test_flatten_masked_multilabel_rejects_invalid_sentinel():
 
 
 def test_masked_objective_zeroes_gradient_and_hessian_at_sentinel():
+    """Masked objective zeroes gradient and hessian at sentinel."""
     class _FakeDMatrix:
+        """Groups tests for: FakeDMatrix."""
         def __init__(self, labels: np.ndarray) -> None:
+            """Helper: Init  ."""
             self._labels = labels
 
         def get_label(self) -> np.ndarray:
+            """Get label."""
             return self._labels
 
     objective = masked_multilabel_logloss_objective(sentinel=2.0)
@@ -132,6 +140,7 @@ def test_biz_val_masked_objective_class_weighting_beats_uniform_on_rare_labels()
     # the common class (40% positive, ~10x the other classes' sample-weighted gradient mass) crowds out the
     # rare classes' splits under uniform weighting. This is precisely the shared-capacity effect inverse-
     # frequency weighting is meant to counter.
+    """Biz val masked objective class weighting beats uniform on rare labels."""
     n_rows, n_features = 5000, 8
     X_flat, y, dont_care_mask, n_labels = _make_imbalanced_multilabel_data(n_rows, n_features, seed=3)
 
@@ -176,13 +185,17 @@ def test_masked_objective_use_sample_weight_default_off_is_bit_identical():
     """Omitting use_sample_weight must reproduce the pre-extension objective exactly (no DMatrix.get_weight call)."""
 
     class _FakeDMatrix:
+        """Groups tests for: FakeDMatrix."""
         def __init__(self, labels: np.ndarray) -> None:
+            """Helper: Init  ."""
             self._labels = labels
 
         def get_label(self) -> np.ndarray:
+            """Get label."""
             return self._labels
 
         def get_weight(self) -> np.ndarray:
+            """Get weight."""
             raise AssertionError("get_weight() must not be called when use_sample_weight is left at its default (False).")
 
     y_true = np.array([0.0, 1.0, 2.0])
@@ -194,15 +207,20 @@ def test_masked_objective_use_sample_weight_default_off_is_bit_identical():
 
 
 def test_masked_objective_use_sample_weight_scales_grad_and_hess():
+    """Masked objective use sample weight scales grad and hess."""
     class _FakeDMatrix:
+        """Groups tests for: FakeDMatrix."""
         def __init__(self, labels: np.ndarray, weight: np.ndarray) -> None:
+            """Helper: Init  ."""
             self._labels = labels
             self._weight = weight
 
         def get_label(self) -> np.ndarray:
+            """Get label."""
             return self._labels
 
         def get_weight(self) -> np.ndarray:
+            """Get weight."""
             return self._weight
 
     y_true = np.array([0.0, 1.0, 2.0])
@@ -217,16 +235,21 @@ def test_masked_objective_use_sample_weight_scales_grad_and_hess():
 
 
 def test_masked_objective_use_sample_weight_rejects_missing_weight():
+    """Masked objective use sample weight rejects missing weight."""
     import pytest
 
     class _FakeDMatrix:
+        """Groups tests for: FakeDMatrix."""
         def __init__(self, labels: np.ndarray) -> None:
+            """Helper: Init  ."""
             self._labels = labels
 
         def get_label(self) -> np.ndarray:
+            """Get label."""
             return self._labels
 
         def get_weight(self) -> np.ndarray:
+            """Get weight."""
             return np.array([])
 
     y_true = np.array([0.0, 1.0, 2.0])
@@ -236,6 +259,7 @@ def test_masked_objective_use_sample_weight_rejects_missing_weight():
 
 
 def test_flatten_masked_multilabel_class_weights_uniform_default():
+    """Flatten masked multilabel class weights uniform default."""
     y = np.array([[1.0, 0.0], [0.0, 1.0]])
     mask = np.array([[False, False], [False, True]])
     weights = flatten_masked_multilabel_class_weights(y, mask)
@@ -243,6 +267,7 @@ def test_flatten_masked_multilabel_class_weights_uniform_default():
 
 
 def test_compute_inverse_frequency_class_weights_upweights_rare_class():
+    """Compute inverse frequency class weights upweights rare class."""
     y = np.array([[1.0, 1.0], [0.0, 0.0], [1.0, 0.0], [0.0, 0.0], [1.0, 0.0]])
     mask = np.zeros_like(y, dtype=bool)
     weights = compute_inverse_frequency_class_weights(y, mask)

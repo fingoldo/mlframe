@@ -22,6 +22,7 @@ from mlframe.feature_engineering.sequence2vec_categorical import (
 
 
 def _make_cluster_df(rng: np.random.Generator, n_entities: int, entity_offset: int = 0) -> tuple[pd.DataFrame, dict]:
+    """Helper: Make cluster df."""
     rows = []
     labels = {}
     for i in range(n_entities):
@@ -103,6 +104,7 @@ def test_sequence2vec_entity_features_return_embeddings_false_is_bit_identical_t
 
 
 def test_biz_val_sequence2vec_recovers_true_behavioral_cluster():
+    """Biz val sequence2vec recovers true behavioral cluster."""
     rng = np.random.default_rng(0)
     n_entities = 200
     rows = []
@@ -129,6 +131,7 @@ def test_biz_val_sequence2vec_recovers_true_behavioral_cluster():
 
 
 def test_train_sequence2vec_within_cluster_similarity_exceeds_cross_cluster():
+    """Train sequence2vec within cluster similarity exceeds cross cluster."""
     rng = np.random.default_rng(1)
     sequences = []
     for _ in range(200):
@@ -138,6 +141,7 @@ def test_train_sequence2vec_within_cluster_similarity_exceeds_cross_cluster():
     embeddings = train_sequence2vec(sequences, embedding_dim=16, window=2, n_negative=5, n_epochs=10, random_state=0)
 
     def _cos(a: np.ndarray, b: np.ndarray) -> float:
+        """Helper: Cos."""
         return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
 
     within_cluster = (_cos(embeddings["A"], embeddings["B"]) + _cos(embeddings["C"], embeddings["D"])) / 2
@@ -147,6 +151,7 @@ def test_train_sequence2vec_within_cluster_similarity_exceeds_cross_cluster():
 
 
 def test_train_sequence2vec_min_count_filters_rare_tokens():
+    """Train sequence2vec min count filters rare tokens."""
     sequences = [["a", "a", "a", "rare"], ["a", "a", "b", "b"]]
     embeddings = train_sequence2vec(sequences, embedding_dim=4, min_count=2, n_epochs=1)
     assert "rare" not in embeddings
@@ -154,5 +159,6 @@ def test_train_sequence2vec_min_count_filters_rare_tokens():
 
 
 def test_train_sequence2vec_empty_vocab_returns_empty_dict():
+    """Train sequence2vec empty vocab returns empty dict."""
     embeddings = train_sequence2vec([], embedding_dim=4)
     assert embeddings == {}

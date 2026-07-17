@@ -18,6 +18,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_preflight import data
 
 
 def test_highly_correlated_but_missing_pair_detected_as_redundant():
+    """dataset_diagnostics uses pairwise-complete correlation so a 70%-missing-but-near-perfectly-correlated pair is still flagged redundant, not diluted by zero-fill."""
     rng = np.random.default_rng(0)
     n = 1000
     base = rng.normal(size=n)

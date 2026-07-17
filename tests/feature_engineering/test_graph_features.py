@@ -13,6 +13,7 @@ from mlframe.feature_engineering.graph_features import (
 
 # ---------------------------------------------------------------- unit
 def test_triangle_clustering_is_one():
+    """Triangle clustering is one."""
     edges = np.array([[0, 1], [1, 2], [0, 2]])  # a triangle
     f = graph_structural_features(3, edges)
     assert np.allclose(f["clustering"], 1.0)
@@ -21,6 +22,7 @@ def test_triangle_clustering_is_one():
 
 
 def test_star_center_clustering_is_zero():
+    """Star center clustering is zero."""
     edges = np.array([[0, 1], [0, 2], [0, 3]])  # star, center 0
     f = graph_structural_features(4, edges)
     assert f["clustering"][0] == 0.0  # center's neighbours are not connected
@@ -29,6 +31,7 @@ def test_star_center_clustering_is_zero():
 
 
 def test_neighbor_count_equals_degree():
+    """Neighbor count equals degree."""
     edges = np.array([[0, 1], [0, 2], [1, 2]])
     cnt = graph_neighbor_aggregate(3, edges, np.zeros(3), agg="count")
     deg = graph_structural_features(3, edges)["degree"]
@@ -37,6 +40,7 @@ def test_neighbor_count_equals_degree():
 
 def test_neighbor_mean_label():
     # node 0 connected to 1 (label 1) and 2 (label 0) -> mean 0.5
+    """Neighbor mean label."""
     edges = np.array([[0, 1], [0, 2]])
     labels = np.array([9.0, 1.0, 0.0])  # node 0's own label irrelevant (only neighbours aggregated)
     m = graph_neighbor_aggregate(3, edges, labels, agg="mean")
@@ -44,6 +48,7 @@ def test_neighbor_mean_label():
 
 
 def test_weighted_mean_uses_edge_weights():
+    """Weighted mean uses edge weights."""
     edges = np.array([[0, 1], [0, 2]])
     w = np.array([3.0, 1.0])  # neighbour 1 weighted 3x
     vals = np.array([0.0, 1.0, 0.0])
@@ -52,6 +57,7 @@ def test_weighted_mean_uses_edge_weights():
 
 
 def test_isolated_node_gets_fill_and_guards():
+    """Isolated node gets fill and guards."""
     edges = np.array([[0, 1]])
     m = graph_neighbor_aggregate(3, edges, np.array([1.0, 1.0, 1.0]), agg="mean", fill=-1.0)
     assert m[2] == -1.0  # node 2 isolated

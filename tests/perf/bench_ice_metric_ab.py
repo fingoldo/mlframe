@@ -6,6 +6,7 @@ from mlframe.metrics._ice_metric import compute_probabilistic_multiclass_error a
 
 
 def mk_b(n, s=0):
+    """Helper that mk b."""
     rng = np.random.default_rng(s)
     yt = (rng.random(n) < 0.3).astype(np.int64)
     p = np.clip(rng.random(n) * 0.6 + yt * 0.3, 0, 1)
@@ -13,6 +14,7 @@ def mk_b(n, s=0):
 
 
 def mk_m(n, k, s=0):
+    """Helper that mk m."""
     rng = np.random.default_rng(s)
     yt = rng.integers(0, k, n).astype(np.int64)
     sc = rng.random((n, k))
@@ -22,6 +24,7 @@ def mk_m(n, k, s=0):
 
 def mk_shift(n, k, s=0):
     # non-0-indexed labels (e.g. 10,20,30) -> must still trigger remap
+    """Helper that mk shift."""
     yt, sc = mk_m(n, k, s)
     labelvals = np.array([10, 20, 30, 40, 50][:k])
     yt2 = labelvals[yt]

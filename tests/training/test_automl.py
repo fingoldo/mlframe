@@ -40,6 +40,7 @@ def _automl_module_snapshot(request):
         _saved_dict = dict(_mod_ref.__dict__)
 
         def _restore_module_dict():
+            """Restores the automl module's __dict__ to its pre-test snapshot."""
             _mod_ref.__dict__.clear()
             _mod_ref.__dict__.update(_saved_dict)
 

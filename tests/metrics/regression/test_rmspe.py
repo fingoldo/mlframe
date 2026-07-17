@@ -9,23 +9,27 @@ from mlframe.metrics.regression._regression_benchmark import fast_rmspe
 
 
 def test_zero_error_is_zero():
+    """Zero error is zero."""
     y = np.array([10.0, 20.0, 30.0])
     assert fast_rmspe(y, y.copy()) == 0.0
 
 
 def test_known_value():
+    """Known value."""
     y = np.array([100.0, 100.0])
     a = np.array([110.0, 90.0])  # ±10% each -> RMSPE 0.1
     assert abs(fast_rmspe(y, a) - 0.1) < 1e-12
 
 
 def test_excludes_zero_targets():
+    """Excludes zero targets."""
     y = np.array([0.0, 100.0])
     a = np.array([5.0, 110.0])  # first excluded; only the 10% counts
     assert abs(fast_rmspe(y, a) - 0.1) < 1e-12
 
 
 def test_all_zero_and_empty_and_mismatch():
+    """All zero and empty and mismatch."""
     assert np.isnan(fast_rmspe(np.zeros(3), np.ones(3)))
     assert np.isnan(fast_rmspe(np.array([]), np.array([])))
     with pytest.raises(ValueError):

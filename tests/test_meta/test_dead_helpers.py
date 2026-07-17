@@ -152,6 +152,7 @@ _USER_DEFERRED_DEAD_HELPERS: set[str] = {
 
 
 def _python_files() -> list[Path]:
+    """Helper that python files."""
     out: list[Path] = []
     for py in MLFRAME_DIR.rglob("*.py"):
         if any(frag in py.parts for frag in _SKIP_PATH_FRAGMENTS):
@@ -203,6 +204,7 @@ def _reexport_set(init_path: Path) -> set[str]:
 
 
 def test_no_dead_public_helpers():
+    """No dead public helpers."""
     init_paths = list(MLFRAME_DIR.rglob("__init__.py"))
     reexports: set[str] = set()
     for init in init_paths:

@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters.info_theory._entropy_kernels import (
 
 
 def test_csu_stays_in_unit_interval_high_card_small_n():
+    """conditional_symmetric_uncertainty stays within [0,1] even when a tiny-but-positive denominator meets a Miller-Madow-inflated numerator on sparse high-cardinality joints."""
     xi, yi, zi = np.array([0]), np.array([1]), np.array([2])
     for seed in range(60):
         rng = np.random.default_rng(seed)

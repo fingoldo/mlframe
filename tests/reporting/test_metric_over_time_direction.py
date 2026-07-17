@@ -17,6 +17,7 @@ from mlframe.reporting.charts.drift import metric_over_time
 def test_loss_metrics_are_lower_is_better_in_canonical_table():
     # Each of these would be MISLABELED higher-is-better by the old
     # `metric not in ("mse","brier")` allowlist.
+    """Loss metrics are lower is better in canonical table."""
     for loss in ("rmse", "mae", "mape", "log_loss", "ice", "ece", "pinball"):
         assert metric_name_higher_is_better(loss) is False, f"{loss} must be lower-is-better"
     # Quality metrics still higher-is-better.
@@ -25,6 +26,7 @@ def test_loss_metrics_are_lower_is_better_in_canonical_table():
 
 
 def _direction_in_title(metric: str) -> str:
+    """Helper: Direction in title."""
     rng = np.random.default_rng(0)
     n = 400
     ts = np.arange(n).astype("datetime64[D]").astype("datetime64[ns]")
@@ -42,6 +44,7 @@ def _direction_in_title(metric: str) -> str:
 
 
 def test_rmse_over_time_title_says_lower_is_better():
+    """Rmse over time title says lower is better."""
     title = _direction_in_title("rmse")
     # Either a populated line panel title or the "no buckets" annotation;
     # when a line renders it must carry the correct direction.
@@ -51,6 +54,7 @@ def test_rmse_over_time_title_says_lower_is_better():
 
 
 def test_roc_auc_over_time_title_says_higher_is_better():
+    """Roc auc over time title says higher is better."""
     title = _direction_in_title("roc_auc")
     if "over time" in title:
         assert "higher=better" in title, title
@@ -68,6 +72,7 @@ def _captured_hib_from_dispatch(metric, task, monkeypatch):
     captured = {}
 
     def _spy(yt, yp, ts, *, metric, higher_is_better):
+        """Helper: Spy."""
         captured["higher_is_better"] = higher_is_better
         raise RuntimeError("stop after capture")  # short-circuit before rendering; the caller swallows + logs
 
@@ -95,8 +100,10 @@ def _captured_hib_from_dispatch(metric, task, monkeypatch):
 
 
 def test_dispatch_passes_lower_is_better_for_rmse(monkeypatch):
+    """Dispatch passes lower is better for rmse."""
     assert _captured_hib_from_dispatch("rmse", "regression", monkeypatch) is False
 
 
 def test_dispatch_passes_higher_is_better_for_roc_auc(monkeypatch):
+    """Dispatch passes higher is better for roc auc."""
     assert _captured_hib_from_dispatch("roc_auc", "classification", monkeypatch) is True

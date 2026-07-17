@@ -37,6 +37,7 @@ from mlframe.reporting.spec import (
 
 
 def _flat(fig: FigureSpec):
+    """Helper: Flat."""
     return [p for row in fig.panels for p in row if p is not None]
 
 
@@ -60,6 +61,7 @@ def _random_binary(n=4000, seed=1):
 
 
 def _strong_regression(n=4000, seed=0):
+    """Helper: Strong regression."""
     rng = np.random.default_rng(seed)
     x = rng.uniform(0.0, 10.0, n)
     yt = 2.0 * x + 5.0 + rng.normal(0.0, 0.3, n)
@@ -81,6 +83,7 @@ def _noisy_regression(n=4000, seed=2):
 
 
 def test_classification_card_structure():
+    """Classification card structure."""
     y, s = _separable_binary()
     fig = compose_model_card_figure(task="classification", y_true=y, y_score=s, model_name="m", split="test")
     assert isinstance(fig, FigureSpec)
@@ -93,6 +96,7 @@ def test_classification_card_structure():
 
 
 def test_regression_card_structure():
+    """Regression card structure."""
     yt, yp = _strong_regression()
     fig = compose_model_card_figure(task="regression", y_true=yt, y_pred=yp, model_name="m", split="oof")
     assert isinstance(fig.panels[0][0], AnnotationPanelSpec)
@@ -105,6 +109,7 @@ def test_regression_card_structure():
 
 
 def test_classification_header_lists_all_headline_metrics():
+    """Classification header lists all headline metrics."""
     y, s = _separable_binary()
     fig = compose_model_card_figure(task="classification", y_true=y, y_score=s)
     header = fig.panels[0][0].text
@@ -113,6 +118,7 @@ def test_classification_header_lists_all_headline_metrics():
 
 
 def test_regression_header_lists_all_headline_metrics():
+    """Regression header lists all headline metrics."""
     yt, yp = _strong_regression()
     fig = compose_model_card_figure(task="regression", y_true=yt, y_pred=yp)
     header = fig.panels[0][0].text
@@ -121,16 +127,19 @@ def test_regression_header_lists_all_headline_metrics():
 
 
 def test_bad_task_raises():
+    """Bad task raises."""
     with pytest.raises(ValueError, match="unknown task"):
         compose_model_card_figure(task="ranking", y_true=np.zeros(3), y_score=np.zeros(3))
 
 
 def test_classification_requires_score():
+    """Classification requires score."""
     with pytest.raises(ValueError, match="requires y_score"):
         compose_model_card_figure(task="classification", y_true=np.array([0, 1]))
 
 
 def test_regression_requires_pred():
+    """Regression requires pred."""
     with pytest.raises(ValueError, match="requires y_pred"):
         compose_model_card_figure(task="regression", y_true=np.array([0.0, 1.0]))
 
@@ -141,6 +150,7 @@ def test_regression_requires_pred():
 
 
 def test_classification_verdict_thresholds():
+    """Classification verdict thresholds."""
     base = {"PR_AUC": 0.5, "Brier": 0.2, "KS": 0.5, "MCC": 0.5}
     green = _classification_verdict({**base, "ROC_AUC": AUC_GREEN + 0.05, "ECE": 0.02})
     amber = _classification_verdict({**base, "ROC_AUC": (AUC_GREEN + AUC_AMBER) / 2, "ECE": 0.02})
@@ -159,6 +169,7 @@ def test_classification_calibration_downgrade():
 
 
 def test_regression_verdict_thresholds():
+    """Regression verdict thresholds."""
     green = _regression_verdict({"RMSE": 1.0, "MAE": 0.8, "R2": R2_GREEN + 0.1, "bias": 0.0, "hetero": 0.0}, y_std=10.0)
     amber = _regression_verdict({"RMSE": 1.0, "MAE": 0.8, "R2": (R2_GREEN + R2_AMBER) / 2, "bias": 0.0, "hetero": 0.0}, y_std=10.0)
     red = _regression_verdict({"RMSE": 1.0, "MAE": 0.8, "R2": R2_AMBER - 0.1, "bias": 0.0, "hetero": 0.0}, y_std=10.0)
@@ -180,6 +191,7 @@ def test_regression_bias_downgrade():
 
 
 def test_biz_classification_verdict_flips_green_to_red():
+    """Biz classification verdict flips green to red."""
     y_g, s_g = _separable_binary()
     y_w, s_w = _random_binary()
     v_green = model_card_verdict(task="classification", y_true=y_g, y_score=s_g)
@@ -192,6 +204,7 @@ def test_biz_classification_verdict_flips_green_to_red():
 
 
 def test_biz_regression_verdict_flips_green_to_red():
+    """Biz regression verdict flips green to red."""
     yt_g, yp_g = _strong_regression()
     yt_w, yp_w = _noisy_regression()
     v_green = model_card_verdict(task="regression", y_true=yt_g, y_pred=yp_g)
@@ -203,6 +216,7 @@ def test_biz_regression_verdict_flips_green_to_red():
 
 
 def test_verdict_label_in_suptitle():
+    """Verdict label in suptitle."""
     y, s = _separable_binary()
     fig = compose_model_card_figure(task="classification", y_true=y, y_score=s, model_name="lgbm", split="test")
     assert "STRONG" in fig.suptitle
@@ -215,6 +229,7 @@ def test_verdict_label_in_suptitle():
 
 
 def test_single_class_degrades_to_text():
+    """Single class degrades to text."""
     y = np.ones(500, dtype=np.int8)
     s = np.random.default_rng(0).random(500)
     fig = compose_model_card_figure(task="classification", y_true=y, y_score=s)
@@ -225,6 +240,7 @@ def test_single_class_degrades_to_text():
 
 
 def test_no_finite_pairs_degrades_to_text():
+    """No finite pairs degrades to text."""
     yt = np.array([np.nan, np.nan, np.nan])
     yp = np.array([1.0, 2.0, 3.0])
     fig = compose_model_card_figure(task="regression", y_true=yt, y_pred=yp)
@@ -234,6 +250,7 @@ def test_no_finite_pairs_degrades_to_text():
 
 
 def test_verdict_standalone_raises_on_single_class():
+    """Verdict standalone raises on single class."""
     y = np.zeros(100, dtype=np.int8)
     s = np.random.default_rng(0).random(100)
     with pytest.raises(ValueError, match="both classes"):
@@ -246,6 +263,7 @@ def test_verdict_standalone_raises_on_single_class():
 
 
 def test_card_renders_matplotlib(tmp_path):
+    """Card renders matplotlib."""
     import os
 
     os.environ.setdefault("MPLBACKEND", "Agg")

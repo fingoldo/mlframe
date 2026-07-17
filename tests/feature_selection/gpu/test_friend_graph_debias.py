@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters.info_theory import mi
 
 
 def _small_n_highcard_dataset(n=300, seed=1):
+    """Build a small-n, high-cardinality-node graph fixture tuned so node 0 flips red-vs-green between the raw-bias and Miller-Madow-debiased garbage thresholds."""
     """Small n with high-cardinality nodes that share entropy (strong feature-feature edges) and a weakly-relevant target.
 
     High cardinality + small n maximises the plug-in MI inflation, which is exactly where the old bias-mismatched threshold (inflated multi-term ``total_unique`` sum vs
@@ -66,6 +67,7 @@ def test_regression_neighbor_unique_target_cached_mis_equivalence():
     calls = {"n": 0}
 
     def counted_mi(*a, **kw):
+        """Wrap friend_graph.mi to count invocations, proving the cached second side is a hit not a recompute."""
         calls["n"] += 1
         return orig_mi(*a, **kw)
 

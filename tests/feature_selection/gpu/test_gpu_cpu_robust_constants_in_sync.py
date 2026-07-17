@@ -13,6 +13,7 @@ from __future__ import annotations
 
 
 def test_gpu_robust_axis_constants_match_cpu():
+    """The GPU-side heavy-tail/robust-scale constants (re-declared to avoid an import cycle) must equal the CPU reference exactly, or GPU routing silently drifts."""
     from mlframe.feature_selection.filters import _gpu_resident_fe as gpu
     from mlframe.feature_selection.filters.hermite_fe import _hermite_robust as cpu
 

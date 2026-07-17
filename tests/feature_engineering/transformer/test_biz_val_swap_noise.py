@@ -98,6 +98,7 @@ def test_biz_val_swap_noise_augment_per_column_probs_beat_uniform_for_dae_pretra
 
 
 def test_swap_noise_augment_column_swap_probs_dict_matches_array():
+    """Swap noise augment column swap probs dict matches array."""
     X = np.random.default_rng(7).normal(size=(2000, 4))
 
     out_dict = swap_noise_augment(X, rng=np.random.default_rng(5), column_swap_probs={0: 0.6, 2: 0.6})
@@ -106,6 +107,7 @@ def test_swap_noise_augment_column_swap_probs_dict_matches_array():
 
 
 def test_swap_noise_augment_column_swap_probs_rates_match_targets():
+    """Swap noise augment column swap probs rates match targets."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(20000, 3))
     probs = np.array([0.05, 0.5, 0.9])
@@ -115,6 +117,7 @@ def test_swap_noise_augment_column_swap_probs_rates_match_targets():
 
 
 def test_swap_noise_augment_column_swap_probs_out_of_range_raises():
+    """Swap noise augment column swap probs out of range raises."""
     X = np.random.default_rng(0).normal(size=(10, 2))
     try:
         swap_noise_augment(X, column_swap_probs=np.array([0.5, 1.5]))
@@ -124,6 +127,7 @@ def test_swap_noise_augment_column_swap_probs_out_of_range_raises():
 
 
 def test_swap_noise_augment_column_swap_probs_wrong_length_raises():
+    """Swap noise augment column swap probs wrong length raises."""
     X = np.random.default_rng(0).normal(size=(10, 3))
     try:
         swap_noise_augment(X, column_swap_probs=np.array([0.5, 0.5]))

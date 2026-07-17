@@ -24,6 +24,7 @@ from mlframe.training.reporting._reporting_probabilistic import (
 
 
 def _three_class_synthetic(n: int = 600, seed: int = 0):
+    """Helper: Three class synthetic."""
     rng = np.random.default_rng(seed)
     targets = rng.integers(0, 3, size=n)
     # Probs correlated with the true class so AUC/calibration are non-degenerate.

@@ -19,12 +19,14 @@ from mlframe.feature_engineering.transformer.local_classifier import _solve_weig
 
 def _collinear_block(n: int, rng: np.random.Generator) -> np.ndarray:
     # Two informative dims, a third = exact copy of the first -> rank-deficient cov.
+    """Helper: Collinear block."""
     a = rng.standard_normal((n, 1)).astype(np.float64)
     b = rng.standard_normal((n, 1)).astype(np.float64)
     return np.hstack([a, b, a + 1e-9 * rng.standard_normal((n, 1))]).astype(np.float32)
 
 
 def test_shrunk_covariance_collinear_inverse_finite():
+    """Shrunk covariance collinear inverse finite."""
     rng = np.random.default_rng(0)
     X = _collinear_block(64, rng)
     mean, inv_cov = _shrunk_covariance(X)
@@ -34,6 +36,7 @@ def test_shrunk_covariance_collinear_inverse_finite():
 
 
 def test_fisher_lda_collinear_direction_finite():
+    """Fisher lda collinear direction finite."""
     rng = np.random.default_rng(1)
     X_pos = _collinear_block(48, rng) + 1.0
     X_neg = _collinear_block(48, rng)
@@ -43,6 +46,7 @@ def test_fisher_lda_collinear_direction_finite():
 
 
 def test_local_weighted_linreg_collinear_beta_finite():
+    """Local weighted linreg collinear beta finite."""
     rng = np.random.default_rng(2)
     X_local = _collinear_block(40, rng)
     y_local = rng.standard_normal(40).astype(np.float32)

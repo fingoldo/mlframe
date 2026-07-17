@@ -38,6 +38,7 @@ def test_gate_skips_lightning_import_when_set(monkeypatch):
     calls = []
 
     def _fake_find_spec(name, *a, **kw):
+        """Helper: Fake find spec."""
         calls.append(name)
         return None  # CPU-only host
 
@@ -59,6 +60,7 @@ def test_gate_unset_runs_lightning_import(monkeypatch):
     calls = []
 
     def _fake_find_spec(name, *a, **kw):
+        """Helper: Fake find spec."""
         calls.append(name)
         return None
 
@@ -78,6 +80,7 @@ def test_gate_accepts_multiple_skip_values(monkeypatch, value):
     calls = []
 
     def _fake_find_spec(name, *a, **kw):
+        """Helper: Fake find spec."""
         calls.append(name)
         return None
 
@@ -96,6 +99,7 @@ def test_gate_runs_when_value_is_truthy(monkeypatch):
     calls = []
 
     def _fake_find_spec(name, *a, **kw):
+        """Helper: Fake find spec."""
         calls.append(name)
         return None
 

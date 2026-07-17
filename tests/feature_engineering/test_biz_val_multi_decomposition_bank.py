@@ -19,6 +19,7 @@ from mlframe.feature_engineering.multi_decomposition_bank import _VALID_METHODS,
 
 
 def _make_low_rank_manifold_dataset(n: int, n_raw_features: int, seed: int):
+    """Helper: Make low rank manifold dataset."""
     rng = np.random.default_rng(seed)
     latent = rng.normal(size=(n, 3))
     loadings = rng.normal(size=(3, n_raw_features))
@@ -34,9 +35,11 @@ def test_biz_val_decomposition_bank_improves_fit_on_noisy_low_rank_manifold():
     # real win is for models like trees that split axis-aligned and struggle to reconstruct a rotated/mixed
     # low-rank signal from many individually-noisy raw columns, but can directly exploit a pre-computed
     # low-rank projection column once it's simply another input feature.
+    """Biz val decomposition bank improves fit on noisy low rank manifold."""
     df, y = _make_low_rank_manifold_dataset(n=500, n_raw_features=100, seed=0)
 
     def _rf():
+        """Helper: Rf."""
         return RandomForestRegressor(n_estimators=100, max_depth=5, random_state=0)
 
     auc_raw = cross_val_score(_rf(), df.to_numpy(), y, cv=5, scoring="r2").mean()
@@ -59,6 +62,7 @@ def _make_mixed_informative_noise_dataset(n: int, n_signal_features: int, n_nois
     # source-separation assumption additionally breaks down here because the true latent sources are Gaussian
     # (ICA is famously unable to un-mix jointly Gaussian sources -- any rotation of a Gaussian is still
     # Gaussian, so there's no non-Gaussianity to exploit), so it fails to recover the signal either.
+    """Helper: Make mixed informative noise dataset."""
     rng = np.random.default_rng(seed)
     latent = rng.normal(size=(n, 3))
     loadings = rng.normal(size=(3, n_signal_features)) * 15.0
@@ -78,6 +82,7 @@ def test_biz_val_decomposition_bank_prune_keeps_informative_method_drops_noise_m
     # raw columns dilutes that 2-column signal into near-chance territory for every one of its components -- so
     # the pruning pass should keep svd/pca intact, drop srp entirely, and never lose predictive accuracy
     # relative to the unpruned full bank.
+    """Biz val decomposition bank prune keeps informative method drops noise methods."""
     df, y = _make_mixed_informative_noise_dataset(n=600, n_signal_features=2, n_noise_features=400, seed=0)
 
     full_bank = multi_decomposition_feature_bank(df, n_components=3, methods=_VALID_METHODS, random_state=0)
@@ -92,6 +97,7 @@ def test_biz_val_decomposition_bank_prune_keeps_informative_method_drops_noise_m
     assert {"svd", "pca"} <= kept_methods, f"expected the genuinely informative svd/pca methods to survive pruning, kept={kept_methods}"
 
     def _rf():
+        """Helper: Rf."""
         return RandomForestClassifier(n_estimators=100, max_depth=5, random_state=0)
 
     auc_full = cross_val_score(_rf(), pd.concat([df, full_bank], axis=1).to_numpy(), y, cv=5, scoring="roc_auc").mean()
@@ -101,6 +107,7 @@ def test_biz_val_decomposition_bank_prune_keeps_informative_method_drops_noise_m
 
 
 def test_multi_decomposition_feature_bank_prune_without_y_raises():
+    """Multi decomposition feature bank prune without y raises."""
     import pytest
 
     df = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "b": [4.0, 3.0, 2.0, 1.0]})
@@ -111,6 +118,7 @@ def test_multi_decomposition_feature_bank_prune_without_y_raises():
 def test_multi_decomposition_feature_bank_default_unchanged_without_pruning():
     # Regression guard: not passing the new opt-in params must reproduce EXACTLY the prior (pre-extension)
     # output -- bit-identical, not just "close".
+    """Multi decomposition feature bank default unchanged without pruning."""
     rng = np.random.default_rng(2)
     df = pd.DataFrame(rng.normal(size=(150, 15)), columns=[f"f{i}" for i in range(15)])
     bank_a = multi_decomposition_feature_bank(df, n_components=4, methods=("svd", "pca", "grp", "srp"), random_state=7)
@@ -119,6 +127,7 @@ def test_multi_decomposition_feature_bank_default_unchanged_without_pruning():
 
 
 def test_multi_decomposition_feature_bank_output_shape():
+    """Multi decomposition feature bank output shape."""
     rng = np.random.default_rng(1)
     df = pd.DataFrame(rng.normal(size=(200, 20)), columns=[f"f{i}" for i in range(20)])
     bank = multi_decomposition_feature_bank(df, n_components=4, methods=("svd", "pca", "grp", "srp"))
@@ -127,6 +136,7 @@ def test_multi_decomposition_feature_bank_output_shape():
 
 
 def _make_variable_rank_dataset(n: int, n_raw_features: int, true_rank: int, seed: int, noise: float = 1.0):
+    """Helper: Make variable rank dataset."""
     rng = np.random.default_rng(seed)
     latent = rng.normal(size=(n, true_rank))
     loadings = rng.normal(size=(true_rank, n_raw_features))
@@ -146,9 +156,11 @@ def test_biz_val_decomposition_bank_auto_k_recovers_true_rank_beats_undersized_f
     # raw width in {60,80,100} put the r2 gap at 0.03-0.04 everywhere it was informative at all -- this
     # true_rank=6/noise=1.0/width=60 configuration gave the most stable margin, so the threshold below is set
     # comfortably under the measured ~0.035 gap rather than at an unrealistic 0.05+.)
+    """Biz val decomposition bank auto k recovers true rank beats undersized fixed k."""
     df, y = _make_variable_rank_dataset(n=600, n_raw_features=60, true_rank=6, seed=1, noise=1.0)
 
     def _rf():
+        """Helper: Rf."""
         return RandomForestRegressor(n_estimators=150, max_depth=6, random_state=0)
 
     fixed_bank = multi_decomposition_feature_bank(df, n_components=2, methods=("svd", "pca"), random_state=0)
@@ -169,6 +181,7 @@ def test_biz_val_decomposition_bank_auto_k_recovers_true_rank_beats_undersized_f
 def test_multi_decomposition_feature_bank_auto_k_default_off_bit_identical():
     # Regression guard: auto_k defaults to False, so omitting it (and auto_k_variance_ratio) must reproduce
     # EXACTLY the prior (pre-extension) output -- bit-identical.
+    """Multi decomposition feature bank auto k default off bit identical."""
     rng = np.random.default_rng(3)
     df = pd.DataFrame(rng.normal(size=(120, 12)), columns=[f"f{i}" for i in range(12)])
     bank_no_kw = multi_decomposition_feature_bank(df, n_components=4, methods=("svd", "pca", "ica"), random_state=5)
@@ -177,6 +190,7 @@ def test_multi_decomposition_feature_bank_auto_k_default_off_bit_identical():
 
 
 def test_multi_decomposition_feature_bank_invalid_method_raises():
+    """Multi decomposition feature bank invalid method raises."""
     import pytest
 
     df = pd.DataFrame({"a": [1.0, 2.0, 3.0]})

@@ -116,6 +116,7 @@ from mlframe.feature_engineering.hurst import (
 
 @_njit(cache=True, fastmath=True)
 def _ref_dfa_alpha(x):
+    """Helper: Ref dfa alpha."""
     n = x.size
     if n < 20:
         return np.nan
@@ -167,6 +168,7 @@ def _ref_dfa_alpha(x):
 
 @_njit(cache=True, fastmath=True)
 def _ref_dfa_alpha2(x):
+    """Helper: Ref dfa alpha2."""
     n = x.size
     if n < 50:
         return np.nan
@@ -237,6 +239,7 @@ def _ref_dfa_alpha2(x):
 
 @pytest.mark.parametrize("seed", [0, 1, 7])
 def test_dfa_arange_hoist_bit_identical_to_prehoist(seed):
+    """Dfa arange hoist bit identical to prehoist."""
     rng = np.random.default_rng(seed)
     x = np.cumsum(rng.standard_normal(2000)).astype(np.float64)
     # Linear-detrend hoist is exactly bit-identical.

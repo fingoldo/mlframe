@@ -21,6 +21,7 @@ def _reference_double_loop(X: pd.DataFrame, threshold: float) -> set:
 
 
 def _make(n=2000, p=60, n_corr=15, seed=0):
+    """Helper that make."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p))
     for _ in range(n_corr):
@@ -33,6 +34,7 @@ def _make(n=2000, p=60, n_corr=15, seed=0):
 @pytest.mark.parametrize("seed", range(6))
 @pytest.mark.parametrize("threshold", [0.8, 0.9, 0.95])
 def test_dropped_set_identical_to_double_loop(seed, threshold):
+    """Dropped set identical to double loop."""
     X = _make(seed=seed)
     dec = MyDecorrelator(threshold=threshold).fit(X)
     assert dec.correlated_features_ == _reference_double_loop(X, threshold)
@@ -40,6 +42,7 @@ def test_dropped_set_identical_to_double_loop(seed, threshold):
 
 def test_drops_later_column_of_known_pair():
     # Column 3 is an exact copy of column 1; the LATER index (3) must be dropped, not 1.
+    """Drops later column of known pair."""
     rng = np.random.default_rng(7)
     base = rng.standard_normal((500, 5))
     base[:, 3] = base[:, 1]
@@ -51,6 +54,7 @@ def test_drops_later_column_of_known_pair():
 
 def test_zero_variance_columns_not_dropped():
     # corr() yields NaN for constant columns; abs(NaN) > thr is False -> never dropped (both paths agree).
+    """Zero variance columns not dropped."""
     rng = np.random.default_rng(11)
     base = rng.standard_normal((300, 4))
     base[:, 2] = 5.0  # constant
@@ -60,6 +64,7 @@ def test_zero_variance_columns_not_dropped():
 
 
 def test_transform_output_matches_drop_set():
+    """Transform output matches drop set."""
     X = _make(seed=3)
     dec = MyDecorrelator(threshold=0.9).fit(X)
     out = dec.transform(X)

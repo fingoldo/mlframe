@@ -20,10 +20,12 @@ import pytest
 
 
 def _make_df(n=200):
+    """Helper that make df."""
     return pd.DataFrame({"a": np.arange(n), "b": np.arange(n) * 2})
 
 
 def test_make_train_test_split_reproducible_same_seed():
+    """Make train test split reproducible same seed."""
     from mlframe.training.splitting import make_train_test_split
 
     df = _make_df()
@@ -49,6 +51,7 @@ def test_make_train_test_split_seed_zero_is_honored():
 
 
 def test_make_train_test_split_does_not_pollute_global_rng():
+    """Make train test split does not pollute global rng."""
     from mlframe.training.splitting import make_train_test_split
 
     df = _make_df()
@@ -64,6 +67,7 @@ def test_make_train_test_split_does_not_pollute_global_rng():
 
 
 def test_get_sapp_dataset_reproducible():
+    """Get sapp dataset reproducible."""
     from mlframe.data.datasets import get_sapp_dataset
 
     X1, y1 = get_sapp_dataset(N=200, random_state=42)
@@ -73,6 +77,7 @@ def test_get_sapp_dataset_reproducible():
 
 
 def test_get_sapp_dataset_no_inf_in_target():
+    """Get sapp dataset no inf in target."""
     from mlframe.data.datasets import get_sapp_dataset
 
     _X, y = get_sapp_dataset(N=500, random_state=7, binarize=False)
@@ -80,6 +85,7 @@ def test_get_sapp_dataset_no_inf_in_target():
 
 
 def test_get_sapp_dataset_no_global_pollution():
+    """Get sapp dataset no global pollution."""
     from mlframe.data.datasets import get_sapp_dataset
 
     before = np.random.get_state()[1][0]
@@ -104,6 +110,7 @@ def test_get_sapp_dataset_no_global_pollution():
     ],
 )
 def test_generate_modelling_data_reproducible(feature_noise, timeseries, max_cardinality):
+    """Generate modelling data reproducible."""
     from mlframe.data.synthetic import generate_modelling_data
 
     kw = dict(
@@ -140,6 +147,7 @@ def test_generate_modelling_data_reproducible(feature_noise, timeseries, max_car
 
 
 def test_pure_random_classifier_reproducible_and_labels():
+    """Pure random classifier reproducible and labels."""
     from mlframe.estimators.custom import PureRandomClassifier
 
     X = np.arange(20).reshape(-1, 1)
@@ -164,6 +172,7 @@ def test_pure_random_classifier_reproducible_and_labels():
 
 
 def test_plt_grid_visible_kwarg_accepted():
+    """Plt grid visible kwarg accepted."""
     import matplotlib
 
     matplotlib.use("Agg")

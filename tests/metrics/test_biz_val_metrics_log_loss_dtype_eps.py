@@ -19,6 +19,7 @@ from mlframe.metrics.core import fast_log_loss
 
 
 def _overconfident_wrong(seed: int, n: int = 100_000, conf: float = 1e-8, wrong_frac: float = 0.05):
+    """Helper: Overconfident wrong."""
     rng = np.random.default_rng(seed)
     y = (rng.random(n) < 0.5).astype(np.int64)
     wrong = rng.random(n) < wrong_frac

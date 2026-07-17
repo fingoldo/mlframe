@@ -11,9 +11,11 @@ import pytest
 # 1) torch.load weights_only=True wrapper test
 # ---------------------------------------------------------------------------
 def test_torch_load_rejects_malicious_pickle(tmp_path):
+    """Torch load rejects malicious pickle."""
     torch = pytest.importorskip("torch")
 
     class _Exploit:
+        """Groups tests covering Exploit."""
         def __reduce__(self):
             # os.system is a classic RCE marker — weights_only should refuse it.
             return (os.system, ("echo pwned",))
@@ -34,12 +36,14 @@ def test_torch_load_rejects_malicious_pickle(tmp_path):
 # 2) _SafeUnpickler allowlist enforcement
 # ---------------------------------------------------------------------------
 def test_safe_unpickler_rejects_os_system_accepts_numpy_ndarray():
+    """Safe unpickler rejects os system accepts numpy ndarray."""
     pytest.importorskip("dill")
     pytest.importorskip("numpy")
     from mlframe.training.io import _SafeUnpickler
 
     # numpy.ndarray class should be resolvable.
     class _AllowedRef:
+        """Groups tests covering AllowedRef."""
         def __reduce__(self):
             # Just reference numpy.core.multiarray.array constructor-like callable.
             # We use np.array via __reduce__ returning (np.asarray, ([1,2,3],))
@@ -57,6 +61,7 @@ def test_safe_unpickler_rejects_os_system_accepts_numpy_ndarray():
 
     # os.system should be blocked.
     class _Bad:
+        """Groups tests covering Bad."""
         def __reduce__(self):
             return (os.system, ("echo pwned",))
 
@@ -75,6 +80,7 @@ def test_safe_unpickler_rejects_os_system_accepts_numpy_ndarray():
 # 3) inference.read_trained_models rejects paths outside trusted_root
 # ---------------------------------------------------------------------------
 def test_read_trained_models_rejects_untrusted_path(tmp_path):
+    """Read trained models rejects untrusted path."""
     pytest.importorskip("joblib")
     pd = pytest.importorskip("pandas")
     from mlframe import inference
@@ -99,6 +105,7 @@ def test_read_trained_models_rejects_untrusted_path(tmp_path):
 # 4) experiments field whitelist
 # ---------------------------------------------------------------------------
 def test_experiments_field_whitelist():
+    """Experiments field whitelist."""
     pytest.importorskip("pyutilz")
     from mlframe.utils.experiments import _validate_and_join_fields, _ALLOWED_EXPERIMENT_FIELDS
 

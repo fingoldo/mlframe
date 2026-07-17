@@ -26,6 +26,7 @@ SLOW_PARAM = 0.0  # poly identity -> plain (unweighted, maximal noise averaging)
 
 
 def _make_dual_signal_data(n_entities: int, n_hist: int, seed: int):
+    """Helper: Make dual signal data."""
     rng = np.random.default_rng(seed)
     group_ids = np.repeat(np.arange(n_entities), n_hist)
     order = np.tile(np.arange(n_hist), n_entities)
@@ -45,6 +46,7 @@ def _make_dual_signal_data(n_entities: int, n_hist: int, seed: int):
 
 
 def test_biz_val_multi_decay_combined_features_beat_either_single_decay():
+    """Biz val multi decay combined features beat either single decay."""
     n_entities, n_hist = 6000, 200
     values, group_ids, order, label = _make_dual_signal_data(n_entities, n_hist, seed=0)
 
@@ -56,6 +58,7 @@ def test_biz_val_multi_decay_combined_features_beat_either_single_decay():
     y_train, y_test = label[idx_train], label[idx_test]
 
     def _auc(X: np.ndarray) -> float:
+        """Helper: Auc."""
         clf = LogisticRegression()
         clf.fit(X[idx_train], y_train)
         proba = clf.predict_proba(X[idx_test])[:, 1]
@@ -74,6 +77,7 @@ def test_biz_val_multi_decay_combined_features_beat_either_single_decay():
 
 
 def test_multi_decay_matches_two_single_param_calls_bit_identical():
+    """Multi decay matches two single param calls bit identical."""
     n_entities, n_hist = 400, 15
     values, group_ids, order, _ = _make_dual_signal_data(n_entities, n_hist, seed=1)
 

@@ -17,6 +17,7 @@ from mlframe.models.optimization import (
 
 
 def _make_optimizer(**overrides):
+    """Helper: Make optimizer."""
     kwargs = dict(
         search_space=np.arange(0, 20),
         model_name="ETR",
@@ -29,6 +30,7 @@ def _make_optimizer(**overrides):
 
 
 def test_exploration_scores_empty_known_candidates_returns_zeros():
+    """Exploration scores empty known candidates returns zeros."""
     search_space = np.arange(10)
     # Pre-fix this raised NameError (r/l unbound because the loop never ran).
     distances = compute_candidates_exploration_scores(search_space=search_space, known_candidates=[])
@@ -37,6 +39,7 @@ def test_exploration_scores_empty_known_candidates_returns_zeros():
 
 
 def test_exploration_scores_nonempty_unchanged():
+    """Exploration scores nonempty unchanged."""
     search_space = np.arange(10)
     distances = compute_candidates_exploration_scores(search_space=search_space, known_candidates=[5])
     np.testing.assert_array_equal(distances, np.abs(search_space - 5))
@@ -46,6 +49,7 @@ def test_suggest_candidate_empty_known_evaluations_returns_not_ready():
     # Inconsistent state (candidates present, evaluations empty) must not IndexError on known_evaluations[0].
     # Post-API23 the transient "surrogate not yet trainable" case returns the NOT_READY sentinel (NOT None),
     # so the driving loop does not mistake it for search-space exhaustion and truncate the search.
+    """Suggest candidate empty known evaluations returns not ready."""
     opt = _make_optimizer(greedy_prob=0.0)
     opt.pre_seeded_candidates = []  # skip the pre-seed shortcut so the surrogate-fit branch is reached
     opt.known_candidates = np.array([1, 2, 3])
@@ -57,6 +61,7 @@ def test_suggest_candidate_empty_known_evaluations_returns_not_ready():
 
 def test_suggest_candidate_greedy_picks_nearest_unchecked():
     # Greedy path (greedy_prob forced to 1.0) must return the closest unchecked candidate to the best known one.
+    """Suggest candidate greedy picks nearest unchecked."""
     opt = _make_optimizer(greedy_prob=1.0)
     opt.pre_seeded_candidates = []  # skip the pre-seed shortcut so the greedy branch is reached
     opt.known_candidates = np.array([10])

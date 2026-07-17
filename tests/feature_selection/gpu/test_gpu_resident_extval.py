@@ -25,6 +25,7 @@ _ALL_OPS = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8], dtype=np.int8)
 @pytest.mark.gpu
 @pytest.mark.parametrize("nbins", [10, 16])
 def test_device_extval_codes_match_host(nbins: int) -> None:
+    """Device-resident ext-val materialise+discretise codes agree with the host njit+quantile-binner path on >=99.9% of rows across every registry op, including div-by-near-zero."""
     rng = np.random.default_rng(7)
     n = 6000
     # param_a spans zeros/negatives; ext factors include a near-zero-denominator column so div/ratio_abs

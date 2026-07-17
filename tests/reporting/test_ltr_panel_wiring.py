@@ -24,10 +24,13 @@ from mlframe.training.ranking.ranker_suite import train_mlframe_ranker_suite
 
 
 class _MiniRankFTE(FeaturesAndTargetsExtractor):
+    """Groups tests for: MiniRankFTE."""
     def __init__(self):
+        """Helper: Init  ."""
         super().__init__(group_field="qid")
 
     def build_targets(self, df):
+        """Build targets."""
         rel = df["relevance"]
         if hasattr(rel, "to_numpy"):
             rel = rel.to_numpy()
@@ -51,6 +54,7 @@ def mini_search_data():
 
 
 class TestLTRPanelWiring:
+    """Groups tests for: TestLTRPanelWiring."""
     def test_panels_emitted_per_flavor_per_split(self, mini_search_data, tmp_path):
         """With plot_outputs + ltr_panels set, every (flavor, split)
         combo MUST drop a panel file at the expected path."""

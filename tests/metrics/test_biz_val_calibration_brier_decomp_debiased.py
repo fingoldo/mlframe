@@ -23,10 +23,12 @@ from mlframe.metrics.calibration._calibration_metrics import (
 
 
 def _plugin_decomp(y, p, nbins):
+    """Helper: Plugin decomp."""
     return compute_ece_and_brier_decomposition(np.asarray(y, np.float64), np.asarray(p, np.float64), nbins)
 
 
 def _gen_calibrated(rng, n, kind):
+    """Helper: Gen calibrated."""
     if kind == "uniform":
         s = np.clip(rng.uniform(0.0, 1.0, n), 1e-6, 1 - 1e-6)
     elif kind == "beta_rare":
@@ -137,6 +139,7 @@ def test_brier_rel_debiased_tracks_real_miscalibration():
 
 
 def test_brier_decomp_debiased_empty_input_degenerate():
+    """Brier decomp debiased empty input degenerate."""
     rel, res, unc, binned = compute_brier_decomposition_debiased(np.empty(0), np.empty(0), 10)
     assert (rel, res, unc, binned) == (1.0, 0.0, 0.0, 1.0)
 

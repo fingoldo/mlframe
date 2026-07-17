@@ -28,6 +28,7 @@ def _make_joint_rarity_dataset(n: int, seed: int):
     # target here is "this exact (a, b) PAIR is one of the rare joint combinations" (e.g. fraud more likely
     # for unusual product-code x region-code pairs), not an arbitrary lookup-table target (frequency has no
     # way to recover an arbitrary lookup rule, since occurrence count carries no semantic label information).
+    """Helper: Make joint rarity dataset."""
     rng = np.random.default_rng(seed)
     n_a, n_b = 8, 8
     combo_ids = np.arange(n_a * n_b)
@@ -46,6 +47,7 @@ def _make_joint_rarity_dataset(n: int, seed: int):
 
 
 def test_biz_val_concat_categorical_group_recovers_joint_rarity_signal_marginal_freq_misses():
+    """Biz val concat categorical group recovers joint rarity signal marginal freq misses."""
     df, y = _make_joint_rarity_dataset(n=8000, seed=0)
 
     freq_a, _ = frequency_encode_fit(df, ["cat_a"])
@@ -69,6 +71,7 @@ def _make_joint_rarity_dataset_with_noise(n: int, seed: int):
     # Same joint-rarity pair signal as above, plus a THIRD categorical column that is pure independent
     # noise wrt the target -- a wrong hand-picked grouping (e.g. cat_a + cat_noise) should NOT recover the
     # signal, proving the auto-discovery must specifically single out the (cat_a, cat_b) pair, not just any pair.
+    """Helper: Make joint rarity dataset with noise."""
     df, y = _make_joint_rarity_dataset(n, seed)
     rng = np.random.default_rng(seed + 1)
     df = df.copy()
@@ -77,6 +80,7 @@ def _make_joint_rarity_dataset_with_noise(n: int, seed: int):
 
 
 def test_biz_val_discover_categorical_groups_recovers_joint_rarity_pair_and_rejects_noise():
+    """Biz val discover categorical groups recovers joint rarity pair and rejects noise."""
     df, y = _make_joint_rarity_dataset_with_noise(n=6000, seed=1)
     columns = ["cat_a", "cat_b", "cat_noise"]
 
@@ -115,18 +119,21 @@ def test_biz_val_discover_categorical_groups_recovers_joint_rarity_pair_and_reje
 
 
 def test_discover_categorical_groups_max_group_size_caps_group_growth():
+    """Discover categorical groups max group size caps group growth."""
     df, y = _make_joint_rarity_dataset_with_noise(n=2000, seed=2)
     groups = discover_categorical_groups(df, ["cat_a", "cat_b", "cat_noise"], y, max_group_size=1, random_state=0)
     assert all(len(g) == 1 for g in groups), f"expected max_group_size=1 to force every group to stay a singleton, got groups={groups}"
 
 
 def test_concat_categorical_group_exact_values():
+    """Concat categorical group exact values."""
     df = pd.DataFrame({"a": ["x", "y"], "b": ["1", "2"], "c": ["p", "q"]})
     out = concat_categorical_group(df, ["a", "b", "c"], separator="-", feature_name="combo")
     assert list(out["combo"]) == ["x-1-p", "y-2-q"]
 
 
 def test_concat_categorical_group_requires_two_columns():
+    """Concat categorical group requires two columns."""
     import pytest
 
     df = pd.DataFrame({"a": ["x", "y"]})

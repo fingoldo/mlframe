@@ -19,6 +19,7 @@ import numpy as np
 
 
 def test_ice_evaluate_closes_calibration_figure():
+    """Ice evaluate closes calibration figure."""
     import matplotlib.pyplot as plt
 
     from mlframe.metrics.core import ICE, compute_probabilistic_multiclass_error
@@ -42,6 +43,7 @@ def test_ice_evaluate_closes_calibration_figure():
 
 
 def test_ice_plot_file_param_saves_to_disk(tmp_path):
+    """Ice plot file param saves to disk."""
     from mlframe.metrics.core import ICE, compute_probabilistic_multiclass_error
 
     rng = np.random.default_rng(1)

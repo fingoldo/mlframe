@@ -15,6 +15,7 @@ from mlframe.feature_engineering.holiday_calendar_features import holiday_calend
 
 
 def test_biz_val_holiday_flags_separate_spike_days_better_than_day_of_week():
+    """Biz val holiday flags separate spike days better than day of week."""
     dates = pd.Series(pd.date_range("2020-01-01", "2024-12-31", freq="D"))
     feats = holiday_calendar_features(dates, country="US")
 
@@ -32,6 +33,7 @@ def test_biz_val_holiday_flags_separate_spike_days_better_than_day_of_week():
 
 
 def test_holiday_calendar_features_flags_known_us_holidays():
+    """Holiday calendar features flags known us holidays."""
     dates = pd.Series(pd.to_datetime(["2024-12-24", "2024-12-25", "2024-12-26", "2025-01-01"]))
     feats = holiday_calendar_features(dates, country="US")
 
@@ -40,6 +42,7 @@ def test_holiday_calendar_features_flags_known_us_holidays():
 
 
 def test_holiday_calendar_features_days_since_until_are_consistent():
+    """Holiday calendar features days since until are consistent."""
     dates = pd.Series(pd.to_datetime(["2024-12-20", "2024-12-25", "2024-12-27"]))
     feats = holiday_calendar_features(dates, country="US")
 

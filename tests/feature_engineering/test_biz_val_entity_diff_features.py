@@ -16,6 +16,7 @@ from mlframe.feature_engineering.entity_diff_features import entity_diff_feature
 
 
 def test_biz_val_entity_diff_features_recover_trend_signal_raw_level_misses():
+    """Biz val entity diff features recover trend signal raw level misses."""
     rng = np.random.default_rng(0)
     n_entities = 400
     rows_per_entity = 6
@@ -52,6 +53,7 @@ def test_biz_val_entity_diff_features_multilag_recovers_regime_shift_single_lag_
     # each single step only moves the value by a small amount indistinguishable from noise, but the
     # cumulative 5-row drift is large. A single-step diff (n=1) sees only noise at every row; a 5-back
     # diff exposes the accumulated drift directly.
+    """Biz val entity diff features multilag recovers regime shift single lag misses."""
     rng = np.random.default_rng(1)
     n_entities = 400
     rows_per_entity = 6
@@ -88,6 +90,7 @@ def test_biz_val_entity_diff_features_multilag_recovers_regime_shift_single_lag_
 
 
 def test_entity_diff_features_multilag_default_omitted_matches_single_lag_bitidentical():
+    """Entity diff features multilag default omitted matches single lag bitidentical."""
     df = pd.DataFrame({"entity": ["a", "a", "a"], "t": [0, 1, 2], "x": [10.0, 25.0, 60.0]})
     baseline = entity_diff_features(df, entity_col="entity", feature_cols=["x"], n=1)
     via_lags = entity_diff_features(df, entity_col="entity", feature_cols=["x"], lags=[1])
@@ -95,6 +98,7 @@ def test_entity_diff_features_multilag_default_omitted_matches_single_lag_bitide
 
 
 def test_entity_diff_features_never_bleeds_across_entities():
+    """Entity diff features never bleeds across entities."""
     df = pd.DataFrame({"entity": ["a", "a", "b", "b"], "t": [0, 1, 0, 1], "x": [10.0, 20.0, 1000.0, 1005.0]})
     result = entity_diff_features(df, entity_col="entity", feature_cols=["x"], n=1)
     assert pd.isna(result["x_diff"].iloc[0])  # entity a's first row

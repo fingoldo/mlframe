@@ -13,6 +13,7 @@ import pytest
 
 
 def test_boruta_shap_accepts_polars_dataframe():
+    """A polars DataFrame/Series input Arrow-bridges cleanly to pandas: support_ mask and selected_features_ both come out right."""
     pl = pytest.importorskip("polars")
     pytest.importorskip("shap")
     from mlframe.feature_selection.boruta_shap import BorutaShap

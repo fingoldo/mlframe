@@ -14,6 +14,7 @@ from mlframe.training.composite.cache import DiscoveryCache
 
 
 def test_get_returns_default_on_missing_file_without_raising(tmp_path):
+    """A cache miss on a nonexistent key returns the caller's default instead of raising."""
     cache = DiscoveryCache(str(tmp_path))
     assert cache.get("deadbeef", default="fallback") == "fallback"
 

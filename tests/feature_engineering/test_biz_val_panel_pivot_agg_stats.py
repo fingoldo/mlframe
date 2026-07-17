@@ -21,6 +21,7 @@ MAX_LAGS = 5
 
 
 def _make_long_history_panel(n_entities: int, seed: int):
+    """Helper: Make long history panel."""
     rng = np.random.default_rng(seed)
     rows = []
     targets = {}
@@ -39,6 +40,7 @@ def _make_long_history_panel(n_entities: int, seed: int):
 
 
 def _rmse(X: pd.DataFrame, y: pd.Series, train_idx, test_idx) -> float:
+    """Helper: Rmse."""
     Xtr, Xte = X.loc[train_idx], X.loc[test_idx]
     ytr, yte = y.loc[train_idx], y.loc[test_idx]
     model = LGBMRegressor(n_estimators=200, num_leaves=15, random_state=0, verbose=-1)
@@ -47,6 +49,7 @@ def _rmse(X: pd.DataFrame, y: pd.Series, train_idx, test_idx) -> float:
 
 
 def test_biz_val_pivot_time_indexed_panel_agg_stats_recovers_truncated_signal():
+    """Biz val pivot time indexed panel agg stats recovers truncated signal."""
     df, y = _make_long_history_panel(n_entities=1000, seed=0)
 
     raw_only = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=MAX_LAGS)
@@ -65,6 +68,7 @@ def test_biz_val_pivot_time_indexed_panel_agg_stats_recovers_truncated_signal():
 
 
 def test_pivot_time_indexed_panel_agg_stats_hand_computed():
+    """Pivot time indexed panel agg stats hand computed."""
     df = pd.DataFrame({"id": [1] * 8 + [2] * 2, "t": list(range(8)) + list(range(2)), "x": [*list(range(100, 108)), 20, 21]})
     out = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=3, agg_stats=("mean", "std", "min", "max"))
 
@@ -77,6 +81,7 @@ def test_pivot_time_indexed_panel_agg_stats_hand_computed():
 
 
 def test_pivot_time_indexed_panel_agg_stats_default_unchanged():
+    """Pivot time indexed panel agg stats default unchanged."""
     df = pd.DataFrame({"id": [1] * 8 + [2] * 2, "t": list(range(8)) + list(range(2)), "x": [*list(range(100, 108)), 20, 21]})
     baseline = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=3)
     with_none = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=3, agg_stats=None)

@@ -24,6 +24,7 @@ pytestmark = pytest.mark.fast
 
 
 def test_conformal_coverage_bank_is_held_out_only():
+    """Conformal coverage bank is held out only."""
     pytest.importorskip("lightgbm")
     rng = np.random.default_rng(0)
     n, d = 300, 5

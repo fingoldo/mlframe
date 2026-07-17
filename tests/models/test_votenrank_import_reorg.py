@@ -11,12 +11,14 @@ import logging
 
 
 def test_votenrank_symbol_importable_from_package():
+    """Votenrank symbol importable from package."""
     from mlframe.models.ensembling import _build_votenrank_leaderboard_from_results
 
     assert callable(_build_votenrank_leaderboard_from_results)
 
 
 def test_maybe_build_votenrank_lazy_import_resolves(caplog):
+    """Maybe build votenrank lazy import resolves."""
     from mlframe.models.ensembling.score_flavours import maybe_build_votenrank_leaderboard
 
     with caplog.at_level(logging.WARNING):

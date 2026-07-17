@@ -21,6 +21,7 @@ def _feed(stopper, values):
 
 
 def test_climb_peak_then_N_decline_fires_max() -> None:
+    """Climb peak then N decline fires max."""
     s = MonotonicDeclineStopper(patience=3, mode="max")
     # climb to peak at 0.9, then 3 strict declines
     idx = _feed(s, [0.5, 0.7, 0.9, 0.88, 0.86, 0.84])
@@ -30,6 +31,7 @@ def test_climb_peak_then_N_decline_fires_max() -> None:
 
 
 def test_does_not_fire_before_N_declines() -> None:
+    """Does not fire before N declines."""
     s = MonotonicDeclineStopper(patience=3, mode="max")
     idx = _feed(s, [0.5, 0.9, 0.88, 0.86])  # only 2 declines
     assert idx is None
@@ -38,6 +40,7 @@ def test_does_not_fire_before_N_declines() -> None:
 
 
 def test_bounce_up_resets_streak() -> None:
+    """Bounce up resets streak."""
     s = MonotonicDeclineStopper(patience=3, mode="max")
     # decline twice, bounce up (not a new best), decline again -> streak restarts
     idx = _feed(s, [0.5, 0.9, 0.88, 0.86, 0.87, 0.85, 0.84])
@@ -46,6 +49,7 @@ def test_bounce_up_resets_streak() -> None:
 
 
 def test_plateau_resets_streak() -> None:
+    """Plateau resets streak."""
     s = MonotonicDeclineStopper(patience=3, mode="max")
     # decline twice, plateau (equal to prev), decline once more -> not yet 3-in-a-row
     idx = _feed(s, [0.5, 0.9, 0.88, 0.86, 0.86, 0.84])
@@ -54,6 +58,7 @@ def test_plateau_resets_streak() -> None:
 
 
 def test_new_global_best_resets_streak() -> None:
+    """New global best resets streak."""
     s = MonotonicDeclineStopper(patience=3, mode="max")
     # two declines, then a NEW best above 0.9 (resets streak), then 3 declines -> fires after new run
     idx = _feed(s, [0.9, 0.85, 0.80, 0.95, 0.90, 0.88, 0.86])
@@ -62,6 +67,7 @@ def test_new_global_best_resets_streak() -> None:
 
 
 def test_min_mode_fires_on_rising_loss() -> None:
+    """Min mode fires on rising loss."""
     s = MonotonicDeclineStopper(patience=3, mode="min")
     # loss falls to 0.1 then rises 3 times (worsening for min-mode)
     idx = _feed(s, [0.5, 0.3, 0.1, 0.12, 0.14, 0.16])
@@ -70,6 +76,7 @@ def test_min_mode_fires_on_rising_loss() -> None:
 
 
 def test_min_mode_plateau_and_bounce_reset() -> None:
+    """Min mode plateau and bounce reset."""
     s = MonotonicDeclineStopper(patience=2, mode="min")
     # rise once, drop (bounce-down = improvement-over-prev), rise once -> no fire
     idx = _feed(s, [0.1, 0.2, 0.15, 0.18])
@@ -77,6 +84,7 @@ def test_min_mode_plateau_and_bounce_reset() -> None:
 
 
 def test_disabled_never_fires() -> None:
+    """Disabled never fires."""
     for p in (None, 0, -1):
         s = MonotonicDeclineStopper(patience=p, mode="max")
         assert s.enabled is False
@@ -84,6 +92,7 @@ def test_disabled_never_fires() -> None:
 
 
 def test_nan_inf_are_noop() -> None:
+    """Nan inf are noop."""
     s = MonotonicDeclineStopper(patience=2, mode="max")
     s.update(0.9)
     s.update(0.88)  # streak 1
@@ -113,6 +122,7 @@ def test_nan_inf_logs_once(caplog) -> None:
 
 
 def test_stop_is_latched() -> None:
+    """Stop is latched."""
     s = MonotonicDeclineStopper(patience=2, mode="max")
     _feed(s, [0.9, 0.8, 0.7])
     assert s.stopped is True
@@ -121,6 +131,7 @@ def test_stop_is_latched() -> None:
 
 
 def test_reset_clears_state() -> None:
+    """Reset clears state."""
     s = MonotonicDeclineStopper(patience=2, mode="max")
     _feed(s, [0.9, 0.8, 0.7])
     s.reset()
@@ -131,5 +142,6 @@ def test_reset_clears_state() -> None:
 
 
 def test_invalid_mode_raises() -> None:
+    """Invalid mode raises."""
     with pytest.raises(ValueError, match="mode"):
         MonotonicDeclineStopper(patience=3, mode="bogus")

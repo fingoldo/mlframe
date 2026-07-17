@@ -24,6 +24,7 @@ def _overconfident(score):
 
 
 def test_per_bin_curves_and_ece_present():
+    """Per bin curves and ece present."""
     rng = np.random.default_rng(0)
     n = 9000
     y, score = _calibrated(rng, n)
@@ -43,6 +44,7 @@ def test_per_bin_curves_and_ece_present():
 
 
 def test_bin_count_respected():
+    """Bin count respected."""
     rng = np.random.default_rng(1)
     n = 12000
     y, score = _calibrated(rng, n)
@@ -52,6 +54,7 @@ def test_bin_count_respected():
 
 
 def test_heterogeneity_metric_keys():
+    """Heterogeneity metric keys."""
     rng = np.random.default_rng(2)
     n = 9000
     y, score = _calibrated(rng, n)
@@ -63,6 +66,7 @@ def test_heterogeneity_metric_keys():
 
 
 def test_constant_feature_annotated_not_crash():
+    """Constant feature annotated not crash."""
     rng = np.random.default_rng(3)
     n = 5000
     y, score = _calibrated(rng, n)
@@ -75,6 +79,7 @@ def test_constant_feature_annotated_not_crash():
 
 
 def test_nan_feature_values_dropped():
+    """Nan feature values dropped."""
     rng = np.random.default_rng(4)
     n = 9000
     y, score = _calibrated(rng, n)
@@ -86,6 +91,7 @@ def test_nan_feature_values_dropped():
 
 
 def test_single_class_bin_skipped():
+    """Single class bin skipped."""
     rng = np.random.default_rng(5)
     n = 8000
     y, score = _calibrated(rng, n)
@@ -132,6 +138,7 @@ def test_biz_val_calibration_by_feature_detects_feature_dependent_miscalibration
 
 
 def test_figure_renders_via_matplotlib():
+    """Figure renders via matplotlib."""
     rng = np.random.default_rng(7)
     n = 8000
     feature = rng.normal(size=n)

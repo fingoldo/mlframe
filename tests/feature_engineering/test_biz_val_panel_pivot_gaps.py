@@ -19,6 +19,7 @@ from mlframe.feature_engineering.panel_pivot import pivot_time_indexed_panel
 
 
 def _make_irregular_panel(n_entities: int, seed: int):
+    """Helper: Make irregular panel."""
     rng = np.random.default_rng(seed)
     rows = []
     targets = {}
@@ -38,6 +39,7 @@ def _make_irregular_panel(n_entities: int, seed: int):
 
 
 def test_biz_val_time_gaps_beat_lag_rank_only_pivot():
+    """Biz val time gaps beat lag rank only pivot."""
     df, y = _make_irregular_panel(n_entities=1200, seed=0)
 
     with_gaps = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=6, add_time_gaps=True)
@@ -47,6 +49,7 @@ def test_biz_val_time_gaps_beat_lag_rank_only_pivot():
     train_idx, test_idx = train_test_split(with_gaps.index, test_size=0.3, random_state=0)
 
     def _rmse(X: pd.DataFrame) -> float:
+        """Helper: Rmse."""
         Xtr, Xte = X.loc[train_idx], X.loc[test_idx]
         ytr, yte = y_aligned.loc[train_idx], y_aligned.loc[test_idx]
         model = LGBMRegressor(n_estimators=200, num_leaves=15, random_state=0, verbose=-1)
@@ -62,6 +65,7 @@ def test_biz_val_time_gaps_beat_lag_rank_only_pivot():
 
 
 def test_pivot_time_indexed_panel_gap_hand_computed():
+    """Pivot time indexed panel gap hand computed."""
     df = pd.DataFrame({"id": [1, 1, 1, 2, 2], "t": [0, 5, 30, 0, 100], "x": [10, 11, 12, 20, 21]})
     out = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=3, add_time_gaps=True)
 
@@ -74,6 +78,7 @@ def test_pivot_time_indexed_panel_gap_hand_computed():
 
 
 def test_pivot_time_indexed_panel_no_gaps_by_default():
+    """Pivot time indexed panel no gaps by default."""
     df = pd.DataFrame({"id": [1, 1], "t": [0, 5], "x": [10, 11]})
     out = pivot_time_indexed_panel(df, "id", "t", ["x"], max_lags=2)
     assert not any(c.startswith("t_gap_lag_") for c in out.columns)

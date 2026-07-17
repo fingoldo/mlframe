@@ -12,10 +12,12 @@ from mlframe.metrics.classification._threshold_optimization import (
 
 
 def _apply(y_score, thr):
+    """Helper: Apply."""
     return (y_score >= thr).astype(int)
 
 
 def _f1(y, p):
+    """Helper: F1."""
     tp = int(((y == 1) & (p == 1)).sum())
     fp = int(((y == 0) & (p == 1)).sum())
     fn = int(((y == 1) & (p == 0)).sum())
@@ -25,6 +27,7 @@ def _f1(y, p):
 
 # ---------------------------------------------------------------- unit
 def test_perfectly_separable_reaches_score_one():
+    """Perfectly separable reaches score one."""
     y = np.array([0, 0, 0, 1, 1, 1])
     s = np.array([0.1, 0.2, 0.3, 0.7, 0.8, 0.9])
     for m in THRESHOLD_METRICS:
@@ -35,6 +38,7 @@ def test_perfectly_separable_reaches_score_one():
 
 
 def test_returned_threshold_reproduces_reported_score():
+    """Returned threshold reproduces reported score."""
     rng = np.random.default_rng(0)
     y = rng.integers(0, 2, size=200)
     s = rng.random(200)
@@ -44,6 +48,7 @@ def test_returned_threshold_reproduces_reported_score():
 
 def test_all_negative_wins_when_scores_uninformative_for_accuracy():
     # 95% negative, scores random -> predicting all-negative maximizes accuracy
+    """All negative wins when scores uninformative for accuracy."""
     rng = np.random.default_rng(1)
     y = (rng.random(1000) < 0.05).astype(int)
     s = rng.random(1000)
@@ -52,6 +57,7 @@ def test_all_negative_wins_when_scores_uninformative_for_accuracy():
 
 
 def test_invalid_metric_and_mismatch_raise():
+    """Invalid metric and mismatch raise."""
     with pytest.raises(ValueError):
         optimal_threshold(np.zeros(3), np.zeros(3), metric="nope")
     with pytest.raises(ValueError):
@@ -59,12 +65,14 @@ def test_invalid_metric_and_mismatch_raise():
 
 
 def test_empty_input():
+    """Empty input."""
     thr, sc = optimal_threshold(np.array([]), np.array([]))
     assert thr == np.inf and np.isnan(sc)
 
 
 def test_ties_in_score_handled():
     # identical scores cannot be split by a threshold; predictions must be consistent
+    """Ties in score handled."""
     y = np.array([1, 0, 1, 0])
     s = np.array([0.5, 0.5, 0.5, 0.5])
     thr, _sc = optimal_threshold(y, s, metric="f1")

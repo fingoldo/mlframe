@@ -23,6 +23,7 @@ from mlframe.feature_engineering.transformer.adasyn_smote import _adasyn_synthes
 
 
 def _old_reference(X_minority, X_full, y_binary_full, n_synthetic, k_smote, k_global, seed):
+    """Helper: Old reference."""
     n_min = X_minority.shape[0]
     if n_min < 2:
         return X_minority.copy() if n_min > 0 else np.zeros((0, X_minority.shape[1] if n_min > 0 else 1), dtype=np.float32)
@@ -51,6 +52,7 @@ def _old_reference(X_minority, X_full, y_binary_full, n_synthetic, k_smote, k_gl
 
 
 def _make(nrows, d, seed, n_full=None):
+    """Helper: Make."""
     rng = np.random.default_rng(seed + 99)
     X_min = rng.standard_normal((nrows, d)).astype(np.float32)
     n_full = n_full if n_full is not None else nrows * 3
@@ -65,6 +67,7 @@ def _make(nrows, d, seed, n_full=None):
     [(500, 30, 5, 10, 5000), (50, 8, 5, 10, 400), (3, 4, 5, 5, 20), (200, 12, 10, 15, 2000)],
 )
 def test_adasyn_synthesize_bit_identical_to_row_loop(seed, nrows, d, k_smote, k_global, n_syn):
+    """Adasyn synthesize bit identical to row loop."""
     X_min, X_full, y_full = _make(nrows, d, seed)
     expected = _old_reference(X_min, X_full, y_full, n_syn, k_smote, k_global, seed)
     got = _adasyn_synthesize(X_min, X_full, y_full, n_syn, k_smote, k_global, seed)
@@ -75,12 +78,14 @@ def test_adasyn_synthesize_bit_identical_to_row_loop(seed, nrows, d, k_smote, k_
 @pytest.mark.parametrize("seed", [0, 3])
 def test_adasyn_synthesize_tiny_minority_early_return(seed):
     # n_min < 2 short-circuits before any draw; pin the early-return shape/content.
+    """Adasyn synthesize tiny minority early return."""
     X_min, X_full, y_full = _make(1, 6, seed)
     got = _adasyn_synthesize(X_min, X_full, y_full, 50, 5, 10, seed)
     assert np.array_equal(got, X_min)
 
 
 def test_adasyn_synthesize_empty_minority():
+    """Adasyn synthesize empty minority."""
     X_full = np.random.default_rng(0).standard_normal((30, 6)).astype(np.float32)
     y_full = (np.random.default_rng(0).random(30) < 0.5).astype(np.float32)
     X_min = np.zeros((0, 6), dtype=np.float32)

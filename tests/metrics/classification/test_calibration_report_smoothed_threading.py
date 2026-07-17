@@ -17,6 +17,7 @@ from mlframe.reporting.spec import ScatterPanelSpec
 
 
 def _overconfident(n: int = 5000, seed: int = 0):
+    """Helper: Overconfident."""
     rng = np.random.default_rng(seed)
     z = rng.normal(0.0, 1.0, size=n)
     p_true = 1.0 / (1.0 + np.exp(-z))
@@ -32,6 +33,7 @@ def _spec_spy(monkeypatch):
     real = cal_mod.build_calibration_spec
 
     def _spy(*args, **kwargs):
+        """Helper: Spy."""
         spec = real(*args, **kwargs)
         captured["kwargs"] = kwargs
         captured["spec"] = spec
@@ -42,12 +44,14 @@ def _spec_spy(monkeypatch):
 
 
 def _overlay_from_spec(spec):
+    """Helper: Overlay from spec."""
     scatter = spec.panels[0][0]
     assert isinstance(scatter, ScatterPanelSpec)
     return scatter.overlay_line
 
 
 class TestSuiteThreadingDefaultOn:
+    """Groups tests for: TestSuiteThreadingDefaultOn."""
     def test_fast_calibration_report_threads_overlay_via_dsl(self, _spec_spy, tmp_path):
         """A suite-style fast_calibration_report call with the DSL render path produces a spec whose reliability panel
         CARRIES the smoothed overlay -- raw arrays threaded end-to-end with no explicit reliability_smoothed flag."""
@@ -108,6 +112,7 @@ class TestSuiteThreadingDefaultOn:
 
 
 class TestReportProbabilisticThreading:
+    """Groups tests for: TestReportProbabilisticThreading."""
     def test_report_perf_threads_overlay_per_class(self, _spec_spy, tmp_path):
         """report_probabilistic_model_perf (binary) routes its per-class one-vs-rest raw arrays through the chain so
         the suite reliability diagram carries the smoothed overlay by default."""

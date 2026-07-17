@@ -9,11 +9,13 @@ from mlframe.metrics._fairness_metrics import compute_fairness_metrics
 
 
 def _accuracy(yt, yp):
+    """Helper: Accuracy."""
     return float((yt == (yp >= 0.5).astype(int)).mean())
 
 
 @pytest.mark.parametrize("seed", [0, 3, 11])
 def test_factorize_masks_match_raw_equality(seed):
+    """Factorize masks match raw equality."""
     rng = np.random.default_rng(seed)
     n = 4000
     y_true = rng.integers(0, 2, size=n)

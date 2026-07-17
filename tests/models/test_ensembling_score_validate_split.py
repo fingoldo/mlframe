@@ -14,6 +14,7 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
+    """Parent module."""
     from mlframe.models.ensembling import score as _ensembling_score
 
     return _ensembling_score
@@ -21,16 +22,19 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def sibling_validate():
+    """Sibling validate."""
     from mlframe.models.ensembling import score_validate as _ensembling_score_validate
 
     return _ensembling_score_validate
 
 
 def test_validate_identity(parent_module, sibling_validate):
+    """Validate identity."""
     assert parent_module._validate_score_ensemble_inputs is sibling_validate._validate_score_ensemble_inputs
 
 
 def test_facade_loc_budget(parent_module):
+    """Facade loc budget."""
     path = Path(parent_module.__file__)
     n_lines = len(path.read_text(encoding="utf-8").splitlines())
     assert n_lines < 1000, f"facade is {n_lines} LOC, expected < 1000"
@@ -55,6 +59,7 @@ def test_single_member_returns_sentinel(parent_module):
 
 
 def test_no_members_returns_sentinel(parent_module):
+    """No members returns sentinel."""
     res = parent_module.score_ensemble(
         models_and_predictions=[],
         ensemble_name="empty",

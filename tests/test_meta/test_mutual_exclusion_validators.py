@@ -58,6 +58,7 @@ _PATTERNS = [
 
 
 def _config_classes() -> list[type[BaseModel]]:
+    """Helper that config classes."""
     out = []
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
         if not (issubclass(obj, BaseModel) and obj is not BaseModel):
@@ -78,6 +79,7 @@ def _config_classes() -> list[type[BaseModel]]:
 
 
 def _has_default(info: FieldInfo) -> bool:
+    """Helper that has default."""
     if info.default is not PydanticUndefined and info.default is not Ellipsis:
         return True
     if info.default_factory is not None:
@@ -86,6 +88,7 @@ def _has_default(info: FieldInfo) -> bool:
 
 
 def _required_sentinels(cls: type[BaseModel]) -> dict:
+    """Helper that required sentinels."""
     out: dict = {}
     for name, info in cls.model_fields.items():
         if not _has_default(info):
@@ -144,6 +147,7 @@ def _synth_value(annotation):
 
 
 def test_mutually_exclusive_pairs_are_enforced_by_a_validator():
+    """Mutually exclusive pairs are enforced by a validator."""
     failures: list[str] = []
     audited_pairs = 0
     classes = _config_classes()

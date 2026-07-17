@@ -18,6 +18,7 @@ from mlframe.models.additive_interaction_diagnostic import additive_interaction_
 
 
 def test_biz_val_additive_interaction_diagnostic_distinguishes_additive_from_interaction_signal():
+    """Biz val additive interaction diagnostic distinguishes additive from interaction signal."""
     rng = np.random.default_rng(0)
     n = 3000
 

@@ -15,6 +15,7 @@ from mlframe.feature_engineering.nadaraya_watson import (
 
 
 def test_constant_signal_is_recovered():
+    """Constant signal is recovered."""
     x = np.linspace(0, 10, 50)
     y = np.full(50, 3.5)
     out = nadaraya_watson_smooth(x, y, bandwidth=1.0)
@@ -22,10 +23,12 @@ def test_constant_signal_is_recovered():
 
 
 def test_empty_input():
+    """Empty input."""
     assert nadaraya_watson_smooth(np.array([]), np.array([])).shape == (0,)
 
 
 def test_boxcar_zero_outside_support_is_nan():
+    """Boxcar zero outside support is nan."""
     x = np.array([0.0, 1.0, 2.0])
     y = np.array([1.0, 2.0, 3.0])
     out = nadaraya_watson_smooth(x, y, x_query=np.array([100.0]), bandwidth=0.5, kernel="boxcar")
@@ -33,6 +36,7 @@ def test_boxcar_zero_outside_support_is_nan():
 
 
 def test_sample_weight_biases_toward_weighted_points():
+    """Sample weight biases toward weighted points."""
     x = np.array([0.0, 0.0])
     y = np.array([0.0, 10.0])
     # equal kernel weight at query 0; sample_weight tilts fully to the second point
@@ -42,6 +46,7 @@ def test_sample_weight_biases_toward_weighted_points():
 
 @pytest.mark.parametrize("kernel", ["gaussian", "epanechnikov", "boxcar", "tricube"])
 def test_all_kernels_recover_linear_midrange(kernel):
+    """All kernels recover linear midrange."""
     x = np.linspace(0, 10, 200)
     y = 2.0 * x + 1.0
     out = nadaraya_watson_smooth(x, y, x_query=np.array([5.0]), bandwidth=0.8, kernel=kernel)
@@ -49,6 +54,7 @@ def test_all_kernels_recover_linear_midrange(kernel):
 
 
 def test_invalid_kernel_raises():
+    """Invalid kernel raises."""
     with pytest.raises(ValueError):
         nadaraya_watson_smooth(np.arange(3.0), np.arange(3.0), kernel="nope")
 

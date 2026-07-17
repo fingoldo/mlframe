@@ -15,14 +15,17 @@ from mlframe.estimators.base import (
 
 
 def _xy_clf():
+    """Helper that xy clf."""
     return make_classification(n_samples=50, n_features=4, random_state=0)
 
 
 def _xy_reg():
+    """Helper that xy reg."""
     return make_regression(n_samples=50, n_features=4, noise=0.1, random_state=0)
 
 
 def test_classifier_with_early_stopping_fit_predict():
+    """Classifier with early stopping fit predict."""
     X, y = _xy_clf()
     clf = ClassifierWithEarlyStopping(base_estimator=LogisticRegression(max_iter=500), random_state=0)
     clf.fit(X, y)
@@ -34,6 +37,7 @@ def test_classifier_with_early_stopping_fit_predict():
 
 
 def test_regressor_with_early_stopping_fit_predict():
+    """Regressor with early stopping fit predict."""
     X, y = _xy_reg()
     reg = RegressorWithEarlyStopping(base_estimator=Ridge(), random_state=0)
     reg.fit(X, y)
@@ -43,6 +47,7 @@ def test_regressor_with_early_stopping_fit_predict():
 
 def test_classifier_decision_function_raises_when_unavailable():
     # LogisticRegression has decision_function — use a model that doesn't.
+    """Classifier decision function raises when unavailable."""
     from sklearn.tree import DecisionTreeClassifier
 
     X, y = _xy_clf()
@@ -53,6 +58,7 @@ def test_classifier_decision_function_raises_when_unavailable():
 
 
 def test_pickle_roundtrip_classifier_with_early_stopping():
+    """Pickle roundtrip classifier with early stopping."""
     X, y = _xy_clf()
     clf = ClassifierWithEarlyStopping(base_estimator=LogisticRegression(max_iter=500), random_state=0)
     clf.fit(X, y)
@@ -63,6 +69,7 @@ def test_pickle_roundtrip_classifier_with_early_stopping():
 
 
 def test_pickle_roundtrip_regressor_with_early_stopping():
+    """Pickle roundtrip regressor with early stopping."""
     X, y = _xy_reg()
     reg = RegressorWithEarlyStopping(base_estimator=Ridge(), random_state=0)
     reg.fit(X, y)
@@ -105,6 +112,7 @@ def test_default_stratify_none_auto_stratifies_imbalanced_classifier_split():
     real_train_test_split = base_mod.train_test_split
 
     def _spy(*args, **kwargs):
+        """Helper that spy."""
         captured["stratify"] = kwargs.get("stratify")
         return real_train_test_split(*args, **kwargs)
 

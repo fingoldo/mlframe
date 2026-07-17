@@ -69,12 +69,14 @@ def _handcrafted_polynomial(X: np.ndarray, n_signal: int = 4) -> np.ndarray:
 
 
 def _lgbm():
+    """Helper: Lgbm."""
     import lightgbm as lgb
 
     return lgb.LGBMRegressor(n_estimators=200, learning_rate=0.05, num_leaves=31, min_child_samples=20, random_state=42, verbose=-1)
 
 
 def _ridge():
+    """Helper: Ridge."""
     from sklearn.linear_model import Ridge
 
     return Ridge(alpha=1.0)
