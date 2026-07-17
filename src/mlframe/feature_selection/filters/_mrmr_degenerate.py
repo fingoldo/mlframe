@@ -136,6 +136,34 @@ def _content_key(values: np.ndarray):
             return None
 
 
+def _gram_matrix(M: np.ndarray) -> np.ndarray:
+    """``M @ M.T`` for the row-standardised candidate block, dispatched to cupy under GPU-strict.
+
+    cProfile on the wellbore-100k GPU-strict fit attributed 43.0s tottime to ``audit_degenerate_columns``'s
+    single call (p~518 raw columns) -- entirely this one BLAS GEMM, hardcoded to CPU numpy regardless of
+    STRICT mode (this scan is PURELY DIAGNOSTIC, see module docstring, so it never had a GPU twin like the
+    selection-critical kernels). Routing through the same ``fe_gpu_strict_enabled`` work-floor gate used
+    elsewhere keeps tiny frames on CPU (upload overhead would dominate) and only engages cupy once the GEMM
+    itself is worth the H2D/D2H round trip -- the matrix is (p, p), a few MB at most, so the download back is
+    negligible next to the O(n*p^2) contraction it replaces."""
+    p, n_rows = M.shape
+    try:
+        from ._fe_gpu_strict import fe_gpu_strict_enabled
+
+        if not fe_gpu_strict_enabled(n=n_rows, p=p):
+            return np.asarray(M @ M.T)
+    except Exception:  # nosec B110 -- strict-gate probe failure must never break the diagnostic scan
+        return np.asarray(M @ M.T)
+    try:
+        import cupy as cp
+
+        Md = cp.asarray(M)
+        return np.asarray(cp.asnumpy(Md @ Md.T))
+    except Exception as exc:  # cupy missing / OOM / driver error -> safe CPU fallback
+        logger.warning("[degenerate-audit] cupy Gram-matrix backend failed (%s); falling back to numpy.", type(exc).__name__)
+        return np.asarray(M @ M.T)
+
+
 def audit_degenerate_columns(X) -> dict:
     """Cheap O(p) degenerate-column scan. Returns ``{column: reason}``.
 
@@ -201,7 +229,7 @@ def audit_degenerate_columns(X) -> dict:
         good = stds > 0
         with np.errstate(invalid="ignore", divide="ignore"):
             M = np.where(good[:, None], M / np.where(stds == 0, 1.0, stds)[:, None], 0.0)
-        corr = M @ M.T  # unit-norm rows -> Gram matrix == correlation matrix
+        corr = _gram_matrix(M)  # unit-norm rows -> Gram matrix == correlation matrix
         np.fill_diagonal(corr, 0.0)
         abs_corr = np.abs(corr)
         for j in range(len(live)):
