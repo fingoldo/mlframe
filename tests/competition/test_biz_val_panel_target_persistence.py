@@ -145,6 +145,7 @@ def test_lag_lead_target_within_group_shapes_and_edges():
 
 
 def test_lag_target_within_group_periods_zero_raises():
+    """periods=0 raises ValueError since a zero-step lag is not a meaningful shift."""
     group_ids = np.array([1, 1])
     order = np.array([0, 1])
     y = np.array([1.0, 2.0])
