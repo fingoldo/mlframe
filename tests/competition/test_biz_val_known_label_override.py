@@ -21,6 +21,7 @@ from mlframe.competition.known_label_override import known_label_override, monot
 
 
 def _make_monotonic_entity_dataset(n_entities: int, rows_per_entity: int, seed: int):
+    """Build an entity panel where once-fraud entities stay fraud on every row, but the raw model misses many of them."""
     rng = np.random.default_rng(seed)
     n = n_entities * rows_per_entity
     entity_ids = np.repeat(np.arange(n_entities), rows_per_entity)
@@ -44,6 +45,7 @@ def _make_monotonic_entity_dataset(n_entities: int, rows_per_entity: int, seed: 
 
 
 def test_biz_val_monotonic_entity_override_recovers_missed_past_fraud_rows():
+    """Override recovers all known-fraud-entity rows to full recall/1.0 and lifts AUC by >0.05 without touching other rows."""
     raw_preds, entity_ids, known_positive_entity_ids, y_true = _make_monotonic_entity_dataset(n_entities=200, rows_per_entity=10, seed=0)
 
     baseline_recall = float(np.mean(raw_preds[y_true == 1.0] >= 0.5))
@@ -68,6 +70,7 @@ def test_biz_val_monotonic_entity_override_recovers_missed_past_fraud_rows():
 
 
 def test_biz_val_monotonic_entity_override_noop_when_no_known_positives():
+    """With an empty known-positive set the override returns an unchanged, non-aliased copy of predictions."""
     raw_preds, entity_ids, _known_positive_entity_ids, _y_true = _make_monotonic_entity_dataset(n_entities=50, rows_per_entity=5, seed=1)
     overridden = monotonic_entity_override(raw_preds, entity_ids, known_positive_entity_ids=set())
     assert np.array_equal(overridden, raw_preds)
@@ -75,6 +78,7 @@ def test_biz_val_monotonic_entity_override_noop_when_no_known_positives():
 
 
 def _make_known_label_dataset(n: int, seed: int):
+    """Build a rare-positive dataset with clean recovered-positive labels and noisy (partly wrong) recovered-negative labels."""
     rng = np.random.default_rng(seed)
     y_true = rng.integers(0, 2, size=n).astype(float)
     # base rate skewed toward negative (rare-positive scenario, as in the fraud writeup)
@@ -106,6 +110,7 @@ def _make_known_label_dataset(n: int, seed: int):
 
 
 def test_biz_val_known_label_override_safe_direction_improves_without_ever_hurting():
+    """Safe one-directional (positive) override never lowers AUC and lifts it by >0.02 by recovering missed positives."""
     raw_preds, y_true, known_label_map_safe_only, _bidir_map = _make_known_label_dataset(n=3000, seed=3)
 
     baseline_auc = roc_auc_score(y_true, raw_preds)
@@ -122,6 +127,7 @@ def test_biz_val_known_label_override_safe_direction_improves_without_ever_hurti
 
 
 def test_biz_val_known_label_override_bidirectional_can_hurt_vs_safe_direction():
+    """A naive bidirectional override (bypassing the one-sided safety gate) underperforms the safe one-directional override."""
     raw_preds, y_true, known_label_map_safe_only, bidir_map = _make_known_label_dataset(n=3000, seed=3)
 
     baseline_auc = roc_auc_score(y_true, raw_preds)
@@ -146,6 +152,7 @@ def test_biz_val_known_label_override_bidirectional_can_hurt_vs_safe_direction()
 
 
 def test_biz_val_known_label_override_negative_direction_and_bounds_check():
+    """Safe negative-direction override never hurts AUC and applying it to an out-of-bounds index raises IndexError."""
     n = 500
     rng = np.random.default_rng(9)
     raw_preds = rng.uniform(0.4, 0.9, size=n)  # model over-predicts positive broadly
