@@ -71,8 +71,13 @@ _MULTI_BASE = {
     "geometric_mean_residual",
     "pairwise_interaction_residual",
 }
-# Transforms that consume a group / category column (need ``group_column``).
-_GROUPED = {"linear_residual_grouped", "target_encoding_residual"}
+# Transforms that consume a group / category column (need ``group_column``). Derived from the
+# registry's own ``requires_groups`` flag rather than a hand-maintained name set: a hardcoded set
+# silently drifted stale when 5 new ``_grouped``/``_residual_grouped`` transforms were added to the
+# registry without a matching update here, so every fuzz batch that happened to sample one of them
+# crashed with "requires groups; configure group_column" -- a false-positive fuzz "bug" from a test
+# gap, not a wrapper defect.
+_GROUPED = {name for name in list_transforms() if get_transform(name).requires_groups}
 # Transforms that require strictly-positive y and/or base on every row.
 _POSITIVE = {
     "logratio",

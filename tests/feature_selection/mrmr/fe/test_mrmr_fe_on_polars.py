@@ -63,11 +63,24 @@ def test_fe_runs_on_polars_input_and_matches_pandas():
 
 
 def test_fe_disabled_polars_stays_native_no_error():
-    """With FE off (fe_max_steps=0) a polars input must still fit (native path), raw-only."""
+    """With FE off (fe_max_steps=0) a polars input must still fit (native path), raw-only.
+
+    The four discrete-structural FE operators (pairwise-modular / row-argmax / conditional-gate /
+    binned-agg, gated by ``fe_discrete_structural_operators_enable``) deliberately fire independently
+    of ``fe_max_steps`` once n>=500 (see ``_DISCRETE_FE_MIN_N_AT_FE0`` in ``_fit_impl_core.py``) --
+    they must also be explicitly disabled here for a genuinely raw-only fit on this n=2000 fixture.
+    """
     data, y = _canonical(n=2000)
     df_pl = pl.DataFrame(data)
-    m = MRMR(verbose=0, random_seed=0, n_jobs=1, fe_max_steps=0, dcd_enable=False, build_friend_graph=False, cluster_aggregate_enable=False).fit(
-        df_pl.clone(), pl.Series("y", y)
-    )
+    m = MRMR(
+        verbose=0,
+        random_seed=0,
+        n_jobs=1,
+        fe_max_steps=0,
+        dcd_enable=False,
+        build_friend_graph=False,
+        cluster_aggregate_enable=False,
+        fe_discrete_structural_operators_enable=False,
+    ).fit(df_pl.clone(), pl.Series("y", y))
     # no crash, and selection is a subset of the raw columns (no FE).
     assert set(m.get_feature_names_out()) <= set(data.keys())
