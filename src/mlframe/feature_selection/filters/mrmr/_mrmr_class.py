@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.feature_selection import SelectorMixin
 from sklearn.model_selection import BaseCrossValidator
 
 # Top-level helpers (histogram + fingerprint/hash + replay + chunker) live in
@@ -148,9 +149,17 @@ from ._mrmr_class_config import _MRMRConfigMixin
 from ._mrmr_class_transform import _MRMRTransformMixin
 from ._mrmr_class_fit_helpers import _MRMRFitHelpersMixin
 
-# TransformerMixin (not SelectorMixin): MRMR's transform can add engineered features (_engineered_features_, FE pair-composites),
-# so it is not a pure mask-based selector and SelectorMixin's mask-only contract would be wrong here.
-class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixin, _MRMRFitHelpersMixin):
+# SelectorMixin ADDED (finding #19, 2026-07-17) purely for the isinstance(x, SelectorMixin) contract and its
+# ``inverse_transform``/``get_feature_names_out`` conveniences -- MRMR's OWN ``transform()`` (defined directly on
+# this class body, see its own docstring below) always wins regardless of MRO since an own-class-body method
+# beats any inherited one, so ``transform()`` still returns the FE-engineered columns (not SelectorMixin's
+# mask-only slice). ``get_feature_names_out``/``get_support`` (on ``_MRMRTransformMixin``) still win over
+# SelectorMixin's versions via MRO ordering below.
+# MRO ordering is load-bearing: SelectorMixin itself subclasses TransformerMixin, so (a) SelectorMixin MUST precede
+# TransformerMixin in this tuple (else C3 linearization raises TypeError at class-definition time), and (b)
+# ``_MRMRTransformMixin`` MUST precede SelectorMixin so its get_feature_names_out()/get_support() resolve first
+# via MRO -- confirmed by test_mrmr_selectormixin_mro.py pinning both facts.
+class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, _MRMRConfigMixin, _MRMRFitHelpersMixin):
     """Finds subset of features having highest impact on target and least redundancy.
 
     Parameters
