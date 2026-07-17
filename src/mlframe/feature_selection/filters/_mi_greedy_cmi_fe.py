@@ -1418,7 +1418,8 @@ def greedy_cmi_fe_construct(
         "cmi_at_selection", "step",
     ])
 
-    candidates_pool = [c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
+    _cols_source = cols if cols is not None else X.columns
+    candidates_pool = [c for c in _cols_source if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if not candidates_pool:
         return X.copy(), empty_scores
 
@@ -1641,7 +1642,13 @@ def greedy_cmi_fe_construct(
         effective_floor = max(float(min_cmi_gain), cur_floor)
         best_name = None
         best_cmi = -1.0
-        _have_z = (z_joint_dev is not None) or (z_joint is not None and z_joint.size > 0)
+        _have_z_dev = z_joint_dev is not None
+        _have_z_host = z_joint is not None and z_joint.size > 0
+        _have_z = False
+        if _have_z_dev:
+            _have_z = True
+        elif _have_z_host:
+            _have_z = True
         # The fingerprint-skip set is fixed for this step -> the candidates to score are
         # ``_scan`` (a list over ``remaining`` preserving its iteration order). y_bin / z_joint are fixed
         # across them, so score ALL their CMI in ONE batched_cmi_gpu workload and take the first-max argmax

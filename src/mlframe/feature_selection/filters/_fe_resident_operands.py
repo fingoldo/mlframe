@@ -32,11 +32,14 @@ mempool free + the cmi resident cache.
 Pickle-safe: this cache is module-level and NEVER stored on an MRMR instance (mirrors ``_cmi_cuda``'s note).
 """
 
+import logging
 import os as _os
 from collections import OrderedDict
 from typing import Any, Callable, Optional
 
 import numpy as _np
+
+logger = logging.getLogger(__name__)
 
 try:
     from numba import njit as _njit
@@ -61,7 +64,8 @@ try:
         h *= _np.uint64(0xC4CEB9FE1A85EC53)
         h ^= h >> _np.uint64(33)
         return int(h)
-except Exception:  # numba optional: fall through to the tobytes hash below
+except Exception as e:  # numba optional: fall through to the tobytes hash below
+    logger.debug("numba unavailable, falling back to tobytes-based content hash: %s", e)
     _njit_content_hash = None
 
 # Copy-free content hash. The signature must O(n)-hash the WHOLE operand buffer to guard against a
@@ -77,8 +81,8 @@ try:
     import xxhash as _xxhash
 
     _xxh3_64 = _xxhash.xxh3_64_intdigest
-except Exception:  # nosec B110 - xxhash optional: correctness identical via the tobytes fallback, only the copy churn returns
-    pass
+except Exception as e:  # nosec B110 - xxhash optional: correctness identical via the tobytes fallback, only the copy churn returns
+    logger.debug("xxhash unavailable, falling back to njit/tobytes content hash: %s", e)
 
 
 def _content_hash(host: Any) -> int:
@@ -190,8 +194,8 @@ def assemble_resident_matrix(host, names, fallback_key, *, dtype=None):
         try:
             cols = [resident_operand(np.ascontiguousarray(host[:, j]), ("xbasis_op", names[j]), dtype=dtype) for j in range(_k)]
             return cp.stack(cols, axis=1) if _k > 1 else cols[0][:, None]
-        except Exception:  # nosec B110 - best-effort path
-            pass
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("per-column resident-operand assembly failed, falling back to whole-matrix upload: %s", e)
     g = resident_operand(host, fallback_key, dtype=dtype)
     return g[:, None] if g.ndim == 1 else g
 

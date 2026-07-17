@@ -72,7 +72,9 @@ def build_raw_redundancy_anchors(
                 return None
             from ._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
             return _quantile_bin_gpu_resident(_v, int(_eng_card_local))
-        except Exception:
+        except Exception as exc:
+            # Hot per-candidate path: debug-only. Caller falls back to host _quantile_bin codes.
+            logger.debug("GPU-resident quantile-bin failed, falling back to host binning: %s", exc)
             return None
 
     def _dev_from_codes(_codes) -> Any:
@@ -85,7 +87,9 @@ def build_raw_redundancy_anchors(
         try:
             from ._fe_resident_operands import resident_code_operand
             return resident_code_operand(np.asarray(_codes).ravel(), "cmi_cand_x")
-        except Exception:
+        except Exception as exc:
+            # Hot per-candidate path: debug-only. Caller re-uploads host codes as before.
+            logger.debug("resident code-operand upload failed, falling back to host codes: %s", exc)
             return None
 
     sel_names = [cols[i] for i in sel]
@@ -174,7 +178,9 @@ def build_raw_redundancy_anchors(
                         _out = _cp.asnumpy(_dev).astype(np.int64)
                     else:
                         _out = np.ascontiguousarray(_quantile_bin(_clean, nbins=_eng_card)).astype(np.int64)
-            except Exception:
+            except Exception as exc:
+                # Hot per-candidate path: debug-only. Falls back to the coarser fit codes.
+                logger.debug("raw-operand up-resolve failed, keeping fit-resolution codes: %s", exc)
                 _out = _fit
                 _dev = None
         if _dev is None:
@@ -315,7 +321,9 @@ def build_raw_redundancy_anchors(
         try:
             from ._mi_greedy_cmi_fe import _renumber_joint_gpu
             return _renumber_joint_gpu(*dev_codes)[0]
-        except Exception:
+        except Exception as exc:
+            # Hot per-candidate path: debug-only. Caller falls back to host-side join.
+            logger.debug("device-resident conditioning-support join failed, falling back to host join: %s", exc)
             return None
 
     return SimpleNamespace(
