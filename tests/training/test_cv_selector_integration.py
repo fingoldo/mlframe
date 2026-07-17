@@ -116,6 +116,7 @@ def test_forward_stepwise_t_lcb_may_pick_different_winner(stable_vs_unstable_can
 
 
 def test_forward_stepwise_persist_fold_scores_populates_diagnostics(stable_vs_unstable_candidates) -> None:
+    """cv_persist_fold_scores=True surfaces per-candidate per-fold RMSEs in diagnostics; default OFF hides them."""
     y, candidates = stable_vs_unstable_candidates
     _, diag_off = forward_stepwise_multi_base(
         y,
@@ -152,6 +153,7 @@ def test_forward_stepwise_persist_fold_scores_populates_diagnostics(stable_vs_un
 
 
 def test_forward_stepwise_quantile_aggregator_applies(stable_vs_unstable_candidates) -> None:
+    """Switching the CV-fold aggregator to a quantile (vs mean) changes which candidate the forward-stepwise selector picks."""
     y, candidates = stable_vs_unstable_candidates
     _, diag_mean = forward_stepwise_multi_base(
         y,

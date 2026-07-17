@@ -35,6 +35,7 @@ class TestQRNominalCoverage:
     deviations, not wildly wider)."""
 
     def test_cb_nominal_coverage(self, synthetic_qr_data):
+        """CatBoost native quantile-regression interval coverage lands in [0.55, 0.95] with width under 3.0."""
         from catboost import CatBoostRegressor
         from mlframe.training.configs import QuantileRegressionConfig
         from mlframe.training.strategies import CatBoostStrategy
@@ -60,6 +61,7 @@ class TestQRNominalCoverage:
         assert width < 3.0, f"CB interval width {width:.3f} too wide (>3.0)"
 
     def test_xgb_nominal_coverage(self, synthetic_qr_data):
+        """XGBoost native quantile-regression interval coverage lands in [0.55, 0.95] like the CatBoost path."""
         from xgboost import XGBRegressor
         from mlframe.training.configs import QuantileRegressionConfig
         from mlframe.training.strategies import XGBoostStrategy

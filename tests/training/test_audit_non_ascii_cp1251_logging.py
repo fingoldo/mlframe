@@ -44,6 +44,7 @@ def _read(rel: str) -> str:
 
 
 def test_bench_mrmr_no_em_dash_in_print() -> None:
+    """The MRMR threading-vs-loky benchmark print must use ASCII '--', not an em-dash that breaks cp1251 logging."""
     src = _read("feature_selection/_benchmarks/bench_mrmr_threading_vs_loky.py")
     # The em-dash U+2014 must be gone from the print line at :114.
     assert "(legacy default — may break" not in src
@@ -54,6 +55,7 @@ def test_bench_mrmr_no_em_dash_in_print() -> None:
 
 
 def test_pipeline_to_pandas_fallback_no_em_dash() -> None:
+    """The pipeline's wide-frame to_pandas() fallback warning must use ASCII '--', not an em-dash."""
     src = _read("training/pipeline.py")
     assert "bare .to_pandas() — wide-frame" not in src
     assert "bare .to_pandas() -- wide-frame" in src

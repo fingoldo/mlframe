@@ -85,11 +85,13 @@ def _run_one_seed(seed: int, extra_pytest_args: list[str]) -> tuple[int, int, in
 
 
 def _seeds_for_today(n: int) -> list[int]:
+    """Returns n consecutive YYYYMMDD-based seeds starting from today, so fuzz runs rotate deterministically by date."""
     base = int(dt.date.today().strftime("%Y%m%d"))
     return [base + i for i in range(n)]
 
 
 def main() -> int:
+    """CLI entry point: runs the fuzz suite against explicit or date-rotated seeds and reports pass/fail/xfail counts."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--seeds", type=int, nargs="*", help="explicit seed list")
     ap.add_argument("--n", type=int, default=1, help="rotate the next N YYYYMMDD-based seeds")
