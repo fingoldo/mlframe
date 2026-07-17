@@ -35,6 +35,7 @@ def _make_drifting_panel(n_entities=400, hist=12, seed=0):
 
 
 def _rmse_of_prediction(scheme, param):
+    """Helper: Rmse of prediction."""
     values, groups, order, targets = _make_drifting_panel()
     per_entity = per_group_recency_weighted_mean(values, groups, order=order, scheme=scheme, param=param, broadcast=False)
     return float(np.sqrt(np.mean((per_entity - targets) ** 2)))

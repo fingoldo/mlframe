@@ -22,12 +22,15 @@ from mlframe.feature_engineering.transformer.gradient_direction_agreement import
 
 
 class _LinModel:
+    """Groups tests for: LinModel."""
     def __init__(self, d, seed):
+        """Helper: Init  ."""
         rng = np.random.default_rng(seed)
         self.w = rng.standard_normal(d).astype(np.float32)
         self.b = np.float32(rng.standard_normal())
 
     def predict(self, X):
+        """Predict."""
         return (X @ self.w + self.b).astype(np.float32)
 
 
@@ -46,6 +49,7 @@ def _gradient_reference_colcopy(model, X, is_binary, eps):
 
 @pytest.mark.parametrize("n,d", [(200, 16), (1000, 40)])
 def test_gradient_colcopy_bit_identical_and_restores_input(n, d):
+    """Gradient colcopy bit identical and restores input."""
     rng = np.random.default_rng(0)
     X = rng.standard_normal((n, d)).astype(np.float32)
     model = _LinModel(d, 1)

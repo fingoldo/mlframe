@@ -36,6 +36,7 @@ from mlframe.feature_engineering._benchmarks._cpx36_baseline.fisher_weighted_res
 
 
 def _data(task: str, n_train=600, n_query=120, d=12, seed=0):
+    """Helper: Data."""
     rng = np.random.default_rng(seed)
     Xt = rng.standard_normal((n_train, d)).astype(np.float32)
     Xq = rng.standard_normal((n_query, d)).astype(np.float32)
@@ -52,6 +53,7 @@ def _data(task: str, n_train=600, n_query=120, d=12, seed=0):
     ids=["counterfactual", "adversarial_flip", "fisher"],
 )
 def test_batched_predict_bit_identical(old_fn, new_fn, task):
+    """Batched predict bit identical."""
     Xt, y, Xq = _data(task)
     df_old = old_fn(Xt, y, Xq, seed=7, task=task)
     df_new = new_fn(Xt, y, Xq, seed=7, task=task)

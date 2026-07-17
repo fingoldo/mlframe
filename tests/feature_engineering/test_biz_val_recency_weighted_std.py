@@ -38,6 +38,7 @@ def _make_recent_volatility_regime_change_data(n_entities: int, n_hist: int, n_r
 
 
 def test_biz_val_recency_weighted_std_separates_recent_volatility_regime_change_from_plain_std():
+    """Biz val recency weighted std separates recent volatility regime change from plain std."""
     n_entities, n_hist, n_recent_burst = 4000, 30, 4
     values, group_ids, order, label = _make_recent_volatility_regime_change_data(n_entities, n_hist, n_recent_burst, sigma_calm=1.0, sigma_burst=8.0, seed=0)
 
@@ -54,6 +55,7 @@ def test_biz_val_recency_weighted_std_separates_recent_volatility_regime_change_
 
 
 def test_per_group_recency_weighted_agg_var_is_squared_std():
+    """Per group recency weighted agg var is squared std."""
     n_entities, n_hist, n_recent_burst = 500, 20, 3
     values, group_ids, order, _ = _make_recent_volatility_regime_change_data(n_entities, n_hist, n_recent_burst, sigma_calm=1.0, sigma_burst=5.0, seed=1)
 
@@ -64,6 +66,7 @@ def test_per_group_recency_weighted_agg_var_is_squared_std():
 
 
 def test_per_group_recency_weighted_agg_std_matches_manual_weighted_formula():
+    """Per group recency weighted agg std matches manual weighted formula."""
     values = np.array([1.0, 3.0, 2.0, 10.0, 4.0], dtype=np.float64)
     group_ids = np.zeros(5, dtype=np.int64)
     order = np.arange(5)
@@ -82,6 +85,7 @@ def test_per_group_recency_weighted_agg_std_matches_manual_weighted_formula():
 
 
 def test_per_group_recency_weighted_agg_std_single_observation_group_is_nan():
+    """Per group recency weighted agg std single observation group is nan."""
     values = np.array([1.0])
     group_ids = np.array([0])
     order = np.array([0])

@@ -24,6 +24,7 @@ from mlframe.reporting.charts.ltr import (
 
 
 def test_ci_brackets_mean():
+    """Ci brackets mean."""
     rng = np.random.default_rng(0)
     vals = rng.beta(5, 2, size=500)  # per-query NDCG in (0,1)
     mean, lo, hi = bootstrap_ndcg_ci(vals)
@@ -32,23 +33,27 @@ def test_ci_brackets_mean():
 
 
 def test_nan_queries_dropped():
+    """Nan queries dropped."""
     vals = np.array([0.5, np.nan, 0.7, np.nan, 0.9])
     mean, _lo, _hi = bootstrap_ndcg_ci(vals)
     assert mean == pytest.approx(np.mean([0.5, 0.7, 0.9]), abs=1e-12)
 
 
 def test_empty_and_single_query():
+    """Empty and single query."""
     assert all(np.isnan(v) for v in bootstrap_ndcg_ci(np.array([np.nan, np.nan])))
     m, lo, hi = bootstrap_ndcg_ci(np.array([0.42]))
     assert m == lo == hi == 0.42
 
 
 def test_deterministic_seed():
+    """Deterministic seed."""
     vals = np.random.default_rng(1).random(300)
     assert bootstrap_ndcg_ci(vals, seed=7) == bootstrap_ndcg_ci(vals, seed=7)
 
 
 def test_query_cap_bounds_gather(monkeypatch):
+    """Query cap bounds gather."""
     import mlframe.reporting.charts.ltr as ltr_mod
 
     monkeypatch.setattr(ltr_mod, "_BOOTSTRAP_QUERY_CAP", 1000)
@@ -64,6 +69,7 @@ def test_query_cap_bounds_gather(monkeypatch):
 
 
 def _synth_ltr(n_queries=400, docs=6, seed=0):
+    """Helper: Synth ltr."""
     rng = np.random.default_rng(seed)
     gids, rels, scores = [], [], []
     for q in range(n_queries):
@@ -77,12 +83,14 @@ def _synth_ltr(n_queries=400, docs=6, seed=0):
 
 
 def test_ndcg_dist_title_carries_ci():
+    """Ndcg dist title carries ci."""
     rels, scores, gids = _synth_ltr()
     panel = _ndcg_dist_panel(rels, scores, gids, shared={})
     assert "95% CI" in panel.title
 
 
 def test_ndcg_by_qsize_title_and_bins_carry_ci():
+    """Ndcg by qsize title and bins carry ci."""
     rels, scores, gids = _synth_ltr()
     panel = _ndcg_by_qsize_panel(rels, scores, gids, shared={})
     assert "overall 95% CI" in panel.title
@@ -102,6 +110,7 @@ def test_biz_val_ci_narrows_with_query_count():
     rng = np.random.default_rng(11)
 
     def _half_width(nq):
+        """Helper: Half width."""
         vals = rng.beta(5, 2, size=nq)  # per-query NDCG draws
         _, lo, hi = bootstrap_ndcg_ci(vals, seed=3)
         return (hi - lo) / 2.0

@@ -43,6 +43,7 @@ def _no_leaked_figures():
 
 
 def _fit_clf(X, y, **kw):
+    """Helper: Fit clf."""
     return RandomForestClassifier(n_estimators=40, max_depth=6, random_state=0, n_jobs=1, **kw).fit(X, y)
 
 

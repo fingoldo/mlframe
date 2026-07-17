@@ -55,6 +55,7 @@ def captured_barh(monkeypatch):
 
     def _spy(self, *args, **kwargs):
         # Snapshot the bar values as a plain list (np arrays would mutate).
+        """Helper: Spy."""
         try:
             _y = list(args[0]) if len(args) > 0 else []
             _w = list(args[1]) if len(args) > 1 else []
@@ -99,21 +100,26 @@ class TestDefaults:
     """
 
     def test_plot_default_n_is_positive_int(self) -> None:
+        """Plot default n is positive int."""
         assert isinstance(_FI_PLOT_DEFAULT_N, int) and _FI_PLOT_DEFAULT_N >= 1
 
     def test_log_default_top_n_matches_plot_default(self) -> None:
         # The two defaults should agree so console summary and plot show the same head.
+        """Log default top n matches plot default."""
         assert isinstance(_FI_LOG_DEFAULT_TOP_N, int) and _FI_LOG_DEFAULT_TOP_N >= 1
         assert _FI_LOG_DEFAULT_TOP_N == _FI_PLOT_DEFAULT_N
 
     def test_max_zero_default_is_non_negative_int(self) -> None:
+        """Max zero default is non negative int."""
         assert isinstance(_FI_DEFAULT_MAX_ZERO, int) and _FI_DEFAULT_MAX_ZERO >= 0
 
     def test_config_num_factors_matches_module_default(self) -> None:
+        """Config num factors matches module default."""
         cfg = FeatureImportanceConfig()
         assert cfg.num_factors == _FI_PLOT_DEFAULT_N
 
     def test_config_max_zero_matches_module_default(self) -> None:
+        """Config max zero matches module default."""
         cfg = FeatureImportanceConfig()
         assert cfg.max_zero_fi_to_plot == _FI_DEFAULT_MAX_ZERO
 
@@ -123,6 +129,7 @@ class TestBottomPlotRemoved:
     BOTTOM) whenever any FI element was negative. The new code emits ONE."""
 
     def test_signed_fi_emits_single_barh(self, captured_barh) -> None:
+        """Signed fi emits single barh."""
         fi = [+1.0, -0.8, +0.6, -0.4, +0.2]
         cols = list("abcde")
         _draw(fi, cols, n=5, max_zero_fi_to_plot=4)
@@ -134,6 +141,7 @@ class TestBottomPlotRemoved:
 
 
 class TestMagnitudeRanking:
+    """Groups tests for: TestMagnitudeRanking."""
     def test_picks_top_by_magnitude_not_signed(self, captured_barh) -> None:
         """Most-positive AND most-negative features must both survive top-2."""
         fi = [+0.01, +0.02, +0.95, -0.90, +0.05]
@@ -146,6 +154,7 @@ class TestMagnitudeRanking:
 
 
 class TestZeroFICap:
+    """Groups tests for: TestZeroFICap."""
     def test_zero_cap_limits_zero_bars(self, captured_barh) -> None:
         """One nonzero + 20 zeros, max_zero=4 -> exactly 1 + 4 = 5 bars."""
         fi = np.zeros(21)
@@ -165,6 +174,7 @@ class TestZeroFICap:
         assert captured_barh[0]["y_count"] == 5
 
     def test_zero_cap_zero_disables_zero_bars_entirely(self, captured_barh) -> None:
+        """Zero cap zero disables zero bars entirely."""
         fi = [1.0, 0.0, 0.0, 0.0]
         cols = list("abcd")
         _draw(fi, cols, n=4, max_zero_fi_to_plot=0)
@@ -190,12 +200,15 @@ class TestZeroFICap:
 
 
 class TestConfigPlumbing:
+    """Groups tests for: TestConfigPlumbing."""
     def test_config_overrides_propagate(self) -> None:
+        """Config overrides propagate."""
         cfg = FeatureImportanceConfig(num_factors=5, max_zero_fi_to_plot=2)
         assert cfg.num_factors == 5
         assert cfg.max_zero_fi_to_plot == 2
 
     def test_config_dump_round_trip(self) -> None:
+        """Config dump round trip."""
         cfg = FeatureImportanceConfig(num_factors=7, max_zero_fi_to_plot=1)
         dump = cfg.model_dump()
         assert dump["num_factors"] == 7
@@ -246,10 +259,12 @@ class TestFigsizeUnification:
         real_axvline = matplotlib.axes.Axes.axvline
 
         def _spy_grid(self, *args, **kwargs):
+            """Helper: Spy grid."""
             calls["grid"].append({"args": args, "kwargs": kwargs})
             return real_grid(self, *args, **kwargs)
 
         def _spy_axvline(self, *args, **kwargs):
+            """Helper: Spy axvline."""
             calls["axvline"].append({"args": args, "kwargs": kwargs})
             return real_axvline(self, *args, **kwargs)
 
@@ -281,6 +296,7 @@ class TestFigsizeUnification:
         real_barh = matplotlib.axes.Axes.barh
 
         def _spy_barh(self, *args, **kwargs):
+            """Helper: Spy barh."""
             kwargs_captured.append(kwargs)
             return real_barh(self, *args, **kwargs)
 

@@ -25,6 +25,7 @@ pytestmark = pytest.mark.fast
 
 
 def test_pred_augmented_own_y_does_not_leak_into_own_feature():
+    """Pred augmented own y does not leak into own feature."""
     rng = np.random.default_rng(0)
     n, d = 300, 5
     X = rng.standard_normal((n, d)).astype(np.float32)

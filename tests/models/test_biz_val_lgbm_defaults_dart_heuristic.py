@@ -22,6 +22,7 @@ from mlframe.models.lgbm_defaults import DART_REDUNDANCY_THRESHOLD, LARGE_N_FEAT
 
 
 def _make_redundant_feature_regression(n: int, n_features: int, n_informative: int, seed: int, dup_range: int = 12):
+    """Helper: Make redundant feature regression."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, n_features))
     true_idx = rng.choice(n_features, n_informative, replace=False)
@@ -36,6 +37,7 @@ def _make_redundant_feature_regression(n: int, n_features: int, n_informative: i
 
 
 def test_biz_val_dart_heuristic_beats_gbdt_on_many_redundant_features():
+    """Biz val dart heuristic beats gbdt on many redundant features."""
     n_features = 350
     assert n_features >= LARGE_N_FEATURES_THRESHOLD
     Xtr, Xte, ytr, yte = _make_redundant_feature_regression(n=1000, n_features=n_features, n_informative=5, seed=1)
@@ -72,6 +74,7 @@ def test_dart_at_equal_unscaled_n_estimators_underperforms_gbdt():
 
 
 def test_default_lgbm_params_below_threshold_stays_gbdt():
+    """Default lgbm params below threshold stays gbdt."""
     params = default_lgbm_params(objective="regression", n_features=LARGE_N_FEATURES_THRESHOLD - 1)
     assert "boosting_type" not in params
     assert "feature_fraction" not in params
@@ -79,6 +82,7 @@ def test_default_lgbm_params_below_threshold_stays_gbdt():
 
 
 def test_default_lgbm_params_explicit_n_estimators_override_bypasses_scaling():
+    """Default lgbm params explicit n estimators override bypasses scaling."""
     params = default_lgbm_params(objective="regression", n_features=LARGE_N_FEATURES_THRESHOLD + 100, n_estimators=200, boosting_type="gbdt")
     # an explicit boosting_type override wins over the heuristic entirely (applied last).
     assert params["boosting_type"] == "gbdt"
@@ -107,6 +111,7 @@ def test_default_lgbm_params_auto_dart_redundancy_is_opt_in():
 
 
 def test_auto_dart_redundancy_requires_X():
+    """Auto dart redundancy requires X."""
     with pytest.raises(ValueError):
         default_lgbm_params(objective="regression", auto_dart_redundancy=True)
 

@@ -1,3 +1,5 @@
+"""Tests for the 2D partial-dependence-plot chart composer and its interaction-residual helper."""
+
 import numpy as np
 import pytest
 
@@ -15,6 +17,7 @@ class _ProductModel:
     """Strong f0*f1 interaction: response is the product (non-additive)."""
 
     def predict(self, X):
+        """Predict."""
         a = np.asarray(X)
         return a[:, 0] * a[:, 1]
 
@@ -23,11 +26,13 @@ class _AdditiveModel:
     """Separable f0 + f1 (no interaction)."""
 
     def predict(self, X):
+        """Predict."""
         a = np.asarray(X)
         return 2.0 * a[:, 0] + 3.0 * a[:, 1]
 
 
 def _grid_data(n=800, k=3, seed=0):
+    """Helper: Grid data."""
     rng = np.random.default_rng(seed)
     import pandas as pd
 
@@ -36,6 +41,7 @@ def _grid_data(n=800, k=3, seed=0):
 
 
 def test_residual_metric_additive_is_separable():
+    """Residual metric additive is separable."""
     gx = np.linspace(0, 1, 6)
     gy = np.linspace(0, 1, 5)
     surf = gx[:, None] + gy[None, :]  # purely additive
@@ -45,6 +51,7 @@ def test_residual_metric_additive_is_separable():
 
 
 def test_residual_metric_product_is_nonadditive():
+    """Residual metric product is nonadditive."""
     gx = np.linspace(-1, 1, 6)
     gy = np.linspace(-1, 1, 5)
     surf = gx[:, None] * gy[None, :]  # pure interaction, zero main effects
@@ -54,12 +61,14 @@ def test_residual_metric_product_is_nonadditive():
 
 
 def test_residual_metric_constant_surface_ratio_zero():
+    """Residual metric constant surface ratio zero."""
     surf = np.full((4, 4), 3.0)
     m = interaction_residual(surf)
     assert m["residual_ratio"] == 0.0
 
 
 def test_surface_shape_and_bounded():
+    """Surface shape and bounded."""
     X = _grid_data()
     res = compute_pdp_2d(_ProductModel(), X, ("f0", "f1"), grid=12, sample=400)
     surf = res["surface"]
@@ -70,6 +79,7 @@ def test_surface_shape_and_bounded():
 
 
 def test_compose_returns_figure_explicit_pair():
+    """Compose returns figure explicit pair."""
     X = _grid_data()
     fig = compose_pdp_2d_figure(_ProductModel(), X, "f0", "f1", grid=12, sample_rows=400)
     assert isinstance(fig, plt.Figure)
@@ -78,12 +88,15 @@ def test_compose_returns_figure_explicit_pair():
 
 
 def test_compose_default_pair_from_importance():
+    """Compose default pair from importance."""
     X = _grid_data()
 
     class _ImpModel:
+        """Groups tests for: ImpModel."""
         feature_importances_ = np.array([0.6, 0.5, 0.01])
 
         def predict(self, Xa):
+            """Predict."""
             a = np.asarray(Xa)
             return a[:, 0] * a[:, 1]
 
@@ -93,6 +106,7 @@ def test_compose_default_pair_from_importance():
 
 
 def test_compose_constant_feature_annotates():
+    """Compose constant feature annotates."""
     import pandas as pd
 
     rng = np.random.default_rng(1)
@@ -104,6 +118,7 @@ def test_compose_constant_feature_annotates():
 
 
 def test_custom_axis_names_used():
+    """Custom axis names used."""
     X = _grid_data()
     fig = compose_pdp_2d_figure(_ProductModel(), X, "f0", "f1", feat_x_name="alpha", feat_y_name="beta", grid=8, sample_rows=200)
     ax = fig.axes[0]

@@ -73,6 +73,7 @@ def ml_dataset():
 
 
 class TestMultiTargetPanelE2E:
+    """Groups tests for: TestMultiTargetPanelE2E."""
     def test_multiclass_panels_auto_emitted(self, mc_dataset, tmp_path):
         """Default ReportingConfig (multiclass_panels = full template +
         plot_outputs = matplotlib) emits panel files per (model, split)
@@ -120,6 +121,7 @@ class TestMultiTargetPanelE2E:
         assert any(f.stat().st_size > 5000 for f in emitted)
 
     def test_multilabel_panels_auto_emitted(self, ml_dataset, tmp_path):
+        """Multilabel panels auto emitted."""
         fte = SimpleFeaturesAndTargetsExtractor(
             target_column="test_target",
             target_type=TargetTypes.MULTILABEL_CLASSIFICATION,

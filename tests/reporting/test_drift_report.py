@@ -30,6 +30,7 @@ from mlframe.training.drift_report import (
 
 
 def test_binary_no_drift_no_warnings():
+    """Binary no drift no warnings."""
     rng = np.random.default_rng(0)
     train = (rng.uniform(size=10_000) < 0.30).astype(np.int8)
     val = (rng.uniform(size=2_000) < 0.30).astype(np.int8)
@@ -82,6 +83,7 @@ def test_binary_user_production_pattern():
 
 
 def test_binary_below_threshold_no_warn():
+    """Binary below threshold no warn."""
     rng = np.random.default_rng(0)
     train = (rng.uniform(size=10_000) < 0.50).astype(np.int8)
     # +3pp drift, under default 5pp threshold
@@ -117,6 +119,7 @@ def test_binary_threshold_tunable():
 
 
 def test_binary_only_train_no_other_splits():
+    """Binary only train no other splits."""
     train = np.array([0, 1, 1, 0, 1])
     report = compute_label_distribution_drift(
         train,
@@ -130,6 +133,7 @@ def test_binary_only_train_no_other_splits():
 
 
 def test_binary_pandas_series_input():
+    """Binary pandas series input."""
     train = pd.Series(np.array([0, 1, 1, 0, 1, 0, 0, 0]))
     val = pd.Series(np.array([1, 1, 1, 1, 1]))  # 100% positive
     report = compute_label_distribution_drift(train, val, None, "binary_classification")
@@ -140,6 +144,7 @@ def test_binary_pandas_series_input():
 
 
 def test_binary_polars_series_input():
+    """Binary polars series input."""
     pl = pytest.importorskip("polars")
     train = pl.Series([0, 1, 1, 0, 1, 0, 0, 0])
     val = pl.Series([1, 1, 1, 1, 1])
@@ -154,6 +159,7 @@ def test_binary_polars_series_input():
 
 
 def test_multiclass_no_drift():
+    """Multiclass no drift."""
     rng = np.random.default_rng(0)
     train = rng.choice([0, 1, 2], size=10_000, p=[0.5, 0.3, 0.2])
     val = rng.choice([0, 1, 2], size=2_000, p=[0.5, 0.3, 0.2])
@@ -164,6 +170,7 @@ def test_multiclass_no_drift():
 
 
 def test_multiclass_class_prior_shift_warns():
+    """Multiclass class prior shift warns."""
     rng = np.random.default_rng(0)
     train = rng.choice([0, 1, 2], size=10_000, p=[0.7, 0.2, 0.1])
     # val/test concentrate on the rare class — should fire warn for class 2
@@ -179,6 +186,7 @@ def test_multiclass_class_prior_shift_warns():
 
 
 def test_multilabel_no_drift():
+    """Multilabel no drift."""
     rng = np.random.default_rng(0)
     train = (rng.uniform(size=(10_000, 3)) < [0.3, 0.5, 0.7]).astype(np.int8)
     val = (rng.uniform(size=(2_000, 3)) < [0.3, 0.5, 0.7]).astype(np.int8)
@@ -188,6 +196,7 @@ def test_multilabel_no_drift():
 
 
 def test_multilabel_per_label_drift_warns():
+    """Multilabel per label drift warns."""
     rng = np.random.default_rng(0)
     train = (rng.uniform(size=(10_000, 3)) < [0.3, 0.5, 0.7]).astype(np.int8)
     # Label 0 shifts from 0.3 → 0.5 (+20pp), label 2 stays
@@ -206,6 +215,7 @@ def test_multilabel_per_label_drift_warns():
 
 
 def test_regression_no_drift():
+    """Regression no drift."""
     rng = np.random.default_rng(0)
     train = rng.normal(loc=10.0, scale=2.0, size=10_000)
     val = rng.normal(loc=10.0, scale=2.0, size=2_000)
@@ -216,6 +226,7 @@ def test_regression_no_drift():
 
 
 def test_regression_mean_drift_warns():
+    """Regression mean drift warns."""
     rng = np.random.default_rng(0)
     train = rng.normal(loc=10.0, scale=2.0, size=10_000)
     # val mean shifted by 2σ — fires the 0.5σ default
@@ -232,6 +243,7 @@ def test_regression_mean_drift_warns():
 
 
 def test_format_binary_includes_p_positive_and_warns():
+    """Format binary includes p positive and warns."""
     rng = np.random.default_rng(0)
     train = (rng.uniform(size=1_000) < 0.30).astype(np.int8)
     val = (rng.uniform(size=200) < 0.80).astype(np.int8)
@@ -246,6 +258,7 @@ def test_format_binary_includes_p_positive_and_warns():
 
 
 def test_format_no_warnings_says_so():
+    """Format no warnings says so."""
     rng = np.random.default_rng(0)
     train = (rng.uniform(size=10_000) < 0.30).astype(np.int8)
     val = (rng.uniform(size=2_000) < 0.30).astype(np.int8)
@@ -255,6 +268,7 @@ def test_format_no_warnings_says_so():
 
 
 def test_format_regression():
+    """Format regression."""
     rng = np.random.default_rng(0)
     train = rng.normal(loc=10.0, scale=2.0, size=1000)
     val = rng.normal(loc=10.5, scale=2.0, size=200)
@@ -271,12 +285,14 @@ def test_format_regression():
 
 
 def test_train_target_none_returns_safe_report():
+    """Train target none returns safe report."""
     report = compute_label_distribution_drift(None, None, None, "binary_classification")
     assert report["splits"] == {}
     assert "train_target is None" in report["warnings"][0]
 
 
 def test_default_threshold_is_5pp():
+    """Default threshold is 5pp."""
     assert DEFAULT_BINARY_DRIFT_WARN_THRESHOLD_PP == 5.0
 
 

@@ -26,6 +26,7 @@ def _reference_consensus_entropy(arr: np.ndarray, n_bins: int = 5) -> np.ndarray
 
 
 def test_row_bin_histogram_njit_matches_add_at_scatter():
+    """Row bin histogram njit matches add at scatter."""
     rng = np.random.default_rng(7)
     binned = rng.integers(0, 5, size=(2000, 9)).astype(np.int32)
     n, k = binned.shape
@@ -37,12 +38,14 @@ def test_row_bin_histogram_njit_matches_add_at_scatter():
 
 
 def test_consensus_entropy_bit_identical_to_reference():
+    """Consensus entropy bit identical to reference."""
     rng = np.random.default_rng(11)
     arr = rng.standard_normal((3000, 8))
     assert np.array_equal(ef.predictor_consensus_entropy(arr), _reference_consensus_entropy(arr))
 
 
 def test_top2_mode_gap_bit_identical_to_reference():
+    """Top2 mode gap bit identical to reference."""
     rng = np.random.default_rng(13)
     arr = rng.standard_normal((3000, 8))
     n, k, n_bins = arr.shape[0], arr.shape[1], 5
@@ -66,6 +69,7 @@ def test_functions_no_longer_use_add_at_scatter(monkeypatch):
     """
 
     def _boom(*_a, **_k):
+        """Helper: Boom."""
         raise AssertionError("np.add.at must not be used on the histogram fast path")
 
     monkeypatch.setattr(np.add, "at", _boom)

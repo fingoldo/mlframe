@@ -28,6 +28,7 @@ from mlframe.reporting.spec import (
 
 
 def test_psi_matrix_shape_and_labels():
+    """Psi matrix shape and labels."""
     rng = np.random.default_rng(0)
     n = 40000
     X = rng.normal(size=(n, 5))
@@ -43,6 +44,7 @@ def test_psi_matrix_shape_and_labels():
 
 
 def test_psi_heatmap_returns_heatmap_panel():
+    """Psi heatmap returns heatmap panel."""
     rng = np.random.default_rng(1)
     X = rng.normal(size=(2000, 3))
     ts = np.arange(2000)
@@ -56,11 +58,13 @@ def test_psi_heatmap_returns_heatmap_panel():
 
 
 def test_psi_heatmap_empty_frame_is_annotation():
+    """Psi heatmap empty frame is annotation."""
     fig = drift.psi_heatmap(np.zeros((0, 0)), np.array([]), n_time_buckets=4)
     assert isinstance(fig.panels[0][0], AnnotationPanelSpec)
 
 
 def test_psi_max_features_caps_rows():
+    """Psi max features caps rows."""
     rng = np.random.default_rng(2)
     X = rng.normal(size=(2000, 60))
     ts = np.arange(2000)
@@ -69,6 +73,7 @@ def test_psi_max_features_caps_rows():
 
 
 def test_psi_pandas_and_polars_columns():
+    """Psi pandas and polars columns."""
     pd = pytest.importorskip("pandas")
     rng = np.random.default_rng(3)
     n = 1500
@@ -125,6 +130,7 @@ def test_cprofile_psi_at_1e6_rows():
 
 
 def test_residual_vs_time_shape_and_band():
+    """Residual vs time shape and band."""
     rng = np.random.default_rng(20)
     n = 5000
     ts = np.arange(n)
@@ -145,6 +151,7 @@ def test_residual_vs_time_shape_and_band():
 
 
 def test_residual_vs_time_empty_is_annotation():
+    """Residual vs time empty is annotation."""
     fig = drift.residual_vs_time(np.array([np.nan]), np.array([np.nan]), np.array([0]))
     assert isinstance(fig.panels[0][0], AnnotationPanelSpec)
 
@@ -220,6 +227,7 @@ def _cusum_cross_row(fig):
 
 
 def test_cusum_returns_line_panel_with_arms_and_limits():
+    """Cusum returns line panel with arms and limits."""
     yt, yp = _resid_series(4000, 2000, 1.0, 5)
     fig = drift.cusum_residual_drift(yt, yp, np.arange(4000), decision_h=10.0)
     assert isinstance(fig, FigureSpec)
@@ -234,6 +242,7 @@ def test_cusum_returns_line_panel_with_arms_and_limits():
 
 
 def test_cusum_marks_crossing_on_drift():
+    """Cusum marks crossing on drift."""
     yt, yp = _resid_series(4000, 2000, 1.0, 5)
     fig = drift.cusum_residual_drift(yt, yp, np.arange(4000), decision_h=10.0)
     panel = fig.panels[0][0]
@@ -243,6 +252,7 @@ def test_cusum_marks_crossing_on_drift():
 
 
 def test_cusum_no_crossing_marker_on_stationary():
+    """Cusum no crossing marker on stationary."""
     rng = np.random.default_rng(6)
     n = 4000
     resid = rng.normal(0.0, 1.0, n)
@@ -255,6 +265,7 @@ def test_cusum_no_crossing_marker_on_stationary():
 
 
 def test_cusum_index_order_when_no_timestamps():
+    """Cusum index order when no timestamps."""
     yt, yp = _resid_series(4000, 2000, 1.0, 5)
     fig = drift.cusum_residual_drift(yt, yp, decision_h=10.0)  # no timestamps -> ordered by index
     panel = fig.panels[0][0]
@@ -263,18 +274,21 @@ def test_cusum_index_order_when_no_timestamps():
 
 
 def test_cusum_too_few_rows_is_annotation():
+    """Cusum too few rows is annotation."""
     fig = drift.cusum_residual_drift(np.arange(5.0), np.arange(5.0) + 0.1, np.arange(5))
     assert isinstance(fig.panels[0][0], AnnotationPanelSpec)
 
 
 def test_cusum_constant_residual_is_annotation():
     # Perfect predictions -> residual identically 0 -> nothing to standardize.
+    """Cusum constant residual is annotation."""
     yt = np.linspace(0.0, 1.0, 100)
     fig = drift.cusum_residual_drift(yt, yt.copy(), np.arange(100))
     assert isinstance(fig.panels[0][0], AnnotationPanelSpec)
 
 
 def test_cusum_handles_nan_rows():
+    """Cusum handles nan rows."""
     yt, yp = _resid_series(2000, 1000, 1.0, 9)
     yt[::50] = np.nan  # scattered missing rows must be dropped, not crash
     fig = drift.cusum_residual_drift(yt, yp, np.arange(2000), decision_h=10.0)
@@ -282,6 +296,7 @@ def test_cusum_handles_nan_rows():
 
 
 def test_cusum_decimates_plotted_points():
+    """Cusum decimates plotted points."""
     yt, yp = _resid_series(50000, 25000, 1.0, 10)
     fig = drift.cusum_residual_drift(yt, yp, np.arange(50000), decision_h=10.0, max_vertices=500)
     panel = fig.panels[0][0]
@@ -354,6 +369,7 @@ def test_cprofile_cusum_at_1e6_rows():
 
 
 def _binary_time_data(n, seed, signal=0.5):
+    """Helper: Binary time data."""
     rng = np.random.default_rng(seed)
     import pandas as pd
 
@@ -365,6 +381,7 @@ def _binary_time_data(n, seed, signal=0.5):
 
 
 def test_metric_over_time_returns_line_panel():
+    """Metric over time returns line panel."""
     pytest.importorskip("pandas")
     y, p, ts = _binary_time_data(3000, 0, signal=0.6)
     fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=10)
@@ -377,6 +394,7 @@ def test_metric_over_time_returns_line_panel():
 
 
 def test_metric_over_time_regime_shading():
+    """Metric over time regime shading."""
     pd = pytest.importorskip("pandas")
     y, p, ts = _binary_time_data(2000, 1, signal=0.6)
     regimes = [
@@ -393,6 +411,7 @@ def test_metric_over_time_regime_shading():
 
 
 def test_metric_over_time_no_buckets_is_annotation():
+    """Metric over time no buckets is annotation."""
     pytest.importorskip("pandas")
     y, p, ts = _binary_time_data(200, 2)
     fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=100000)
@@ -400,6 +419,7 @@ def test_metric_over_time_no_buckets_is_annotation():
 
 
 def test_metric_over_time_decimates_to_max_vertices():
+    """Metric over time decimates to max vertices."""
     pytest.importorskip("pandas")
     y, p, ts = _binary_time_data(40000, 3, signal=0.6)
     fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=5, max_vertices=20)
@@ -450,6 +470,7 @@ def test_cprofile_metric_over_time_at_1e6_rows():
 
 
 def test_adversarial_auc_shapes():
+    """Adversarial auc shapes."""
     pytest.importorskip("lightgbm")
     rng = np.random.default_rng(40)
     Xa = rng.normal(size=(2000, 4))
@@ -462,6 +483,7 @@ def test_adversarial_auc_shapes():
 
 
 def test_adversarial_validation_returns_roc_and_bar():
+    """Adversarial validation returns roc and bar."""
     pytest.importorskip("lightgbm")
     rng = np.random.default_rng(41)
     Xa = rng.normal(size=(1500, 5))
@@ -479,6 +501,7 @@ def test_adversarial_validation_returns_roc_and_bar():
 
 
 def test_adversarial_validation_with_val_frame_adds_series():
+    """Adversarial validation with val frame adds series."""
     pytest.importorskip("lightgbm")
     rng = np.random.default_rng(42)
     Xa = rng.normal(size=(1200, 4))
@@ -492,6 +515,7 @@ def test_adversarial_validation_with_val_frame_adds_series():
 
 
 def test_adversarial_mismatched_columns_raises():
+    """Adversarial mismatched columns raises."""
     pytest.importorskip("lightgbm")
     rng = np.random.default_rng(43)
     with pytest.raises(ValueError):

@@ -62,6 +62,7 @@ def _ref_per_call(y_true, y_score, group_starts, eval_ks):
 
 
 def _scenario(kind, seed):
+    """Helper: Scenario."""
     rng = np.random.default_rng(seed)
     n_groups, qlen = 40, 64
     n = n_groups * qlen
@@ -84,6 +85,7 @@ def _scenario(kind, seed):
 
 
 def _assert_identical(a, b):
+    """Helper: Assert identical."""
     for x, y in zip(a, b):
         if isinstance(x, np.ndarray):
             assert np.array_equal(x, y), (x, y)
@@ -93,6 +95,7 @@ def _assert_identical(a, b):
 
 @pytest.mark.parametrize("kind", ["random", "tied", "zero_rel"])
 def test_cpx23_hoist_bit_identical_to_naive_and_percall(kind):
+    """Cpx23 hoist bit identical to naive and percall."""
     eval_ks = np.asarray([5, 10, 20], dtype=np.int64)
     y_true, y_score, group_starts = _scenario(kind, seed=hash(kind) & 0xFFFF)
 

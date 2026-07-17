@@ -22,6 +22,7 @@ from mlframe.reporting.spec import FigureSpec, HistogramPanelSpec, ScatterPanelS
 
 @pytest.fixture
 def rng():
+    """Rng."""
     return np.random.default_rng(7)
 
 
@@ -31,6 +32,7 @@ def rng():
 
 
 class TestHistogramPrebin:
+    """Groups tests for: TestHistogramPrebin."""
     def test_plotly_prebins_above_threshold_to_bar_trace(self, rng):
         """Above the pre-bin threshold, plotly draws a go.Bar (pre-binned) instead of a go.Histogram that
         ships every raw value into the JSON."""
@@ -45,6 +47,7 @@ class TestHistogramPrebin:
         assert len(bar[0].y) <= 40
 
     def test_plotly_small_histogram_stays_native(self, rng):
+        """Plotly small histogram stays native."""
         spec = FigureSpec(panels=((HistogramPanelSpec(values=rng.standard_normal(500), bins=30),),), figsize=(6, 4))
         fig = get_renderer("plotly").render(spec)
         assert any(t.type == "histogram" for t in fig.data)
@@ -88,7 +91,9 @@ class TestHistogramPrebin:
 
 
 class TestScatterLargeN:
+    """Groups tests for: TestScatterLargeN."""
     def test_plotly_switches_to_scattergl_above_webgl_threshold(self, rng):
+        """Plotly switches to scattergl above webgl threshold."""
         n = plotly_mod._SCATTER_WEBGL_THRESHOLD + 2_000
         x = rng.standard_normal(n)
         spec = FigureSpec(panels=((ScatterPanelSpec(x=x, y=x + rng.standard_normal(n) * 0.1),),), figsize=(6, 4))
@@ -96,6 +101,7 @@ class TestScatterLargeN:
         assert any(t.type == "scattergl" for t in fig.data), "large scatter must use WebGL Scattergl"
 
     def test_plotly_small_scatter_stays_svg(self, rng):
+        """Plotly small scatter stays svg."""
         x = rng.standard_normal(1_000)
         spec = FigureSpec(panels=((ScatterPanelSpec(x=x, y=x),),), figsize=(6, 4))
         fig = get_renderer("plotly").render(spec)
@@ -103,6 +109,7 @@ class TestScatterLargeN:
         assert not any(t.type == "scattergl" for t in fig.data)
 
     def test_plotly_downsamples_above_cap(self, rng):
+        """Plotly downsamples above cap."""
         n = plotly_mod._SCATTER_MAX_POINTS + 20_000
         x = rng.standard_normal(n)
         spec = FigureSpec(panels=((ScatterPanelSpec(x=x, y=x),),), figsize=(6, 4))
@@ -145,6 +152,7 @@ class TestScatterLargeN:
         np.testing.assert_allclose(got, ref, rtol=0, atol=0)
 
     def test_matplotlib_rasterizes_large_scatter(self, rng):
+        """Matplotlib rasterizes large scatter."""
         n = mpl_mod._SCATTER_MAX_POINTS + 10_000
         x = rng.standard_normal(n)
         spec = FigureSpec(panels=((ScatterPanelSpec(x=x, y=x),),), figsize=(6, 4))
@@ -162,6 +170,7 @@ class TestScatterLargeN:
 
 
 class TestDiagonalUnionRange:
+    """Groups tests for: TestDiagonalUnionRange."""
     def test_plotly_diagonal_union_range_on_collapsed_y(self):
         """y collapsed to a constant: the diagonal must still span [min(all), max(all)] on both axes via
         scaleanchor, not degenerate to the single y value."""
@@ -178,6 +187,7 @@ class TestDiagonalUnionRange:
         assert fig.layout.yaxis.scaleanchor in ("x", "x1")
 
     def test_matplotlib_diagonal_union_range_equal_aspect(self):
+        """Matplotlib diagonal union range equal aspect."""
         x = np.linspace(-3.0, 5.0, 200)
         y = np.full_like(x, 1.0)
         spec = FigureSpec(panels=((ScatterPanelSpec(x=x, y=y, perfect_fit_line=True),),), figsize=(5, 5))
@@ -195,17 +205,21 @@ class TestDiagonalUnionRange:
 
 
 class TestStaticLegend:
+    """Groups tests for: TestStaticLegend."""
     def _labeled_spec(self):
+        """Helper: Labeled spec."""
         x = np.arange(10)
         from mlframe.reporting.spec import LinePanelSpec
 
         return FigureSpec(panels=((LinePanelSpec(x=x, y=(x.astype(float), x.astype(float) * 2), series_labels=("a", "b")),),), figsize=(6, 4))
 
     def test_render_static_legend_flag_enables_legend(self):
+        """Render static legend flag enables legend."""
         fig = get_renderer("plotly").render(self._labeled_spec(), static_legend=True)
         assert fig.layout.showlegend is True
 
     def test_render_default_no_legend(self):
+        """Render default no legend."""
         fig = get_renderer("plotly").render(self._labeled_spec())
         assert fig.layout.showlegend is False
 
@@ -215,6 +229,7 @@ class TestStaticLegend:
         real = plotly_mod.PlotlyRenderer.render
 
         def _spy(self, spec, *, static_legend=False):
+            """Helper: Spy."""
             captured["static_legend"] = static_legend
             return real(self, spec, static_legend=static_legend)
 
@@ -227,10 +242,12 @@ class TestStaticLegend:
         assert captured.get("static_legend") is True
 
     def test_save_dispatch_html_only_keeps_legend_off(self, monkeypatch):
+        """Save dispatch html only keeps legend off."""
         captured = {}
         real = plotly_mod.PlotlyRenderer.render
 
         def _spy(self, spec, *, static_legend=False):
+            """Helper: Spy."""
             captured["static_legend"] = static_legend
             return real(self, spec, static_legend=static_legend)
 
@@ -249,13 +266,16 @@ class TestStaticLegend:
 
 
 class TestRenderFailureStats:
+    """Groups tests for: TestRenderFailureStats."""
     def test_exception_increments_counter(self, monkeypatch):
+        """Exception increments counter."""
         from mlframe.reporting.renderers import save as save_mod
 
         save_mod.reset_render_failure_stats()
 
         # Make matplotlib render explode; plotly still succeeds. Multi-backend DSL forces the thread path.
         def _boom(self, spec):
+            """Helper: Boom."""
             raise RuntimeError("synthetic render failure")
 
         monkeypatch.setattr(mpl_mod.MatplotlibRenderer, "render", _boom)
@@ -275,6 +295,7 @@ class TestRenderFailureStats:
         save_mod.reset_render_failure_stats()
 
     def test_stats_reset(self):
+        """Stats reset."""
         from mlframe.reporting.renderers import save as save_mod
 
         save_mod.reset_render_failure_stats()

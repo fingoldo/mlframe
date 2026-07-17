@@ -48,6 +48,7 @@ def _old_split(groups, n_splits, max_train_size=None):
 
 
 def _make_groups(n_samples, n_groups, interleave, seed=0):
+    """Helper: Make groups."""
     rng = np.random.default_rng(seed)
     if not interleave:
         bounds = np.linspace(0, n_samples, n_groups + 1).astype(np.int64)
@@ -64,6 +65,7 @@ def _make_groups(n_samples, n_groups, interleave, seed=0):
 @pytest.mark.parametrize("max_train_size", [None, 137])
 @pytest.mark.parametrize("n_samples,n_groups,n_splits", [(2000, 50, 5), (5000, 17, 3), (3000, 300, 10)])
 def test_cpx15_split_identity(interleave, max_train_size, n_samples, n_groups, n_splits):
+    """Cpx15 split identity."""
     groups = _make_groups(n_samples, n_groups, interleave)
     old = _old_split(groups, n_splits, max_train_size)
     new = list(GroupTimeSeriesSplit(n_splits=n_splits, max_train_size=max_train_size).split(groups, groups=groups))
@@ -75,6 +77,7 @@ def test_cpx15_split_identity(interleave, max_train_size, n_samples, n_groups, n
 
 
 def test_cpx15_docstring_example_unchanged():
+    """Cpx15 docstring example unchanged."""
     groups = np.array(["a"] * 6 + ["b"] * 5 + ["c"] * 4 + ["d"] * 3)
     folds = list(GroupTimeSeriesSplit(n_splits=3).split(groups, groups=groups))
     np.testing.assert_array_equal(folds[0][0], np.arange(6))

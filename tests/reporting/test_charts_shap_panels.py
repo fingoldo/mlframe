@@ -40,6 +40,7 @@ def _strong_f0(n: int, n_feat: int = 5, *, coef: float = 3.0, noise: float = 0.1
 
 
 def _fit_rf(X, y, *, n_estimators: int = 30, max_depth: int = 6, seed: int = 0) -> RandomForestRegressor:
+    """Helper: Fit rf."""
     return RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth, random_state=seed, n_jobs=1).fit(X, y)
 
 
@@ -61,6 +62,7 @@ def test_is_tree_model_gate():
     assert sp.is_tree_model(None) is False
 
     class _Marked:
+        """Groups tests for: Marked."""
         _is_tree = True
 
     assert sp.is_tree_model(_Marked()) is True
@@ -149,20 +151,25 @@ class _RaisingProbaRegressor:
     """Regressor exposing a bound ``predict_proba`` that raises at call time (mirrors PartialFitESWrapper on a regressor)."""
 
     def __init__(self):
+        """Helper: Init  ."""
         self._lr = LinearRegression()
 
     def fit(self, X, y):
+        """Fit."""
         self._lr.fit(X, y)
         return self
 
     def predict(self, X):
+        """Predict."""
         return self._lr.predict(X)
 
     def predict_proba(self, X):
+        """Predict proba."""
         raise AttributeError("Underlying estimator has no predict_proba or decision_function")
 
 
 def test_kernel_falls_back_to_predict_when_proba_raises():
+    """Kernel falls back to predict when proba raises."""
     X, y = _strong_f0(300, n_feat=4, seed=2)
     model = _RaisingProbaRegressor().fit(X, y)
     # Pre-fix: KernelExplainer was handed the raising predict_proba and blew up mid-explain. Post-fix it probes once and falls back to predict.
@@ -265,6 +272,7 @@ def test_shap_default_max_rows_cap_bounded_and_ranking_stable():
     expl = shap.TreeExplainer(model)
 
     def _topk(nrows, k=sp.DEFAULT_TOP_K):
+        """Helper: Topk."""
         sv = np.asarray(expl.shap_values(X[:nrows]))
         return set(np.argsort(-np.abs(sv).mean(0))[:k].tolist())
 

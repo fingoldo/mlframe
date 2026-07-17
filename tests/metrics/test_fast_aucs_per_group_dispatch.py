@@ -22,6 +22,7 @@ from mlframe.metrics._auc_per_group import (
 @pytest.mark.parametrize("seed", [0, 1, 7])
 @pytest.mark.parametrize("n,n_groups", [(2_000, 20), (5_000, 500)])
 def test_public_matches_optimized_on_valid_groups(seed, n, n_groups):
+    """Public matches optimized on valid groups."""
     rng = np.random.default_rng(seed)
     y_true = (rng.random(n) < 0.4).astype(np.float64)
     y_score = rng.random(n)

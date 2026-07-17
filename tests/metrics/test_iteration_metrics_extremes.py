@@ -15,6 +15,7 @@ from mlframe.metrics import compute_all_metrics
 
 def test_binary_perfect_separation():
     # Negatives score < 0.5, positives score > 0.5, all distinct -> perfect ranking + threshold.
+    """Binary perfect separation."""
     y = np.array([0, 0, 0, 0, 1, 1, 1, 1])
     s = np.array([0.10, 0.20, 0.30, 0.40, 0.60, 0.70, 0.80, 0.90])
     d = compute_all_metrics(y, s, "binary_classification")
@@ -25,6 +26,7 @@ def test_binary_perfect_separation():
 
 def test_binary_worst_separation():
     # Same labels, inverted scores: positives now rank BELOW negatives -> ROC_AUC 0, accuracy 0.
+    """Binary worst separation."""
     y = np.array([0, 0, 0, 0, 1, 1, 1, 1])
     s = np.array([0.90, 0.80, 0.70, 0.60, 0.40, 0.30, 0.20, 0.10])
     d = compute_all_metrics(y, s, "binary_classification")
@@ -34,6 +36,7 @@ def test_binary_worst_separation():
 
 def test_binary_extreme_imbalance_ranking_metrics_finite():
     # 3 positives among 1000 rows; positives get the top scores -> AUC ~1.0, metrics finite (not NaN).
+    """Binary extreme imbalance ranking metrics finite."""
     n = 1000
     rng = np.random.default_rng(20260702)
     y = np.zeros(n, dtype=int)

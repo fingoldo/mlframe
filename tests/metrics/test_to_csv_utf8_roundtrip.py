@@ -18,10 +18,12 @@ _CYRILLIC = "качество_модели"
 
 
 def _cyr_frame():
+    """Helper: Cyr frame."""
     return pd.DataFrame({_CYRILLIC: ["значение", "тест"], "score": [0.1, 0.2]})
 
 
 def _ensemble_to_csv(path):
+    """Helper: Ensemble to csv."""
     lb = EnsembleLeaderboard(table=_cyr_frame(), lb=None, is_regression=False)
     lb.to_csv(str(path), index=False)
 
@@ -29,11 +31,13 @@ def _ensemble_to_csv(path):
 def _plain_to_csv(path):
     # Mirrors the ENC2 (_all_lb.to_csv(..., index=False, encoding="utf-8")) and
     # ENC3 (features.to_csv(..., index=False, encoding="utf-8")) call shape.
+    """Helper: Plain to csv."""
     _cyr_frame().to_csv(str(path), index=False, encoding="utf-8")
 
 
 @pytest.mark.parametrize("writer", [_ensemble_to_csv, _plain_to_csv], ids=["ensemble_enc1", "plain_enc2_enc3"])
 def test_to_csv_utf8_roundtrips_cyrillic_without_mojibake(tmp_path, writer):
+    """To csv utf8 roundtrips cyrillic without mojibake."""
     out = tmp_path / "lb.csv"
     writer(out)
     # Raw bytes are valid utf-8 with the Cyrillic content intact.

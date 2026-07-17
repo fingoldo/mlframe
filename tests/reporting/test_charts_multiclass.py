@@ -50,6 +50,7 @@ def synth_3class():
 
 @pytest.fixture
 def synth_4class():
+    """Synth 4class."""
     rng = np.random.default_rng(42)
     n = 400
     K = 4
@@ -71,7 +72,9 @@ def synth_4class():
 
 
 class TestAllowedTokens:
+    """Groups tests for: TestAllowedTokens."""
     def test_allowed_set_matches_documented(self):
+        """Allowed set matches documented."""
         assert ALLOWED_MULTICLASS_PANEL_TOKENS == frozenset(
             {
                 "CONFUSION",
@@ -93,7 +96,9 @@ class TestAllowedTokens:
 
 
 class TestPanelTypes:
+    """Groups tests for: TestPanelTypes."""
     def test_confusion_returns_heatmap(self, synth_3class):
+        """Confusion returns heatmap."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION")
         assert isinstance(spec.panels[0][0], HeatmapPanelSpec)
@@ -112,6 +117,7 @@ class TestPanelTypes:
         assert panel.colormap != "RdBu_r"
 
     def test_pr_f1_returns_grouped_bar(self, synth_3class):
+        """Pr f1 returns grouped bar."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="PR_F1")
         panel = spec.panels[0][0]
@@ -121,6 +127,7 @@ class TestPanelTypes:
         assert len(panel.categories) == 3
 
     def test_roc_returns_line_with_K_series(self, synth_3class):
+        """Roc returns line with K series."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="ROC")
         panel = spec.panels[0][0]
@@ -132,6 +139,7 @@ class TestPanelTypes:
         assert all("AUC=" in lbl for lbl in panel.series_labels[1:])
 
     def test_pr_curves_returns_line_with_K_series(self, synth_3class):
+        """Pr curves returns line with K series."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="PR_CURVES")
         panel = spec.panels[0][0]
@@ -141,6 +149,7 @@ class TestPanelTypes:
         assert all("AP=" in lbl for lbl in panel.series_labels[:3])
 
     def test_calib_grid_returns_line_with_K_plus_diagonal(self, synth_3class):
+        """Calib grid returns line with K plus diagonal."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="CALIB_GRID")
         panel = spec.panels[0][0]
@@ -150,6 +159,7 @@ class TestPanelTypes:
         assert panel.series_labels[0] == "perfect"
 
     def test_prob_dist_returns_violin(self, synth_3class):
+        """Prob dist returns violin."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="PROB_DIST")
         panel = spec.panels[0][0]
@@ -159,6 +169,7 @@ class TestPanelTypes:
         assert all("(n=" in lbl for lbl in panel.group_labels)
 
     def test_top_k_acc_returns_line(self, synth_4class):
+        """Top k acc returns line."""
         y, p, c = synth_4class
         spec = compose_multiclass_figure(y, p, c, panels_template="TOP_K_ACC")
         panel = spec.panels[0][0]
@@ -177,7 +188,9 @@ class TestPanelTypes:
 
 
 class TestComposer:
+    """Groups tests for: TestComposer."""
     def test_default_template_returns_6_panels(self, synth_3class):
+        """Default template returns 6 panels."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c)  # default template
         # 6 tokens -> 3 rows × 2 cols
@@ -185,6 +198,7 @@ class TestComposer:
         assert len(spec.panels[0]) == 2
 
     def test_subset_template_returns_fewer_panels(self, synth_3class):
+        """Subset template returns fewer panels."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION ROC")
         # 2 tokens -> 1 row × 2 cols
@@ -193,16 +207,19 @@ class TestComposer:
         assert spec.panels[0][1] is not None
 
     def test_unknown_token_raises(self, synth_3class):
+        """Unknown token raises."""
         y, p, c = synth_3class
         with pytest.raises(ValueError, match="Unknown multiclass"):
             compose_multiclass_figure(y, p, c, panels_template="CONFUSION FOO")
 
     def test_suptitle_propagated(self, synth_3class):
+        """Suptitle propagated."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION", suptitle="my model")
         assert spec.suptitle == "my model"
 
     def test_max_cols_controls_grid_width(self, synth_3class):
+        """Max cols controls grid width."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION PR_F1 ROC PR_CURVES", max_cols=4)
         assert len(spec.panels) == 1
@@ -215,7 +232,9 @@ class TestComposer:
 
 
 class TestRender:
+    """Groups tests for: TestRender."""
     def test_render_via_matplotlib(self, synth_3class, tmp_path):
+        """Render via matplotlib."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c)
         with warnings.catch_warnings():
@@ -225,6 +244,7 @@ class TestRender:
         assert os.path.getsize(tmp_path / "mc.png") > 5000
 
     def test_render_via_plotly(self, synth_3class, tmp_path):
+        """Render via plotly."""
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c)
         with warnings.catch_warnings():

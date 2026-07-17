@@ -14,6 +14,7 @@ from mlframe.feature_engineering.transformer.sign_residual_baseline import compu
 
 
 def test_baseline_score_differs_from_mu_when_bias_detected():
+    """Baseline score differs from mu when bias detected."""
     rng = np.random.default_rng(0)
     n = 400
     X = rng.normal(size=(n, 4)).astype(np.float32)

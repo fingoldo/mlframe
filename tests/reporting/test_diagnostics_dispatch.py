@@ -46,7 +46,9 @@ def reg_data():
 
 
 class TestSplitErrorDiagnostics:
+    """Groups tests for: TestSplitErrorDiagnostics."""
     def test_renders_all_default_on(self, reg_data, tmp_path):
+        """Renders all default on."""
         df, y, yp, _bad, _ts = reg_data
         m: dict = {}
         with warnings.catch_warnings():
@@ -89,6 +91,7 @@ class TestSplitErrorDiagnostics:
         assert frac >= 0.85, f"worst-K should land in the injected region; got {frac:.3f}"
 
     def test_noop_when_no_df(self, reg_data, tmp_path):
+        """Noop when no df."""
         _df, y, yp, _bad, _ts = reg_data
         m: dict = {}
         out = render_split_error_diagnostics(
@@ -104,6 +107,7 @@ class TestSplitErrorDiagnostics:
         assert not list(tmp_path.glob("x*"))
 
     def test_noop_when_no_plot_outputs(self, reg_data, tmp_path):
+        """Noop when no plot outputs."""
         df, y, yp, _bad, _ts = reg_data
         out = render_split_error_diagnostics(
             df=df,
@@ -150,7 +154,9 @@ class TestSplitErrorDiagnostics:
 
 
 class TestTargetDriftDiagnostics:
+    """Groups tests for: TestTargetDriftDiagnostics."""
     def test_renders_all_default_on(self, reg_data, tmp_path):
+        """Renders all default on."""
         df, y, yp, _bad, ts = reg_data
         m: dict = {}
         with warnings.catch_warnings():
@@ -174,6 +180,7 @@ class TestTargetDriftDiagnostics:
         assert set(m["charts"]["saved"]) >= {"psi_heatmap", "residual_vs_time", "metric_over_time", "adversarial"}
 
     def test_no_drift_panels_without_timestamps(self, reg_data, tmp_path):
+        """No drift panels without timestamps."""
         df, y, yp, _bad, _ts = reg_data
         m: dict = {}
         with warnings.catch_warnings():
@@ -217,7 +224,9 @@ class TestTargetDriftDiagnostics:
 
 
 class TestTargetDistOverlay:
+    """Groups tests for: TestTargetDistOverlay."""
     def test_renders_default_on(self, reg_data, tmp_path):
+        """Renders default on."""
         _df, y, yp, _bad, _ts = reg_data
         m: dict = {}
         with warnings.catch_warnings():
@@ -235,6 +244,7 @@ class TestTargetDistOverlay:
         assert "target_dist" in m["charts"]["saved"]
 
     def test_noop_empty_inputs(self, tmp_path):
+        """Noop empty inputs."""
         ok = render_target_dist_overlay(
             y_true_by_split={},
             task="regression",
@@ -255,6 +265,7 @@ class TestNoCircularImport:
     subprocess so module-cache order from earlier tests cannot mask the cycle."""
 
     def test_child_first_import_in_subprocess(self):
+        """Child first import in subprocess."""
         import subprocess, sys  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
 
         for first in ("mlframe.reporting._diagnostics_dispatch_extra", "mlframe.reporting.diagnostics_dispatch"):

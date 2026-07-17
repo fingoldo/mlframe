@@ -14,6 +14,7 @@ from mlframe.reporting.spec import FigureSpec, ScatterPanelSpec
 
 @pytest.fixture
 def trivial_spec():
+    """Trivial spec."""
     return FigureSpec(
         suptitle="t",
         panels=(
@@ -32,6 +33,7 @@ def trivial_spec():
 
 
 class TestNamingPolicy:
+    """Groups tests for: TestNamingPolicy."""
     def test_single_backend_single_format_uses_short_path(self, trivial_spec, tmp_path):
         """``base_path.fmt`` (no backend in filename) when only one
         backend × one format requested."""
@@ -42,6 +44,7 @@ class TestNamingPolicy:
         assert not os.path.exists(base + ".matplotlib.png")
 
     def test_multi_backend_uses_backend_in_filename(self, trivial_spec, tmp_path):
+        """Multi backend uses backend in filename."""
         out = parse_plot_output_dsl("plotly[html] + matplotlib[png]")
         base = str(tmp_path / "plot")
         render_and_save(trivial_spec, out, base)
@@ -51,6 +54,7 @@ class TestNamingPolicy:
         assert not os.path.exists(base + ".png")
 
     def test_single_backend_multi_format_uses_backend_in_filename(self, trivial_spec, tmp_path):
+        """Single backend multi format uses backend in filename."""
         out = parse_plot_output_dsl("plotly[html,json]")
         base = str(tmp_path / "plot")
         render_and_save(trivial_spec, out, base)
@@ -59,12 +63,15 @@ class TestNamingPolicy:
 
 
 class TestKeepHandles:
+    """Groups tests for: TestKeepHandles."""
     def test_default_releases_handles(self, trivial_spec, tmp_path):
+        """Default releases handles."""
         out = parse_plot_output_dsl("matplotlib[png]")
         result = render_and_save(trivial_spec, out, str(tmp_path / "p"))
         assert result is None
 
     def test_keep_handles_returns_dict(self, trivial_spec, tmp_path):
+        """Keep handles returns dict."""
         out = parse_plot_output_dsl("plotly[html] + matplotlib[png]")
         result = render_and_save(trivial_spec, out, str(tmp_path / "p"), keep_handles=True)
         assert isinstance(result, dict) and set(result.keys()) == {"plotly", "matplotlib"}, (
@@ -152,6 +159,7 @@ class TestInteractiveDisplay:
         from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
 
         def _explode(self, fig):
+            """Helper: Explode."""
             raise RuntimeError("simulated jupyter display backend failure")
 
         monkeypatch.setattr(MatplotlibRenderer, "show", _explode)
@@ -284,6 +292,7 @@ class TestInlineDisplayOptOut:
         def worker():
             # This thread set nothing -> must see None (no cross-thread contamination), not the main
             # thread's forced True. Then it forces False for itself.
+            """Worker."""
             other_seen["before"] = get_inline_display_mode()
             set_inline_display_mode(False)
             other_seen["after"] = get_inline_display_mode()

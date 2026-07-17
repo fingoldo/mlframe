@@ -16,6 +16,7 @@ import mlframe.metrics.regression._regression_metrics as M
 
 
 def test_fast_max_error_par_twin_exists_and_is_bit_identical():
+    """Fast max error par twin exists and is bit identical."""
     par = getattr(M, "_fast_max_error_par", None)
     assert par is not None, "missing _fast_max_error_par parallel twin (iter130 regression)"
     rng = np.random.default_rng(0)
@@ -28,16 +29,19 @@ def test_fast_max_error_par_twin_exists_and_is_bit_identical():
 
 
 def test_fast_max_error_dispatch_routes_to_par_above_threshold(monkeypatch):
+    """Fast max error dispatch routes to par above threshold."""
     monkeypatch.setattr(M, "_MAX_ERROR_PAR_THRESHOLD", 1000)
     calls = {"seq": 0, "par": 0}
     real_seq = M._fast_max_error_seq
     real_par = M._fast_max_error_par
 
     def spy_seq(a, b):
+        """Spy seq."""
         calls["seq"] += 1
         return real_seq(a, b)
 
     def spy_par(a, b):
+        """Spy par."""
         calls["par"] += 1
         return real_par(a, b)
 
@@ -57,6 +61,7 @@ def test_fast_max_error_dispatch_routes_to_par_above_threshold(monkeypatch):
 
 
 def test_fast_max_error_matches_sklearn():
+    """Fast max error matches sklearn."""
     sk = pytest.importorskip("sklearn.metrics")
     rng = np.random.default_rng(2)
     yt = rng.standard_normal(6000)

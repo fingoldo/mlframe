@@ -9,16 +9,19 @@ from mlframe.training.reporting._reporting import display_estimator_name, _SHIM_
 
 
 def test_strips_each_shim_suffix():
+    """Strips each shim suffix."""
     for suffix in _SHIM_CLASS_SUFFIXES:
         assert display_estimator_name(f"LGBMRegressor{suffix}") == "LGBMRegressor", suffix
 
 
 def test_strips_stacked_shims():
     # Applied repeatedly so stacked shims collapse.
+    """Strips stacked shims."""
     assert display_estimator_name("LGBMRegressorWithDatasetReuseWithEvalSetScaling") == "LGBMRegressor"
 
 
 def test_leaves_bare_and_unknown_names_unchanged():
+    """Leaves bare and unknown names unchanged."""
     assert display_estimator_name("LGBMRegressor") == "LGBMRegressor"
     assert display_estimator_name("CatBoostRegressor") == "CatBoostRegressor"
     assert display_estimator_name("CompositeTargetEstimator") == "CompositeTargetEstimator"
@@ -37,6 +40,7 @@ def test_leak_sites_route_class_name_through_stripper(monkeypatch):
     real = reporting_pkg.display_estimator_name
 
     def _tracer(name: str) -> str:
+        """Helper: Tracer."""
         calls.append(name)
         return real(name)
 

@@ -15,6 +15,7 @@ from mlframe.feature_engineering.transformer import compute_neighbor_aggregate_f
 
 
 def _make_clustered_dataset(n: int, n_clusters: int, seed: int):
+    """Helper: Make clustered dataset."""
     rng = np.random.default_rng(seed)
     centers = rng.normal(scale=5, size=(n_clusters, 2))
     cluster_means = rng.uniform(10, 100, n_clusters)
@@ -25,6 +26,7 @@ def _make_clustered_dataset(n: int, n_clusters: int, seed: int):
 
 
 def test_biz_val_neighbor_aggregate_features_beats_global_mean_baseline():
+    """Biz val neighbor aggregate features beats global mean baseline."""
     X, y, _, _ = _make_clustered_dataset(n=3000, n_clusters=20, seed=0)
     splitter = KFold(n_splits=5, shuffle=True, random_state=0)
 
@@ -49,6 +51,7 @@ def test_biz_val_neighbor_aggregate_features_beats_global_mean_baseline():
 
 
 def test_neighbor_aggregate_features_multiple_agg_columns_and_stats():
+    """Neighbor aggregate features multiple agg columns and stats."""
     X, y, _, _ = _make_clustered_dataset(n=500, n_clusters=5, seed=1)
     second_col = y * 2 + 1
     splitter = KFold(n_splits=3, shuffle=True, random_state=1)

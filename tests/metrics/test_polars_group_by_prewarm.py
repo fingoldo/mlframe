@@ -17,6 +17,7 @@ import numpy as np
 
 
 def _ensure_prewarmed():
+    """Helper: Ensure prewarmed."""
     from mlframe.metrics.core import prewarm_numba_cache
 
     prewarm_numba_cache()

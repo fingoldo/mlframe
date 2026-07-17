@@ -18,6 +18,7 @@ from mlframe.feature_engineering.gmm_bic_membership_features import gmm_bic_memb
 
 
 def _make_cluster_driven_dataset(n: int, seed: int):
+    """Helper: Make cluster driven dataset."""
     rng = np.random.default_rng(seed)
     # 4 well-separated Gaussian clusters in 2D; the label depends on cluster identity (clusters 0,1 -> 0;
     # clusters 2,3 -> 1), a nonlinear decision boundary in raw feature space (clusters interleave positions).
@@ -30,6 +31,7 @@ def _make_cluster_driven_dataset(n: int, seed: int):
 
 
 def test_biz_val_gmm_membership_features_linearize_cluster_driven_target():
+    """Biz val gmm membership features linearize cluster driven target."""
     df, y, _ = _make_cluster_driven_dataset(n=1500, seed=0)
 
     auc_raw = roc_auc_score(y, LogisticRegression(max_iter=500).fit(df, y).predict_proba(df)[:, 1])
@@ -42,6 +44,7 @@ def test_biz_val_gmm_membership_features_linearize_cluster_driven_target():
 
 
 def test_gmm_bic_selection_recovers_approximately_true_component_count():
+    """Gmm bic selection recovers approximately true component count."""
     df, _, _assignments = _make_cluster_driven_dataset(n=1500, seed=1)  # 4 true underlying Gaussian clusters
     membership = gmm_bic_membership_features(df, n_components_range=(2, 3, 4, 5, 6, 8), random_state=0)
     selected_k = membership.shape[1]
@@ -49,6 +52,7 @@ def test_gmm_bic_selection_recovers_approximately_true_component_count():
 
 
 def test_gmm_bic_membership_features_rows_sum_to_one():
+    """Gmm bic membership features rows sum to one."""
     rng = np.random.default_rng(2)
     df = pd.DataFrame(rng.normal(size=(200, 3)), columns=["a", "b", "c"])
     membership = gmm_bic_membership_features(df, n_components_range=(2, 3, 4))
@@ -58,6 +62,7 @@ def test_gmm_bic_membership_features_rows_sum_to_one():
 
 def test_gmm_bic_membership_features_new_df_none_is_bit_identical_to_prior_behavior():
     # Regression test: the opt-in `new_df` parameter must not change default behavior at all.
+    """Gmm bic membership features new df none is bit identical to prior behavior."""
     df, _, _ = _make_cluster_driven_dataset(n=300, seed=3)
     baseline = gmm_bic_membership_features(df, n_components_range=(2, 3, 4, 5), random_state=0)
     extended = gmm_bic_membership_features(df, n_components_range=(2, 3, 4, 5), random_state=0, new_df=None)
@@ -71,6 +76,7 @@ def test_biz_val_gmm_membership_features_detects_train_test_distribution_shift()
     # ordinary features with no signal that the GMM's density model no longer describes this data --
     # a silent-garbage failure mode. `gmm_shift_diagnostics` must flag this batch and NOT flag an
     # in-distribution batch drawn from the same generating process as training.
+    """Biz val gmm membership features detects train test distribution shift."""
     df, _, _ = _make_cluster_driven_dataset(n=1500, seed=4)
 
     rng = np.random.default_rng(5)

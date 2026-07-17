@@ -19,6 +19,7 @@ from mlframe.reporting.spec import FigureSpec, LinePanelSpec
 
 
 def test_overlay_spec_shape_and_series():
+    """Overlay spec shape and series."""
     rng = np.random.default_rng(0)
     n = 2000
     raw = rng.random(n)
@@ -69,6 +70,7 @@ def test_emit_reliability_plot_routes_through_spec(tmp_path, monkeypatch):
     captured = {}
 
     def _fake_render_and_save(spec, output, base_path, **kw):
+        """Helper: Fake render and save."""
         captured["spec"] = spec
         captured["base_path"] = base_path
         # Write a stub file so the function's path-return contract still holds.

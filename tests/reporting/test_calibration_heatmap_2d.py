@@ -27,6 +27,7 @@ def _localized_corner_data(n: int = 40_000, seed: int = 0, boost: float = 0.35):
 
 
 def test_grid_shape_labels_and_support():
+    """Grid shape labels and support."""
     yt, sc, fx, fy, _ = _localized_corner_data(n=20_000)
     res = compute_calibration_heatmap_2d(yt, sc, fx, fy, n_bins=5)
     assert res["ece_grid"].shape == (5, 5)
@@ -36,6 +37,7 @@ def test_grid_shape_labels_and_support():
 
 
 def test_per_cell_ece_matches_manual_gap():
+    """Per cell ece matches manual gap."""
     yt, sc, fx, fy, _ = _localized_corner_data(n=20_000)
     res = compute_calibration_heatmap_2d(yt, sc, fx, fy, n_bins=4)
     wx, wy = res["worst_cell"]
@@ -49,6 +51,7 @@ def test_per_cell_ece_matches_manual_gap():
 
 
 def test_low_support_cell_is_greyed():
+    """Low support cell is greyed."""
     rng = np.random.default_rng(1)
     n = 4000
     fx = rng.normal(size=n)
@@ -66,6 +69,7 @@ def test_low_support_cell_is_greyed():
 
 
 def test_degenerate_feature_skipped():
+    """Degenerate feature skipped."""
     rng = np.random.default_rng(2)
     n = 2000
     fx = np.ones(n)  # constant -> <2 distinct quantile edges
@@ -79,6 +83,7 @@ def test_degenerate_feature_skipped():
 
 
 def test_nan_rows_dropped():
+    """Nan rows dropped."""
     yt, sc, fx, fy, _ = _localized_corner_data(n=10_000)
     fx[:500] = np.nan
     yt[500:600] = np.nan
@@ -87,6 +92,7 @@ def test_nan_rows_dropped():
 
 
 def test_figure_is_heatmap_panel():
+    """Figure is heatmap panel."""
     yt, sc, fx, fy, _ = _localized_corner_data(n=20_000)
     spec = compose_calibration_heatmap_2d_figure(yt, sc, fx, fy, feat_x_name="f0", feat_y_name="f1")
     panel = spec.panels[0][0]
@@ -97,6 +103,7 @@ def test_figure_is_heatmap_panel():
 
 
 def test_figure_degenerate_returns_annotation():
+    """Figure degenerate returns annotation."""
     rng = np.random.default_rng(3)
     n = 1000
     spec = compose_calibration_heatmap_2d_figure(

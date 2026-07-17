@@ -14,6 +14,7 @@ from mlframe.feature_engineering.transformer import mdl_binning_pairwise as M
 
 
 def _entropy_multi_ref(y_subset, n_classes):
+    """Helper: Entropy multi ref."""
     if y_subset.size == 0:
         return 0.0
     counts = np.bincount(y_subset.astype(np.int32), minlength=n_classes).astype(np.float64)
@@ -65,6 +66,7 @@ def _mdl_bin_edges_ref(x, y_class, n_classes, max_bins=8, min_size=20):
 
 @pytest.mark.parametrize("mode", ["binary", "multiclass"])
 def test_mdl_bin_edges_bit_identical_to_reference(mode):
+    """Mdl bin edges bit identical to reference."""
     rng = np.random.default_rng(7)
     n = 3000
     x = rng.standard_normal(n).astype(np.float32)
@@ -82,6 +84,7 @@ def test_mdl_bin_edges_bit_identical_to_reference(mode):
 
 
 def test_mdl_bin_edges_with_ties_matches_reference():
+    """Mdl bin edges with ties matches reference."""
     rng = np.random.default_rng(11)
     n = 2500
     # Heavy ties: a low-cardinality x so the equal-x skip path is exercised on both sides.
@@ -100,6 +103,7 @@ def test_mdl_bin_edges_routes_through_njit_kernel(monkeypatch):
     orig = M._best_mdl_split_kernel
 
     def spy(*a, **k):
+        """Spy."""
         calls["n"] += 1
         return orig(*a, **k)
 

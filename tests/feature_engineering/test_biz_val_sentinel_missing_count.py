@@ -20,6 +20,7 @@ from mlframe.feature_engineering.sentinel_missing_count import add_sentinel_miss
 
 
 def _make_sentinel_encoded_dataset(n: int, n_features: int, seed: int):
+    """Helper: Make sentinel encoded dataset."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, n_features))
     # missing_rate driven by y itself (rows with the target condition tend to have more sentinel-encoded
@@ -34,6 +35,7 @@ def _make_sentinel_encoded_dataset(n: int, n_features: int, seed: int):
 
 
 def test_biz_val_sentinel_missing_count_recovers_signal_naive_nan_count_misses():
+    """Biz val sentinel missing count recovers signal naive nan count misses."""
     df, y = _make_sentinel_encoded_dataset(n=2000, n_features=15, seed=0)
 
     # A naive NaN-based missing-count is blind to sentinel-encoded missingness -- the column is ALWAYS 0.
@@ -51,12 +53,14 @@ def test_biz_val_sentinel_missing_count_recovers_signal_naive_nan_count_misses()
 
 
 def test_add_sentinel_missing_count_feature_exact_counts():
+    """Add sentinel missing count feature exact counts."""
     df = pd.DataFrame({"a": [-1, 0, -1], "b": [-1, -1, 5], "c": [3, -1, -1]})
     out = add_sentinel_missing_count_feature(df, sentinel=-1)
     np.testing.assert_array_equal(out["sentinel_missing_count"], [2, 2, 2])
 
 
 def test_add_sentinel_missing_count_feature_respects_column_subset():
+    """Add sentinel missing count feature respects column subset."""
     df = pd.DataFrame({"a": [-1, -1], "b": [-1, 5]})
     out = add_sentinel_missing_count_feature(df, sentinel=-1, columns=["a"])
     np.testing.assert_array_equal(out["sentinel_missing_count"], [1, 1])
@@ -89,6 +93,7 @@ def _make_per_column_sentinel_dataset(n: int, seed: int):
 
 
 def test_biz_val_add_sentinel_missing_count_feature_per_column_sentinels_beats_global():
+    """Biz val add sentinel missing count feature per column sentinels beats global."""
     df, y, cols_a, cols_b = _make_per_column_sentinel_dataset(n=2000, seed=1)
 
     # A single global sentinel (-1) only ever matches block "a" -- block "b"'s -999 codes are invisible to it.
@@ -110,12 +115,14 @@ def test_biz_val_add_sentinel_missing_count_feature_per_column_sentinels_beats_g
 
 
 def test_add_sentinel_missing_count_feature_per_column_sentinels_exact_counts():
+    """Add sentinel missing count feature per column sentinels exact counts."""
     df = pd.DataFrame({"a": [-1, 0, -1], "b": [-999, -999, 5]})
     out = add_sentinel_missing_count_feature(df, per_column_sentinels={"a": -1, "b": -999})
     np.testing.assert_array_equal(out["sentinel_missing_count"], [2, 1, 1])
 
 
 def test_add_sentinel_missing_count_feature_per_column_multi_value_sentinel():
+    """Add sentinel missing count feature per column multi value sentinel."""
     df = pd.DataFrame({"a": [-1, -999, 3], "b": [5, 6, 7]})
     out = add_sentinel_missing_count_feature(df, per_column_sentinels={"a": [-1, -999]})
     np.testing.assert_array_equal(out["sentinel_missing_count"], [1, 1, 0])
@@ -131,6 +138,7 @@ def test_add_sentinel_missing_count_feature_omitted_new_params_matches_original_
 
 
 def test_biz_val_add_sentinel_missing_count_feature_auto_detect_sentinels():
+    """Biz val add sentinel missing count feature auto detect sentinels."""
     df, y, cols_a, cols_b = _make_per_column_sentinel_dataset(n=2000, seed=2)
 
     detected = detect_sentinel_values(df, columns=cols_a + cols_b)

@@ -16,6 +16,7 @@ from mlframe.feature_engineering.event_proximity_decay import event_proximity_de
 
 
 def _make_event_ramp_dataset(n_days: int, event_days: list, seed: int):
+    """Helper: Make event ramp dataset."""
     rng = np.random.default_rng(seed)
     dates = pd.Series(np.arange(n_days))
 
@@ -31,6 +32,7 @@ def _make_event_ramp_dataset(n_days: int, event_days: list, seed: int):
 
 
 def test_biz_val_event_proximity_decay_captures_ramp_binary_indicator_misses():
+    """Biz val event proximity decay captures ramp binary indicator misses."""
     event_days = [20, 60, 100, 140]
     dates, y = _make_event_ramp_dataset(n_days=180, event_days=event_days, seed=0)
 
@@ -46,6 +48,7 @@ def test_biz_val_event_proximity_decay_captures_ramp_binary_indicator_misses():
 
 
 def test_event_proximity_decay_features_exact_values():
+    """Event proximity decay features exact values."""
     dates = pd.Series(np.arange(10))
     out = event_proximity_decay_features(dates, event_dates=[5], cap=3)
     np.testing.assert_allclose(out["event_proximity_event0"].to_numpy(), [0, 0, 0, 1, 2, 3, 2, 1, 0, 0])
@@ -53,6 +56,7 @@ def test_event_proximity_decay_features_exact_values():
 
 
 def test_event_proximity_decay_features_datetime_input():
+    """Event proximity decay features datetime input."""
     dates = pd.Series(pd.date_range("2021-01-01", periods=20))
     out = event_proximity_decay_features(dates, event_dates=[pd.Timestamp("2021-01-10")], cap=5)
     assert out["event_proximity_event0"].max() == 5.0
@@ -69,6 +73,7 @@ def test_event_proximity_decay_features_asymmetric_default_matches_symmetric():
 
 
 def test_event_proximity_decay_features_asymmetric_exact_values():
+    """Event proximity decay features asymmetric exact values."""
     dates = pd.Series(np.arange(10))
     out = event_proximity_decay_features(dates, event_dates=[5], cap=3, cap_before=8, cap_after=2)
     # before event (idx 0..4): cap_before=8 leg; at/after (idx 5..9): cap_after=2 leg.
@@ -77,6 +82,7 @@ def test_event_proximity_decay_features_asymmetric_exact_values():
 
 
 def _make_asymmetric_ramp_dataset(n_days: int, event_days: list, ramp_up: float, ramp_down: float, seed: int):
+    """Helper: Make asymmetric ramp dataset."""
     rng = np.random.default_rng(seed)
     dates = pd.Series(np.arange(n_days))
 
@@ -94,6 +100,7 @@ def _make_asymmetric_ramp_dataset(n_days: int, event_days: list, ramp_up: float,
 
 
 def test_biz_val_event_proximity_decay_asymmetric_beats_symmetric_on_asymmetric_ramp():
+    """Biz val event proximity decay asymmetric beats symmetric on asymmetric ramp."""
     event_days = [40, 100, 160]
     dates, y = _make_asymmetric_ramp_dataset(n_days=220, event_days=event_days, ramp_up=25.0, ramp_down=5.0, seed=1)
 

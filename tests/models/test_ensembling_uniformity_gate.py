@@ -17,6 +17,7 @@ from mlframe.models.ensembling import score_ensemble
 
 
 def _clf_member(n: int = 10, k: int = 3):
+    """Helper: Clf member."""
     rng = np.random.default_rng(0)
     return types.SimpleNamespace(
         val_probs=rng.random((n, k)),
@@ -29,6 +30,7 @@ def _clf_member(n: int = 10, k: int = 3):
 
 
 def _reg_member(n: int = 10):
+    """Helper: Reg member."""
     rng = np.random.default_rng(1)
     return types.SimpleNamespace(
         val_probs=None,
@@ -41,6 +43,7 @@ def _reg_member(n: int = 10):
 
 
 def test_score_ensemble_rejects_mixed_clf_and_reg_members():
+    """Score ensemble rejects mixed clf and reg members."""
     members = [_clf_member(), _reg_member(), _clf_member()]
     with pytest.raises(ValueError) as exc_info:
         score_ensemble(models_and_predictions=members, ensemble_name="t")

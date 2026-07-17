@@ -36,6 +36,7 @@ def _overfitting_history(n_iter=120, turn=70):
 
 @pytest.fixture
 def overfit_history():
+    """Overfit history."""
     return _overfitting_history()
 
 
@@ -45,28 +46,34 @@ def overfit_history():
 
 
 class TestNormalize:
+    """Groups tests for: TestNormalize."""
     def test_canonical_keys_passthrough(self):
+        """Canonical keys passthrough."""
         h = {"rmse": {"train": [1.0, 0.5], "val": [1.0, 0.6]}}
         norm = normalize_history(h)
         assert set(norm["rmse"]) == {"train", "val"}
         assert isinstance(norm["rmse"]["train"], np.ndarray)
 
     def test_alias_keys_map_to_val(self):
+        """Alias keys map to val."""
         for alias in ("valid", "validation", "test", "eval", "holdout"):
             norm = normalize_history({"l2": {"learn": [1.0], alias: [2.0]}})
             assert set(norm["l2"]) == {"train", "val"}
             assert norm["l2"]["val"][0] == 2.0
 
     def test_unknown_split_dropped(self):
+        """Unknown split dropped."""
         norm = normalize_history({"m": {"train": [1.0], "bogus": [9.0]}})
         assert set(norm["m"]) == {"train"}
 
     def test_metric_with_no_known_split_dropped(self):
+        """Metric with no known split dropped."""
         norm = normalize_history({"m": {"bogus": [9.0]}})
         assert norm == {}
 
     def test_first_alias_wins_not_overwrite(self):
         # Two val-like aliases: keep the first so a caller bug surfaces rather than silently merges.
+        """First alias wins not overwrite."""
         norm = normalize_history({"m": {"val": [1.0], "valid": [2.0]}})
         assert norm["m"]["val"][0] == 1.0
 
@@ -77,7 +84,9 @@ class TestNormalize:
 
 
 class TestPanels:
+    """Groups tests for: TestPanels."""
     def test_one_panel_per_metric(self):
+        """One panel per metric."""
         h = {
             "rmse": {"train": [1.0, 0.5], "val": [1.0, 0.6]},
             "mae": {"train": [0.8, 0.4], "val": [0.8, 0.5]},
@@ -87,6 +96,7 @@ class TestPanels:
         assert n_set == 2
 
     def test_train_val_series_and_styles(self, overfit_history):
+        """Train val series and styles."""
         spec = compose_training_curve_figure(overfit_history)
         panel = spec.panels[0][0]
         assert isinstance(panel, LinePanelSpec)
@@ -95,6 +105,7 @@ class TestPanels:
         assert panel.xlabel == "Iteration"
 
     def test_es_vline_and_shading(self, overfit_history):
+        """Es vline and shading."""
         spec = compose_training_curve_figure(overfit_history, es_iteration=70)
         panel = spec.panels[0][0]
         assert panel.vlines is not None and len(panel.vlines) == 1
@@ -106,29 +117,34 @@ class TestPanels:
         assert panel.vspans[0][1] == 119.0
 
     def test_no_es_no_vline(self, overfit_history):
+        """No es no vline."""
         spec = compose_training_curve_figure(overfit_history)
         panel = spec.panels[0][0]
         assert panel.vlines is None
         assert panel.vspans is None
 
     def test_out_of_range_es_ignored(self, overfit_history):
+        """Out of range es ignored."""
         spec = compose_training_curve_figure(overfit_history, es_iteration=9999)
         panel = spec.panels[0][0]
         assert panel.vlines is None
 
     def test_es_at_last_iter_no_shading(self, overfit_history):
+        """Es at last iter no shading."""
         spec = compose_training_curve_figure(overfit_history, es_iteration=119)
         panel = spec.panels[0][0]
         assert panel.vlines is not None
         assert panel.vspans is None  # nothing past the last iteration to shade
 
     def test_single_split_metric(self):
+        """Single split metric."""
         spec = compose_training_curve_figure({"m": {"train": [1.0, 0.5, 0.3]}})
         panel = spec.panels[0][0]
         assert isinstance(panel, LinePanelSpec)
         assert panel.series_labels == ("train",)
 
     def test_metric_subset_and_order(self):
+        """Metric subset and order."""
         h = {
             "rmse": {"train": [1.0], "val": [1.0]},
             "mae": {"train": [1.0], "val": [1.0]},
@@ -139,12 +155,14 @@ class TestPanels:
         assert spec.panels[0][0].ylabel == "mae"
 
     def test_empty_history_placeholder(self):
+        """Empty history placeholder."""
         spec = compose_training_curve_figure({})
         panel = spec.panels[0][0]
         assert isinstance(panel, AnnotationPanelSpec)
         assert "No train/val" in panel.text
 
     def test_suptitle(self, overfit_history):
+        """Suptitle."""
         spec = compose_training_curve_figure(overfit_history, suptitle="LGB fit")
         assert spec.suptitle == "LGB fit"
 
@@ -155,7 +173,9 @@ class TestPanels:
 
 
 class TestRender:
+    """Groups tests for: TestRender."""
     def test_matplotlib_render(self, overfit_history, tmp_path):
+        """Matplotlib render."""
         spec = compose_training_curve_figure(overfit_history, es_iteration=70)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -164,6 +184,7 @@ class TestRender:
         assert os.path.getsize(tmp_path / "tc.png") > 5000
 
     def test_plotly_render(self, overfit_history, tmp_path):
+        """Plotly render."""
         spec = compose_training_curve_figure(overfit_history, es_iteration=70)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -177,6 +198,7 @@ class TestRender:
 
 
 class TestTrainingCurveBizValue:
+    """Groups tests for: TestTrainingCurveBizValue."""
     def test_biz_es_marker_sits_at_divergence(self):
         """On an overfit history (val turns up at K=70), the ES iter passed in is the val argmin.
 

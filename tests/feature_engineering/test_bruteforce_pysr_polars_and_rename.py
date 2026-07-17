@@ -19,6 +19,7 @@ import pytest
 # Install a fake ``pysr`` module BEFORE importing the bruteforce module so the lazy ``from pysr import PySRRegressor`` inside the function picks up our stub instead of starting Julia.
 @pytest.fixture(autouse=True)
 def _stub_pysr(monkeypatch):
+    """Helper: Stub pysr."""
     fake_model = MagicMock()
     fake_model.fit = MagicMock(return_value=None)
     fake_model.get_best = MagicMock(return_value="x0")
@@ -31,7 +32,9 @@ def _stub_pysr(monkeypatch):
 
     def _make_regressor(**_kwargs):
         # On every fit, capture the column order from the X passed.
+        """Helper: Make regressor."""
         def _fake_fit(X, y):
+            """Helper: Fake fit."""
             if hasattr(X, "columns"):
                 fake_model.feature_names_in_ = np.array(list(X.columns))
             else:
@@ -47,6 +50,7 @@ def _stub_pysr(monkeypatch):
 
 
 def _import_target():
+    """Helper: Import target."""
     from mlframe.feature_engineering import bruteforce as bf
 
     return bf
@@ -99,6 +103,7 @@ def test_bruteforce_polars_side_fillna_no_pandas_broadcast(_stub_pysr, monkeypat
     calls = {"count": 0, "stacks": []}
 
     def _spy_fillna(self, *args, **kwargs):
+        """Helper: Spy fillna."""
         import traceback
 
         stack = traceback.extract_stack()
@@ -136,9 +141,11 @@ def test_bruteforce_polars_side_fillna_imputes_with_median(_stub_pysr, monkeypat
     captured = {}
 
     def _make_regressor(**_kwargs):
+        """Helper: Make regressor."""
         fake = MagicMock()
 
         def _fake_fit(X, y):
+            """Helper: Fake fit."""
             captured["X"] = X.copy() if hasattr(X, "copy") else X
 
         fake.fit.side_effect = _fake_fit

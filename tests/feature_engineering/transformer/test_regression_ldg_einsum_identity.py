@@ -23,6 +23,7 @@ def _broadcast_grad_ref(weight, unit_dirs):
 
 
 def test_einsum_matches_broadcast_reference_bit_identical():
+    """Einsum matches broadcast reference bit identical."""
     rng = np.random.default_rng(7)
     n_q, k, d = 500, 32, 24
     weight = rng.standard_normal((n_q, k)).astype(np.float32)

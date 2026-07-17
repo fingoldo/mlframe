@@ -15,6 +15,7 @@ def test_multiclass_input_raises_not_silent_zero():
     # the worst value, silently changing which model wins. Post-fix it propagates.
     # One multiclass label among 0/1 with matching proba keeps brier <= 0.25 so the brier gate
     # passes and execution reaches precision_score, which raises on the multiclass y_true.
+    """Multiclass input raises not silent zero."""
     y_true = np.array([0, 1, 1, 1, 2])
     y_proba = np.array([0.0, 1.0, 1.0, 1.0, 1.0])
     with pytest.raises(ValueError):
@@ -22,6 +23,7 @@ def test_multiclass_input_raises_not_silent_zero():
 
 
 def test_valid_binary_input_scores_normally():
+    """Valid binary input scores normally."""
     y_true = np.array([0, 1, 1, 0, 1, 0])
     y_proba = np.array([0.1, 0.9, 0.8, 0.2, 0.7, 0.05])
     out = brier_and_precision_score(y_true, y_proba)

@@ -28,33 +28,39 @@ class TestMpsTradeCountFix:
     """
 
     def test_continuing_long_is_zero_trades(self):
+        """Continuing long is zero trades."""
         from mlframe.feature_engineering.mps import _trade_count
 
         assert _trade_count(1, 1) == 0
 
     def test_continuing_short_is_zero_trades(self):
+        """Continuing short is zero trades."""
         from mlframe.feature_engineering.mps import _trade_count
 
         assert _trade_count(-1, -1) == 0
 
     def test_staying_flat_is_zero_trades(self):
+        """Staying flat is zero trades."""
         from mlframe.feature_engineering.mps import _trade_count
 
         assert _trade_count(0, 0) == 0
 
     def test_opening_from_flat_is_one_trade(self):
+        """Opening from flat is one trade."""
         from mlframe.feature_engineering.mps import _trade_count
 
         assert _trade_count(0, 1) == 1
         assert _trade_count(0, -1) == 1
 
     def test_closing_to_flat_is_one_trade(self):
+        """Closing to flat is one trade."""
         from mlframe.feature_engineering.mps import _trade_count
 
         assert _trade_count(1, 0) == 1
         assert _trade_count(-1, 0) == 1
 
     def test_flipping_position_is_two_trades(self):
+        """Flipping position is two trades."""
         from mlframe.feature_engineering.mps import _trade_count
 
         assert _trade_count(1, -1) == 2
@@ -65,6 +71,7 @@ class TestMpsCorrectness:
     """End-to-end DP must produce the obvious answer for a monotone price."""
 
     def test_monotone_rise_then_fall(self):
+        """Monotone rise then fall."""
         from mlframe.feature_engineering.mps import find_maximum_profit_system
 
         prices = np.array([100.0, 101.0, 102.0, 103.0, 102.0, 101.0, 100.0, 99.0])
@@ -84,6 +91,7 @@ class TestHurstFixes:
     """
 
     def test_brownian_increment_hurst_near_half(self):
+        """Brownian increment hurst near half."""
         from mlframe.feature_engineering.hurst import compute_hurst_exponent
 
         rng = np.random.default_rng(0)
@@ -102,12 +110,14 @@ class TestHurstFixes:
         assert not np.isnan(h), "max_window=None should not crash or return NaN for valid input"
 
     def test_short_input_returns_nan(self):
+        """Short input returns nan."""
         from mlframe.feature_engineering.hurst import compute_hurst_exponent
 
         h, c = compute_hurst_exponent(np.array([1.0, 2.0]), min_window=5)
         assert np.isnan(h) and np.isnan(c)
 
     def test_degenerate_constant_input_returns_nan(self):
+        """Degenerate constant input returns nan."""
         from mlframe.feature_engineering.hurst import compute_hurst_exponent
 
         h, _ = compute_hurst_exponent(np.ones(100))
@@ -128,6 +138,7 @@ class TestRollingMovingAverageKahan:
     """
 
     def test_exact_for_arithmetic_progression(self):
+        """Exact for arithmetic progression."""
         from mlframe.feature_engineering.numerical import rolling_moving_average
 
         arr = np.arange(100, dtype=np.float64)
@@ -231,10 +242,12 @@ class TestRollingMovingAverageKahan:
 
 
 class TestNumaggsLengthInvariant:
+    """Groups tests for: TestNumaggsLengthInvariant."""
     from typing import Tuple as _T
 
     @pytest.mark.parametrize("n", [10, 100, 1000])
     def test_numaggs_length_matches_names(self, n):
+        """Numaggs length matches names."""
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 
         rng = np.random.default_rng(42)
@@ -254,6 +267,7 @@ class TestCountaggsInvariant:
     raises AssertionError if compute_numaggs(directional_only=True) returns the wrong count."""
 
     def test_string_series_pads_correctly(self):
+        """String series pads correctly."""
         from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
 
         s = pd.Series(["a", "a", "b", "c", "c", "c"])
@@ -262,6 +276,7 @@ class TestCountaggsInvariant:
         assert len(values) == len(names)
 
     def test_numeric_with_values_numaggs(self):
+        """Numeric with values numaggs."""
         from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
 
         s = pd.Series([1, 1, 2, 3, 3, 3, 4, 5])
@@ -277,6 +292,7 @@ class TestCountaggsInvariant:
 
 
 class TestTimeseriesFixes:
+    """Groups tests for: TestTimeseriesFixes."""
     def test_acf_seeds_lag0_at_zero(self):
         """Audit P0-related: general_acf seeded acfs_index = [1.0] instead of [0.0]; lag-0 index
         and lag-1 index then collided. Now seeded with [0.0]."""
@@ -306,6 +322,7 @@ class TestTimeseriesFixes:
         df = pd.DataFrame({"x": range(10)})
 
         def apply_fcn(df, row_features, targets, features_names, dataset_name):
+            """Apply fcn."""
             return
 
         x, y = create_windowed_features(
@@ -337,6 +354,7 @@ class TestTimeseriesFixes:
         calls: list = []
 
         def apply_fcn(df, row_features, targets, features_names, dataset_name):
+            """Apply fcn."""
             calls.append(dataset_name)
             row_features.append(len(df))
 
@@ -422,6 +440,7 @@ class TestTimeseriesFixes:
         assert len(feats) > 0
 
     def test_drawdown_var_adds_extra_numagg(self):
+        """Drawdown var adds extra numagg."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
         from mlframe.feature_engineering.numerical import get_numaggs_names
 
@@ -451,6 +470,7 @@ class TestTimeseriesFixes:
         assert n_extra > 0
 
     def test_differences_features_branch(self):
+        """Differences features branch."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
         df = pd.DataFrame({"price": np.arange(20, dtype=float)})
@@ -468,6 +488,7 @@ class TestTimeseriesFixes:
         assert any("dif" in n for n in names)
 
     def test_ratios_features_branch(self):
+        """Ratios features branch."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
         df = pd.DataFrame({"price": np.linspace(100, 110, 20)})
@@ -529,6 +550,7 @@ class TestTimeseriesFixes:
         assert any("rbst" in n for n in names)
 
     def test_subset_recursion(self):
+        """Subset recursion."""
         from mlframe.feature_engineering.timeseries import create_aggregated_features
 
         df = pd.DataFrame(
@@ -590,6 +612,7 @@ class TestTimeseriesFixes:
 
 
 class TestNumericalStableFixes:
+    """Groups tests for: TestNumericalStableFixes."""
     def test_kahan_dot_seq_raises_on_length_mismatch(self):
         """Audit Low: previously silently truncated to min length; now raises."""
         from mlframe.feature_engineering._numerical_stable import kahan_dot_seq
@@ -624,6 +647,7 @@ class TestNumericalStableFixes:
         np.testing.assert_allclose(kurt, expected_kurt, rtol=1e-8, atol=1e-10)
 
     def test_welford_mean_var_matches_numpy(self):
+        """Welford mean var matches numpy."""
         from mlframe.feature_engineering._numerical_stable import welford_mean_var_seq
 
         rng = np.random.default_rng(1)
@@ -694,6 +718,7 @@ class TestPebayOrderCritical:
 
     @pytest.fixture(scope="class")
     def expected_moments(self):
+        """Expected moments."""
         from scipy import stats as sp_stats
 
         rng = np.random.default_rng(13)
@@ -706,6 +731,7 @@ class TestPebayOrderCritical:
         )
 
     def test_canonical_order_matches_scipy(self, expected_moments):
+        """Canonical order matches scipy."""
         arr, (exp_mean, exp_var, exp_skew, exp_kurt) = expected_moments
         mean, var, skew, kurt = _welford_moments_reference(arr, order="M4M3M2")
         np.testing.assert_allclose(mean, exp_mean, rtol=1e-10)
@@ -778,6 +804,7 @@ class TestPropertyInvariants:
 
     @given(prev=st.sampled_from([-1, 0, 1]), new=st.sampled_from([-1, 0, 1]))
     def test_trade_count_symmetric(self, prev, new):
+        """Trade count symmetric."""
         from mlframe.feature_engineering.mps import _trade_count
 
         # Swapping prev<->new is equivalent to "playing the trades backwards": opening becomes
@@ -786,6 +813,7 @@ class TestPropertyInvariants:
 
     @given(prev=st.sampled_from([-1, 0, 1]), new=st.sampled_from([-1, 0, 1]))
     def test_trade_count_bounded(self, prev, new):
+        """Trade count bounded."""
         from mlframe.feature_engineering.mps import _trade_count
 
         # Maximum trades for a single transition is 2 (close + open under a flip).
@@ -793,6 +821,7 @@ class TestPropertyInvariants:
 
     @given(prev=st.sampled_from([-1, 0, 1]), new=st.sampled_from([-1, 0, 1]))
     def test_trade_count_flat_baseline(self, prev, new):
+        """Trade count flat baseline."""
         from mlframe.feature_engineering.mps import _trade_count
 
         # If at least one of prev/new is zero (flat), at most 1 trade is needed.
@@ -834,6 +863,7 @@ class TestMpsDpUnderTransactionCost:
     """
 
     def test_high_tc_smooth_trend_stays_long(self):
+        """High tc smooth trend stays long."""
         from mlframe.feature_engineering.mps import find_maximum_profit_system
 
         # Smooth upward trend with substantial transaction cost: optimal is "stay long".
@@ -878,6 +908,7 @@ class TestPerformance:
 
     @pytest.mark.parametrize("n,window", [(10_000, 50), (10_000, 200)])
     def test_rolling_ma_throughput(self, n, window):
+        """Rolling ma throughput."""
         from mlframe.feature_engineering.numerical import rolling_moving_average
 
         rng = np.random.default_rng(0)
@@ -923,6 +954,7 @@ class TestPerformance:
 
         @numba.njit(fastmath=True, cache=False)
         def rolling_ma_fastmath(arr, n):
+            """Rolling ma fastmath."""
             result = np.empty(len(arr) - n + 1, dtype=arr.dtype)
             sum_window = np.sum(arr[:n])
             mult = 1 / n
@@ -988,7 +1020,9 @@ class TestPerformance:
 
 
 class TestEdgeCases:
+    """Groups tests for: TestEdgeCases."""
     def test_compute_numaggs_short_array_returns_nans(self):
+        """Compute numaggs short array returns nans."""
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 
         values = compute_numaggs(np.array([1.0]))
@@ -998,6 +1032,7 @@ class TestEdgeCases:
         assert all(np.isnan(v) for v in values)
 
     def test_compute_numaggs_empty_array_returns_nans(self):
+        """Compute numaggs empty array returns nans."""
         from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 
         values = compute_numaggs(np.array([], dtype=np.float64))
@@ -1005,12 +1040,14 @@ class TestEdgeCases:
         assert len(values) == len(names)
 
     def test_hurst_constant_array_returns_nan(self):
+        """Hurst constant array returns nan."""
         from mlframe.feature_engineering.hurst import compute_hurst_exponent
 
         h, c = compute_hurst_exponent(np.full(200, 5.0))
         assert np.isnan(h) and np.isnan(c)
 
     def test_compute_countaggs_single_value(self):
+        """Compute countaggs single value."""
         from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
 
         s = pd.Series(["only_one_category"] * 10)
@@ -1019,6 +1056,7 @@ class TestEdgeCases:
         assert len(values) == len(names)
 
     def test_kahan_dot_zero_length(self):
+        """Kahan dot zero length."""
         from mlframe.feature_engineering._numerical_stable import kahan_dot_seq
 
         a = np.array([], dtype=np.float64)
@@ -1043,6 +1081,7 @@ class TestFinancialUnnestOrdering:
     """
 
     def test_struct_indicators_are_unnested(self):
+        """Struct indicators are unnested."""
         import polars as pl
 
         pytest.importorskip("polars_talib")
@@ -1087,6 +1126,7 @@ class TestBruteforceLeakageFreeEncoding:
     fit-on-everything baseline."""
 
     def test_kfold_helper_produces_different_encoding_than_fit_all(self):
+        """Kfold helper produces different encoding than fit all."""
         pytest.importorskip("category_encoders")
         from category_encoders import CatBoostEncoder
         from mlframe.feature_engineering.bruteforce import _kfold_target_encode

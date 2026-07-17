@@ -23,11 +23,13 @@ from mlframe.training.configs import ReportingConfig
 
 
 def _n_panels(spec: FigureSpec) -> int:
+    """Helper: N panels."""
     return sum(1 for row in spec.panels for cell in row if cell is not None)
 
 
 @pytest.fixture
 def mc_inputs():
+    """Mc inputs."""
     rng = np.random.default_rng(0)
     n, K = 240, 3
     y = rng.integers(0, K, n)
@@ -40,6 +42,7 @@ def mc_inputs():
 
 @pytest.fixture
 def qr_inputs():
+    """Qr inputs."""
     rng = np.random.default_rng(0)
     n = 300
     y = rng.standard_normal(n)
@@ -48,6 +51,7 @@ def qr_inputs():
 
 
 class TestDefaultTemplatesDispatch:
+    """Groups tests for: TestDefaultTemplatesDispatch."""
     def test_default_multiclass_template_emits_confused_pairs(self, mc_inputs, tmp_path):
         """A default ReportingConfig's ``multiclass_panels`` (which now carries
         CONFUSED_PAIRS) dispatches + renders all its tokens through the real
@@ -70,6 +74,7 @@ class TestDefaultTemplatesDispatch:
         assert os.path.exists(tmp_path / "mc_multiclass_panels.png")
 
     def test_default_quantile_template_emits_coverage(self, qr_inputs, tmp_path):
+        """Default quantile template emits coverage."""
         y, preds, alphas = qr_inputs
         cfg = ReportingConfig()
         assert "COVERAGE" in cfg.quantile_panels.split()
@@ -144,7 +149,9 @@ class TestDefaultTemplatesDispatch:
 
 
 class TestDefaultRegressionPanels:
+    """Groups tests for: TestDefaultRegressionPanels."""
     def test_default_regression_template_includes_new_panels(self):
+        """Default regression template includes new panels."""
         cfg = ReportingConfig()
         toks = cfg.regression_panels.split()
         assert "RESID_VS_PRED" in toks
@@ -164,7 +171,9 @@ class TestDefaultRegressionPanels:
 
 
 class TestDefaultLtrTemplate:
+    """Groups tests for: TestDefaultLtrTemplate."""
     def test_default_ltr_template_includes_ndcg_by_qsize(self, tmp_path):
+        """Default ltr template includes ndcg by qsize."""
         from mlframe.reporting.charts import compose_ltr_figure
 
         cfg = ReportingConfig()

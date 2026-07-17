@@ -13,6 +13,7 @@ from mlframe.reporting.charts.multilabel import (
 
 @pytest.fixture
 def synth_3label():
+    """Synth 3label."""
     rng = np.random.default_rng(7)
     n = 400
     K = 3
@@ -26,6 +27,7 @@ class TestPRF1Parity:
     """PERF-13: vectorized per-label P/R/F1 must match sklearn bit-for-bit (zero_division=0)."""
 
     def test_parity_vs_sklearn_small_K(self):
+        """Parity vs sklearn small K."""
         from sklearn.metrics import precision_recall_fscore_support
 
         rng = np.random.default_rng(3)
@@ -72,6 +74,7 @@ class TestReferenceLines:
     """INV-17: multilabel ROC must carry a chance diagonal series."""
 
     def test_roc_has_chance_diagonal(self, synth_3label):
+        """Roc has chance diagonal."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="ROC")
         panel = spec.panels[0][0]
@@ -87,6 +90,7 @@ class TestCalibGridVectorized:
     """INV-33: vectorized calib grid must equal the reference masking loop."""
 
     def test_matches_reference_loop(self, synth_3label):
+        """Matches reference loop."""
         y, p, lbl = synth_3label
         spec = compose_multilabel_figure(y, p, lbl, panels_template="CALIB_GRID")
         panel = spec.panels[0][0]

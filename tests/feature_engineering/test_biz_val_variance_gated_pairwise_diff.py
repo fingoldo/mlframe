@@ -18,6 +18,7 @@ from mlframe.feature_engineering.variance_gated_pairwise_diff import variance_ga
 
 
 def _make_dataset(n: int, seed: int):
+    """Helper: Make dataset."""
     rng = np.random.default_rng(seed)
     base = rng.normal(size=n)
     # two near-duplicate columns (correlated common factor); the target depends only on their small
@@ -36,6 +37,7 @@ def _make_dataset(n: int, seed: int):
 
 
 def test_biz_val_variance_gated_diff_prunes_near_constant_keeps_informative():
+    """Biz val variance gated diff prunes near constant keeps informative."""
     df, y = _make_dataset(n=2000, seed=0)
 
     diffs = variance_gated_pairwise_diff(df, list(df.columns), min_variance=1e-4)
@@ -53,6 +55,7 @@ def test_biz_val_variance_gated_diff_prunes_near_constant_keeps_informative():
 
 
 def test_variance_gated_diff_column_naming_and_shape():
+    """Variance gated diff column naming and shape."""
     df = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "b": [1.0, 1.0, 1.0, 1.0], "c": [5.0, 3.0, 8.0, 1.0]})
     out = variance_gated_pairwise_diff(df, ["a", "b", "c"], min_variance=0.5)
     # a-b: variance of [0,1,2,3] = 1.25 > 0.5 -> kept. a-c: variance of [-4,-1,-5,3] high -> kept.

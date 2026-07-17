@@ -16,15 +16,18 @@ from mlframe.models.ensembling import combine_float_predictions, robust_float_en
 
 
 def _rmse(a, b):
+    """Helper: Rmse."""
     return float(np.sqrt(np.mean((a - b) ** 2)))
 
 
 def test_robust_equals_mean_when_members_agree():
+    """Robust equals mean when members agree."""
     s = np.stack([np.array([1.0, 2.0, 3.0]), np.array([1.05, 2.0, 3.0]), np.array([0.95, 2.0, 3.0])])
     np.testing.assert_allclose(robust_float_ensemble(s), s.mean(axis=0))
 
 
 def test_robust_drops_per_column_outlier_member():
+    """Robust drops per column outlier member."""
     s = np.stack([np.array([1.0, 2.0]), np.array([1.1, 2.0]), np.array([99.0, 2.0])])
     out = robust_float_ensemble(s)
     assert out[0] == pytest.approx(1.05, abs=1e-9)
@@ -32,17 +35,20 @@ def test_robust_drops_per_column_outlier_member():
 
 
 def test_fewer_than_three_members_is_plain_mean():
+    """Fewer than three members is plain mean."""
     s = np.stack([np.array([1.0, 5.0]), np.array([99.0, 5.0])])
     np.testing.assert_allclose(robust_float_ensemble(s), s.mean(axis=0))
 
 
 def test_flavour_mean_and_median_paths():
+    """Flavour mean and median paths."""
     s = np.stack([np.array([1.0]), np.array([2.0]), np.array([90.0])])
     assert combine_float_predictions(s, flavour="mean")[0] == pytest.approx(31.0)
     assert combine_float_predictions(s, flavour="median")[0] == pytest.approx(2.0)
 
 
 def test_unknown_flavour_raises():
+    """Unknown flavour raises."""
     with pytest.raises(ValueError, match="unknown flavour"):
         combine_float_predictions(np.zeros((3, 2)), flavour="nope")
 
@@ -50,6 +56,7 @@ def test_unknown_flavour_raises():
 def test_production_default_flavour_is_mean():
     # Production default holds at the legacy raw mean (optimal on clean folds); the robust MAD-gated
     # flavour is opt-in via metadata because the 3.5-MAD gate over-fires at small K (~6% clean-regime cost).
+    """Production default flavour is mean."""
     from mlframe.training.core._predict_main_suite import _resolve_float_ensemble_flavour
 
     assert _resolve_float_ensemble_flavour({}) == "mean"
@@ -84,9 +91,11 @@ def test_mad_factor_sweep_verdict_keeps_default_mean():
     from mlframe.models.ensembling.float_aggregation import robust_float_ensemble
 
     def rmse(a, b):
+        """Rmse."""
         return float(np.sqrt(np.mean((a - b) ** 2)))
 
     def passes(f):
+        """Passes."""
         clean_max = 0.0
         for k in (3, 5, 8):
             for seed in range(5):

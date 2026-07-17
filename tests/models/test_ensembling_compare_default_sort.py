@@ -35,6 +35,7 @@ def _make_ens(oof_err: float, val_err: float, test_err: float):
 
 def test_compare_ensembles_defaults_to_oof_sort_not_val_or_test():
     # Three conflicting orderings: A best on OOF, B best on VAL, C best on TEST.
+    """Compare ensembles defaults to oof sort not val or test."""
     ensembles = {
         "A": _make_ens(oof_err=0.10, val_err=0.30, test_err=0.30),
         "B": _make_ens(oof_err=0.20, val_err=0.10, test_err=0.20),
@@ -48,6 +49,7 @@ def test_compare_ensembles_defaults_to_oof_sort_not_val_or_test():
 
 
 def test_compare_ensembles_warns_when_caller_overrides_to_test(caplog):
+    """Compare ensembles warns when caller overrides to test."""
     ensembles = {
         "A": _make_ens(oof_err=0.10, val_err=0.30, test_err=0.30),
         "C": _make_ens(oof_err=0.30, val_err=0.20, test_err=0.10),
@@ -71,13 +73,16 @@ def test_compare_ensembles_warns_on_val_override():
 
 
 def test_compare_ensembles_no_warn_on_default():
+    """Compare ensembles no warn on default."""
     ensembles = {"A": _make_ens(oof_err=0.10, val_err=0.30, test_err=0.30)}
     import logging as _logging
 
     handler_records = []
 
     class _Capture(_logging.Handler):
+        """Groups tests for: Capture."""
         def emit(self, record):  # pragma: no cover - trivial
+            """Emit."""
             handler_records.append(record)
 
     h = _Capture(level=_logging.WARNING)

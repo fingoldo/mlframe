@@ -16,6 +16,7 @@ from mlframe.metrics.regression._regression_benchmark import (
 
 # ---------------------------------------------------------------- unit
 def test_epsilon_band_accuracy_basic():
+    """Epsilon band accuracy basic."""
     y = np.array([0.0, 0.0, 0.0, 0.0])
     a = np.array([0.5, 1.5, -0.5, 2.0])
     # within eps=1.0: |0.5|,|−0.5| -> 2 of 4
@@ -23,17 +24,20 @@ def test_epsilon_band_accuracy_basic():
 
 
 def test_epsilon_band_perfect_and_empty():
+    """Epsilon band perfect and empty."""
     y = np.arange(5.0)
     assert fast_epsilon_band_accuracy(y, y.copy(), 0.0) == 1.0
     assert np.isnan(fast_epsilon_band_accuracy(np.array([]), np.array([]), 1.0))
 
 
 def test_epsilon_negative_raises():
+    """Epsilon negative raises."""
     with pytest.raises(ValueError):
         fast_epsilon_band_accuracy(np.zeros(3), np.zeros(3), -0.1)
 
 
 def test_rel_mae_ratio_of_maes():
+    """Rel mae ratio of maes."""
     y = np.array([0.0, 0.0, 0.0])
     pred = np.array([1.0, 1.0, 1.0])  # MAE 1
     bench = np.array([2.0, 2.0, 2.0])  # MAE 2
@@ -41,6 +45,7 @@ def test_rel_mae_ratio_of_maes():
 
 
 def test_percent_better_counts_wins():
+    """Percent better counts wins."""
     y = np.zeros(4)
     pred = np.array([0.1, 0.1, 5.0, 0.1])  # 3 wins vs bench
     bench = np.array([1.0, 1.0, 1.0, 1.0])
@@ -48,6 +53,7 @@ def test_percent_better_counts_wins():
 
 
 def test_mrae_floors_benchmark_error():
+    """Mrae floors benchmark error."""
     y = np.array([0.0, 0.0])
     pred = np.array([1.0, 1.0])
     bench = np.array([0.0, 2.0])  # first benchmark error is 0 -> floored
@@ -57,6 +63,7 @@ def test_mrae_floors_benchmark_error():
 
 
 def test_logcosh_zero_and_symmetry():
+    """Logcosh zero and symmetry."""
     y = np.arange(5.0)
     assert abs(fast_logcosh_loss(y, y.copy())) < 1e-12
     a = y + 3.0
@@ -66,6 +73,7 @@ def test_logcosh_zero_and_symmetry():
 
 def test_logcosh_overflow_safe():
     # large residuals must not overflow (uses the |z|+log(...) identity)
+    """Logcosh overflow safe."""
     y = np.array([0.0])
     a = np.array([1e6])
     v = fast_logcosh_loss(y, a)
@@ -73,6 +81,7 @@ def test_logcosh_overflow_safe():
 
 
 def test_length_mismatch_raises():
+    """Length mismatch raises."""
     with pytest.raises(ValueError):
         fast_rel_mae(np.zeros(3), np.zeros(2), np.zeros(3))
 

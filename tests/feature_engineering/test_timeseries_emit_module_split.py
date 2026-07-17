@@ -17,6 +17,7 @@ from pathlib import Path
 
 
 def test_emit_symbols_still_importable_from_facade() -> None:
+    """Emit symbols still importable from facade."""
     from mlframe.feature_engineering.timeseries import (
         _emit_groupby_block,
         _emit_categorical_counts,
@@ -50,6 +51,7 @@ def test_emit_symbols_still_importable_from_facade() -> None:
 
 
 def test_public_ts_api_still_importable() -> None:
+    """Public ts api still importable."""
     from mlframe.feature_engineering.timeseries import (
         get_numaggs_metadata,
         create_aggregated_features,
@@ -71,6 +73,7 @@ def test_public_ts_api_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
+    """Facade below 1k line threshold."""
     root = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "feature_engineering"
     facade = root / "timeseries.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())

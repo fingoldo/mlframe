@@ -21,6 +21,7 @@ from mlframe.models.ensembling import compute_member_quality_gate
 
 
 def _make_members(n_members: int, n_rows: int = 100, *, outlier_idx: int = -1, outlier_noise_mult: float = 1.0, seed: int = 42):
+    """Helper: Make members."""
     rng = np.random.default_rng(seed)
     ground = rng.random(n_rows)
     members = []
@@ -31,6 +32,7 @@ def _make_members(n_members: int, n_rows: int = 100, *, outlier_idx: int = -1, o
 
 
 def test_excludes_clear_outlier_relative():
+    """Excludes clear outlier relative."""
     members = _make_members(4, outlier_idx=3, outlier_noise_mult=100.0)
     kept, excluded, stats = compute_member_quality_gate(
         members,
@@ -66,6 +68,7 @@ def test_two_member_is_noop():
 
 
 def test_one_member_is_noop():
+    """One member is noop."""
     members = _make_members(1)
     kept, excluded, stats = compute_member_quality_gate(members)
     assert kept == [0]
@@ -73,6 +76,7 @@ def test_one_member_is_noop():
 
 
 def test_zero_members():
+    """Zero members."""
     kept, excluded, stats = compute_member_quality_gate([])
     assert kept == [] and excluded == [] and stats == {}
 
@@ -258,6 +262,7 @@ def test_ensemble_scoring_respects_reporting_metric_switches(monkeypatch):
     captured = []
 
     def _fake_train_and_evaluate_model(*, model, data, control, metrics, reporting, naming, output, confidence, predictions):
+        """Helper: Fake train and evaluate model."""
         captured.append(
             (
                 control.compute_trainset_metrics,

@@ -15,6 +15,7 @@ import pytest
 
 
 def test_multilabel_auc_per_label_matches_sklearn():
+    """Multilabel auc per label matches sklearn."""
     from sklearn.metrics import roc_auc_score
     from mlframe.metrics.core import multilabel_auc_per_label
 
@@ -28,6 +29,7 @@ def test_multilabel_auc_per_label_matches_sklearn():
 
 
 def test_multilabel_auc_macro_matches_sklearn():
+    """Multilabel auc macro matches sklearn."""
     from sklearn.metrics import roc_auc_score
     from mlframe.metrics.core import multilabel_auc_macro
 
@@ -41,6 +43,7 @@ def test_multilabel_auc_macro_matches_sklearn():
 
 
 def test_multilabel_auc_weighted_matches_sklearn():
+    """Multilabel auc weighted matches sklearn."""
     from sklearn.metrics import roc_auc_score
     from mlframe.metrics.core import multilabel_auc_weighted
 
@@ -77,6 +80,7 @@ def test_multilabel_auc_single_class_label_yields_nan():
 
 
 def test_multilabel_auc_registered_in_registry():
+    """Multilabel auc registered in registry."""
     from mlframe.training.metrics_registry import list_registered, iter_extra_metrics
     from mlframe.training.configs import TargetTypes
 
@@ -141,6 +145,7 @@ def test_multiclass_aggregation_macro_keys_present_in_metrics():
 
 
 def test_multiclass_aggregation_macro_equals_mean_of_per_class():
+    """Multiclass aggregation macro equals mean of per class."""
     from mlframe.training.reporting._reporting_probabilistic import report_probabilistic_model_perf
     from sklearn.linear_model import LogisticRegression
 

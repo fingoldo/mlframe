@@ -19,93 +19,112 @@ from mlframe.reporting.spec import (
 
 @pytest.fixture
 def renderer():
+    """Renderer."""
     return get_renderer("plotly")
 
 
 def _layout(fig):
+    """Helper: Layout."""
     return fig.layout.to_plotly_json()
 
 
 def _rangeslider_visibles(fig):
+    """Helper: Rangeslider visibles."""
     lay = _layout(fig)
     return [lay[k].get("rangeslider", {}).get("visible") for k in lay if k.startswith("xaxis")]
 
 
 @pytest.fixture
 def roc_panel():
+    """Roc panel."""
     x = np.linspace(0, 1, 12)
     return LinePanelSpec(x=(x, x), y=(np.sqrt(x), x), series_labels=("model", "chance"), title="ROC", xlabel="FPR", ylabel="TPR")
 
 
 @pytest.fixture
 def temporal_panel():
+    """Temporal panel."""
     return LinePanelSpec(x=np.arange(20.0), y=np.random.default_rng(0).random(20), title="metric over time", xlabel="time", ylabel="AUC", x_is_time=True)
 
 
 @pytest.fixture
 def scatter_panel():
+    """Scatter panel."""
     x = np.linspace(0, 1, 50)
     return ScatterPanelSpec(x=x, y=x + 0.1, title="resid", xlabel="pred", ylabel="resid")
 
 
 @pytest.fixture
 def heatmap_panel():
+    """Heatmap panel."""
     m = np.array([[0.9, 0.1], [0.2, 0.8]])
     return HeatmapPanelSpec(matrix=m, row_labels=("a", "b"), col_labels=("p", "q"), title="cm")
 
 
 def _fig(renderer, panel):
+    """Helper: Fig."""
     return renderer.render(FigureSpec(panels=((panel,),), figsize=(6, 4)))
 
 
 def test_line_panel_gets_unified_hover(renderer, roc_panel):
+    """Line panel gets unified hover."""
     assert _layout(_fig(renderer, roc_panel)).get("hovermode") == "x unified"
 
 
 def test_scatter_does_not_get_unified_hover(renderer, scatter_panel):
     # Unified hover misreads a scatter (it would show every point at a shared x); must stay plotly default.
+    """Scatter does not get unified hover."""
     assert _layout(_fig(renderer, scatter_panel)).get("hovermode") != "x unified"
 
 
 def test_heatmap_does_not_get_unified_hover(renderer, heatmap_panel):
+    """Heatmap does not get unified hover."""
     assert _layout(_fig(renderer, heatmap_panel)).get("hovermode") != "x unified"
 
 
 def test_mixed_line_and_heatmap_skips_unified_hover(renderer, roc_panel, heatmap_panel):
+    """Mixed line and heatmap skips unified hover."""
     fig = renderer.render(FigureSpec(panels=((roc_panel, heatmap_panel),), figsize=(12, 4)))
     assert _layout(fig).get("hovermode") != "x unified"
 
 
 def test_legend_click_toggles_set(renderer, roc_panel):
+    """Legend click toggles set."""
     leg = _layout(_fig(renderer, roc_panel))["legend"]
     assert leg.get("itemclick") == "toggle"
     assert leg.get("itemdoubleclick") == "toggleothers"
 
 
 def test_temporal_panel_gets_rangeslider(renderer, temporal_panel):
+    """Temporal panel gets rangeslider."""
     assert True in _rangeslider_visibles(_fig(renderer, temporal_panel))
 
 
 def test_nontemporal_line_has_no_rangeslider(renderer, roc_panel):
     # Pin: a rangeslider must NOT creep onto non-temporal charts (it wastes vertical space).
+    """Nontemporal line has no rangeslider."""
     assert True not in _rangeslider_visibles(_fig(renderer, roc_panel))
 
 
 def test_scatter_has_no_rangeslider(renderer, scatter_panel):
+    """Scatter has no rangeslider."""
     assert True not in _rangeslider_visibles(_fig(renderer, scatter_panel))
 
 
 def test_heatmap_has_no_rangeslider(renderer, heatmap_panel):
+    """Heatmap has no rangeslider."""
     assert True not in _rangeslider_visibles(_fig(renderer, heatmap_panel))
 
 
 def test_roc_traces_carry_rich_hovertemplate(renderer, roc_panel):
+    """Roc traces carry rich hovertemplate."""
     fig = _fig(renderer, roc_panel)
     line_tmpls = [t.hovertemplate for t in fig.data if "lines" in (t.mode or "")]
     assert line_tmpls and all(t is not None and "FPR=" in t and "TPR=" in t for t in line_tmpls)
 
 
 def test_generic_line_gets_fallback_hovertemplate(renderer):
+    """Generic line gets fallback hovertemplate."""
     x = np.arange(8.0)
     p = LinePanelSpec(x=x, y=(x, x * 2), series_labels=("s1", "s2"), xlabel="step", ylabel="loss")
     fig = _fig(renderer, p)
@@ -114,6 +133,7 @@ def test_generic_line_gets_fallback_hovertemplate(renderer):
 
 
 def test_modebar_drops_lasso_and_logo(renderer, roc_panel):
+    """Modebar drops lasso and logo."""
     fig = _fig(renderer, roc_panel)
     assert "lasso2d" in (fig.layout.modebar.remove or ())
     from mlframe.reporting.renderers._plotly_interactivity import html_config
@@ -124,6 +144,7 @@ def test_modebar_drops_lasso_and_logo(renderer, roc_panel):
 
 
 def test_html_output_carries_interactivity(renderer, temporal_panel, tmp_path):
+    """Html output carries interactivity."""
     fig = _fig(renderer, temporal_panel)
     out = str(tmp_path / "t.html")
     renderer.save(fig, out, "html")

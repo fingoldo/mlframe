@@ -22,6 +22,7 @@ def test_shift_to_nonnegative_does_not_double_offset():
 
 
 def test_maximize_path_weights_high_objective_candidates():
+    """Maximize path weights high objective candidates."""
     predictions = np.array([0.1, 0.5, 0.9])
     y = np.array([0.0, 1.0])
     probs = objective_to_sampling_weights(predictions, y, minimize=False, improving_by_atleast=0.0)
@@ -30,6 +31,7 @@ def test_maximize_path_weights_high_objective_candidates():
 
 
 def test_minimize_path_weights_low_objective_candidates():
+    """Minimize path weights low objective candidates."""
     predictions = np.array([0.1, 0.5, 0.9])
     y = np.array([0.0, 1.0])
     probs = objective_to_sampling_weights(predictions, y, minimize=True, improving_by_atleast=0.0)
