@@ -28,6 +28,7 @@ from .shared import SimpleFeaturesAndTargetsExtractor, get_cpu_config, skip_if_d
 
 
 def test_cb_multi_target_regression_trains_without_classification_loss(temp_data_dir, common_init_params, fast_iterations):
+    """CatBoost dispatches to a regressor (not MultiLogloss classifier) for an MTR target; pre-fix this crashed with CatBoostError."""
     skip_if_dependency_missing("cb")
 
     rng = np.random.default_rng(0)
@@ -65,6 +66,7 @@ def test_cb_multi_target_regression_trains_without_classification_loss(temp_data
 
     # No fitted estimator anywhere in the MTR entries may be a CLASSIFIER.
     def _walk_estimators(obj, depth=0):
+        """Recursively visits nested MTR model entries to assert none of the fitted estimators is a classifier."""
         if depth > 6 or obj is None:
             return
         cls = type(obj).__name__

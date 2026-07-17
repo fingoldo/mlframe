@@ -51,6 +51,7 @@ def _drive(cls, d, *, max_entries, max_size_mb, ops):
 
 
 def _make_ops(n):
+    """Builds a set/get/re-get/invalidate operation sequence exercising LRU-order perturbation and eviction."""
     ops = []
     for i in range(n):
         k = f"{i:08x}"
@@ -67,6 +68,7 @@ def _make_ops(n):
 @pytest.mark.skipif(not _HAVE_OLD, reason="CPX28 baseline snapshot not present")
 @pytest.mark.parametrize("max_entries,max_size_mb", [(20, None), (None, 0.002), (15, 0.01)])
 def test_cpx28_identity_old_vs_new(tmp_path, max_entries, max_size_mb):
+    """The current DiscoveryCache implementation replays the same op sequence identically to the pre-CPX28 baseline snapshot."""
     ops = _make_ops(60)
     old_dir = tmp_path / "old"
     new_dir = tmp_path / "new"

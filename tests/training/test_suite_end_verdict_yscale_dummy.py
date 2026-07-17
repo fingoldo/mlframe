@@ -27,6 +27,7 @@ def _rep(t_scale_rmse: float, y_scale_rmse: float) -> dict:
 
 
 def test_verdict_uses_yscale_dummy_when_no_raw_map():
+    """With no raw-y trivial baseline, the suite-end verdict prints the y-scale dummy RMSE (480), not the tiny T-scale one (1.2)."""
     # T-scale residual RMSE ~ 1.2 (tiny); y-scale dummy RMSE ~ 480 (original units).
     db = {"regression": {"y-linres-base": _rep(t_scale_rmse=1.2, y_scale_rmse=480.0)}}
     # Model is on the y-scale (RMSE 300, beats the y-scale dummy 480 -> lift 1.6x).
@@ -45,6 +46,7 @@ def test_verdict_uses_yscale_dummy_when_no_raw_map():
 
 
 def test_verdict_raw_y_map_still_preferred_over_yscale_inv():
+    """When a raw-y trivial baseline IS mappable, the verdict prefers it over the fitted-alpha y-scale inversion."""
     # When a raw-y trivial baseline IS mappable, it remains the preferred dummy
     # (truly-trivial median(y_raw)), not the fitted-alpha y-scale inversion.
     db = {

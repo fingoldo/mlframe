@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 
 def test_asizeof_underestimates_buffer_backed_model_vs_pickle():
+    """pympler.asizeof badly underestimates a sklearn model's true pickled size (blind to Cython tree buffers) -- the precheck must not trust it as a byte count."""
     pa = pytest.importorskip("pympler.asizeof")
     import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
     from sklearn.ensemble import RandomForestClassifier
@@ -34,6 +35,7 @@ def test_asizeof_underestimates_buffer_backed_model_vs_pickle():
 
 
 def test_asizeof_shallow_ndarray_bundle_is_accurate_and_cheap():
+    """For a plain ndarray-backed bundle (no Cython buffers), asizeof's estimate stays close to the raw nbytes."""
     pa = pytest.importorskip("pympler.asizeof")
     rng = np.random.default_rng(0)
     arr = rng.standard_normal(1_000_000).astype(np.float32)  # 4 MB raw

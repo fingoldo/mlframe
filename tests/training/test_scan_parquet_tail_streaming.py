@@ -20,6 +20,7 @@ import pytest
 
 
 def _make_cfg(tail=None, columns=None, n_rows=None, ensure_float32_dtypes=False, fillna_value=None, remove_constant_columns=False):
+    """Builds a minimal config namespace matching load_and_prepare_dataframe's expected attribute surface."""
     cfg = types.SimpleNamespace(
         tail=tail,
         columns=columns,
@@ -33,6 +34,7 @@ def _make_cfg(tail=None, columns=None, n_rows=None, ensure_float32_dtypes=False,
 
 @pytest.mark.fast
 def test_scan_parquet_with_tail_returns_last_n_rows(tmp_path):
+    """A tail= config on a parquet source streams-scans and returns only the last N rows, not the full file."""
     from mlframe.training.preprocessing import load_and_prepare_dataframe
 
     n_rows = 1_000

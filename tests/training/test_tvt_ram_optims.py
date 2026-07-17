@@ -58,9 +58,9 @@ def test_1_leak_corr_filter_drops_strong_y_correlate_after_in_place_fix():
 def test_3_pipeline_cache_default_fraction_is_0p15():
     from mlframe.training.strategies.pipeline_cache import _DEFAULT_PIPELINE_CACHE_RAM_FRACTION
 
-    assert _DEFAULT_PIPELINE_CACHE_RAM_FRACTION == 0.15, (
-        "default RAM fraction must be 0.15 (was 0.4) to keep room for big-frame transient peaks during pipeline-fit + composite-discovery on 100+ GB processes."
-    )
+    assert (
+        _DEFAULT_PIPELINE_CACHE_RAM_FRACTION == 0.15
+    ), "default RAM fraction must be 0.15 (was 0.4) to keep room for big-frame transient peaks during pipeline-fit + composite-discovery on 100+ GB processes."
 
 
 def test_3_pipeline_cache_default_in_behavior_config_is_0p15():

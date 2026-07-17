@@ -20,6 +20,7 @@ from mlframe.training.baselines._dummy_metrics_pick_plot import _compute_metrics
 
 
 def _probs(y, n_classes, strong_classes, strength, rng):
+    """Builds softmax class probabilities where strong_classes get a much larger separation margin than the rest."""
     n = len(y)
     logits = rng.normal(0.0, 1.0, size=(n, n_classes))
     for c in range(n_classes):
@@ -31,6 +32,7 @@ def _probs(y, n_classes, strong_classes, strength, rng):
 
 
 def test_biz_val_baseline_multiclass_auc_macro_rewards_minority_ranking():
+    """Macro-averaged multiclass AUC rewards correctly ranking a minority class, unlike a support-weighted average that would drown it out."""
     rng = np.random.default_rng(1234)
     n, k = 6000, 4
     p = np.array([0.85] + [0.05] * (k - 1))

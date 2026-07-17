@@ -48,6 +48,7 @@ def _make_pool(n: int, n_seed: int, n_cand: int, *, seed: int):
 
 
 def _run(y, cols, seeds, *, legacy: bool, **kw):
+    """Runs forward_stepwise_multi_base with fold-score persistence on, toggling the legacy per-trial-stack code path."""
     return forward_stepwise_multi_base(
         y,
         candidate_bases=cols,
@@ -59,6 +60,7 @@ def _run(y, cols, seeds, *, legacy: bool, **kw):
 
 
 def _assert_identical(res_legacy, res_buffer) -> None:
+    """Asserts the legacy per-trial-stack path and the buffered path selected the same candidates in the same order."""
     kept_l, diag_l = res_legacy
     kept_b, diag_b = res_buffer
     # Same selection, same order.

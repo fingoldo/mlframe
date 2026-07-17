@@ -1,3 +1,5 @@
+"""End-to-end LGB regression coverage for the 2026-04-22 crash: Polars input with pl.Enum cat_features through the full pipeline."""
+
 from mlframe.training import OutputConfig
 
 """End-to-end LGB tests with realistic prod-like Polars input.
@@ -89,6 +91,7 @@ def test_lgb_after_passthrough_wrapper_handles_numpy_inner_fn():
 
     # Simulate a transformer that returns numpy (selects only numeric cols).
     def numpy_returning_selector(sub_df):
+        """Selects three numeric columns and returns a raw ndarray, simulating a transformer that drops the pandas wrapper."""
         return sub_df[["num_feat_1", "num_feat_2", "num_feat_3"]].to_numpy()
 
     out = _passthrough_cols_fit_transform(

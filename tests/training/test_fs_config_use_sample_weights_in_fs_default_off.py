@@ -21,6 +21,7 @@ def _rfecv_selectors(pipelines):
 
 
 def test_fs_config_use_sample_weights_in_fs_default_is_false():
+    """FeatureSelectionConfig.use_sample_weights_in_fs defaults to False to preserve FS cache reuse across weight-only reruns."""
     from mlframe.training.configs import FeatureSelectionConfig
 
     cfg = FeatureSelectionConfig()
@@ -71,6 +72,7 @@ def test_build_pre_pipelines_marker_on_when_flag_flipped():
 
 
 def test_build_pre_pipelines_marker_default_off_on_rfecv():
+    """A pre-instantiated RFECV selector's use-sample-weights marker stays unset when the config default (False) applies."""
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
     from mlframe.feature_selection.wrappers import RFECV
     from sklearn.linear_model import LogisticRegression

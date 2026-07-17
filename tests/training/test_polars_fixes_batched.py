@@ -17,6 +17,7 @@ from mlframe.training.core._phase_polars_fixes import apply_polars_categorical_f
 
 
 def _make_frame(n: int, seed: int) -> pl.DataFrame:
+    """Builds a polars frame with 8 categorical columns of 20 distinct values each."""
     rng = np.random.default_rng(seed)
     data = {}
     for i in range(8):
@@ -41,6 +42,7 @@ def test_S44_apply_polars_categorical_fixes_batches_unique_collects():
     orig_train_select = pl.DataFrame.select
 
     def _counting_select(self, *args, **kwargs):
+        """Wraps DataFrame.select to count per-frame invocations, proving the batched path avoids the per-column N calls."""
         # Identify whether the caller hits train, val, or test by object identity below.
         if self is train:
             select_count["train"] += 1

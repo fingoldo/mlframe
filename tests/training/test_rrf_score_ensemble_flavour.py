@@ -155,6 +155,7 @@ def test_rrf_flavour_aggregates_two_classifiers_directly():
 
 
 def _make_mock_classification_member(n_samples=30, n_classes=2, seed=0):
+    """Builds a MagicMock ensemble member with normalized random per-split probability arrays and no preds."""
     rng = np.random.default_rng(seed)
     mock = MagicMock()
     raw_train = rng.random((n_samples, n_classes))
@@ -173,6 +174,7 @@ def _make_mock_classification_member(n_samples=30, n_classes=2, seed=0):
 
 
 def _make_mock_regression_member(n_samples=30, seed=0):
+    """Builds a MagicMock ensemble member with random per-split prediction arrays and no probs."""
     rng = np.random.default_rng(seed)
     mock = MagicMock()
     mock.train_probs = None

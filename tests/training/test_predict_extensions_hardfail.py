@@ -15,10 +15,12 @@ class _BoomPipeline:
     feature_names_in_ = np.array(["a", "b"], dtype=object)
 
     def transform(self, df):
+        """Always raises, simulating a broken pre-pipeline extension step at predict time."""
         raise ValueError("boom: shape mismatch inside extension transform")
 
 
 def _frame():
+    """Builds a tiny 2-row, 2-column numeric frame for the hard-fail predict tests."""
     return pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]})
 
 

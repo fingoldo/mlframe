@@ -20,6 +20,7 @@ from mlframe.training.composite import GatedRegressionMixture
 
 
 def _make_outlier_severity_dataset(n: int, seed: int):
+    """Builds a dataset where 15% of rows are outliers with a severity-scaled shock, plus a noisy observable proxy for it."""
     rng = np.random.default_rng(seed)
     is_outlier = rng.random(n) < 0.15
     x = rng.normal(size=n)
@@ -31,6 +32,7 @@ def _make_outlier_severity_dataset(n: int, seed: int):
 
 
 def test_biz_val_gated_regression_mixture_beats_single_global_regressor_mse():
+    """GatedRegressionMixture, which routes outlier-severity rows to a dedicated sub-model, beats a single global regressor on test MSE."""
     X, y, is_outlier = _make_outlier_severity_dataset(3000, seed=0)
     rng = np.random.default_rng(1)
     perm = rng.permutation(len(y))
