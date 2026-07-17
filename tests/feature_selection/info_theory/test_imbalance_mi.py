@@ -52,6 +52,7 @@ def _clean_env():
 
 
 def _imbalanced_frame(seed=0, n=20000, prior=0.01, p=8):
+    """Build a random-normal feature matrix with a Bernoulli(prior) rare-class target, for imbalance-MI gate tests."""
     rng = np.random.RandomState(seed)
     y = (rng.rand(n) < prior).astype(np.int64)
     X = rng.randn(n, p)
@@ -76,6 +77,7 @@ def test_default_off_is_byte_identical_to_plain():
 
 
 def test_explicit_off_is_byte_identical():
+    """MLFRAME_FE_IMBALANCE_MI=off is byte-identical to the plain numba MI batch, same zero-regression guarantee as the unset default."""
     os.environ["MLFRAME_FE_IMBALANCE_MI"] = "off"
     X, y = _imbalanced_frame(seed=2)
     assert np.array_equal(
@@ -129,6 +131,7 @@ def test_no_regression_on_balanced_data():
 
 
 def test_gate_refuses_non_discrete_and_single_class():
+    """compute_class_weights returns None for a continuous (regression-style) target and for a single-populated-class target."""
     os.environ["MLFRAME_FE_IMBALANCE_MI"] = "on"
     # float (regression-style) target -> never reweight
     assert compute_class_weights(np.linspace(0, 1, 100)) is None
