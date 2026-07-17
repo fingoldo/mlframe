@@ -121,6 +121,19 @@ class _MRMRConfigMixin:
         _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE[cls] = _result
         return _result
 
+    def _override_if_at_default(self, attr: str, new_value, defaults: dict, saved: dict) -> None:
+        """Set ``self.<attr> = new_value`` and stash the pre-fit value into ``saved[attr]`` for a later
+        ``finally``-block restore, UNLESS the caller already customized ``attr`` away from its package
+        default (``defaults[attr]``) -- an explicit user value always wins over a profile override.
+        Shared by ``_apply_default_screen_subsample`` and ``_apply_fast_search_profile`` (finding #21):
+        both used to duplicate this exact "read ctor default, only override if unchanged, save old value"
+        pattern inline."""
+        cur = getattr(self, attr, None)
+        if attr in defaults and cur != defaults[attr]:
+            return
+        saved[attr] = cur
+        setattr(self, attr, new_value)
+
     def _apply_default_screen_subsample(self, n_rows: int) -> dict:
         """Shrink the FE/MI screen subsamplers to the feature-recovery default for large n, returning
         {attr: pre_fit_value} to restore in ``finally``. Applies UNCONDITIONALLY (not gated on
@@ -143,14 +156,15 @@ class _MRMRConfigMixin:
             if _attr not in _defaults:
                 continue
             _cur = getattr(self, _attr, None)
-            # Only when the user left it at the package default (explicit user value always wins).
+            # Only when the user left it at the package default (explicit user value always wins) --
+            # checked here (pre-override) too since the SHRINK-only decision below needs the raw current
+            # value regardless of whether an override ultimately happens.
             if _cur != _defaults[_attr]:
                 continue
             # Only SHRINK: a default of 0/None means "full-n"; treat that as +inf so we still shrink it.
             _cur_eff = int(_cur) if (isinstance(_cur, int) and _cur > 0) else n_rows
             if _screen_n < _cur_eff:
-                saved[_attr] = _cur
-                setattr(self, _attr, _screen_n)
+                self._override_if_at_default(_attr, _screen_n, _defaults, saved)
         return saved
 
     def _apply_fast_search_profile(self) -> dict:
@@ -164,17 +178,8 @@ class _MRMRConfigMixin:
             logger.debug("mrmr: ctor-default introspection failed in _apply_fast_search_profile; treating all knobs as user-set: %r", exc, exc_info=True)
             _defaults = {}
 
-        def _override(attr, fast_value):
-            """Set ``attr`` to ``fast_value`` unless the caller already customized it away from the package default."""
-            cur = getattr(self, attr, None)
-            # Only override when the user left it at the package default (or the attr is absent).
-            if attr in _defaults and cur != _defaults[attr]:
-                return
-            saved[attr] = cur
-            setattr(self, attr, fast_value)
-
         for _attr, _val in self._FAST_SEARCH_OVERRIDES:
-            _override(_attr, _val)
+            self._override_if_at_default(_attr, _val, _defaults, saved)
         # Subsample is HW/size-dependent -> resolve via kernel_tuning_cache. Only shrink it (never raise a
         # user who already set a smaller screen-n); apply when still at the package default.
         _ss_default = _defaults.get("fe_check_pairs_subsample_n", None)

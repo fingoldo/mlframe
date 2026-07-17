@@ -67,3 +67,49 @@ Dedicated follow-up pass on `select_best_scorer_per_column`'s normalization:
 3. Re-run the full `n_boot`/seed sweep in `test_biz_value_mrmr_auto_scorer_selection.py` (all
    scorer combinations, not just discrete-binned) to confirm the fix doesn't regress HSIC's own
    legitimate wins elsewhere in that file.
+
+---
+
+## Second unrelated pre-existing failure found (step 8, finding #21/#22 regression testing)
+
+`tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_fast_search.py::test_fast_search_recovers_signal_and_is_faster[1]`
+and `[2]` fail deterministically (`random_seed=0`, no run-to-run randomness at the test level):
+
+- Case 1: fast path keeps a cross-group cross-signal artefact
+  (`add(mul(sqr(a),reciproc(b)),mul(log(c),sin(d)))`) that the assertion says it should not.
+- Case 2: fast-path Ridge-holdout MAE (0.09391) regressed >10% vs the exhaustive reference
+  (0.08433).
+
+**Confirmed unrelated to this audit session**: `git diff c47433014 HEAD --
+src/mlframe/feature_selection/filters/mrmr/_mrmr_class_config.py` shows the ONLY change to
+`_apply_fast_search_profile` / `_FAST_SEARCH_OVERRIDES` / the fast-search selection logic across
+this entire audit series (findings #1-22, commits `c47433014`..`ac2e9b229`) is a type-annotation
+widening (`_FAST_SEARCH_OVERRIDES: Any` -> `ClassVar[tuple[tuple[str, Any], ...]]`), confirmed
+also unaffected by this pass's finding #21/#22 refactor (`_override_if_at_default` extraction is
+behaviorally identical to the two inlined closures it replaces -- same guard, same save/restore
+semantics). The failure reproduces identically with that refactor stashed out.
+
+Root cause not investigated further (would require its own FE-quality/fast-search-profile
+benchmarking pass, same class of work as the auto-scorer bug above -- out of scope for a
+code-quality/naming audit). Flagged here as a second concrete follow-up rather than silently
+dropped.
+
+---
+
+## Third unrelated pre-existing failure found (step 8, finding #21/#22 regression testing)
+
+`tests/feature_selection/mrmr/fe/test_biz_value_mrmr_fe_canonical.py::test_user_case_drops_redundant_raw_a_multi_seed[4]`
+fails deterministically in its own isolated subprocess (the test's whole design point is to fit
+in a FRESH subprocess per seed specifically to rule out in-process RNG contamination -- so this is
+a real, reproducible seed=4 selection-quality regression, not test flakiness).
+
+**Confirmed unaffected by this pass's finding #21/#22 refactor**: `_apply_default_screen_subsample`
+is the ONLY of the two refactored methods this test could plausibly touch (it applies
+unconditionally, independent of `fe_fast_search`). Direct comparison of the pre-/post-refactor
+logic shows they are behaviorally identical -- `_override_if_at_default(attr, new_value, defaults,
+saved)` re-derives `cur = getattr(self, attr, None)` and re-checks `attr in defaults and cur !=
+defaults[attr]` (the SAME guard already evaluated inline just above the call site), then does the
+identical `saved[attr] = cur; setattr(self, attr, new_value)`. No behavior changes; this is a pure
+mechanical extraction. This failure is therefore pre-existing, same as the two `fast_search`
+failures above -- not investigated further here (out of scope; needs its own FE-redundancy-quality
+pass).
