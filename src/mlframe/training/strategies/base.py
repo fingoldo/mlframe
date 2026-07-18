@@ -597,9 +597,40 @@ class ModelPipelineStrategy(ABC):
         Per audit FE-L-1: set_output is hard-wired to ``"pandas"`` (the only format any caller ever
         used). Polars-native consumers take the polars fastpath upstream of this builder; the sklearn
         pipeline always emits pandas.
+
+        ``category_encoder`` / ``imputer`` / ``scaler`` are cloned here (mirrors the existing
+        per-model ``base_pipeline`` clone in the caller's model loop): the suite builds these three
+        ONCE per suite (``_get_pipeline_components``) and threads the SAME instances into every
+        ``build_pipeline`` call across every target / pre_pipeline / model. Embedding the shared
+        object directly (the pre-fix behaviour) meant every ``pipeline.fit()`` for a LATER model
+        mutated the imputer/scaler in place, silently corrupting the fitted state (``feature_names_in_``
+        and all) of every EARLIER model's already-stored pipeline -- surfaced as "the feature names
+        should match those that were passed during fit" whenever an earlier model's pipeline was
+        `.transform()`-ed again later (cross-target ensemble OOF refit, re-predict). Falls back to the
+        shared reference (with a WARN) only if `clone` itself fails, mirroring the base_pipeline guard.
         """
+        from sklearn.base import clone as _sk_clone
         from sklearn.feature_selection import SelectorMixin
         from mlframe.feature_selection.filters import MRMR
+
+        for _shared_name, _shared_obj in (("category_encoder", category_encoder), ("imputer", imputer), ("scaler", scaler)):
+            if _shared_obj is None:
+                continue
+            try:
+                _cloned = _sk_clone(_shared_obj)
+            except Exception as _clone_exc:
+                logger.warning(
+                    "%s.build_pipeline: sklearn.clone failed for %s (%s); reusing the shared instance -- "
+                    "if it is stateful, a LATER model's fit will silently corrupt this pipeline's fitted state.",
+                    type(self).__name__, _shared_name, _clone_exc,
+                )
+                continue
+            if _shared_name == "category_encoder":
+                category_encoder = _cloned
+            elif _shared_name == "imputer":
+                imputer = _cloned
+            else:
+                scaler = _cloned
 
         steps = []
 

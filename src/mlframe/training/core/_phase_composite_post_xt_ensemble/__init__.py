@@ -12,6 +12,7 @@ import numpy as np
 
 from ...composite import CompositeCrossTargetEnsemble as _CrossEns
 from ...composite import compute_oof_holdout_predictions
+from ...composite.estimator import CompositeTargetEstimator
 from ...composite.post_shim import PrePipelinePredictShim
 from ..utils import _build_full_column_from_splits
 from .._phase_composite_post_lag_predict import _LagPredictDeployableModel
@@ -101,6 +102,7 @@ def _build_cross_target_ensemble_for_target(
     _build_pred_cache: dict[tuple, np.ndarray] = {}
 
     def _get_train_pred(_comp, _frame_key):
+        """Build-scoped-then-shared-cache lookup for ``_comp``'s train-set prediction, computing and caching on a miss."""
         _inner = getattr(_comp, "model", _comp)
         _key = (id(_inner), *_frame_key)
         _p = _build_pred_cache.get(_key)
@@ -222,6 +224,36 @@ def _build_cross_target_ensemble_for_target(
             _name = f"{_spec['name']}#{_i}"
             _components.append(PrePipelinePredictShim(_inner, _pp, _name))
             _component_names.append(_name)
+    # Synthesize an ad-hoc spec for any CompositeTargetEstimator-wrapped component whose transform
+    # is not already covered by ``_spec_list``. This happens for "PR5 wrapping": once composite
+    # discovery finds a winning (transform, base_column) for this ORIGINAL target, it wraps that
+    # target's OWN "raw#N" entries in a CompositeTargetEstimator too (so their predictions come back
+    # in y-scale) -- but ``_spec_list`` here is scoped to composite target NAMES discovered FOR this
+    # original target, which never includes the original target's own name, so the wrapped raw
+    # entries have no matching spec. Build one directly from the wrapper's own fitted attributes
+    # (transform_name / base_column / base_columns / fitted_params_) rather than leaving it
+    # unmatched -- the OOF refit path needs a spec to re-derive the transform per fold.
+    _known_spec_keys = {(s.get("transform_name"), s.get("base_column")) for s in _spec_list}
+    for _comp, _name in zip(_components, _component_names):
+        _inner_for_adhoc = getattr(_comp, "model", _comp)
+        if not isinstance(_inner_for_adhoc, CompositeTargetEstimator):
+            continue
+        _tn_adhoc = getattr(_inner_for_adhoc, "transform_name", None)
+        _bc_adhoc = getattr(_inner_for_adhoc, "base_column", None)
+        if _tn_adhoc is None or _bc_adhoc is None or (_tn_adhoc, _bc_adhoc) in _known_spec_keys:
+            continue
+        _base_cols_adhoc = getattr(_inner_for_adhoc, "base_columns", None) or ()
+        _spec_list = [
+            *_spec_list,
+            {
+                "name": f"__adhoc__{_tn_adhoc}__{_bc_adhoc}",
+                "transform_name": _tn_adhoc,
+                "base_column": _bc_adhoc,
+                "extra_base_columns": tuple(_base_cols_adhoc[1:]) if len(_base_cols_adhoc) > 1 else (),
+                "fitted_params": getattr(_inner_for_adhoc, "fitted_params_", None),
+            },
+        ]
+        _known_spec_keys.add((_tn_adhoc, _bc_adhoc))
     if len(_components) < 2:
         logger.info(
             "[CompositeCrossTargetEnsemble] target='%s': only %d " "component(s); ensemble skipped.",
@@ -356,18 +388,33 @@ def _build_cross_target_ensemble_for_target(
             _base_full_per_spec[_spec_for_oof["name"]] = _b_filtered
             if _b_val is not None:
                 _base_val_per_spec[_spec_for_oof["name"]] = _b_val
-        # Build the spec-or-None list parallel to components.
+        # Build the spec-or-None list parallel to components. Naming ("raw#N" vs "<spec-name>#N") is
+        # only a hint, not proof: the original target's own models[..][orig_tname] slot can itself hold
+        # a promoted CompositeTargetEstimator (e.g. a composite candidate that also won the raw-target
+        # slot), so a name-based "raw# -> no spec" assumption crashes the OOF refit with "composite
+        # component with no spec" for that entry. Check the actual inner type instead.
         _component_specs: list[dict[str, Any] | None] = []
-        for _name in _component_names:
-            if _name.startswith("raw#"):
+        for _name, _comp in zip(_component_names, _components):
+            _inner_for_spec = getattr(_comp, "model", _comp)
+            if not isinstance(_inner_for_spec, CompositeTargetEstimator):
                 _component_specs.append(None)
-            else:
-                _comp_name = _name.split("#", 1)[0]
+                continue
+            _comp_name = _name.split("#", 1)[0]
+            _matching = next(
+                (s for s in _spec_list if s["name"] == _comp_name),
+                None,
+            )
+            if _matching is None:
+                # The name didn't resolve to a spec (e.g. this is the "raw#N" slot) -- fall back to
+                # matching by the wrapper's own (transform_name, base_column), which is stable regardless
+                # of which models[..] bucket the entry ended up in.
+                _tn = getattr(_inner_for_spec, "transform_name", None)
+                _bc = getattr(_inner_for_spec, "base_column", None)
                 _matching = next(
-                    (s for s in _spec_list if s["name"] == _comp_name),
+                    (s for s in _spec_list if s.get("transform_name") == _tn and s.get("base_column") == _bc),
                     None,
                 )
-                _component_specs.append(_matching)
+            _component_specs.append(_matching)
         # Thread ctx.timestamps + per-target sample_weight + group_ids (full-data-indexed) so the honest OOF split becomes time-aware / weighted / group-aware. All three are subset by filtered_train_idx to the train rows the components were fitted on.
         _ctx_ts_full = getattr(ctx, "timestamps", None) if ctx is not None else None
         _time_ordering = None

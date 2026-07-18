@@ -77,7 +77,7 @@ def predict_from_models(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
+    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
     from .._classif_helpers import _canonical_predict_proba_shape
     from ..pipeline._categorical_composite_fe import replay_categorical_composite_fe
     from ..pipeline._entity_time_composite_fe import replay_entity_time_composite_fe
@@ -189,6 +189,18 @@ def predict_from_models(
         # the conversion until AFTER pipeline.transform so each pipeline
         # type sees the format it was fitted on.
         df = pipeline.transform(df)
+
+    # Row-wise extension columns (row_summary_*/row_extreme_*, default ON) are stateless per-row
+    # functions with no fitted object to persist -- recompute them directly from the frame's own
+    # numeric columns. MUST run BEFORE the sklearn-bridge ``extensions_pipeline`` below: fit time
+    # applies them as "step 1.5" in ``apply_preprocessing_extensions``, strictly BEFORE
+    # scaler/kbins/polynomial/dim_reducer, specifically so those steps' fitted ``feature_names_in_``
+    # already includes the row-wise columns (DEFAULTS_CHANGELOG.md). Reversing the order here
+    # leaves ``extensions_pipeline.transform()`` missing exactly those columns and raises "feature
+    # names seen at fit time, yet now missing".
+    _row_wise_cfg = metadata.get("row_wise_extensions_config")
+    if _row_wise_cfg is not None:
+        df = _apply_row_wise_extensions(df, _row_wise_cfg, verbose=verbose)
 
     # Extensions pipeline replay (Fix 2). PySR / TF-IDF / polynomial / scaler / KBins / RBF / PCA stack, applied AFTER
     # the main pipeline (same order as training); without this models trained with ``preprocessing_extensions`` see
