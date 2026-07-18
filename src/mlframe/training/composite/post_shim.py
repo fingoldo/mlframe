@@ -65,6 +65,30 @@ def _model_fit_accepts_sample_weight(model: Any) -> bool:
     return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
+def subset_to_fit_columns(X: Any, pp: Any) -> Any:
+    """Reorder/subset ``X`` to the exact column list ``pp`` was fit on, mirroring the predict-time guard in ``_predict_pre_pipeline._apply_extensions_pipeline``.
+
+    ``pp.transform`` runs sklearn's strict feature-name check, which rejects ANY column not seen at fit time -- including a legitimate superset (e.g. row-wise extension columns added to the frame after ``pp`` was fit on an earlier snapshot). Without this, callers that pass the current (possibly wider) frame straight to ``pp.transform`` get "feature names should match those passed during fit" even though every fit-time column is present. Missing fit-time columns are left alone so ``pp.transform`` still raises loudly (never silently drop a column the model actually needs).
+    """
+    _fit_cols = getattr(pp, "feature_names_in_", None)
+    if _fit_cols is None:
+        return X
+    _fit_list = [str(c) for c in _fit_cols]
+    try:
+        _cols = [str(c) for c in X.columns]
+    except AttributeError:
+        return X
+    if _cols == _fit_list:
+        return X
+    if not (set(_fit_list) <= set(_cols)):
+        return X
+    if hasattr(X, "loc"):  # pandas
+        return X.loc[:, _fit_list]
+    if hasattr(X, "select"):  # polars
+        return X.select(_fit_list)
+    return X
+
+
 def _inner_has_predict_quantile(shim: "PrePipelinePredictShim") -> bool:
     """``available_if`` predicate: expose ``shim.predict_quantile`` only when the
     nested member can actually produce quantiles.
@@ -112,7 +136,7 @@ class PrePipelinePredictShim(BaseEstimator):
         if self.pre_pipeline is None:
             return X
         try:
-            return self.pre_pipeline.transform(X)
+            return self.pre_pipeline.transform(subset_to_fit_columns(X, self.pre_pipeline))
         except Exception as exc:
             # NEVER fall back to the untransformed X: a fitted pre_pipeline
             # (StandardScaler / SimpleImputer / ...) means the inner was
@@ -145,7 +169,11 @@ class PrePipelinePredictShim(BaseEstimator):
 
     def predict(self, X: Any) -> Any:
         """Predict on ``pre_pipeline``-transformed ``X``, mirroring the scaling applied during ``fit``."""
-        return self.model.predict(self._transform(X))
+        # Tree-tier components carry no pre_pipeline (docstring above), so ``self.model`` -- not just
+        # ``pre_pipeline`` -- can see a superset of its own fit-time columns (e.g. row-wise extension
+        # columns added to the frame after this model was fit). Subset to the model's OWN
+        # ``feature_names_in_`` too, same rationale as ``_transform``.
+        return self.model.predict(subset_to_fit_columns(self._transform(X), self.model))
 
     @available_if(_inner_has_predict_quantile)
     def predict_quantile(self, X: Any, alpha: Any = 0.5) -> Any:
@@ -164,7 +192,7 @@ class PrePipelinePredictShim(BaseEstimator):
         attribute does not exist so ``hasattr(shim, "predict_quantile")`` is
         ``False`` and duck-typing callers route around it.
         """
-        return self.model.predict_quantile(self._transform(X), alpha)
+        return self.model.predict_quantile(subset_to_fit_columns(self._transform(X), self.model), alpha)
 
     def __sklearn_is_fitted__(self) -> bool:
         """Report the REAL fit state for ``sklearn.check_is_fitted``.

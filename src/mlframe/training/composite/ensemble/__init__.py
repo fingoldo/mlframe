@@ -29,7 +29,7 @@ def _is_polars_df(x: Any) -> bool:
 
 
 from ..estimator import CompositeTargetEstimator
-from ..post_shim import PrePipelinePredictShim
+from ..post_shim import PrePipelinePredictShim, subset_to_fit_columns
 from ..transforms import get_transform
 from ._oof_split import (
     _align_fit_sw,
@@ -84,7 +84,7 @@ def _transform_pair_via(
     if pp is None:
         return X_train, X_holdout
     if _pp_is_fitted(pp):
-        return pp.transform(X_train), pp.transform(X_holdout)
+        return pp.transform(subset_to_fit_columns(X_train, pp)), pp.transform(subset_to_fit_columns(X_holdout, pp))
     # Unfitted pre_pipeline: fit a clone on the train slice (leak-free) and
     # reuse it for both slices so the OOF lives in the deployed space.
     pp_fit = clone(pp)
@@ -103,7 +103,7 @@ def _transform_via(pp: Any, X: Any) -> Any:
     """
     if pp is None:
         return X
-    return pp.transform(X)
+    return pp.transform(subset_to_fit_columns(X, pp))
 
 
 def derive_seeds(random_state: int, components: Sequence[str]) -> dict[str, int]:
@@ -248,6 +248,7 @@ _OOF_HOLDOUT_CACHE_CAP = 16
 
 
 def _oof_cache_get(key: tuple):
+    """LRU-touch and return the cached OOF result for ``key``, or ``None`` on a miss."""
     if key not in _OOF_HOLDOUT_CACHE:
         return None
     _OOF_HOLDOUT_CACHE.move_to_end(key)
@@ -255,6 +256,7 @@ def _oof_cache_get(key: tuple):
 
 
 def _oof_cache_put(key: tuple, value: tuple) -> None:
+    """Store ``value`` under ``key`` in the LRU OOF cache, evicting the oldest entry once over capacity."""
     if key in _OOF_HOLDOUT_CACHE:
         _OOF_HOLDOUT_CACHE.move_to_end(key)
         _OOF_HOLDOUT_CACHE[key] = value

@@ -15,6 +15,7 @@ import logging
 import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
 
 from mlframe.training.configs import PreprocessingConfig
 from mlframe.training.core._setup_helpers import _get_pipeline_components
@@ -110,6 +111,114 @@ class TestGetPipelineComponentsDefaults:
         cfg = PreprocessingConfig(imputer=my_imputer)
         _, imputer, _ = _get_pipeline_components(cfg, cat_features=[])
         assert imputer is my_imputer, "explicit PreprocessingConfig.imputer must pass through untouched"
+
+
+class TestBuildPipelineClonesSharedComponents:
+    """Regression for the cross-target ensemble OOF-refit crash ("The feature names should match those
+    that were passed during fit") surfaced by test_composite_integration.py.
+
+    Root cause: the suite builds ``imputer`` / ``scaler`` / ``category_encoder`` ONCE per suite
+    (``_get_pipeline_components``) and threads the SAME instances into ``build_pipeline`` for every
+    target / pre_pipeline / model. Before the fix, ``build_pipeline`` embedded these shared objects
+    directly into each model's ``Pipeline`` -- so fitting pipeline B (a later model) mutated the SAME
+    imputer/scaler pipeline A (an earlier model) had already stored, silently corrupting A's
+    ``feature_names_in_`` the moment B was fit on a differently-shaped X. Any later call into A's
+    "already fitted" pipeline (cross-target ensemble OOF refit, a second predict) then raised a
+    feature-name mismatch that had nothing to do with A's own training data.
+    """
+
+    def test_imputer_and_scaler_are_cloned_per_pipeline(self):
+        """build_pipeline must not embed the caller's imputer/scaler instance by reference."""
+        strat = LinearModelStrategy()
+        shared_imputer = SimpleImputer(strategy="mean")
+        shared_scaler = StandardScaler()
+
+        pipeline_a = strat.build_pipeline(
+            base_pipeline=None, cat_features=[], category_encoder=None,
+            imputer=shared_imputer, scaler=shared_scaler,
+        )
+        pipeline_b = strat.build_pipeline(
+            base_pipeline=None, cat_features=[], category_encoder=None,
+            imputer=shared_imputer, scaler=shared_scaler,
+        )
+        assert pipeline_a.named_steps["imp"] is not shared_imputer, "build_pipeline must clone the shared imputer, not embed it by reference"
+        assert pipeline_a.named_steps["scaler"] is not shared_scaler, "build_pipeline must clone the shared scaler, not embed it by reference"
+        assert pipeline_a.named_steps["imp"] is not pipeline_b.named_steps["imp"], "two build_pipeline calls sharing one imputer instance must produce two INDEPENDENT clones"
+        assert pipeline_a.named_steps["scaler"] is not pipeline_b.named_steps["scaler"]
+
+    def test_fitting_a_later_pipeline_does_not_corrupt_an_earlier_ones_fit_state(self):
+        """End-to-end repro of the OOF-refit crash: fit pipeline A on 2 columns, then fit a SIBLING
+        pipeline B (sharing A's original imputer/scaler instances) on 4 columns. A must still
+        transform its own 2-column shape afterward -- pre-fix, B's fit silently overwrote A's
+        imputer/scaler state, and A.transform(2-col X) raised "feature names unseen at fit time"."""
+        strat = LinearModelStrategy()
+        shared_imputer = SimpleImputer(strategy="mean")
+        shared_scaler = StandardScaler()
+
+        pipeline_a = strat.build_pipeline(
+            base_pipeline=None, cat_features=[], category_encoder=None,
+            imputer=shared_imputer, scaler=shared_scaler,
+        )
+        X_a = pd.DataFrame({"x1": [1.0, 2.0, 3.0, 4.0], "x2": [4.0, 3.0, 2.0, 1.0]})
+        pipeline_a.fit(X_a)
+
+        pipeline_b = strat.build_pipeline(
+            base_pipeline=None, cat_features=[], category_encoder=None,
+            imputer=shared_imputer, scaler=shared_scaler,
+        )
+        X_b = pd.DataFrame({
+            "x1": [1.0, 2.0, 3.0, 4.0], "x2": [4.0, 3.0, 2.0, 1.0],
+            "extra_a": [1.0, 1.0, 2.0, 2.0], "extra_b": [5.0, 6.0, 7.0, 8.0],
+        })
+        pipeline_b.fit(X_b)
+
+        # Pipeline A's own fitted state must be untouched by B's later, wider fit.
+        out_a = pipeline_a.transform(X_a)
+        assert out_a.shape == (4, 2), f"pipeline A's fit-time shape must survive B's later fit, got {out_a.shape}"
+
+
+class TestAllStrategiesCloneSharedComponents:
+    """Sentinel guard for every registered strategy (not just LinearModelStrategy): build_pipeline
+    must never embed the caller's imputer/scaler/category_encoder instance by reference, since the
+    suite always threads ONE shared instance of each into every strategy's build_pipeline call. A
+    future strategy subclass that stores the raw instance re-introduces the corruption bug fixed in
+    ``TestBuildPipelineClonesSharedComponents`` -- this test fails immediately for that subclass
+    without needing another end-to-end suite crash to notice it.
+    """
+
+    def test_every_strategy_clones_or_skips_shared_components(self):
+        """Every concrete ModelPipelineStrategy must clone (or legitimately skip) a shared imputer/scaler."""
+        from mlframe.training.strategies.base import ModelPipelineStrategy
+        from mlframe.training.strategies.hgb import HGBStrategy
+        from mlframe.training.strategies.neural import (
+            LinearModelStrategy, NeuralNetStrategy, RecurrentModelStrategy,
+        )
+        from mlframe.training.strategies.tree_cb import CatBoostStrategy, TreeModelStrategy
+        from mlframe.training.strategies.xgboost import XGBoostStrategy
+
+        strategies = [
+            HGBStrategy(), LinearModelStrategy(), NeuralNetStrategy(), RecurrentModelStrategy(),
+            TreeModelStrategy(), CatBoostStrategy(), XGBoostStrategy(),
+        ]
+        for strat in strategies:
+            assert isinstance(strat, ModelPipelineStrategy)
+            shared_imputer = SimpleImputer(strategy="mean")
+            shared_scaler = StandardScaler()
+            pipeline = strat.build_pipeline(
+                base_pipeline=None, cat_features=[], category_encoder=None,
+                imputer=shared_imputer, scaler=shared_scaler,
+            )
+            step_names = [name for name, _ in pipeline.steps] if hasattr(pipeline, "steps") else []
+            if "imp" in step_names:
+                assert pipeline.named_steps["imp"] is not shared_imputer, (
+                    f"{type(strat).__name__}.build_pipeline embeds the shared imputer by reference -- "
+                    "a later model's fit will silently corrupt this pipeline's fitted state."
+                )
+            if "scaler" in step_names:
+                assert pipeline.named_steps["scaler"] is not shared_scaler, (
+                    f"{type(strat).__name__}.build_pipeline embeds the shared scaler by reference -- "
+                    "a later model's fit will silently corrupt this pipeline's fitted state."
+                )
 
 
 class TestNumericOnlyTransformerAllNanColumn:

@@ -44,6 +44,26 @@ def _tvt_dataset(n: int = 800, seed: int = 0) -> pd.DataFrame:
     return pd.DataFrame({"TVT_prev": base, "x1": x1, "x2": x2, "target": y})
 
 
+def _apply_pre_pipeline_if_fitted(pre_pipeline, X):
+    """Apply ``pre_pipeline.transform`` only when it's genuinely fitted, else pass ``X`` through unchanged.
+
+    Mirrors ``predict_mlframe_models_suite``'s own guard (``_predict_main_suite.py``): some model
+    entries legitimately carry an UNFITTED placeholder pre_pipeline (e.g. tree strategies that skip
+    scaling), and calling ``.transform()`` on it raises ``NotFittedError``. The real suite predict
+    driver checks fitted-state first and skips gracefully rather than crashing; a test that calls
+    ``entry.model.predict()`` directly (bypassing that driver) must replay the same guard.
+    """
+    if pre_pipeline is None:
+        return X
+    from sklearn.utils.validation import check_is_fitted
+
+    try:
+        check_is_fitted(pre_pipeline)
+    except Exception:
+        return X
+    return pre_pipeline.transform(X)
+
+
 def _build_minimal_fte(target_col: str = "target"):
     """Construct the simple FTE used by the existing core tests."""
     from tests.training.shared import SimpleFeaturesAndTargetsExtractor
@@ -178,13 +198,30 @@ class TestCompositeIntegration:
         # Verify predictions are in y-scale by predicting on a sample
         # row and checking the magnitude is within the y range, not
         # the T (residual) range.
+        #
+        # Route the raw user frame through the SAME (extensions -> pre_pipeline -> estimator)
+        # chain the suite's own predict driver (predict_mlframe_models) applies: row-wise
+        # extension columns (row_summary_*/row_extreme_*, default ON) are baked into every
+        # model's fit-time feature set at the suite level, so calling entry.model.predict()
+        # on the bare user columns raises "feature names ... unseen at fit time". Calling
+        # entry.model.predict() directly (bypassing the suite driver) is exactly what this
+        # test does, so it must replay that chain itself.
+        from mlframe.training.core._predict_pre_pipeline import (
+            _apply_extensions_pipeline, _apply_row_wise_extensions,
+        )
+
         sample_X = df.drop(columns=["target"]).iloc[:5]
+        _ext_pipeline = _metadata.get("extensions_pipeline")
+        sample_X_ext = _apply_extensions_pipeline(sample_X, _ext_pipeline, verbose=0) if _ext_pipeline is not None else sample_X
+        sample_X_ext = _apply_row_wise_extensions(sample_X_ext, _metadata.get("row_wise_extensions_config"), verbose=0)
         y_range = (df["target"].min(), df["target"].max())
         for entry in composite_entries:
             inner_model = getattr(entry, "model", None) or entry
             if not isinstance(inner_model, CompositeTargetEstimator):
                 continue
-            preds = inner_model.predict(sample_X)
+            _pp = getattr(entry, "pre_pipeline", None)
+            X_final = _apply_pre_pipeline_if_fitted(_pp, sample_X_ext)
+            preds = inner_model.predict(X_final)
             assert np.all(np.isfinite(preds))
             # y-scale predictions: most values should be within the y envelope.
             # T-scale (residual) predictions would cluster near zero, far below.
@@ -344,7 +381,12 @@ class TestCompositeIntegration:
         ens_entries = regression_models[ensemble_keys[0]]
         assert len(ens_entries) == 1
         ens_entry = ens_entries[0]
-        ens_model = getattr(ens_entry, "model", None)
+        # Keep the (possibly shim-wrapped) object used for the ACTUAL predict call separate
+        # from ``ens_model`` (used only for isinstance/type checks below): calling .predict()
+        # on the shim -- rather than unwrapping past it first -- lets the shim apply its own
+        # pre_pipeline.transform() (scaler/imputer), which the raw inner estimator needs.
+        ens_model_for_predict = getattr(ens_entry, "model", None)
+        ens_model = ens_model_for_predict
         # Optional ``PrePipelinePredictShim`` wrap when cross-target components
         # needed an Imputer/StandardScaler pre-pipeline routed through predict;
         # unwrap one shim level so the isinstance check tests the real inner.
@@ -367,12 +409,22 @@ class TestCompositeIntegration:
         # ``predict`` and emits finite y-scale predictions. Assert the real
         # contract (callable predict + downstream finite-prediction check)
         # rather than pin a specific fallback layer.
-        assert ens_model is not None and callable(
-            getattr(ens_model, "predict", None)
-        ), f"_CT_ENSEMBLE__ aggregate entry missing predict(); got {type(ens_model).__name__}"
-        # Predict on a sample row.
+        assert ens_model_for_predict is not None and callable(
+            getattr(ens_model_for_predict, "predict", None)
+        ), f"_CT_ENSEMBLE__ aggregate entry missing predict(); got {type(ens_model_for_predict).__name__}"
+        # Predict on a sample row. Row-wise extension columns (row_summary_*/row_extreme_*,
+        # default ON) are baked into every model's fit-time feature set at the suite level, so
+        # a raw user-column frame must be replayed through the suite's own extensions_pipeline
+        # first -- mirroring predict_mlframe_models -- before reaching predict().
+        from mlframe.training.core._predict_pre_pipeline import (
+            _apply_extensions_pipeline, _apply_row_wise_extensions,
+        )
+
         sample_X = df.drop(columns=["target"]).iloc[:5]
-        preds = ens_model.predict(sample_X)
+        _ext_pipeline = metadata.get("extensions_pipeline")
+        sample_X_ext = _apply_extensions_pipeline(sample_X, _ext_pipeline, verbose=0) if _ext_pipeline is not None else sample_X
+        sample_X_ext = _apply_row_wise_extensions(sample_X_ext, metadata.get("row_wise_extensions_config"), verbose=0)
+        preds = ens_model_for_predict.predict(sample_X_ext)
         assert np.all(np.isfinite(preds))
         # y-scale magnitude check. The CompositeTargetEstimator /
         # CompositeCrossTargetEnsemble wraps apply a prediction-envelope

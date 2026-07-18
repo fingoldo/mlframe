@@ -144,6 +144,61 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
             _arr = _arr.toarray()
     return pd.DataFrame(_arr, columns=_names, index=df.index)
 
+def _apply_row_wise_extensions(df: Any, config: Optional[dict], verbose: int = 0) -> Any:
+    """Recompute row-wise extension columns (row_summary_*/row_extreme_*) on a predict-time frame.
+
+    These columns are STATELESS (per-row functions of that row's own numeric column values, not
+    fit-time population statistics -- see ``apply_preprocessing_extensions`` in
+    ``pipeline/_pipeline_extensions.py``), so there is no fitted object to replay; recomputing them
+    directly from ``df``'s own numeric columns reproduces the fit-time columns exactly. ``config``
+    is the small dict ``_phase_helpers_fit_pipeline.py`` stamps onto ``metadata["row_wise_extensions_config"]``
+    at fit time (``None`` when neither row-wise extension was enabled -- a no-op here).
+
+    Mirrors the fit-time padding contract in ``_pipeline_extensions.py``'s ``_extreme_scores_only``:
+    always emits exactly ``extreme_columns_k`` ``row_extreme_topN_score`` columns (NaN-padded) so a
+    predict frame with fewer eligible columns than the fit-time frame still matches
+    ``feature_names_in_`` width.
+
+    Accepts a polars frame too (materialised to pandas first, mirroring ``_apply_extensions_pipeline``'s
+    own polars handling): the row-wise functions are pandas-only, and this step runs BEFORE the
+    sklearn-bridge ``extensions_pipeline`` -- silently no-op'ing on polars here would leave the
+    downstream scaler/imputer (fit on a frame that already carried these columns) missing them.
+    """
+    if config is None:
+        return df
+    if isinstance(df, pl.DataFrame):
+        df = get_pandas_view_of_polars_df(df)
+    if not isinstance(df, pd.DataFrame):
+        return df
+    _cols = list(df.columns)
+    if config.get("summary_stats_enabled"):
+        try:
+            from mlframe.feature_engineering.row_wise_summary import row_wise_summary_stats
+            _stats_kwargs: dict = {"columns": _cols}
+            _stats_list = config.get("summary_stats_list")
+            if _stats_list:
+                _stats_kwargs["stats"] = _stats_list
+            df = df.join(row_wise_summary_stats(df, **_stats_kwargs))
+        except Exception as _exc:
+            logger.warning("_apply_row_wise_extensions: row_wise_summary_stats replay failed (%s); predict-time columns will diverge from fit-time.", _exc)
+    if config.get("extreme_columns_enabled"):
+        try:
+            from mlframe.feature_engineering.row_wise_extremality import row_wise_top_k_extreme_columns
+            _k = int(config.get("extreme_columns_k") or 3)
+            _out = row_wise_top_k_extreme_columns(df, columns=_cols, k=_k)
+            assert isinstance(_out, pd.DataFrame)  # return_column_summary not passed -> always the plain-DataFrame overload
+            _score_cols = [c for c in _out.columns if c.endswith("_score")]
+            _result = _out[_score_cols].add_prefix("row_extreme_")
+            for _i in range(1, _k + 1):
+                _expected = f"row_extreme_top{_i}_score"
+                if _expected not in _result.columns:
+                    _result[_expected] = float("nan")
+            df = df.join(_result[[f"row_extreme_top{_i}_score" for _i in range(1, _k + 1)]])
+        except Exception as _exc:
+            logger.warning("_apply_row_wise_extensions: row_wise_top_k_extreme_columns replay failed (%s); predict-time columns will diverge from fit-time.", _exc)
+    return df
+
+
 def _try_predict_with_pp_fallback(
     fn,
     primary,

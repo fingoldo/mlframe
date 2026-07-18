@@ -584,6 +584,24 @@ def _phase_fit_pipeline(
     )
     if _pysr_equations_out:
         metadata["pysr_equations"] = dict(_pysr_equations_out)
+    # Row-wise extension columns (row_summary_*/row_extreme_*) are STATELESS -- computed per-row
+    # from that row's own numeric column values, not fit-time population statistics -- so unlike
+    # the sklearn-bridge ``extensions_pipeline`` above, there is no fitted object to persist for
+    # them. Predict-time (``_predict_pre_pipeline._apply_row_wise_extensions``) needs only the
+    # enabled/params knobs to recompute them identically from the predict-time frame's own numeric
+    # columns. Without this stamp, predict-time never reproduces these columns and every model
+    # whose pre_pipeline/estimator saw them at fit time raises "feature names ... unseen at fit
+    # time" on the very first real predict call -- default-ON, so this hit every deployed model.
+    if preprocessing_extensions is not None and (
+        getattr(preprocessing_extensions, "row_wise_summary_stats_enabled", False)
+        or getattr(preprocessing_extensions, "row_wise_extreme_columns_enabled", False)
+    ):
+        metadata["row_wise_extensions_config"] = {
+            "summary_stats_enabled": bool(getattr(preprocessing_extensions, "row_wise_summary_stats_enabled", False)),
+            "summary_stats_list": getattr(preprocessing_extensions, "row_wise_summary_stats_list", None),
+            "extreme_columns_enabled": bool(getattr(preprocessing_extensions, "row_wise_extreme_columns_enabled", False)),
+            "extreme_columns_k": int(getattr(preprocessing_extensions, "row_wise_extreme_columns_k", 3) or 3),
+        }
     if verbose and preprocessing_extensions is not None:
         logger.info("  apply_preprocessing_extensions done in %s", _elapsed_str(t0_ext))
     if extensions_pipeline is not None:
