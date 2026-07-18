@@ -1,11 +1,12 @@
-"""Regression test: ``mi_correction='chao_shen'`` no-op must surface as a ``UserWarning``, not
-only a ``logger.warning``.
+"""Regression test: ``mi_correction='chao_shen'`` must NOT emit the old no-op fallback warning.
 
-The Chao-Shen estimator is accepted as a valid ``mi_correction`` value but is not yet wired
-into the relevance/null path -- it silently degrades to plug-in ('none') MI for both observed
-and null. Before the fix this was only ``logger.warning``-ed, which a caller with unconfigured
-logging (the common case for a plain script) never sees -- so a user who explicitly requested
-the bias correction got ordinary plug-in MI with zero visible indication.
+``mi_correction='chao_shen'`` used to be accepted as a valid value but not wired into the
+relevance/null path -- it silently degraded to plug-in ('none') MI for both observed and null,
+surfaced via a UserWarning. It is now genuinely wired (05_concurrency_and_statistics.md finding #7,
+see ``compute_relevance_score``/``mi_or_su_from_classes`` in ``info_theory``); this file re-frames the
+original no-op-warning contract to its new, correct opposite: chao_shen must complete SILENTLY (no
+fallback warning) since it is a real, active estimator now, not a no-op. See
+``test_biz_val_filters_mrmr_chao_shen.py`` for the activation/behavioral tests.
 """
 
 from __future__ import annotations
@@ -33,21 +34,25 @@ def _xy(seed: int = 5, n: int = 160):
     return X, y
 
 
-def test_mi_correction_chao_shen_emits_user_warning():
-    """``mi_correction='chao_shen'`` must emit a UserWarning when it falls back to plug-in MI."""
+def test_mi_correction_chao_shen_no_longer_emits_noop_warning():
+    """``mi_correction='chao_shen'`` must NOT emit the stale "not yet wired" fallback warning -- it is
+    now a genuinely-active estimator, not a no-op."""
     X, y = _xy()
     MRMR._FIT_CACHE.clear()
     m = _fast(mi_correction="chao_shen")
-    with pytest.warns(UserWarning, match="chao_shen"):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         m.fit(X, y)
+    stale = [w for w in caught if "chao_shen" in str(w.message).lower() and "not yet wired" in str(w.message).lower()]
+    assert not stale, f"chao_shen must no longer emit the stale not-wired warning; got {[str(w.message) for w in stale]}"
 
 
 def test_mi_correction_none_emits_no_chao_shen_warning():
-    """The default ``mi_correction='none'`` must not emit the chao_shen fallback warning."""
+    """The default ``mi_correction='none'`` must not emit any chao_shen-related warning."""
     X, y = _xy()
     MRMR._FIT_CACHE.clear()
     m = _fast(mi_correction="none")
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         m.fit(X, y)
-    assert not any("chao_shen" in str(w.message) for w in caught)
+    assert not any("chao_shen" in str(w.message).lower() for w in caught)

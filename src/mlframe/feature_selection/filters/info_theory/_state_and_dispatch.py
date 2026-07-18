@@ -14,6 +14,7 @@ from ._entropy_kernels import (
     conditional_mi,
     conditional_symmetric_uncertainty,
     mi,
+    mi_chao_shen,
     mi_miller_madow,
     symmetric_uncertainty,
 )
@@ -78,6 +79,23 @@ def use_mi_miller_madow() -> bool:
 def set_mi_miller_madow(active: bool) -> None:
     """Flip Miller-Madow bias-corrected MI on/off for the calling thread; set by ``MRMR.fit`` when ``mi_correction='miller_madow'``."""
     _MM_STATE.active = bool(active)
+
+
+# Chao-Shen (2003) coverage-adjusted relevance-MI correction toggle (finding #7, 05_concurrency_and_statistics.md).
+# Mutually exclusive with Miller-Madow and SU at the dispatch site below (``mi_correction`` is a single string knob);
+# kept as its own thread-local rather than folded into ``_MM_STATE`` so the two corrections stay independently
+# toggleable if a future caller wants to A/B them without touching ``_mi_corr`` string-parsing in MRMR.fit.
+_CS_STATE = _threading.local()
+
+
+def use_mi_chao_shen() -> bool:
+    """True when the calling thread has Chao-Shen coverage-adjusted MI active for relevance scoring (skipped whenever SU is active, mirroring Miller-Madow)."""
+    return bool(getattr(_CS_STATE, "active", False))
+
+
+def set_mi_chao_shen(active: bool) -> None:
+    """Flip Chao-Shen coverage-adjusted MI on/off for the calling thread; set by ``MRMR.fit`` when ``mi_correction='chao_shen'``."""
+    _CS_STATE.active = bool(active)
 
 
 # Group-aware MI (per-group I(X;Y|G)) state. Set by MRMR.fit when ``group_aware_mi=True`` and groups are supplied,
@@ -163,10 +181,12 @@ def set_cpt_test(active: bool, n_permutations: int = 200) -> None:
 
 
 def mi_or_su(factors_data, x, y, factors_nbins, verbose=False, dtype=np.int32) -> float:
-    """Dispatch raw MI / SU / Miller-Madow-corrected MI based on the thread-local toggles. Cheap path
-    when all are off: a one-call delegation to ``mi`` (which is njit-cached)."""
+    """Dispatch raw MI / SU / Miller-Madow- or Chao-Shen-corrected MI based on the thread-local
+    toggles. Cheap path when all are off: a one-call delegation to ``mi`` (which is njit-cached)."""
     if use_su_normalization():
         return float(symmetric_uncertainty(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype))
+    if use_mi_chao_shen():
+        return float(mi_chao_shen(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype))
     if use_mi_miller_madow():
         return float(mi_miller_madow(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype))
     return float(mi(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype))

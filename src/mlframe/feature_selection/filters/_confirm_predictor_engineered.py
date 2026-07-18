@@ -8,12 +8,15 @@ state, so they live apart from the score/confirm bodies in ``_confirm_predictor`
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Dict, List
 
 import numpy as np
 
 from .info_theory import merge_vars
+
+logger = logging.getLogger(__name__)
 
 
 def _conditioning_rows_per_cell(ctx, X: tuple) -> float:
@@ -93,7 +96,9 @@ def _conditioning_rows_per_cell(ctx, X: tuple) -> float:
             current_nclasses=z_nclasses,
             final_classes=z_classes.copy(),
         )
-    except Exception:
+    except Exception as e:
+        # Hot per-candidate path (100-150 calls/round): debug-only, no per-call warning spam.
+        logger.debug("conditioning-joint cell count failed, treating as undersampled: %s", e)
         return float("inf")
     if n_nonempty_cells <= 0:
         return float("inf")
@@ -273,9 +278,9 @@ def _confirmable_engineered_child(ctx, X, winner_idx, winner_gain, expected_gain
 
     candidates = ctx.candidates
     partial_gains = getattr(ctx, "partial_gains", None) or {}
-    added = ctx.added_candidates or set()
-    failed = ctx.failed_candidates or set()
-    selected = ctx.selected_vars or []
+    added = ctx.added_candidates if ctx.added_candidates is not None else set()
+    failed = ctx.failed_candidates if ctx.failed_candidates is not None else set()
+    selected = ctx.selected_vars if ctx.selected_vars is not None else []
     band_floor = winner_gain * (1.0 - rel_eps)
 
     # Precompute (once per candidates-pool identity, reused across every confirmed

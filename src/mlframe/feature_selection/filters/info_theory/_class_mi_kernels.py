@@ -6,7 +6,7 @@ import math
 import numpy as np
 from numba import njit
 
-from ._state_and_dispatch import use_mi_miller_madow, use_su_normalization
+from ._state_and_dispatch import use_mi_chao_shen, use_mi_miller_madow, use_su_normalization
 
 
 @njit(nogil=True, cache=True)
@@ -42,6 +42,76 @@ def compute_mi_mm_from_classes(
     mi_xy = compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
     corrected = mi_xy - _mm_bias(freqs_x, freqs_y, len(classes_x))
     return corrected if corrected > 0.0 else 0.0
+
+
+@njit(nogil=True, cache=True)
+def _chao_shen_entropy_from_counts(counts: np.ndarray, n: int) -> float:
+    """Chao & Shen (2003) coverage-adjusted entropy estimator from a category count vector.
+
+    Corrects the plug-in entropy estimator's downward bias from UNSEEN categories by rescaling each
+    observed frequency by the estimated sample coverage ``C_hat = 1 - f1/n`` (``f1`` = count of
+    singleton categories) and applying the Horvitz-Thompson-style ``1 - (1-p)^n`` inclusion-probability
+    correction per category. Falls back to the plug-in estimator (mathematically equivalent to
+    ``C_hat=1``) when every observed category is a singleton (``f1==n``, coverage estimate undefined)
+    or when the per-category correction denominator underflows -- both edge cases where the plug-in
+    term is already a reasonable finite-sample estimate and the correction would otherwise blow up.
+    """
+    f1 = 0
+    for i in range(len(counts)):
+        if counts[i] == 1:
+            f1 += 1
+    if f1 >= n:
+        c_hat = (n - 1.0) / n if n > 1 else 1.0
+    else:
+        c_hat = 1.0 - f1 / n
+    h = 0.0
+    for i in range(len(counts)):
+        ni = counts[i]
+        if ni <= 0:
+            continue
+        p_tilde = c_hat * ni / n
+        if p_tilde <= 0.0:
+            continue
+        lam = 1.0 - (1.0 - p_tilde) ** n
+        term = -p_tilde * math.log(p_tilde)
+        if lam > 1e-12:
+            term = term / lam
+        h += term
+    return h
+
+
+@njit(nogil=True, cache=True)
+def compute_mi_cs_from_classes(
+    classes_x: np.ndarray,
+    freqs_x: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    dtype=np.int32,
+) -> float:
+    """Chao-Shen (2003) coverage-adjusted MI from pre-computed class arrays: ``H_CS(X) + H_CS(Y) -
+    H_CS(X,Y)``, floored at 0. Unlike Miller-Madow's closed-form additive bias term, Chao-Shen
+    directly re-estimates each marginal/joint entropy from its own observed-category coverage, which
+    better tracks bias on SPARSE high-cardinality joints (many singleton cells) where Miller-Madow's
+    ``(k_x-1)(k_y-1)/(2n)`` term systematically under-corrects (findings #7, 05_concurrency_and_statistics.md).
+    """
+    n = len(classes_x)
+    K_x = len(freqs_x)
+    K_y = len(freqs_y)
+    counts_x = np.zeros(K_x, dtype=np.int64)
+    counts_y = np.zeros(K_y, dtype=np.int64)
+    joint_counts = np.zeros((K_x, K_y), dtype=np.int64)
+    for k in range(n):
+        cx = classes_x[k]
+        cy = classes_y[k]
+        counts_x[cx] += 1
+        counts_y[cy] += 1
+        joint_counts[cx, cy] += 1
+    h_x = _chao_shen_entropy_from_counts(counts_x, n)
+    h_y = _chao_shen_entropy_from_counts(counts_y, n)
+    joint_flat = joint_counts.reshape(K_x * K_y)
+    h_xy = _chao_shen_entropy_from_counts(joint_flat, n)
+    mi = h_x + h_y - h_xy
+    return mi if mi > 0.0 else 0.0
 
 
 @njit(nogil=True, cache=True)
@@ -142,20 +212,26 @@ def compute_relevance_score(
     freqs_y: np.ndarray,
     dtype=np.int32,
     use_mm: bool = False,
+    use_cs: bool = False,
 ) -> float:
-    """njit-callable dispatcher between raw MI and Symmetric Uncertainty.
+    """njit-callable dispatcher between raw MI, Symmetric Uncertainty, Miller-Madow- and
+    Chao-Shen-corrected MI.
 
     ``permutation.py``'s njit kernels cannot read the Python-level thread-local
-    SU toggle directly; this branch-on-flag helper lets the joblib entry point
-    (``mi_direct``) thread the SU mode down once per call, and the njit kernel
+    SU/MM/CS toggles directly; this branch-on-flag helper lets the joblib entry point
+    (``mi_direct``) thread the mode down once per call, and the njit kernel
     selects the scorer at runtime with a single bool check.
 
-    Both branches share the same dtype + array contracts as
+    All branches share the same dtype + array contracts as
     ``compute_mi_from_classes`` so the existing permutation loops stay
-    byte-for-byte stable in the SU-off code path.
+    byte-for-byte stable in the SU/MM/CS-off code path. ``use_mm``/``use_cs`` are mutually
+    exclusive in practice (MRMR's ``mi_correction`` is a single string knob); ``use_cs`` is
+    checked first if both are somehow set.
     """
     if use_su:
         return float(compute_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
+    if use_cs:
+        return float(compute_mi_cs_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
     if use_mm:
         return float(compute_mi_mm_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
     return float(compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
@@ -170,6 +246,8 @@ def mi_or_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=np.int32
     """
     if use_su_normalization():
         return float(compute_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
+    if use_mi_chao_shen():
+        return float(compute_mi_cs_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
     if use_mi_miller_madow():
         return float(compute_mi_mm_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
     return float(compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))

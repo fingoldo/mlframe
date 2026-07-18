@@ -56,12 +56,14 @@ def _autoconfigure_cuda_home() -> None:
     def _dir_has_cudart(p: str) -> bool:
         """True if the CUDA runtime library (cudart) is present under p, in any of the layouts NVIDIA ships."""
         d = pathlib.Path(p)
-        return bool(list(d.glob("bin/cudart64_*.dll")) or list(d.glob("lib64/libcudart*")) or list(d.glob("lib/libcudart*")))
+        _patterns = ("bin/cudart64_*.dll", "lib64/libcudart*", "lib/libcudart*")
+        return any(next(d.glob(_pat), None) is not None for _pat in _patterns)
 
     def _dir_has_nvvm(p: str) -> bool:
         """True if the NVVM codegen library is present under p, in any of the layouts NVIDIA ships."""
         d = pathlib.Path(p)
-        return bool(list(d.glob("nvvm/bin/nvvm*.dll")) or list(d.glob("nvvm/lib64/libnvvm*")))
+        _patterns = ("nvvm/bin/nvvm*.dll", "nvvm/lib64/libnvvm*")
+        return any(next(d.glob(_pat), None) is not None for _pat in _patterns)
 
     def _find_complete_toolkit() -> "str | None":
         """Highest-versioned CUDA_PATH_V* system toolkit that has BOTH nvvm (codegen) and cudart (runtime,
@@ -77,7 +79,9 @@ def _autoconfigure_cuda_home() -> None:
     # anchored loader then fails to find cudart -> get_supported_ccs() returns () -> every kernel raises
     # NvvmSupportError "No supported GPU compute capabilities found". If a complete system toolkit is
     # present, redirect to it so kernels actually compile (not just is_available()==True).
-    _cur = os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH")
+    _cur = os.environ.get("CUDA_HOME")
+    if not _cur:
+        _cur = os.environ.get("CUDA_PATH")
     if _cur and not _dir_has_cudart(_cur):
         _complete = _find_complete_toolkit()
         if _complete:
@@ -102,8 +106,9 @@ def _autoconfigure_cuda_home() -> None:
         roots = {sysconfig.get_paths().get("purelib"), sysconfig.get_paths().get("platlib")}
         for root in filter(None, roots):
             nvvm = pathlib.Path(root) / "nvidia" / "cuda_nvcc" / "nvvm"
-            has_dll = bool(list(nvvm.glob("bin/nvvm*.dll")) or list(nvvm.glob("lib64/libnvvm*")))
-            has_libdevice = bool(list(nvvm.glob("libdevice/libdevice*.bc")))
+            _dll_patterns = ("bin/nvvm*.dll", "lib64/libnvvm*")
+            has_dll = any(next(nvvm.glob(_pat), None) is not None for _pat in _dll_patterns)
+            has_libdevice = next(nvvm.glob("libdevice/libdevice*.bc"), None) is not None
             if has_dll and has_libdevice:
                 cuda_nvcc = str(nvvm.parent)
                 os.environ["CUDA_HOME"] = cuda_nvcc
@@ -118,6 +123,13 @@ def _autoconfigure_cuda_home() -> None:
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
         logging.getLogger(__name__).debug("suppressed in __init__.py:117: %s", e)
         pass
+
+
+gpu_disable_errors: list = []
+"""Diagnostic collection: reasons ``_disable_broken_cupy`` poisoned ``sys.modules['cupy']``
+(0 or 1 entries -- the guard runs once per process). Empty means cupy is unusable/absent
+without needing the poison guard, or usable, or the guard never ran; a non-empty entry
+lets a caller/report distinguish "cupy absent" from "cupy present but broken"."""
 
 
 def _disable_broken_cupy() -> None:
@@ -164,6 +176,7 @@ def _disable_broken_cupy() -> None:
             type(_imp_exc).__name__,
             _imp_exc,
         )
+        gpu_disable_errors.append(f"cupy import raised {type(_imp_exc).__name__}: {_imp_exc}")
         _sys_imp.modules["cupy"] = None  # type: ignore[assignment]
         return
     try:
@@ -177,6 +190,8 @@ def _disable_broken_cupy() -> None:
             "RecursionError cascade. Set MLFRAME_KEEP_BROKEN_CUPY=1 to skip.",
             type(exc).__name__, exc,
         )
+        gpu_disable_errors.append(f"cupy NVRTC probe failed: {type(exc).__name__}: {exc}")
+        gpu_disable_errors.append(f"cupy NVRTC probe raised {type(exc).__name__}: {exc}")
         # Poison the import: ``sys.modules["cupy"] = None`` makes every subsequent ``import cupy``
         # raise ``ImportError`` immediately. CPython's import machinery treats a ``None`` entry as
         # a negative-cache marker -- documented behaviour since Python 2.x, still maintained in 3.12+
@@ -233,12 +248,14 @@ def _patch_colorama_reinit_storm() -> None:
     ``numba.core.errors.init`` must be rebound directly, the actual call site). Best-effort: any failure
     (colorama/numba absent, a future version restructuring these modules) leaves behavior untouched.
     Opt-out: ``MLFRAME_KEEP_COLORAMA_REINIT=1``."""
+    import logging
     import os
     if os.environ.get("MLFRAME_KEEP_COLORAMA_REINIT", "").strip() not in ("", "0", "false", "False"):
         return
     try:
         import colorama.initialise as _ci
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).debug("colorama unavailable, skipping reinit-storm patch: %s", e)
         return
     _orig_init = getattr(_ci, "init", None)
     if _orig_init is None or getattr(_orig_init, "_mlframe_idempotent", False):
@@ -264,8 +281,8 @@ def _patch_colorama_reinit_storm() -> None:
         import numba.core.errors as _ne
         if getattr(_ne, "init", None) is _orig_init:
             _ne.init = _idempotent_init
-    except Exception:  # nosec B110 - best-effort: numba absent or restructured its colorama import
-        pass
+    except Exception as e:  # nosec B110 - best-effort: numba absent or restructured its colorama import
+        logging.getLogger(__name__).debug("skipping numba colorama-init patch: numba absent or restructured (%s)", e)
 
 
 _gpu_runtime_configured = False
@@ -299,9 +316,11 @@ def _install_gpu_runtime_lazy_trigger() -> None:
     time. The wrap is a pure reference swap -- it touches neither ``os.environ`` nor cupy until a GPU path
     actually calls it. If pyutilz is unavailable for any reason, GPU autoconfig simply stays deferred.
     """
+    import logging
     try:
         from pyutilz.system import gpu_dispatch as _gd
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).debug("pyutilz.system.gpu_dispatch unavailable, GPU runtime autoconfig stays deferred: %s", e)
         return
     _orig = getattr(_gd, "is_cuda_available", None)
     if _orig is None or getattr(_orig, "_mlframe_gpu_runtime_wrapped", False):

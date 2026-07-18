@@ -130,7 +130,8 @@ def warm_gbm_cost_cache() -> None:
     No-op if LightGBM or pyutilz is unavailable."""
     try:
         import lightgbm  # noqa: F401
-    except Exception:
+    except Exception as exc:
+        logger.debug("lightgbm unavailable, skipping gbm-cost cache warm (%s: %s)", type(exc).__name__, exc)
         return
     try:
         from ._kernel_tuning import get_kernel_tuning_cache
@@ -145,7 +146,8 @@ def warm_gbm_cost_cache() -> None:
             for n in _GBM_COST_SWEEP_N_SAMPLES:
                 try:
                     cps = _measure_gbm_cols_per_second(n)
-                except Exception:
+                except Exception as exc:
+                    logger.debug("gbm-cost measurement failed at n_samples=%d, using fallback (%s: %s)", n, type(exc).__name__, exc)
                     cps = float(_GBM_FALLBACK_COLS_PER_SEC)
                 regions.append({"n_samples": n, "value": cps})
             return regions
@@ -308,7 +310,8 @@ def _gpu_available() -> bool:
         import cupy as cp
 
         return bool(cp.cuda.runtime.getDeviceCount() > 0)
-    except Exception:
+    except Exception as exc:
+        logger.debug("cupy/CUDA probe failed, treating as no GPU available (%s: %s)", type(exc).__name__, exc)
         return False
 
 
@@ -368,7 +371,8 @@ def _get_spec():
             salt=1,
             cli_label="fe_interaction_prerank_discrete",
         )
-    except Exception:
+    except Exception as exc:
+        logger.debug("kernel_tuning registry unavailable (%s: %s); using source-default backend heuristic", type(exc).__name__, exc)
         _SPEC = False
     return _SPEC
 
@@ -387,14 +391,18 @@ def compute_discrete_score(V: np.ndarray, V2: np.ndarray, yf: np.ndarray, classe
         if spec:
             try:
                 backend = spec.choose(work=work)
-            except Exception:
+            except Exception as exc:
+                # Hot per-call dispatch path: debug-only, no per-call warning spam.
+                logger.debug("kernel_tuning backend choice failed, using heuristic fallback (%s: %s)", type(exc).__name__, exc)
                 backend = _fallback_choice(work=work)
         else:
             backend = _fallback_choice(work=work)
     fn = _VARIANTS.get(backend, discrete_score_numpy)
     try:
         return fn(ZV, ZV2, Yc)
-    except Exception:
+    except Exception as exc:
+        # Hot per-call dispatch path: debug-only, no per-call warning spam.
+        logger.debug("backend %r kernel failed, falling back to numpy variant (%s: %s)", backend, type(exc).__name__, exc)
         return discrete_score_numpy(ZV, ZV2, Yc)
 
 

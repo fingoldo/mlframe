@@ -33,6 +33,40 @@ from .info_theory import mi
 
 logger = logging.getLogger(__name__)
 
+# Package defaults for the two threshold knobs (finding: docs backlog flagged these as hardcoded
+# instead of routed through kernel_tuning_cache, matching the DCD layer's `_kernel_tuning_cache_
+# lookup_tau` pattern). Kept as module constants (not re-read from the MRMR ctor signature) since
+# this module has no MRMR-class import (would create an import cycle); the caller in
+# `_mrmr_fe_step_helpers.py` compares against these before invoking the cache lookup, mirroring
+# the "only override an attribute still at its package default" convention used elsewhere.
+CLUSTER_AGGREGATE_CORR_THRESHOLD_DEFAULT = 0.6
+CLUSTER_AGGREGATE_HOMOGENEITY_TAU_DEFAULT = 0.6
+
+
+def _kernel_tuning_cache_lookup_cluster_threshold(kernel_name: str, factors_data, fallback: float) -> float:
+    """Route a cluster-aggregate threshold (corr_threshold / homogeneity_tau) through
+    ``pyutilz.system.kernel_tuning_cache``, mirroring the DCD layer's
+    ``_kernel_tuning_cache_lookup_tau`` pattern (docs backlog: "kernel_tuning_cache for cluster
+    thresholds"). Looks up a calibrated value by a coarse ``(n_samples, n_features)`` log10-bucketed
+    fingerprint; falls back to the caller-supplied default when the cache is cold/unavailable, so a
+    quiet/large-RAM host can record a better-tuned value without hardcoding it for every host."""
+    try:
+        from ._kernel_tuning import get_kernel_tuning_cache
+
+        _cache = get_kernel_tuning_cache()
+        if _cache is None:
+            return float(fallback)
+        n_samples = int(factors_data.shape[0]) if factors_data is not None else 0
+        n_features = int(factors_data.shape[1]) if factors_data is not None and factors_data.ndim > 1 else 0
+        n_samples_bucket = round(np.log10(max(n_samples, 1)) * 2) / 2
+        n_features_bucket = round(np.log10(max(n_features, 1)) * 2) / 2
+        entry = _cache.lookup(kernel_name, n_samples_log10=float(n_samples_bucket), n_features_log10=float(n_features_bucket))
+        if entry is not None and "value" in entry:
+            return float(entry["value"])
+    except Exception as exc:  # nosec B110 - cache lookup is a resilience nicety, never a hard dependency
+        logger.debug("mrmr: cluster-aggregate kernel_tuning_cache lookup failed for %r: %r", kernel_name, exc, exc_info=True)
+    return float(fallback)
+
 CLUSTER_AGGREGATE_METHODS = (
     "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score",
     # Layer 44 (2026-05-31): four additional aggregators added to the DCD
@@ -361,9 +395,26 @@ def _discover_clusters(
             continue
         members.sort(key=lambda i: (-rel[i], i))  # representative = highest-relevance member
         rep = members[0]
+        # FCBF-style (Yu & Liu 2004) ordered-relevance pruning (docs backlog: "FCBF ordered pruning
+        # for cluster aggregation", finding #06_docs_backlog_drift.md). Plain single-linkage connected
+        # components (above) can chain A-B-C into one cluster via a bridge member B even when A and C
+        # don't directly correlate -- a genuine multi-latent-factor group gets merged with a spurious
+        # reflection group. Processing members in DESCENDING relevance order and keeping only those that
+        # correlate directly with the REPRESENTATIVE (not merely transitively, via some other member)
+        # rejects chain artifacts while a genuine single-latent reflection cluster (every member directly
+        # correlated with every other) is unaffected, since its representative-vs-member correlations are
+        # all >= corr_threshold by construction.
+        rep_pos = pool.index(rep)
+        _pruned = [rep]
+        for m in members[1:]:
+            _m_pos = pool.index(m)
+            if abs(corr[rep_pos, _m_pos]) >= corr_threshold:
+                _pruned.append(m)
+        members = _pruned
+        if len(members) < min_cluster_size:
+            continue
         if len(members) > max_cluster_size:
             # keep representative + top-|corr|-to-rep members
-            rep_pos = pool.index(rep)
             members = [rep, *sorted([m for m in members if m != rep], key=lambda m: -abs(corr[rep_pos, pool.index(m)]))[: max_cluster_size - 1]]
         # Unidimensionality: PC1 explains >= tau of the standardized cluster variance. This is the
         # structural discriminator -- genuine reflections of ONE latent are unidimensional; a
