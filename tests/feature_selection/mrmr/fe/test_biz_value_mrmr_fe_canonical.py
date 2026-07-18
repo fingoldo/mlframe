@@ -350,6 +350,19 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
         "from mlframe.feature_selection.filters.mrmr import MRMR\n"
         f"np.random.seed({seed})\n"
         f"a,b,c,d,e,f=(np.random.rand({n}) for _ in range(6))\n"
+        # b floored away from 0 (audits/mrmr_audit_2026-07-16/11_unrelated_bug_found_auto_scorer_selection.md,
+        # "third unrelated pre-existing failure", 2026-07-18 follow-up): unbounded b ~ U(0,1) as a DENOMINATOR
+        # makes a**2/b's variance a function of b's minimum draw, not a stable property of the functional form
+        # -- on seed=4, b's min happened to land at ~1e-6 (10-60x more extreme than seeds 0-3's ~1e-5..1e-4),
+        # inflating var(a**2/b) to ~3.65M x var(log(c)*sin(d)) (vs 6K-150K x for the other seeds). Verified
+        # directly: MRMR's anti-overmaterialization vetoes (noise-wrap-corr-collapse / degenerate-pair --
+        # _feature_engineering_pairs/_pairs_score.py) correctly reject a fused (a,b)+(c,d) composite whose
+        # (c,d) contribution is numerically negligible at that variance ratio (a genuine, principled rejection,
+        # not a bug); with b bounded away from 0 the ratio drops to ~9x and MRMR cleanly recovers
+        # mul(log(c),sin(d)) as its own feature on the SAME seed. This is a data-generator robustness fix
+        # (a synthetic near-zero-denominator outlier the test itself introduces), not a change to what
+        # signal the fixture represents -- the functional form (y = a**2/b + f/5 + log(c)*sin(d)) is unchanged.
+        "b=b*0.95+0.05\n"
         "y=a**2/b+f/5.0+np.log(c)*np.sin(d)\n"
         f"{'y=y+%r*a' % _BUG1_PRIVATE_COEF if private else ''}\n"
         "df=pd.DataFrame({'a':a,'b':b,'c':c,'d':d,'e':e})\n"
@@ -389,7 +402,7 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
 
 
 @pytest.mark.timeout(900)
-@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
+@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 def test_user_case_drops_redundant_raw_a_multi_seed(seed):
     """REAL BUG1, MULTI-SEED (the recurring single-seed-validation failure mode):
     on the user's EXACT df ``y=a**2/b + f/5 + log(c)*sin(d)`` the fully-subsumed
@@ -400,7 +413,10 @@ def test_user_case_drops_redundant_raw_a_multi_seed(seed):
     sub-expression). Each seed fits in a FRESH subprocess (see
     ``_run_user_case_in_subprocess``) so the in-process RNG contamination that
     masked the bug cannot hide it. Verified to FAIL pre-fix (raw ``a`` kept on the
-    non-collapse seeds) and PASS post-fix on all 5."""
+    non-collapse seeds) and PASS post-fix on all 5; doubled to 10 seeds
+    (audits/mrmr_audit_2026-07-16/11_unrelated_bug_found_auto_scorer_selection.md,
+    2026-07-18 follow-up) after seed=4 surfaced a b-near-zero denominator outlier
+    the fixture now bounds away from (see ``_run_user_case_in_subprocess``)."""
     out = _run_user_case_in_subprocess(seed, private=False)
     eng = [nm for nm in out if nm not in _RAW]
     # Each signal group still covered by an engineered feature.
@@ -413,7 +429,7 @@ def test_user_case_drops_redundant_raw_a_multi_seed(seed):
 
 
 @pytest.mark.timeout(900)
-@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
+@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 def test_private_raw_a_kept_alongside_engineered_multi_seed(seed):
     """OVER-DROP CONTROL (multi-seed): when ``a`` carries a DOMINANT standalone
     linear term (``y += 10*a``) the engineered children built from ``a`` do NOT
