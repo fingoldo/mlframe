@@ -523,6 +523,18 @@ def _renumber_joint(*cols: np.ndarray) -> tuple[np.ndarray, int]:
 
     Per-fold renumbering uses the njit hash-factorize (first-seen dense ids)
     instead of ``np.unique`` -- see :func:`_factorize_dense_njit`.
+
+    # bench-attempt-rejected (2026-07-18): per-call GPU dispatch of THIS host entry point (upload cols,
+    # call :func:`_renumber_joint_gpu`, D2H the scalar cardinality) was A/B'd against the njit path at the
+    # actual call shapes (n=100k, k=2..8 conditioning columns -- see the wellbore-100k cProfile that flagged
+    # 51.9s/6766 calls here). ``bench_renumber_joint_gpu_dispatch.py``: host 0.28-1.42ms (k=2..4) vs GPU
+    # 3.4-5.8ms even with columns ALREADY resident (no H2D) -- GPU is 4-16x SLOWER at the k<=4 shapes that
+    # dominate the call sites (pairwise xy/xz/yz/xyz joins, one-sibling-at-a-time budget loops with an
+    # early-exit that makes cross-candidate batching change the amount of work done, not just its shape).
+    # GPU only wins (1.4x) at k=8+ columns, wider than any call site actually builds. The already-shipped
+    # ``_renumber_joint_gpu`` remains correctly used wherever callers already hold device-resident operands
+    # (``_fe_raw_redundancy_helpers.py``, ``_fe_cmi_redundancy_gate.py``); this host path is the genuine
+    # residual for fresh-host-array / sequential-early-exit call sites, not a missed dispatch.
     """
     if not cols:
         # No conditioning -> caller handles the marginal-MI case explicitly.
