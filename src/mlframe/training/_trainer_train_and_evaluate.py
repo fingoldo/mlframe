@@ -118,6 +118,7 @@ def train_and_evaluate_model(
     oof_n_splits: int = 0,
     oof_has_time: bool = False,
     oof_random_seed: int = 42,
+    cur_target_name: str | None = None,
 ):
     """Train and evaluate a machine learning model with comprehensive metrics and optional caching.
 
@@ -163,6 +164,13 @@ def train_and_evaluate_model(
         Validation outlier detection indices.
     trainset_features_stats : dict, optional
         Pre-computed feature statistics from training set.
+    cur_target_name : str, optional
+        The actual target this call is training (original or a composite-discovered derived
+        target). Threaded into the process-wide pre-pipeline cache key so two different targets
+        sharing the same model type never replay each other's fitted pre_pipeline -- surfaced live
+        as sklearn's "Feature names should match those that were passed during fit" inside a
+        composite-target-discovery suite call, where two targets with byte-identical structurally
+        equivalent pipelines but different row-wise-extension column sets could collide.
 
     Returns
     -------
@@ -427,6 +435,19 @@ def train_and_evaluate_model(
         selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
         groups=_pre_pipeline_groups,
         sample_weight=_pre_pipeline_sample_weight,
+        # This was the ONLY caller of ``_apply_pre_pipeline_transforms`` and never passed
+        # ``target_name``, so it silently defaulted to None on every call. The process-wide
+        # ``_PRE_PIPELINE_CACHE``'s content fingerprint alone then wrongly matched two DIFFERENT
+        # targets/runs whose train/val frames happened to be byte-identical (e.g. two suite calls
+        # built from the same RNG seed, or two composite-discovered targets sharing the same base
+        # X), and replayed one target's fitted pre_pipeline (feature_names_in_ from ITS row-wise-
+        # extension columns) onto the other's test_df -- surfaced live as sklearn's "Feature names
+        # should match those that were passed during fit" inside a composite-target-discovery
+        # suite call. ``naming.model_name`` is just the model TYPE ("linear"), identical across
+        # every target using that model, so it cannot discriminate here -- ``cur_target_name`` (the
+        # actual target being trained) is the real discriminator the cache key's own docstring
+        # describes.
+        target_name=cur_target_name,
     )
 
     # The pre-pipeline may add engineered interaction columns whose names embed

@@ -240,6 +240,7 @@ def _call_train_evaluate_with_configs(
     just_evaluate: bool = False,
     verbose: bool = False,
     trainset_features_stats: Optional[Dict[str, Any]] = None,
+    cur_target_name: Optional[str] = None,
 ) -> Tuple[Any, Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
     """Call train_and_evaluate_model with config objects.
 
@@ -269,6 +270,12 @@ def _call_train_evaluate_with_configs(
         Whether to print verbose output.
     trainset_features_stats : dict, optional
         Pre-computed feature statistics from training set.
+    cur_target_name : str, optional
+        The actual target name being trained (e.g. the original target or a composite-discovered
+        derived target). Forwarded to ``train_and_evaluate_model``'s pre-pipeline cache key so two
+        DIFFERENT targets sharing the same model type never replay each other's fitted
+        pre_pipeline -- ``naming.model_name`` alone is just the model TYPE ("linear"), identical
+        across targets, and is not a safe cache discriminator on its own.
 
     Returns
     -------
@@ -320,6 +327,7 @@ def _call_train_evaluate_with_configs(
         oof_n_splits=oof_n_splits,
         oof_has_time=oof_has_time,
         oof_random_seed=oof_random_seed,
+        cur_target_name=cur_target_name,
     )
     return cast(Tuple[Any, Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]], _result)
 
@@ -522,6 +530,7 @@ def process_model(
         just_evaluate=use_cached_model,
         verbose=bool(verbose),
         trainset_features_stats=trainset_features_stats,
+        cur_target_name=cur_target_name,
     )
 
     # Handle failed model - don't save or add to lists

@@ -19,6 +19,7 @@ import os
 from timeit import default_timer as timer
 import subprocess  # nosec B404 - subprocess used below with list args only, no shell=True
 
+import numpy as np
 import pandas as pd
 import polars as pl
 from typing import Dict, Optional
@@ -643,9 +644,17 @@ def apply_preprocessing_extensions(
                 return row_wise_summary_stats(_d, **_kwargs)
 
             try:
-                train = _rw_apply(_summary_stats_for, train)
-                val = _rw_apply(_summary_stats_for, val)
-                test = _rw_apply(_summary_stats_for, test)
+                # ATOMIC across train/val/test: computed into locals first and only reassigned once
+                # ALL THREE succeed. A per-split exception (e.g. an all-NaN column unique to one
+                # split, seen more often on a composite-discovered target's transformed y/X than the
+                # original target's) previously left whichever split(s) executed before the raise
+                # WITH the new columns and the rest WITHOUT them -- schema-drifting the fitted
+                # pre_pipeline's imputer against a later split, surfaced live as sklearn's "Feature
+                # names should match those that were passed during fit".
+                _train_rw = _rw_apply(_summary_stats_for, train)
+                _val_rw = _rw_apply(_summary_stats_for, val)
+                _test_rw = _rw_apply(_summary_stats_for, test)
+                train, val, test = _train_rw, _val_rw, _test_rw
             except Exception:
                 logger.warning("apply_preprocessing_extensions: row_wise_summary_stats step failed; skipping.", exc_info=True)
 
@@ -654,16 +663,37 @@ def apply_preprocessing_extensions(
             _rw_k = int(getattr(config, "row_wise_extreme_columns_k", 3) or 3)
 
             def _extreme_scores_only(_df, _cols):
-                """Numeric-only slice of ``row_wise_top_k_extreme_columns`` output -- drops the ``topK_column`` name columns (object dtype), which would otherwise break the numeric-only contract the sklearn-bridge enforces on every downstream step (scaler / kbins / polynomial / dim_reducer)."""
+                """Numeric-only slice of ``row_wise_top_k_extreme_columns`` output -- drops the ``topK_column`` name columns (object dtype), which would otherwise break the numeric-only contract the sklearn-bridge enforces on every downstream step (scaler / kbins / polynomial / dim_reducer).
+
+                ``row_wise_top_k_extreme_columns`` internally clips ``k`` to the number of columns it was
+                actually given (``k = min(k, n_cols)``); since ``_cols`` is ``_rw_cols`` RE-INTERSECTED
+                against THIS split's own columns (see ``_rw_apply``'s docstring), a split with fewer
+                eligible columns than another split -- e.g. train missing a raw column that val/test
+                still have -- silently produces FEWER ``topN_score`` columns than the other splits,
+                schema-drifting the fitted pre_pipeline's imputer against a later split with more
+                columns (surfaced live: "Feature names should match" at test-transform time, train fit
+                without ``row_extreme_top3_score`` while test carried it). Always request the SAME
+                ``_rw_k`` and pad any missing ``topN_score`` slot with NaN so every split's output width
+                is identical regardless of how many of ``_rw_cols`` that split actually had.
+                """
                 _out = row_wise_top_k_extreme_columns(_df, columns=_cols, k=_rw_k)
                 assert isinstance(_out, pd.DataFrame)  # return_column_summary not passed -> always the plain-DataFrame overload
                 _score_cols = [c for c in _out.columns if c.endswith("_score")]
-                return _out[_score_cols].add_prefix("row_extreme_")
+                _result = _out[_score_cols].add_prefix("row_extreme_")
+                for _i in range(1, _rw_k + 1):
+                    _expected = f"row_extreme_top{_i}_score"
+                    if _expected not in _result.columns:
+                        _result[_expected] = np.nan
+                return _result[[f"row_extreme_top{_i}_score" for _i in range(1, _rw_k + 1)]]
 
             try:
-                train = _rw_apply(_extreme_scores_only, train)
-                val = _rw_apply(_extreme_scores_only, val)
-                test = _rw_apply(_extreme_scores_only, test)
+                # ATOMIC across train/val/test -- see the matching comment in the summary-stats
+                # block above for why a partial per-split application schema-drifts the fitted
+                # pre_pipeline.
+                _train_rw = _rw_apply(_extreme_scores_only, train)
+                _val_rw = _rw_apply(_extreme_scores_only, val)
+                _test_rw = _rw_apply(_extreme_scores_only, test)
+                train, val, test = _train_rw, _val_rw, _test_rw
             except Exception:
                 logger.warning("apply_preprocessing_extensions: row_wise_top_k_extreme_columns step failed; skipping.", exc_info=True)
 
