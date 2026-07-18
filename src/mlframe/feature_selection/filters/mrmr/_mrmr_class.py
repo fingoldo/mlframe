@@ -3819,7 +3819,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
                     def _drop_target_cleanup_columns() -> None:
                         """Drop the temporary targ_* columns this fit injected into the caller's own frame."""
                         with pd.option_context("mode.chained_assignment", None):
-                            frame.drop(columns=present, inplace=True)
+                            frame.drop(columns=present, inplace=True)  # noqa: PD002 -- must mutate the caller's stored frame OBJECT in place by identity (see the enclosing comment); rebinding a local would silently not clean up the caller's actual frame
 
                     _safe_restore(_drop_target_cleanup_columns, "target-cleanup column drop on caller frame")
             self._pandas_frame_for_target_cleanup = None

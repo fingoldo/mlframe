@@ -22,6 +22,10 @@ jobs:
   build:
     name: build sdist + wheel
     runs-on: ubuntu-latest
+    # Every other job in this repo's workflows sets an explicit timeout-minutes; this one job was
+    # the sole omission (2026-07-18 architecture review). Low risk in practice (build+twine-check
+    # is fast and deterministic) but inconsistent with the rest of the codebase's own discipline.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
@@ -32,7 +36,7 @@ jobs:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
         with:
           enable-cache: false
 

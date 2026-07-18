@@ -173,7 +173,7 @@ def distribute_permutations(npermutations: int, n_workers: int) -> list:
 @njit(nogil=True, cache=True)
 def shuffle_arr(arr: np.ndarray) -> None:
     """In-place Fisher-Yates shuffle via numba's ``np.random.shuffle`` (the simple permutation source; ``shuffle_arr_lcg`` is the faster inline-LCG variant for hot loops)."""
-    np.random.shuffle(arr)  # noqa: NPY002 -- numba njit only supports the legacy np.random API, not np.random.Generator
+    np.random.shuffle(arr)
 
 
 @njit(nogil=True, cache=True)

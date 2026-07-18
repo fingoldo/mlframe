@@ -198,9 +198,8 @@ def run_pysr_feature_engineering(
         {new_name: tmp_df[old_name] for old_name, new_name in zip(list(tmp_df.columns), _final_names)},
         copy=False,
     )
-    tmp_df.rename(
+    tmp_df = tmp_df.rename(
         columns={col: reserved_prefix + col for col in reserved_names if col in tmp_df.columns},
-        inplace=True,
     )
 
     if target_col not in tmp_df.columns:
@@ -212,13 +211,13 @@ def run_pysr_feature_engineering(
     drop_set = set(drop_columns or [])
     drop_set.add(target_col)
     cols_to_drop = [c for c in drop_set if c in tmp_df.columns]
-    tmp_df.drop(columns=cols_to_drop, inplace=True)
+    tmp_df = tmp_df.drop(columns=cols_to_drop)
 
     datetime_cols = tmp_df.select_dtypes(include=["datetime64", "datetimetz"]).columns.tolist()
     if datetime_cols and verbose > 0:
         wrapped_names = textwrap.fill(", ".join(datetime_cols), width=80)
         logger.info("Excluding %d datetime columns: %s", len(datetime_cols), wrapped_names)
-    tmp_df.drop(columns=datetime_cols, inplace=True)
+    tmp_df = tmp_df.drop(columns=datetime_cols)
 
     str_cols = tmp_df.select_dtypes(include=["object", "string"]).columns.tolist()
     cols_to_drop_str: List[str] = []
@@ -231,7 +230,7 @@ def run_pysr_feature_engineering(
             if verbose > 0:
                 logger.info("Dropping string column %r with %d unique values.", col, unique_vals)
     if cols_to_drop_str:
-        tmp_df.drop(columns=cols_to_drop_str, inplace=True)
+        tmp_df = tmp_df.drop(columns=cols_to_drop_str)
 
     cat_cols = tmp_df.select_dtypes(include=["category"]).columns.tolist()
     if encode_categoricals and cat_cols:
@@ -269,13 +268,13 @@ def run_pysr_feature_engineering(
     elif not encode_categoricals and cat_cols:
         if verbose > 0:
             logger.info("Dropping categorical columns: %s", cat_cols)
-        tmp_df.drop(columns=cat_cols, inplace=True)
+        tmp_df = tmp_df.drop(columns=cat_cols)
 
     non_numeric = tmp_df.select_dtypes(exclude=[np.number]).columns.tolist()
     if non_numeric:
         if verbose > 0:
             logger.info("Dropping non-numeric columns: %s", non_numeric)
-        tmp_df.drop(columns=non_numeric, inplace=True)
+        tmp_df = tmp_df.drop(columns=non_numeric)
 
     clean_ram()
 

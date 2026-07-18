@@ -19,7 +19,7 @@ from mlframe.feature_selection.filters.mrmr._mrmr_class import MRMR
 
 
 def _selector(Xs, ys):
-    """Top-3 columns by absolute Pearson correlation with ``ys`` -- the stability-selection base selector used by these tests."""
+    """Inner sub-selector for cluster_stability_selection: picks the column most correlated with y."""
     Xs = np.asarray(Xs, dtype=np.float64)
     ys = np.asarray(ys, dtype=np.float64)
     corr = np.abs([np.corrcoef(Xs[:, i], ys)[0, 1] for i in range(Xs.shape[1])])
@@ -124,7 +124,7 @@ def test_mi_direct_gpu_dispatch_declines_on_low_vram_cushion(monkeypatch):
     called = {"gpu": False}
 
     def _fake_mi_direct_gpu(*args, **kwargs):
-        """Sensor stub: any call proves the VRAM-cushion decline was NOT honored."""
+        """Fail the test loudly if the GPU MI path is invoked despite the VRAM cushion check declining it."""
         called["gpu"] = True
         raise AssertionError("mi_direct_gpu must not be called when the VRAM cushion check declines")
 

@@ -1,0 +1,87 @@
+name: Update .test_durations
+
+# Regenerates .test_durations (pytest-split's default-path duration file, auto-discovered by
+# ci.yml's `--splits N --group N` invocation with no extra flag needed) so the 8-way shard split
+# balances by measured per-test time instead of file count -- a shard that happens to collect
+# many numba-cold-JIT or model-training-heavy files otherwise runs far longer than its siblings
+# despite an equal file count. Added 2026-07-18 CI/CD architecture review: seeded to an empty
+# `{}` in the same commit that added this workflow (a real multi-hour full-suite run to populate
+# it wasn't feasible inline in that change), so pytest-split falls back to file-count splitting
+# for any test missing a recorded duration until this job's first successful run fills it in.
+#
+# Runs the FULL suite unsharded, so it's slow (expect close to the sum of all 8 shards' current
+# wall time) -- deliberately off the critical path (scheduled + manual dispatch only, never on
+# push/PR).
+
+on:
+  schedule:
+    - cron: "0 4 * * 0"  # weekly, Sunday 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  update-test-durations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      NUMBA_CACHE_DIR: ${{ github.workspace }}/.numba-cache
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: true
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.11"
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@7a0e0286080bae6250476e0cefe4309096dbbfe1  # v1.1.1
+        with:
+          pyutilz-extras: "system,pandas,polars,database"
+          project-extras: ".[all,dev]"
+
+      - name: Restore numba JIT cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: ${{ github.workspace }}/.numba-cache
+          key: numba-Linux-py3.11-${{ hashFiles('src/**/*.py') }}
+          restore-keys: |
+            numba-Linux-py3.11-
+
+      - name: Run full suite with --store-durations
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          pytest -m "not slow and not gpu and not multigpu" \
+            --store-durations \
+            -n auto \
+            -p no:randomly \
+            --timeout=300 \
+            || true
+
+      - name: Commit updated .test_durations
+        env:
+          # zizmor template-injection: github.ref_name must never be spliced directly into a run:
+          # script (an attacker-controlled branch name could inject shell code) -- pass it through
+          # an env var instead, same pattern this repo's other workflows already use.
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- .test_durations; then
+            echo "No change to .test_durations"
+            exit 0
+          fi
+          git add .test_durations
+          git commit -m "chore: refresh .test_durations (scheduled pytest-split rebalance)"
+          git push origin HEAD:"$REF_NAME"

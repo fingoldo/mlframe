@@ -30,7 +30,7 @@ def compute_apriori_itemsets_features(
     """
     # numpy>=2.0 removed in1d; mlxtend still uses it. Monkey-patch before import.
     if not hasattr(np, "in1d"):
-        np.in1d = np.isin  # type: ignore[attr-defined]
+        np.in1d = np.isin  # type: ignore[attr-defined]  # noqa: NPY201 -- this IS the removed-API compat shim, not a use of the removed API
     try:
         import mlxtend  # noqa: F401 -- probe import to fail fast with a clear error if mlxtend is missing
         from mlxtend.frequent_patterns import fpgrowth

@@ -12,8 +12,9 @@ and reliable:
   FE can build (a ratio, a product, a polynomial, a trig product, a cluster
   aggregate), each in a chosen input ``distribution``. Every generator returns
   ``(df, meta)`` where ``df`` includes the target column ``y`` and ``meta`` records
-  the recoverable structure + a SAFE n (heavy-tailed ratios need ~100k for stable
-  FE synthesis; bounded products are stable smaller -- see
+  the recoverable structure + a SAFE n (kept as small as measurement allows so the
+  end-to-end suite fit -- FE + MRMR + RFECV -- stays fast in CI; heavy-tailed ratios
+  still need more rows than bounded products for stable FE synthesis -- see
   ``MRMR_FE_TEST_GAP_ANALYSIS.md``).
 * ``run_suite`` -- one call that runs the suite with a chosen model + optional MRMR
   feature selection and returns the fitted entries + the per-split metrics.
@@ -85,7 +86,7 @@ def make_ratio_heavytail(seed: int, distribution: str = "uniform", n: int | None
     """y = 0.2*a**2/b + f/5 + log(2c)*sin(d/3). The user's CASE2: a HEAVY-TAILED ratio
     (1/b, b->0) dominates Var(y) ~99.99%, so a LINEAR model needs the continuous
     magnitude of ``a**2/b`` (the bug capped predictions and collapsed R2). f hidden."""
-    n = n or 100_000
+    n = n or 20_000
     rng = np.random.default_rng(seed)
     a, b, c, d, f = (draw(rng, distribution, n) for _ in range(5))
     a, b, c, d = _pos(a), _pos(b), _pos(c), d
@@ -97,7 +98,7 @@ def make_ratio_heavytail(seed: int, distribution: str = "uniform", n: int | None
 def make_bilinear(seed: int, distribution: str = "uniform", n: int | None = None) -> SuiteCase:
     """y = 1.5*a*b + 0.5*g/k. A clean bilinear PRODUCT + a ratio term -- the smooth
     low-raw-MI interaction FE must synthesize (a linear model on raws cannot)."""
-    n = n or 40_000
+    n = n or 8_000
     rng = np.random.default_rng(seed)
     a, b, g, k = (draw(rng, distribution, n) for _ in range(4))
     sig = 1.5 * a * b + 0.5 * g / (_pos(k) + 0.3)
@@ -108,7 +109,7 @@ def make_bilinear(seed: int, distribution: str = "uniform", n: int | None = None
 def make_poly(seed: int, distribution: str = "normal", n: int | None = None) -> SuiteCase:
     """y = a**3 - 3a + 0.5*b**2. A pure polynomial: FE's orth-poly / sqr / qubed must
     make it linearly accessible. Defaults to normal inputs (orth-poly territory)."""
-    n = n or 40_000
+    n = n or 8_000
     rng = np.random.default_rng(seed)
     a, b = draw(rng, distribution, n), draw(rng, distribution, n)
     sig = a**3 - 3.0 * a + 0.5 * b**2
@@ -118,7 +119,7 @@ def make_poly(seed: int, distribution: str = "normal", n: int | None = None) -> 
 
 def make_trig_product(seed: int, distribution: str = "uniform", n: int | None = None) -> SuiteCase:
     """y = log(2c)*sin(d) -- a separable trig/log product (the (c,d) term in isolation)."""
-    n = n or 40_000
+    n = n or 8_000
     rng = np.random.default_rng(seed)
     c, d = _pos(draw(rng, distribution, n)), draw(rng, distribution, n)
     sig = np.log(c * 2.0) * np.sin(d)
@@ -129,7 +130,7 @@ def make_trig_product(seed: int, distribution: str = "uniform", n: int | None = 
 def make_cluster_linear(seed: int, distribution: str = "normal", n: int | None = None) -> SuiteCase:
     """y = 3*mean(cluster) + noise, where m1..m3 are tight copies of one latent. The
     cluster-aggregate FE must deliver the CONTINUOUS aggregate magnitude."""
-    n = n or 20_000
+    n = n or 5_000
     rng = np.random.default_rng(seed)
     latent = draw(rng, distribution, n)
     m1 = latent + 0.1 * rng.standard_normal(n)

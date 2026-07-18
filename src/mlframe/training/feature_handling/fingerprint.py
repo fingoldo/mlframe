@@ -42,7 +42,7 @@ try:
     import xxhash
     _HAVE_XX = True
 except ImportError:  # pragma: no cover -- optional accel
-    xxhash = None
+    xxhash = None  # type: ignore[assignment]  # narrows from the successful-import branch's inferred Module type
     _HAVE_XX = False
 
 

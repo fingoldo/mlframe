@@ -131,6 +131,11 @@ class BorutaShap(BaseEstimator, TransformerMixin):
     history_x: "np.ndarray | pd.DataFrame"
     # tentative starts as a plain list (set difference at fit entry), then TentativeRoughFix() rebinds it to an ndarray for boolean-mask filtering.
     tentative: "list | np.ndarray"
+    # Set in _fit_explain.py's fit() (``self.X = X.copy()``) -- a different module in this cross-file
+    # mixin pattern, invisible to mypy without this class-level annotation (found 2026-07-18: a
+    # `self.X = self.X.drop(...)` self-referential assignment in __init__.py can't infer self.X's
+    # type without it).
+    X: pd.DataFrame
 
     def __init__(
         self,
@@ -710,7 +715,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             # per-feature ``except KeyError: pass`` exactly (a feature already dropped in a prior trial is
             # skipped), and the resulting column set + ORDER is bit-identical to the loop (drop preserves the
             # surviving columns' relative order regardless of how many are removed per call).
-            self.X.drop(list(self.features_to_remove), axis=1, inplace=True, errors="ignore")
+            self.X = self.X.drop(list(self.features_to_remove), axis=1, errors="ignore")
 
         else:
             pass

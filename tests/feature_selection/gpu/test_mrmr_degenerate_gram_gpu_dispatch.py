@@ -81,7 +81,7 @@ def test_gram_matrix_gpu_oom_falls_back_to_cpu(monkeypatch):
     import mlframe.feature_selection.filters._mrmr_degenerate as mod
 
     class _BoomCupy:
-        """Fake ``cupy`` module stand-in: any attribute access raises, simulating a cupy failure."""
+        """Fake cupy module stand-in whose every attribute access raises, simulating a hard cupy import/dispatch failure."""
 
         def __getattr__(self, name):
             raise RuntimeError("simulated cupy failure")

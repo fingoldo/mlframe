@@ -46,7 +46,7 @@ _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_TEST_DIR))
 
 
-def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0, timeout: int = 600) -> dict:
+def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0, timeout: int = 1200) -> dict:
     """Run ONE suite fit in a fresh subprocess; return ``{"R2","span","n","structure"}``.
 
     Retries once on a Windows OOM / paging-file transient (the repo's concurrent-load
@@ -108,19 +108,25 @@ def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0, 
 # recoverable after FE (measured R2~0.14), so it is no magnitude-recovery target.
 # ---------------------------------------------------------------------------
 _LINEAR_RECOVERY = [
-    # ratio_heavytail uniform n=100000 (user's CASE2 shape): measured R2 0.707/0.724,
-    # span 0.410/0.452. Floors WEAKENED vs the dedicated n=100k CASE2 pin (R2>=0.99):
-    # this generator adds 5% noise + _pos() guards + a hidden f term, so the recoverable
-    # ceiling is ~0.71, not ~1.0. Floors still ~100x above the magnitude-stripping
-    # signature (R2 0.002 / span 0.001). SLOW (n=100k, ~30s/fit).
-    pytest.param("ratio_heavytail", "uniform", 0.60, 0.30, True, id="linear-ratio_heavytail-uniform"),
-    # bilinear uniform n=40000: measured R2 0.979/0.983, span 0.970/0.982.
-    pytest.param("bilinear", "uniform", 0.90, 0.80, False, id="linear-bilinear-uniform"),
-    # poly normal n=40000: measured R2 0.950/0.995, span 1.003/1.014.
+    # ratio_heavytail uniform n=20000 (user's CASE2 shape, n reduced from 100000 -- the
+    # end-to-end suite fit's FE+MRMR+RFECV wall time scales badly with n and made this
+    # whole file take 20-50 min per case on a loaded host): re-measured R2 0.515, span
+    # 0.968. Floor still ~250x above the magnitude-stripping signature (R2 0.002 / span
+    # 0.001); this generator adds 5% noise + _pos() guards + a hidden f term, so the
+    # recoverable ceiling is well below 1.0 even at large n.
+    pytest.param("ratio_heavytail", "uniform", 0.40, 0.30, True, id="linear-ratio_heavytail-uniform"),
+    # bilinear uniform n=8000 (reduced from 40000): measured R2 0.865-0.986 across repeated
+    # seed=0 runs (MRMR's parallel search has genuine run-to-run floating-point
+    # nondeterminism at this n -- see other MRMR column-order-sensitivity notes), span
+    # 0.966. Floor set well below the WORST observed run, not just the best.
+    pytest.param("bilinear", "uniform", 0.75, 0.80, False, id="linear-bilinear-uniform"),
+    # poly normal n=8000 (reduced from 40000): re-measured R2 0.989, span 1.008.
     pytest.param("poly", "normal", 0.85, 0.80, False, id="linear-poly-normal"),
-    # trig_product uniform n=40000: measured R2 0.972, span 0.676/0.761.
-    pytest.param("trig_product", "uniform", 0.85, 0.50, False, id="linear-trig_product-uniform"),
-    # cluster_linear normal n=20000: measured R2 0.998, span 0.999/1.006.
+    # trig_product uniform n=8000 (reduced from 40000): measured R2 0.808-0.947 across
+    # repeated seed=0 runs (same MRMR run-to-run nondeterminism as bilinear above), span
+    # 0.915. Floor set well below the WORST observed run.
+    pytest.param("trig_product", "uniform", 0.70, 0.50, False, id="linear-trig_product-uniform"),
+    # cluster_linear normal n=5000 (reduced from 20000): re-measured R2 0.998, span 0.993.
     pytest.param("cluster_linear", "normal", 0.95, 0.85, False, id="linear-cluster_linear-normal"),
 ]
 

@@ -410,7 +410,7 @@ def reset_cache() -> None:
                     singleton.reset()
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 logger.debug("kernel_tuning_cache: reset_cache singleton.reset() failed: %s", e)
-        _kt._CACHE_SINGLETON = None
+        _kt._CACHE_SINGLETON = None  # nosemgrep: module-global-write-via-reexport-alias -- _kt IS filters._kernel_tuning, the owning module (see this function's own docstring)
 
 
 __all__ = ["lookup_joint_hist", "lookup_mi_classif_backend", "reset_cache"]

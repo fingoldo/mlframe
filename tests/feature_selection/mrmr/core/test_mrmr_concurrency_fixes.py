@@ -75,7 +75,7 @@ def test_concurrent_fit_on_same_instance_raises():
     errors = []
 
     def _first_fit():
-        """Background thread body: runs the slow first fit() and records any unexpected exception."""
+        """Run m.fit in a background thread, recording any exception for the main thread to inspect."""
         try:
             m.fit(X, y)
         except Exception as exc:  # pragma: no cover - only a genuine unexpected failure would land here

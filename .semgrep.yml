@@ -1,0 +1,62 @@
+rules:
+  - id: broad-except-silent-swallow
+    languages: [python]
+    severity: WARNING
+    message: >-
+      `except Exception`/`except BaseException` with a body that's just `pass` gives operators no
+      signal when it fires. Add a `logger.warning`/`.debug` call describing what failed and what
+      happens next (skip/fallback/degrade), or re-raise. Same bug class as pyutilz.dev.code_audit's
+      broad_except_swallow check (this rule exists so it's catchable outside repos that vendor that
+      tool) -- see mlframe's 2026-07-18 fix commit for 35 real examples of this exact pattern.
+    patterns:
+      - pattern-either:
+          - pattern: |
+              try:
+                  ...
+              except Exception:
+                  pass
+          - pattern: |
+              try:
+                  ...
+              except BaseException:
+                  pass
+          - pattern: |
+              try:
+                  ...
+              except Exception as $E:
+                  pass
+      - pattern-not-inside: |
+          try:
+              ...
+          except Exception:
+              ...  # nosec ...
+              pass
+    metadata:
+      category: correctness
+      references:
+        - "mlframe CLAUDE.md: 'Silent correctness bug classes'"
+
+  - id: module-global-write-via-reexport-alias
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Writing to an ALL_CAPS attribute of a module imported via `from . import X as alias` can
+      silently target the WRONG module if `alias` is a facade that re-exports the name from a
+      sibling (`from .sibling import NAME`) rather than defining it itself -- the write rebinds the
+      facade's own copy, never reaching the sibling's actual global that other code reads. Verify
+      `alias` is the module that DEFINES this name, not one that merely re-exports it (found
+      2026-07-18: `_gpu_resident_radix_ktc.py` set `_sel._RADIX_F32_VARIANT_OVERRIDE` through the
+      `_gpu_resident_select` facade instead of `_gpu_resident_select_kernels`, the owning module --
+      a real, silent no-op bug).
+    patterns:
+      - pattern: $ALIAS.$CONST = $VALUE
+      - metavariable-regex:
+          metavariable: $CONST
+          regex: "^_[A-Z][A-Z0-9_]*$"
+      - metavariable-regex:
+          metavariable: $ALIAS
+          regex: "^_[a-z]"
+    metadata:
+      category: correctness
+      references:
+        - "mlframe src/mlframe/feature_selection/filters/_gpu_resident_radix_ktc.py, 2026-07-18 fix"
