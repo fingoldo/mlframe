@@ -15,7 +15,6 @@ from __future__ import annotations
 import copy
 import logging
 import os
-import psutil
 import threading
 import warnings
 from collections import OrderedDict
@@ -71,7 +70,6 @@ from pyutilz.pythonlib import (
 
 from mlframe.utils.misc import hygienic_fit
 
-from .._internals import MAX_JOBLIB_NBYTES
 from ..feature_engineering import UNIFIED_FE_SUBSAMPLE_N
 from ..screen import _preserve_global_numpy_rng_state
 
@@ -158,6 +156,17 @@ from ._mrmr_class_fit_helpers import _MRMRFitHelpersMixin
 # TransformerMixin in this tuple (else C3 linearization raises TypeError at class-definition time), and (b)
 # ``_MRMRTransformMixin`` MUST precede SelectorMixin so its get_feature_names_out()/get_support() resolve first
 # via MRO -- confirmed by test_mrmr_selectormixin_mro.py pinning both facts.
+# Pickle schema version (08_sklearn_joblib_compat.md finding #2), stamped by ``MRMR.__getstate__`` and
+# checked by ``MRMR.__setstate__``. Bump only when a pickle-relevant change lands that the
+# legacy-injection roster (``_mrmr_setstate_defaults.py``) can't fully paper over by itself -- e.g. a
+# param RENAME (not just added/removed) or a change to what a stored value MEANS. Purely additive
+# params (new ctor default, picked up automatically by the fresh-instance catch-all in
+# ``__setstate__``) do not need a bump. This is a coarse downgrade DETECTOR, not a migration engine: an
+# older installed mlframe loading a newer pickle still can't understand a newer schema either way, but
+# the version mismatch lets it WARN instead of silently misbehaving.
+_MRMR_SCHEMA_VERSION = 1
+
+
 class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, _MRMRConfigMixin, _MRMRFitHelpersMixin):
     """Finds subset of features having highest impact on target and least redundancy.
 
@@ -222,6 +231,7 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
     # fitted attributes onto ``self`` and return early; constructor params are NEVER overwritten (the key
     # already includes the params signature, so a hit guarantees matching state).
     _FIT_CACHE: "ClassVar[OrderedDict[tuple, MRMR]]" = OrderedDict()  # noqa: RUF012 -- intentional shared class-level LRU cache, not a per-instance mutable-default bug
+
 
     # Private, non-BaseEstimator instance flag (07_memory_scalability.md finding #2): when set True by a
     # caller BEFORE ``fit()`` (e.g. the stability-selection outer loop's throwaway bootstrap-replicate
@@ -2872,25 +2882,6 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         multioutput_strategy: Optional[str] = "union",
     ):
 
-        # checks
-        if n_jobs == -1:
-            n_jobs = psutil.cpu_count(logical=False)
-
-        if parallel_kwargs is None:
-            # backend="threading": joblib uses ThreadPoolExecutor in the same
-            # process instead of the default loky ProcessPoolExecutor. Data
-            # arrays are shared in memory (zero copy, no memmap_folder, no
-            # paging-file pressure); numba kernels in mi_direct /
-            # parallel_mi_prange / compute_mi_from_classes already release the
-            # GIL so threads run truly parallel on CPU cores. Pre-fix iter-371
-            # 1M cb multiclass + MRMR + binary=medium: 3 joblib loky workers
-            # each memmap'd the 1M-row dataset (3GB RAM total), then Windows
-            # WinError 1455 (paging file too small) cascaded into MemoryError +
-            # dangling joblib_memmapping_folder temp files that the resource
-            # tracker could not clean up.
-            # ``max_nbytes`` is silently ignored by joblib's threading backend (it's a memmap-spill threshold for loky workers only). Kept here as a no-op for symmetry with the loky branch above; documented so a future reader doesn't misread it as a live tuning knob.
-            parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES, backend="threading")
-
         # assert isinstance(estimator, (BaseEstimator,))
 
         # sklearn contract: ``__init__`` MUST store every constructor argument UNMODIFIED so ``get_params``
@@ -2900,14 +2891,30 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # (``random_state`` showing ``random_seed``) and re-emit the deprecation warning on every
         # ``clone`` of even a default-constructed estimator. The only thing done at construction time
         # is to WARN when the user actually passed a conflicting / deprecated argument.
+        # ``n_jobs=-1``/``parallel_kwargs=None`` used to be resolved to concrete values HERE, before
+        # ``store_params_in_object`` -- the exact bug this comment block already warned against for
+        # ``random_state``/``random_seed`` (08_sklearn_joblib_compat.md finding #1). That meant
+        # ``self.n_jobs``/``self.parallel_kwargs`` never actually held the constructor's sentinel value:
+        # ``get_params()['n_jobs']`` permanently showed a resolved core COUNT (not ``-1``), a pickled/
+        # cloned estimator carried the ORIGINAL machine's core count forever instead of re-resolving on
+        # the machine that unpickles/clones it, and ``set_params(**mrmr.get_params())`` on a fresh
+        # instance reproduced a different effective value on different hardware. Resolution now happens
+        # LAZILY at the point of use via ``_effective_n_jobs()``/``_effective_parallel_kwargs()``,
+        # mirroring ``_effective_random_seed()``.
         # ``random_state`` (sklearn's name) is canonical; ``random_seed`` is a deprecated alias kept
         # for backward compatibility (finding #17) -- see ``_effective_random_seed``.
         if random_state is not None and random_seed is not None and random_seed != random_state:
+            # 09_error_messages_ux.md finding: this is a conflicting-VALUES notice (which of two
+            # explicitly-passed args wins), not a pure API-deprecation notice -- DeprecationWarning is
+            # filtered by default in many contexts (plain ``python script.py``, non-``__main__`` code),
+            # so a genuinely actionable "you set two conflicting values" warning could go unseen. UserWarning
+            # is not filtered by default. The pure "random_seed is deprecated" notice below (neither
+            # conflicts, just an alias in use) stays DeprecationWarning.
             warnings.warn(
                 "MRMR: both random_seed (deprecated) and random_state were set to different "
                 f"values; using random_state={random_state} and ignoring random_seed={random_seed}. "
                 "Prefer random_state.",
-                DeprecationWarning,
+                UserWarning,
                 stacklevel=2,
             )
         elif random_seed is not None and random_state is None:
@@ -2923,14 +2930,23 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
 
     def __repr__(self, N_CHAR_MAX: int = 700) -> str:
         # ``n_workers`` (candidate-MI evaluation parallelism; default 1 = SERIAL, the fast path) is hidden by sklearn's
-        # repr because it equals its default, while ``n_jobs`` shows RESOLVED (-1 -> cpu_count) and is easily misread as
+        # repr because it equals its default, while ``n_jobs`` (still shown as its raw stored value, e.g. ``-1`` --
+        # resolved lazily via ``_effective_n_jobs()``, not at construction; finding #1) is easily misread as
         # "MI runs on n_jobs threads". n_jobs only drives CPU sub-helpers (permutation-null MI, wide-frame nbins edges),
         # each self-gated (pair-search forces serial under GPU-strict). Surface n_workers so the parallelism is unambiguous.
+        # 08_sklearn_joblib_compat.md finding #4: this textually patches BaseEstimator.__repr__'s output
+        # on an untested assumption about its trailing format (a literal ")"-ending string) rather than a
+        # documented public contract. Wrapped defensively so a future sklearn internals change that
+        # breaks that assumption degrades to the PLAIN super().__repr__() (still correct, just missing
+        # the extra n_workers= annotation) instead of raising out of a routine repr() call.
         r: str = super().__repr__(N_CHAR_MAX=N_CHAR_MAX)
-        if "n_workers=" not in r and r.endswith(")"):
-            _inner = r[:-1]
-            _sep = "" if _inner.endswith("(") else ", "
-            r = f"{_inner}{_sep}n_workers={getattr(self, 'n_workers', 1)})"
+        try:
+            if "n_workers=" not in r and r.endswith(")"):
+                _inner = r[:-1]
+                _sep = "" if _inner.endswith("(") else ", "
+                r = f"{_inner}{_sep}n_workers={getattr(self, 'n_workers', 1)})"
+        except Exception as exc:
+            logger.debug("mrmr: __repr__ n_workers annotation skipped (%r); falling back to the plain BaseEstimator repr.", exc)
         return r
 
     # Constructor-param validation allow-lists. Carved VERBATIM into the leaf module
@@ -2993,15 +3009,43 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
 
     def __getstate__(self):
         """Strip the non-picklable lazy re-entrancy lock (see ``_fit_reentrancy_lock`` above) before
-        pickling; everything else follows ``BaseEstimator``'s default ``__dict__`` snapshot."""
+        pickling; everything else follows ``BaseEstimator``'s default ``__dict__`` snapshot. Stamps
+        ``_mrmr_schema_version`` (08_sklearn_joblib_compat.md finding #2): before this, pickle
+        compatibility was inferred PURELY from which ctor-param keys were absent from ``state`` (the
+        ``_SETSTATE_LEGACY_DEFAULTS``/``_SETSTATE_LEGACY_OVERRIDES`` roster in
+        ``_mrmr_setstate_defaults.py``) -- correct for an OLDER pickle loaded by NEWER code (every
+        legacy key really is just "missing"), but silent for the inverse: a NEWER pickle (produced by a
+        future mlframe) loaded by an OLDER installed mlframe (a deploy rollback) carries keys the older
+        ``__init__`` never resolves/validates, and ``self.__dict__.update(state)`` sets them with no
+        error. The version number itself doesn't prevent that (older code still can't understand a
+        newer schema), but it lets ``__setstate__`` detect and WARN on the mismatch instead of silently
+        misbehaving -- see the check in ``__setstate__``."""
         state = self.__dict__.copy()
         state.pop("_fit_reentrancy_lock_", None)
+        state["_mrmr_schema_version"] = _MRMR_SCHEMA_VERSION
         return state
 
     def __setstate__(self, state):
         # MUST stay on the MRMR class body (not a mixin): it OVERRIDES BaseEstimator.__setstate__, so any
         # mixin placed after BaseEstimator in the MRO would be shadowed and this legacy-default injection
         # would silently never run on unpickle.
+        # Downgrade detection (finding #2): a pickle stamped with a NEWER schema version than this
+        # installed mlframe understands is a real hazard the legacy-injection roster below cannot help
+        # with (it only knows how to fill in what's MISSING, not what a newer/renamed key MEANS) -- warn
+        # so the silent-misbehavior risk is at least visible, then proceed with the same best-effort
+        # legacy-roster injection (there is no better fallback available). A pickle with no stamp at all
+        # (pre-finding-#2) or an OLDER/EQUAL version is the normal, fully-supported case: no warning.
+        _pickled_version = state.get("_mrmr_schema_version")
+        if _pickled_version is not None and _pickled_version > _MRMR_SCHEMA_VERSION:
+            warnings.warn(
+                f"MRMR: unpickling a pickle with schema version {_pickled_version}, newer than this "
+                f"installed mlframe's {_MRMR_SCHEMA_VERSION} (a deploy rollback / downgrade scenario). "
+                "Any renamed/reinterpreted parameter this older version doesn't recognize will be set "
+                "on the instance verbatim with no validation. Upgrade mlframe to match, or re-fit "
+                "instead of unpickling.",
+                UserWarning,
+                stacklevel=2,
+            )
         # Legacy-injection roster carved VERBATIM into ``_mrmr_setstate_defaults.py``;
         # ``build_setstate_defaults()`` returns a fresh deep copy each call so no two
         # unpickled instances alias a mutable default (the literal dict was re-executed
@@ -3027,9 +3071,14 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         # via bare ``self.<param>`` (e.g. ``self.dtype``), raising AttributeError before any work. Inject every
         # remaining ctor default the roster did not cover (roster keys + LEGACY_OVERRIDES already set above keep
         # their possibly-legacy-divergent values; the keys here are never overwritten once present in state).
-        # Source the value from a FRESHLY-CONSTRUCTED instance, not the raw signature default, so params that
-        # ``__init__`` resolves (``n_jobs=-1`` -> cpu_count, ``parallel_kwargs=None`` -> dict) match a fresh MRMR
-        # exactly -- a resurrected legacy pickle then behaves identically to a new one (no ctor-vs-legacy drift).
+        # Source the value from a FRESHLY-CONSTRUCTED instance, not the raw signature default, so any param
+        # ``__init__`` DOES still resolve at construction time matches a fresh MRMR exactly -- a resurrected
+        # legacy pickle then behaves identically to a new one (no ctor-vs-legacy drift). ``n_jobs``/
+        # ``parallel_kwargs`` are no longer resolved at construction time (finding #1: they are stored raw,
+        # like every other ctor param, and resolved lazily via ``_effective_n_jobs()``/
+        # ``_effective_parallel_kwargs()``), so for those two this now trivially matches the raw signature
+        # default too -- the fresh-instance source stays authoritative for any FUTURE param with real
+        # construction-time resolution.
         # Cached per class per process (see ``_resolve_fresh_instance_defaults``) so this pays the full ~300-param
         # constructor cost at most once per process, not on every single unpickle.
         _fresh_dict = type(self)._resolve_fresh_instance_defaults()
@@ -3151,7 +3200,10 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
                 )
             except Exception as _exc:
                 warnings.warn(
-                    f"MRMR stability_selection_method={_stab_method!r} outer-loop " f"raised {type(_exc).__name__}: {_exc}. Falling back to classic fit.",
+                    f"MRMR stability_selection_method={_stab_method!r} outer-loop raised {type(_exc).__name__}: {_exc}. "
+                    "Falling back to classic fit. This is usually a data-shape issue (too few rows for "
+                    "stability_n_bootstrap subsamples, or a column that can't enter the correlation "
+                    "clustering step) rather than a bug -- check n_rows / stability_n_bootstrap if it recurs.",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -3180,6 +3232,10 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         _mo_strategy = getattr(self, "multioutput_strategy", "union")
         if _mo_strategy not in (None, "joint", "union", "intersect"):
             raise ValueError(f"multioutput_strategy must be None, 'joint', 'union', or 'intersect'; got {_mo_strategy!r}.")
+        # 09_error_messages_ux.md: 'joint' is intentionally EQUIVALENT to None here (both fall through to
+        # the legacy merged-target path below, per the ctor docstring: "None / 'joint': legacy
+        # merged-target behaviour, byte-identical to pre-2026-06-20") -- not a validation-accepts-but-
+        # runtime-ignores gap. Only 'union'/'intersect' route through the per-column multioutput path.
         if _mo_strategy in ("union", "intersect") and _mrmr_y_is_multioutput(y):
             return self._fit_multioutput(X, y, groups, sample_weight, _mo_strategy, fit_params)
 
@@ -3317,7 +3373,9 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
                 X = self._apply_sis_screen(X, y)
         except Exception as _sis_exc:
             warnings.warn(
-                f"MRMR SIS front gate raised {type(_sis_exc).__name__}: {_sis_exc}; " f"falling back to the full-width MRMR path.",
+                f"MRMR SIS front gate raised {type(_sis_exc).__name__}: {_sis_exc}; falling back to the "
+                "full-width MRMR path (safe -- the screen is a fast-path optimisation, not a correctness "
+                "requirement; the fit still runs, just without the pre-screen speedup).",
                 UserWarning,
                 stacklevel=2,
             )
@@ -3345,13 +3403,27 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
                 # finally block, so constructor-arg semantics stay stable.
                 self._fe_recommended_flags_ = dict(sorted(_rec_flags.items()))
                 if _fe_auto_restore:
+                    # 09_error_messages_ux.md: fe_auto=True is a behavior-ALTERING opt-in (it turns on FE
+                    # generators the caller didn't explicitly request) -- logger.info alone is invisible
+                    # to a plain-script caller with default logging. Pair it with the same guaranteed-
+                    # visible warnings.warn channel the module already uses for "your setting was
+                    # silently overridden" situations (groups, group_aware_mi).
                     logger.info(
                         "[MRMR] fe_auto=True -> enabled FE generators for this fit: %s",
                         sorted(_fe_auto_restore),
                     )
+                    warnings.warn(
+                        f"MRMR.fit: fe_auto=True enabled these FE generator(s) for this fit: "
+                        f"{sorted(_fe_auto_restore)}. Pass fe_auto=False or set the fe_*_enable flags "
+                        "explicitly to silence this warning.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
             except Exception as _exc:
                 warnings.warn(
-                    f"MRMR fe_auto: rule recommender raised {type(_exc).__name__}: {_exc}. " f"Proceeding with the explicitly-set fe_*_enable flags.",
+                    f"MRMR fe_auto: rule recommender raised {type(_exc).__name__}: {_exc}. Proceeding "
+                    "with the explicitly-set fe_*_enable flags (safe -- fe_auto is a convenience "
+                    "recommender, not a correctness requirement).",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -3398,7 +3470,9 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
                 logger.info("[MRMR] redundancy_aggregator='auto' -> synergy detector: %s", self._synergy_auto_decision_)
             except Exception as _exc:
                 warnings.warn(
-                    f"MRMR redundancy_aggregator='auto': synergy detector raised " f"{type(_exc).__name__}: {_exc}. Falling back to plain Fleuret.",
+                    f"MRMR redundancy_aggregator='auto': synergy detector raised {type(_exc).__name__}: {_exc}. "
+                    "Falling back to plain Fleuret (safe -- the detector is a data-dependent gate, not a "
+                    "correctness requirement; set redundancy_aggregator='jmim' to force JMIM regardless).",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -3430,10 +3504,24 @@ class MRMR(BaseEstimator, _MRMRTransformMixin, SelectorMixin, TransformerMixin, 
         if getattr(self, "group_aware_mi", False) and groups is not None:
             _g_arr = np.asarray(groups)
             _n_rows = X.shape[0] if hasattr(X, "shape") else len(X)
+            # 09_error_messages_ux.md: a groups-length mismatch is almost certainly a caller bug (wrong
+            # array passed, stale groups from a differently-shaped prior call), not a "gracefully degrade
+            # and move on" situation -- raise instead of silently disabling group-aware MI for the fit.
+            if _g_arr.shape[0] != _n_rows:
+                raise ValueError(f"MRMR.fit: groups length {_g_arr.shape[0]} != X rows {_n_rows}; groups must have one entry per row of X.")
             if sample_weight is not None:
+                # 09_error_messages_ux.md: this is functionally identical to the ``groups``-ignored
+                # situation (line ~3014's ``warnings.warn(UserWarning)``) -- an on-by-request feature
+                # silently disabled for the fit -- so it uses the SAME guaranteed-visible channel instead
+                # of a logger.warning a plain-script user with default logging would never see.
+                warnings.warn(
+                    "MRMR.fit: group_aware_mi disabled this fit because sample_weight is non-uniform "
+                    "(resampling rows would misalign them against groups). Pass sample_weight=None or "
+                    "group_aware_mi=False to silence this warning.",
+                    UserWarning,
+                    stacklevel=2,
+                )
                 logger.warning("[MRMR] group_aware_mi disabled this fit: non-uniform sample_weight resamples rows and would misalign groups; pass sample_weight=None or group_aware_mi=False.")
-            elif _g_arr.shape[0] != _n_rows:
-                logger.warning("[MRMR] group_aware_mi disabled: groups length %d != X rows %d.", _g_arr.shape[0], _n_rows)
             else:
                 _si, _off = _prepare_group_segments(_g_arr)
                 _size_weighted = getattr(self, "group_mi_aggregate", "size") == "size"

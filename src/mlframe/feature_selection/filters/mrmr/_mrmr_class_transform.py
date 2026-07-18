@@ -243,8 +243,11 @@ class _MRMRTransformMixin:
             raise ValueError(f"transform_usability: which must be 'linear'|'universal'|'nonlinear', got {which!r}")
         candidates = getattr(self, attr, None)
         if candidates is None:
-            raise AttributeError(
-                f"{attr} is not available: fit MRMR with usability_aware_lists=True and a continuous " f"target to populate it (the '{which}' usability list)."
+            # 09_error_messages_ux.md: a precondition-not-met/feature-not-enabled situation, same class
+            # of error as the `which` validation two lines above -- ValueError (not AttributeError) so a
+            # caller catching ValueError for MRMR config problems catches this one too.
+            raise ValueError(
+                f"{attr} is not available: fit MRMR with usability_aware_lists=True and a continuous target to populate it (the '{which}' usability list)."
             )
         from .._usability_lists import materialize_usability_features
         return materialize_usability_features(candidates, X)

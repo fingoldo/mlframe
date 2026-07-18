@@ -287,8 +287,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     dtype = self.dtype
 
-    parallel_kwargs = self.parallel_kwargs
-    n_jobs = self.n_jobs
+    parallel_kwargs = self._effective_parallel_kwargs()
+    n_jobs = self._effective_n_jobs()
     verbose = self.verbose
 
     prefetch_factor = 4
@@ -5921,7 +5921,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # verbosity and formatting
             verbose=self.verbose,
             ndigits=self.ndigits,
-            parallel_kwargs=self.parallel_kwargs,
+            parallel_kwargs=self._effective_parallel_kwargs(),
             stop_file=self.stop_file,
             # engineered_lineage from cat-FE step (None when cat-FE didn't run); screen uses it to skip
             # redundant (orig_parent, engineered_col) k-way candidates.

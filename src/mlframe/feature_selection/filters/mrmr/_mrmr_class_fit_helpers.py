@@ -170,10 +170,7 @@ class _MRMRFitHelpersMixin:
                     logger.debug("mrmr: polars Struct-column detection failed; assuming none: %r", exc, exc_info=True)
                     _struct_cols = []
                 if _struct_cols:
-                    raise ValueError(
-                        f"MRMR.fit: polars Struct column(s) {_struct_cols} are not supported -- a Struct "
-                        f"has no scalar value for MI estimation. Unnest/flatten them before fitting."
-                    )
+                    raise ValueError(f"MRMR.fit: polars Struct column(s) {_struct_cols} are not supported -- a Struct has no scalar value for MI estimation. Unnest/flatten them before fitting.")
 
         _fe_max_steps = getattr(self, "fe_max_steps", 0)
         _fe_max_steps = int(_fe_max_steps) if _fe_max_steps is not None else 0
@@ -190,9 +187,13 @@ class _MRMRFitHelpersMixin:
                     if str(type(y).__module__).startswith("polars"):
                         y = y.to_pandas()
                 except Exception as _pl_exc:  # fall through to the native path on any bridge failure
+                    # 09_error_messages_ux.md: the raw internal exception repr (an AttributeError/KeyError
+                    # from get_pandas_view_of_polars_df with column-internal attribute names) is meaningless
+                    # to an end user -- keep the user-facing UserWarning high-level and route the repr to
+                    # logger.warning for whoever needs to actually debug it.
+                    logger.warning("MRMR.fit: polars->pandas FE bridge failed: %r", _pl_exc, exc_info=True)
                     warnings.warn(
-                        f"MRMR.fit: polars->pandas FE bridge failed ({_pl_exc!r}); proceeding on the "
-                        f"native path -- feature engineering may be skipped for this polars input.",
+                        "MRMR.fit: feature engineering was skipped for this polars input due to an internal error bridging to pandas; see logs for the underlying exception.",
                         UserWarning,
                         stacklevel=2,
                     )
@@ -276,7 +277,7 @@ class _MRMRFitHelpersMixin:
                 rng_seed=int(self._effective_random_seed() or 0),
             )
         else:
-            raise ValueError(f"unknown stability_selection_method={method!r}")
+            raise ValueError(f"unknown stability_selection_method={method!r}; expected one of 'classic', 'cluster', 'complementary_pairs'.")
 
         # Persist the standard MRMR public-API attributes from the chosen set.
         self.support_ = np.asarray(sel, dtype=np.int64)
