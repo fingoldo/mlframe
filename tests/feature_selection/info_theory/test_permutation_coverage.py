@@ -335,10 +335,12 @@ def test_mi_direct_besag_clifford_path():
 
 
 def test_mi_direct_outer_pool_path():
-    """``n_workers > 1`` (and budget > NMAX_NONPARALLEL_ITERS) dispatches to the joblib pool of ``parallel_mi`` workers.
+    """The "outer" ``parallelism`` mode (default) with ``n_workers > 1`` still returns a valid result --
+    it now routes through ``parallel_mi_prange`` instead of a joblib pool (see
+    ``test_mi_direct_outer_parallelism_never_builds_joblib_pool`` for the retirement of the pool itself).
 
-    The njit ``parallel_mi`` worker can't accept ``classes_y_safe=None`` (numba ``np.asarray(none)`` typing error),
-    so we pre-build it -- this mirrors how ``screen_predictors`` always supplies a real copy.
+    The njit ``parallel_mi_prange`` kernel can't accept ``classes_y_safe=None`` (numba ``np.asarray(none)``
+    typing error), so we pre-build it -- this mirrors how ``screen_predictors`` always supplies a real copy.
     """
     factors, nbins = _build_signal_factors()
     cy, fy, _ = merge_vars(factors, (1,), None, nbins, dtype=np.int32)
@@ -347,7 +349,7 @@ def test_mi_direct_outer_pool_path():
         x=(0,),
         y=(1,),
         factors_nbins=nbins,
-        npermutations=10,
+        npermutations=100,
         classes_y=cy,
         freqs_y=fy,
         classes_y_safe=cy.copy(),
@@ -356,6 +358,44 @@ def test_mi_direct_outer_pool_path():
     )
     assert bg > 0
     assert 0.0 <= conf <= 1.0
+
+
+def test_mi_direct_outer_parallelism_never_builds_joblib_pool(monkeypatch):
+    """The "outer" joblib.Parallel pool branch was RETIRED (2026-07-19): a head-to-head bench
+    (``_benchmarks/bench_permutation_njit_prange_vs_joblib.py``) found the existing ``parallel_mi_prange``
+    njit(parallel=True) kernel strictly dominates the joblib pool at every scale tested (e.g. n=100000/
+    npermutations=500 -> prange 4.57x over serial vs joblib 1.6-1.7x; n=20000/npermutations=500 -> prange
+    7.26x vs joblib 3.3-4.1x), with bit-identical ``(nfailed, n_checked)`` output (same per-iteration LCG
+    seeding). ``mi_direct`` must now NEVER construct ``joblib.Parallel``, regardless of ``n_workers`` or
+    ``npermutations`` -- every "outer"/"inner" call routes through ``parallel_mi_prange``. This is a
+    regression sensor: it fails if the retired pool branch is ever re-enabled without a fresh A/B.
+    """
+    import mlframe.feature_selection.filters.permutation as _perm_mod
+
+    def _boom(*args, **kwargs):
+        """Sensor stub: any call proves the retired joblib pool branch fired."""
+        raise AssertionError("Parallel() must never be constructed -- the outer pool branch is retired")
+
+    factors, nbins = _build_signal_factors()
+    cy, fy, _ = merge_vars(factors, (1,), None, nbins, dtype=np.int32)
+
+    monkeypatch.setattr(_perm_mod, "Parallel", _boom)
+    for npermutations in (10, 100, 1000):
+        bg, conf = mi_direct(
+            factors_data=factors,
+            x=(0,),
+            y=(1,),
+            factors_nbins=nbins,
+            npermutations=npermutations,
+            classes_y=cy,
+            freqs_y=fy,
+            classes_y_safe=cy.copy(),
+            n_workers=2,
+            prefer_gpu=False,
+            parallel_kwargs={"backend": "threading", "max_nbytes": None},
+        )
+        assert bg > 0
+        assert 0.0 <= conf <= 1.0
 
 
 def test_mi_direct_with_precomputed_classes_y():
